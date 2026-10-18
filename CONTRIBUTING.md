@@ -53,7 +53,7 @@ scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its ow
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
 ```
 
-CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
+CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
 have no Claude Code, so run those yourself when you touch the mod.
 
 Two scanners also run on PRs: SonarCloud (`.github/workflows/sonar.yml`, quality gate and coverage on new code) and CodeQL

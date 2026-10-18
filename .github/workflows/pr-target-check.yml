@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   check-target:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     steps:
       - name: Require a release or hotfix head
         env:

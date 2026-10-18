@@ -16,7 +16,7 @@ permissions:
 jobs:
   analyze:
     name: Analyze (javascript-typescript)
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     permissions:
       security-events: write
       actions: read
