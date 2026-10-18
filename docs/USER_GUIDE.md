@@ -696,6 +696,11 @@ Under **Create user**, type a name and choose Create user.
 - **Rotate** gives a person a new token and stops the old one.
 - **Revoke** refuses their reports from the next one on, and their sessions go stale and drop as usual. A revoked
   person's row offers **Issue new token** instead.
+- **Delete** removes a person, and a dialog asks first. Their reporter is refused at once, they leave their group, and
+  an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name, and the
+  name can be used again later. To delete several people, tick their rows (the box in the header ticks the page), then
+  choose **Delete N…** in the bar above the list. Ticks are for the page you are on. Podium refuses, and deletes no
+  one, if the choice includes you or would leave Administrators with no active member.
 - The search finds a person by name, group or machine.
 - A person in the Administrators group has their name in orange.
 

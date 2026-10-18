@@ -41,6 +41,8 @@ function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boole
     builtin: { "sonnet-5-5": 2, "haiku-5-5": 0.1 } as Record<string, number>,
     priceError: "" as string,
     removeBodies: [] as unknown[],
+    deleteBodies: [] as { ids: number[] }[],
+    deleteError: "",
     pageLimit: 50,
     rules: [] as { id: number; kind: string; pattern: string; createdAt: number }[],
     forget: { enabled: false, days: 30 },
@@ -94,6 +96,14 @@ function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boole
       const who = state.people.find((x) => x.id === Number(grp[1]))!;
       who.groupId = (JSON.parse(String(init?.body)) as { groupId: number | null }).groupId;
       return json(200, { ok: true });
+    }
+    if (path === "/people/delete" && method === "POST") {
+      const b = JSON.parse(String(init?.body)) as { ids: number[] };
+      state.deleteBodies.push(b);
+      if (state.deleteError) return json(400, { ok: false, error: state.deleteError });
+      const before = state.people.length;
+      state.people = state.people.filter((p) => !b.ids.includes(p.id));
+      return json(200, { ok: true, removed: before - state.people.length });
     }
     if (path === "/people" && method === "POST") {
       const name = JSON.parse(String(init?.body)).name as string;
@@ -351,6 +361,92 @@ describe("administrator names (#182)", () => {
     await waitFor(() => expect(screen.getByText("person-001")).toHaveClass("isadmin"));
     fireEvent.change(screen.getByLabelText("Group for person-000"), { target: { value: "2" } });
     await waitFor(() => expect(screen.getByText("person-000")).not.toHaveClass("isadmin"));
+  });
+});
+
+describe("deleting people (#243)", () => {
+  it("selects rows, confirms in a dialog that names them, and deletes exactly those", async () => {
+    const s = fakeServer({ people: 4 });
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    expect(screen.queryByText(/selected/)).toBeNull();
+    fireEvent.click(screen.getByLabelText("Select person-000"));
+    fireEvent.click(screen.getByLabelText("Select person-002"));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete 2…" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete 2 people?" });
+    expect(within(dialog).getByText(/Their reporters are refused at once\. Their past sessions keep their name\./)).toBeInTheDocument();
+    expect(within(dialog).getByText("person-000")).toBeInTheDocument();
+    expect(within(dialog).getByText("person-002")).toBeInTheDocument();
+    expect(s.deleteBodies).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete 2 people" }));
+    await waitFor(() => expect(screen.queryByText("person-000")).toBeNull());
+    expect(s.deleteBodies).toEqual([{ ids: [1, 3] }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("person-001")).toBeInTheDocument();
+    expect(screen.getByText("person-003")).toBeInTheDocument();
+    expect(screen.queryByText(/selected/)).toBeNull();
+    expect(within(screen.getByRole("button", { name: /People/ })).getByText("2")).toBeInTheDocument();
+  });
+
+  it("selects every row on the page with the header box, and Clear drops the selection", async () => {
+    fakeServer({ people: 3 });
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    fireEvent.click(screen.getByLabelText("Select all 3 on this page"));
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.queryByText(/selected/)).toBeNull();
+    expect(screen.getByLabelText("Select person-001")).not.toBeChecked();
+  });
+
+  it("deletes one person from their row, after a dialog, and Cancel deletes nothing", async () => {
+    const s = fakeServer({ people: 3 });
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-001");
+    const row = screen.getByText("person-001").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    let dialog = screen.getByRole("dialog", { name: "Delete person-001?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(s.deleteBodies).toEqual([]);
+    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    dialog = screen.getByRole("dialog", { name: "Delete person-001?" });
+    expect(within(dialog).getByText(/Their reporter is refused at once\. Their past sessions keep their name\./)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByText("person-001")).toBeNull());
+    expect(s.deleteBodies).toEqual([{ ids: [2] }]);
+  });
+
+  it("tells an Administrator's dialog that their open Admin session locks, and a revoked row still has Delete", async () => {
+    const s = fakeServer({ people: 2 });
+    s.groups.push({ id: 1, name: "Administrators", builtIn: true });
+    s.people[0]!.groupId = 1;
+    s.people[1]!.revokedAt = 5;
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("button", { name: "Delete" }));
+    expect(within(screen.getByRole("dialog")).getByText(/Their open Admin session locks\./)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(within(screen.getByText("person-001").closest("tr")!).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("shows the server's refusal in the dialog and leaves everyone in the list", async () => {
+    const s = fakeServer({ people: 2 });
+    s.deleteError = "You are signed in to Admin as this person, so they cannot be deleted. Nothing was deleted.";
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(/signed in to Admin as this person/);
+    expect(screen.getByText("person-000")).toBeInTheDocument();
+    expect(screen.getByText("person-001")).toBeInTheDocument();
   });
 });
 
