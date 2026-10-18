@@ -26,6 +26,26 @@ jobs:
         with:
           fetch-depth: 0 # Sonar needs full history for blame and new-code detection
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # SonarCloud reads coverage from lcov files; without them every file reports 0% (#371).
+      - name: Test with coverage (server, frontend)
+        run: npm run test:coverage
+
+      # vitest writes paths relative to each workspace; the scanner resolves them from the repo root.
+      - name: Make the lcov paths relative to the repo root
+        run: |
+          # The simulator in scripts/ is covered by the server run and is written as ../scripts/..., which is already
+          # relative to the repo root once the leading ../ is dropped.
+          sed -i -e 's#^SF:\.\./#SF:#' -e 's#^SF:src/#SF:server/src/#' server/coverage/lcov.info
+          sed -i 's#^SF:src/#SF:frontend/src/#' frontend/coverage/lcov.info
+
       - uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

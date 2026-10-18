@@ -6,5 +6,13 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "../scripts/**/*.test.ts"],
     setupFiles: ["src/testSetup.ts"],
+    // Only `npm run test:coverage` turns this on. The lcov file is what SonarCloud reads (sonar-project.properties).
+    coverage: {
+      provider: "v8",
+      allowExternal: true, // the simulator in scripts/ is tested here too
+      reporter: ["text-summary", "lcov"],
+      include: ["src/**/*.ts", "../scripts/**/*.ts"],
+      exclude: ["**/*.test.ts", "src/testSetup.ts", "**/*.d.ts"],
+    },
   },
 });
