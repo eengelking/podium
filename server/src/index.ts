@@ -26,6 +26,7 @@ import { requestLog } from "./logging/requestLog.js";
 import { inlineScriptHashes, securityHeaders } from "./securityHeaders.js";
 import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
+import { parseTrustProxy } from "./trustProxy.js";
 import { RESPOND } from "./fleet/featureFlags.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
@@ -50,6 +51,8 @@ const stopSweeper = startSweeper(fleet, undefined, logger, () => forgetReporters
 
 const app = express();
 app.disable("x-powered-by");
+// Off unless the owner names the proxy hops to trust, so a client cannot choose its own source address (#305).
+app.set("trust proxy", parseTrustProxy(process.env.PODIUM_TRUST_PROXY));
 const frontendDist = path.join(REPO_ROOT, "frontend", "dist");
 // The page's one inline script (it sets the theme before first paint) is allowed by hash; no other inline script runs (#249).
 let pageScripts: string[] = [];

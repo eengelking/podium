@@ -231,6 +231,19 @@ describe("podiumctl allowed hosts (#256)", () => {
   });
 });
 
+describe("podiumctl trust proxy (#305)", () => {
+  it("passes PODIUM_TRUST_PROXY through to the server, in both modes", () => {
+    expect(PASSTHROUGH).toContain("PODIUM_TRUST_PROXY");
+    const cfg = resolveConfig({ PODIUM_TRUST_PROXY: "10.0.0.5,loopback" });
+    expect(serverEnv(cfg, true)).toMatchObject({ PODIUM_TRUST_PROXY: "10.0.0.5,loopback" });
+    expect(serverEnv(cfg, false)).toMatchObject({ PODIUM_TRUST_PROXY: "10.0.0.5,loopback" });
+  });
+
+  it("documents the setting in the help text", () => {
+    expect(fs.readFileSync(path.join(__dirname, "..", "bin", "podiumctl"), "utf8")).toContain("PODIUM_TRUST_PROXY    ");
+  });
+});
+
 describe("podiumctl logging settings (#140)", () => {
   const LOG_KEYS = ["PODIUM_LOG_LEVEL", "PODIUM_LOG_FORMAT", "PODIUM_LOG_SHIP_URL", "PODIUM_LOG_SHIP_HEADERS", "PODIUM_LOG_SHIP_BUFFER"];
   const file = {

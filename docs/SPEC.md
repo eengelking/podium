@@ -2316,6 +2316,25 @@ read the open routes.
   body, and at most once a minute per value.
 - See DECISIONS 33.
 
+#### Behind a reverse proxy (#305)
+
+- `PODIUM_TRUST_PROXY` (set with `podiumctl config set`, then `podiumctl restart`) names the proxy hops whose
+  `X-Forwarded-For` and `X-Forwarded-Proto` the server believes. It is passed to Express `trust proxy`.
+- It is off by default, and then nothing changes: `req.ip` is the connection's peer and `req.secure` is false
+  behind a proxy that terminates TLS.
+- The value is one of: a hop count (`1`); addresses or CIDR ranges, comma-separated (`10.0.0.5,172.16.0.0/12`),
+  which may include `loopback`, `linklocal` and `uniquelocal`. Empty, `0`, `false` and `off` mean off.
+- `true` is refused, since it trusts every hop. A malformed value stops the server at start with a message
+  naming `PODIUM_TRUST_PROXY`, rather than trusting nothing or too much.
+- With it set, `req.ip` and `req.secure` follow the headers only through trusted hops; a request from an address
+  that is not trusted is read as before, so a client cannot spoof them.
+- It changes what the source address is everywhere it is used: the `source` of the admin log rows, the Admin and
+  sign-in lockout, the admin-secret guess throttle (#255), and the `Secure` flag of the Admin and respond cookies
+  (and the plain-HTTP warning on a sign-in, above).
+- Trusting a hop that does not overwrite `X-Forwarded-For` lets any client choose its source and defeats the
+  lockouts; the documentation says so.
+- See DECISIONS 35.
+
 #### Guessing the admin secret through `X-Podium-Token` (#255)
 
 - The routes that check it (`POST /report`, `POST /hook`, `DELETE /sessions/:id` and the mod's respond routes)
@@ -2341,8 +2360,8 @@ Nothing blocks. The server logs a `warn` event `server.respond_plain_http` (fiel
 1. Once at start, and again whenever the Admin turns Respond from Podium on, when `HOST` is not loopback
    (`127.*`, `localhost`, `::1`) and the flag is on.
 2. On a sign-in to respond whose connection Express sees as `http` and whose `Host` is not loopback, at most
-   once a minute. `req.protocol` follows `X-Forwarded-Proto` only when proxy trust is set; there is no such
-   setting yet (#305).
+   once a minute. `req.protocol` follows `X-Forwarded-Proto` only from a hop named in `PODIUM_TRUST_PROXY`
+   (see "Behind a reverse proxy").
 
 Other places the warning shows:
 
