@@ -84,6 +84,34 @@ own conversation. Other docs should link to the spec section instead of restatin
 Update the docs that describe your change in the same PR, and add a line under `[Unreleased]` in
 `CHANGELOG.md` for anything a user would notice.
 
+### Writing docs
+
+These apply when you write a new doc or change an existing one. People and agents follow the same rules.
+
+**Structure**
+
+- Each fact has one owning doc (the table above). Everywhere else, link to it instead of restating it.
+- A file over about 100 lines opens with a contents list. Keep heading depth consistent.
+- Keep paragraphs under about 8 lines. Put reference material in tables, procedures in numbered lists and
+  commands in code blocks.
+- Do not add a new standing doc when an existing one can hold the content.
+
+**Shapes**
+
+- `docs/GOTCHAS.md`: every entry has **You see**, **Why** and **Do**, in that order.
+- `docs/DECISIONS.md`: every entry has Context, Decision, Why, Alternatives and Cost, leaving out a part only
+  when there is nothing to say for it.
+- `docs/SPEC.md`: section numbers are cited from other docs, code comments and issues. Do not renumber or
+  rename a numbered heading. Add unnumbered subheadings inside a section instead.
+
+**Before you open the PR**
+
+1. Check that the headings other files link to still exist: `node scripts/check-doc-links.mjs` reports any
+   broken relative link or `#anchor`.
+2. Search for citations of anything you renamed, such as `SPEC 6.8`, in docs, code comments and open issues.
+3. If a doc disagrees with `docs/SPEC.md`, do not pick a reading. Say so in the PR and ask.
+4. Reread for the voice rules below.
+
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
