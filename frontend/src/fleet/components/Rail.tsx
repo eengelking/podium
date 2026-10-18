@@ -49,10 +49,14 @@ function measure(nav: HTMLElement): Measure | null {
   const height = nav.clientHeight;
   if (!height) return null;
   const used = [".rail-head", ".ritem.all", ".rail-foot"].reduce((n, sel) => n + (nav.querySelector<HTMLElement>(sel)?.offsetHeight ?? 0), 0);
-  const band = nav.querySelector<HTMLElement>(".rgh")?.offsetHeight;
+  // The tallest row and header on show, not the first (rows are one height today, so this is a guard): a row with a Remove button or a wrapped line is taller, and a page
+  // sized by a short one would overflow. In the stacked layout the rail's height follows its content, and sizing by the
+  // tallest keeps the list from ever looking too long for itself there.
+  const tallest = (sel: string) => Math.max(0, ...[...nav.querySelectorAll<HTMLElement>(sel)].map((e) => e.offsetHeight));
+  const band = tallest(".rgh");
   return {
     room: height - used,
-    rowH: nav.querySelector<HTMLElement>(".ritem-slot")?.offsetHeight || ROW_H,
+    rowH: tallest(".ritem-slot") || ROW_H,
     // the band's own 1px rule below its last row
     bandH: band ? band + 1 : BAND_H,
   };
@@ -147,7 +151,7 @@ export function Rail(props: {
   const [page, setPage] = useState(0);
   const [said, setSaid] = useState("");
   const firstRow = useRef<string | null>(null);
-  const total = visible.length;
+  const total = blocks.reduce((n, b) => n + b.rows.length, 0);
   const need = size ? blocks.reduce((n, b) => n + b.rows.length * size.rowH + (b.key === null ? 0 : size.bandH), 0) : 0;
   // Page only when every row would not fit; the pager (and the line below it) take their room out of the rows'.
   const fit = size ? (need > size.room ? size.room - PAGER_H - NOTE_H : Infinity) : Infinity;
@@ -160,6 +164,8 @@ export function Rail(props: {
   useLayoutEffect(() => {
     const m = nav.current ? measure(nav.current) : null;
     setSize((prev) => (prev?.room === m?.room && prev?.rowH === m?.rowH && prev?.bandH === m?.bandH ? prev : m));
+    // A page past the end (the list shrank) is dropped, so growing again does not jump back to it.
+    if (page > at) setPage(at);
   });
   const sig = size ? `${size.room}|${size.rowH}|${size.bandH}` : "";
   useLayoutEffect(() => {

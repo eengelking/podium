@@ -9,6 +9,8 @@ import type { SessionView } from "./types";
 // orchestrators" row and the footer taking 38 + 50 + 46, the pager 40, a row 50 and a band header 30.
 const SIZE: Record<string, number> = { rail: 600, "rail-head": 38, all: 50, "rail-foot": 46, pager: 40, "ritem-slot": 50, rgh: 30 };
 const measure = (el: HTMLElement) => {
+  // a row with a Remove button is taller than the rest
+  if (el.classList.contains("has-remove")) return 70;
   for (const c of el.classList) if (c in SIZE) return SIZE[c]!;
   return 0;
 };
@@ -64,6 +66,13 @@ describe("rail paging (#242)", () => {
     expect(names()).toHaveLength(4);
   });
 
+  it("sizes a page by the tallest row, so a row with a Remove button does not overflow it", () => {
+    const sessions = fleet(24, (i) => (i === 2 ?{ status: "stale" as const } : {}));
+    render(view(sessions, null, { onRemove: () => {} }));
+    // 404 / 70 = 5 rows, not the 8 a 50px row would give
+    expect(names()).toHaveLength(5);
+  });
+
   it("pins the pager directly above the footer, with the All row still on top", () => {
     render(view(fleet(24)));
     expect(pager()!.closest(".rail-pager")!.nextElementSibling?.nextElementSibling).toHaveClass("rail-foot");
@@ -99,6 +108,10 @@ describe("rail paging (#242)", () => {
     rerender(view(fleet(10)));
     expect(within(pager()!).getByText("2 of 2")).toBeInTheDocument();
     expect(names()).toEqual(["proj-9", "proj-10"]);
+    // growing again stays where the reader was, not back on the page that was dropped
+    rerender(view(fleet(24)));
+    expect(within(pager()!).getByText("2 of 3")).toBeInTheDocument();
+    rerender(view(fleet(10)));
     rerender(view(fleet(5)));
     expect(pager()).toBeNull();
     expect(names()).toHaveLength(5);
