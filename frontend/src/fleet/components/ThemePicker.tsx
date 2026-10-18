@@ -11,14 +11,14 @@ const MODES: { id: ModeChoice; label: string }[] = [
 
 // Arrow keys move through the radios and select as they go, as a native radio group does. Only the
 // checked one is in the tab order.
-function onRadioKey(e: KeyboardEvent<HTMLDivElement>, mode: ModeChoice, set: (m: ModeChoice) => void) {
+function onRadioKey(e: KeyboardEvent<HTMLButtonElement>, mode: ModeChoice, set: (m: ModeChoice) => void) {
   const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
   if (!step) return;
   e.preventDefault();
   const next = MODES[(MODES.findIndex((m) => m.id === mode) + step + MODES.length) % MODES.length].id;
   set(next);
-  const buttons = e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=radio]");
-  buttons[MODES.findIndex((m) => m.id === next)]?.focus();
+  const buttons = e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role=radio]");
+  buttons?.[MODES.findIndex((m) => m.id === next)]?.focus();
 }
 
 // A theme dropdown plus a light/dark/system radio group, shown at the right of the info row under the
@@ -37,9 +37,9 @@ export function ThemePicker({ theme }: { theme: ReturnType<typeof useTheme> }) {
           ))}
         </select>
       </label>
-      <div className="modeseg" role="radiogroup" aria-label="Mode" onKeyDown={(e) => onRadioKey(e, theme.mode, theme.setMode)}>
+      <div className="modeseg" role="radiogroup" aria-label="Mode">
         {MODES.map((m) => (
-          <button key={m.id} type="button" role="radio" aria-checked={theme.mode === m.id} tabIndex={theme.mode === m.id ? 0 : -1} onClick={() => theme.setMode(m.id)}>
+          <button key={m.id} type="button" role="radio" aria-checked={theme.mode === m.id} tabIndex={theme.mode === m.id ? 0 : -1} onClick={() => theme.setMode(m.id)} onKeyDown={(e) => onRadioKey(e, theme.mode, theme.setMode)}>
             {m.label}
           </button>
         ))}

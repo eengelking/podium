@@ -257,6 +257,8 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
   const [token, setToken] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const nameField = useRef<HTMLInputElement>(null);
+  useEffect(() => nameField.current?.focus(), []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !token) return setErr("Enter your name and your token.");
@@ -291,7 +293,7 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
         </div>
       )}
       <label htmlFor="admin-name">Name</label>
-      <input className="field" id="admin-name" type="text" autoComplete="off" autoFocus value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
+      <input className="field" id="admin-name" type="text" autoComplete="off" ref={nameField} value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
       <label htmlFor="admin-secret">Token</label>
       <input className="field mono" id="admin-secret" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} aria-describedby="admin-secret-hint" />
       {err && (

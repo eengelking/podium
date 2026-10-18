@@ -158,8 +158,8 @@ function ModelRow({ row, actions, startDirty }: { row: ModelPriceRow; actions: P
       )}
       {err && (
         <tr>
-          <td colSpan={7} className="err" role="alert">
-            {err}
+          <td colSpan={7} className="err">
+            <div role="alert">{err}</div>
           </td>
         </tr>
       )}

@@ -35,6 +35,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The user guide and the mod doc give one command to update the mod.** `claude plugin marketplace update eengelking-marketplace && claude plugin update podium-reporter@eengelking-marketplace` refreshes the listing and updates the mod in one go. Documentation only.
 
+### Fixed
+
+- **Four accessibility findings from SonarCloud are fixed (#365).** The theme picker's Light, Dark and System buttons each handle the arrow keys themselves instead of the group around them, the sign-in page focuses the Name field from code instead of `autoFocus`, and the model price table's error is an alert inside its cell instead of on the cell. Keyboard behavior is unchanged.
+
 ## [1.1.0] - 2026-10-16
 
 ### Added
