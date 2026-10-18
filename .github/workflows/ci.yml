@@ -29,5 +29,11 @@ jobs:
       - name: Build (UI, server, scripts type-check)
         run: npm run build
 
+      # The standards pages follow main, so development may be ahead of them. A PR into main (a release or a hotfix) and a push
+      # to main must leave them identical to the app: docs/standards/ and the app agree on every token, class and component.
+      - name: Standards match the app (PRs into main, and main)
+        if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
+        run: npm run standards:parity
+
 # Not run here: `npm run test:mod` and `npm run typecheck:mod` need the Claude Code CLI and its plugin API
 # declarations, which a stock runner does not have. Run them locally when the mod changes (CONTRIBUTING.md).

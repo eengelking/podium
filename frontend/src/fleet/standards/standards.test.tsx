@@ -130,11 +130,25 @@ describe("the screens", () => {
 // `npm run standards:parity` and CI on a PR into main turn it on; `npm run standards:sync` rewrites the files.
 const SYNC = process.env.STANDARDS_WRITE === "1";
 describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match the app", () => {
+  const zone = process.env.TZ;
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(2_000_000);
+    // Times in the markup (a feed entry's title, a clock) must read the same on every machine, so the zone and the language are fixed.
+    process.env.TZ = "UTC";
+    for (const m of ["toLocaleTimeString", "toLocaleDateString", "toLocaleString"] as const) {
+      const real = Date.prototype[m];
+      vi.spyOn(Date.prototype, m).mockImplementation(function (this: Date, _l?: Intl.LocalesArgument, o?: Intl.DateTimeFormatOptions) {
+        return real.call(this, "en-US", { timeZone: "UTC", ...o });
+      });
+    }
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
 
   it("has every generated page equal to what the app renders", async () => {
     const pages = await buildPages();
