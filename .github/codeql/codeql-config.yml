@@ -1,0 +1,8 @@
+name: Podium CodeQL config
+
+# Sample data and tests are not shipped code, so alerts in them are noise.
+paths-ignore:
+  - '**/node_modules'
+  - docs/fixtures
+  - '**/*.test.ts'
+  - '**/*.test.tsx'

@@ -1,0 +1,37 @@
+name: CodeQL
+
+# Scans every push to development and main, every PR into either, and weekly so new queries run against code that
+# has not changed. Needs no token. Turn off the CodeQL "default setup" under Settings > Code security, or the two conflict.
+on:
+  push:
+    branches: [development, main]
+  pull_request:
+    branches: [development, main]
+  schedule:
+    - cron: '23 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # TypeScript needs no build, so no install either: CodeQL reads the source.
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        with:
+          category: /language:javascript-typescript
