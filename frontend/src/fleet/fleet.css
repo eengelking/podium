@@ -793,6 +793,16 @@ body.modal-open #root { filter: blur(5px); }
 .podium #podium-rail-body:not([hidden]) { min-height: 100%; display: flex; flex-direction: column; }
 .podium .rail-foot { margin-top: auto; padding: 9px 14px; border-top: 1px solid var(--border); font-size: 11.5px; line-height: 1.4; color: var(--muted); display: grid; gap: 2px; }
 .podium .rail-foot a { color: var(--ink2); text-decoration: underline; text-underline-offset: 2px; }
+/* The left list's pager (#242): the shared page footer, pinned to the bottom of the list directly above the credits. Its row is one
+   line (the range gives way before the buttons do) so the room the Rail reserves for it holds at every width. */
+.podium .rail-pager { margin-top: auto; flex: none; }
+.podium .rail-pager + .vh + .rail-foot, .podium .rail-pager + .rail-foot { margin-top: 0; }
+.podium .rail-pager .pager { flex-wrap: wrap; row-gap: 4px; border-top: 1px solid var(--border); }
+.podium .rail-pager .pager > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium .rail-pager .pg .at { font: 500 11.5px var(--font-mono); color: var(--ink); padding: 0 4px; white-space: nowrap; }
+.podium .rail-pager .sel-note { flex-basis: 100%; color: var(--ink2); }
+.podium .rail-pager .sel-note button { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; border: 0; padding: 0; font: inherit; }
+.podium .rgh .cont { color: var(--muted); font-size: 11px; font-weight: 400; }
 
 /* a waiting row (#68): the card alert's yellow, so a waiting session reads the same everywhere; an answered one is plain */
 .podium .ev .tool { font-family: var(--font-mono); font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--ink2); white-space: nowrap; display: block; width: fit-content; margin-top: 3px; }
