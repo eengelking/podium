@@ -62,7 +62,7 @@ function others(): Record<string, Tokens> {
 function rgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '');
   const f = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  return [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16) / 255) as [number, number, number];
+  return [0, 2, 4].map((i) => Number.parseInt(f.slice(i, i + 2), 16) / 255) as [number, number, number];
 }
 const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const lum = (hex: string) => {

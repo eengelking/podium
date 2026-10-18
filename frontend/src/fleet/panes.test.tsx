@@ -278,6 +278,14 @@ describe("FleetView collapsible shell", () => {
     expect(exit).not.toHaveBeenCalled();
   });
 
+  it("wall mode still works when the browser has no fullscreen API", () => {
+    render(<FleetView state={stateFrom()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Enter wall mode" }));
+    expect(left()).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Exit wall mode" }));
+    expect(left()).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("leaving fullscreen with the browser's own Esc also leaves wall mode", async () => {
     fullscreenApi(vi.fn().mockResolvedValue(undefined));
     render(<FleetView state={stateFrom()} />);

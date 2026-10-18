@@ -30,7 +30,7 @@ function parseDraft(d: Draft): { ok: PriceSet } | { err: string; field: Field } 
   const out = {} as PriceSet;
   for (const { f, aria } of FIELDS) {
     const t = d[f].trim();
-    const n = t === "" ? NaN : Number(t);
+    const n = t === "" ? Number.NaN : Number(t);
     const name = aria[0]!.toUpperCase() + aria.slice(1);
     if (!Number.isFinite(n)) return { err: `${name} must be a number.`, field: f };
     if (n < 0) return { err: `${name} must be zero or more.`, field: f };
@@ -158,8 +158,8 @@ function ModelRow({ row, actions, startDirty }: { row: ModelPriceRow; actions: P
       )}
       {err && (
         <tr>
-          <td colSpan={7} className="err" role="alert">
-            {err}
+          <td colSpan={7} className="err">
+            <div role="alert">{err}</div>
           </td>
         </tr>
       )}
@@ -240,7 +240,7 @@ export function ModelPrices({ view, actions }: { view: ModelPricesView; actions:
                 {drafts.map((key) => (
                   <ModelRow
                     key={`draft:${key}`}
-                    row={{ key, label: key, builtin: false, overridden: true, std: { input: NaN, output: NaN, cacheRead: NaN, cacheWrite: NaN, cacheWrite1h: NaN } }}
+                    row={{ key, label: key, builtin: false, overridden: true, std: { input: Number.NaN, output: Number.NaN, cacheRead: Number.NaN, cacheWrite: Number.NaN, cacheWrite1h: Number.NaN } }}
                     actions={{ ...actions, save: saved, reset: async () => (setDrafts((d) => d.filter((k) => k !== key)), null) }}
                     startDirty
                   />

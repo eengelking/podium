@@ -297,16 +297,14 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
   const startWall = (fromClick: boolean) => {
     enterWall();
     if (!fromClick) return;
-    try {
-      const asked = document.documentElement.requestFullscreen?.();
-      if (asked) {
-        fullscreen.current = true;
-        asked.catch(() => {
-          fullscreen.current = false;
-        });
-      }
-    } catch {
+    const refused = () => {
       fullscreen.current = false;
+    };
+    fullscreen.current = true;
+    try {
+      document.documentElement.requestFullscreen().catch(refused);
+    } catch {
+      refused();
     }
   };
   const stopWall = exitWall;

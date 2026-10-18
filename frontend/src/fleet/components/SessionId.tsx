@@ -19,14 +19,18 @@ export function useCopy(text: string) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setState("idle"), COPIED_MS);
   };
-  const copy = () => {
+  const write = async () => {
+    if (!navigator.clipboard) return settle("failed");
     try {
-      const p = navigator.clipboard?.writeText(text);
-      if (!p) return settle("failed");
-      p.then(() => settle("copied"), () => settle("failed"));
+      await navigator.clipboard.writeText(text);
+      settle("copied");
     } catch {
       settle("failed");
     }
+  };
+  // `write` settles every outcome itself, so the click handlers need not wait on it.
+  const copy = () => {
+    void write();
   };
   return { state, copy };
 }
