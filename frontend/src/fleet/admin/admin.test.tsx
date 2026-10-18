@@ -273,8 +273,9 @@ describe("paging and search", () => {
     expect(s.calls.some((c) => c.includes("q=person-099") && c.includes("page=1"))).toBe(true);
     fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "zzz" } });
     expect(await screen.findByText(/No one matches/)).toBeInTheDocument();
-    // Seven round trips through a 50-row table; the 5 s default was too tight for a shared CI runner.
-  }, 15_000);
+    // Seven round trips through a 50-row table, and each row has a selection box and a Delete button since #243. The coverage
+    // run on a shared CI runner is slow, and 15 s was not enough: the Sonar run failed on this test for #393 and #394.
+  }, 60_000);
 
   it("changes the rows per page and returns to page one", async () => {
     const s = fakeServer({ people: 125 });
