@@ -79,4 +79,13 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     });
     expect(container.querySelector(".card .sid")!.textContent).toBe("Copy failed");
   });
+
+  it("when the browser has no clipboard, the id says Copy failed", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    const { container } = card();
+    await act(async () => {
+      fireEvent.click(container.querySelector(".card .sid")!);
+    });
+    expect(container.querySelector(".card .sid")!.textContent).toBe("Copy failed");
+  });
 });

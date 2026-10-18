@@ -20,10 +20,9 @@ export function useCopy(text: string) {
     timer.current = setTimeout(() => setState("idle"), COPIED_MS);
   };
   const copy = () => {
+    if (!navigator.clipboard) return settle("failed");
     try {
-      const p = navigator.clipboard?.writeText(text);
-      if (!p) return settle("failed");
-      p.then(() => settle("copied"), () => settle("failed"));
+      navigator.clipboard.writeText(text).then(() => settle("copied"), () => settle("failed"));
     } catch {
       settle("failed");
     }
