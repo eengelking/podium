@@ -67,8 +67,10 @@ export interface SideCell {
 export function sideBySide(rows: DiffRow[]): { left: SideCell[]; right: SideCell[] } {
   const left: SideCell[] = [];
   const right: SideCell[] = [];
-  for (let i = 0; i < rows.length; i++) {
+  let i = 0;
+  while (i < rows.length) {
     const r = rows[i]!;
+    i += 1;
     if (r.kind === "hunk") {
       left.push({ kind: "hunk", text: r.text });
       right.push({ kind: "hunk-fill", text: "" });
@@ -79,11 +81,11 @@ export function sideBySide(rows: DiffRow[]): { left: SideCell[]; right: SideCell
       left.push({ kind: "note", text: r.text });
       right.push({ kind: "note", text: r.text });
     } else {
-      const dels: Extract<DiffRow, { kind: "del" }>[] = [];
-      const adds: Extract<DiffRow, { kind: "add" }>[] = [];
-      for (; i < rows.length && rows[i]!.kind === "del"; i++) dels.push(rows[i] as Extract<DiffRow, { kind: "del" }>);
-      for (; i < rows.length && rows[i]!.kind === "add"; i++) adds.push(rows[i] as Extract<DiffRow, { kind: "add" }>);
-      i--;
+      // A run of removed lines, then the added lines that follow it, are paired level; the shorter side is filled out.
+      const run: DiffRow[] = [r];
+      while (i < rows.length && rows[i]!.kind !== "hunk" && rows[i]!.kind !== "ctx" && rows[i]!.kind !== "note") run.push(rows[i++]!);
+      const dels = run.filter((x): x is Extract<DiffRow, { kind: "del" }> => x.kind === "del");
+      const adds = run.filter((x): x is Extract<DiffRow, { kind: "add" }> => x.kind === "add");
       for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
         const d = dels[k];
         const a = adds[k];

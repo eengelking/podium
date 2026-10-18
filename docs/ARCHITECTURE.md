@@ -424,6 +424,10 @@ diffs against the same base as the list (`resolveRef`, shared with `readChanges`
 2,000 lines or 200,000 bytes, then `redactDiff` replaces anything that looks like a secret. Cutting comes first, so
 the redaction count is for what is sent.
 
+**Tests.** The mod's tests need Claude Code (`npm run test:mod`), so CI cannot run them. The four that need no
+engine (`diffRedact`, `fileDiff`, `git`, `transport`) also run under the server's vitest, through an alias for
+`claude-code/testing` in `server/vitest.config.ts`, so SonarCloud's coverage gate sees the mod's pure modules.
+
 **Server.** `DiffBroker` is the only holder of a diff, and only while a browser waits. The sign-in routes stay
 available when only `file-diff` is on (`signInEnabled` in `respondRoutes.ts`); the respond routes still need their
 own flags. `GET /respond/me` reports `enabled` for either feature, so the top bar offers the sign-in.

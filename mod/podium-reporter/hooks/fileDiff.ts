@@ -45,10 +45,22 @@ function utf8Length(s: string): number {
 /** The hunks of a `git diff`: everything from the first `@@`. The file headers say nothing the console shows. */
 function hunksOf(out: string): string {
   const at = out.startsWith('@@') ? 0 : out.indexOf('\n@@')
-  return at < 0 ? '' : out.slice(at === 0 ? 0 : at + 1).replace(/\n+$/, '')
+  if (at < 0) return ''
+  let end = out.length
+  while (end > 0 && out[end - 1] === '\n') end--
+  return out.slice(at === 0 ? 0 : at + 1, end)
 }
 
-const isBinary = (out: string): boolean => /^Binary files .* differ$/m.test(out) || out.includes('\nGIT binary patch')
+const TOKEN_CHAR = /[A-Za-z0-9+/_=~.-]/
+
+/** `s` without the run of token characters at its end: a token a cut may have split is dropped whole. */
+function dropTrailingToken(s: string): string {
+  let end = s.length
+  while (end > 0 && TOKEN_CHAR.test(s[end - 1]!)) end--
+  return s.slice(0, end)
+}
+
+const isBinary = (out: string): boolean => out.split('\n').some((l) => l.startsWith('Binary files ') && l.endsWith(' differ')) || out.includes('\nGIT binary patch')
 
 /**
  * The diff of `path`, which must be one the Files list names. `base` is the starting commit the mod keeps for the
@@ -93,7 +105,7 @@ export async function readFileDiff(run: Runner, cwd: string, base: string | null
     const shortened = kept.map((l, i) => {
       if (l.length <= DIFF_LIMITS.lineChars) return l
       cutAt.add(i)
-      return l.slice(0, DIFF_LIMITS.lineChars).replace(/[A-Za-z0-9+/_=~.-]+$/, '')
+      return dropTrailingToken(l.slice(0, DIFF_LIMITS.lineChars))
     })
     const red = redactDiff(shortened.join('\n'))
     const text = red.text

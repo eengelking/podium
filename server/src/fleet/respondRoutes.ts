@@ -164,9 +164,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
   // ---- the mod's side ---------------------------------------------------------------------------
 
   /** The session a mod route is about, when responding is on and the credential owns it; otherwise answers and returns null. */
-  const modSession = (req: Request, res: Response): SessionRow | null => {
-    if (!enabled()) {
-      refuse(req, res, 403, 'responding is off');
+  const modSession = (req: Request, res: Response, on: () => boolean = enabled, off = 'responding is off'): SessionRow | null => {
+    if (!on()) {
+      refuse(req, res, 403, off);
       return null;
     }
     const row = fleet.db.getSession(req.params.id!);
@@ -183,19 +183,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
 
   /** The mod's answer to a request for a file's diff (#319). The text goes to the one waiting browser request and nowhere else. */
   router.put('/sessions/:id/diffs/:requestId', d.requireToken, express.json({ limit: '1mb' }), (req, res) => {
-    if (!diffEnabled()) {
-      refuse(req, res, 403, 'file diff is off');
-      return;
-    }
-    const row = fleet.db.getSession(req.params.id!);
-    if (!row || !fleet.isLive(row.id)) {
-      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-      return;
-    }
-    if (!credentialOwns(d.identityOf(res), row)) {
-      refuse(req, res, 403, 'not your session');
-      return;
-    }
+    const row = modSession(req, res, diffEnabled, 'file diff is off');
+    if (!row) return;
     const sent = (req.body as { text?: unknown } | undefined)?.text;
     if (typeof sent === 'string' && Buffer.byteLength(sent) > FILE_DIFF_LIMITS.answerBytes) {
       res.status(413).json({ ok: false, error: `at most ${FILE_DIFF_LIMITS.answerBytes} bytes of diff are taken`, path: '$.text' });

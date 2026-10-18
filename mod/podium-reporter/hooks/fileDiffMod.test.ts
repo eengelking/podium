@@ -24,19 +24,23 @@ function world(on: On) {
   const clock = mock.clock(on, { now: NOW })
   mock.store(on, {})
   const ok = (body: unknown, status = 200) => ({ value: { status, ok: status < 300, headers: {}, text: JSON.stringify(body) } })
-  on('session.id', () => ({ value: SID }))
-  on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.root', () => ({ value: CWD }))
-  on('session.repo', () => ({ value: null }))
-  on('session.version', () => ({ value: { version: '2.1.301' } }))
-  on('session.usage', () => ({ value: { startedAt: NOW, context: { tokens: 1000, window: 1_000_000, percent: 0.1 }, rateLimits: [], cost: { usd: 0.1 } } }))
-  on('session.surfaces', () => ({ value: ['terminal'] }))
-  on('agent.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: { command: 'podium' } }))
-  on('tool.register', () => ({ value: { tool: 'mcp__podium-reporter__plan' } }))
-  on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
+  const values: Record<string, unknown> = {
+    'session.id': SID,
+    'session.model': 'claude-opus-5-5',
+    'session.root': CWD,
+    'session.repo': null,
+    'session.version': { version: '2.1.301' },
+    'session.usage': { startedAt: NOW, context: { tokens: 1000, window: 1_000_000, percent: 0.1 }, rateLimits: [], cost: { usd: 0.1 } },
+    'session.surfaces': ['terminal'],
+    'agent.list': [],
+    'command.register': { command: 'podium' },
+    'tool.register': { tool: 'mcp__podium-reporter__plan' },
+    'ui.status': undefined,
+    'ui.toast': undefined,
+    'ui.log': undefined,
+  }
+  const stub = on as unknown as (event: string, handler: () => unknown) => void
+  for (const [event, value] of Object.entries(values)) stub(event, () => ({ value }))
   on('process.run', (_$, e) => {
     const a = e.argv.join(' ')
     const res = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })

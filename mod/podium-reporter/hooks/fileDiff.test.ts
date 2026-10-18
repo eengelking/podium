@@ -155,6 +155,23 @@ describe('readFileDiff', () => {
     expect(r.redactions).toBe(2)
   })
 
+  test('counts bytes, not characters, for lines with accents, symbols and emoji', async () => {
+    const lines = ['@@ -1 +1 @@']
+    for (let i = 0; i < 400; i++) lines.push('+' + 'é€😀'.repeat(60)) // 2, 3 and 4 bytes per character: about 540 bytes a line
+    const g = git({ diff: lines.join('\n') + '\n' })
+    const r = await readFileDiff(g.run, '/repo', 'abc', 'src/a.ts', list([file('src/a.ts')]))
+    expect(r.status).toBe('ok')
+    expect(r.truncated).toBe(true)
+    expect(r.shownLines > 300 && r.shownLines < 401).toBe(true)
+  })
+
+  test('git failing to run at all is unavailable', async () => {
+    const run: Runner = async () => {
+      throw new Error('no git')
+    }
+    expect(await readFileDiff(run, '/repo', 'abc', 'src/a.ts', list([file('src/a.ts')]))).toMatchObject({ status: 'unavailable', text: null })
+  })
+
   test('a failing git is unavailable', async () => {
     const g = git({ diff: '', exit: 128 })
     expect((await readFileDiff(g.run, '/repo', 'abc', 'src/a.ts', list([file('src/a.ts')]))).status).toBe('unavailable')

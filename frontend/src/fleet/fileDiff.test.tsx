@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
 import { FilesList, diffAccess } from "./components/FilesList";
+import { FileDiffModal } from "./components/FileDiffModal";
 import { RespondProvider, type RespondContext } from "./useRespond";
 import { RespondError, type RespondApi } from "./respondApi";
 import type { FileDiffReply, FilesReport, RespondMe, SessionView } from "./types";
@@ -223,6 +224,22 @@ describe("the modal", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(document.activeElement).toBe(row());
     }
+  });
+  it("keeps the two sides level when one is scrolled sideways", async () => {
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    await flush();
+    const [left, right] = [...screen.getByRole("dialog").querySelectorAll<HTMLElement>(".sbs .pane")];
+    left!.scrollLeft = 120;
+    fireEvent.scroll(left!);
+    expect(right!.scrollLeft).toBe(120);
+    right!.scrollLeft = 30;
+    fireEvent.scroll(right!);
+    expect(left!.scrollLeft).toBe(30);
+  });
+  it("says it could not be loaded when it is opened outside the console's provider", () => {
+    render(<FileDiffModal sessionId="s" file={REPORT.files[0]!} since="start" onClose={() => {}} />);
+    expect(screen.getByRole("alert").textContent).toMatch(/could not be loaded/);
   });
   it("asks again each time it is opened and keeps nothing between", async () => {
     const fileDiff = vi.fn(async () => ok());

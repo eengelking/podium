@@ -81,7 +81,7 @@ function DiffView({ text }: { text: string }) {
         {[left, right].map((cells, side) => (
           <div key={side} className="pane" ref={(el) => (panes.current[side] = el)} onScroll={follow(side)}>
             <div className="pane-h">{side === 0 ? "Before" : "After"}</div>
-            <pre tabIndex={0} aria-label={side === 0 ? "Before" : "After"}>
+            <pre aria-label={side === 0 ? "Before" : "After"}>
               {cells.map((c, i) => (
                 <Cell key={i} c={c} />
               ))}
@@ -89,7 +89,7 @@ function DiffView({ text }: { text: string }) {
           </div>
         ))}
       </div>
-      <pre className="uni" tabIndex={0} aria-label="Diff">
+      <pre className="uni" aria-label="Diff">
         {rows.map((r, i) => {
           if (r.kind === "hunk") return <span key={i} className="l h"><span>{r.text}</span></span>;
           if (r.kind === "note") return <span key={i} className="l nt"><span>{r.text}</span></span>;
