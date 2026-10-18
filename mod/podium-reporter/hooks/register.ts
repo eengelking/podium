@@ -128,6 +128,8 @@ interface Runtime {
   clearedFrom: string | null;
   /** Whether a person's client is on this session: false for a `claude -p` run, which never responds. */
   interactive: boolean;
+  /** What `$.session.cwd()` last answered, so a move it reports is told apart from an answer that stayed put while the hooks carry the new folder (#382). */
+  sessionCwd: string | null;
 }
 
 export function readOptions(o: Record<string, unknown>): Options {
@@ -427,8 +429,46 @@ async function readAgents($: Engine, r: Runtime, now: number): Promise<void> {
   }
 }
 
+/** Whether `dir` is `folder` or inside it. */
+function holds(folder: string | null | undefined, dir: string): boolean {
+  return !!folder && (dir === folder || dir.startsWith(folder.endsWith('/') ? folder : `${folder}/`));
+}
+
+/** The project root and repository name for `cwd`, from `$.session` while its answer holds `cwd`, else from git run there, else the folder itself (#382). */
+async function placeOf($: Engine, cwd: string): Promise<{ projectRoot: string; repoName: string }> {
+  const root = await attempt<string | null>(() => $.session.root(), null);
+  const repo = await attempt(() => $.session.repo(), null);
+  const base = repo?.root ?? root;
+  if (base && holds(base, cwd)) return { projectRoot: base, repoName: repo?.name ?? repoFromRemote(repo?.remote) ?? lastSegment(base) };
+  const git = async (argv: string[]) => {
+    const res = await attempt(() => $.process.run(argv, { cwd, timeoutMs: 5000 }), null);
+    return res && res.exitCode === 0 ? res.stdout.trim() : '';
+  };
+  const common = await git(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const projectRoot = common ? common.replace(/\/\.git\/?$/, '') : cwd;
+  return { projectRoot, repoName: repoFromRemote(await git(['git', 'config', '--get', 'remote.origin.url'])) ?? lastSegment(projectRoot) };
+}
+
+/**
+ * Take the folder the session has moved to (#382): the desktop app moves a pre-warmed spare to the project the person picked
+ * without restarting it. The folder is the hook's `cwd` when one is given, else what `$.session.cwd()` answers once that
+ * answer has changed. Returns whether the place changed.
+ */
+async function movePlace($: Engine, r: Runtime, hookCwd?: string): Promise<boolean> {
+  const seen = await attempt<string | null>(() => $.session.cwd(), null);
+  const sessionMoved = !!seen && seen !== r.sessionCwd;
+  if (seen) r.sessionCwd = seen;
+  // A hook's cwd follows the shell, so a `cd` into a subfolder of the place already reported is not a move.
+  const inside = !!hookCwd && (holds(r.state.cwd, hookCwd) || holds(r.state.projectRoot, hookCwd));
+  const cwd = (inside ? null : hookCwd) || (sessionMoved ? seen : null) || r.state.cwd;
+  if (cwd === r.state.cwd) return false;
+  r.state = setIdentity(r.state, { cwd, ...(await placeOf($, cwd)) });
+  return true;
+}
+
 async function pollGit($: Engine, r: Runtime): Promise<void> {
   try {
+    await movePlace($, r);
     const cwd = r.state.cwd;
     const run = async (argv: string[]) => {
       const res = await $.process.run(argv, { cwd, timeoutMs: 5000 });
@@ -1106,6 +1146,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     machine: rt?.machine ?? (await readMachine($)),
     clearedFrom: same && rt ? rt.clearedFrom : null,
     interactive: e.surface !== null,
+    sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };
   acted = await loadActed($);
   const r = rt;
@@ -1128,6 +1169,17 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   r.timers.push($.clock.every(GIT_POLL_MS, () => void pollGit($, r)));
   void pollGit($, r);
   showStatus($, r);
+}
+
+/** A hook carries Claude Code's current `cwd`: take it when the session has moved there, and read git in the new folder at once (#382). */
+async function movedBy($: Engine, cwd: string | undefined): Promise<void> {
+  const r = rt;
+  if (!r || typeof cwd !== 'string') return;
+  try {
+    if (await movePlace($, r, cwd)) void pollGit($, r);
+  } catch (err) {
+    record($, 'place', err);
+  }
 }
 
 /** session.end: the final report, awaited, inside a deadline on the engine's clock. */
@@ -1425,11 +1477,13 @@ export const register: Register = (on, rawOptions) => {
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
+    await movedBy($, e.cwd);
     return next(e);
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
+    await movedBy($, e.cwd);
     return next(e);
   }).catch(($, e, next) => next(e));
 
