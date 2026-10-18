@@ -120,7 +120,7 @@ function afterMarker(line: string, from: number): string | undefined {
   const tail = line.slice(from);
   const rest = tail.trimStart();
   if (rest.length === tail.length) return undefined;
-  if (rest.includes(" ") || rest.includes(" ")) return undefined;
+  if (rest.includes("\u2028") || rest.includes("\u2029")) return undefined;
   return rest;
 }
 
