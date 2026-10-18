@@ -57,7 +57,7 @@ interface Lease {
 
 /** The interval a request asked for, in seconds: one of ACTIVITY_EVERY_SECONDS, 5 for anything else. */
 export function everyOf(v: unknown): number {
-  const n = typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : NaN;
+  const n = typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : Number.NaN;
   return (ACTIVITY_EVERY_SECONDS as readonly number[]).includes(n) ? n : ACTIVITY_EVERY_SECONDS[0];
 }
 
