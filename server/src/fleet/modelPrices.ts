@@ -114,7 +114,7 @@ export class ModelPriceStore {
         ...(base.long ? { builtinLong: base.long } : {}),
       };
     });
-    for (const key of Object.keys(o).filter((k) => !Object.hasOwn(BUILTIN_PRICES, k)).sort()) {
+    for (const key of Object.keys(o).filter((k) => !Object.hasOwn(BUILTIN_PRICES, k)).sort((a, b) => a.localeCompare(b))) {
       const eff = pricing.rowOf(key);
       if (eff) models.push({ key, label: key, builtin: false, overridden: true, std: eff.std });
     }

@@ -123,4 +123,10 @@ describe('ModelPriceStore', () => {
     expect(v.models.filter((m) => m.builtin).map((m) => m.key)).toEqual(Object.keys(BUILTIN_PRICES));
     expect(v.asOf).toBe('2026-10-13');
   });
+
+  it('lists the Admin-added rows in alphabetical order (accents included), not by UTF-16 code unit', () => {
+    for (const k of ['zeta-model', 'ångström-model', 'beta-model']) store.set(k, { std: S });
+    const added = store.view().models.filter((m) => !m.builtin).map((m) => m.key);
+    expect(added).toEqual(['ångström-model', 'beta-model', 'zeta-model']);
+  });
 });

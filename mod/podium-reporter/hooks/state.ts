@@ -830,7 +830,7 @@ export function isWatched(s: SessionState, agentId: string | null | undefined): 
  * watch starts empty; a loop that is listed starts keeping entries from now.
  */
 export function setWatched(s: SessionState, ids: readonly string[]): SessionState {
-  const next = [...new Set(ids)].sort();
+  const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
   if (next.length === s.watched.length && next.every((id, i) => id === s.watched[i])) return s;
   const keep = new Set(next);
   const main = keep.has(MAIN_LOOP) || !s.main.activity.length ? s.main : { ...s.main, activity: [] };

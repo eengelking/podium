@@ -152,7 +152,7 @@ export function toolInput(input: unknown): { input: Record<string, unknown>; cut
     const leaves = stringLeaves(obj);
     if (!leaves.length) break;
     const text = (l: (typeof leaves)[number]) => String(l.at[l.key]);
-    const longest = leaves.reduce((a, b) => (text(b).length > text(a).length ? b : a));
+    const longest = leaves.reduce((a, b) => (text(b).length > text(a).length ? b : a), leaves[0]!);
     const raw = text(longest).replace(CUT_MARK, '');
     const keep = Math.max(0, raw.length - over - 40);
     longest.at[longest.key] = `${raw.slice(0, keep)}${cutMark(keep)}`;
