@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,21 @@ import { inventory, literalProblems, type Deferred } from "./standards-inventory
 // #354: the checks that keep the design system honest. They run in npm test and in CI.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const deferred = (JSON.parse(readFileSync(join(ROOT, "docs/standards/deferred.json"), "utf8")) as { entries: Deferred[] }).entries;
+
+/** The .ts and .tsx source files under a folder, tests included, since the frontend build type-checks them too. */
+function sources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? sources(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []));
+}
+
+describe("the container image build", () => {
+  // The frontend build type-checks every file under frontend/src. The image copies only the folders the Containerfile names,
+  // so a file that imports from scripts/ breaks the image build (and nothing in CI builds the image) unless scripts is copied.
+  it("copies scripts when the frontend imports from it", () => {
+    const importsScripts = sources(join(ROOT, "frontend", "src")).filter((f) => /from "(\.\.\/)+scripts\//.test(readFileSync(f, "utf8")));
+    expect(importsScripts.length).toBeGreaterThan(0);
+    expect(readFileSync(join(ROOT, "Containerfile"), "utf8")).toMatch(/^COPY scripts scripts$/m);
+  });
+});
 
 describe("design system guard", () => {
   const inv = inventory();

@@ -10,6 +10,9 @@ RUN npm ci --ignore-scripts
 # The UI imports the view types from server/src/fleet, so both trees are needed before either build.
 COPY server server
 COPY frontend frontend
+# The UI's standards generator (frontend/src/fleet/standards) imports scripts/standards-inventory, and the frontend build
+# type-checks it. scripts is only read here; nothing from it reaches the final image.
+COPY scripts scripts
 RUN npm run build -w frontend && npm run build -w server
 
 FROM docker.io/library/node:24-slim
