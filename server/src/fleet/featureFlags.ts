@@ -12,6 +12,8 @@ export interface FeatureDef {
 export const ACTIVITY_FEED = 'activity-feed';
 /** Respond from Podium (#206): off until the Admin turns it on. */
 export const RESPOND = 'respond';
+/** A changed file's diff, opened by the session's owner (#319): off until the Admin turns it on. */
+export const FILE_DIFF = 'file-diff';
 
 export const FEATURES: readonly FeatureDef[] = [
   {
@@ -25,6 +27,13 @@ export const FEATURES: readonly FeatureDef[] = [
     id: RESPOND,
     name: 'Respond from Podium',
     description: 'Lets people answer and message the sessions they own. Each answer is written to the admin log with who sent it.',
+    defaultOn: false,
+  },
+  {
+    id: FILE_DIFF,
+    name: 'File diff',
+    description:
+      "Lets the owner of a session, and only the owner, open a changed file's diff in the console. The diff is source code, read from the machine only when asked, with secrets hidden, and never stored. Needs the reporter's fileDiff option on the machine as well.",
     defaultOn: false,
   },
 ];

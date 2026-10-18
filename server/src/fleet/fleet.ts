@@ -14,7 +14,8 @@ import { formatSse, SseHub } from './sse.js';
 import { ModelPriceStore } from './modelPrices.js';
 import { WallSettings } from './wallSettings.js';
 import { ActivityStore } from './activity.js';
-import { ACTIVITY_FEED, FeatureFlags, RESPOND } from './featureFlags.js';
+import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, RESPOND } from './featureFlags.js';
+import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
@@ -103,6 +104,8 @@ export class Fleet {
   readonly prices: ModelPriceStore;
   /** The agent activity feed (#118): in memory only, and only for loops a viewer is watching. */
   readonly activity: ActivityStore;
+  /** A file's diff on demand (#319): in memory only, held just while the owner's browser waits. */
+  readonly diffs = new DiffBroker();
   /** The Admin's feature flags. Turning the activity feed off drops what it held; any change reaches open browsers. */
   readonly features: FeatureFlags;
   /** Responding from Podium (#206): asks, answers and messages, in memory only. */
@@ -125,6 +128,7 @@ export class Fleet {
     this.startedAt = now();
     this.features = new FeatureFlags(db.db, (id, on) => {
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
+      if (id === FILE_DIFF && !on) this.diffs.clear();
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       this.hub.broadcast('snapshot', this.state());
@@ -189,6 +193,7 @@ export class Fleet {
     const res = ingestReport(this.db, report, this.now(), owner);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
+    if (typeof report.session.fileDiff === 'boolean') this.diffs.noteOption(res.sessionId, report.session.fileDiff);
     this.respond.noteReport(report, this.respondFlagsOn());
     this.noteReporter(report, owner);
     const entry = this.live.get(res.sessionId);
@@ -300,6 +305,7 @@ export class Fleet {
         ownerGroup: this.db.groupOfOwner(row.owner),
         pricing: this.prices.pricing(),
         activityFeed: this.activity.feedOn(row.id),
+        fileDiff: this.diffs.optionOn(row.id),
         respond: this.respond.info(row.id),
         asks: this.respond.summaries(row.id),
       },
@@ -453,6 +459,7 @@ export class Fleet {
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
+    this.diffs.drop(id);
     this.respond.dropSession(id);
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
@@ -490,6 +497,7 @@ export class Fleet {
     this.live.delete(row.id);
     this.clockSkew.delete(row.id);
     this.activity.dropSession(row.id);
+    this.diffs.drop(row.id);
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     const t = this.pending.get(row.id);

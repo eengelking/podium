@@ -793,6 +793,48 @@ body.modal-open #root { filter: blur(5px); }
 .podium .files .bars i { width: 5px; height: 9px; background: var(--grid); }
 .podium .files .bars i.g { background: var(--good); }
 .podium .files .bars i.r { background: var(--crit); }
+
+/* A Files row that opens the file's diff (#319, mockup/podium-file-diff.html): the same grid, inside a button. */
+.podium .files li.openable { padding: 0; display: block; }
+.podium .files li.openable > button { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 14px; width: 100%; min-width: 0; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.podium .files li.openable > button:hover { background: var(--hover); }
+.podium .files li.openable > button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+
+/* The file diff modal (#319). Wide, so the old file sits left and the new one right; below 720px it is one column. */
+.podium .modal.modal-diff { width: min(1240px, 100%); container-type: inline-size; }
+.podium .modal .mb.diffmb { padding: 0; font-size: 12px; line-height: 1.5; overflow: auto; overflow-wrap: normal; }
+.podium .modal-diff .sbs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.podium .modal-diff .sbs .pane { overflow-x: auto; min-width: 0; }
+.podium .modal-diff .sbs .pane + .pane { border-left: 1px solid var(--border); }
+.podium .modal-diff .sbs pre, .podium .modal-diff .uni { margin: 0; font: 12px/1.5 var(--font-mono); tab-size: 4; min-width: max-content; padding: 6px 0; background: none; border: 0; border-radius: 0; }
+.podium .modal-diff .sbs .pane-h { position: sticky; top: 0; left: 0; z-index: 1; padding: 4px 12px; font-size: 11px; color: var(--muted); background: var(--surface); border-bottom: 1px solid var(--border); }
+.podium .modal-diff .l { display: grid; grid-template-columns: 5ch 2ch auto; padding-right: 12px; white-space: pre; }
+.podium .modal-diff .uni .l { grid-template-columns: 5ch 5ch 2ch auto; }
+.podium .modal-diff .l .n { color: var(--muted); text-align: right; padding-right: 1ch; user-select: none; }
+.podium .modal-diff .l .m { text-align: center; font-weight: 600; user-select: none; }
+.podium .modal-diff .l.a { background: color-mix(in srgb, var(--good) 14%, transparent); }
+.podium .modal-diff .l.a .m { color: var(--good-text); }
+.podium .modal-diff .l.r { background: color-mix(in srgb, var(--crit) 14%, transparent); }
+.podium .modal-diff .l.r .m { color: var(--crit-text); }
+.podium .modal-diff .l.f { background: color-mix(in srgb, var(--grid) 55%, transparent); }
+.podium .modal-diff .l.h { color: var(--deleg-text); background: color-mix(in srgb, var(--deleg) 10%, transparent); }
+.podium .modal-diff .l.h span { grid-column: 1 / -1; }
+.podium .modal-diff .l.nt { color: var(--muted); font-style: italic; }
+.podium .modal-diff .l.nt span { grid-column: 1 / -1; padding-left: 2ch; }
+.podium .modal-diff .uni { display: none; }
+@container (max-width: 720px) { .podium .modal-diff .sbs { display: none; } .podium .modal-diff .uni { display: block; } }
+/* A value the mod hid: the feed's [redacted] mark, in bold. */
+.podium .modal .diffmb .rd { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit-text); border-radius: 3px; padding: 0 3px; font-weight: 700; }
+.podium .modal .diffmsg { padding: 28px 20px; color: var(--ink); font-size: 13px; }
+.podium .modal .diffmsg.quiet { color: var(--muted); }
+.podium .modal .diffmsg.err { color: var(--crit-text); }
+.podium .modal .diffmsg p { margin: 0 0 4px; max-width: 60ch; }
+.podium .modal .diffmsg code { font: 12px var(--font-mono); background: var(--bg); border: 1px solid var(--grid); border-radius: 4px; padding: 1px 5px; }
+.podium .modal .diffmsg .loading { font-size: 18px; font-weight: 600; color: var(--ink2); }
+/* The dots fill in on the shared beat (data-beat, set by useHeartbeat on the word); without a beat, under reduced motion, all three show. */
+.podium .modal .loading .dots i { font-style: normal; }
+.podium .modal .loading[data-beat] .dots i { opacity: 0.2; }
+.podium .modal .loading[data-beat="1"] .dots i:nth-child(1), .podium .modal .loading[data-beat="2"] .dots i:nth-child(-n+2), .podium .modal .loading[data-beat="3"] .dots i { opacity: 1; }
 .podium .pager { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--grid); font-size: 11.5px; color: var(--muted); }
 .podium .pager .pg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .podium .pager button { font: 500 11.5px var(--font-mono); color: var(--ink2); background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; cursor: pointer; }

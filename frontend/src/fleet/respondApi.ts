@@ -1,7 +1,7 @@
 // The browser's side of responding (#206, SPEC 7.1): signing in, reading an ask, answering it, and sending a message.
 // Every change carries X-Podium-Respond: 1; the sign-in lives in an HttpOnly cookie the page never sees, and the token
 // typed into the form is sent once and never kept (SPEC 7.7).
-import type { AskDetail, RespondMe } from "./types";
+import type { AskDetail, FileDiffReply, RespondMe } from "./types";
 
 const BASE = "/api/fleet/respond";
 
@@ -44,7 +44,10 @@ export const respondApi = {
     call<{ ok: true; deliveryId: string }>("POST", `${sessionPath(sessionId)}/asks/${encodeURIComponent(askId)}/answer`, body),
   message: (sessionId: string, body: { text: string } | { command: "clear" | "compact" }) =>
     call<{ ok: true; deliveryId: string; queued: boolean }>("POST", `${sessionPath(sessionId)}/messages`, body),
+  /** One file's diff (#319): held until the session's machine answers, so it can take up to 15 seconds. */
+  fileDiff: (sessionId: string, path: string) => call<FileDiffReply>("GET", `${sessionPath(sessionId)}/files/diff?path=${encodeURIComponent(path)}`),
   discard: (deliveryId: string) => call<{ ok: true }>("DELETE", `/deliveries/${encodeURIComponent(deliveryId)}`),
 };
 
-export type RespondApi = typeof respondApi;
+/** The browser's side of responding. `fileDiff` is optional so a test's fake can leave it out; the real one has it. */
+export type RespondApi = Omit<typeof respondApi, "fileDiff"> & Partial<Pick<typeof respondApi, "fileDiff">>;

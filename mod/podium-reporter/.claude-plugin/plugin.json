@@ -68,6 +68,12 @@
       "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). Nothing is sent for an agent nobody is watching, and the server keeps it in memory only. Off by default.",
       "default": false
     },
+    "fileDiff": {
+      "type": "boolean",
+      "title": "Send a file's diff on request",
+      "description": "When the owner of a session opens a changed file in Podium's Files list, read that one file's diff and send it. Anything that looks like a secret is replaced with [redacted] before it leaves this machine, and .env, key and credentials files are never sent. Nothing is sent for a file nobody opens, and the server keeps no copy. Off by default.",
+      "default": false
+    },
     "respond": {
       "type": "string",
       "title": "Respond from Podium",

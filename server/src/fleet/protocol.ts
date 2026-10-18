@@ -135,6 +135,31 @@ export interface LoopReport {
 /** The loop key of the orchestrator's own feed, in the report reply's `watch` list and the activity route (#118). Engine agent ids never start with `@`. */
 export const MAIN_LOOP = '@orchestrator';
 
+/** The status of one file's diff, as the mod answers a request for it (#319, SPEC 6.4). */
+export const FILE_DIFF_STATUSES = ['ok', 'binary', 'withheld', 'too-large', 'unavailable'] as const;
+export type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
+
+/** A diff the session's owner is waiting for, in the report reply's `diffs` list. */
+export interface DiffRequest {
+  id: string;
+  path: string;
+}
+
+/** The mod's answer to a DiffRequest. `text` is a unified diff, redacted by the mod, and null for any status but `ok`. */
+export interface FileDiffReply {
+  path: string;
+  status: FileDiffStatus;
+  text: string | null;
+  /** The mod cut the diff at a line or byte limit. */
+  truncated: boolean;
+  shownLines: number;
+  totalLines: number;
+  /** How many values the mod replaced with [redacted]. */
+  redactions: number;
+  /** What the diff is against: the short starting commit, the upstream merge base, or "worktree". null when there is none. */
+  base: string | null;
+}
+
 /** `reasoning` is reserved for the model's thinking; the reporter does not send it. */
 export type ActivityKind = 'tool' | 'text' | 'reasoning';
 
@@ -245,6 +270,8 @@ export interface SessionReport {
   background?: BackgroundWait | null;
   /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
   activityFeed?: boolean;
+  /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
+  fileDiff?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
   activity?: ActivityEntry[];
   /** Whether and how far the session can be answered from Podium (#206). Absent from a reporter older than 0.14.0. */
@@ -440,6 +467,20 @@ export interface ReportReply {
 
 // <protocol:end>
 
+/** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in hooks/fileDiff.ts. */
+export const FILE_DIFF_LIMITS = {
+  /** Lines and bytes the mod sends; more is cut at a line boundary. */
+  lines: 2000,
+  bytes: 200_000,
+  /** Bytes of `git diff` the mod reads before it answers `too-large`. */
+  readBytes: 5_000_000,
+  /** The most the server takes in an answer. */
+  answerBytes: 300_000,
+  /** How long the server holds the browser's request, and the most requests it lists in one reply. */
+  holdSeconds: 15,
+  pending: 4,
+} as const;
+
 /** USD per million tokens for one model (issue #117). `cacheWrite` is the 5-minute rate, `cacheWrite1h` the 1-hour rate. */
 export interface ModelPriceSet {
   input: number;
@@ -568,6 +609,8 @@ export interface SessionView {
    * than 0.13.0, a settings-hooks session, or no report since the server started. Held in memory, not stored.
    */
   activityFeed: boolean | null;
+  /** Whether the reporter's fileDiff option is on (#319); null as for `activityFeed`. Held in memory. */
+  fileDiff: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */
   respond: RespondInfo | null;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
@@ -1124,6 +1167,7 @@ function session(v: unknown, path: string): SessionReport {
     attached: o.attached === undefined || o.attached === null ? null : bool(o.attached, `${path}.attached`),
     ...(bg ? { background: bg } : {}),
     ...(o.activityFeed === undefined || o.activityFeed === null ? {} : { activityFeed: bool(o.activityFeed, `${path}.activityFeed`) }),
+    ...(o.fileDiff === undefined || o.fileDiff === null ? {} : { fileDiff: bool(o.fileDiff, `${path}.fileDiff`) }),
     ...activity(o.activity, `${path}.activity`),
     ...respondInfo(o.respond, `${path}.respond`),
     ...(o.asks === undefined || o.asks === null ? {} : { asks: asks(o.asks, `${path}.asks`) }),
@@ -1193,6 +1237,38 @@ export function validateAsk(body: unknown): { ok: true; ask: Ask } | { ok: false
   } catch (err) {
     if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };
     return { ok: false, error: 'invalid ask', path: '$' };
+  }
+}
+
+/** Validates the mod's answer to a diff request (PUT …/diffs/:requestId, #319). `text` is kept as sent, only a size is enforced. Never throws. */
+export function validateFileDiffReply(body: unknown): { ok: true; reply: FileDiffReply } | { ok: false; error: string; path: string } {
+  try {
+    const o = obj(body, '$');
+    const status = oneOf(o.status, '$.status', FILE_DIFF_STATUSES);
+    let diffText: string | null = null;
+    if (o.text !== undefined && o.text !== null) {
+      if (typeof o.text !== 'string') throw new Invalid('$.text', 'expected a string');
+      if (o.text.length > FILE_DIFF_LIMITS.answerBytes) throw new Invalid('$.text', `at most ${FILE_DIFF_LIMITS.answerBytes} characters allowed`);
+      diffText = o.text;
+    }
+    if (status === 'ok' && diffText === null) throw new Invalid('$.text', 'a diff with status ok needs its text');
+    if (status !== 'ok' && diffText !== null) throw new Invalid('$.text', `a diff with status ${status} has no text`);
+    return {
+      ok: true,
+      reply: {
+        path: str(o.path, '$.path', LIMITS.filePath),
+        status,
+        text: diffText,
+        truncated: o.truncated === undefined ? false : bool(o.truncated, '$.truncated'),
+        shownLines: o.shownLines === undefined ? 0 : int(o.shownLines, '$.shownLines'),
+        totalLines: o.totalLines === undefined ? 0 : int(o.totalLines, '$.totalLines'),
+        redactions: o.redactions === undefined ? 0 : int(o.redactions, '$.redactions'),
+        base: strOrNull(o.base, '$.base', LIMITS.short),
+      },
+    };
+  } catch (err) {
+    if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };
+    return { ok: false, error: 'invalid diff', path: '$' };
   }
 }
 

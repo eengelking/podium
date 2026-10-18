@@ -9,6 +9,7 @@
 import { modBuild } from './build.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from './git.ts';
+import { readFileDiff } from './fileDiff.ts';
 import { follow } from './place.ts';
 import { shortName } from './models.ts';
 import { buildReport, repoFromRemote } from './report.ts';
@@ -93,6 +94,8 @@ interface Options {
   explainFailures: boolean;
   fullPrompts: boolean;
   activityFeed: boolean;
+  /** Answer requests for one file's diff (#319). */
+  fileDiff: boolean;
   /** What this session accepts from Podium (#206). */
   respond: RespondLevel;
 }
@@ -150,6 +153,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     explainFailures: o.explainFailures === true,
     fullPrompts: o.fullPrompts === true,
     activityFeed: o.activityFeed === true,
+    fileDiff: o.fileDiff === true,
     respond: respondLevel(o.respond),
   };
 }
@@ -211,6 +215,9 @@ const PERMISSION_CHECK_MS = 2000;
 let asks = new Map<string, OpenAsk>();
 let outbox: OutItem[] = [];
 let acted: string[] = [];
+/** Requests for a file's diff already answered (#319), so one listed in two replies is read once. */
+const DIFFS_KEPT = 50;
+let diffsDone: string[] = [];
 /** null until known; false once a prompt showed with no PermissionRequest; true once one fired. */
 let permissionHooks: boolean | null = null;
 let lastPermissionAt = 0;
@@ -300,6 +307,7 @@ function metaOf(r: Runtime, now: number) {
     machine: r.machine,
     fullText: opts.fullPrompts,
     activity: opts.activityFeed,
+    fileDiff: opts.fileDiff,
     respond: respondNow(r),
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,
     clearedFrom: r.clearedFrom,
@@ -403,6 +411,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     r.toastedRefusal = null; // accepted again: a later refusal is news again
     toastOnce($, r, true);
     handleDeliveries($, r);
+    handleDiffs($, r);
     messagesLine($, r);
   }
   else if (outcome === 'busy') r.state = { ...r.state, dirty: true };
@@ -1015,6 +1024,36 @@ function settleToolAsk(id: string, res: ToolResult | undefined): void {
   else {
     if (d) queueResult(a.sessionId, d.id, 'closed');
     queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
+  }
+}
+
+// ---- file diff on request (#319) ----------------------------------------------------------------
+
+/** The diffs the reply lists, each read and answered once. With the option off nothing is read and the list is ignored. */
+function handleDiffs($: Engine, r: Runtime): void {
+  const list = r.transport.diffs;
+  r.transport.diffs = [];
+  if (!opts.fileDiff) return;
+  for (const req of list) {
+    if (diffsDone.includes(req.id)) continue;
+    diffsDone.push(req.id);
+    if (diffsDone.length > DIFFS_KEPT) diffsDone.splice(0, diffsDone.length - DIFFS_KEPT);
+    void answerDiff($, r, r.state.id, req);
+  }
+}
+
+async function answerDiff($: Engine, r: Runtime, sid: string, req: { id: string; path: string }): Promise<void> {
+  try {
+    const cwd = r.state.cwd;
+    const run = async (argv: string[]) => {
+      const res = await $.process.run(argv, { cwd, timeoutMs: 15_000 });
+      return { exitCode: res.exitCode, stdout: res.stdout };
+    };
+    const reply = await readFileDiff(run, cwd, r.state.gitBase, req.path, r.state.files);
+    if (r.state.id !== sid) return; // the session was cleared while git ran
+    await podiumCall($, 'PUT', `${sessionPath(sid)}/diffs/${encodeURIComponent(req.id)}`, reply);
+  } catch (err) {
+    record($, 'file-diff', err);
   }
 }
 
