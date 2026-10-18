@@ -199,6 +199,21 @@ describe('RespondStore', () => {
     expect(questionSummary(rec, [{ options: [0] }])).toBe('25/50/100, default 50');
   });
 
+  it('strips a trailing "(Recommended)" mark from an option label, and does so in linear time (#362)', () => {
+    const label = (l: string) => questionSummary({ ...QUESTION, questions: [{ ...QUESTION.questions![0]!, options: [{ label: l, description: '', preview: null }] }] }, [{ options: [0] }]);
+    expect(label('X (recommended)  ')).toBe('X');
+    expect(label('X(RECOMMENDED)')).toBe('X');
+    expect(label('X \t\n (Recommended)')).toBe('X');
+    expect(label('(Recommended)')).toBe('');
+    expect(label('(Recommended) later')).toBe('(Recommended) later');
+    expect(label('A (Recommended) B (Recommended)')).toBe('A (Recommended) B');
+    expect(label('Plain  ')).toBe('Plain  ');
+    const start = Date.now();
+    expect(label(' '.repeat(100_000) + 'x')).toBe(' '.repeat(100_000) + 'x');
+    expect(label('(Recommended' + ' '.repeat(100_000))).toBe('(Recommended' + ' '.repeat(100_000));
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   it('takes as closed an open ask a later report no longer lists, but not one opened since that report began', () => {
     const { s, sid } = store();
     s.announce(sid, QUESTION);

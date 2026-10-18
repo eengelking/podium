@@ -18,6 +18,13 @@ export const INGEST_ARGS: Record<string, string> = {
 };
 const INGEST_PATH = 'insert/jsonline';
 
+/** `s` without the `/` characters at its end. A loop, not `/\/+$/`, which is quadratic on a long run of slashes (#362). */
+function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
+}
+
 /**
  * The ingest URL for a configured endpoint. A bare address (`http://host:9428`, or one with a proxy prefix)
  * gets `/insert/jsonline` appended; the mapping args are added unless the URL already sets them.
@@ -25,9 +32,8 @@ const INGEST_PATH = 'insert/jsonline';
 export function shipUrl(base: string): string {
   const u = new URL(base.trim());
   if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('the log ship URL must be http or https');
-  if (!u.pathname.replace(/\/+$/, '').endsWith(`/${INGEST_PATH}`)) {
-    u.pathname = `${u.pathname.replace(/\/+$/, '')}/${INGEST_PATH}`;
-  }
+  const path = trimTrailingSlashes(u.pathname);
+  if (!path.endsWith(`/${INGEST_PATH}`)) u.pathname = `${path}/${INGEST_PATH}`;
   for (const [k, v] of Object.entries(INGEST_ARGS)) if (!u.searchParams.has(k)) u.searchParams.set(k, v);
   return u.toString();
 }

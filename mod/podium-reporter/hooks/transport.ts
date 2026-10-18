@@ -1,6 +1,7 @@
 // Getting reports to the server (SPEC 6.1, 6.7): an event queue capped at 500, one POST at a time,
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
+import { trimTrailingSlashes } from './machine.ts';
 import type { ActivityEvent, Delivery, Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
@@ -103,7 +104,7 @@ export class Transport {
   ) {}
 
   get url(): string {
-    return `${this.cfg.serverUrl.replace(/\/+$/, '')}/api/fleet/report`;
+    return `${trimTrailingSlashes(this.cfg.serverUrl)}/api/fleet/report`;
   }
 
   /** Queues events; past 500 the oldest are dropped. */

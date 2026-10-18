@@ -50,7 +50,7 @@ import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { pickIdentity, worthHolding, type Identity } from './identity.ts';
-import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, parseMachineIdFile } from './machine.ts';
+import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
 import type { Ask, Delivery, DeliveryResult, MachineInfo, RespondInfo, RespondKind, RespondLevel } from './protocol.ts';
 import {
   answeredLine,
@@ -621,7 +621,7 @@ async function attempt<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 // ---- responding: talking to the server (#206) -------------------------------------------------
 
 function serverBase(): string {
-  return opts.serverUrl.replace(/\/+$/, '');
+  return trimTrailingSlashes(opts.serverUrl);
 }
 
 function sessionPath(sessionId: string): string {
@@ -1179,7 +1179,7 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     .map(([k, s]) => `${k} ${(s.totalMs / s.calls).toFixed(2)} ms avg, ${s.maxMs.toFixed(2)} max`)
     .slice(0, 8);
   return [
-    `Podium fleet console: ${opts.serverUrl.replace(/\/+$/, '')}/#/`,
+    `Podium fleet console: ${trimTrailingSlashes(opts.serverUrl)}/#/`,
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
     `Versions: reporter ${VERSION}${t.serverVersion ? `, server ${t.serverVersion}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',

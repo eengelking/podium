@@ -30,8 +30,28 @@ export function respondInfo(level: RespondLevel, activityFeed: boolean, interact
 }
 
 /** 40000 -> "40,000". */
-function thousands(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+export function thousands(n: number): string {
+  // A comma goes before a digit that follows a word character, when the digits from there to the end of their run are a multiple of 3.
+  // Walked run by run: the lookahead regex this replaced is quadratic on a long run of digits (#362).
+  const s = String(n);
+  const isDigit = (c: string | undefined) => c !== undefined && c >= '0' && c <= '9';
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    if (!isDigit(s[i])) {
+      out += s[i++];
+      continue;
+    }
+    let end = i;
+    while (isDigit(s[end])) end++;
+    const wordBefore = i > 0 && /\w/.test(s[i - 1]!);
+    for (let p = i; p < end; p++) {
+      if ((p > i || wordBefore) && (end - p) % 3 === 0) out += ',';
+      out += s[p];
+    }
+    i = end;
+  }
+  return out;
 }
 
 /** Redacts and cuts a text to `max`, ending a cut one with a visible marker. Line breaks are kept. */
@@ -220,6 +240,19 @@ export function toolDenied(res: { deny?: string; isError?: boolean; text?: strin
   return /doesn't want to proceed with this tool use|Denied by PermissionRequest hook|Permission to use .* (?:has been|was) denied/i.test(text);
 }
 
+/** `v` without every "(Recommended)" mark, in any case, and the space before each. Linear, unlike `/\s*\(Recommended\)/gi` on a long run of spaces (#362). */
+function withoutRecommended(v: string): string {
+  const mark = '(recommended)';
+  let out = '';
+  let from = 0;
+  for (let i = v.indexOf('('); i !== -1; i = v.indexOf('(', i + 1)) {
+    if (v.slice(i, i + mark.length).toLowerCase() !== mark) continue;
+    out += v.slice(from, i).trimEnd();
+    from = i + mark.length;
+  }
+  return out + v.slice(from);
+}
+
 /** A short summary of a question answered in the terminal, for Podium's "Answered in the terminal" (≤ 2,000 characters). */
 export function terminalAnswers(result: unknown): string | null {
   const answers = (result as { result?: { answers?: unknown } } | null)?.result?.answers;
@@ -227,7 +260,7 @@ export function terminalAnswers(result: unknown): string | null {
   // Claude Code's option labels carry "(Recommended)"; Podium shows the answer without it, as the mockup does.
   const s = Object.values(answers as Record<string, unknown>)
     .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
-    .map((v) => v.replace(/\s*\(Recommended\)/gi, ''))
+    .map(withoutRecommended)
     .join('; ');
   return s ? line(s, RESPOND_LIMITS.answer) : null;
 }

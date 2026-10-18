@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Ask, Delivery, Report } from './protocol.ts'
-import { answersMap, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers } from './respond.ts'
+import { answersMap, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers, thousands } from './respond.ts'
 
 // Responding to a waiting session from Podium (#206, SPEC 5.3). The world beneath the plugin is a fake Podium server
 // and a terminal whose dialogs the test answers by hand.
@@ -225,6 +225,33 @@ describe('respond: the pure parts', () => {
   test('a question answered in the terminal reads without Claude Code’s "(Recommended)" mark, as the mockup shows it', async () => {
     const res = { result: { answers: { 'Page size?': '25/50/100, default 50 (Recommended)', 'Back?': 'The page number (Recommended), The scroll' } } }
     expect(terminalAnswers(res)).toBe('25/50/100, default 50; The page number, The scroll')
+  })
+
+  test('every "(Recommended)" mark goes from an answer, whatever its case, with the space before it (#362)', async () => {
+    const ans = (v: string) => terminalAnswers({ result: { answers: { q: v } } })
+    expect(ans('X (recommended)  ')).toBe('X')
+    expect(ans('X  (RECOMMENDED)(Recommended)')).toBe('X')
+    expect(ans('A (Recommended) (Recommended) B')).toBe('A B')
+    expect(ans('(Recommended)x')).toBe('x')
+    expect(ans('(Recommended')).toBe('(Recommended')
+  })
+
+  test('a long answer with no "(Recommended)" mark is handled in linear time (#362)', async () => {
+    const start = Date.now()
+    expect(terminalAnswers({ result: { answers: { q: ' '.repeat(100_000) + 'x' } } })).not.toBeNull()
+    expect(terminalAnswers({ result: { answers: { q: '(Recommended'.repeat(10_000) } } })).not.toBeNull()
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+
+  test('numbers get thousands separators exactly as the regex it replaced put them (#362)', async () => {
+    const old = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    expect(thousands(40000)).toBe('40,000')
+    for (const n of [0, 7, 999, 1000, 12345, 123456, 1234567, -1234, -12.5, 1234.5678, 0.00001234, 1e21, 123456789012, 2000, 20000])
+      expect(thousands(n)).toBe(old(n))
+    const long = '1'.repeat(100_000)
+    const start = Date.now()
+    expect(thousands(long as unknown as number).length).toBe(100_000 + 33_333)
+    expect(Date.now() - start).toBeLessThan(1000)
   })
 
   test('a tool input is cut only past 20,000 characters, and then only its longest text, with the rest kept', async () => {

@@ -7,6 +7,7 @@
 // does the HTTP.
 import os from 'node:os';
 import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type AgentReport, ChangedFile, Effort, Failure, FilesReport, LoopReport, MachineInfo, Plan, Report } from '../server/src/fleet/protocol.ts';
+import { trimTrailingSlashes } from '../mod/podium-reporter/hooks/machine.ts';
 import { costOf, shortName, windowOf, type Family } from '../mod/podium-reporter/hooks/models.ts';
 
 const HELP = `podium-sim: POST simulated Claude Code session reports to a Podium server.
@@ -915,7 +916,7 @@ export function parseArgs(argv: string[]): Args | 'help' {
     };
     switch (k) {
       case '-h': case '--help': return 'help';
-      case '--url': a.url = val().replace(/\/+$/, ''); break;
+      case '--url': a.url = trimTrailingSlashes(val()); break;
       case '--sessions': a.sessions = Math.round(num(1, 50)); break;
       case '--speed': a.speed = num(0.1, 50); break;
       case '--seed': a.seed = Math.round(num(0, 2 ** 32)); break;
