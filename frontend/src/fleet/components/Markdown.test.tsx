@@ -106,6 +106,81 @@ describe("Markdown", () => {
     expect(() => dom("#\n-\n1.\n>")).not.toThrow();
   });
 
+  // Golden output captured from the regex implementation before it was rewritten without backtracking
+  // (#362); the rewrite must render every one of these exactly as before.
+  it("renders a table of ordinary and odd inputs unchanged (#362)", () => {
+    const cases = [
+      "# H1\n###### H6\n####### seven\n#nospace\n#   spaced   ",
+      "#\n##\n# \n#\t tab",
+      "1. a\n2) b\n  10. c\n1.x\n1 .x\n 1. nbsp",
+      "- a\n* b\n+ c\n  - d\n-x\n- \n-\n-\tt",
+      "- a\n1. b\n- c\n\n> q\n- d",
+      "`code` and ``two`` and `` and `a\nb` end",
+      "**bold** __bold2__ ****  **a** **a* *a** ** a **",
+      "*it* *a b* * a* *a *b* _it_ _a b_ _ a_ snake_case_name _a_b_ (_a_) x_a_",
+      "***both*** **_mix_** *__mix__* _**mix**_",
+      "[a](https://e.com) [a](https://e.com/p_(q)) [a](https://e.com/(a(b))) [a]() [](https://e.com) [a](mailto:x@y.z)",
+      "[a](javascript:x) [a](https://e.com space) [a](https://e.com/(x y)) [[a]](https://e.com)",
+      "**unclosed *x `y [z](",
+      "[a](https://e.com **b** `c` *d*) and [**b** *i*](https://e.com)",
+      "a **b `c** d` e *f `g* h`",
+      "> quote *it*\n>no space\n>\n> - not a list",
+      "para one\nstill one\n\npara two",
+      "  - indented\n    1. nested\n\t* tabbed",
+      "```\n- not a list\n# not a heading\n```\n# after",
+      "é **über** _éa_ é_a_é 日本_語_",
+      "* \n*\n** \n- *a*",
+      "[a [b](https://e.com) [c](https://e.com/(x)y) [d](https://e.com/(x y)) [e](https://e.com/(x",
+      "[a]](https://e.com) [[a](https://e.com) [a](https://e.com)) [a]((https://e.com) [a](()) [a](x) [a](ftp://x)",
+      "[a](https://e.com/x]y) [a]([b](https://e.com)) **[a](https://e.com)** `[a](https://e.com)` [`a`](https://e.com)",
+      "[a](" + "[b](c) ".repeat(3) + "[x](https://e.com/(a)(b)) end [y](https://e.com",
+      "# t x\n- a b\n1. a b\n- a  \n#  ",
+    ];
+    const out: Record<string, string> = {};
+    cases.forEach((c, i) => (out[`${i}: ${JSON.stringify(c)}`] = html(c)));
+    expect(out).toMatchSnapshot();
+  });
+
+  // Hostile text reaches this renderer from sessions, so a long run of one marker must not stall the tab.
+  describe("stays linear on pathological input (#362)", () => {
+    const N = 50000;
+    const pathological: Record<string, string> = {
+      "backticks": "`a".repeat(N),
+      "bold opens": "**a".repeat(N),
+      "underscore bold opens": "__a".repeat(N),
+      "link opens": "[a](".repeat(N),
+      "open brackets": "[".repeat(N * 2),
+      "open brackets with text": "[a".repeat(N),
+      "link text then a long url run": "[a](" + "[a]".repeat(N),
+      "link text then groups": "[a](" + "[b](c)".repeat(N),
+      "link text then closers": "[a](" + "x]".repeat(N),
+      "link url parens":"[a](" + "(a".repeat(N),
+      "link url nested parens": "[a](" + "(a)".repeat(N) + "(",
+      "italic opens": "*a ".repeat(N),
+      "underscore opens": "_a ".repeat(N),
+      "a lone star then text": "*" + "a".repeat(N * 2),
+      "a lone underscore then text": "_" + "a".repeat(N * 2),
+      "a lone bracket then text": "[" + "a".repeat(N * 2),
+      "bracket text then no paren": "[a]".repeat(N),
+      "spaces then no marker": " ".repeat(N * 2),
+      "spaces then dash": " ".repeat(N * 2) + "-",
+      "spaces then digit": " ".repeat(N * 2) + "1",
+      "spaces then digit dot": " ".repeat(N * 2) + "1.",
+      "digits then no dot": "1".repeat(N * 2),
+      "heading hashes": "#".repeat(N * 2),
+      "heading hashes then spaces": "#" + " ".repeat(N * 2),
+      "dash then spaces": "-" + " ".repeat(N * 2),
+      "many dash lines": "-\n".repeat(N),
+    };
+    for (const [name, src] of Object.entries(pathological)) {
+      it(name, () => {
+        const t0 = performance.now();
+        dom(src);
+        expect(performance.now() - t0).toBeLessThan(3000);
+      }, 20000);
+    }
+  });
+
   it("handles a large text", () => {
     const big = Array.from({ length: 2000 }, (_, i) => `- item ${i} with **bold**`).join("\n");
     expect(dom(big).querySelectorAll("li")).toHaveLength(2000);
