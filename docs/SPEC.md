@@ -1721,9 +1721,10 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     `POST people/delete`.
     - `POST people/delete` takes `{ ids }`, 1 to 500 person ids (one id for a single person), and replies
       `{ ok, removed }`. It deletes the people and their machine list; their token stops working at once, and an
-      Administrator's open Admin session locks. It is all or nothing: it answers `400` and deletes nobody if the list
-      holds the person signed in to Admin, or would leave the Administrators group empty, and `404` if no id is a
-      person. Sessions, spend rows and Admin log entries that name a person keep the name as text, and the name can be
+      Administrator's open Admin session locks. It refuses with `400`, deleting nobody, if the list holds the person
+      signed in to Admin, or would leave the Administrators group with no active (unrevoked) member, since only an
+      active member can open Admin. An id that is not a person is skipped, and `removed` counts the people it removed;
+      it answers `404` if none of the ids is a person. Sessions, spend rows and Admin log entries that name a person keep the name as text, and the name can be
       created again. It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.

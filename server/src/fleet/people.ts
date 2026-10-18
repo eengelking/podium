@@ -195,9 +195,11 @@ export class PeopleStore {
   deleteMany(ids: number[]): PersonRow[] {
     const found = [...new Set(ids)].map((id) => this.getPerson(id)).filter((p): p is PersonRow => p !== undefined);
     const adminsId = this.administratorsGroupId();
-    if (adminsId !== null && found.some((p) => p.groupId === adminsId)) {
-      const members = Number((this.stmt('SELECT COUNT(*) AS n FROM people WHERE group_id = ?').get(adminsId) as { n: number }).n);
-      if (found.filter((p) => p.groupId === adminsId).length >= members) {
+    // Only an active member can open Admin (isAdministrator), so only an active one counts as "the last".
+    const goingAdmins = found.filter((p) => p.groupId === adminsId && p.revokedAt === null);
+    if (adminsId !== null && goingAdmins.length > 0) {
+      const members = Number((this.stmt('SELECT COUNT(*) AS n FROM people WHERE group_id = ? AND revoked_at IS NULL').get(adminsId) as { n: number }).n);
+      if (goingAdmins.length >= members) {
         throw new PeopleError('invalid', `That would remove the last person in ${ADMINISTRATORS_GROUP}. Add or move another person into it first.`);
       }
     }

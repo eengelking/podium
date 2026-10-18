@@ -239,6 +239,31 @@ describe('deleting people (#243)', () => {
     expect((await del(agent, [only.person.id])).status).toBe(200);
   });
 
+  it('counts only active members: a revoked one does not save the last active Administrator', async () => {
+    const { app, people, admins } = setup();
+    const active = people.createPerson('Priya', admins!.id);
+    const revoked = people.createPerson('Quinn', admins!.id);
+    people.revoke(revoked.person.id);
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    const res = await del(agent, [active.person.id]);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/last/i);
+    expect(people.getPerson(active.person.id)).toBeDefined();
+    // A revoked Administrator can go: it never counted.
+    expect((await del(agent, [revoked.person.id])).status).toBe(200);
+  });
+
+  it('skips an unknown id beside a known one and counts only the people it removed', async () => {
+    const { app, people } = setup();
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    const a = people.createPerson('Ada');
+    const res = await del(agent, [a.person.id, 9999]);
+    expect(res.status).toBe(200);
+    expect(res.body.removed).toBe(1);
+  });
+
   it('rejects a bad list and an unknown person', async () => {
     const { app } = setup();
     const agent = request.agent(app);

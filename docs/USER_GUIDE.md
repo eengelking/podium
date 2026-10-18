@@ -687,7 +687,7 @@ Under **Create user**, type a name and choose Create user.
   an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name, and the
   name can be used again later. To delete several people, tick their rows (the box in the header ticks the page), then
   choose **Delete N…** in the bar above the list. Ticks are for the page you are on. Podium refuses, and deletes no
-  one, if the choice includes you or would leave Administrators with no one in it.
+  one, if the choice includes you or would leave Administrators with no active member.
 - The search finds a person by name, group or machine.
 - A person in the Administrators group has their name in orange.
 
