@@ -21,9 +21,10 @@ export function durations(css: string): Array<[string, number]> {
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en", { numeric: true }));
 }
 
-/** The widths the layout changes at, from @media and @container queries. */
+/** The widths the layout changes at, from @media and @container queries. A query with a range counts both its ends. */
 export function breakpoints(css: string): Array<[string, number]> {
   const counts = new Map<string, number>();
-  for (const m of stripComments(css).matchAll(/@(?:media|container)[^{]*\(\s*(min|max)-width:\s*([\d.]+px)\s*\)/g)) counts.set(`${m[1]}-width: ${m[2]}`, (counts.get(`${m[1]}-width: ${m[2]}`) ?? 0) + 1);
+  for (const q of stripComments(css).matchAll(/@(?:media|container)[^{]*/g))
+    for (const m of q[0].matchAll(/\(\s*(min|max)-width:\s*([\d.]+px)\s*\)/g)) counts.set(`${m[1]}-width: ${m[2]}`, (counts.get(`${m[1]}-width: ${m[2]}`) ?? 0) + 1);
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en", { numeric: true }));
 }

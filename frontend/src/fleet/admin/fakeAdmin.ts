@@ -119,7 +119,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const rule = { id: state.rules.length + 1, kind: b.kind, pattern: b.pattern, createdAt: 90_000 };
       state.rules.push(rule);
       const field = b.kind === "key" ? "key" : b.kind === "version" ? "version" : "name";
-      const re = new RegExp("^" + b.pattern.split("*").join(".*") + "$", "i");
+      const re = new RegExp("^" + b.pattern.split("*").map((part) => part.replaceAll(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$", "i");
       const before = state.reporters.length;
       state.reporters = state.reporters.filter((r) => !re.test(r[field]));
       return json(200, { ok: true, rule, removed: before - state.reporters.length });

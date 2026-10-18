@@ -23,6 +23,10 @@ describe("colorLiterals", () => {
     ]);
   });
 
+  it("finds a hex inside a longer TSX string, and not a link or an id", () => {
+    expect(colorLiterals('const a = "1px solid #fff"; const b = `linear-gradient(#000, #fff)`; <a href="#/admin">x</a>; const c = "#top-x";', "tsx").map((h) => h.text)).toEqual(["#fff", "#000", "#fff"]);
+  });
+
   it("ignores issue numbers in comments, color-mix with tokens, and var() use", () => {
     const css = "/* see #352 and #abc */\n.a { color: color-mix(in srgb, var(--crit) 50%, transparent); background: var(--bg); }";
     expect(colorLiterals(css)).toEqual([]);
@@ -47,6 +51,10 @@ describe("classNames", () => {
   it("lists each class selector once, ignoring declarations and numbers", () => {
     const css = ".podium .card:hover, .podium .card.risk { padding: 1.5px; }\n.adminv .field.sm { width: 0.5em; }";
     expect([...classNames(css)].sort()).toEqual(["adminv", "card", "field", "podium", "risk", "sm"]);
+  });
+
+  it("does not read the value of an attribute selector as a class", () => {
+    expect([...classNames('a[href$=".pdf"], .link[data-x="a.b"] { color: red; }')].sort()).toEqual(["link"]);
   });
 });
 

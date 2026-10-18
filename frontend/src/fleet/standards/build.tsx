@@ -17,6 +17,8 @@ import { SCREENS, type Screen } from "./screens";
  */
 export async function renderSample(sample: Sample, screens: Record<string, Screen> = SCREENS): Promise<Array<{ label: string; markup: string }>> {
   const out = new Map<string, string>();
+  const labels = sample.cases.map((c) => c.label);
+  if (new Set(labels).size !== labels.length) throw new Error(`sample ${sample.id}: two cases share a label, so one would show the other's markup`);
   for (const id of new Set(sample.cases.map((c) => c.screen))) {
     const screen = screens[id];
     if (!screen) throw new Error(`sample ${sample.id}: no screen named ${id}`);
@@ -24,16 +26,19 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
     localStorage.clear();
     sessionStorage.clear();
     for (const k of Object.keys(document.documentElement.dataset)) delete document.documentElement.dataset[k];
-    const { container } = render(screen.make());
-    const body = container.ownerDocument.body;
-    await screen.act?.(body);
-    for (const c of sample.cases.filter((x) => x.screen === id)) {
-      const hit = body.querySelector(c.selector);
-      if (!hit) throw new Error(`sample ${sample.id}: ${c.selector} matched nothing on screen ${id}`);
-      out.set(c.label, normalizeIds(hit.outerHTML));
+    try {
+      const { container } = render(screen.make());
+      const body = container.ownerDocument.body;
+      await screen.act?.(body);
+      for (const c of sample.cases.filter((x) => x.screen === id)) {
+        const hit = body.querySelector(c.selector);
+        if (!hit) throw new Error(`sample ${sample.id}: ${c.selector} matched nothing on screen ${id}`);
+        out.set(c.label, normalizeIds(hit.outerHTML));
+      }
+    } finally {
+      cleanup();
+      vi.unstubAllGlobals();
     }
-    cleanup();
-    vi.unstubAllGlobals();
   }
   return sample.cases.map((c) => ({ label: c.label, markup: out.get(c.label)! }));
 }

@@ -47,11 +47,11 @@ const lineOf = (text: string, index: number) => text.slice(0, index).split("\n")
  */
 export function colorLiterals(text: string, kind: "css" | "tsx" = "css"): Hit[] {
   const t = stripComments(text);
-  const hex = kind === "css" ? /(?<![\w&#])#[0-9a-fA-F]{3,8}\b/g : /(?<=["'`])#[0-9a-fA-F]{3,8}(?=["'`])/g;
+  const hex = kind === "css" ? /(?<![\w&#])#[0-9a-fA-F]{3,8}\b/g : /(?<=["'`\s(,:])#[0-9a-fA-F]{3,8}\b(?![-\w/])/g;
   const fn = /\b(?:rgba?|hsla?)\([^)]*\)/g;
-  const hits: Hit[] = [];
-  for (const re of [hex, fn]) for (const m of t.matchAll(re)) hits.push({ line: lineOf(t, m.index), text: m[0] });
-  return hits.sort((a, b) => a.line - b.line || t.split("\n")[a.line - 1].indexOf(a.text) - t.split("\n")[b.line - 1].indexOf(b.text));
+  const hits: Array<Hit & { at: number }> = [];
+  for (const re of [hex, fn]) for (const m of t.matchAll(re)) hits.push({ line: lineOf(t, m.index), text: m[0], at: m.index });
+  return hits.sort((a, b) => a.at - b.at).map(({ line, text }) => ({ line, text }));
 }
 
 /** Names of custom properties a stylesheet or a TSX file sets, such as `x` for `--x: 1px` or `["--c" as string]`. */
@@ -77,6 +77,8 @@ export function classNames(css: string): Set<string> {
     prev = t;
     t = t.replaceAll(/\{[^{}]*\}/g, "{}");
   }
+  // An attribute selector's value can hold a dot (`[href$=".pdf"]`), and that is not a class.
+  t = t.replaceAll(/\[[^\]]*\]/g, "");
   const out = new Set<string>();
   for (const m of t.matchAll(/(?<!\d)\.([a-zA-Z_][\w-]*)/g)) out.add(m[1]);
   return out;

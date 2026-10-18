@@ -26,8 +26,9 @@ describe("scale readers", () => {
     expect(durations(css)).toEqual([["0.15s", 1], [".15s", 1], ["1.2s", 1]].sort((a, b) => (b[1] as number) - (a[1] as number) || String(a[0]).localeCompare(String(b[0]), "en", { numeric: true })));
   });
 
-  it("finds the widths the layout changes at", () => {
+  it("finds the widths the layout changes at, both ends of a range", () => {
     expect(breakpoints(css)).toEqual([["max-width: 520px", 1], ["min-width: 800px", 1]]);
+    expect(breakpoints("@media (min-width: 600px) and (max-width: 900px) { .a { margin: 0; } }")).toEqual([["max-width: 900px", 1], ["min-width: 600px", 1]]);
   });
 });
 
