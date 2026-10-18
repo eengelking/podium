@@ -121,6 +121,7 @@ describe("the screens", () => {
       }
       cleanup();
       vi.unstubAllGlobals();
+      screen.cleanup?.();
     }
   }, 120_000);
 });

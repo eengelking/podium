@@ -16,6 +16,8 @@ export interface Screen {
   make: () => ReactElement;
   /** Runs after the first render, for a screen that needs a click or a keypress to reach its state. */
   act?: (body: HTMLElement) => void | Promise<void>;
+  /** Undoes what `make` installed that is not a global stub, such as a faked layout measure. */
+  cleanup?: () => void;
 }
 
 const CONFIG: LifecycleConfig = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };

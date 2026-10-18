@@ -1,7 +1,7 @@
 // More states of the real screens (#354): responding from the wall, the board signed in, the activity list with every kind of
 // event, and an orchestrator's page in the states a card or a row can be in. Fixture data, the app's own components.
 import { act, fireEvent, screen } from "@testing-library/react";
-import { vi } from "vitest";
+import { vi, type MockInstance } from "vitest";
 import { FleetView } from "../FleetApp";
 import { makeAgent, makeEvent, makeKpis, makeSession } from "../fixtures";
 import type { RespondApi } from "../respondApi";
@@ -76,6 +76,34 @@ const agentStates = makeSession({
 
 const stepOf = (id: string, state: "pending" | "active" | "done" | "blocked") => ({ id, text: `step ${id}`, state, activeText: state === "active" ? "Working" : null, ownerAgentId: null, ownerLabel: null });
 const planOf = (...steps: ReturnType<typeof stepOf>[]) => ({ title: "Plan", source: "TaskCreate" as const, steps });
+// jsdom has no layout, so the rail's pager is shown by faking the measures it reads: a 600 px panel, the head, the "All
+// orchestrators" row and the footer taking 38 + 50 + 46, the pager 40, a row 50 and a band header 30 (as railPaging.test.tsx does).
+const RAIL_SIZE: Record<string, number> = { "rail-head": 38, all: 50, "rail-foot": 46, pager: 40, "ritem-slot": 50, rgh: 30 };
+const railMeasure = (el: HTMLElement) => {
+  for (const c of el.classList) if (c in RAIL_SIZE) return RAIL_SIZE[c]!;
+  return 0;
+};
+let spies: MockInstance[] = [];
+const fakeRailLayout = () => {
+  spies = [
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("rail") ? 600 : railMeasure(this);
+    }),
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return railMeasure(this);
+    }),
+  ];
+};
+const restoreRailLayout = () => {
+  for (const s of spies) s.mockRestore();
+  spies = [];
+};
+const many24 = (owner?: (i: number) => string | null) => Array.from({ length: 24 }, (_, i) => makeSession({ id: `s${i + 1}`, name: `proj-${i + 1}`, owner: owner ? owner(i) : null }));
+/** A fleet whose rail would need a scrollbar, so it shows its pager. */
+const railPaged = (sessions: SessionView[], after: (body: HTMLElement) => Promise<void>): Screen => {
+  const base = fleet(sessions, { act: after });
+  return { make: () => { fakeRailLayout(); return base.make(); }, act: base.act, cleanup: restoreRailLayout };
+};
 const pick = (b: HTMLElement, id: string) => void fireEvent.click(b.querySelector(`[data-session="${id}"]`)!);
 const many = Array.from({ length: 30 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null }));
 const crowded = makeSession({ id: "s5", name: "many-files", effort: "high", git: { branch: "main", detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 0 }, blowouts: { orchestrator: 1, agents: 1, total: 2, level: 1, loopsHit: 1, loopsTotal: 3, log: [{ t: 1_900_000, agentId: null, kind: "compact", tokensBefore: 900_000, tokensAfter: 100_000 }] }, files: { files: Array.from({ length: 45 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null })), total: 45, added: 465, removed: 435, since: "start" }, agents: [makeAgent({ id: "a1", description: "Watch me", activityFeed: true } as never)] });
@@ -137,5 +165,7 @@ export const STATE_SCREENS: Record<string, Screen> = {
     makeSession({ id: "s1", name: "api-refactor", owner: "Dana", ownerGroup: "Platform" }),
     makeSession({ id: "s2", name: "docs", owner: "Priya", ownerGroup: null }),
   ], { prefs: { groupBy: "group", order: "name", collapsed: [] } }),
+  "app-rail-paged": railPaged(many24(), async (b) => { pick(b, "s20"); await flush(); }),
+  "app-rail-paged-people": railPaged(many24((i) => (i < 12 ? "Dana" : "Priya")), async () => { fireEvent.click(screen.getByRole("button", { name: "Next page" })); await flush(); }),
   "app-agent-states": fleet([agentStates], { act: (b) => void fireEvent.click(b.querySelector('[data-session="s4"]')!) }),
 };

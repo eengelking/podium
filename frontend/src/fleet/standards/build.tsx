@@ -38,6 +38,7 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
     } finally {
       cleanup();
       vi.unstubAllGlobals();
+      screen.cleanup?.();
     }
   }
   return sample.cases.map((c) => ({ label: c.label, markup: out.get(c.label)! }));

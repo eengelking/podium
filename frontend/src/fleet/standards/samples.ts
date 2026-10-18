@@ -126,7 +126,7 @@ export const SAMPLES: Sample[] = [
     id: "rail",
     title: "Rail",
     files: ["components/Rail.tsx", "components/ResizeHandle.tsx"],
-    purpose: "The left list of every orchestrator, with a state dot, a model chip, plan progress and agent counts. A handle between it and the page resizes it.",
+    purpose: "The left list of every orchestrator, with a state dot, a model chip, plan progress and agent counts. When every row would not fit it pages, with a pager at the foot. A handle between it and the page resizes it.",
     use: ["Moving between orchestrators without going back to the wall."],
     avoid: ["Adding detail that belongs on the card or the orchestrator page."],
     a11y: "Each item is a button that says whether it is the current one. The handle is a separator with a value that moves with the arrow keys; Shift moves 48 px, Home resets.",
@@ -134,6 +134,8 @@ export const SAMPLES: Sample[] = [
       { label: "The rail", screen: "wall", selector: ".rail" },
       { label: "The three columns and the two handles between them", screen: "wall", selector: ".app > .cols" },
       { label: "By person", screen: "app-people", selector: ".rail" },
+      { label: "Paged, with a note that the selected row is on another page", screen: "app-rail-paged", selector: ".rail" },
+      { label: "Paged by person, a band continuing on the next page", screen: "app-rail-paged-people", selector: ".rail" },
     ],
   },
   {
