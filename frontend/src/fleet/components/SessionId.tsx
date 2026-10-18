@@ -30,7 +30,7 @@ export function useCopy(text: string) {
   };
   // `write` settles every outcome itself, so the click handlers need not wait on it.
   const copy = () => {
-    write();
+    void write();
   };
   return { state, copy };
 }
