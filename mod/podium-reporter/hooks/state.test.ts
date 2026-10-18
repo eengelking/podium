@@ -526,8 +526,7 @@ describe('activity feed (#118)', () => {
   })
 
   test('the watched ids are kept in alphabetical order, not by UTF-16 code unit', () => {
-    expect(setWatched(base(), ['b', 'B', 'a', 'Z']).watched).toEqual(['a', 'b', 'B', 'Z'].sort((x, y) => x.localeCompare(y)))
-    expect(setWatched(base(), ['b', 'B', 'a', 'Z']).watched.slice(0, 2)).toEqual(['a', 'b'])
+    expect(setWatched(base(), ['b', 'B', 'a', 'Z']).watched).toEqual(['a', 'b', 'B', 'Z'])
   })
 
   test('the orchestrator is watched as MAIN_LOOP', () => {
