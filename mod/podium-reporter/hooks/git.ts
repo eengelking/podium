@@ -130,6 +130,16 @@ export function parseNumstat(stdout: string): Map<string, LineCount> {
   return out;
 }
 
+/** What the Files list diffs against, and which of the three bases that is. A rebase, an amend or a branch switch can drop the starting commit. */
+export async function resolveRef(run: Runner, top: string, start: string, head: string | null): Promise<{ ref: string; since: FilesReport['since'] }> {
+  const git = (...args: string[]) => ['git', '-C', top, ...args];
+  if (start === EMPTY_TREE) return { ref: EMPTY_TREE, since: 'start' };
+  if ((await run(git('merge-base', '--is-ancestor', start, 'HEAD'))).exitCode === 0) return { ref: start, since: 'start' };
+  const up = await run(git('merge-base', 'HEAD', '@{upstream}'));
+  const mb = up.exitCode === 0 ? up.stdout.trim() : '';
+  return { ref: mb || head || EMPTY_TREE, since: mb ? 'upstream' : 'worktree' };
+}
+
 export interface Changes {
   /** The starting commit, to hand back on the next read. */
   base: string;
@@ -153,17 +163,7 @@ export async function readChanges(run: Runner, cwd: string, base: string | null)
     const headRes = await run(git('rev-parse', 'HEAD'));
     const head = headRes.exitCode === 0 ? headRes.stdout.trim() : null;
     const start = base ?? head ?? EMPTY_TREE;
-    let ref: string;
-    let since: FilesReport['since'] = 'start';
-    if (start === EMPTY_TREE) ref = EMPTY_TREE;
-    else if ((await run(git('merge-base', '--is-ancestor', start, 'HEAD'))).exitCode === 0) ref = start;
-    else {
-      // A rebase, an amend or a branch switch dropped the starting commit.
-      const up = await run(git('merge-base', 'HEAD', '@{upstream}'));
-      const mb = up.exitCode === 0 ? up.stdout.trim() : '';
-      since = mb ? 'upstream' : 'worktree';
-      ref = mb || head || EMPTY_TREE;
-    }
+    const { ref, since } = await resolveRef(run, top, start, head);
     const [names, nums, others] = await Promise.all([
       out(git('diff', '--name-status', '-z', '-M', ref)),
       out(git('diff', '--numstat', '-z', '-M', ref)),

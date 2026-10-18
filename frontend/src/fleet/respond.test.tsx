@@ -57,6 +57,7 @@ function fakeApi(over: Partial<RespondApi> = {}, me: RespondMe = ME, detail: Ask
     answer: vi.fn(async () => ({ ok: true as const, deliveryId: "dlv_1" })),
     message: vi.fn(async () => ({ ok: true as const, deliveryId: "dlv_2", queued: false })),
     discard: vi.fn(async () => ({ ok: true as const })),
+    fileDiff: vi.fn(async (_s: string, path: string) => ({ path, status: "unavailable" as const, text: null, truncated: false, shownLines: 0, totalLines: 0, redactions: 0, base: null })),
     ...over,
   } satisfies RespondApi;
 }

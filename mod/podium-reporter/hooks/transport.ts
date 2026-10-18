@@ -2,7 +2,7 @@
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { trimTrailingSlashes } from './machine.ts';
-import type { ActivityEvent, Delivery, Report } from './protocol.ts';
+import { FILE_DIFF_LIMITS, type ActivityEvent, type Delivery, type DiffRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
@@ -18,6 +18,12 @@ const MAX_DELIVERIES = 20;
 export function isDelivery(v: unknown): v is Delivery {
   const d = v as Partial<Delivery> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && typeof d.kind === 'string' && typeof d.by === 'string' && typeof d.at === 'number';
+}
+
+/** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
+export function isDiffRequest(v: unknown): v is DiffRequest {
+  const d = v as Partial<DiffRequest> | null;
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && typeof d.path === 'string' && d.path.length > 0;
 }
 
 /** Whether a server URL is plain `http:` to a host that is not this machine, so the token it sends is not encrypted in transit (#306). */
@@ -86,6 +92,8 @@ export class Transport {
   respond = false;
   /** Messages and commands from Podium the last reply handed over (#206). */
   deliveries: Delivery[] = [];
+  /** The file diffs the session's owner is waiting for, from the last reply (#319); empty from a server that predates it. */
+  diffs: DiffRequest[] = [];
   inFlight = false;
   private current: Promise<SendOutcome> | null = null;
   private loggedReject = false;
@@ -156,7 +164,7 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -166,6 +174,7 @@ export class Transport {
           this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.respond = body.respond === true;
           this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
+          this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, FILE_DIFF_LIMITS.pending) : [];
         } catch {
           // a 200 without a JSON body still acks what was sent
         }

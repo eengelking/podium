@@ -937,7 +937,8 @@ git grep --no-index -I -c -z '' -- <paths>       → their line counts, one proc
 git diff --no-index --numstat -- /dev/null <path> → those left-out files, one process each, for at most 20 per read
 ```
 
-Only paths and counts are read, never file contents or diff text.
+Only paths and counts are read, never file contents or diff text. The one exception is a file's diff opened on
+demand from the console (#319, [6.4](#64-failure-and-excerpt-rules)), which is off unless two switches are on.
 
 - The list is sorted by path and cut at 200 files.
 - `total`, `added` and `removed` cover every file, with one exception: an untracked file past the 200th is
@@ -983,6 +984,7 @@ supported.
 | `explainFailures` | boolean | `false` | Phase 5 only. When true, ask a small model to explain a failure (costs tokens). |
 | `fullPrompts` | boolean | `false` | When true, send each agent's whole task prompt and final answer as `promptText` and `answerText` ([6.4](#64-failure-and-excerpt-rules)). Off by default: only the 400-character excerpts are sent. |
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
+| `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
@@ -1001,6 +1003,15 @@ Read the options via the `options` argument of `register`. A config change reloa
   the server's reply lists as watched: its tool calls and the text it writes, the last 20, each redacted and
   cut to 300 characters. It also sends `session.activityFeed`.
 - Off by default: nothing is captured and `watch` is ignored.
+
+**`fileDiff`** (#319)
+- When true, the mod answers a request in the reply's `diffs` ([6.1](#61-endpoint)) by sending the diff of that
+  one file ([6.4](#64-failure-and-excerpt-rules)). It also sends `session.fileDiff`.
+- Off by default: no diff is ever read, `diffs` is ignored, and nothing leaves the machine. It is separate from
+  `activityFeed`, so a person can allow one without the other.
+- A diff is source code and can hold a secret. The mod redacts what looks like one before it leaves the machine
+  ([6.4](#64-failure-and-excerpt-rules)), but that is best effort and not a guarantee. This option, the Admin's
+  flag and the owner-or-Admin gate are the control, and the User Guide says so.
 
 **`respond`** (#206, [5.3](#responding-from-podium))
 - `off`: nothing.
@@ -1069,7 +1080,8 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   { "ok": true, "serverTime": <epoch ms>, "ackedEvents": <n>, "sessionId": "…", "liveSessions": <n>,
     "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" },
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
-    "watch": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[] }
+    "watch": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
+    "diffs": DiffRequest[] }
   ```
 
   | Field | Meaning |
@@ -1077,6 +1089,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   | `serverVersion`, `reporterSupport`, `reporterCompat` | Explained in [6.8](#68-version-compatibility). |
   | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](#64-failure-and-excerpt-rules)). Always empty while the Admin has the activity feed turned off. |
   | `respond` | Whether the server takes answers for this session now ([7.7](#77-hardening): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
+  | `diffs` | The file diffs the session's signed-in owner is waiting for now (`{ id, path }`, #319, [6.4](#64-failure-and-excerpt-rules)), at most 4. Always empty while the Admin's `file-diff` flag is off or the session has no owner. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](#62-the-report), [7.1](#71-endpoints)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |
 
 - `400 { "ok": false, "error": "…", "path": "…" }` for a body that fails validation. The mod drops that report
@@ -1126,6 +1139,7 @@ interface Report {
     loop: LoopReport | null;            // the main loop's own steps, tools and skills; null from a reporter older than 0.4.0
     files: FilesReport | null;          // the files the session changed (5.7); null from a reporter older than 0.6.0
     attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit; null from a reporter older than 0.7.0 or when the roster could not be read
+    fileDiff?: boolean;                 // whether the reporter's fileDiff option is on (5.9); absent from a reporter older than the release that adds it
     activityFeed?: boolean;             // whether the reporter's activityFeed option is on (5.9); absent from a reporter older than 0.13.0
     activity?: ActivityEntry[];         // the main loop's activity feed, sent only while the reply's `watch` lists `@orchestrator` (6.4)
     background?: {                      // what an idle session waits on (#119), with waitReason null; absent from a reporter older than 0.11.0 and when there is none
@@ -1363,6 +1377,72 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   it held at the moment the flag goes off, and it keeps nothing a mod sends. Turning it back on needs nothing
   else, since the next fetch takes a lease as usual.
 
+#### File diff (opt-in, on request, #319)
+
+With the `fileDiff` option on, the mod can send the diff of one file in the Files list
+([5.7](#57-git-queries)) when someone asks for it.
+
+**What is sent**
+- The diff of one path against the same base the list counts from (the session's starting commit, or the
+  fallback base the list names): `git -C <toplevel> diff <base> -- <path>`, with `-M` and the old path for a
+  renamed file, and `git diff --no-index -- /dev/null <path>` for an untracked one.
+- The path must be one the current `session.files` lists. Any other is refused with `status: "unavailable"`.
+- A diff is cut at 2,000 lines or 200,000 bytes, at a line boundary, and says so: `truncated: true`, with the
+  `shownLines` and `totalLines` it kept and had. A binary file sends no text (`status: "binary"`); a path that
+  matches the never-send list sends none either (`status: "withheld"`): `.env`, `.env.*`, `*.pem`, `*.key`,
+  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `credentials*`. A diff whose size cannot
+  be bounded (more than 5 MB read, or a file the list counts at more than 200,000 changed lines) is
+  `status: "too-large"` and is not read into the report. A single line is cut at 4,000 characters and ends with
+  ` … [line cut]`.
+- The mod answers with `PUT /api/fleet/sessions/:id/diffs/:requestId` ([7.1](#71-endpoints)).
+- **Redaction.** The mod redacts the text before it leaves the machine, on every line it sends: removed, added
+  and context lines alike, since a secret that was just deleted is still a secret. The server and the console
+  never see the original. A value is replaced with `[redacted]` and the rest of the line stays, so the diff
+  still reads. The rules go further than the shapes in the redaction rule above, because a diff can show
+  any file, not only a `.env`:
+  - the shapes in the redaction rule above;
+  - provider tokens: `sk-…` keys, GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab
+    `glpat-`, AWS access key ids (`AKIA`, `ASIA`) and a 40-character secret after `aws_secret`, Google
+    `AIza…`, Slack `xox[abprs]-…`, Stripe `sk_live_`, `rk_live_` and `whsec_`, npm `npm_…`, SendGrid `SG.…`,
+    Twilio `SK…`, Azure storage `AccountKey=…`, and Anthropic and OpenAI keys;
+  - JSON Web Tokens (three base64url parts, the first two starting `eyJ`);
+  - a private key block (`-----BEGIN … PRIVATE KEY-----` to the matching `END`), every line of its body, with
+    the line count kept;
+  - a password or token in a URL (`scheme://user:secret@host`) and in a connection string;
+  - an `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie` or `X-Api-Key` header value, and a
+    `Basic …` or `Bearer …` credential;
+  - the value of a key whose name says it is a secret (`password`, `passwd`, `pwd`, `secret`, `token`,
+    `api_key`, `apikey`, `access_key`, `private_key`, `client_secret`, `auth`, `credential`, `salt`, with any
+    prefix or suffix, in any case and with `-` or `_`), written with `=`, `:` or `:=`, bare or quoted, in env,
+    JSON, YAML, TOML, code or a command line, including `--password foo` and `-p foo` after a known client;
+  - a long random-looking value: 24 or more characters of base64 or base64url with a digit and a Shannon entropy
+    of at least 4.0 bits per character (40 or more letters-only characters need 4.3), or 32 or more hex characters
+    with an entropy of at least 3.0 that are not a 40- or 64-character hash on its own. A path, a UUID, a
+    lockfile `integrity` hash and an identifier are not.
+- Redaction is best effort, because a secret can take any shape. The unit tests hold the shapes above and a
+  list of lines that must not be changed. Each redaction counts toward `redactions` in the reply. The
+  `fileDiff` option, the Admin's flag and the owner-only gate stay the control, and the User Guide says
+  that redaction is not a guarantee.
+- The console draws each `[redacted]` in bold, in the critical color.
+
+**When it is sent**
+- Nothing is read for a file nobody opens. The console asks only when a signed-in owner or Admin opens a
+  file's modal, the server lists the request in the next reply's `diffs`, and the mod answers once. A request
+  the mod has not answered in 15 seconds is dropped and the console says so.
+
+**What the server does**
+- It hands the text to the one browser request that is waiting and then forgets it. It keeps no copy: not in
+  the database, not in the state or the stream, not in a log line, an error or the admin log, and not for a
+  second viewer. Opening the modal again asks again.
+- It drops a pending request when its session leaves the live set or is deleted, and on restart.
+
+**Switches**
+- Three must be on: the reporter's `fileDiff` option on the machine, the server's `file-diff` feature flag
+  (Admin > Settings > Feature flags, [8.1](#81-what-the-ui-must-do)), off by default, and authentication
+  ([7.7](#77-hardening)). Who may ask is under *File diff* in [7.7](#77-hardening).
+- With the option off the mod reads nothing and ignores `diffs`. With the flag off the server lists no
+  request, refuses the browser route, and drops what is pending.
+
 #### Who and where
 
 - A report names a person only when the user has set the `userName` option, which is empty by default. It
@@ -1583,6 +1663,17 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - 404 for an unknown session or agent.
 - In memory only, never in the state or the stream. No token, like the other reads.
 
+**`GET /api/fleet/respond/sessions/:id/files/diff?path=`** (#319)
+- The console's request for one file's diff. It needs a respond session ([7.7](#77-hardening), *File diff*),
+  not just a read: this is the one read that returns source code.
+- It is held until the mod answers or 15 seconds pass. `200 { path, status, text, truncated, shownLines,
+  totalLines, redactions, base }`, where `status` is `"ok"`, `"binary"`, `"withheld"`, `"too-large"` or `"unavailable"`
+  and `text` is a string only for `"ok"`. `504 { error: "no answer" }` when the mod did not answer.
+- `401` signed out, `403 { error: "not your session", owner }` for anyone who is not the owner (an Admin included),
+  `403 { error: "file diff is off" }` while a switch the server knows of is off, `404` for an unknown or
+  not-live session, `400` for a missing path.
+- `Cache-Control: no-store`. The text is never logged and never kept ([6.4](#64-failure-and-excerpt-rules)).
+
 **`GET /api/fleet/history?day=YYYY-MM-DD&page=N&pageSize=N`**
 - Ended or dropped sessions that day, newest first, summary rows only (name, project, model, duration, cost,
   blowouts, end reason), one page at a time (#195). The server builds the rows of the requested page only
@@ -1596,6 +1687,13 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 #### Mod routes for responding
 
 Issue #206 ([5.3](#responding-from-podium)). All need `X-Podium-Token` from the session's owner ([7.7](#77-hardening)).
+
+**`PUT /api/fleet/sessions/:id/diffs/:requestId`**: the mod's answer to a request in `diffs` (#319).
+- Body: `{ path, status, text?, truncated, shownLines, totalLines, redactions, base }` as in the browser route's reply.
+- `200 { ok: true }`, also for a request already answered or dropped (the text is discarded). `403` while the
+  flag is off, `404` for a session that is not live, `400` for a body that fails validation, `413` above
+  300,000 bytes.
+- The text goes to the waiting browser request and nowhere else.
 
 **`PUT /api/fleet/sessions/:id/asks/:askId`**: the mod announces an open ask.
 - Body: one `Ask` ([6.2](#62-the-report)) whose `id` is `:askId`.
@@ -2056,6 +2154,22 @@ The registry removes a client on `close`/`error`, and a write that throws never 
   that is presented is still checked.
 - A session id that already belongs to another owner is refused with `409`.
 - Any valid credential may `DELETE` a session.
+
+#### File diff (#319)
+
+A file's diff is source code. Reads are open by design, so this is the one read that is not.
+
+- It needs authentication on, the Admin's `file-diff` flag, and the reporter's `fileDiff` option on the machine.
+- It needs a respond session, as responding does (the sign-in to respond, under *Responding* in [8.1](#81-what-the-ui-must-do)). Only the
+  session's owner can open a diff: the signed-in person whose name equals the session's `owner`, compared
+  case-insensitively. An Admin who is not the owner cannot, and neither can a person in Administrators. A
+  session owned by `Admin` (reported with the admin secret) can be opened only by a browser signed in with the
+  admin secret. A session with no owner has no one who can. Everyone else gets `403`. Opening is kept to the
+  owner because a diff is source code and fewer people who can read it means fewer places it can leak.
+- Each diff opened is not written to the admin log with its text. The log records only that the diff of a
+  path was opened, by whom (`file_diff_opened`: actor, session, path), never the text.
+- Signed out, or for a session that is not yours, the Files row shows the counts and no link, with a line
+  that says why ([8.1](#81-what-the-ui-must-do)).
 
 #### The Admin API (`/api/admin`)
 
@@ -2810,7 +2924,10 @@ features that can be switched off appear here."
     someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after
     the panel closes."
   - **Respond from Podium** (`respond`, #206, [7.7](#77-hardening)).
-- Flags default to on, except `respond`, which is off by default.
+  - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
+    the console. The diff is source code, read from the machine only when asked and never stored. Needs the
+    reporter's fileDiff option on the machine as well."
+- Flags default to on, except `respond` and `file-diff`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
@@ -3193,6 +3310,25 @@ selected first and the choice is not saved). While Files is selected the left co
   - Each row: the file name in bold over its folder, a letter for the status (A, M, D, R) with the word for
     screen readers, and the signed counts (`+12 −3`, the word `binary` for a binary file), with a five-block
     bar beside them (green for the share of added lines, red for the rest) that carries no numbers.
+  - With the `file-diff` flag and the session's `fileDiff` option on, and the session's signed-in owner
+    (#319, `mockup/podium-file-diff.html`), a row is a button named "Open diff of <path>". Enter, Space and a
+    click open the shared `Modal` (#97): the title is the path, the sub line is the status letter and the
+    counts. The modal is a wide variant (up to 1240 px). The diff is side by side: the old file on the left
+    and the new one on the right, level line for line, with a filler beside a line that has no partner (an
+    untracked file has an empty left, a deleted one an empty right). In a modal narrower than 720 px it is one
+    column with both line numbers. It is text nodes in a monospace face, line breaks kept; removed and added
+    lines carry a `−`/`+` gutter mark as well as color; hunk headers are set apart; long lines scroll inside
+    the modal, each side on its own with the other following. Each `[redacted]` in it is bold and in the
+    critical color, and a footer counts them ("3 values hidden as possible secrets").
+    It shows a loading state (the word "Loading" at 18px with three dots that fill in on the console's shared
+    beat, all three still when the reader prefers reduced motion), and for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
+    untracked file, and a cut diff ("Showing the first N lines of M") a plain message. Close, Esc and the dimmed
+    area return focus to the row.
+  - Otherwise the row is not a button. With the `file-diff` flag off nothing changes, since a flag that is off
+    hides its feature. With it on, a line under the list says why: "Sign in to open diffs." (signed out),
+    "Only <Owner> can open diffs." (someone else's session, an Admin included), "This session has no owner, so no
+    one can open its diffs.", or "Turn on the fileDiff option of podium-reporter on this machine to open diffs."
+    A session that has ended shows no line.
   - A summary line above the list gives the file count and the totals (`6 files · +855 −145`).
   - The list shows 20 files a page, and the pager footer reads "Showing 1–20 of 47" with the page buttons
     (previous, numbered, next) once there is more than one page, and "20 per page" when there is not (#200).

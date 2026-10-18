@@ -786,6 +786,12 @@ These settings apply to every browser and stay after a restart.
 - **Agent activity feed** (`activity-feed`) is on by default. Turned off, every agent and orchestrator panel says the
   Admin turned the feed off, the server asks no mod for activity and forgets what it held, whatever each machine's
   `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload.
+- **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
+  the Files list to read its diff in a window. The diff is source code: the mod reads it from the machine only when
+  someone opens the file, and only if that machine's `fileDiff` option is on. The server passes it to the one browser
+  that asked and keeps no copy. The mod hides what looks like a secret (tokens, passwords, keys, credentials in URLs) as `[redacted]` before
+  the diff leaves the machine, and never sends `.env` files, keys or credentials files at all. Hiding is best
+  effort, not a guarantee. Off, the Files rows show their counts and no link.
 
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
 switch off for everyone. After you close one, Podium says so and links to this page.
@@ -1014,6 +1020,7 @@ secret is replaced with `[redacted]` before it is sent. Podium never reads trans
 |---|---|
 | An agent's whole task prompt and final answer | Only if you turn on the mod's `fullPrompts` option (off by default) |
 | What an agent is doing (recent tool calls and the text it writes, each cut to 300 characters) | Only if you turn on the mod's `activityFeed` option (off by default), and even then only while someone has that agent's panel open in the console |
+| The diff of one changed file | Only if you turn on the mod's `fileDiff` option (off by default) and the Admin turns on the File diff switch, and only when the session's owner opens that file in the console. It is source code with anything that looks like a secret replaced by `[redacted]` on your machine (best effort, not a guarantee; files such as `.env` and keys are never sent), shown to that one person and not kept by the server |
 | What a session waits on you for (a question with its options, a plan, or a tool's arguments) | Only if you set the mod's `respond` option (`off` by default) and the server takes answers. Only the session's owner and an Admin can see it, and the server keeps it in memory only |
 | Your name and your machine | Only once you set the mod's `userName` option (empty by default) |
 | The model's thinking | Never |

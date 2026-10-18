@@ -68,6 +68,19 @@ describe('transport', () => {
     expect(await run({ ok: true })).toEqual([false, []])
   })
 
+  test('reads the file diffs the server asks for, at most four, and nothing from a server that does not say (#319)', async () => {
+    const run = async (body: unknown) => {
+      const t = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify(body) }]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.2.0' })
+      await t.send(build, 0)
+      return t.diffs
+    }
+    const r = (n: number) => ({ id: `r${n}`, path: `f${n}.ts` })
+    expect(await run({ ok: true, diffs: [r(1), { id: 7, path: 'x' }, { id: 'y' }, { id: '', path: 'z' }, null, r(2)] })).toEqual([r(1), r(2)])
+    expect(await run({ ok: true, diffs: [1, 2, 3, 4, 5, 6].map(r) })).toEqual([1, 2, 3, 4].map(r))
+    expect(await run({ ok: true, diffs: 'nope' })).toEqual([])
+    expect(await run({ ok: true })).toEqual([])
+  })
+
   test('reads where the server places this reporter, and says what to do about it', async () => {
     const reply = (c: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, liveSessions: 2, serverVersion: '0.3.0', reporterCompat: c }) })
     const run = async (r: HttpResult) => {

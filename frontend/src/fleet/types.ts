@@ -39,6 +39,8 @@ export type {
   RespondInfo,
   RespondKind,
   RespondMe,
+  FileDiffReply,
+  FileDiffStatus,
 } from "../../../server/src/fleet/protocol";
 export type { ActivityEntryView, ActivityReply } from "../../../server/src/fleet/activity";
 

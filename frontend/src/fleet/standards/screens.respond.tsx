@@ -48,6 +48,7 @@ function fakeApi(me: RespondMe = ME, detail: AskDetail = detailOf(QUESTION)): Re
     answer: async () => ({ ok: true as const, deliveryId: "dlv_1" }),
     message: async () => ({ ok: true as const, deliveryId: "dlv_2", queued: false }),
     discard: async () => ({ ok: true as const }),
+    fileDiff: async (_s: string, path: string) => ({ path, status: "unavailable" as const, text: null, truncated: false, shownLines: 0, totalLines: 0, redactions: 0, base: null }),
   };
 }
 

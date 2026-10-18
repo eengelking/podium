@@ -15,9 +15,10 @@ import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
 import type { Lockout } from './lockout.js';
 import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type DropWhy } from './respond.js';
-import { DELIVERY_RESULTS, RESPOND_LIMITS, validateAsk, type AskCloseOutcome, type Delivery, type DeliveryResult, type RespondMe } from './protocol.js';
+import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import type { SessionRow } from './db.js';
+import { FILE_DIFF } from './featureFlags.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -102,6 +103,11 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
   /** Authentication on, and both of the Admin's flags. The reporter's own switches are the mod's to check. */
   const enabled = (): boolean => d.token !== null && fleet.respondFlagsOn();
 
+  /** Authentication on and the Admin's file-diff flag (#319). The reporter's fileDiff option is the mod's to check. */
+  const diffEnabled = (): boolean => d.token !== null && fleet.features.featureOn(FILE_DIFF);
+  /** A browser can sign in when either feature that needs the sign-in is on. The respond routes still need `enabled()`. */
+  const signInEnabled = (): boolean => enabled() || diffEnabled();
+
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
     logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
     res.status(status).json({ ok: false, error: reason, ...extra });
@@ -174,6 +180,35 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
     }
     return row;
   };
+
+  /** The mod's answer to a request for a file's diff (#319). The text goes to the one waiting browser request and nowhere else. */
+  router.put('/sessions/:id/diffs/:requestId', d.requireToken, express.json({ limit: '1mb' }), (req, res) => {
+    if (!diffEnabled()) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    const row = fleet.db.getSession(req.params.id!);
+    if (!row || !fleet.isLive(row.id)) {
+      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (!credentialOwns(d.identityOf(res), row)) {
+      refuse(req, res, 403, 'not your session');
+      return;
+    }
+    const sent = (req.body as { text?: unknown } | undefined)?.text;
+    if (typeof sent === 'string' && Buffer.byteLength(sent) > FILE_DIFF_LIMITS.answerBytes) {
+      res.status(413).json({ ok: false, error: `at most ${FILE_DIFF_LIMITS.answerBytes} bytes of diff are taken`, path: '$.text' });
+      return;
+    }
+    const v = validateFileDiffReply(req.body);
+    if (!v.ok) {
+      res.status(400).json({ ok: false, error: v.error, path: v.path });
+      return;
+    }
+    fleet.diffs.answer(row.id, req.params.requestId!, v.reply);
+    res.json({ ok: true });
+  });
 
   router.put('/sessions/:id/asks/:askId', d.requireToken, express.json({ limit: '512kb' }), (req, res) => {
     const row = modSession(req, res);
@@ -314,13 +349,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
   }
 
   browser.get('/me', (req, res) => {
-    const v = enabled() ? viewerOf(req) : null;
-    const me: RespondMe = { enabled: enabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
+    const v = signInEnabled() ? viewerOf(req) : null;
+    const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
     res.json(me);
   });
 
   browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), (req, res) => {
-    if (!enabled()) {
+    if (!signInEnabled()) {
       refuse(req, res, 403, 'responding is off');
       return;
     }
@@ -405,6 +440,53 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
     logger.info('respond.sent', `podium: ${logWords(delivery).toLowerCase()} in session ${row.id}`, { session_id: row.id, kind: delivery.kind, admin: v.admin, source: src });
   };
 
+  /**
+   * One file's diff (#319). Only the session's owner: the signed-in person whose name is the session's owner, so not an
+   * Administrator, and not another person. The request is held until the mod answers or FILE_DIFF_LIMITS.holdSeconds pass.
+   * The text is never logged or kept; the admin log records only that the path was opened, and by whom.
+   */
+  browser.get('/sessions/:id/files/diff', async (req, res) => {
+    if (!diffEnabled()) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    const v = viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, 'sign in to open diffs');
+      return;
+    }
+    const row = fleet.db.getSession(req.params.id!);
+    if (!row || !fleet.isLive(row.id)) {
+      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return;
+    }
+    const path = typeof req.query.path === 'string' ? req.query.path : '';
+    if (!path || path.length > LIMITS.filePath) {
+      res.status(400).json({ ok: false, error: 'path is needed', path: '$.path' });
+      return;
+    }
+    if (fleet.diffs.optionOn(row.id) !== true) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    const got = await fleet.diffs.ask(row.id, path);
+    if (got === 'busy') {
+      res.status(429).json({ ok: false, error: 'too many diffs are waiting for this session' });
+      return;
+    }
+    if (got === null) {
+      res.status(504).json({ ok: false, error: 'no answer' });
+      return;
+    }
+    people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
+    res.json(got);
+  });
+
   browser.get('/sessions/:id/asks/:askId', (req, res) => {
     const got = browserSession(req, res);
     if (!got) return;
@@ -462,9 +544,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
 }
 
 /** For the report route: whether this session takes answers now, and what waits for it (6.1). */
-export function replyFor(fleet: Fleet, token: string | null, sessionId: string): { respond: boolean; deliveries: Delivery[] } {
+export function replyFor(fleet: Fleet, token: string | null, sessionId: string): { respond: boolean; deliveries: Delivery[]; diffs: DiffRequest[] } {
   const owner = fleet.db.getSession(sessionId)?.owner ?? null;
   const respond = token !== null && fleet.respondFlagsOn() && owner !== null;
-  return { respond, deliveries: respond ? fleet.respond.deliveriesFor(sessionId) : [] };
+  const diffs = token !== null && fleet.features.featureOn(FILE_DIFF) && owner !== null ? fleet.diffs.listFor(sessionId) : [];
+  return { respond, deliveries: respond ? fleet.respond.deliveriesFor(sessionId) : [], diffs };
 }
 

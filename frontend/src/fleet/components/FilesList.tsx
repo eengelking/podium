@@ -1,5 +1,7 @@
-import { useState } from "react";
-import type { ChangedFile, FilesReport } from "../types";
+import { useRef, useState } from "react";
+import type { ChangedFile, FilesReport, SessionView } from "../types";
+import { useRespond, type RespondContext } from "../useRespond";
+import { FileDiffModal } from "./FileDiffModal";
 import { PageNav } from "./PageNav";
 
 /** Files shown per page; the reporter sends at most 200, so there are at most ten pages. */
@@ -48,11 +50,30 @@ function Counts({ added, removed }: { added: number; removed: number }) {
   );
 }
 
-function FileRow({ f }: { f: ChangedFile }) {
+/** The fields of a session the diff gate reads. */
+export type DiffSession = Pick<SessionView, "id" | "owner" | "fileDiff" | "status">;
+
+/** Whether a name is the same person's, as the server compares them: case-insensitively. */
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Whether this viewer may open a file's diff on this session (#319, SPEC 8.1): `open`, a line saying why not, or `none`
+ * when the feature is not on for this server (or the session has ended), where the list is as it always was.
+ */
+export function diffAccess(s: DiffSession | undefined, ctx: RespondContext | null): { kind: "open" } | { kind: "why"; text: string } | { kind: "none" } {
+  if (!s || !ctx?.diffOn || !ctx.me?.enabled || (s.status !== "running" && s.status !== "waiting")) return { kind: "none" };
+  if (!ctx.me.signedIn) return { kind: "why", text: "Sign in to open diffs." };
+  if (s.owner === null) return { kind: "why", text: "This session has no owner, so no one can open its diffs." };
+  if (!ctx.me.name || !sameName(ctx.me.name, s.owner)) return { kind: "why", text: `Only ${s.owner} can open diffs.` };
+  if (s.fileDiff !== true) return { kind: "why", text: "Turn on the fileDiff option of podium-reporter on this machine to open diffs." };
+  return { kind: "open" };
+}
+
+function FileRow({ f, onOpen }: { f: ChangedFile; onOpen?: (f: ChangedFile, from: HTMLElement) => void }) {
   const [dir, name] = split(f.path);
   const binary = f.added === null || f.removed === null;
-  return (
-    <li className={f.status}>
+  const inner = (
+    <>
       <span className={`st ${LETTER[f.status]}`} aria-hidden="true" title={f.status}>
         {LETTER[f.status]}
       </span>
@@ -80,13 +101,24 @@ function FileRow({ f }: { f: ChangedFile }) {
           </>
         )}
       </span>
+    </>
+  );
+  if (!onOpen) return <li className={f.status}>{inner}</li>;
+  return (
+    <li className={`${f.status} openable`}>
+      <button type="button" aria-label={`Open diff of ${f.path}`} aria-haspopup="dialog" onClick={(e) => onOpen(f, e.currentTarget)}>
+        {inner}
+      </button>
     </li>
   );
 }
 
 /** The Files tab: a summary, the current page of files, and a pager when there is more than one page. */
-export function FilesList({ report, hint }: { report: FilesReport | null; hint: string | null }) {
+export function FilesList({ report, hint, session }: { report: FilesReport | null; hint: string | null; session?: DiffSession }) {
   const [page, setPage] = useState(0);
+  const ctx = useRespond();
+  const [diffOf, setDiffOf] = useState<ChangedFile | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
   if (!report || report.files.length === 0) {
     return (
       <>
@@ -100,6 +132,15 @@ export function FilesList({ report, hint }: { report: FilesReport | null; hint: 
   const from = at * FILES_PER_PAGE;
   const shown = report.files.slice(from, from + FILES_PER_PAGE);
   const note = SINCE_NOTE[report.since];
+  const access = diffAccess(session, ctx);
+  const open = (f: ChangedFile, from: HTMLElement) => {
+    opener.current = from;
+    setDiffOf(f);
+  };
+  const close = () => {
+    setDiffOf(null);
+    opener.current?.focus();
+  };
   return (
     <>
       <div className="sumline">
@@ -107,9 +148,11 @@ export function FilesList({ report, hint }: { report: FilesReport | null; hint: 
       </div>
       <ul className="files">
         {shown.map((f) => (
-          <FileRow key={f.path} f={f} />
+          <FileRow key={f.path} f={f} onOpen={access.kind === "open" ? open : undefined} />
         ))}
       </ul>
+      {access.kind === "why" && <div className="foot-note" role="note">{access.text}</div>}
+      {diffOf && session && <FileDiffModal sessionId={session.id} file={diffOf} since={report.since} onClose={close} />}
       <PageNav label="Files pages" at={at} pages={pages} from={from} shown={shown.length} total={report.files.length} perPage={FILES_PER_PAGE} onPage={setPage} />
       {(report.total > report.files.length || note) && (
         <div className="foot-note">

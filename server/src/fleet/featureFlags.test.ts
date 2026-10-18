@@ -14,7 +14,7 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false });
+    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false });
   });
 
   it('turns the off-by-default flag on and off, firing onChange only on a change', () => {

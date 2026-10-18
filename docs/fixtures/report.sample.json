@@ -41,6 +41,7 @@
     },
     "attached": true,
     "activityFeed": true,
+    "fileDiff": true,
     "activity": [
       { "at": 1791647850000, "kind": "tool", "text": "Agent Port invoice endpoints" },
       { "at": 1791647880000, "kind": "text", "text": "The staging backfill failed on a database connection; I am checking the endpoint port first." }

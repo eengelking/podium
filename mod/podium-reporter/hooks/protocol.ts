@@ -130,6 +130,44 @@ export interface LoopReport {
 /** The loop key of the orchestrator's own feed, in the report reply's `watch` list and the activity route (#118). Engine agent ids never start with `@`. */
 export const MAIN_LOOP = '@orchestrator';
 
+/** The status of one file's diff, as the mod answers a request for it (#319, SPEC 6.4). */
+export const FILE_DIFF_STATUSES = ['ok', 'binary', 'withheld', 'too-large', 'unavailable'] as const;
+export type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
+
+/** A diff the session's owner is waiting for, in the report reply's `diffs` list. */
+export interface DiffRequest {
+  id: string;
+  path: string;
+}
+
+/** The mod's answer to a DiffRequest. `text` is a unified diff, redacted by the mod, and null for any status but `ok`. */
+export interface FileDiffReply {
+  path: string;
+  status: FileDiffStatus;
+  text: string | null;
+  /** The mod cut the diff at a line or byte limit. */
+  truncated: boolean;
+  shownLines: number;
+  totalLines: number;
+  /** How many values the mod replaced with [redacted]. */
+  redactions: number;
+  /** What the diff is against: the short starting commit, the upstream merge base, or "worktree". null when there is none. */
+  base: string | null;
+}
+
+export const FILE_DIFF_LIMITS = {
+  /** Lines and bytes the mod sends; more is cut at a line boundary. */
+  lines: 2000,
+  bytes: 200_000,
+  /** Bytes of `git diff` the mod reads before it answers `too-large`. */
+  readBytes: 5_000_000,
+  /** The most the server takes in an answer. */
+  answerBytes: 300_000,
+  /** How long the server holds the browser's request, and the most requests it lists in one reply. */
+  holdSeconds: 15,
+  pending: 4,
+} as const;
+
 /** `reasoning` is reserved for the model's thinking; the reporter does not send it. */
 export type ActivityKind = 'tool' | 'text' | 'reasoning';
 
@@ -240,6 +278,8 @@ export interface SessionReport {
   background?: BackgroundWait | null;
   /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
   activityFeed?: boolean;
+  /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
+  fileDiff?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
   activity?: ActivityEntry[];
   /** Whether and how far the session can be answered from Podium (#206). Absent from a reporter older than 0.14.0. */

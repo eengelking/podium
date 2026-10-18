@@ -148,7 +148,7 @@ export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab)
         )}
       </div>
       <div role="tabpanel" id={`${id}-files-panel`} aria-labelledby={`${id}-files`} hidden={tab !== "files"}>
-        <FilesList report={files} hint={filesHint(s)} />
+        <FilesList report={files} hint={filesHint(s)} session={s} />
       </div>
     </section>
   );
