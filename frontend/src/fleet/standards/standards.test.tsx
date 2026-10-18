@@ -150,6 +150,9 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
     else process.env.TZ = zone;
   });
 
+  // Building every page renders about ninety screens, so each test that builds them gets room to finish on a busy machine.
+  const BUILD_MS = 60_000;
+
   it("has every generated page equal to what the app renders", async () => {
     const pages = await buildPages();
     if (SYNC) {
@@ -157,13 +160,13 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
       for (const [file, html] of Object.entries(pages)) writeFileSync(join(OUT, file), html);
     }
     for (const [file, html] of Object.entries(pages)) expect(readFileSync(join(OUT, file), "utf8"), `docs/standards/${file} differs from the app: run npm run standards:sync after the change is approved`).toBe(html);
-  });
+  }, BUILD_MS);
 
   it("renders every class in the stylesheets, or says why it cannot", async () => {
     const pages = await buildPages();
     const notRendered = (JSON.parse(readFileSync(join(OUT, "not-rendered.json"), "utf8")) as { entries: NotRendered[] }).entries;
     expect(coverageProblems(inventory().classes, classesIn(pages["components.html"]), notRendered)).toEqual([]);
-  });
+  }, BUILD_MS);
 
   it("has a section for every component file, and only for files that exist", () => {
     const inv = inventory();
@@ -175,5 +178,5 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
   it("has a page for every link in the nav", async () => {
     const pages = await buildPages();
     for (const g of NAV) for (const p of g.pages) expect(Object.keys(pages), p.file).toContain(p.file);
-  });
+  }, BUILD_MS);
 });

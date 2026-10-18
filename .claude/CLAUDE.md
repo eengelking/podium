@@ -31,6 +31,7 @@ The operator uses shorthand in place of typing a full request out. Case-insensit
 ## Do Not
 
 - Edit directly on, push to, or merge a PR into `main` or `development` yourself — for any change, no matter how small (a one-line doc fix included) or how informal (no tracking issue). Changes reach either branch only through a PR, and merging is always the user's call, no exceptions. See "Always Branch First" below.
+- Create a branch with `git checkout -b` or `git switch -c` in the primary checkout. Every working branch is a git worktree. See "Always Branch First" below.
 - Commit secrets, API keys, tokens, or credentials.
 - Force-push, skip commit safety checks, or bypass signing without the user's explicit, in-the-moment approval.
 - Hard-code a color, or author a mockup or any UI with a `:root` block of its own. Colors are tokens from `frontend/src/fleet/tokens.css`. See "UI Standards".
@@ -74,7 +75,21 @@ Below, "the base branch" means `development` if it exists and `main` otherwise. 
 
 ## Always Branch First
 
-Before the first `Edit` or `Write` of *any* change to this repo — check the current branch. If it's `main` or `development`, create or switch to a working branch before touching a single file. Fork from the base branch (from `main` for hotfixes). This holds regardless of size ("just a typo fix"), formality ("no issue for this, just drafting"), or how the request was phrased ("draft a revised README" is still a change once you start writing it to disk) — the decision to skip a tracking issue and the decision to skip a branch are unrelated, and only the first is ever legitimate. See `git-branching` for the mechanics, including the pre-commit hook that backstops this rule technically rather than relying on memory alone. The hook should block commits on both `main` and `development`.
+Before the first `Edit` or `Write` of *any* change to this repo — check where you are. If the current checkout is on `main` or `development`, create a working branch **as a git worktree** and do the work there, before touching a single file. Fork from the base branch (from `main` for hotfixes). This holds regardless of size ("just a typo fix"), formality ("no issue for this, just drafting"), or how the request was phrased ("draft a revised README" is still a change once you start writing it to disk) — the decision to skip a tracking issue and the decision to skip a branch are unrelated, and only the first is ever legitimate. See `git-branching` for the branch names, the parent rules and the pre-commit hook that backstops this rule technically rather than relying on memory alone. The hook should block commits on both `main` and `development`.
+
+**Every working branch is a git worktree.** Never create or switch a branch in the primary checkout (`git checkout -b`, `git switch -c`). The primary checkout stays on `development`, a clean and current reference, so work on several branches never trades files and a long-running test or server in one cannot be disturbed by another. This overrides the `git checkout -b` step in `git-branching` and in the skills that quote it; the rest of those skills (parents, names, parallel batches) still applies.
+
+```bash
+git fetch origin
+git worktree add .claude/worktrees/<branch-slug> -b <branch> origin/development   # origin/main for a hotfix
+cd .claude/worktrees/<branch-slug> && npm ci --ignore-scripts
+```
+
+- `<branch-slug>` is the branch name with each `/` written as `-`, so `issue/354-design-system` lives in `.claude/worktrees/issue-354-design-system`. That folder is ignored by git.
+- Do every edit, test run, commit and push for the branch inside its worktree, and confirm `pwd` and `git branch --show-current` first. A branch that already exists gets `git worktree add .claude/worktrees/<branch-slug> <branch>`.
+- `core.hooksPath` is `scripts/hooks`, a path inside the checkout, so each worktree has the pre-commit hook without more setup.
+- Clean up when the merge is confirmed, not before: `git worktree remove .claude/worktrees/<branch-slug>`, delete the branch locally and on the remote, then `git worktree prune`, and check `git worktree list` shows only what is still in use. A worktree outlives its branch's merge, and one that still holds a branch checked out blocks deleting that branch.
+- A parallel batch's sub-agents already get their own worktrees with `isolation: "worktree"` (`git-branching`); an orchestrator's own work follows this rule too.
 
 ## Skills
 
@@ -99,7 +114,7 @@ Procedural detail — the *how* behind the rules this file states — lives in s
 
 - **Prefer acting to asking** when the request and the codebase together make the right move obvious; ask when you're genuinely blocked — ambiguous intent, a decision only the user can make, or a destructive/hard-to-reverse action.
 - **Verify with real runs, not just lint/build.** A passing type-check or test suite verifies correctness, not that the feature actually works. Where practical, run the thing and exercise the change before calling it done — and say so explicitly when you can't (no way to run the app, no browser access, etc.) rather than implying it was checked.
-- **Leave no mess behind.** Stop dev servers you started, close browser tabs you opened, delete branches once their merge is confirmed. A task isn't finished just because the code is right — clean up the process/session state too. Validate the cleanup completed successfully and left no orphans behind.
+- **Leave no mess behind.** Stop dev servers you started, close browser tabs you opened, remove the worktree and delete the branch once its merge is confirmed. A task isn't finished just because the code is right — clean up the process/session state too. Validate the cleanup completed successfully and left no orphans behind.
 - **Run `sonar analyze` on the files you changed before opening a PR**, so a fix does not start a loop with the SonarCloud quality gate: `sonar analyze --file <path> [--file <path> ...] 2>&1 | tail -40`. It always runs the secrets scan; the code analysis can come back `[SKIPPED]` ("Vortex analysis is not available on this connection"), and when it does, say so rather than calling the files clean. Whether or not it runs, write the fix so it does not trip a rule of its own: no control characters in a regex literal (`typescript:S6324`), `replaceAll` over `replace` with a global regex, and `Number.parseInt`/`Number.NaN` over the globals (#366). The gate also needs 80% coverage on new lines, and `sonar analyze` does not measure that: every line you add or edit needs a test that reaches it, or leave the line alone (#367's first push failed the gate at 44% for untested log call sites).
 - **Don't let a stale run fool you.** If you changed code, restart whatever's serving it before treating its behavior as evidence. Testing against cached/stale state produces false confidence.
 - **If this project has a `docs/NON_NEGOTIABLES.md`, read it before starting any task.** Its constraints are absolute — they don't get traded away for convenience, ever.
