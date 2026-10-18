@@ -97,7 +97,7 @@ describe("kanban board", () => {
     expect(within(col).getAllByRole("link")).toHaveLength(5);
   });
 
-  it("lists sessions with no plan, or with everything done and finished, in a strip under the board", () => {
+  it("lists sessions with no plan, or with everything done and finished, in a strip pinned to the bottom of the board", () => {
     board([
       planned({ id: "a", name: "alpha" }, step("1", "pending")),
       makeSession({ id: "n", name: "no-tasks", plan: null }),
@@ -114,6 +114,25 @@ describe("kanban board", () => {
     expect(screen.getByRole("note")).toBeVisible();
     expect(screen.getByRole("note")).toHaveTextContent("CLAUDE_CODE_ENABLE_TODO_TOOLS=1");
     expect(within(strip).getByRole("link", { name: "A session shows no plan" })).toHaveAttribute("href", expect.stringContaining("docs/GOTCHAS.md"));
+  });
+
+  it("pins the strip as the last thing on the page, and Escape closes its note (#359)", () => {
+    board([planned({ id: "a", name: "alpha" }, step("1", "pending")), makeSession({ id: "n", name: "no-tasks", plan: null })]);
+    const strip = screen.getByRole("region", { name: "Sessions with no open steps" });
+    // Last in the board, after the columns, so the CSS can pin it above the legend and the last card scrolls clear of it.
+    expect(strip.parentElement?.lastElementChild).toBe(strip);
+    expect(strip.querySelector(".kb-none-list")).toContainElement(within(strip).getByRole("link", { name: /no-tasks/ }));
+    const info = within(strip).getByRole("button", { name: "How to get steps here" });
+    fireEvent.click(info);
+    expect(screen.getByRole("note")).toBeVisible();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(info).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("note", { hidden: true })).not.toBeVisible();
+  });
+
+  it("pins nothing when no session is without steps (#359)", () => {
+    board([planned({ id: "a", name: "alpha" }, step("1", "pending"))]);
+    expect(screen.queryByRole("region", { name: "Sessions with no open steps" })).toBeNull();
   });
 
   it("says so when no session has a plan", () => {

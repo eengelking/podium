@@ -2543,12 +2543,22 @@ activity panel and legend as the wall, with the board in the middle.
 - Every session the fleet page shows (the wall's background-session setting applies, the wall's status filter
   and search do not).
 - A session with open steps fills the columns, a stale one included.
-- A session with no plan, an empty one, or a finished one, and not waiting on its person, is listed in a strip
-  under the board with a link to its page. An (i) in the strip opens the note on how to get a plan (the task
-  tools, with a link to the Gotcha). The note is not on the page until the (i) is clicked.
+- A session with no plan, an empty one, or a finished one, and not waiting on its person, is listed in the strip
+  described below, with a link to its page. An (i) in the strip opens the note on how to get a plan
+  (the task tools, with a link to the Gotcha). The note is not on the page until the (i) is clicked. It opens
+  as a popover above the strip, so it does not grow the strip or run into the legend, and Escape closes it.
+- The strip is pinned to the bottom of the page, directly above the legend, with 16 px of space from the page
+  edges and from the legend, so it reads as a panel and not as part of the legend. It overlays the board and
+  does not move as cards come and go, whatever the height of the board. It stays in the page's flow, so the
+  board always ends with room as tall as the strip and the last card can be scrolled clear of it; a focused card
+  scrolls into view clear of it too. It is at most 200 px tall or 30% of the viewport, whichever is less: past
+  that its chips scroll inside it, so it cannot cover most of the board. With no session in the strip nothing
+  is pinned. In the stacked narrow layout, where the page scrolls as a whole, the strip is pinned to the bottom
+  of the viewport instead, above the legend. It keeps its label and its place in the tab order, after the
+  columns.
 - A finished session is one whose steps are all done and whose status is stale or done, so its Done cards
   leave the board. A running or waiting session whose steps are all done keeps them.
-- When no session has steps the board says "No plans on the board" and the strip lists them all.
+- When no session has steps the board says "No plans on the board" and the pinned strip lists them all.
 
 **Order, paging and layout**
 - The step that changed last is first in its column. The rest keep plan order, session by session.

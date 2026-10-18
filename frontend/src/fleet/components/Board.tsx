@@ -57,6 +57,15 @@ function Card({ card, showOrchestrator, flash, fresh, onOpen }: { card: BoardCar
 function InfoNote({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  // Escape closes the note wherever focus is (the button or the link inside the note), not only on the button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
   return (
     <>
       <button type="button" className="kb-info" aria-label={label} aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
@@ -163,9 +172,27 @@ export function Board(props: {
   const total = BOARD_COLUMNS.reduce((n, c) => n + board.columns[c.key].length, 0);
   const planned = new Set(BOARD_COLUMNS.flatMap((c) => board.columns[c.key].map((x) => x.session.id))).size;
   const [tab, setTab] = useState<BoardColumn>("active");
+  // The strip is pinned over the board (#359), so a focused card scrolls into view clear of it: cards read the strip's height from --kb-strip-h.
+  const root = useRef<HTMLElement>(null);
+  const strip = useRef<HTMLElement>(null);
+  const hasStrip = board.withoutSteps.length > 0;
+  useEffect(() => {
+    const el = strip.current;
+    const host = root.current;
+    if (!host) return;
+    if (!el || typeof ResizeObserver !== "function") {
+      host.style.removeProperty("--kb-strip-h");
+      return;
+    }
+    const set = () => host.style.setProperty("--kb-strip-h", `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasStrip]);
 
   return (
-    <section className="kb" aria-label="Board">
+    <section className="kb" aria-label="Board" ref={root}>
       <div className="kb-head">
         <h2>Board</h2>
         <span className="kb-sum">
@@ -257,7 +284,7 @@ export function Board(props: {
         </div>
       )}
       {board.withoutSteps.length > 0 && (
-        <section className="kb-none" aria-label="Sessions with no open steps">
+        <section className="kb-none" aria-label="Sessions with no open steps" ref={strip}>
           <div className="kb-none-h">
             <b>
               {board.withoutSteps.length} {board.withoutSteps.length === 1 ? "session has" : "sessions have"} no open steps
@@ -269,24 +296,26 @@ export function Board(props: {
               </a>
             </InfoNote>
           </div>
-          <ul>
-            {board.withoutSteps.map((s) => (
-              <li key={s.id}>
-                <a
-                  href="#/"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    props.onOpen(s.id);
-                  }}
-                  style={cssVar(FAMILY_COLOR[s.modelFamily])}
-                >
-                  <i aria-hidden="true" />
-                  {s.name}
-                  <span className="kb-why">{s.plan?.steps.length ? "all done" : "no plan"}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
+          <div className="kb-none-list">
+            <ul>
+              {board.withoutSteps.map((s) => (
+                <li key={s.id}>
+                  <a
+                    href="#/"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpen(s.id);
+                    }}
+                    style={cssVar(FAMILY_COLOR[s.modelFamily])}
+                  >
+                    <i aria-hidden="true" />
+                    {s.name}
+                    <span className="kb-why">{s.plan?.steps.length ? "all done" : "no plan"}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
       )}
     </section>

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium kanban board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
-<!-- Mockup for issue #346, for approval. A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
+<!-- Mockup for issue #346, for approval; updated for #359 (the no-open-steps strip pinned to the bottom of the page). A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
 <style>
 /* Layout: a review page. The controls bar above the specimen is page chrome; the specimen is the console under test and carries Podium's own tokens. */
 :root {
@@ -128,7 +128,9 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .legend .a { width: 10px; height: 10px; border-radius: 2px; background: var(--ink2); display: inline-block; }
 .legend .a.f { border-radius: 50%; } .legend .a.q { background: transparent; border: 1.5px dashed var(--ink2); } .legend .a.d { opacity: .3; }
 .centre { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.centre-in { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; }
+.centre-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* #359: the strip overlays the board, so the scroll area ends with padding as tall as the strip (set from its measured height) and the last card can always be scrolled clear of it. */
+.centre-in { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; padding-bottom: var(--strip-h, 0px); scroll-padding-bottom: var(--strip-h, 0px); }
 .demo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 16px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
 .demo b { color: var(--ink); }
 
@@ -199,15 +201,17 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .pager .pg button:disabled { opacity: .4; cursor: default; }
 .pager .pg button[aria-current="page"] { color: var(--ink); border-color: var(--ink2); background: color-mix(in srgb, var(--ink) 8%, transparent); }
 
-/* sessions with no plan: a quiet strip under the board, never a column */
-.noplan { margin: 0 16px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.noplan-h { padding: 9px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+/* sessions with no open steps (#359): a panel pinned to the bottom of the page, just above the legend, never a column. 16px from the page edges and from the legend. */
+.noplan { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 4; display: flex; flex-direction: column; max-height: min(42%, 200px); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px -10px rgba(0,0,0,.5); }
+.noplan-h { flex: none; padding: 9px 12px; font-size: 12.5px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .noplan-h b { font-weight: 600; }
 .noplan-h span { color: var(--muted); }
+.noplan .list { min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .noplan ul { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-wrap: wrap; gap: 6px; }
 .noplan li a { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--ink2); }
 .noplan li a:hover { border-color: var(--axis); color: var(--ink); }
-.noplan .how { margin: 0 12px 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); font-size: 12px; line-height: 1.45; color: var(--ink2); max-width: 70ch; }
+/* the (i) note opens as a popover above the strip, so it never grows the strip or runs into the legend */
+.noplan .how { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); padding: 8px 10px; border: 1px solid var(--axis); border-radius: 6px; background: var(--raised); box-shadow: 0 8px 24px -10px rgba(0,0,0,.5); font-size: 12px; line-height: 1.45; color: var(--ink2); max-width: 70ch; }
 .noplan .how[hidden] { display: none; }
 .noplan .how code { font: 11.5px var(--font-mono); color: var(--ink); }
 .info { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--ink2); align-self: center; }
@@ -232,7 +236,7 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
   .col:not(.on) { display: none; }
   .col-h { display: none; }
 }
-@media (prefers-reduced-motion: reduce) { .tc-act::before, .tc.fadein, .ev.new { animation: none; } .tc.fadeout { transition: none; } .cols { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .noplan { transition: none; } .tc-act::before, .tc.fadein, .ev.new { animation: none; } .tc.fadeout { transition: none; } .cols { transition: none; } }
 </style>
 </head>
 <body>
@@ -244,7 +248,10 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 
   <form class="ctl" aria-label="Mockup controls" onsubmit="return false">
     <fieldset><legend>Data</legend>
-      <label><input type="radio" name="data" value="busy" checked><span>Busy fleet</span></label>
+      <label><input type="radio" name="data" value="busy" checked><span>Busy fleet (3 in strip)</span></label>
+      <label><input type="radio" name="data" value="short"><span>Short board, 1 in strip</span></label>
+      <label><input type="radio" name="data" value="many"><span>Many in strip (22)</span></label>
+      <label><input type="radio" name="data" value="none"><span>None in strip</span></label>
       <label><input type="radio" name="data" value="noplans"><span>No plans at all</span></label>
       <label><input type="radio" name="data" value="large"><span>Large fleet</span></label>
     </fieldset>
@@ -264,6 +271,9 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
     <h2 id="dec">What this mockup proposes for the open questions</h2>
     <div class="decisions">
       <div><b>Columns (decided)</b>Pending, In progress, Review, Blocked, Done. Pending takes Backlog's place. Review exists for review logic to come; until then it holds in-progress steps whose session waits on its person (a question, a plan or a permission prompt), and nothing else moves in. Blocked keeps its own column, since Claude Code reports it.</div>
+      <div><b>Pinned strip (#359)</b>The "no open steps" strip is pinned to the bottom of the page, directly above the legend, 16px from the page edges and from the legend, so it reads as a panel and not as part of the footer. It overlays the board and does not move as cards come and go: try Short board, 1 in strip. The board's scroll area ends with bottom padding equal to the strip's height (measured, so it follows the strip as it changes), so the last card in the tallest column can be scrolled clear of it; try Large fleet and scroll to the end. A focused card scrolls into view clear of the strip. With nothing in the strip, nothing is pinned and the board has the full height (None in strip).</div>
+      <div><b>Long strip and the (i) note (#359)</b>The strip is at most 200px tall or 42% of the page, whichever is less. Its header stays; the chips wrap and scroll inside it past that (Many in strip), so it cannot cover most of the board. The (i) note opens as a popover above the strip, anchored to it, so it never grows the strip and is not clipped by the legend; it closes with the button again or Escape, which returns focus to the button. The strip keeps its label and its place in the tab order (after the columns).</div>
+      <div><b>Narrow layout (#359)</b>On a phone the console stacks and the page scrolls as a whole with the legend at its end. There the strip is sticky to the bottom of the viewport, above the legend, with the same padding, and the board ends with the strip's height of room so it never hides the last card. This mockup's narrow frame is a fixed-height viewport, so it shows the same pinned strip.</div>
       <div><b>Which sessions count (decided)</b>Every session on the Fleet page is on the board: running, waiting, delegating, stale or ended. One with open steps fills columns. One with no plan, or with every step done, is listed in the strip under the board and still links to its page. A stale session's open steps show in their columns like any other.</div>
       <div><b>Done column (decided)</b>A done step stays until its orchestrator is finished, then its Done cards fall off. Finished means every step is done and the session is idle, stale or ended. A running session with every step done keeps its Done cards, with an "all done" mark on its lane. No new signal is sent.</div>
       <div><b>Mixed or grouped</b>Mixed by default, so the board answers "what is in progress across everything". A toggle groups each column by orchestrator, with a lane label. The orchestrator name and model chip sit on every card in mixed view and drop off in grouped view.</div>
@@ -355,9 +365,15 @@ let lastNote = "";
 let flashKeys = new Set(), newEvent = false;
 
 function buildData() {
+  if (S.data === "short") return [{ ...ORCH0[1], state: "running", steps: ORCH0[1].steps.slice(0, 2) }];
+  if (S.data === "none") return ORCH0.filter(o => o.steps.length && !finished(o));
+  if (S.data === "many") return ORCH0.concat(Array.from({ length: 19 }, (_, i) => ({ id: "m" + i, name: ["scratch", "api-explore", "notes", "triage", "spike", "demo", "lint-fix"][i % 7] + "-" + (i + 1), model: ["Opus", "Sonnet", "Haiku", "Fable"][i % 4], state: "running", steps: [], note: "" })));
   return S.data === "noplans" ? ORCH.map(o => ({ ...o, steps: [], note: o.note })) : S.data === "large" ? large().concat(ORCH.slice(4)) : ORCH;
 }
 
+// The board's bottom padding follows the strip: its height, plus the 16px above the legend and a 16px gap above the strip.
+function measure() { const w = $(".centre-wrap"), st = $(".noplan"); if (w) w.style.setProperty("--strip-h", st ? st.offsetHeight + 32 + "px" : "0px"); }
+addEventListener("resize", measure);
 function render() {
   const data = buildData();
   const withPlan = data.filter(o => o.steps.length && !finished(o));
@@ -404,7 +420,7 @@ function render() {
   const noplan = without.length ? '<section class="noplan" aria-label="Sessions with no open steps">' +
     '<div class="noplan-h"><b>' + without.length + ' ' + (without.length === 1 ? "session has" : "sessions have") + ' no open steps</b><button class="info" data-info aria-label="How to get steps here" aria-expanded="' + S.info + '" aria-controls="how"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v3.6M8 5.1v.1"/></svg></button><span>' +
     (data.length === without.length ? "Podium builds the board from each session's task list." : "Every session on the Fleet page is here. These have nothing to show in a column.") + '</span></div>' +
-    '<ul>' + without.map(o => '<li><a href="#orchestrator-' + o.id + '"><i class="sq" style="--fam:' + FAM[o.model] + '"></i>' + esc(o.name) + (o.steps.length ? " · all done" : o.note ? " · " + esc(o.note) : " · no plan") + '</a></li>').join("") + '</ul>' +
+    '<div class="list"><ul>' + without.map(o => '<li><a href="#orchestrator-' + o.id + '"><i class="sq" style="--fam:' + FAM[o.model] + '"></i>' + esc(o.name) + (o.steps.length ? " · all done" : o.note ? " · " + esc(o.note) : " · no plan") + '</a></li>').join("") + '</ul></div>' +
     '<div class="how" id="how" role="note"' + (S.info ? "" : " hidden") + '>Podium builds the board from each session\'s task list. Start Claude Code with <code>CLAUDE_CODE_ENABLE_TODO_TOOLS=1</code> or add it to the <code>env</code> block of <code>~/.claude/settings.json</code>, then ask Claude to track the work as a task list. <a href="#gotcha">A session shows no plan</a></div></section>' : "";
 
   const board = withPlan.length ? '<div class="board">' + colHtml + '</div>' : '<div class="blank"><b>No plans on the board</b><p>' +
@@ -437,16 +453,17 @@ function render() {
     (lastNote ? evRow("14:03", newEvent ? "new" : "", lastNote[0], lastNote[1], "", lastNote[2]) : "") + evs + '</ul><div class="more"><span>Showing ' + (EVENTS.length + (lastNote ? 1 : 0)) + ' of ' + (EVENTS.length + (lastNote ? 1 : 0)) + '</span></div></div></aside>';
   const legend = '<footer class="legend" aria-label="Legend"><span><i class="a"></i>subagent (blank slate)</span><span><i class="a f"></i>fork (keeps context)</span><span><i class="a q"></i>queued</span><span><i class="a d"></i>done</span><span>Square color is the model: ' + ["Opus", "Sonnet", "Haiku", "Fable"].map(chip).join(" ") + '</span></footer>';
 
-  const demo = '<div class="demo"><b>Mockup for #346.</b><button class="btn" data-sim' + (S.sim >= 4 ? " disabled" : "") + '>' + (S.sim >= 4 ? "All 4 updates played" : "Simulate update (" + (S.sim + 1) + " of 4)") + '</button><button class="btn" data-reset>Reset</button><button class="btn" data-sign aria-pressed="' + S.signedIn + '">' + (S.signedIn ? "Signed in as Ed" : "Signed out") + '</button><span>' + SIMTEXT[Math.min(S.sim, 3)] + '</span></div>';
+  const demo = '<div class="demo"><b>Mockup for #346 and #359.</b><button class="btn" data-sim' + (S.sim >= 4 ? " disabled" : "") + '>' + (S.sim >= 4 ? "All 4 updates played" : "Simulate update (" + (S.sim + 1) + " of 4)") + '</button><button class="btn" data-reset>Reset</button><button class="btn" data-sign aria-pressed="' + S.signedIn + '">' + (S.signedIn ? "Signed in as Ed" : "Signed out") + '</button><span>' + SIMTEXT[Math.min(S.sim, 3)] + '</span></div>';
 
   const keep = { board: $(".board")?.scrollLeft || 0, main: $(".centre-in")?.scrollTop || 0, cols: [...document.querySelectorAll(".col-b")].map(e => e.scrollTop) };
   $("#spec").innerHTML = '<div class="shell ' + (S.theme === "dark" ? "th-dark" : "th-light") + (S.width === "narrow" ? " narrow" : "") + '"><div class="tag">#/board · ' + S.theme + ' · ' + S.width + '</div>' + demo +
     '<div class="app">' + topbar + banner + '<div class="cols' + (S.left ? " l-off" : "") + (S.right ? " r-off" : "") + '">' + rail +
-    '<div class="centre"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="sum">' + withPlan.length + ' orchestrators with open steps, ' + total + ' steps</span><span class="sp"></span>' +
+    '<div class="centre"><div class="centre-wrap"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="sum">' + withPlan.length + ' orchestrators with open steps, ' + total + ' steps</span><span class="sp"></span>' +
     '<span class="seg" role="group" aria-label="Layout"><button aria-pressed="' + !S.group + '" data-group="0">Mixed</button><button aria-pressed="' + S.group + '" data-group="1">By orchestrator</button></span>' +
     '<select class="sel" aria-label="Group"><option>All groups</option><option>Platform</option><option>Docs</option></select>' + (S.signedIn ? '<button class="chipf" aria-pressed="' + S.me + '" data-me>Me</button>' : '') + '</div>' +
-    (withPlan.length ? tabs : "") + board + noplan + '</main>' + legend + '</div>' + side + '</div></div>' +
+    (withPlan.length ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
     '<div class="live" role="status" aria-live="polite">' + esc(lastNote ? lastNote[0] + " " + lastNote[1] : "") + '</div></div>';
+  measure();
   const b = $(".board"); if (b) b.scrollLeft = keep.board;
   const m = $(".centre-in"); if (m) m.scrollTop = keep.main;
   document.querySelectorAll(".col-b").forEach((e, n) => { e.scrollTop = keep.cols[n] || 0; });
@@ -508,6 +525,7 @@ document.addEventListener("click", e => {
   newEvent = false; render();
 });
 document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && S.info) { S.info = false; render(); $("[data-info]")?.focus(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey || /input|select|textarea/i.test(e.target.tagName)) return;
   const k = { "[": "left", "]": "right", "\\": "top" }[e.key]; if (k) { S[k] = !S[k]; newEvent = false; render(); }
 });

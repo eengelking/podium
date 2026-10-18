@@ -269,8 +269,8 @@ card to open its orchestrator. You cannot move a card: the state comes from Clau
 - **Mixed** shows every orchestrator's cards together. **By orchestrator** groups them. **Me** (only while you are
   signed in) shows just your sessions.
 - A column shows 25 cards a page. Use the page buttons at its foot.
-- A session with no task list, or with every step done and finished, is listed under the board. Click the (i) there to
-  see how to get a plan.
+- A session with no task list, or with every step done and finished, is listed in a strip pinned to the bottom of the page,
+  above the legend. Click the (i) there to see how to get a plan.
 - The board opens with the left and right panels collapsed so the columns get the width. Open either from its edge tab.
   The board remembers that apart from the fleet page.
 

@@ -1064,11 +1064,16 @@ body.modal-open #root { filter: blur(5px); }
 .podium .kb-blank { margin: 8px 0 12px; padding: 40px 20px; border: 1px dashed var(--axis); border-radius: 10px; text-align: center; color: var(--ink2); }
 .podium .kb-blank b { display: block; font-size: 16px; color: var(--ink); margin-bottom: 4px; }
 .podium .kb-blank p { margin: 0 auto; color: var(--muted); font-size: 13px; }
-.podium .kb-none { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.podium .kb-none-h { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 12px; font-size: 12.5px; }
+/* The strip of sessions with no open steps (#359) is pinned to the bottom of the page, over the board: sticky in .main's scroll area (or in the page when the layout stacks), pushed down by margin-top:auto when the board is short, and still in the flow, so the last card can always be scrolled clear of it. */
+.podium .main:has(> .kb) { padding-bottom: 0; }
+.podium .kb { min-height: 100%; padding-bottom: 16px; }
+.podium .kb-none { position: sticky; bottom: 16px; z-index: 4; margin-top: auto; display: flex; flex-direction: column; max-height: min(200px, 30vh); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 24px -10px rgba(0,0,0,.5); }
+.podium .kb-none-h { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 9px 12px; font-size: 12.5px; }
+.podium .kb-none-list { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.podium .kb-card { scroll-margin-bottom: calc(var(--kb-strip-h, 0px) + 32px); }
 .podium .kb-info { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: var(--ink2); }
 .podium .kb-info:hover, .podium .kb-info[aria-expanded="true"] { background: var(--sel); color: var(--ink); }
-.podium .kb-note { flex: 1 1 100%; margin: 4px 0 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); font-size: 12px; line-height: 1.45; color: var(--ink2); max-width: 70ch; }
+.podium .kb-note { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); padding: 8px 10px; border: 1px solid var(--axis); box-shadow: 0 8px 24px -10px rgba(0,0,0,.5); border-radius: 6px; background: var(--raised); font-size: 12px; line-height: 1.45; color: var(--ink2); max-width: 70ch; }
 .podium .kb-note code { font: 11.5px var(--font-mono); color: var(--ink); }
 .podium .kb-note a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .podium .kb-none ul { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-wrap: wrap; gap: 6px; }
