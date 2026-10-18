@@ -943,10 +943,21 @@ export function parseArgs(argv: string[]): Args | 'help' {
   return a;
 }
 
+/** A value made safe to print: newlines and other control characters become spaces, so it cannot forge a log line. */
+export function logSafe(s: string): string {
+  // C0 and C1 controls, DEL, and the Unicode line/paragraph separators.
+  let out = '';
+  for (const ch of s) {
+    const code = ch.codePointAt(0)!;
+    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029 ? ' ' : ch;
+  }
+  return out;
+}
+
 /** Refusals already printed, so a wrong token is reported once and not every second. */
 const refused = new Set<string>();
 
-async function post(args: Args, report: Report, token: string | null = null): Promise<{ acked: number; watch: string[] } | null> {
+export async function post(args: Args, report: Report, token: string | null = null): Promise<{ acked: number; watch: string[] } | null> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token ?? args.token) headers['X-Podium-Token'] = (token ?? args.token)!;
   try {
@@ -955,12 +966,12 @@ async function post(args: Args, report: Report, token: string | null = null): Pr
       const who = `${res.status}:${report.userName ?? ''}`;
       if (refused.has(who)) return null;
       refused.add(who);
-      console.error(`podium-sim: report refused (${res.status}) for ${report.userName ?? 'a session with no name'}: ${(await res.text()).slice(0, 200)}`);
+      console.error(`podium-sim: report refused (${res.status}) for ${logSafe(report.userName ?? 'a session with no name')}: ${logSafe((await res.text()).slice(0, 200))}`);
       return null;
     }
     if (res.status === 400) {
       const body = await res.text();
-      console.error(`podium-sim: report rejected: ${body.slice(0, 200)}`);
+      console.error(`podium-sim: report rejected: ${logSafe(body.slice(0, 200))}`);
       return { acked: report.events.length, watch: [] }; // never retry a 400
     }
     if (!res.ok) return null;
