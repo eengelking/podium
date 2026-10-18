@@ -258,7 +258,9 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const nameField = useRef<HTMLInputElement>(null);
-  useEffect(() => nameField.current?.focus(), []);
+  useEffect(() => {
+    nameField.current?.focus();
+  }, []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !token) return setErr("Enter your name and your token.");

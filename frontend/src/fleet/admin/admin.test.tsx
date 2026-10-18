@@ -230,6 +230,12 @@ describe("Admin lock screen", () => {
     expect(screen.getByRole("button", { name: /People/ })).toHaveAttribute("aria-current", "page");
   });
 
+  it("puts the cursor in the Name field when the lock screen opens", async () => {
+    fakeServer();
+    render(<AdminView />);
+    expect(await screen.findByLabelText("Name")).toHaveFocus();
+  });
+
   it("asks for the name as well when only a token is typed", async () => {
     const srv = fakeServer();
     render(<AdminView />);
