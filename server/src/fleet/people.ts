@@ -10,6 +10,10 @@ export class PeopleError extends Error {
   }
 }
 
+/** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
+const MACHINE_MAX_AGE_MS = 30 * 86_400_000;
+const MACHINES_KEPT = 10;
+
 export const MAX_PAGE_SIZE = 100;
 export const DEFAULT_PAGE_SIZE = 50;
 /** The owner of a session reported with the admin secret. */
@@ -183,15 +187,24 @@ export class PeopleStore {
     return Number(this.stmt('UPDATE people SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(now, id).changes) > 0;
   }
 
-  /** Records a report from a person: the time and the machine it came from. */
-  touch(personId: number, machine: string | null, now: number): void {
+  /**
+   * Records a report from a person: the time and the machine it came from. A machine that sent an id is listed once as
+   * `name (first four of id)`; one that did not is listed by its source address. The list is bounded (#379): machines
+   * unseen for MACHINE_MAX_AGE_MS go, and so does everything past the MACHINES_KEPT most recent.
+   */
+  touch(personId: number, address: string | null, now: number, machine?: { name: string; id: string } | null): void {
     this.stmt('UPDATE people SET last_report_at = ? WHERE id = ?').run(now, personId);
-    if (machine) {
-      this.stmt(
-        `INSERT INTO person_machines (person_id, machine, last_seen_at) VALUES (?, ?, ?)
-         ON CONFLICT(person_id, machine) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
-      ).run(personId, machine.slice(0, 120), now);
-    }
+    const label = machine ? `${machine.name} (${machine.id.slice(0, 4)})` : address;
+    if (!label) return;
+    this.stmt(
+      `INSERT INTO person_machines (person_id, machine, last_seen_at) VALUES (?, ?, ?)
+       ON CONFLICT(person_id, machine) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+    ).run(personId, label.slice(0, 120), now);
+    this.stmt('DELETE FROM person_machines WHERE person_id = ? AND last_seen_at < ?').run(personId, now - MACHINE_MAX_AGE_MS);
+    this.stmt(
+      `DELETE FROM person_machines WHERE person_id = ? AND machine NOT IN
+         (SELECT machine FROM person_machines WHERE person_id = ? ORDER BY last_seen_at DESC, machine LIMIT ?)`,
+    ).run(personId, personId, MACHINES_KEPT);
   }
 
   setGroup(personId: number, groupId: number | null): boolean {

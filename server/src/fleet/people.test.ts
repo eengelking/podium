@@ -88,6 +88,31 @@ describe('people', () => {
     expect(row.lastReportAt).toBe(300);
     expect(row.machines.sort()).toEqual(['m1', 'm2']);
   });
+
+  it('lists a machine that sends an id once, however many addresses it reports from (#379)', () => {
+    const a = store.createPerson('Dana');
+    for (let i = 0; i < 50; i++) store.touch(a.person.id, `10.88.0.${i}`, 1000 + i, { name: 'laptop', id: 'a1b2c3d4e5' });
+    const row = store.list({ page: 1, pageSize: 50, q: '' }).rows[0]!;
+    expect(row.machines).toEqual(['laptop (a1b2)']);
+    expect(store.list({ page: 1, pageSize: 50, q: 'laptop' }).total).toBe(1);
+  });
+
+  it('keeps only the most recent addresses when a report has no machine id (#379)', () => {
+    const a = store.createPerson('Dana');
+    for (let i = 0; i < 50; i++) store.touch(a.person.id, `10.88.0.${i}`, 1000 + i);
+    const machines = store.list({ page: 1, pageSize: 50, q: '' }).rows[0]!.machines;
+    expect(machines).toHaveLength(10);
+    expect(machines).toContain('10.88.0.49');
+    expect(machines).not.toContain('10.88.0.0');
+  });
+
+  it('drops machines that have not reported for 30 days (#379)', () => {
+    const a = store.createPerson('Dana');
+    const day = 86_400_000;
+    store.touch(a.person.id, 'old-box', 1000);
+    store.touch(a.person.id, 'new-box', 1000 + 31 * day);
+    expect(store.list({ page: 1, pageSize: 50, q: '' }).rows[0]!.machines).toEqual(['new-box']);
+  });
 });
 
 describe('groups', () => {

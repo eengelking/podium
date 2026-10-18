@@ -211,6 +211,18 @@ CREATE INDEX IF NOT EXISTS sessions_cleared_from ON sessions(cleared_from);`,
     // SHA-256 of a token is kept now. The column is not indexed, so it can be dropped in place.
     sql: 'ALTER TABLE people DROP COLUMN token_last4;',
   },
+  {
+    version: 18,
+    // Admin > People "Machines seen" grew without limit, one row per source address (issue #379). Drop what has not
+    // reported for 30 days and keep each person's 10 most recent; PeopleStore.touch() holds the same bound from here on.
+    sql: `
+DELETE FROM person_machines WHERE last_seen_at < (strftime('%s', 'now') * 1000 - 30 * 86400000);
+DELETE FROM person_machines WHERE rowid IN (
+  SELECT rowid FROM (
+    SELECT rowid, ROW_NUMBER() OVER (PARTITION BY person_id ORDER BY last_seen_at DESC, machine) AS rn FROM person_machines
+  ) WHERE rn > 10
+);`,
+  },
 ];
 
 export interface SessionRow {
