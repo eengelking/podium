@@ -155,19 +155,6 @@ export interface FileDiffReply {
   base: string | null;
 }
 
-export const FILE_DIFF_LIMITS = {
-  /** Lines and bytes the mod sends; more is cut at a line boundary. */
-  lines: 2000,
-  bytes: 200_000,
-  /** Bytes of `git diff` the mod reads before it answers `too-large`. */
-  readBytes: 5_000_000,
-  /** The most the server takes in an answer. */
-  answerBytes: 300_000,
-  /** How long the server holds the browser's request, and the most requests it lists in one reply. */
-  holdSeconds: 15,
-  pending: 4,
-} as const;
-
 /** `reasoning` is reserved for the model's thinking; the reporter does not send it. */
 export type ActivityKind = 'tool' | 'text' | 'reasoning';
 

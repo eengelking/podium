@@ -49,4 +49,5 @@ export const respondApi = {
   discard: (deliveryId: string) => call<{ ok: true }>("DELETE", `/deliveries/${encodeURIComponent(deliveryId)}`),
 };
 
-export type RespondApi = typeof respondApi;
+/** The browser's side of responding. `fileDiff` is optional so a test's fake can leave it out; the real one has it. */
+export type RespondApi = Omit<typeof respondApi, "fileDiff"> & Partial<Pick<typeof respondApi, "fileDiff">>;

@@ -2,7 +2,7 @@
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { trimTrailingSlashes } from './machine.ts';
-import { FILE_DIFF_LIMITS, type ActivityEvent, type Delivery, type DiffRequest, type Report } from './protocol.ts';
+import type { ActivityEvent, Delivery, DiffRequest, Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
@@ -11,6 +11,8 @@ export const EVENTS_PER_REPORT = 100;
 export const REFUSED_RETRY_MS = 60_000;
 /** More watched loops than a report can carry agents is not a list the mod takes whole. */
 const MAX_WATCHED = 201;
+/** File diffs one reply can ask for (#319). */
+const MAX_DIFF_REQUESTS = 4;
 /** Messages and commands one reply can hand over (#206). */
 const MAX_DELIVERIES = 20;
 
@@ -174,7 +176,7 @@ export class Transport {
           this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.respond = body.respond === true;
           this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
-          this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, FILE_DIFF_LIMITS.pending) : [];
+          this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, MAX_DIFF_REQUESTS) : [];
         } catch {
           // a 200 without a JSON body still acks what was sent
         }

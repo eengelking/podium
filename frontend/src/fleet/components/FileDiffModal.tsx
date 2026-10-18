@@ -204,7 +204,7 @@ export function FileDiffModal(props: { sessionId: string; file: ChangedFile; sin
   useEffect(() => {
     let live = true;
     setLoad({ state: "loading" });
-    if (!api) {
+    if (!api?.fileDiff) {
       setLoad({ state: "failed", why: failure(null) });
       return;
     }

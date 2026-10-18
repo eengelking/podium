@@ -3,10 +3,13 @@
 // Nothing is read for a path the list does not name, and nothing for a path that usually holds secrets.
 import { EMPTY_TREE, resolveRef, type Runner } from './git.ts'
 import { redactDiff, withheldPath } from './diffRedact.ts'
-import { FILE_DIFF_LIMITS, type FileDiffReply, type FilesReport } from './protocol.ts'
+import type { FileDiffReply, FilesReport } from './protocol.ts'
 
 export const DIFF_LIMITS = {
-  ...FILE_DIFF_LIMITS,
+  /** Lines and bytes sent; more is cut at a line boundary. Bytes of `git diff` read before it answers `too-large`. The server holds the same numbers (FILE_DIFF_LIMITS). */
+  lines: 2000,
+  bytes: 200_000,
+  readBytes: 5_000_000,
   /** A single line is cut to this many characters, so one minified file cannot fill the diff. */
   lineChars: 4000,
   /** A file the list counts at more changed lines than this is not read at all. */

@@ -119,25 +119,20 @@ describe('file diff on request', () => {
     expect(w.git.diffCalls).toBe(1)
   })
 
-  test('a path the Files list does not name is unavailable, and git is not asked for it', { options: { fileDiff: true } }, async ($, on) => {
-    const w = world(on)
-    await started($, w)
-    w.server.diffs.push({ id: 'req2', path: 'src/never-changed.ts' })
-    await w.clock.advance(5000)
-    await settle(w)
-    expect(reply(diffPuts(w)[0]!)).toMatchObject({ status: 'unavailable', text: null })
-    expect(w.git.diffCalls).toBe(0)
-  })
-
-  test('a secret-holding path is withheld and git is not asked for it', { options: { fileDiff: true } }, async ($, on) => {
-    const w = world(on)
-    await started($, w)
-    w.server.diffs.push({ id: 'req3', path: '.env' })
-    await w.clock.advance(5000)
-    await settle(w)
-    expect(reply(diffPuts(w)[0]!)).toMatchObject({ status: 'withheld', text: null })
-    expect(w.git.diffCalls).toBe(0)
-  })
+  for (const [name, path, status] of [
+    ['a path the Files list does not name is unavailable', 'src/never-changed.ts', 'unavailable'],
+    ['a secret-holding path is withheld', '.env', 'withheld'],
+  ] as const) {
+    test(`${name}, and git is not asked for it`, { options: { fileDiff: true } }, async ($, on) => {
+      const w = world(on)
+      await started($, w)
+      w.server.diffs.push({ id: 'req2', path })
+      await w.clock.advance(5000)
+      await settle(w)
+      expect(reply(diffPuts(w)[0]!)).toMatchObject({ status, text: null })
+      expect(w.git.diffCalls).toBe(0)
+    })
+  }
 
   test('with the option off nothing is read or sent, and the report says so', async ($, on) => {
     const w = world(on)
