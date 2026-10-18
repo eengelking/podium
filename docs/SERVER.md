@@ -121,6 +121,27 @@ A server bound to `0.0.0.0` or `::` also takes any IP address, which a page cann
 logged as `http.host_refused` with the host and nothing else. The reasoning is in
 [DECISIONS.md](DECISIONS.md#33-refusing-a-host-the-server-does-not-expect-256).
 
+### Behind a reverse proxy
+
+Behind a TLS proxy every request seems to come from the proxy: the Admin log shows its address, five wrong
+tries by one person lock everyone out, and the session cookies are not marked `Secure`. Tell the server which
+hops to believe:
+
+```bash
+podiumctl config set PODIUM_TRUST_PROXY=10.0.0.5   # the proxy's address, a range (172.16.0.0/12) or a hop count (1)
+podiumctl restart
+```
+
+- It takes a hop count, or addresses and ranges separated by commas, and the names `loopback`, `linklocal` and
+  `uniquelocal`. It is off by default. `true` is refused, and a value that does not parse stops the server at start.
+- Then `X-Forwarded-For` and `X-Forwarded-Proto` are read only from those hops, so a client cannot choose its
+  address or scheme from anywhere else.
+- **Warning:** name only a proxy that overwrites `X-Forwarded-For`. A hop that passes a client's header through
+  lets that client choose its source, which defeats the lockouts. A very wide range (`0.0.0.0/0`) or a hop count
+  larger than your proxy chain has the same effect; the server accepts them, so choose the value with care.
+- In container mode the proxy reaches Podium through the published port, so its address inside the container may
+  be the network's gateway rather than the proxy's own; check the `source` in Admin's log after turning it on.
+
 ### More settings
 
 Other settings (`STALE_AFTER_MS`, `RETAIN_*`, the `PODIUM_LOG_*` logging settings, and so on, see
@@ -154,6 +175,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |
+| `PODIUM_TRUST_PROXY` | off | The reverse-proxy hops whose `X-Forwarded-For` and `X-Forwarded-Proto` the server believes (see [Behind a reverse proxy](#behind-a-reverse-proxy)) |
 | `TZ` | the server's own zone | Timezone whose midnight starts "today" for "Est. cost today". `podiumctl` gives the container your host's zone; set it with `podiumctl config set TZ=Europe/Berlin` to override |
 | `STALE_AFTER_MS` | `15000` | A session not heard from this long shows as stale |
 | `HOOK_STALE_AFTER_MS` | `600000` | Same as `STALE_AFTER_MS`, for sessions known only from settings hooks (they send no heartbeat) |

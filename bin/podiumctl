@@ -20,7 +20,7 @@ const INNER_PORT = 4317;
 export const PASSTHROUGH = [
   'STALE_AFTER_MS', 'HOOK_STALE_AFTER_MS', 'DROP_AFTER_MS', 'LINGER_MS', 'DETACHED_HIDE_AFTER_MS',
   'RETAIN_SAMPLES_MS', 'RETAIN_EVENTS_MS', 'RETAIN_SESSIONS_MS', 'RETAIN_ADMIN_LOG_MS',
-  'TZ', 'PODIUM_ALLOWED_HOSTS',
+  'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY',
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
 /** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. */
@@ -76,6 +76,13 @@ Host is not one it expects; 127.0.0.1, localhost and [::1] always work, and so d
                         podiumctl config set PODIUM_ALLOWED_HOSTS=box.lan,fleet.example, then podiumctl restart.
                         With --bind 0.0.0.0 (or ::) any IP address typed in the bar works without being listed;
                         a name always has to be listed. The port is not compared
+
+Reverse proxy (behind one, every request seems to come from the proxy, so the Admin log shows its address, the lockouts
+are shared by everyone and the session cookies are not marked Secure):
+  PODIUM_TRUST_PROXY    The proxy hops to believe X-Forwarded-For and X-Forwarded-Proto from: a count (1), addresses
+                        or ranges (10.0.0.5,172.16.0.0/12) or loopback, linklocal, uniquelocal. Off by default; "true" is
+                        refused. Name only a proxy that overwrites those headers: a hop that passes a client's through
+                        lets that client choose its source and defeats the lockouts. Then podiumctl restart
 
 Logging (server output; \`podiumctl logs\` shows it):
   PODIUM_LOG_LEVEL         debug, info (default), warn or error. debug adds one line per HTTP request

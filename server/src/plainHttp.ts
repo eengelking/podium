@@ -50,7 +50,7 @@ export function createPlainHttpWatch(opts: PlainHttpWatchOptions): PlainHttpWatc
     atStart: () => bindWarning('start'),
     onFlagOn: () => bindWarning('flag'),
     onSignIn: (req: Request, _res, next) => {
-      // `req.protocol` follows X-Forwarded-Proto only when Express is told to trust the proxy; until then it is the socket's.
+      // `req.protocol` follows X-Forwarded-Proto only from a hop named in PODIUM_TRUST_PROXY (#305); otherwise it is the socket's.
       const host = hostnameOf(req.headers.host);
       const t = now();
       if (req.protocol !== 'https' && !(host && isLoopbackName(host)) && t - lastNote >= NOTE_EVERY_MS) {

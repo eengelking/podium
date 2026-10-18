@@ -83,7 +83,8 @@ If someone else runs the server, ask them for your own token and enter it as `to
 (see [Admin](#admin)). To run one server for several people, see "Several people on one Podium" in
 [SERVER.md](SERVER.md#run-it-with-podiumctl). It covers the bind address, the firewall, the names the server accepts
 (`PODIUM_ALLOWED_HOSTS`, for reaching it by a name rather than an address) and what everyone who can reach the server
-can see.
+can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](SERVER.md#behind-a-reverse-proxy), so
+Admin's log shows each person's address and one person's wrong tries do not lock everyone out.
 
 To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine).
 
@@ -143,7 +144,7 @@ Find what you see, then follow the fix. [GOTCHAS.md](GOTCHAS.md) has more.
 | A card shows `reporter 0.1.0 · update`, the top bar says reporters need an update, or the status line ends in `· update mod` | The mod in that session is older than the server supports. It keeps reporting meanwhile. See [Updating the mod](#updating-the-mod) |
 | The status line ends in `· update available` | Your mod works, but the server supports a newer one. See [Updating the mod](#updating-the-mod) |
 | A card or the status line shows `· upgrade server` | The mod is newer than the server supports. Upgrade the server (see [Updating the mod](#updating-the-mod)) |
-| The status line starts with `⚠` (`⚠ podium v1.1.0 ● 6 live`) | The mod's server URL is `http://` to another machine, so its token is not encrypted in transit. Put a TLS proxy in front of Podium and set the server URL to `https://...` in the podium-reporter settings, or accept the risk on a network you trust. Reporting continues |
+| The status line starts with `⚠` (`⚠ podium v1.1.0 ● 6 live`) | The mod's server URL is `http://` to another machine, so its token is not encrypted in transit. Put a TLS proxy in front of Podium (and [tell the server to trust it](SERVER.md#behind-a-reverse-proxy)) and set the server URL to `https://...` in the podium-reporter settings, or accept the risk on a network you trust. Reporting continues |
 
 **Asking for help or filing a bug.** Include the output of `/podium` and of `podiumctl status`.
 
@@ -682,6 +683,11 @@ Under **Create user**, type a name and choose Create user.
 - **Rotate** gives a person a new token and stops the old one.
 - **Revoke** refuses their reports from the next one on, and their sessions go stale and drop as usual. A revoked
   person's row offers **Issue new token** instead.
+- **Delete** removes a person, and a dialog asks first. Their reporter is refused at once, they leave their group, and
+  an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name, and the
+  name can be used again later. To delete several people, tick their rows (the box in the header ticks the page), then
+  choose **Delete N…** in the bar above the list. Ticks are for the page you are on. Podium refuses, and deletes no
+  one, if the choice includes you or would leave Administrators with no active member.
 - The search finds a person by name, group or machine.
 - A person in the Administrators group has their name in orange.
 

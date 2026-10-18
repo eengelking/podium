@@ -74,7 +74,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | Read | To |
 |---|---|
 | [User guide](docs/USER_GUIDE.md) | Set Podium up, read the dashboard and use Admin |
-| [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, and change its settings |
+| [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy), and change its settings |
 | [The reporter mod](docs/REPORTER.md) | Install `podium-reporter`, set its options and see what leaves a session |
 | [Gotchas](docs/GOTCHAS.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/GOTCHAS.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |

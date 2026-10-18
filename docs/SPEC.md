@@ -1476,6 +1476,7 @@ The first of these that applies, in priority order:
 
 - State changes mark `dirty`. A `$.clock.every(flushIntervalMs)` timer flushes when dirty or when `heartbeatMs` has passed since the last report.
 - Git is polled every 10 s, not per flush. `$.agent.list()` and `$.session.usage()` are read per flush (both cheap).
+- The session's place (`cwd`, project root, repository name) is re-read on each git poll, because the desktop app moves a pre-warmed spare to the project the person picks without restarting the session (#382). The new folder is `$.session.cwd()` once its answer changes, or the `cwd` a `classic.SessionStart` or `classic.UserPromptSubmit` hook carries, which wins when `$.session` still answers the old folder. The project root and repository name come from `$.session.root()` and `$.session.repo()` while their folder holds the new `cwd`; otherwise from git run there (`rev-parse --path-format=absolute --git-common-dir`, `config --get remote.origin.url`), else the folder itself. The stored git base (`base:<id>`) is not reset by a move.
 - Never `await` a network call inside a hook that sits on the tool path. Hooks only mutate in-memory state and set `dirty`. The one exception is an open ask while the mod responds (5.3): its hook announces the ask and waits on the server on purpose, and only while the dialog it races is on screen.
 - Events: assigned an id at creation, queued; the queue holds at most 500; acknowledged by `ackedEvents` count (the server acks all events in a valid report; the mod then clears them). If the server is unreachable: keep the latest snapshot and the event queue (oldest dropped past 500), retry with backoff 1 s → 2 s → 5 s → 10 s max, and update the status line to `podium ○ offline`. On the first success after failures, send the full snapshot plus queued events.
 - On `session.end`, flush synchronously (await the POST, 2 s timeout) before returning from the hook.
@@ -1716,7 +1717,17 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
 - Session and sign-in: `GET session` (`{ enabled, unlocked, version }`), `POST unlock` (body `{ name, token }`),
   `POST unlock/from-respond` (a browser signed in to respond as an Administrator), `POST lock`.
 - With an unlocked session:
-  - People: `GET/POST people`, `POST people/:id/rotate`, `POST people/:id/revoke`, `PUT people/:id/group`.
+  - People: `GET/POST people`, `POST people/:id/rotate`, `POST people/:id/revoke`, `PUT people/:id/group`, and
+    `POST people/delete`.
+    - `POST people/delete` takes `{ ids }`, 1 to 500 person ids (one id for a single person), and replies
+      `{ ok, removed }`. It deletes the people and their machine list; their token stops working at once, and an
+      Administrator's open Admin session locks. It refuses with `400`, deleting nobody, if the list holds the person
+      signed in to Admin, or would leave the Administrators group with no active (unrevoked) member, since only an
+      active member can open Admin. An id that is not a person is skipped, and `removed` counts the people it removed;
+      it answers `404` if none of the ids is a person. Sessions, spend rows and Admin log entries that name a person keep the name as text, and the name can be
+      created again. It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
+    - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
+      button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Groups: `GET/POST groups`, `DELETE groups/:id`.
   - Reporters (the Reporters page, [7.7](#77-hardening), [8.1](#81-what-the-ui-must-do)): `GET reporters`,
     `GET reporters/:key`, `DELETE reporters/:key`, and `POST reporters/remove`.
@@ -2316,6 +2327,25 @@ read the open routes.
   body, and at most once a minute per value.
 - See DECISIONS 33.
 
+#### Behind a reverse proxy (#305)
+
+- `PODIUM_TRUST_PROXY` (set with `podiumctl config set`, then `podiumctl restart`) names the proxy hops whose
+  `X-Forwarded-For` and `X-Forwarded-Proto` the server believes. It is passed to Express `trust proxy`.
+- It is off by default, and then nothing changes: `req.ip` is the connection's peer and `req.secure` is false
+  behind a proxy that terminates TLS.
+- The value is one of: a hop count (`1`); addresses or CIDR ranges, comma-separated (`10.0.0.5,172.16.0.0/12`),
+  which may include `loopback`, `linklocal` and `uniquelocal`. Empty, `0`, `false` and `off` mean off.
+- `true` is refused, since it trusts every hop. A malformed value stops the server at start with a message
+  naming `PODIUM_TRUST_PROXY`, rather than trusting nothing or too much.
+- With it set, `req.ip` and `req.secure` follow the headers only through trusted hops; a request from an address
+  that is not trusted is read as before, so a client cannot spoof them.
+- It changes what the source address is everywhere it is used: the `source` of the admin log rows, the Admin and
+  sign-in lockout, the admin-secret guess throttle (#255), and the `Secure` flag of the Admin and respond cookies
+  (and the plain-HTTP warning on a sign-in, above).
+- Trusting a hop that does not overwrite `X-Forwarded-For` lets any client choose its source and defeats the
+  lockouts; the documentation says so.
+- See DECISIONS 35.
+
 #### Guessing the admin secret through `X-Podium-Token` (#255)
 
 - The routes that check it (`POST /report`, `POST /hook`, `DELETE /sessions/:id` and the mod's respond routes)
@@ -2341,8 +2371,8 @@ Nothing blocks. The server logs a `warn` event `server.respond_plain_http` (fiel
 1. Once at start, and again whenever the Admin turns Respond from Podium on, when `HOST` is not loopback
    (`127.*`, `localhost`, `::1`) and the flag is on.
 2. On a sign-in to respond whose connection Express sees as `http` and whose `Host` is not loopback, at most
-   once a minute. `req.protocol` follows `X-Forwarded-Proto` only when proxy trust is set; there is no such
-   setting yet (#305).
+   once a minute. `req.protocol` follows `X-Forwarded-Proto` only from a hop named in `PODIUM_TRUST_PROXY`
+   (see "Behind a reverse proxy").
 
 Other places the warning shows:
 

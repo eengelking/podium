@@ -60,6 +60,11 @@ Two scanners also run on PRs: SonarCloud (`.github/workflows/sonar.yml`, quality
 (`.github/workflows/codeql.yml`, the `security-extended` queries; results are under Security > Code scanning). Neither runs on
 your machine. Fix what they flag in your PR.
 
+SonarCloud cannot see the mod's own tests, because they run only inside Claude Code, so a line added to
+`mod/podium-reporter/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
+nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
+and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `mod/podium-reporter/hooks/*.ts` for this.
+
 When you fix a bug in code, add a test that fails for the right reason first, then fix it.
 
 ## Proposing a change

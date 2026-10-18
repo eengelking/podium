@@ -37,6 +37,8 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     builtin: { "sonnet-5-5": 2, "haiku-5-5": 0.1 } as Record<string, number>,
     priceError: "" as string,
     removeBodies: [] as unknown[],
+    deleteBodies: [] as { ids: number[] }[],
+    deleteError: "",
     pageLimit: 50,
     rules: [] as { id: number; kind: string; pattern: string; createdAt: number }[],
     forget: { enabled: false, days: 30 },
@@ -90,6 +92,14 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const who = state.people.find((x) => x.id === Number(grp[1]))!;
       who.groupId = (JSON.parse(String(init?.body)) as { groupId: number | null }).groupId;
       return json(200, { ok: true });
+    }
+    if (path === "/people/delete" && method === "POST") {
+      const b = JSON.parse(String(init?.body)) as { ids: number[] };
+      state.deleteBodies.push(b);
+      if (state.deleteError) return json(400, { ok: false, error: state.deleteError });
+      const before = state.people.length;
+      state.people = state.people.filter((p) => !b.ids.includes(p.id));
+      return json(200, { ok: true, removed: before - state.people.length });
     }
     if (path === "/people" && method === "POST") {
       const name = JSON.parse(String(init?.body)).name as string;
