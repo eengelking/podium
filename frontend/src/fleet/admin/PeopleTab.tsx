@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AdminError, query, type AdminApi, type GroupChoice, type Paged, type PersonRow } from "./adminApi";
+import { Modal } from "../components/Modal";
 import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { failText, useList } from "./useList";
@@ -33,7 +34,14 @@ export function PeopleTab(props: {
   const [addErr, setAddErr] = useState("");
   const [pending, setPending] = useState<Pending>(null);
   const [rowErr, setRowErr] = useState("");
+  const [sel, setSel] = useState<number[]>([]);
+  // The people the delete dialog asks about, and why the last attempt was refused (#243).
+  const [doomed, setDoomed] = useState<PersonRow[] | null>(null);
+  const [delErr, setDelErr] = useState("");
+  const opener = useRef<Element | null>(null);
   const list = useList<Paged<PersonRow> & { groups: GroupChoice[] }>(api, `/people${query({ page, pageSize, q })}`, props.onLocked);
+  // A selection is of the rows on this page: it goes when the page, its size or the search changes.
+  useEffect(() => setSel([]), [page, pageSize, q]);
   const total = list.data?.total;
   useEffect(() => {
     if (total !== undefined) onCount(total);
@@ -92,6 +100,29 @@ export function PeopleTab(props: {
   const rows = list.data?.rows ?? [];
   const groups = list.data?.groups ?? [];
   const adminIds = new Set(groups.filter((g) => g.builtIn).map((g) => g.id));
+  const pageAllSelected = rows.length > 0 && rows.every((r) => sel.includes(r.id));
+  const askDelete = (people: PersonRow[]) => {
+    opener.current = document.activeElement;
+    setDelErr("");
+    setDoomed(people);
+  };
+  const closeDelete = () => {
+    setDoomed(null);
+    const el = opener.current;
+    opener.current = null;
+    if (el instanceof HTMLElement && el.isConnected) el.focus();
+  };
+  const confirmDelete = () => {
+    if (!doomed) return;
+    setDelErr("");
+    void guard(async () => {
+      await api("POST", "/people/delete", { ids: doomed.map((p) => p.id) });
+      setDoomed(null);
+      setSel([]);
+      list.reload();
+    }, setDelErr);
+  };
+  const adminAmong = (people: PersonRow[]) => people.some((p) => p.revokedAt === null && adminIds.has(p.groupId ?? -1));
   return (
     <>
       <Section id="admin-create-h" title="Create user" help="Adds the person and makes their token. The token is shown once, right after you create it.">
@@ -120,6 +151,18 @@ export function PeopleTab(props: {
               <input className="field" id="admin-search" type="search" placeholder="Name, group or machine" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </div>
+          {sel.length > 0 && (
+            <div className="selbar" role="group" aria-label="Selected people">
+              <span className="count">{sel.length} selected</span>
+              <span className="grow" />
+              <button type="button" className="btn sm dng" onClick={() => askDelete(rows.filter((r) => sel.includes(r.id)))}>
+                Delete {sel.length}…
+              </button>
+              <button type="button" className="btn sm" onClick={() => setSel([])}>
+                Clear
+              </button>
+            </div>
+          )}
           {rowErr && (
             <div className="err" role="alert">
               {rowErr}
@@ -138,6 +181,14 @@ export function PeopleTab(props: {
                 <table className="ptab">
                   <thead>
                     <tr>
+                      <th className="chk">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select all ${rows.length} on this page`}
+                          checked={pageAllSelected}
+                          onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.id) : [])}
+                        />
+                      </th>
                       <th>Person</th>
                       <th>Group</th>
                       <th>Machines seen</th>
@@ -156,7 +207,10 @@ export function PeopleTab(props: {
                       const isAdmin = adminIds.has(p.groupId ?? -1) && !revoked;
                       const pend = pending && pending.id === p.id ? pending : null;
                       return (
-                        <tr key={p.id} className={revoked ? "revoked" : ""}>
+                        <tr key={p.id} className={`${revoked ? "revoked" : ""}${sel.includes(p.id) ? " sel" : ""}`.trim()}>
+                          <td className="chk">
+                            <input type="checkbox" aria-label={`Select ${p.name}`} checked={sel.includes(p.id)} onChange={(e) => setSel((cur) => (e.target.checked ? [...cur, p.id] : cur.filter((i) => i !== p.id)))} />
+                          </td>
                           <td>
                             <span className={isAdmin ? "who isadmin" : "who"} title={isAdmin ? "Administrator: can open Admin with their own token" : undefined}>
                               {p.name}
@@ -220,6 +274,9 @@ export function PeopleTab(props: {
                                     Revoke
                                   </button>
                                 )}
+                                <button type="button" className="btn sm dng" onClick={() => askDelete([p])}>
+                                  Delete
+                                </button>
                               </div>
                             )}
                           </td>
@@ -236,6 +293,37 @@ export function PeopleTab(props: {
           )}
         </Panel>
       </Section>
+      {doomed && (
+        <Modal titleId="deletePeopleTitle" title={doomed.length === 1 ? `Delete ${doomed[0]!.name}?` : `Delete ${doomed.length} people?`} onClose={closeDelete} className="sm">
+          <div className="sbody">
+            <p>{doomed.length === 1 ? "Their reporter is refused at once." : "Their reporters are refused at once."} Their past sessions keep their name.</p>
+            {doomed.length > 1 && (
+              <ul>
+                {doomed.map((p) => (
+                  <li key={p.id}>{p.name}</li>
+                ))}
+              </ul>
+            )}
+            <p className="hint">
+              {adminAmong(doomed) && "Their open Admin session locks. "}Their group membership is removed. {doomed.length === 1 ? "The name" : "The names"} can be used again later.
+            </p>
+            {delErr && (
+              <div className="err" role="alert">
+                {delErr}
+              </div>
+            )}
+          </div>
+          <div className="sfoot">
+            <span className="grow" />
+            <button type="button" className="btn" onClick={closeDelete}>
+              Cancel
+            </button>
+            <button type="button" className="btn bad" onClick={confirmDelete}>
+              {doomed.length === 1 ? "Delete" : `Delete ${doomed.length} people`}
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
