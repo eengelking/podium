@@ -117,11 +117,12 @@ export interface SectionSpec {
 const list = (items: string[]) => `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`;
 
 /** One standard on the components page: what it is for, its real markup, the classes in it, when to use it and when not, and its accessibility. */
-export function sectionHtml(spec: SectionSpec, samples: Array<{ label: string; markup: string }>): string {
-  const classes = classesIn(samples.map((s) => s.markup).join(" "));
+export function sectionHtml(spec: SectionSpec, samples: Array<{ label: string; markup: string; wrap?: string }>): string {
+  const wrapped = samples.map((s) => (s.wrap ? { ...s, markup: `<div class="${esc(s.wrap)}">${s.markup}</div>` } : s));
+  const classes = classesIn(wrapped.map((s) => s.markup).join(" "));
   // A page has one main landmark, so one that a sample carries (Admin's) is drawn as a div. Nothing else changes.
   const asDiv = (markup: string) => markup.replaceAll(/<(\/?)main(?=[\s>])/g, "<$1div");
-  const shown = samples
+  const shown = wrapped
     .map((s) => `<div class="s-case"><div class="podium s-sample" data-sample="${esc(spec.id)}">${asDiv(s.markup)}</div><div class="s-cap">${esc(s.label)}</div></div>`)
     .join("\n    ");
   return `  <section class="s-panel" id="${esc(spec.id)}" data-files="${esc(spec.files.join(" "))}">

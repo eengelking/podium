@@ -8,12 +8,15 @@ export interface Case {
   label: string;
   screen: string;
   selector: string;
+  /** The app's own wrapper the part lives in (such as the wall grid, which gives a card its width), drawn around the sample. */
+  wrap?: string;
 }
 
 export interface Sample extends SectionSpec {
   cases: Case[];
 }
 
+const inWall = (cases: Case[]): Case[] => cases.map((c) => ({ ...c, wrap: "wall" }));
 const card = (id: string) => `.card-slot:has([data-session="${id}"])`;
 
 export const SAMPLES: Sample[] = [
@@ -79,7 +82,7 @@ export const SAMPLES: Sample[] = [
     use: ["Showing a session on the wall.", "Showing a state: running, waiting on you, done, or heartbeat lost."],
     avoid: ["Putting a second primary action inside the card. The whole card opens the session.", "Showing status by color alone. The band carries an icon and a word."],
     a11y: "The card is one button that opens the session. Remove sits beside it, not inside it, so there is no button within a button. The session id is a role=button span that keeps its own click and keys.",
-    cases: [
+    cases: inWall([
       { label: "Running", screen: "wall", selector: card("s1") },
       { label: "Waiting on you", screen: "wall", selector: card("s2") },
       { label: "Done", screen: "wall", selector: card("s3") },
@@ -90,7 +93,7 @@ export const SAMPLES: Sample[] = [
       { label: "Idle on background work", screen: "app-wall-bg", selector: card("s7") },
       { label: "Delegating to an agent", screen: "app-wall-deleg", selector: card("s3") },
       { label: "No effort reported", screen: "app-effort-none", selector: card("s1") },
-    ],
+    ]),
   },
   {
     id: "wall",

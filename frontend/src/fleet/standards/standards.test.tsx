@@ -54,6 +54,7 @@ describe("html helpers", () => {
 
   it("writes a section with its markup, classes, rules and a11y note", () => {
     const html = sectionHtml(fake, [{ label: "First", markup: '<i class="item a"></i>' }]);
+    expect(sectionHtml(fake, [{ label: "First", markup: "<i></i>", wrap: "wall" }])).toContain('<div class="podium s-sample" data-sample="demo"><div class="wall"><i></i></div></div>');
     expect(html).toContain('id="demo"');
     expect(html).toContain('data-files="components/Demo.tsx"');
     expect(html).toContain("<code>.a</code><code>.item</code>");

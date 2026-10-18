@@ -15,7 +15,7 @@ import { SCREENS, type Screen } from "./screens";
  * The markup of each case of a sample. A screen is rendered once, however many cases cut from it, and a case whose
  * selector matches nothing is an error that names the sample, so a renamed class never silently empties a page.
  */
-export async function renderSample(sample: Sample, screens: Record<string, Screen> = SCREENS): Promise<Array<{ label: string; markup: string }>> {
+export async function renderSample(sample: Sample, screens: Record<string, Screen> = SCREENS): Promise<Array<{ label: string; markup: string; wrap?: string }>> {
   const out = new Map<string, string>();
   const labels = sample.cases.map((c) => c.label);
   if (new Set(labels).size !== labels.length) throw new Error(`sample ${sample.id}: two cases share a label, so one would show the other's markup`);
@@ -41,7 +41,7 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
       screen.cleanup?.();
     }
   }
-  return sample.cases.map((c) => ({ label: c.label, markup: out.get(c.label)! }));
+  return sample.cases.map((c) => ({ label: c.label, markup: out.get(c.label)!, wrap: c.wrap }));
 }
 
 const NOT_RENDERED = join(FLEET_DIR, "..", "..", "..", "docs", "standards", "not-rendered.json");

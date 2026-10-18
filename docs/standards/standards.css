@@ -1,6 +1,8 @@
 /* The page chrome of the standards pages (#354): the top bar, the page list, the layout of a standard's section.
    It is the only CSS here. Every color comes from tokens.css through var(), and the samples on the pages use the app's own
    fleet.css and admin.css, so this file never restyles a component. Classes start with s- so they cannot meet the app's. */
+/* Padding is inside the width, so a page that is 100% wide never scrolls sideways. */
+.s-bar, .s-shell, .s-shell * { box-sizing: border-box; }
 body { margin: 0; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
 .s-bar a, .s-nav a, .s-main a { color: inherit; }
 .s-main a { text-underline-offset: 2px; }
