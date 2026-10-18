@@ -100,7 +100,7 @@ This is the source of truth for intended behavior. `docs/ARCHITECTURE.md` record
 1. Show all live Claude Code sessions on this machine, updating within about 2 seconds of a change, with no
    page refresh. A new session appears by itself. An ended session leaves by itself.
 2. Per orchestrator: name, working directory, git branch, whether it is a worktree, ahead/behind/modified
-   counts, model, effort, status, context fill, estimated cost, token count, elapsed time, resume command.
+   counts, model, effort, status, context fill, estimated cost, token count, elapsed time, resume command and fork command.
 3. Per orchestrator: the plan it is working through (from its task list), step states, and which agent owns
    which step where that can be determined.
 4. Per agent (subagent or fork): parent, kind, type, description, model, effort, status, context fill, tokens,
@@ -147,7 +147,7 @@ Podium never:
 - edits a plan's text;
 - starts, stops, resumes or kills a session or an agent.
 
-The dashboard may also copy a resume command to the clipboard and remove a heartbeat-lost card from the live
+The dashboard may also copy a resume command or a fork command to the clipboard and remove a heartbeat-lost card from the live
 view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
 
 **Hosting.**
@@ -1936,7 +1936,7 @@ Server to UI. Defined once in `protocol.ts`, imported by the UI.
 
 ```ts
 interface SessionView {
-  id: string; name: string; project: string; repoName: string | null; resumeCommand: string;
+  id: string; name: string; project: string; repoName: string | null; resumeCommand: string; forkCommand: string;
   reporterVersion: string | null; compat: 'ok' | 'outdated' | 'newer' | 'unknown';  // the mod's version and where it sits against the server's range (6.8)
   git: { branch: string | null; detached: boolean; isWorktree: boolean; worktreePath: string | null; ahead: number; behind: number; dirty: number } | null;
   model: string | null; modelFamily: 'opus'|'sonnet'|'haiku'|'fable'|'other'; effort: string | null;
@@ -1969,7 +1969,7 @@ interface SessionView {
 }
 ```
 
-`resumeCommand` is `cd <cwd> && claude --resume <resumeId ?? id>`. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
+`resumeCommand` is `cd <cwd> && claude --resume <resumeId ?? id>`. `forkCommand` is the same command with ` --fork-session` added: `cd <cwd> && claude --resume <resumeId ?? id> --fork-session` (#352). Both quote a `cwd` or id that holds anything but safe shell characters, and both are built in `derive.ts`, so the page copies a string and never builds a command. No new report field is needed. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
 
 ### 7.5 Lifecycle timers
 
@@ -3032,10 +3032,10 @@ status band as the last row.
 - The goal line: the plan title and current step.
   - With no step active, the first pending step is shown as the current one, marked "(inferred)".
   - "plan complete" when every step is done (#179).
-- The working directory.
-- The session id (#322): "session" and its first eight characters, a button that copies the whole id, with
-  the card's feedback.
+- The working directory, then a `|` and the repository name when there is one. The `|` is decoration and is hidden from screen readers.
 - The git line.
+
+The session id is not in the header; it is a cell in the facts grid (#352).
 
 **Charts** (on the right)
 - Three charts: tokens per second, peak context (with a dashed 100% line, red blowout markers and a "N
@@ -3051,8 +3051,9 @@ status band as the last row.
 
 **Facts grid**
 
-Eight cells in fixed places, four to a row (two columns at 520 px and narrower, by the page's own width). Row
-one is Agents, Est. cost, Tokens, Running for. Row two is Agent time, Blowouts, Reporter, Resume.
+Ten cells in fixed places, five to a row (two columns at 640 px and narrower, by the page's own width, so five
+rows). Row one is Agents, Est. cost, Tokens, Running for, Agent time. Row two is Blowouts, Reporter, Session,
+Resume, Fork (#352, `mockup/podium-fork.html`). A cell never moves because another has nothing to say.
 
 - **Agents**: running, done, and a red "N failed" button that opens the first failure. The orchestrator counts
   as an agent, running while the session runs, done once it is done, and neither while the session is stale.
@@ -3071,8 +3072,31 @@ one is Agents, Est. cost, Tokens, Running for. Row two is Agent time, Blowouts, 
   and red at level 2. A button (`aria-expanded`, `aria-controls`) opens and closes the blowout detail (the
   sentence and each affected loop as a link), closed by default. A level 2 blowout also gives the whole
   surface the card's red top edge.
-- **Resume** is a quiet whole-cell control, "Copy command" with a copy icon (the label **Resume**), with the
-  behavior of Copy resume command below. Its fallback field opens inside the cell.
+- **Session** (#322, #352) is the first eight characters of the session id in the mono face, with a copy icon.
+  It is a button that copies the whole id and reads "Copied" with a check for 1.6 s, or "Copy failed" when the
+  clipboard refuses, as the card's id does. Its accessible name is "Copy session id" and the eight characters, as
+  the card's is, and its tooltip is the whole id.
+- **Resume** and **Fork** are quiet whole-cell controls with no button chrome. Each has its label (**Resume**,
+  **Fork**) over "Command" and a copy icon, and behaves as Copy resume command and Copy fork command below.
+  Their accessible names are "Copy resume command" and "Copy fork command".
+  - Each has a popup that says what the command does, opened by hover and by keyboard focus, closed by Escape
+    or when the pointer or focus leaves. It holds text only, and the cell points to it with
+    `aria-describedby`. It opens above the cell, aligned to the cell's right edge, so it must not be clipped
+    by the surface.
+  - The Resume popup says it continues this same session in a new terminal with the whole conversation, that it
+    should be run once the session has ended because resuming one that is still running in another terminal
+    writes both into the same conversation, that it starts in the session's working directory and does not
+    restore flags such as `--mcp-config`, and that Fork is the way to try something without changing this
+    session.
+  - The Fork popup says it starts a copy of the conversation in a new session, that this session is not
+    changed, that permissions allowed for the session are not carried over, that it works in the same
+    directory so file edits are real (start it in a worktree to keep them apart), that flags such as
+    `--mcp-config`, `--settings`, `--plugin-dir` and `--add-dir` are not restored, and that it needs the
+    session's transcript, which Claude Code keeps for 30 days by default.
+  - Fork is offered for a live, waiting or ended session. Podium cannot tell whether the transcript still
+    exists, so it does not offer a "transcript gone" state; the popup names the 30-day limit.
+  - Fork is not on History's read-only page, as Resume is not. There is no worktree variant: nothing in
+    `claude --help` says `--worktree` combines with `--resume --fork-session`, so the popup advises it.
 - The orchestrator's model, effort and context are not in the bar. Its row in the agent tree shows them (#109).
 
 **The status band**
@@ -3336,10 +3360,12 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
 with a pure reducer, and on reconnect refetches state. Elapsed times tick locally every second from `startedAt`
 so numbers move between server messages. Memory: keep at most 150 events; keep `series` as sent.
 
-#### Copy resume command
+#### Copy resume command and Copy fork command
 
-Copy `resumeCommand` with `navigator.clipboard.writeText` inside the click handler, catch rejection, and show
-"Copied" for 1.6 s (or a "Select and copy" fallback with the text selected).
+Copy `resumeCommand` or `forkCommand` with `navigator.clipboard.writeText` inside the click handler and show
+"Copied" with a check for 1.6 s. When the clipboard refuses, nothing changes and the cell stays as it was;
+there is no fallback field (#352). Nothing is sent to the server, stored or logged. Podium never runs the
+command: the person pastes it into a terminal.
 
 ### 8.2 Components
 
@@ -3454,7 +3480,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
   2. `SessionView.status` is `stale` when `now − lastSeenAt > STALE_AFTER_MS` and the stored status is not `done`.
   3. `series` has exactly 60 points per array, zero-filled for seconds with no sample, `peakContext` in 0..1, and `blowoutSecondsAgo` containing the age in seconds of each blowout in the last 60 s.
   4. KPIs match hand-computed values for a three-session fixture, including est. cost today and tokens in the last 60 s.
-  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces.
+  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces. `forkCommand` is the same string with ` --fork-session` added, with the same quoting (#352).
   6. `project` replaces the home directory prefix with `~`.
 
 #### T1.4 Sweeper and SSE
@@ -3516,7 +3542,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Depends on:** T2.2.
 - **Acceptance:**
   1. Selecting a card or rail item shows the page; Back (the "All orchestrators" rail item) returns to the wall; the selection survives `session` updates and clears with a message if the session is removed.
-  2. The header, charts, facts grid and status band match the mockup's layout at 1440 px (`mockup/podium-orchestrator.html`, #165; `mockup/podium-facts-reporter.html` for the Reporter cell, #124); the status band is the last row of the summary surface and **Resume** is the last cell of the facts grid.
+  2. The header, charts, facts grid and status band match the mockup's layout at 1440 px (`mockup/podium-orchestrator.html`, #165; `mockup/podium-facts-reporter.html` for the Reporter cell, #124); the status band is the last row of the summary surface and **Fork** is the last cell of the facts grid, after Session and **Resume** (`mockup/podium-fork.html`, #352).
   3. Charts: three charts of 60 points from `series`; `peakContext` fixed 0..100%; red markers at `blowoutSecondsAgo`; caption counts markers; hover shows a crosshair and the value and time under the pointer and restores the live value on leave. A pure function converts a series to polyline points and is tested (empty, single point, all zeros, max scaling).
   4. The agent tree builds from `parentId`; guides draw correctly for last and non-last children; sorting by Model/Effort/Context/Tokens/Cost/Time/Status orders siblings and keeps the tree (#101) and clicking the same header again reverses it; "Launch order" clears the sort. Unit-tested.
   5. Plan panel shows state icons, the owner label, and "No plan reported. Agents were launched ad hoc." when `plan` is null.
@@ -3537,7 +3563,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Depends on:** T2.3.
 - **Acceptance:**
   1. Drag, keyboard and double-click behave as in 8.1, limits enforced, widths persisted with try/catch, covered by tests that simulate pointer events and keys.
-  2. Copy writes `resumeCommand` to the clipboard (mocked) and shows "Copied" then reverts; a rejected promise shows the fallback.
+  2. Copy writes `resumeCommand` or `forkCommand` to the clipboard (mocked) and shows "Copied" then reverts; a rejected promise leaves the cell unchanged.
   3. At 400 px width there is no horizontal page scroll (assert `document.documentElement.scrollWidth <= innerWidth` in a browser check, see T4.2).
   4. Every control is reachable by keyboard with a visible focus ring; `jest-dom` assertions for roles and labels on the handles and the charts.
 

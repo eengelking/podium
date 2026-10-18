@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, renderHook } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
-import { CopyResume } from "./components/FactsBar";
+import { CopyCell } from "./components/FactsBar";
 import { clampWidth, keyWidth } from "./useResizable";
 import { useFleet, type FleetSource } from "./useFleet";
 import { useTheme } from "./useTheme";
@@ -111,32 +111,87 @@ describe("resize handles", () => {
   });
 });
 
-describe("copy resume command", () => {
-  it("writes the command and shows Copied, then reverts", async () => {
+describe("copy resume and fork commands (#352)", () => {
+  const cell = (label: string, name: string, text: string) => render(<CopyCell label={label} name={name} text={text} tip="What it does" />);
+
+  it("writes the command and shows Copied with a check, then reverts", async () => {
     vi.useFakeTimers();
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-    render(<CopyResume command="cd /x && claude --resume s1" />);
+    cell("Resume", "Copy resume command", "cd /x && claude --resume s1");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Copy command/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy resume command" }));
     });
     expect(writeText).toHaveBeenCalledWith("cd /x && claude --resume s1");
     expect(screen.getByRole("button")).toHaveTextContent("Copied");
     act(() => {
       vi.advanceTimersByTime(1600);
     });
-    expect(screen.getByRole("button")).toHaveTextContent("Copy command");
+    expect(screen.getByRole("button")).toHaveTextContent("Command");
   });
 
-  it("falls back to a selected text field when the clipboard refuses", async () => {
-    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
-    render(<CopyResume command="cd /x && claude --resume s1" />);
+  it("copies the fork command the same way", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    cell("Fork", "Copy fork command", "cd /x && claude --resume s1 --fork-session");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Copy command/ }));
+      fireEvent.click(screen.getByRole("button", { name: "Copy fork command" }));
     });
-    expect(screen.getByRole("button")).toHaveTextContent("Select and copy");
-    const input = screen.getByRole("textbox", { name: "Resume command" }) as HTMLInputElement;
-    expect(input.value).toBe("cd /x && claude --resume s1");
+    expect(writeText).toHaveBeenCalledWith("cd /x && claude --resume s1 --fork-session");
+    expect(screen.getByRole("button")).toHaveTextContent("Copied");
+  });
+
+  it("leaves the cell as it was when the clipboard refuses, with no fallback field", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: vi.fn().mockRejectedValue(new Error("denied")) } });
+    cell("Fork", "Copy fork command", "cd /x && claude --resume s1 --fork-session");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy fork command" }));
+    });
+    expect(screen.getByRole("button")).toHaveTextContent("Command");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("opens the popup below the cell when the scrolling page has no room above it, so the top is never clipped", () => {
+    const { container } = cell("Fork", "Copy fork command", "x");
+    const wrap = container.querySelector(".fact.copy") as HTMLElement;
+    const tip = wrap.querySelector(".tip") as HTMLElement;
+    Object.defineProperty(tip, "offsetHeight", { value: 190 });
+    const top = (n: number) => ({ top: n, bottom: n + 40, left: 0, right: 0, width: 0, height: 40, x: 0, y: n, toJSON: () => ({}) }) as DOMRect;
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this === wrap ? top(120) : top(60);
+    });
+    fireEvent.mouseEnter(wrap);
+    expect(wrap).toHaveClass("below");
+    spy.mockImplementation(function (this: Element) {
+      return this === wrap ? top(400) : top(60);
+    });
+    fireEvent.mouseEnter(wrap);
+    expect(wrap).not.toHaveClass("below");
+    spy.mockRestore();
+  });
+
+  it("points the button at a tooltip popup, and Escape closes it until the pointer leaves", () => {
+    const { container } = cell("Fork", "Copy fork command", "x");
+    const tip = screen.getByRole("tooltip", { hidden: true });
+    expect(tip).toHaveTextContent("What it does");
+    expect(screen.getByRole("button")).toHaveAttribute("aria-describedby", tip.id);
+    const wrap = container.querySelector(".fact.copy")!;
+    fireEvent.keyDown(screen.getByRole("button"), { key: "Escape" });
+    expect(wrap).toHaveClass("dismissed");
+    fireEvent.mouseLeave(wrap);
+    expect(wrap).not.toHaveClass("dismissed");
+  });
+
+  it("keeps Escape's dismissal while keyboard focus is still in the cell, even after the pointer leaves", () => {
+    const { container } = cell("Fork", "Copy fork command", "x");
+    const wrap = container.querySelector(".fact.copy")!;
+    const btn = screen.getByRole("button");
+    btn.focus();
+    fireEvent.keyDown(btn, { key: "Escape" });
+    fireEvent.mouseLeave(wrap);
+    expect(wrap).toHaveClass("dismissed");
+    fireEvent.blur(btn);
+    expect(wrap).not.toHaveClass("dismissed");
   });
 });
 

@@ -7,17 +7,13 @@ export const COPIED_MS = 1600;
 /** The characters of a session id shown on the card and the orchestrator page; the click copies all of it. */
 export const SHORT_ID = 8;
 
-/**
- * The session id, shortened, copied whole on a click (#322). On the orchestrator page it is a button. On a card it sits inside the card's own
- * button, so it is a `role="button"` span that keeps its click and Enter/Space from opening the card.
- */
-export function SessionId({ id, nested, prefix }: { id: string; nested?: boolean; prefix?: string }) {
+/** Copies `text` inside a click handler. `state` is "copied" or "failed" for 1.6 s after a try, then "idle". */
+export function useCopy(text: string) {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
-  const short = id.slice(0, SHORT_ID);
   const settle = (next: "copied" | "failed") => {
     setState(next);
     if (timer.current) clearTimeout(timer.current);
@@ -25,14 +21,24 @@ export function SessionId({ id, nested, prefix }: { id: string; nested?: boolean
   };
   const copy = () => {
     try {
-      const p = navigator.clipboard?.writeText(id);
+      const p = navigator.clipboard?.writeText(text);
       if (!p) return settle("failed");
       p.then(() => settle("copied"), () => settle("failed"));
     } catch {
       settle("failed");
     }
   };
-  const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : `${prefix ?? ""}${short}`;
+  return { state, copy };
+}
+
+/**
+ * The session id, shortened, copied whole on a click (#322). On a card it sits inside the card's own button, so it is a `role="button"` span that
+ * keeps its click and Enter/Space from opening the card. On the orchestrator page the id is a cell of the facts grid instead (#352).
+ */
+export function SessionId({ id, nested }: { id: string; nested?: boolean }) {
+  const { state, copy } = useCopy(id);
+  const short = id.slice(0, SHORT_ID);
+  const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : short;
   const props = {
     className: "sid",
     title: `Copy session id ${id}`,

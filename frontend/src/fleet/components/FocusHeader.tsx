@@ -2,7 +2,6 @@ import { currentStep, inferredStep, planComplete } from "../logic";
 import type { SessionView } from "../types";
 import { GitLine, StateIcon, type StateKind } from "./Chips";
 import { MiniCharts } from "./MiniCharts";
-import { SessionId } from "./SessionId";
 
 /** Layer one of the summary surface: who it is, what it is doing, where. The state shape beside the name is the status band's shape. */
 export function FocusHeader({ s, kind, now }: { s: SessionView; kind: StateKind; now: number }) {
@@ -35,8 +34,14 @@ export function FocusHeader({ s, kind, now }: { s: SessionView; kind: StateKind;
         )}
         <div className="sub mono">
           <span title="Working directory">{s.cwd}</span>
-          <SessionId id={s.id} prefix="session " />
-          {s.repoName && <span title="Repository">{s.repoName}</span>}
+          {s.repoName && (
+            <>
+              <span className="sep" aria-hidden="true">
+                |
+              </span>
+              <span title="Repository">{s.repoName}</span>
+            </>
+          )}
         </div>
         <GitLine git={s.git} />
       </div>

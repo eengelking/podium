@@ -512,6 +512,8 @@ export interface SessionView {
   cwd: string;
   repoName: string | null;
   resumeCommand: string;
+  /** `resumeCommand` plus `--fork-session`: starts a copy of the conversation in a new session (#352). */
+  forkCommand: string;
   git: GitInfo | null;
   model: string | null;
   modelFamily: ModelFamily;

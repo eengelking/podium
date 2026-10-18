@@ -177,17 +177,31 @@ describe("the status band", () => {
   });
 });
 
+describe("the header's path line (#352)", () => {
+  it("puts a hidden | between the working directory and the repository", () => {
+    const { container } = page({ repoName: "eengelking/podium" });
+    const sub = container.querySelector(".fh .sub")!;
+    expect([...sub.children].map((c) => c.textContent)).toEqual([expect.any(String), "|", "eengelking/podium"]);
+    expect(sub.querySelector(".sep")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("has no | when there is no repository", () => {
+    const { container } = page({ repoName: null });
+    expect(container.querySelector(".fh .sub .sep")).toBeNull();
+  });
+});
+
 describe("the facts grid", () => {
   const labels = (c: HTMLElement) => [...c.querySelectorAll(".osum .facts > .fact")].map((f) => f.querySelector(".k")!.textContent);
 
-  it("has eight fixed places: four in each row", () => {
+  it("has ten fixed places: five in each row (#352)", () => {
     const { container } = page();
-    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Resume"]);
+    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Session", "Resume", "Fork"]);
   });
 
-  it("keeps the same eight places whatever the session holds", () => {
+  it("keeps the same ten places whatever the session holds", () => {
     for (const over of [{ blowouts: blow(1, 0, 1) }, { reporter: "hooks" as const, reporterVersion: null }, { status: "done" as const }]) {
-      expect(labels(page(over).container), JSON.stringify(over)).toHaveLength(8);
+      expect(labels(page(over).container), JSON.stringify(over)).toHaveLength(10);
       cleanup();
     }
   });
@@ -271,15 +285,15 @@ describe("the Reporter cell", () => {
   });
 });
 
-describe("the Resume cell", () => {
-  it("is a quiet whole-cell control: the label Resume over Copy command and a copy icon", () => {
+describe("the Resume and Fork cells (#352)", () => {
+  it.each([["Resume", "Copy resume command"], ["Fork", "Copy fork command"]])("%s is a quiet whole-cell control: its label over Command and a copy icon", (label, name) => {
     const { container } = page();
-    const c = [...container.querySelectorAll(".facts > .fact")].find((f) => f.querySelector(".k")!.textContent === "Resume") as HTMLElement;
+    const c = [...container.querySelectorAll(".facts > .fact")].find((f) => f.querySelector(".k")!.textContent === label) as HTMLElement;
     const btn = c.querySelector("button")!;
-    expect(btn.querySelector(".k")!.textContent).toBe("Resume");
-    expect(btn.querySelector(".v")!.textContent).toBe("Copy command");
+    expect(btn.querySelector(".k")!.textContent).toBe(label);
+    expect(btn.querySelector(".v")!.textContent).toBe("Command");
     expect(btn.querySelector(".v svg")).not.toBeNull();
-    expect(btn.getAttribute("title")).toMatch(/resumes this session/);
+    expect(btn).toHaveAccessibleName(name);
   });
 });
 
@@ -300,16 +314,17 @@ describe("page layout CSS (#165)", () => {
     expect(rule(".podium .osum .band .rm")).toContain("position: absolute");
   });
 
-  it("the facts are a grid of four columns, two rows", () => {
+  it("the facts are a grid of five columns, two rows (#352)", () => {
     const r = rule(".podium .osum .facts");
     expect(r).toContain("display: grid");
     expect(r).toMatch(/grid-template-columns: ([^;]+ ){3}[^;]+;/);
-    expect(r.match(/grid-template-columns: ([^;]+);/)![1]!.trim().split(/\s+/)).toHaveLength(4);
+    expect(r.match(/grid-template-columns: ([^;]+);/)![1]!.replace(/\([^)]*\)/g, "()").trim().split(/\s+/)).toHaveLength(2);
+    expect(r).toContain("repeat(4, minmax(0, 1fr))");
   });
 
-  it("the facts become two columns at 520 px and the plan and tree stack at 700 px, by the page's own width", () => {
+  it("the facts become two columns at 640 px and the plan and tree stack at 700 px, by the page's own width", () => {
     expect(rule(".podium .op")).toContain("container-type: inline-size");
-    expect(container("(max-width: 520px)")).toMatch(/\.facts \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+    expect(container("(max-width: 640px)")).toMatch(/\.facts \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
     expect(container("(max-width: 700px)")).toMatch(/\.two[^{]*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
   });
 

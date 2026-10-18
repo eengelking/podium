@@ -1,55 +1,117 @@
-import { useEffect, useRef, useState } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { fmtDur, fmtTok } from "../format";
 import { AGENT_TIME_HINT, AGENTS_HINT, COST_HINT_SESSION, sessionAgentSec, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT } from "../logic";
 import type { SessionView } from "../types";
 import { BlowBadge, Cost } from "./Chips";
 import { IconCheck, IconChevron, IconCopy, IconWarn, IconX } from "./Icons";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
-import { COPIED_MS } from "./SessionId";
+import { SHORT_ID, useCopy } from "./SessionId";
 
 
-/** Copies the resume command; "Copied" for 1.6 s, or a selected text field when the clipboard refuses. */
-export function CopyResume({ command }: { command: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "fallback">("idle");
-  const input = useRef<HTMLInputElement>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-  useEffect(() => {
-    if (state === "fallback") input.current?.select();
-  }, [state]);
-  const onClick = () => {
-    const fallback = () => setState("fallback");
-    try {
-      const p = navigator.clipboard?.writeText(command);
-      if (!p) return fallback();
-      p.then(() => {
-        setState("copied");
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => setState("idle"), COPIED_MS);
-      }, fallback);
-    } catch {
-      fallback();
-    }
+/** The nearest ancestor that scrolls, or the document: what would clip a popup that opens upward. */
+function scrollParent(el: HTMLElement): HTMLElement {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return document.documentElement;
+}
+
+/**
+ * A quiet whole-cell control that copies `text` (Resume and Fork, #352). "Copied" with a check for 1.6 s; when the clipboard refuses nothing changes.
+ * `tip` is the popup that says what the command does: it opens on hover and on keyboard focus, closes on Escape or when the pointer or focus
+ * leaves, and holds text only. It opens above the cell, or below it when the scrolling page has no room above.
+ */
+export function CopyCell({ label, name, text, tip }: { label: string; name: string; text: string; tip: ReactNode }) {
+  const { state, copy } = useCopy(text);
+  const [dismissed, setDismissed] = useState(false);
+  const [below, setBelow] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const tipEl = useRef<HTMLDivElement>(null);
+  const tipId = useId();
+  const place = () => {
+    if (!wrap.current || !tipEl.current) return;
+    const sp = scrollParent(wrap.current);
+    // The document's own rect scrolls away with the page; its visible top is the viewport's 0.
+    const limit = sp === document.documentElement ? 0 : sp.getBoundingClientRect().top;
+    const room = wrap.current.getBoundingClientRect().top - limit;
+    setBelow(room < tipEl.current.offsetHeight + 16);
   };
-  const label = state === "copied" ? "Copied" : state === "fallback" ? "Select and copy" : "Copy command";
-  // A quiet whole-cell control: no button chrome. The fallback field sits under it, inside the cell, so the grid still lines up.
+  const copied = state === "copied";
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") setDismissed(true);
+  };
   return (
-    <div className="fact copy">
-      <button type="button" className="cellbtn" onClick={onClick} title="Copies the command that resumes this session in a terminal">
-        <span className="k">Resume</span>
+    <div
+      ref={wrap}
+      className={`fact copy${dismissed ? " dismissed" : ""}${below ? " below" : ""}`}
+      onKeyDown={onKeyDown}
+      onMouseEnter={place}
+      onFocus={place}
+      onMouseLeave={() => {
+        // Keyboard focus still inside keeps the popup open, so keep Escape's dismissal until focus leaves too.
+        if (!wrap.current?.contains(document.activeElement)) setDismissed(false);
+      }}
+      onBlur={() => setDismissed(false)}
+    >
+      <button type="button" className="cellbtn" onClick={copy} aria-label={name} aria-describedby={tipId}>
+        <span className="k">{label}</span>
         <span className="v soft" aria-live="polite">
-          <span>{label}</span>
-          {state === "copied" ? <IconCheck /> : <IconCopy />}
+          <span>{copied ? "Copied" : "Command"}</span>
+          {copied ? <IconCheck /> : <IconCopy />}
         </span>
       </button>
-      {state === "fallback" && (
-        <input ref={input} readOnly value={command} aria-label="Resume command" onFocus={(e) => e.currentTarget.select()} />
-      )}
+      <div className="tip" role="tooltip" id={tipId} ref={tipEl}>
+        {tip}
+      </div>
     </div>
   );
 }
+
+/** The session id's first eight characters; a click copies the whole id, with the card's feedback (#322, #352). */
+function SessionCell({ id }: { id: string }) {
+  const { state, copy } = useCopy(id);
+  const short = id.slice(0, SHORT_ID);
+  return (
+    <div className="fact copy">
+      <button type="button" className="cellbtn" onClick={copy} title={id} aria-label={`Copy session id ${short}`}>
+        <span className="k">Session</span>
+        <span className="v mono" aria-live="polite">
+          <span>{state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : short}</span>
+          {state === "copied" ? <IconCheck /> : <IconCopy />}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+const RESUME_TIP = (
+  <>
+    <b>Continues this same session in a new terminal.</b>
+    <ul>
+      <li>It picks up the whole conversation where it left off.</li>
+      <li>Run it once the session has ended. Resuming one that is still running in another terminal writes both into the same conversation.</li>
+      <li>
+        It starts in this session's working directory. Flags such as <code>--mcp-config</code> are not restored; pass them again.
+      </li>
+      <li>To try something without changing this session, use Fork.</li>
+    </ul>
+  </>
+);
+
+const FORK_TIP = (
+  <>
+    <b>Starts a copy of this conversation in a new session.</b>
+    <ul>
+      <li>This session is not changed.</li>
+      <li>Permissions you allowed for the session are not carried over. Approve them again in the fork.</li>
+      <li>It works in the same directory, so file edits are real. Start it in a worktree to keep them apart.</li>
+      <li>
+        Flags such as <code>--mcp-config</code>, <code>--settings</code>, <code>--plugin-dir</code> and <code>--add-dir</code> are not restored. Pass them again if the session used them.
+      </li>
+      <li>It needs the session's transcript, which Claude Code keeps for 30 days by default.</li>
+    </ul>
+  </>
+);
 
 /** The reporter mod's version; "Settings hooks" when there is no mod; the card chip's wording, a warning shape and the note as its tooltip when the server places it out of range. */
 function ReporterFact({ s }: { s: SessionView }) {
@@ -116,8 +178,8 @@ export interface BlowControl {
 }
 
 /**
- * Eight cells in fixed places, four to a row (#165). Row one: Agents, Est. cost, Tokens, Running for.
- * Row two: Agent time, Blowouts, Reporter, Resume. A cell never moves because another has nothing to say.
+ * Ten cells in fixed places, five to a row (#165, #352). Row one: Agents, Est. cost, Tokens, Running for, Agent time.
+ * Row two: Blowouts, Reporter, Session, Resume, Fork. A cell never moves because another has nothing to say.
  */
 export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: number; onAgent: (id: string) => void; blow?: BlowControl }) {
   const c = sessionCounts(s);
@@ -155,7 +217,9 @@ export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: numbe
       </div>
       <BlowoutsFact s={s} blow={blow} />
       <ReporterFact s={s} />
-      <CopyResume command={s.resumeCommand} />
+      <SessionCell id={s.id} />
+      <CopyCell label="Resume" name="Copy resume command" text={s.resumeCommand} tip={RESUME_TIP} />
+      <CopyCell label="Fork" name="Copy fork command" text={s.forkCommand} tip={FORK_TIP} />
     </div>
   );
 }

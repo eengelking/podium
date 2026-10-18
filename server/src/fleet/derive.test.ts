@@ -5,6 +5,7 @@ import {
   computeKpis,
   family,
   resumeCommand,
+  forkCommand,
   sessionStatus,
   sessionView,
   shortenHome,
@@ -70,6 +71,14 @@ describe('paths and commands', () => {
     expect(resumeCommand('/Users/dev/my app', null, 'abc')).toBe("cd '/Users/dev/my app' && claude --resume abc");
     expect(resumeCommand("/tmp/it's", null, 'abc')).toBe("cd '/tmp/it'\\''s' && claude --resume abc");
   });
+
+  it('builds the fork command as the resume command plus --fork-session, with the same quoting (#352)', () => {
+    expect(forkCommand('/Users/dev/app', null, 'abc')).toBe('cd /Users/dev/app && claude --resume abc --fork-session');
+    expect(forkCommand('/Users/dev/app', 'r-1', 'abc')).toBe('cd /Users/dev/app && claude --resume r-1 --fork-session');
+    expect(forkCommand('/Users/dev/my app', null, 'abc')).toBe("cd '/Users/dev/my app' && claude --resume abc --fork-session");
+    expect(forkCommand("/tmp/it's", null, 'abc')).toBe("cd '/tmp/it'\\''s' && claude --resume abc --fork-session");
+    expect(forkCommand('/tmp/$(id) `x`; y', null, 'abc')).toBe("cd '/tmp/$(id) `x`; y' && claude --resume abc --fork-session");
+  });
 });
 
 describe('buildSeries', () => {
@@ -122,6 +131,7 @@ describe('sessionView', () => {
     expect(v.agents.find((a) => a.id === 'a1')?.toolCounts).toEqual({ Grep: 14, Read: 11, Glob: 6 });
     expect(v.series.tokensPerSec).toHaveLength(60);
     expect(v.resumeCommand).toBe('cd /Users/dev/billing-service/.claude/worktrees/invoice-v2 && claude --resume 5f0c2a8e-1b7d-4c3e-9a51-2d6f8e0b4c11');
+    expect(v.forkCommand).toBe('cd /Users/dev/billing-service/.claude/worktrees/invoice-v2 && claude --resume 5f0c2a8e-1b7d-4c3e-9a51-2d6f8e0b4c11 --fork-session');
     expect(v.secondsSinceSeen).toBe(1);
   });
 

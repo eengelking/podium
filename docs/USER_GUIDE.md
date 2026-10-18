@@ -103,7 +103,7 @@ The status line tells you where you are:
 
 A name you give a session in Claude Code, for example with `/rename`, is its title on the card, the rail and the
 orchestrator page, from your next prompt. `/podium name <text>` sets a name too, and wins over it. The card and the
-orchestrator page also show the first eight characters of the session id. Click it to copy the whole id.
+orchestrator page also show the first eight characters of the session id. Click it to copy the whole id. On the orchestrator page it is the **Session** cell of the facts grid.
 
 ### More than one login on one machine
 
@@ -431,7 +431,9 @@ full, red from 80%), tokens, cost, time and status.
 
 - Click a column header to sort. Each agent's own agents stay under it, sorted among themselves. Click the header again
   to reverse, and **Launch order** to go back.
-- The **Resume** cell (Copy command) copies the command that resumes the session.
+- The **Session** cell copies the session id.
+- The **Resume** cell copies the command that continues this same session in a new terminal. Run it once the session has ended.
+- The **Fork** cell copies the command that starts a copy of the conversation in a new session and leaves this one alone. Use it to ask a stuck agent "why did you do that?" without changing the session you are investigating. A fork works in the same directory, so its file edits are real, and it does not carry over permissions you allowed or flags such as `--mcp-config`. Hover a cell to read what its command does.
 
 A subagent or a fork can launch agents of its own, and those can too.
 

@@ -58,16 +58,17 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("the orchestrator page's id is a button that copies the whole id", async () => {
+  it("the orchestrator page's id is a cell of the facts grid that copies the whole id, and the header no longer has it", async () => {
     const writeText = stubClipboard();
     const { container } = page();
-    const id = container.querySelector(".fh .sub .sid") as HTMLElement;
-    expect(id.tagName).toBe("BUTTON");
-    expect(id.textContent).toBe("session 3f9a1c2e");
+    expect(container.querySelector(".fh .sid")).toBeNull();
+    const cell = container.querySelector(".facts .fact.copy .v.mono")!;
+    expect(cell.textContent).toBe("3f9a1c2e");
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Copy session id 3f9a1c2e/ }));
     });
     expect(writeText).toHaveBeenCalledWith(ID);
+    expect(container.querySelector(".facts .fact.copy .v.mono")!.textContent).toBe("Copied");
   });
 
   it("when the clipboard refuses, the id says Copy failed instead of Copied", async () => {

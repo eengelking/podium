@@ -45,6 +45,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     cwd: "~/dev/billing-service/.claude/worktrees/invoice-v2",
     repoName: "acme/billing-service",
     resumeCommand: "cd /Users/dev/billing-service && claude --resume s1",
+    forkCommand: "cd /Users/dev/billing-service && claude --resume s1 --fork-session",
     git: { branch: "refactor/invoice-v2", detached: false, isWorktree: true, worktreePath: "/Users/dev/billing-service/.claude/worktrees/invoice-v2", ahead: 7, behind: 0, dirty: 3 },
     model: "claude-opus-5-5",
     modelFamily: "opus",

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Podium fork command</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<!-- Mockup for issue #352, for approval. Adds "Copy fork command" beside "Copy resume command" on the orchestrator page. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
+<style>
+:root {
+  --pg-bg: #eef0f2; --pg-panel: #ffffff; --pg-ink: #16181b; --pg-ink2: #4a4f57; --pg-muted: #6a707a; --pg-line: #d9dde2; --pg-accent: #1c6fd1;
+  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --pg-bg: #101113; --pg-panel: #17191c; --pg-ink: #ecedef; --pg-ink2: #b6bac1; --pg-muted: #8d929b; --pg-line: #2a2d32; --pg-accent: #6aa8f0; color-scheme: dark; }
+}
+body { margin: 0; background: var(--pg-bg); color: var(--pg-ink); font: 15px/1.55 var(--font-ui); -webkit-font-smoothing: antialiased; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 48px; }
+.page > section { min-width: 0; }
+h1 { font-size: 30px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 20px; line-height: 1.25; margin: 0 0 6px; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0 0 4px; }
+p { margin: 0; max-width: 70ch; color: var(--pg-ink2); }
+.lede { font-size: 16.5px; color: var(--pg-ink); max-width: 66ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+.state { margin-top: 22px; }
+.why { color: var(--pg-ink2); max-width: 78ch; margin-bottom: 10px; font-size: 14px; }
+.spec { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.spec.one { grid-template-columns: minmax(0, 1fr); }
+.narrow { display: grid; grid-template-columns: repeat(2, 400px); gap: 14px; overflow-x: auto; }
+@media (max-width: 900px) { .spec { grid-template-columns: minmax(0, 1fr); } }
+.decide { margin: 10px 0 0; padding-left: 20px; color: var(--pg-ink2); max-width: 78ch; font-size: 14px; }
+.decide li { margin-bottom: 6px; }
+.decide b { color: var(--pg-ink); font-weight: 600; }
+
+/* Podium tokens (verbatim from fleet.css) */
+.th-dark {
+  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --good: #0ca30c; --good-text: #3dbb3d; --warn: #fab219; --warn-text: #fab219; --deleg: #2fa4e0; --deleg-text: #5cbcf0; --crit: #d03b3b; --crit-text: #ee6a6a;
+  color-scheme: dark;
+}
+.th-light {
+  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64; --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --good: #0ca30c; --good-text: #006300; --warn: #fab219; --warn-text: #8a5b00; --deleg: #0a7fb8; --deleg-text: #07608c; --crit: #d03b3b; --crit-text: #b52a2a;
+  color-scheme: light;
+}
+.wall { background: var(--bg); color: var(--ink); border: 1px solid var(--pg-line); border-radius: 10px; padding: 16px; min-width: 0; font: 13px/1.4 var(--font-ui); container-type: inline-size; }
+.wall > .tag { font: 11.5px var(--font-mono); color: var(--muted); margin: 0 0 10px; }
+button { font: inherit; color: inherit; }
+
+/* The facts bar. Ten cells, five to a row. Row two is Blowouts, Reporter, Session, Resume, Fork. */
+.sum { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.sum-h { padding: 12px 16px; }
+.sum-h h4 { margin: 0; font-size: 22px; letter-spacing: -0.02em; }
+.sum-h .sub2 { color: var(--ink2); font: 12px var(--font-mono); margin-top: 4px; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.sum-h .sub2 .sep { color: var(--axis); }
+.facts2 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--grid); }
+.fc { padding: 8px 16px 9px; min-width: 0; display: flex; flex-direction: column; gap: 1px; background: none; border: 0; border-left: 1px solid var(--grid); border-top: 1px solid var(--grid); text-align: left; }
+.fc:nth-child(5n+1) { border-left: 0; }
+.fc:nth-child(-n+5) { border-top: 0; }
+.fc .k { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.fc .v { font: 600 13px var(--font-mono); color: var(--ink); white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.fc .v.soft { color: var(--ink2); font-weight: 400; font-family: var(--font-ui); }
+.fc svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+button.fc { cursor: pointer; }
+button.fc.sid .v { font-family: var(--font-mono); font-weight: 500; }
+button.fc:hover .v { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+button.fc:focus-visible, .x:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+.fc.ok .v { color: var(--good-text); }
+/* below 640 px the grid goes to two columns, five rows */
+@container (max-width: 640px) {
+  .facts2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fc:nth-child(5n+1) { border-left: 1px solid var(--grid); }
+  .fc:nth-child(2n+1) { border-left: 0; }
+  .fc:nth-child(-n+5) { border-top: 1px solid var(--grid); }
+  .fc:nth-child(-n+2) { border-top: 0; }
+}
+
+.hastip { position: relative; }
+/* The popups on Resume and Fork: open above the cell on hover or keyboard focus, closes on Escape or when the pointer or focus leaves. Not clickable, no controls inside. */
+.tip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5; width: min(320px, calc(100cqw - 32px)); box-sizing: border-box; padding: 10px 12px 11px; text-align: left; white-space: normal; font: 400 12.5px/1.45 var(--font-ui); color: var(--ink); background: var(--raised); border: 1px solid var(--axis); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,0.28); visibility: hidden; opacity: 0; transition: opacity .12s; pointer-events: none; cursor: default; }
+.tip::after { content: ""; position: absolute; right: 22px; bottom: -6px; width: 10px; height: 10px; background: var(--raised); border-right: 1px solid var(--axis); border-bottom: 1px solid var(--axis); transform: rotate(45deg); }
+.hastip:hover .tip, .hastip:focus-visible .tip, .hastip.show .tip { visibility: visible; opacity: 1; }
+.hastip.dismissed .tip { visibility: hidden; opacity: 0; }
+.tip b { display: block; font-weight: 600; margin-bottom: 4px; }
+.tip ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; color: var(--ink2); }
+.tip code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .tip { transition: none; } }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<section>
+  <h1>Copy fork command</h1>
+  <p class="lede">Beside “Resume” on the orchestrator page, a second quiet cell, “Fork”, copies <code>cd &lt;cwd&gt; &amp;&amp; claude --resume &lt;id&gt; --fork-session</code>. Fork starts a new session with a copy of the conversation and leaves the original alone, so a stuck agent can be questioned without changing the session being investigated. Podium only copies the command; the person runs it. Nothing new is reported, stored or logged.</p>
+</section>
+
+<section>
+  <h2>Where it sits</h2>
+  <p>The facts bar is a four-column grid with eight cells today, so a ninth would leave an orphan. Moving the session id out of the header line and into the grid makes ten cells, which fill two rows of five, so the columns and rows stay aligned. Row one: Agents, Est. cost, Tokens, Running for, Agent time. Row two: Blowouts, Reporter, Session, Resume, Fork. The three copy controls sit together at the end of the row, and the header line keeps only the working directory. The session id is still click to copy: it reads “Copied” for 1.6 s.</p>
+</section>
+
+<section>
+  <h2>Option A, in the states that matter</h2>
+
+  <div class="state"><h3>Idle</h3>
+    <p class="why">Label “Fork” over “Command” with the copy icon, the same shape as Resume. The accessible name is “Copy fork command”. No note opens on click.</p>
+    <div class="spec" id="idle"></div></div>
+
+  <div class="state"><h3>On hover or keyboard focus: the popup</h3>
+    <p class="why">The popup opens above the cell and says what a fork does and does not do. It appears on hover and on keyboard focus, closes on Escape, and has no controls inside, so it cannot be clicked into. The cell points to it with <code>aria-describedby</code>. The specimen below is held open; hover the Fork cell in any other specimen to see it live.</p>
+    <div class="spec" id="hover"></div></div>
+
+  <div class="state"><h3>The same popup on Resume</h3>
+    <p class="why">Resume gets one too, built the same way, so the two copy controls explain themselves alike. It says Resume continues this same session, that it should be run once the session has ended, and points to Fork for trying something without changing it. The warning about running it while the session is still open elsewhere is from my reading of how Claude Code behaves; I will check it against a live session before the wording is final.</p>
+    <div class="spec" id="hoverResume"></div></div>
+
+  <div class="state"><h3>After a click</h3>
+    <p class="why">Resume and Fork both read “Copied” with a check for 1.6 s, and nothing else opens. If the browser refuses the clipboard, nothing changes and the cell stays as it was; there is no fallback field.</p>
+    <div class="spec" id="copied"></div><div class="spec" id="copiedResume" style="margin-top:14px"></div></div>
+
+  <div class="state"><h3>Ended and waiting sessions</h3>
+    <p class="why">Identical to a running session. Fork is offered for any session whose transcript exists.</p>
+  </div>
+
+  <div class="state"><h3>Narrow window (400 px)</h3>
+    <p class="why">At or below 640 px the facts bar is two columns and five rows, so Resume and Fork share the last row and the popup is as wide as the card allows.</p>
+    <div class="narrow" id="narrow"></div></div>
+</section>
+
+<section>
+  <h2>Not on History</h2>
+  <p>History’s page is read-only, so Fork is not offered there, the same as Resume is not. Say so if you want it.</p>
+</section>
+
+<section>
+  <h2>To settle before code</h2>
+  <ol class="decide">
+    <li><b>Popup wording.</b> Shown in the popup: “The original session is not changed.” / “Permissions you allowed for the session are not carried over. Approve them again in the fork.” / “It works in the same directory, so file edits are real. Start it in a worktree to keep them apart.” / “Flags such as <code>--mcp-config</code>, <code>--settings</code>, <code>--plugin-dir</code> and <code>--add-dir</code> are not restored. Pass them again if the session used them.”</li>
+    <li><b>Popup on hover.</b> Settled: a hover and focus popup, no note on click. Touch screens have no hover, so a tap copies and the popup shows while the cell has focus. The real card clips its contents (<code>overflow: hidden</code>), so the popup has to be drawn outside the card or the card’s clipping relaxed. I will decide that in the code.</li>
+    <li><b>Worktree variant.</b> Recommended: not offered. <code>claude --help</code> lists <code>-w, --worktree</code> and <code>--fork-session</code> separately, but nothing says they combine with <code>--resume</code>, and I have not run it. I will test it against a live session during the real-session check and only add a second command if it works. The popup’s worktree line then stays as advice.</li>
+    <li><b>Transcript gone.</b> Settled: no such state. Podium cannot tell without a new report field, so the command is always offered and the popup names the 30-day limit.</li>
+    <li><b>Mid-turn forks.</b> Offered the same as between turns. The docs do not say what a mid-turn fork contains; I will record what I see in the issue.</li>
+  </ol>
+</section>
+</div>
+
+<script>
+(function () {
+  var COPY = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
+  var CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>';
+  var TIP = '<b>Starts a copy of this conversation in a new session.</b><ul>' +
+    '<li>This session is not changed.</li>' +
+    '<li>Permissions you allowed for the session are not carried over. Approve them again in the fork.</li>' +
+    '<li>It works in the same directory, so file edits are real. Start it in a worktree to keep them apart.</li>' +
+    '<li>Flags such as <code>--mcp-config</code>, <code>--settings</code>, <code>--plugin-dir</code> and <code>--add-dir</code> are not restored. Pass them again if the session used them.</li>' +
+    '<li>It needs the session’s transcript, which Claude Code keeps for 30 days by default.</li></ul>';
+
+  var RTIP = '<b>Continues this same session in a new terminal.</b><ul>' +
+    '<li>It picks up the whole conversation where it left off.</li>' +
+    '<li>Run it once the session has ended. Resuming one that is still running in another terminal writes both into the same conversation.</li>' +
+    '<li>It starts in this session’s working directory. Flags such as <code>--mcp-config</code> are not restored; pass them again.</li>' +
+    '<li>To try something without changing this session, use Fork.</li></ul>';
+
+  function fork(state, extra) {
+    var label = state === 'copied' ? 'Copied' : 'Command';
+    var icon = state === 'copied' ? CHECK : COPY;
+    var tip = '<span class="tip" role="tooltip" id="tip-' + state + '">' + TIP + '</span>';
+    var cell = '<button type="button" class="fc hastip fork' + (state === 'copied' ? ' ok' : '') + (state === 'hover' ? ' show' : '') + '" aria-label="Copy fork command" aria-describedby="tip-' + state + '"' +
+      '><span class="k">Fork</span><span class="v soft" aria-live="polite"><span>' + label + '</span>' + icon + '</span>' + tip + '</button>';
+    return cell;
+  }
+  function sid() {
+    return '<button type="button" class="fc sid" aria-label="Copy session id" title="Copies the session id"><span class="k">Session</span><span class="v"><span>3f9a21c7</span>' + COPY + '</span></button>';
+  }
+  function resume(state) {
+    return '<button type="button" class="fc hastip resume' + (state === 'copiedResume' ? ' ok' : '') + (state === 'hoverResume' ? ' show' : '') + '" aria-label="Copy resume command" aria-describedby="rtip-' + state + '"><span class="k">Resume</span><span class="v soft" aria-live="polite"><span>' + (state === 'copiedResume' ? 'Copied' : 'Command') + '</span>' + (state === 'copiedResume' ? CHECK : COPY) + '</span><span class="tip" role="tooltip" id="rtip-' + state + '">' + RTIP + '</span></button>';
+  }
+  function bar(state) {
+    var note = '';
+    return '<div class="sum"><div class="sum-h"><h4>my app</h4><div class="sub2"><span>/Users/ed/dev/my app</span><span class="sep" aria-hidden="true">|</span><span>eengelking/podium</span></div></div>' +
+      '<div class="facts2"><div class="fc"><span class="k">Agents</span><span class="v">3 running</span></div><div class="fc"><span class="k">Est. cost</span><span class="v">$1.42</span></div><div class="fc"><span class="k">Tokens</span><span class="v">214k</span></div><div class="fc"><span class="k">Running for</span><span class="v">18:40</span></div><div class="fc"><span class="k">Agent time</span><span class="v">41:12</span></div>' +
+      '<div class="fc"><span class="k">Blowouts</span><span class="v soft">none</span></div><div class="fc"><span class="k">Reporter</span><span class="v">0.15.0</span></div>' + sid() + resume(state) + fork(state) + '</div>' + note + '</div>';
+  }
+  function pair(id, state) {
+    document.getElementById(id).innerHTML = ['dark', 'light'].map(function (th) {
+      return '<div class="wall th-' + th + '"><div class="tag">' + th + '</div>' + bar(state) + '</div>';
+    }).join('');
+  }
+  pair('idle', 'idle'); pair('hover', 'hover'); pair('hoverResume', 'hoverResume'); pair('copied', 'copied'); pair('copiedResume', 'copiedResume');
+  document.getElementById('narrow').innerHTML = [['dark', 'copied'], ['light', 'idle']].map(function (p) {
+    return '<div class="wall th-' + p[0] + '"><div class="tag">' + p[0] + ', 400 px</div>' + bar(p[1]) + '</div>';
+  }).join('');
+
+  // The specimens work: Fork shows "Copied" for 1.6 s; hover or focus opens the popup.
+  document.addEventListener('click', function (e) {
+    var sd = e.target.closest && e.target.closest('button.sid');
+    if (sd) {
+      var sv = sd.querySelector('.v');
+      sv.innerHTML = '<span>Copied</span>' + CHECK; sd.classList.add('ok');
+      setTimeout(function () { sv.innerHTML = '<span>3f9a21c7</span>' + COPY; sd.classList.remove('ok'); }, 1600);
+      return;
+    }
+    var c = e.target.closest && e.target.closest('button.fork, button.resume');
+    if (!c || c.disabled) return;
+    var v = c.querySelector('.v');
+    v.innerHTML = '<span>Copied</span>' + CHECK; c.classList.add('ok');
+    setTimeout(function () { v.innerHTML = '<span>Command</span>' + COPY; c.classList.remove('ok'); }, 1600);
+  });
+  // Escape closes the popup until the pointer or focus leaves and comes back.
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    Array.prototype.forEach.call(document.querySelectorAll('.hastip'), function (f) { f.classList.add('dismissed'); f.classList.remove('show'); });
+  });
+  document.addEventListener('mouseout', function (e) { var f = e.target.closest && e.target.closest('.hastip'); if (f) f.classList.remove('dismissed'); });
+  document.addEventListener('focusout', function (e) { var f = e.target.closest && e.target.closest('.hastip'); if (f) f.classList.remove('dismissed'); });
+})();
+</script>
+</body>
+</html>

@@ -221,8 +221,8 @@ File: `FocusView.tsx`. Issues #165, #197 and #287. Mockup: `mockup/podium-orches
   keep their natural height at the top and bottom.
 - The svg's `preserveAspectRatio="none"` viewBox and `vector-effect: non-scaling-stroke` let the graph stretch
   without changing line widths. `chartsFill.test.ts` reads these rules out of `fleet.css`.
-- `.facts` is a four-column grid whose 1 px gap over a `--grid` background draws the hairlines.
-- Blowouts and Resume are whole-cell controls without button chrome. The open state of the blowout detail is
+- `.facts` is a five-column grid (two columns at 640 px and narrower) whose 1 px gap over a `--grid` background draws the hairlines.
+- Blowouts, Session, Resume and Fork are whole-cell controls without button chrome. Resume and Fork are one component, `CopyCell`, with a popup that opens on hover and focus above the cell, or below it when the scrolling page has no room above (`.osum` does not clip). `forkCommand` is built next to `resumeCommand` in `derive.ts`, so the page copies a string and builds nothing (#352). The open state of the blowout detail is
   `FocusView`'s own (kept per session id, closed by default) and reaches the cell as `blow`.
 - The Reporter cell takes its tooltip from `HOOKS_NOTE` and `versionNote`, the same sources as the card chip.
 - The old callout stack, the status chip beside the name and `.alert` are gone. `.callout` remains for the agent
@@ -801,7 +801,7 @@ Run in Chrome (Claude in Chrome) against the dev server, Vite, and either `podiu
 | Waiting and stale on the card band and the orchestrator page's status band | yes | yes | | |
 | Empty states with an instruction | yes | | | |
 | Orchestrator page: header, three charts with crosshair and readout, blowout marker and caption | yes | yes | yes | |
-| Facts grid with Resume last ("Copied", then back) | yes | yes | yes | |
+| Facts grid with Session, Resume and Fork last ("Copied", then back; popups on Resume and Fork) | yes | yes | yes | |
 | Blowouts cell opens the blowout detail with agent links | yes | | | |
 | Plan checklist, agent tree, sort columns and "Show as tree" (now "Launch order", and a sort keeps the tree, #101), row flash | yes | yes | yes (tree scrolls inside) | |
 | Activity: 12 rows, Show 12 more, Show fewer, counts, 150-event note | yes | yes | yes | |
@@ -976,7 +976,7 @@ Verified in a real browser (Chrome, through Claude in Chrome) against the server
 - a real mouse drag on the activity handle (340 to 510 px, saved)
 - double-click reset
 - Tab focus ring
-- Copy resume command ("Copied", then back)
+- Copy resume command and Copy fork command ("Copied", then back)
 - theme kept across a reload
 - `#/usage` unchanged (the old app has since been removed)
 

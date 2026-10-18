@@ -68,6 +68,11 @@ export function resumeCommand(cwd: string, resumeId: string | null, id: string):
   return `cd ${shellQuote(cwd)} && claude --resume ${shellQuote(resumeId ?? id)}`;
 }
 
+/** The resume command with `--fork-session`: a new session that starts from a copy of this conversation (#352). */
+export function forkCommand(cwd: string, resumeId: string | null, id: string): string {
+  return `${resumeCommand(cwd, resumeId, id)} --fork-session`;
+}
+
 function parse<T>(text: string | null, fallback: T): T {
   if (!text) return fallback;
   try {
@@ -227,6 +232,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     cwd: shortenHome(row.cwd, cfg.home),
     repoName: row.repo_name,
     resumeCommand: resumeCommand(row.cwd, row.resume_id, row.id),
+    forkCommand: forkCommand(row.cwd, row.resume_id, row.id),
     git: parse<GitInfo | null>(row.git_json, null),
     model: row.model,
     modelFamily: family(row.model),

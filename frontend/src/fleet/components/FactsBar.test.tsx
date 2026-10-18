@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
 import { FactsBar } from "./FactsBar";
 import { makeAgent, makeSession } from "../fixtures";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
@@ -26,12 +26,6 @@ describe("FactsBar Agents tile (#100, #109)", () => {
 
   it("sizes the tile to its content and never wraps its text, so a narrow bar moves the whole tile instead", () => {
     expect(agentsTile([])).toHaveClass("agents");
-  });
-
-  it("has eight cells in fixed places: Agents, cost, tokens, running for; then agent time, blowouts, reporter, resume (#165)", () => {
-    const { container } = render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
-    const labels = [...container.querySelectorAll(".facts > .fact")].map((f) => f.querySelector(".k")!.textContent);
-    expect(labels).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Resume"]);
   });
 
   it("keeps the failed button on the same line after the counts", () => {
@@ -108,9 +102,44 @@ describe("FactsBar Reporter cell (#124)", () => {
     expect(cell.getAttribute("title")).toBe(versionNote(s)!.text);
   });
 
-  it("sits just before Resume, which stays the last cell", () => {
+  it("sits just before Session, Resume and Fork, which end the grid", () => {
     const { cells } = reporter({ reporterVersion: "0.11.0" });
-    expect(cells[cells.length - 1].querySelector(".k")!.textContent).toBe("Resume");
-    expect(cells[cells.length - 2].querySelector(".k")!.textContent).toBe("Reporter");
+    expect(cells.slice(-4).map((c) => c.querySelector(".k")!.textContent)).toEqual(["Reporter", "Session", "Resume", "Fork"]);
+  });
+});
+
+describe("FactsBar copy cells (#352)", () => {
+  it("has ten cells in fixed places: Agent time ends row one, and Session, Resume and Fork end row two", () => {
+    const { container } = render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
+    const keys = [...container.querySelectorAll(".facts > .fact")].map((f) => f.querySelector(".k")!.textContent);
+    expect(keys).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Session", "Resume", "Fork"]);
+  });
+
+  it("gives Resume and Fork their own accessible names and popups", () => {
+    const { container } = render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
+    expect(screen.getByRole("button", { name: "Copy resume command" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy fork command" })).toBeInTheDocument();
+    const tips = [...container.querySelectorAll(".facts .tip")].map((t) => t.textContent);
+    expect(tips[0]).toMatch(/Continues this same session/);
+    expect(tips[0]).toMatch(/still running in another terminal/);
+    expect(tips[1]).toMatch(/This session is not changed/);
+    expect(tips[1]).toMatch(/Approve them again/);
+    expect(tips[1]).toMatch(/30 days/);
+  });
+
+  it("copies the session's own resume and fork commands", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const s = makeSession({ resumeCommand: "cd '/a b' && claude --resume r1", forkCommand: "cd '/a b' && claude --resume r1 --fork-session" });
+    render(<FactsBar s={s} now={Date.now()} onAgent={() => {}} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy fork command" }));
+    });
+    expect(writeText).toHaveBeenLastCalledWith("cd '/a b' && claude --resume r1 --fork-session");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy resume command" }));
+    });
+    expect(writeText).toHaveBeenLastCalledWith("cd '/a b' && claude --resume r1");
+    vi.unstubAllGlobals();
   });
 });
