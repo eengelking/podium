@@ -1,0 +1,32 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Markdown > renders a table of ordinary and odd inputs unchanged (#362) 1`] = `
+{
+  "0: "# H1\\n###### H6\\n####### seven\\n#nospace\\n#   spaced   "": "<h1>H1</h1><h6>H6</h6><p>####### seven #nospace</p><h1>spaced</h1>",
+  "10: "[a](javascript:x) [a](https://e.com space) [a](https://e.com/(x y)) [[a]](https://e.com)"": "<p>a [a](https://e.com space) [a](https://e.com/(x y)) [[a]](https://e.com)</p>",
+  "11: "**unclosed *x \`y [z]("": "<p>*<em>unclosed </em>x \`y [z](</p>",
+  "12: "[a](https://e.com **b** \`c\` *d*) and [**b** *i*](https://e.com)"": "<p>[a](https://e.com <strong>b</strong> <code>c</code> <em>d</em>) and <a href="https://e.com" target="_blank" rel="noopener noreferrer"><strong>b</strong> <em>i</em></a></p>",
+  "13: "a **b \`c** d\` e *f \`g* h\`"": "<p>a <strong>b \`c</strong> d<code> e *f </code>g* h\`</p>",
+  "14: "> quote *it*\\n>no space\\n>\\n> - not a list"": "<blockquote>quote <em>it</em> no space  - not a list</blockquote>",
+  "15: "para one\\nstill one\\n\\npara two"": "<p>para one still one</p><p>para two</p>",
+  "16: "  - indented\\n    1. nested\\n\\t* tabbed"": "<ul><li>indented</li></ul><ol><li>nested</li></ol><ul><li>tabbed</li></ul>",
+  "17: "\`\`\`\\n- not a list\\n# not a heading\\n\`\`\`\\n# after"": "<pre><code>- not a list
+# not a heading</code></pre><h1>after</h1>",
+  "18: "é **über** _éa_ é_a_é 日本_語_"": "<p>é <strong>über</strong> <em>éa</em> é<em>a</em>é 日本<em>語</em></p>",
+  "19: "* \\n*\\n** \\n- *a*"": "<ul><li></li></ul><p>* **</p><ul><li><em>a</em></li></ul>",
+  "1: "#\\n##\\n# \\n#\\t tab"": "<p># ##</p><h1></h1><h1>tab</h1>",
+  "20: "[a [b](https://e.com) [c](https://e.com/(x)y) [d](https://e.com/(x y)) [e](https://e.com/(x"": "<p><a href="https://e.com" target="_blank" rel="noopener noreferrer">a [b</a> <a href="https://e.com/(x)y" target="_blank" rel="noopener noreferrer">c</a> [d](https://e.com/(x y)) [e](https://e.com/(x</p>",
+  "21: "[a]](https://e.com) [[a](https://e.com) [a](https://e.com)) [a]((https://e.com) [a](()) [a](x) [a](ftp://x)"": "<p>[a]](https://e.com) <a href="https://e.com" target="_blank" rel="noopener noreferrer">[a</a> <a href="https://e.com" target="_blank" rel="noopener noreferrer">a</a>) [a]((https://e.com) a a a</p>",
+  "22: "[a](https://e.com/x]y) [a]([b](https://e.com)) **[a](https://e.com)** \`[a](https://e.com)\` [\`a\`](https://e.com)"": "<p><a href="https://e.com/x]y" target="_blank" rel="noopener noreferrer">a</a> a <strong><a href="https://e.com" target="_blank" rel="noopener noreferrer">a</a></strong> <code>[a](https://e.com)</code> <a href="https://e.com" target="_blank" rel="noopener noreferrer"><code>a</code></a></p>",
+  "23: "[a]([b](c) [b](c) [b](c) [x](https://e.com/(a)(b)) end [y](https://e.com"": "<p>[a](b b b <a href="https://e.com/(a)(b)" target="_blank" rel="noopener noreferrer">x</a> end [y](https://e.com</p>",
+  "24: "# t x\\n- a b\\n1. a b\\n- a  \\n#  "": "<p># t x - a b 1. a b - a</p><h1></h1>",
+  "2: "1. a\\n2) b\\n  10. c\\n1.x\\n1 .x\\n 1. nbsp"": "<ol><li>a</li><li>b</li><li>c</li></ol><p>1.x 1 .x</p><ol><li>nbsp</li></ol>",
+  "3: "- a\\n* b\\n+ c\\n  - d\\n-x\\n- \\n-\\n-\\tt"": "<ul><li>a</li><li>b</li><li>c</li><li>d</li></ul><p>-x</p><ul><li></li></ul><p>-</p><ul><li>t</li></ul>",
+  "4: "- a\\n1. b\\n- c\\n\\n> q\\n- d"": "<ul><li>a</li></ul><ol><li>b</li></ol><ul><li>c</li></ul><blockquote>q</blockquote><ul><li>d</li></ul>",
+  "5: "\`code\` and \`\`two\`\` and \`\` and \`a\\nb\` end"": "<p><code>code</code> and \`<code>two</code><code> and </code><code> and </code>a b\` end</p>",
+  "6: "**bold** __bold2__ ****  **a** **a* *a** ** a **"": "<p><strong>bold</strong> <strong>bold2</strong> **<strong>  </strong>a<strong> </strong>a* <em>a</em>* <strong> a </strong></p>",
+  "7: "*it* *a b* * a* *a *b* _it_ _a b_ _ a_ snake_case_name _a_b_ (_a_) x_a_"": "<p><em>it</em> <em>a b</em> * a* <em>a </em>b* <em>it</em> <em>a b</em> _ a_ snake_case_name _a_b_ (<em>a</em>) x_a_</p>",
+  "8: "***both*** **_mix_** *__mix__* _**mix**_"": "<p>*<strong>both</strong>* <strong><em>mix</em></strong> <em><strong>mix</strong></em> <em><strong>mix</strong></em></p>",
+  "9: "[a](https://e.com) [a](https://e.com/p_(q)) [a](https://e.com/(a(b))) [a]() [](https://e.com) [a](mailto:x@y.z)"": "<p><a href="https://e.com" target="_blank" rel="noopener noreferrer">a</a> <a href="https://e.com/p_(q)" target="_blank" rel="noopener noreferrer">a</a> [a](https://e.com/(a(b))) [a]() [](https://e.com) <a href="mailto:x@y.z" target="_blank" rel="noopener noreferrer">a</a></p>",
+}
+`;

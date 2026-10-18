@@ -37,7 +37,7 @@ type Tokens = Record<string, string>;
 
 function parseBlock(body: string): Tokens {
   const t: Tokens = {};
-  for (const m of body.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)) t[m[1]] = m[2].trim();
+  for (const m of body.matchAll(/--([a-z0-9-]+):([^;]+);/g)) t[m[1]] = m[2].trim(); // not `:\s*` before the value: it overlaps `[^;]+` and backtracks on a long run of spaces
   return t;
 }
 
@@ -50,8 +50,11 @@ function podium(): Record<string, Tokens> {
 
 function others(): Record<string, Tokens> {
   const out: Record<string, Tokens> = {};
-  for (const m of themes.matchAll(/:root\[data-theme-name="([a-z]+)"\]\[data-theme="(dark|light)"\],\n[^\n]*\{([\s\S]*?)\n\}/g)) {
-    out[`${m[1]}/${m[2]}`] = parseBlock(m[3]);
+  // A block opens on the line after the `:root[...]` selector and closes on the next line that is just `}`.
+  for (const m of themes.matchAll(/:root\[data-theme-name="([a-z]+)"\]\[data-theme="(dark|light)"\],\n[^\n{]*\{/g)) {
+    const from = m.index + m[0].length;
+    const to = themes.indexOf('\n}', from);
+    if (to !== -1) out[`${m[1]}/${m[2]}`] = parseBlock(themes.slice(from, to));
   }
   return out;
 }
