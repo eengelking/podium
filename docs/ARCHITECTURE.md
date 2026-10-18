@@ -88,7 +88,7 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 
 ## Components
 
-Each subsection names the files that own it and the issue that introduced it. Mockups are under `mockup/`.
+Most subsections name the files that own them and the issue that introduced them. Mockups are under `mockup/`.
 
 ### Reporters, identity and Admin
 
@@ -242,7 +242,6 @@ and #221.
   when the report has none), plus `#<owner>` for a second account on the same machine (`accountKey`), and the
   credential is recorded as a key id, never a token.
 - `routes.ts` calls `rejected()` at each refusal. It keeps the last 200 in memory only.
-- The report format did not change, so the mod's options are not available to show.
 
 **One row per reporter**
 
@@ -269,6 +268,7 @@ and #221.
   start time and now, so filtering, counting and sorting by it stay server-side and paged. The browser asks again
   every 10 seconds.
 - The page is admin-only because it shows source addresses and machine names.
+- The report format did not change, so the mod's options are not available to show.
 
 ### Prompt and answer modal
 
@@ -527,8 +527,8 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
 
 ## Spec questions
 
-Places where the spec was silent, ambiguous or wrong, the reading chosen, and why. The numbers are cited from
-other documents, so they stay fixed.
+Places where the spec was silent, ambiguous or wrong, the reading chosen, and why. Other documents cite these
+numbers, so they stay fixed.
 
 1. **"Identical type declarations" in both `protocol.ts` files (T0.1).** The mod has no use for the view
    types (`SessionView`, `Kpis`, ...). Reading chosen: the Report family (`Report`, `SessionReport`, `Plan`,
@@ -733,7 +733,7 @@ behavior a reader of the spec would expect:
 
 ## Known issues
 
-The short, practical version is [GOTCHAS.md](GOTCHAS.md). The numbers are cited from other documents, so they stay
+The short, practical version is [GOTCHAS.md](GOTCHAS.md). Other documents cite these numbers, so they stay
 fixed.
 
 1. **`explainFailures` was not tried against the real model.** It is tested in the kit with a stand-in
@@ -758,6 +758,7 @@ fixed.
 7. **Cost estimates undershoot the ledger a little.** Run 1: main loop plus agent estimates $0.01237
    against a ledger of $0.01445. The orchestrator's figure is the ledger; agent figures are estimates and
    labeled so (DECISIONS 7).
+
 8a. **What Claude Code reports for a non-Claude model (Ollama), partly observed.** On 2026-10-12 Claude Code
     2.1.296 was launched with `ANTHROPIC_BASE_URL=http://localhost:11434` and `--model gemma4:12b-pinned`
     (Ollama 0.34.4) with the 0.5.0 reporter. The session registered and appeared on the wall. Observed: the

@@ -54,8 +54,15 @@ viewer sees both at once.
 3. Pick the theme you want from the Theme dropdown in the row under the top bar and size the window before
    you start recording. Layout changes mid-take are distracting.
 
-4. In the second terminal, start Claude Code with the mod installed. Install it once from the marketplace,
-   or load it from a checkout for this session. Both ways are in [REPORTER.md](REPORTER.md#install-the-mod).
+4. In the second terminal, start Claude Code with the mod installed. Install it once from the
+   marketplace (`/plugin marketplace add eengelking/skills`, then
+   `/plugin install podium-reporter@eengelking-marketplace`), or load it from a checkout for this session:
+
+   ```sh
+   claude --plugin-dir /path/to/podium/mod/podium-reporter
+   ```
+
+   Both ways are in [REPORTER.md](REPORTER.md#install-the-mod).
 
    The session appears on the wall once you send it a prompt, not before. Until then the status line under
    the prompt reads `podium vX.Y.Z ● 0 live`. After the first prompt it reads `podium vX.Y.Z ● 1 live`.

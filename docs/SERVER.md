@@ -70,8 +70,9 @@ Reporting with the admin secret keeps working, and those sessions show under the
 stored hashed, so Podium cannot show one again. They travel in a header, so a server reachable over a network
 needs a trusted network or a TLS proxy.
 
-Admin's pages (people, groups, reporters, settings, model prices, the admin log) and its lock rules are in
-the "Admin" section of [USER_GUIDE.md](USER_GUIDE.md).
+Admin locks after 10 idle minutes, and five wrong names or tokens lock it for 15 minutes. Admin's pages (people,
+groups, reporters, settings, model prices, the admin log) are in the "Admin" section of
+[USER_GUIDE.md](USER_GUIDE.md).
 
 ### Several people on one Podium
 
@@ -95,7 +96,7 @@ report to it:
 5. Once a session reports with a person's token, the console groups the wall by person (see "People" in
    [USER_GUIDE.md](USER_GUIDE.md)).
 
-What this exposes. Reading the console needs no token, so anyone who can reach the port sees every session:
+**What this exposes.** Reading the console needs no token, so anyone who can reach the port sees every session:
 names, machines, paths, branches, plan steps, commands from failed calls and the excerpts listed under
 [What leaves the session](REPORTER.md#what-leaves-the-session).
 

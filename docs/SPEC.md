@@ -343,8 +343,8 @@ the server binds.
 
 - The first `start` generates a random `PODIUM_TOKEN` and saves it in `config.env`. It is the admin secret
   ([7.7](#77-hardening)): it opens the Admin section and may be used to report.
-- `podiumctl token` prints it. `--rotate` replaces it. After a restart every open Admin session is over, and
-  people's own tokens, which are in the database, are unaffected.
+- `podiumctl token` prints it. `--rotate` replaces it, and after a restart every open Admin session is over.
+  People's own tokens, which are in the database, are unaffected.
 - An empty value is the deliberate "auth off" setting and is passed through to the server as empty.
 - Secrets reach the server through its environment, never a command line.
 
@@ -1027,7 +1027,7 @@ Read the options via the `options` argument of `register`. A config change reloa
 - To change who a running session reports as, start a new session.
 - A session that belongs to someone else is still refused ([7.7](#77-hardening)).
 
-**Known limit (#230).** `/plugin configure` holds one login per Claude config on a machine. The engine gives a
+**Known limit (#230).** `/plugin configure` therefore holds one login per Claude config on a machine. The engine gives a
 mod one shared set of `userConfig` values and no storage for a single session's login:
 
 - `$.state` is per session but only the mod can write it, and the mod cannot tell which session's person just

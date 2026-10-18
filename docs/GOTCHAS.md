@@ -55,8 +55,16 @@ Reports still arrive in every case. Only `major.minor` is compared, so a patch r
 A version the server cannot read (the simulator's `0.1.0-sim`) shows nothing. A mod older than 0.3.0 cannot show the
 message itself, but the dashboard still marks its card.
 
-**Do:** Follow [Updating the mod](USER_GUIDE.md#updating-the-mod) in the user guide. `/podium` prints both
-versions, which tells you which way you are out of step.
+**Do:** For `update mod`, update the mod, then reload it in the session. A running session keeps the version it loaded
+until you do.
+
+```sh
+claude plugin update podium-reporter@eengelking-marketplace
+```
+
+Then run `/reload-plugins` in the session. If the update says it is already at the latest version, refresh the listing
+first with `claude plugin marketplace update eengelking-marketplace`. `/podium` prints both versions, which tells you
+which way you are out of step. The full steps are in [Updating the mod](USER_GUIDE.md#updating-the-mod).
 
 ### The token option has no row in the `/config` menu
 
@@ -301,8 +309,8 @@ stored, so they are not private either.
 
 **You see:** You moved someone to another group in Admin, and the wall has not changed yet.
 
-**Why:** Admin's groups are read when a session's view is built, so the change shows with each session's next report
-(the heartbeat is five seconds). The Spend page in Admin updates on the next tick.
+**Why:** Admin's groups are read when a session's view is built, so the change shows on the wall with each session's next
+report (the heartbeat is five seconds), not at once. The Spend page in Admin updates on the next tick.
 
 **Do:** Wait a few seconds.
 
@@ -359,7 +367,7 @@ literal. "Count .ts files under server" and "Count .ts files in server" do not m
 **You see:** The agents' costs in the tree do not sum to the figure on the card.
 
 **Why:** An agent's row shows its own estimated cost, not the agents it launched. The facts bar and the card show the
-session's figure, which includes every agent at every depth once, plus the orchestrator itself. The orchestrator's row
+session's figure from Claude Code, which includes every agent at every depth once, plus the orchestrator itself. The orchestrator's row
 shows its own share: that figure less each agent's estimate, so the rows add up to it.
 
 From reporter 0.12.0 the server prices the session and every agent from the same per-model token totals and the prices
@@ -449,9 +457,10 @@ hooks is never hidden.
 **Why:** Closing the window can move the conversation to the background instead of ending it. It is a real session, so
 its card stays.
 
-**Do:** End it with `claude stop <id>`. The user guide has the full steps in
-[Closing a background session](USER_GUIDE.md#closing-a-background-session). Use the id `claude agents` shows, not the
-id on the card, which differs after `/clear`.
+**Do:** `claude agents` lists background sessions, and `claude attach <id|name>` opens one. End it with
+`claude stop <id>`, and the card leaves. `claude rm <id>` also deletes the session's worktree. Use the id `claude agents`
+shows, not the id on the card, which differs after `/clear`. The user guide has the full steps in
+[Closing a background session](USER_GUIDE.md#closing-a-background-session).
 
 ### A session started without the mod stays "live" for ten minutes after it goes quiet
 
@@ -516,10 +525,10 @@ test's request with someone else's server (#137).
 - It binds with Node's internal `_listen2`, because supertest reads the port the moment `listen(0)` returns and a public
   `listen(0, '127.0.0.1')` is not synchronous. `testSetup.test.ts` fails if a Node upgrade breaks that.
 
-To check for the flake, run several full runs at once, for example loops of `npx vitest run` in parallel. Before the
-fix about 7% of runs failed, and none of 60 after.
+To check for the flake, run several full runs at once. Before the fix, six loops of `npx vitest run` in parallel failed
+about 7% of runs, and none of 60 failed after. Today, keep it to three loops.
 
-- Keep it to three loops, and let the sockets drain between rounds (`netstat -an -p tcp | grep -c TIME_WAIT` under a few
+- Let the sockets drain between rounds (`netstat -an -p tcp | grep -c TIME_WAIT` under a few
   hundred).
 - A run opens about 3,000 connections and macOS has about 16,000 ephemeral ports. With vitest 5, six loops run out of
   them and fail with `listen EADDRNOTAVAIL 127.0.0.1` all over the suite. That is the machine, not a test.

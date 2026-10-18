@@ -85,23 +85,7 @@ If someone else runs the server, ask them for your own token and enter it as `to
 (`PODIUM_ALLOWED_HOSTS`, for reaching it by a name rather than an address) and what everyone who can reach the server
 can see.
 
-**One saved login per machine.** The sign-in you do with `/plugin configure` holds one name and one token for the whole
-Claude config on that machine, so every terminal there shares it. Signing in again as someone else in one terminal
-changes it for the sessions you start afterwards, and cannot give two terminals different logins. This is a limit of
-Claude Code, not of Podium. It gives a reporter one set of settings per config, no place to keep a login for a single
-session, and it tells every running session when they change. A later Claude Code release may add one, and Podium will
-use it when it does (#230).
-
-To report as two Podium identities from one machine (say Admin in one terminal and yourself in another), start each
-terminal with its own name and token:
-
-```bash
-PODIUM_USER=Ed PODIUM_TOKEN=<Ed's token> claude
-```
-
-When either variable is set, the session uses them and ignores the `userName` and `token` options. A session keeps the
-identity it started with, so changing the options later does not turn a running session into someone else. To change
-who a session reports as, start a new one.
+To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine).
 
 ### 3. Check that it works
 
@@ -120,6 +104,28 @@ The status line tells you where you are:
 A name you give a session in Claude Code, for example with `/rename`, is its title on the card, the rail and the
 orchestrator page, from your next prompt. `/podium name <text>` sets a name too, and wins over it. The card and the
 orchestrator page also show the first eight characters of the session id. Click it to copy the whole id.
+
+### More than one login on one machine
+
+Most people can skip this section.
+
+The sign-in you do with `/plugin configure` holds one name and one token for the whole
+Claude config on that machine, so every terminal there shares it. Signing in again as someone else in one terminal
+changes it for the sessions you start afterwards, and cannot give two terminals different logins. This is a limit of
+Claude Code, not of Podium. It gives a reporter one set of settings per config, no place to keep a login for a single
+session, and it tells every running session when they change. A later Claude Code release may add one, and Podium will
+use it when it does (#230).
+
+To report as two Podium identities from one machine (say Admin in one terminal and yourself in another), the
+reporter's settings are not enough, for the reason above. Start each terminal with its own name and token instead:
+
+```bash
+PODIUM_USER=Ed PODIUM_TOKEN=<Ed's token> claude
+```
+
+When either variable is set, the session uses them and ignores the `userName` and `token` options. A session keeps the
+identity it started with, so changing the options later does not turn a running session into someone else. To change
+who a session reports as, start a new one.
 
 ## Something is wrong
 
@@ -179,9 +185,9 @@ For a wall display, collapse what you do not need.
 
 | Part | Button | Key |
 |---|---|---|
-| Left pane | Its own button | `[` |
-| Right pane | Its own button | `]` |
-| Top bar | Its own button | `\` |
+| Left pane | The tab on its edge, labelled "Collapse the left pane" | `[` |
+| Right pane | The tab on its edge, labelled "Collapse the right pane" | `]` |
+| Top bar | The collapse button in the top bar | `\` |
 | All three (**Wall mode**) | The button in the top right | `w` |
 
 - A collapsed pane leaves a slim tab to open it again, and the pane returns to the width you had. Your choice is
@@ -322,7 +328,7 @@ Claude Code's background daemon runs sessions you did not start by hand. On Clau
 background twin of each interactive window and a pool of pre-warmed spare processes. Every one of them loads the
 reporter and reports itself as a session, so a single window could put three identical "waiting on you" cards on the
 wall. Podium keeps the ones that have done nothing off the wall, out of the activity feed and out of the history, and
-shows them the moment they start work. The rule is in [SPEC 7.5](SPEC.md).
+shows them the moment they start work. The rule is in [SPEC 7.5](SPEC.md#75-lifecycle-timers).
 
 What that means in practice:
 
@@ -379,7 +385,7 @@ Two more commands help:
 
 ### One session
 
-Click a card or a rail item. The page has four parts.
+Click a card or a rail item. The page has a summary, a plan, an agent tree and a detail panel, described below.
 
 #### The summary
 
@@ -490,7 +496,7 @@ feed** flag on in Admin > Settings > Feature flags. Everyone who can open the co
 is off by default. The option is per machine, like the rest of the mod's options, so each person who wants the feed for
 their own sessions turns it on for themselves.
 
-To turn it on:
+##### Turn on the feed
 
 1. Update the mod if the section says your session reports an older version (see [Updating the mod](#updating-the-mod)).
 2. In Claude Code on the machine that runs the sessions, run `/plugin configure podium-reporter@eengelking-marketplace`
@@ -662,10 +668,6 @@ Admin has eight pages, listed in a menu down the left side:
 - On a narrow screen the menu becomes a strip along the top.
 - Every list is paged, 50 rows at a time (25 and 100 are also offered). Spend starts at 25 and offers 50 and 100.
 
-A report is accepted when its token belongs to the person whose name it also sends. The server decides who a report is
-from by the token, so a valid token with someone else's name is refused. A person cannot see or rotate their own token.
-Only the owner can.
-
 ### People page
 
 Under **Create user**, type a name and choose Create user.
@@ -680,6 +682,10 @@ Under **Create user**, type a name and choose Create user.
   person's row offers **Issue new token** instead.
 - The search finds a person by name, group or machine.
 - A person in the Administrators group has their name in orange.
+
+A report is accepted when its token belongs to the person whose name it also sends. The server decides who a report is
+from by the token, so a valid token with someone else's name is refused. A person cannot see or rotate their own token.
+Only the owner can.
 
 ### Groups
 
