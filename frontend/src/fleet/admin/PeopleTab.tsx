@@ -100,6 +100,7 @@ export function PeopleTab(props: {
   const rows = list.data?.rows ?? [];
   const groups = list.data?.groups ?? [];
   const adminIds = new Set(groups.filter((g) => g.builtIn).map((g) => g.id));
+  const picked = rows.filter((r) => sel.includes(r.id));
   const pageAllSelected = rows.length > 0 && rows.every((r) => sel.includes(r.id));
   const askDelete = (people: PersonRow[]) => {
     opener.current = document.activeElement;
@@ -151,12 +152,12 @@ export function PeopleTab(props: {
               <input className="field" id="admin-search" type="search" placeholder="Name, group or machine" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </div>
-          {sel.length > 0 && (
+          {picked.length > 0 && (
             <div className="selbar" role="group" aria-label="Selected people">
-              <span className="count">{sel.length} selected</span>
+              <span className="count">{picked.length} selected</span>
               <span className="grow" />
-              <button type="button" className="btn sm dng" onClick={() => askDelete(rows.filter((r) => sel.includes(r.id)))}>
-                Delete {sel.length}…
+              <button type="button" className="btn sm dng" onClick={() => askDelete(picked)}>
+                Delete {picked.length}…
               </button>
               <button type="button" className="btn sm" onClick={() => setSel([])}>
                 Clear
