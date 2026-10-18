@@ -209,7 +209,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     }
     try {
       const out = fleet.ingest(result.report, ownerOf(id));
-      if (id.kind === 'person') opts.people?.touch(id.person.id, machineOf(req), fleet.now()); // only a report that was stored counts
+      if (id.kind === 'person') opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
       if (r.reporter.hostSurface !== SIMULATOR_SURFACE) {

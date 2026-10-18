@@ -1808,6 +1808,8 @@ CREATE TABLE people (
   created_at INTEGER NOT NULL, rotated_at INTEGER, revoked_at INTEGER, last_report_at INTEGER
 );
 CREATE TABLE person_machines (person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE, machine TEXT NOT NULL, last_seen_at INTEGER NOT NULL, PRIMARY KEY (person_id, machine));
+-- person_machines.machine is `name (first four of machine.id)` when the report sent a machine, else the source address.
+-- Rows unseen for 30 days are deleted and only a person's 10 most recent are kept (#379, migration 18).
 CREATE TABLE admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, t INTEGER NOT NULL, kind TEXT NOT NULL, detail TEXT NOT NULL, source TEXT NOT NULL);
 CREATE TABLE reporters (                                                  -- #142, migration 11 (12 merges rows that share a session, #166): every reporter the server has heard from; retention never touches it, only the Admin (or the forget-by-age setting) removes rows
   key TEXT PRIMARY KEY,                                                    -- the machine id the reporter sends (`<machine id>#<owner>` for a second account on the same machine, #221), else 'addr:<source address>' (a mod that sends none) or 'hooks:<source address>' (settings hooks)
