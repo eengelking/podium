@@ -188,6 +188,31 @@ export class PeopleStore {
   }
 
   /**
+   * Deletes these people in one step (#243); unknown ids are skipped. Their machines go with them. Sessions, spend and
+   * Admin log entries keep the name as text. Refuses, deleting nobody, if it would leave Administrators empty.
+   * Returns the people it removed.
+   */
+  deleteMany(ids: number[]): PersonRow[] {
+    const found = [...new Set(ids)].map((id) => this.getPerson(id)).filter((p): p is PersonRow => p !== undefined);
+    const adminsId = this.administratorsGroupId();
+    if (adminsId !== null && found.some((p) => p.groupId === adminsId)) {
+      const members = Number((this.stmt('SELECT COUNT(*) AS n FROM people WHERE group_id = ?').get(adminsId) as { n: number }).n);
+      if (found.filter((p) => p.groupId === adminsId).length >= members) {
+        throw new PeopleError('invalid', `That would remove the last person in ${ADMINISTRATORS_GROUP}. Add or move another person into it first.`);
+      }
+    }
+    this.db.exec('BEGIN');
+    try {
+      for (const p of found) this.stmt('DELETE FROM people WHERE id = ?').run(p.id);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return found;
+  }
+
+  /**
    * Records a report from a person: the time and the machine it came from. A machine that sent an id is listed once as
    * `name (first four of id)`; one that did not is listed by its source address. The list is bounded (#379): machines
    * unseen for MACHINE_MAX_AGE_MS go, and so does everything past the MACHINES_KEPT most recent.

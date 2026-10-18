@@ -279,6 +279,27 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ ok: true });
   });
 
+  // One route for one person or many (#243). All or nothing: a refusal deletes nobody.
+  router.post('/people/delete', (req, res) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_BULK || ids.some((i) => !Number.isSafeInteger(i) || i < 1)) {
+      return void res.status(400).json({ ok: false, error: `ids must be 1 to ${MAX_BULK} person ids` });
+    }
+    const sid = readCookie(req, COOKIE);
+    const me = sid ? sessions.get(sid)?.personId : null;
+    if (me != null && ids.includes(me)) {
+      return void res.status(400).json({ ok: false, error: 'You are signed in to Admin as this person, so they cannot be deleted. Nothing was deleted.' });
+    }
+    try {
+      const gone = people.deleteMany(ids as number[]);
+      if (gone.length === 0) return void res.status(404).json({ ok: false, error: 'unknown person' });
+      for (const p of gone) audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
+      res.json({ ok: true, removed: gone.length });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   router.put('/people/:id/group', (req, res) => {
     const id = idParam(req.params.id);
     if (id === null) return void res.status(400).json({ ok: false, error: 'bad id' });

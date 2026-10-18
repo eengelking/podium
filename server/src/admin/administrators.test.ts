@@ -166,3 +166,92 @@ describe('who is recorded', () => {
     expect(() => people.createPerson('admin SECRET')).toThrow(/reserved/);
   });
 });
+
+describe('deleting people (#243)', () => {
+  const del = (agent: ReturnType<typeof request.agent>, ids: unknown) => agent.post('/api/admin/people/delete').set(H).send({ ids });
+
+  it('deletes one or several people, answers with the count and logs who deleted whom', async () => {
+    const { app, people } = setup();
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    const a = people.createPerson('Ada');
+    const b = people.createPerson('Bo');
+    const c = people.createPerson('Cy');
+    const res = await del(agent, [a.person.id, b.person.id]);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, removed: 2 });
+    expect(people.getPerson(a.person.id)).toBeUndefined();
+    expect(people.getPerson(b.person.id)).toBeUndefined();
+    expect(people.getPerson(c.person.id)).toBeDefined();
+    const entries = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'person_deleted');
+    expect(entries.map((r) => r.detail).sort()).toEqual(['Deleted Ada', 'Deleted Bo']);
+    expect(entries.every((r) => r.actor === 'Admin secret')).toBe(true);
+    expect((await del(agent, [c.person.id])).body.removed).toBe(1);
+  });
+
+  it("refuses the deleted person's token at once, and lets the name be created again", async () => {
+    const { app, people } = setup();
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    const { person } = people.createPerson('Ada');
+    expect(people.findByKeyId(person.keyId)).toBeDefined();
+    await del(agent, [person.id]);
+    expect(people.findByKeyId(person.keyId)).toBeUndefined();
+    expect(() => people.createPerson('Ada')).not.toThrow();
+  });
+
+  it('locks the open Admin session of a deleted Administrator', async () => {
+    const { app, people, admins } = setup();
+    const { person, token } = people.createPerson('Priya', admins!.id);
+    const other = people.createPerson('Quinn', admins!.id);
+    const mine = request.agent(app);
+    await unlockWith(app, mine, 'Quinn', other.token);
+    const theirs = request.agent(app);
+    await unlockWith(app, theirs, 'Priya', token);
+    expect((await del(mine, [person.id])).status).toBe(200);
+    expect((await theirs.get('/api/admin/groups').set(H)).status).toBe(401);
+  });
+
+  it('refuses the signed-in person, deleting nobody from the request', async () => {
+    const { app, people, admins } = setup();
+    const me = people.createPerson('Priya', admins!.id);
+    const ada = people.createPerson('Ada');
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Priya', me.token);
+    const res = await del(agent, [ada.person.id, me.person.id]);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/signed in/i);
+    expect(people.getPerson(ada.person.id)).toBeDefined();
+    expect(people.getPerson(me.person.id)).toBeDefined();
+  });
+
+  it('refuses to delete the last Administrators member', async () => {
+    const { app, people, admins } = setup();
+    const only = people.createPerson('Priya', admins!.id);
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    const res = await del(agent, [only.person.id]);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/last/i);
+    expect(people.getPerson(only.person.id)).toBeDefined();
+    const second = people.createPerson('Quinn', admins!.id);
+    expect((await del(agent, [only.person.id, second.person.id])).status).toBe(400);
+    expect((await del(agent, [only.person.id])).status).toBe(200);
+  });
+
+  it('rejects a bad list and an unknown person', async () => {
+    const { app } = setup();
+    const agent = request.agent(app);
+    await unlockWith(app, agent, 'Admin', SECRET);
+    expect((await del(agent, [])).status).toBe(400);
+    expect((await del(agent, 'x')).status).toBe(400);
+    expect((await del(agent, [1, 'a'])).status).toBe(400);
+    expect((await del(agent, Array.from({ length: 501 }, (_, i) => i + 1))).status).toBe(400);
+    expect((await del(agent, [9999])).status).toBe(404);
+  });
+
+  it('needs an unlocked Admin session', async () => {
+    const { app } = setup();
+    expect((await request(app).post('/api/admin/people/delete').set(H).send({ ids: [1] })).status).toBe(401);
+  });
+});
