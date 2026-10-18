@@ -1,6 +1,7 @@
 // Express router for Podium, mounted at /api/fleet (SPEC 7.1, 7.7).
 import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import type { Fleet } from './fleet.js';
+import { serverBuild } from './build.js';
 import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
@@ -239,7 +240,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {

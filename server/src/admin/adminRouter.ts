@@ -7,6 +7,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, type PeopleStore, type PersonRow } from '../fleet/people.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
+import { serverBuild } from '../fleet/build.js';
 import { serverVersion } from '../fleet/compat.js';
 import { NOTICES, isNoticeId, type WallSettings } from '../fleet/wallSettings.js';
 import type { ModelPriceStore } from '../fleet/modelPrices.js';
@@ -115,7 +116,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   router.get('/session', (req, res) => {
-    res.json({ enabled: opts.secret !== null, unlocked: opts.secret !== null && sessionValid(req), version: serverVersion() });
+    res.json({ enabled: opts.secret !== null, unlocked: opts.secret !== null && sessionValid(req), version: serverVersion(), build: serverBuild() });
   });
 
   // Admin is off without a token: the console is open to everyone who can reach it, so there is nothing to gate it with.

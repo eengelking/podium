@@ -227,6 +227,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     name: row.name,
     reporter: row.reporter_version === 'hooks' ? 'hooks' : 'mod',
     reporterVersion: row.reporter_version === 'hooks' ? null : row.reporter_version,
+    reporterBuild: row.reporter_version === 'hooks' ? null : row.reporter_build ?? null,
     compat: row.reporter_version === 'hooks' ? 'unknown' : checkReporter(row.reporter_version),
     project: shortenHome(row.project_root ?? row.cwd, cfg.home),
     cwd: shortenHome(row.cwd, cfg.home),

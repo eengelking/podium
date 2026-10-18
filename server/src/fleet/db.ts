@@ -223,6 +223,12 @@ DELETE FROM person_machines WHERE rowid IN (
   ) WHERE rn > 10
 );`,
   },
+  {
+    version: 19,
+    // The commit hash of a dev build of the mod (issue #400), so the facts bar can say which build a session reports from.
+    // NULL for a release, for a hooks-only session and for an older mod.
+    sql: 'ALTER TABLE sessions ADD COLUMN reporter_build TEXT;',
+  },
 ];
 
 export interface SessionRow {
@@ -255,6 +261,7 @@ export interface SessionRow {
   blowouts: number;
   plan_json: string | null;
   reporter_version: string | null;
+  reporter_build?: string | null;
   engine_version: string | null;
   loop_json: string | null;
   files_json: string | null;

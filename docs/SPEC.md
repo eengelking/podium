@@ -1074,7 +1074,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
 
   | Field | Meaning |
   |---|---|
-  | `serverVersion`, `reporterSupport`, `reporterCompat` | Explained in [6.8](#68-version-compatibility). |
+  | `serverVersion`, `serverBuild`, `reporterSupport`, `reporterCompat` | Explained in [6.8](#68-version-compatibility). |
   | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](#64-failure-and-excerpt-rules)). Always empty while the Admin has the activity feed turned off. |
   | `respond` | Whether the server takes answers for this session now ([7.7](#77-hardening): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](#62-the-report), [7.1](#71-endpoints)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |
@@ -1099,7 +1099,7 @@ All times are epoch milliseconds. All token counts are integers. Unknown fields 
 interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null };
+  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
   session: {
     id: string;
     name: string;                       // display name (6.6)
@@ -1509,9 +1509,22 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
     instead (a patch difference is not flagged). This needs no new server field.
   - A mod that predates this ignores the fields. A mod talking to a server that predates this sees no
     `reporterCompat` and shows nothing.
-- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod) and `compat`
-  (always `unknown` for hooks). `StateBody.server` carries `{ version, reporterSupport }`, and the UI shows the
-  server version in the left rail footer.
+- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterBuild`
+  (see Builds below) and `compat` (always `unknown` for hooks). `StateBody.server` carries
+  `{ version, build, reporterSupport }`, and the UI shows the server version, and its build for a dev build, in
+  the left rail footer.
+- **Builds (#400).** A release is a clean checkout of exactly a `vMAJOR.MINOR.PATCH` tag. Every other build is a
+  dev build, whatever branch it came from, and is named by the 8-character commit hash, with `-dirty` after it
+  when the tree had local edits. A release has no build: the field is `null` and only the version shows. The
+  server's build comes from `PODIUM_BUILD`, which `podiumctl build` passes into the image, or from
+  `server/build.json`, which a standalone `podiumctl build` writes; with neither (a build made without git) it is
+  `null`. The mod finds its own only when it runs from a checkout of this repository, where `mod/podium-reporter`
+  is tracked by git: an installed copy has no repository, so it is a release. It sends `reporter.build` only for
+  a dev build; the server keeps only a value that is a commit hash and stores it on the session as
+  `reporter_build`. The server's reply to a report carries `serverBuild` (null for a release). An older mod sends
+  no build and is a release, and an older server sends no `serverBuild`, so the mod shows the version alone.
+  The mod's status line shows `podium v1.1.0 | dev: a1b2c3d4 ● 2 live` in every connection state, and `/podium`
+  and the facts bar show `1.1.0 · Dev: a1b2c3d4`. A release shows what it showed before.
 - The dashboard marks each affected card, counts them in the top bar, and says what to do on the session's
   page.
 
@@ -1560,7 +1573,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `PUT /api/fleet/wall/background-sessions` | Body `{ show: boolean }`: the Show them / Hide them link on the background-sessions note changes this setting. No token. 400 unless `show` is a boolean. |
 | `POST /api/fleet/sessions/:id/drop` | Remove a heartbeat-lost session from the live view now: the same exit as the automatic drop ([7.5](#75-lifecycle-timers)). No token. 404 if the session is not live, 409 if it is not `stale`. |
 | `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured. |
-| `GET /api/fleet/health` | `{ ok, dbPath, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, reporterSupport, sseClients, maxClockSkewMs }`. |
+| `GET /api/fleet/health` | `{ ok, dbPath, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
 
 **`GET /api/fleet/state`**
@@ -1950,7 +1963,7 @@ Server to UI. Defined once in `protocol.ts`, imported by the UI.
 ```ts
 interface SessionView {
   id: string; name: string; project: string; repoName: string | null; resumeCommand: string; forkCommand: string;
-  reporterVersion: string | null; compat: 'ok' | 'outdated' | 'newer' | 'unknown';  // the mod's version and where it sits against the server's range (6.8)
+  reporterVersion: string | null; reporterBuild: string | null; compat: 'ok' | 'outdated' | 'newer' | 'unknown';  // the mod's version and where it sits against the server's range (6.8)
   git: { branch: string | null; detached: boolean; isWorktree: boolean; worktreePath: string | null; ahead: number; behind: number; dirty: number } | null;
   model: string | null; modelFamily: 'opus'|'sonnet'|'haiku'|'fable'|'other'; effort: string | null;
   status: 'running' | 'waiting' | 'stale' | 'done'; waitNote: string | null; endReason: string | null;
@@ -2623,9 +2636,11 @@ activity panel and legend as the wall, with the board in the middle.
 
 #### Left rail
 
-**Footer.** The bottom left corner of the rail holds a footer: "Theme credits" (links to
-`docs/THIRD_PARTY_NOTICES.md`), "License" (links to `LICENSE`) and the copyright line. It collapses with the
-rail.
+**Footer.** The bottom left corner of the rail holds a footer, one row each: "Theme credits" and "License"
+(links to `docs/THIRD_PARTY_NOTICES.md` and `LICENSE`), a Dev row, the version (`Podium v1.1.0`) and the
+copyright line at the very bottom. The Dev row, `Dev: a1b2c3d4` with the commit in the mono font, shows only
+when the server is a dev build (6.8, Builds) and is left out of a release. No version row shows when the server
+did not give one. It collapses with the rail.
 
 **Rail items.** An "All orchestrators" item and one item per live session: status dot, name, blowout badge,
 model chip, plan bar and `done/total`, running/total agents.
@@ -2749,8 +2764,8 @@ menu and the page scroll on their own.
   since color means model and status.
 - A list's page shows its count as a badge once it has loaded.
 - Lock Admin and "Locks after 10 minutes without activity." sit at the bottom of the menu. Under them is the
-  left rail's footer (Theme credits, License, the version and the copyright; the version comes from
-  `GET /api/admin/session`). The footer shows on the lock screen too.
+  left rail's footer (Theme credits, License, the Dev row for a dev build, the version and the copyright; the
+  version and the build come from `GET /api/admin/session`). The footer shows on the lock screen too.
 - Below 760 px the menu is a scrolling strip above the page, the group headings show only their icon and a
   hairline sits between groups, the footer moves to the bottom of the page, and tables scroll inside their
   panel.

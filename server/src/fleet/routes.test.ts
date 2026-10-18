@@ -1,3 +1,4 @@
+import { serverBuild } from './build.js';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import express from 'express';
@@ -48,6 +49,7 @@ describe('POST /api/fleet/report', () => {
     expect(matching.body.reporterCompat).toBe('ok');
     expect(newer.body.reporterCompat).toBe('newer');
     expect(older.body.serverVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(older.body.serverBuild).toBe(serverBuild());
     expect(older.body.reporterSupport).toEqual({ min: expect.any(String), max: expect.any(String) });
   });
 

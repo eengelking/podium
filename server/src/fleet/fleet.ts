@@ -4,6 +4,7 @@
 import { SAME_USAGE } from './db.js';
 import type { CostOf, FleetDb, RetentionPolicy, SessionRow } from './db.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
+import { serverBuild } from './build.js';
 import { REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { ingestReport, type IngestResult } from './ingest.js';
 import { hookToReport } from './hookIngest.js';
@@ -418,7 +419,7 @@ export class Fleet {
       kpis: this.kpis(sessions),
       clearedToday: this.clearedToday(),
       events: this.events({ limit: STATE_EVENTS }),
-      server: { version: serverVersion(), reporterSupport: REPORTER_SUPPORT },
+      server: { version: serverVersion(), build: serverBuild(), reporterSupport: REPORTER_SUPPORT },
       wall: this.wall.view(),
       features: this.features.view(),
     };
@@ -429,7 +430,7 @@ export class Fleet {
     return formatSse('snapshot', this.state());
   }
 
-  health(): { ok: true; dbPath: string; liveSessions: number; uptimeSec: number; reporterVersionsSeen: string[]; serverVersion: string; reporterSupport: ReporterSupport; sseClients: number; maxClockSkewMs: number } {
+  health(): { ok: true; dbPath: string; liveSessions: number; uptimeSec: number; reporterVersionsSeen: string[]; serverVersion: string; serverBuild: string | null; reporterSupport: ReporterSupport; sseClients: number; maxClockSkewMs: number } {
     let skew = 0;
     for (const id of this.live.keys()) skew = Math.max(skew, Math.abs(this.clockSkew.get(id) ?? 0));
     return {
@@ -439,6 +440,7 @@ export class Fleet {
       uptimeSec: Math.floor((this.now() - this.startedAt) / 1000),
       reporterVersionsSeen: this.db.distinctReporterVersions(),
       serverVersion: serverVersion(),
+      serverBuild: serverBuild(),
       reporterSupport: REPORTER_SUPPORT,
       sseClients: this.hub.size,
       maxClockSkewMs: skew,

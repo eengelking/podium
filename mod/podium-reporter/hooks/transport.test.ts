@@ -98,6 +98,41 @@ describe('transport', () => {
     expect(t.versionNotice()).toBeNull()
   })
 
+  test('puts the build of a dev mod after the version in every state, set off by a pipe (#400)', async () => {
+    const cfg = { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.1.0', build: 'a1b2c3d4' }
+    expect(new Transport(fake([]).fetch, cfg).statusText()).toBe('podium v1.1.0 | dev: a1b2c3d4 ○ connecting')
+    const live = new Transport(fake([ok(0, 2)]).fetch, cfg)
+    await live.send(build, 0)
+    expect(live.statusText()).toBe('podium v1.1.0 | dev: a1b2c3d4 ● 2 live')
+    const offline = new Transport(fake([{ status: 500, ok: false, text: '' }]).fetch, cfg)
+    await offline.send(build, 0)
+    expect(offline.statusText()).toBe('podium v1.1.0 | dev: a1b2c3d4 ○ offline')
+    const refused = new Transport(fake([{ status: 401, ok: false, text: '' }]).fetch, cfg)
+    await refused.send(build, 0)
+    expect(refused.statusText()).toBe('podium v1.1.0 | dev: a1b2c3d4 ○ token refused')
+    const behind = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify({ ok: true, liveSessions: 2, serverVersion: '1.2.0', reporterSupport: { min: '0.9.0', max: '1.2.0' }, reporterCompat: 'ok' }) }]).fetch, cfg)
+    await behind.send(build, 0)
+    expect(behind.statusText()).toBe('podium v1.1.0 | dev: a1b2c3d4 ● 2 live · update available')
+  })
+
+  test('a release mod, and one with no build, show the version alone, with the warning in front over plain http (#400)', () => {
+    expect(new Transport(fake([]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.1.0', build: null }).statusText()).toBe('podium v1.1.0 ○ connecting')
+    expect(new Transport(fake([]).fetch, { serverUrl: 'http://203.0.113.5:4317', token: '', heartbeatMs: 5000, version: '1.1.0', build: 'a1b2c3d4' }).statusText()).toBe('⚠ podium v1.1.0 | dev: a1b2c3d4 ○ connecting')
+  })
+
+  test('reads the server build from the reply, and nothing from a server that does not say (#400)', async () => {
+    const reply = (b: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, serverVersion: '1.1.0', serverBuild: b }) })
+    const run = async (r: HttpResult) => {
+      const t = new Transport(fake([r]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.1.0' })
+      await t.send(build, 0)
+      return t.serverBuild
+    }
+    expect(await run(reply('a1b2c3d4'))).toBe('a1b2c3d4')
+    expect(await run(reply(null))).toBeNull()
+    expect(await run(reply(7))).toBeNull()
+    expect(await run(ok())).toBeNull()
+  })
+
   test('shows the version before the server has answered', () => {
     const t = new Transport(fake([]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })
     expect(t.statusText()).toBe('podium v0.11.0 ○ connecting')

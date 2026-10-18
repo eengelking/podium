@@ -268,6 +268,11 @@ describe("the Reporter cell", () => {
     expect(cell(page({ reporterVersion: "0.11.0" }).container).querySelector(".v")!.textContent).toBe("0.11.0");
   });
 
+  it("adds the commit of a dev build of the mod after the version (#400)", () => {
+    expect(cell(page({ reporterVersion: "1.1.0", reporterBuild: "3fa9c1d2" }).container).querySelector(".v")!.textContent).toBe("1.1.0 · Dev: 3fa9c1d2");
+    expect(cell(page({ reporterVersion: "1.1.0", reporterBuild: null }).container).querySelector(".v")!.textContent).toBe("1.1.0");
+  });
+
   it("says Settings hooks, and its tooltip carries the note and how to load the mod", () => {
     const c = cell(page({ reporter: "hooks", reporterVersion: null }).container);
     expect(c.querySelector(".v")!.textContent).toBe("Settings hooks");

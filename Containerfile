@@ -26,6 +26,9 @@ COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/frontend/dist frontend/dist
 RUN mkdir /data && chown node:node /data
 VOLUME /data
+# The commit of a dev build (podiumctl build passes it); empty for a release. Last, so a new commit rebuilds only this layer.
+ARG PODIUM_BUILD=
+ENV PODIUM_BUILD=$PODIUM_BUILD
 USER node
 EXPOSE 4317
 CMD ["node", "server/dist/index.js"]

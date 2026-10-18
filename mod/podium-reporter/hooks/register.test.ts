@@ -43,6 +43,12 @@ interface World {
   place: { cwd: string | null; root: string; repo: { root: string; remote: string | null; internal: boolean; name: string | null } | null }
   /** Git's answers for a folder other than the default one: null is a folder that is not a repository (#382). */
   gitAt: Record<string, Record<string, string> | null>
+  /** The commit the mod's own folder is a dev checkout at (#400); null is an installed copy, which has no repository. */
+  devBuild: { value: string | null }
+  /** Every status line the plugin set. */
+  statuses: (string | undefined)[]
+  /** What the server's reply says about itself: its build (#400). */
+  serverBuild: { value: string | null }
 }
 
 const GIT: Record<string, string> = {
@@ -76,6 +82,9 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const ran: string[][] = []
   const place: World['place'] = { cwd: CWD, root: CWD, repo: { root: '/Users/dev/app', remote: 'git@github.com:acme/app.git', internal: false, name: null } }
   const gitAt: World['gitAt'] = {}
+  const devBuild: World['devBuild'] = { value: null }
+  const statuses: World['statuses'] = []
+  const serverBuild: World['serverBuild'] = { value: null }
   const watch: World['watch'] = { value: [] }
   const chunks: World['chunks'] = { value: [] }
   on('session.id', () => ({ value: sessionId.value }))
@@ -97,11 +106,20 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('agent.list', () => ({ value: [] }))
   on('command.register', () => ({ value: { command: 'podium' } }))
   on('tool.register', () => ({ value: { tool: 'mcp__podium-reporter__plan' } }))
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_$, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
   on('ui.toast', () => ({ value: undefined }))
   on('ui.log', () => ({ value: undefined }))
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
+    if (e.argv[1] === '-C') {
+      // the mod's own folder: a dev checkout names a commit, an installed copy is no repository (#400)
+      const sub = e.argv.slice(3).join(' ')
+      const out = devBuild.value === null ? undefined : sub === 'rev-parse --short=8 HEAD' ? `${devBuild.value}\n` : sub === 'ls-files --error-unmatch .claude-plugin/plugin.json' || sub === 'status --porcelain -- .' ? '' : undefined
+      return { value: { exitCode: out === undefined ? 128 : 0, stdout: out ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     const at = e.init?.cwd
     const here = at !== undefined && at in gitAt ? gitAt[at] : undefined
     if (here !== undefined) {
@@ -117,7 +135,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     if (fetchMode.mode === 'hang') return new Promise(() => {})
     posts.push(body)
     headers.push(e.init?.headers ?? {})
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value, serverVersion: '1.1.0', serverBuild: serverBuild.value }) } }
   })
   on('session.start', () => ({ cwd: CWD }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -149,7 +167,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place, gitAt }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -461,6 +479,29 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
     await w.clock.advance(1000)
     expect(w.posts.at(-1)!.session.name).toBe('invoice work')
+  })
+
+  test('a mod run from a dev checkout reports its commit and shows it after the version in the status line, /podium and the report (#400)', async ($, on) => {
+    const w = world(on)
+    w.devBuild.value = 'a1b2c3d4'
+    w.serverBuild.value = '9f8e7d6c'
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.reporter.build).toBe('a1b2c3d4')
+    expect(w.statuses.at(-1)).toBe('podium v1.1.0 | dev: a1b2c3d4 ● 3 live')
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('Versions: reporter 1.1.0 · Dev: a1b2c3d4, server 1.1.0 · Dev: 9f8e7d6c')
+    expect(w.ran.filter((a) => a[1] === '-C').length).toBeGreaterThan(0)
+  })
+
+  test('an installed mod, which is a release, reports no build and shows the version alone (#400)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.reporter).not.toHaveProperty('build')
+    expect(w.statuses.at(-1)).toBe('podium v1.1.0 ● 3 live')
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('Versions: reporter 1.1.0, server 1.1.0')
   })
 
   test("Claude Code's own session name is the display name once a hook carries it (#322)", async ($, on) => {

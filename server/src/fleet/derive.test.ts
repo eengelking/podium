@@ -166,6 +166,13 @@ describe('sessionView', () => {
     expect(at('0.1.0-sim')).toEqual(['0.1.0-sim', 'unknown']);
   });
 
+  it('carries the reporter build, which only a dev build has (#400)', () => {
+    const r = fixtureReport();
+    expect(viewOf(r, 1_791_648_001_000).reporterBuild).toBeNull();
+    r.reporter.build = 'a1b2c3d4';
+    expect(viewOf(r, 1_791_648_001_000).reporterBuild).toBe('a1b2c3d4');
+  });
+
   it('is stale past STALE_AFTER_MS unless done, and stale until heard after a restart', () => {
     const r = fixtureReport();
     const f = new FleetDb(openDb(':memory:'));

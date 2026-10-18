@@ -6,6 +6,7 @@
 // at the top of the file and always spelled `$.noun.event(...)`. So every helper that touches `$` is
 // a top-level function taking `$`, and the runtime lives in module variables (a hot reload re-runs
 // register, which resets them, and session.start rebuilds the state from the engine).
+import { modBuild } from './build.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from './git.ts';
 import { follow } from './place.ts';
@@ -111,6 +112,8 @@ interface Runtime {
   claudeName: { id: string; name: string } | null;
   engineVersion: string | null;
   hostSurface: string | null;
+  /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
+  build: string | null;
   flushing: boolean;
   lastStatus: string | null;
   toastedOk: boolean;
@@ -288,6 +291,7 @@ function metaOf(r: Runtime, now: number) {
     version: VERSION,
     engineVersion: r.engineVersion,
     hostSurface: r.hostSurface,
+    build: r.build,
     now,
     storedName: r.storedName,
     claudeName: r.claudeName?.id === r.state.id ? r.claudeName.name : null,
@@ -300,6 +304,11 @@ function metaOf(r: Runtime, now: number) {
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,
     clearedFrom: r.clearedFrom,
   };
+}
+
+/** A version with `· Dev: <commit>` after it for a dev build (#400). */
+function devNote(version: string, build: string | null | undefined): string {
+  return build ? `${version} · Dev: ${build}` : version;
 }
 
 function showStatus($: Engine, r: Runtime): void {
@@ -436,6 +445,16 @@ async function movePlace($: Engine, r: Runtime, hookCwd?: string): Promise<boole
   r.sessionCwd = m.sessionCwd;
   if (m.place) r.state = setIdentity(r.state, m.place);
   return !!m.place;
+}
+
+/** The commit this mod runs from when that is a dev checkout (#400); null for a release or an installed copy. */
+async function findBuild($: Engine): Promise<string | null> {
+  const root = await attempt<string | null>(() => Promise.resolve($.plugin.root), null);
+  if (!root) return null;
+  return modBuild(async (argv) => {
+    const res = await $.process.run(argv, { timeoutMs: 5000 });
+    return { exitCode: res.exitCode, stdout: res.stdout };
+  }, root);
 }
 
 async function pollGit($: Engine, r: Runtime): Promise<void> {
@@ -1096,12 +1115,15 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (usage) state = measure(state, { context: usage.context, cost: usage.cost ?? null, rateLimits: usage.rateLimits, startedAt: usage.startedAt });
   if (!same) state = addEvent(state, 'start', null, `session.start · ${shortName(model)}`, now, { surface: e.surface });
   const fetch: FetchLike = (url, init) => $.http.fetch(url, init);
+  // Looked up once per load: the folder does not move, and a reload starts over.
+  const build = rt ? rt.build : await findBuild($);
   const transport =
     rt?.transport ??
-    new Transport(fetch, { serverUrl: opts.serverUrl, token: who.token, heartbeatMs: opts.heartbeatMs, version: VERSION }, (line) => remember('transport', line));
+    new Transport(fetch, { serverUrl: opts.serverUrl, token: who.token, heartbeatMs: opts.heartbeatMs, version: VERSION, build }, (line) => remember('transport', line));
   rt = {
     state,
     transport,
+    build,
     timers: [],
     storedName: await loadName($, id),
     claudeName: same && rt ? rt.claudeName : null,
@@ -1200,7 +1222,7 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
   return [
     `Podium fleet console: ${trimTrailingSlashes(opts.serverUrl)}/#/`,
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
-    `Versions: reporter ${VERSION}${t.serverVersion ? `, server ${t.serverVersion}` : ''}`,
+    `Versions: reporter ${devNote(VERSION, r.build)}${t.serverVersion ? `, server ${devNote(t.serverVersion, t.serverBuild)}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',
     `Reports sent: ${t.sent}, failed: ${t.failed}, rejected: ${t.rejected}; events queued: ${t.queue.length}${t.dropped ? `, dropped: ${t.dropped}` : ''}`,
     `Last error: ${t.lastError ?? errors[errors.length - 1]?.message ?? 'none'}`,

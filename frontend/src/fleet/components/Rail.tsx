@@ -73,6 +73,8 @@ export function Rail(props: {
   onRemove?: (id: string) => void;
   /** The running server's version; null until the first snapshot. */
   version?: string | null;
+  /** The commit hash when the server is a dev build; null for a release (#400). */
+  build?: string | null;
   collapsed?: boolean;
   onToggle?: () => void;
   people?: RailPeople;
@@ -221,21 +223,7 @@ export function Rail(props: {
       <div className="vh" role="status">
         {said}
       </div>
-      <footer className="rail-foot">
-        <span>
-          <a href={NOTICES_URL} target="_blank" rel="noreferrer">
-            Theme credits
-          </a>
-          {" · "}
-          <a href={LICENSE_URL} target="_blank" rel="noreferrer">
-            License
-          </a>
-        </span>
-        <span>
-          {props.version && props.version !== "unknown" ? `Podium v${props.version} · ` : ""}
-          {COPYRIGHT}
-        </span>
-      </footer>
+      <RailFoot version={props.version} build={props.build} />
       </div>
     </nav>
   );
@@ -280,5 +268,33 @@ function RailBands({ units, blocks, slices, people, row }: { units: Unit[]; bloc
         );
       })}
     </>
+  );
+}
+
+/**
+ * The footer of the left rail and of Admin (#400): the links, a Dev row with the commit when the server is a dev build, the
+ * version, and the copyright, each on its own row. A release has no Dev row, and nothing is said of a version the server did not give.
+ */
+export function RailFoot({ version, build, className = "" }: { version: string | null | undefined; build: string | null | undefined; className?: string }) {
+  const known = !!version && version !== "unknown";
+  return (
+    <footer className={`rail-foot ${className}`.trim()}>
+      <span>
+        <a href={NOTICES_URL} target="_blank" rel="noreferrer">
+          Theme credits
+        </a>
+        {" · "}
+        <a href={LICENSE_URL} target="_blank" rel="noreferrer">
+          License
+        </a>
+      </span>
+      {known && build && (
+        <span>
+          Dev: <span className="mono">{build}</span>
+        </span>
+      )}
+      {known && <span>Podium v{version}</span>}
+      <span>{COPYRIGHT}</span>
+    </footer>
   );
 }

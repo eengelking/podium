@@ -357,18 +357,42 @@ function requireBuilt() {
 
 // ---------- commands ----------
 
+/**
+ * The build a footer shows (#400): the 8-character commit hash, with `-dirty` after it when the tree has local edits, and
+ * nothing for a release. A release is a clean checkout of exactly a vMAJOR.MINOR.PATCH tag; every other commit is a dev build,
+ * whatever its branch. Nothing at all (no git) means the footer shows the version alone.
+ */
+export function buildId({ hash, tag, dirty }) {
+  if (!hash) return '';
+  if (!dirty && /^v\d+\.\d+\.\d+$/.test(tag)) return '';
+  return dirty ? `${hash}-dirty` : hash;
+}
+
+/** buildId() for the checkout at `cwd`; empty when it is not a git checkout or git is missing. */
+export function gitBuild(cwd) {
+  const git = (...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const head = git('rev-parse', '--short=8', 'HEAD');
+  if (head.status !== 0) return '';
+  const tag = git('describe', '--exact-match', '--tags', 'HEAD');
+  const status = git('status', '--porcelain');
+  return buildId({ hash: head.stdout.trim(), tag: tag.status === 0 ? tag.stdout.trim() : '', dirty: status.status === 0 && status.stdout.trim() !== '' });
+}
+
 async function cmdBuild(cfg) {
+  const build = gitBuild(REPO_ROOT);
   if (cfg.mode === 'container') {
     ensurePodman();
-    const r = pm(['build', '-t', IMAGE, '-f', path.join(REPO_ROOT, 'Containerfile'), REPO_ROOT], { stdio: 'inherit' });
+    const r = pm(['build', '--build-arg', `PODIUM_BUILD=${build}`, '-t', IMAGE, '-f', path.join(REPO_ROOT, 'Containerfile'), REPO_ROOT], { stdio: 'inherit' });
     if (r.status !== 0) fail('image build failed');
-    say(`Built ${IMAGE}`);
+    say(`Built ${IMAGE}${build ? ` (dev build ${build})` : ''}`);
   } else {
     const run = (args) => { if (spawnSync('npm', args, { cwd: REPO_ROOT, stdio: 'inherit' }).status !== 0) fail(`npm ${args.join(' ')} failed`); };
     if (!fs.existsSync(path.join(REPO_ROOT, 'node_modules'))) run(['install']);
     run(['run', 'build', '-w', 'frontend']);
     run(['run', 'build', '-w', 'server']);
-    say('Built the app');
+    // The server reads this at start, where the container reads PODIUM_BUILD; a release writes null.
+    fs.writeFileSync(path.join(REPO_ROOT, 'server', 'build.json'), `${JSON.stringify({ build: build || null })}\n`);
+    say(`Built the app${build ? ` (dev build ${build})` : ''}`);
   }
 }
 

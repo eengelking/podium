@@ -157,6 +157,21 @@ describe('protocol', () => {
     expect('extra' in r.report).toBe(false);
   });
 
+  it('keeps a reporter build that is a commit hash and drops anything else (#400)', () => {
+    const at = (build: unknown) => {
+      const f = loadFixture() as { reporter: Record<string, unknown> };
+      f.reporter.build = build;
+      const r = validateReport(f);
+      expect(r.ok).toBe(true);
+      return r.ok ? r.report.reporter.build : undefined;
+    };
+    expect(at('a1b2c3d4')).toBe('a1b2c3d4');
+    expect(at('a1b2c3d4-dirty')).toBe('a1b2c3d4-dirty');
+    expect(at('v1.1.0')).toBeUndefined();
+    expect(at(7)).toBeUndefined();
+    expect(at(undefined)).toBeUndefined();
+  });
+
   it('rejects wrong types with a path', () => {
     const f = loadFixture() as { session: Record<string, unknown> };
     f.session.startedAt = 'yesterday';

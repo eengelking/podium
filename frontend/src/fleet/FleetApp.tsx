@@ -406,6 +406,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
             liveCount={live.length}
             onRemove={onRemove}
             version={state.server?.version ?? null}
+            build={state.server?.build ?? null}
             collapsed={panes.collapsed.left}
             onToggle={() => toggle("left")}
             people={railPeople}

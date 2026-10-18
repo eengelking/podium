@@ -16,11 +16,12 @@ interface P {
 }
 
 /** A small in-memory stand-in for /api/admin. */
-export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean } = {}) {
+export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean; build?: string | null } = {}) {
   const state = {
     enabled: opts.enabled ?? true,
     unlocked: opts.unlocked ?? false,
     respondAdmin: opts.respondAdmin ?? false,
+    build: opts.build ?? null,
     unlockBodies: [] as unknown[],
     people: Array.from({ length: opts.people ?? 0 }, (_, i): P => ({ id: i + 1, name: `person-${String(i).padStart(3, "0")}`, groupId: null, revokedAt: null })),
     groups: [] as { id: number; name: string; builtIn?: boolean }[],
@@ -60,7 +61,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     const method = init?.method ?? "GET";
     const path = url.pathname.replace("/api/admin", "");
     state.calls.push(`${method} ${path}${url.search}`);
-    if (path === "/session") return json(200, { enabled: state.enabled, unlocked: state.unlocked });
+    if (path === "/session") return json(200, { enabled: state.enabled, unlocked: state.unlocked, version: "1.1.0", build: state.build });
     if (path === "/unlock/from-respond") {
       if (!state.respondAdmin) return json(401, { ok: false, error: "not signed in as an Administrator" });
       state.unlocked = true;

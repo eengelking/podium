@@ -323,6 +323,14 @@ describe("rail footer", () => {
     expect(screen.getByRole("link", { name: "License" })).toHaveAttribute("href", expect.stringMatching(/\/LICENSE$/));
     expect(foot).toHaveTextContent("© 2026 Ed Engelking");
   });
+
+  it("shows the server's version, and a Dev row with the commit when the server is a dev build (#400)", () => {
+    const { container, rerender } = render(<FleetView state={stateFrom({ server: { version: "1.1.0", build: null, reporterSupport: { min: "0.2.0", max: "1.1.0" } } })} />);
+    expect(container.querySelector(".rail .rail-foot")).toHaveTextContent("Podium v1.1.0");
+    expect(container.querySelector(".rail .rail-foot")).not.toHaveTextContent("Dev:");
+    rerender(<FleetView state={stateFrom({ server: { version: "1.1.0", build: "a1b2c3d4", reporterSupport: { min: "0.2.0", max: "1.1.0" } } })} />);
+    expect(container.querySelector(".rail .rail-foot")).toHaveTextContent("Dev: a1b2c3d4");
+  });
 });
 
 class FakeSource implements FleetSource {

@@ -130,6 +130,7 @@ function ReporterFact({ s }: { s: SessionView }) {
       <div className="v mono">
         {note && <IconWarn />}
         {note ? note.label : s.reporterVersion}
+        {s.reporterBuild ? ` · Dev: ${s.reporterBuild}` : ""}
       </div>
     </div>
   );

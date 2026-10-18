@@ -78,7 +78,7 @@ const stepOf = (id: string, state: "pending" | "active" | "done" | "blocked") =>
 const planOf = (...steps: ReturnType<typeof stepOf>[]) => ({ title: "Plan", source: "TaskCreate" as const, steps });
 // jsdom has no layout, so the rail's pager is shown by faking the measures it reads: a 600 px panel, the head, the "All
 // orchestrators" row and the footer taking 38 + 50 + 46, the pager 40, a row 50 and a band header 30 (as railPaging.test.tsx does).
-const RAIL_SIZE: Record<string, number> = { "rail-head": 38, all: 50, "rail-foot": 46, pager: 40, "ritem-slot": 50, rgh: 30 };
+const RAIL_SIZE: Record<string, number> = { "rail-head": 38, all: 50, "rail-foot": 60, pager: 40, "ritem-slot": 50, rgh: 30 };
 const railMeasure = (el: HTMLElement) => {
   for (const c of el.classList) if (c in RAIL_SIZE) return RAIL_SIZE[c]!;
   return 0;

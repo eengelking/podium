@@ -1,6 +1,6 @@
 // The pieces every Admin page is built from (#143): a header, then sections, each a title and help line above a panel.
 import type { ReactNode } from "react";
-import { COPYRIGHT, LICENSE_URL, NOTICES_URL } from "../types";
+import { RailFoot } from "../components/Rail";
 
 export function PageHeader({ title, lead }: { title: string; lead: string }) {
   return (
@@ -53,23 +53,7 @@ export function SwitchRow(props: { id: string; name: string; tag?: string; descr
   );
 }
 
-/** Theme credits, the license, the version and the copyright: the same footer as the fleet page's rail. */
-export function AdminFoot({ version, className = "" }: { version: string | null; className?: string }) {
-  return (
-    <footer className={`rail-foot ${className}`.trim()}>
-      <span>
-        <a href={NOTICES_URL} target="_blank" rel="noreferrer">
-          Theme credits
-        </a>
-        {" · "}
-        <a href={LICENSE_URL} target="_blank" rel="noreferrer">
-          License
-        </a>
-      </span>
-      <span>
-        {version && version !== "unknown" ? `Podium v${version} · ` : ""}
-        {COPYRIGHT}
-      </span>
-    </footer>
-  );
+/** The same footer as the fleet page's rail: the links, the Dev row, the version and the copyright. */
+export function AdminFoot({ version, build, className = "" }: { version: string | null; build: string | null; className?: string }) {
+  return <RailFoot version={version} build={build} className={className} />;
 }

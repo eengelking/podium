@@ -19,6 +19,8 @@ export interface ReportMeta {
   version: string;
   engineVersion: string | null;
   hostSurface: string | null;
+  /** The commit of a dev build of the mod (#400); null or absent for a release. */
+  build?: string | null;
   now: number;
   /** Set with `/podium name`, kept in $.store per session id. */
   storedName: string | null;
@@ -173,7 +175,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   return withinActivityBudget({
     v: 1,
     sentAt: meta.now,
-    reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface },
+    reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {
       id: s.id,

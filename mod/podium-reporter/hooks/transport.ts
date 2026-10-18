@@ -1,6 +1,7 @@
 // Getting reports to the server (SPEC 6.1, 6.7): an event queue capped at 500, one POST at a time,
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
+import { withBuild } from './build.ts';
 import { trimTrailingSlashes } from './machine.ts';
 import type { ActivityEvent, Delivery, Report } from './protocol.ts';
 
@@ -46,6 +47,8 @@ export interface TransportConfig {
   heartbeatMs: number;
   /** This reporter's own version; passed in so the transport never imports it. */
   version: string;
+  /** The commit of a dev build of this reporter (#400); absent or null for a release. */
+  build?: string | null;
 }
 
 /** The oldest and newest reporter the server reads correctly (SPEC 6.8). */
@@ -78,6 +81,8 @@ export class Transport {
   /** Where the server places this reporter's version; null until a reply says (an older server never does). */
   compat: 'ok' | 'outdated' | 'newer' | null = null;
   serverVersion: string | null = null;
+  /** The commit of a dev build of the server (#400); null for a release, and from a server that predates it. */
+  serverBuild: string | null = null;
   /** What the server reads correctly; null until a reply says (an older server never does). */
   support: ReporterSupport | null = null;
   /** The loops the last accepted report's reply says someone is watching (#118); empty from a server that predates it. */
@@ -156,11 +161,12 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
           this.serverVersion = typeof body.serverVersion === 'string' ? body.serverVersion : null;
+          this.serverBuild = typeof body.serverBuild === 'string' ? body.serverBuild : null;
           const sup = body.reporterSupport as Partial<ReporterSupport> | null | undefined;
           this.support = sup && typeof sup.min === 'string' && typeof sup.max === 'string' ? { min: sup.min, max: sup.max } : null;
           this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
@@ -259,7 +265,7 @@ export class Transport {
   }
 
   statusText(): string {
-    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}podium v${this.cfg.version}`;
+    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}`;
     if (this.refused) return `${name} ○ token refused`;
     if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;
     if (this.online === false) return `${name} ○ offline`;

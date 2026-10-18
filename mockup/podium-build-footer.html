@@ -1,0 +1,134 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Build Footer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #400. The footer in the left rail and in Admin says which build is running: a release shows the version alone,
+   any other build adds "Dev: <commit hash>". Colors and fonts come from tokens.css through fleet.css; this file has no :root block.
+   Only the demo chrome below (.demo, .grid, .cell, .note) is the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.podium { height: auto; background: transparent; }
+main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 13px; font-weight: 600; margin: 28px 0 8px; }
+p { margin: 0 0 8px; color: var(--ink2); max-width: 70ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--w, 224px), 1fr)); gap: 16px; align-items: start; }
+.cell { min-width: 0; }
+.cell > h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--ink); }
+.cell > h3 span { font-weight: 400; color: var(--muted); }
+/* a stand-in for the rail: the real footer sits under real rows, so a few are drawn to show it pinned to the bottom */
+.frame { border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface); width: var(--w, 224px); max-width: 100%; display: flex; flex-direction: column; min-height: 168px; }
+.frame .rows { flex: 1; padding: 10px 14px; color: var(--muted); font-size: 12px; display: grid; gap: 6px; align-content: start; }
+.frame .rows i { display: block; height: 8px; border-radius: 4px; background: var(--grid); }
+.frame .rail-foot { margin-top: auto; }
+.note { margin: 6px 0 0; font-size: 12px; color: var(--muted); max-width: 52ch; }
+.hash { font-family: var(--font-mono); font-size: 11px; }
+.reporter { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 10px 14px; display: grid; gap: 6px; font-size: 12px; color: var(--ink2); max-width: 520px; }
+.reporter .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.reporter .row { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.reporter .row span:first-child { color: var(--muted); }
+.vsep { color: var(--muted); }
+</style>
+
+<div class="demo">
+  <b>Podium Build Footer (#400)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Rail width
+    <button type="button" data-w="224px" aria-pressed="true">Rail, 224 px</button>
+    <button type="button" data-w="360px" aria-pressed="false">Narrow, stacked</button>
+  </span>
+</div>
+
+<main class="podium" id="demo-root">
+  <h1>What the footer says about the build</h1>
+  <p>The footer is a stack of rows, each on its own line: the links, a Dev row, the version, and the copyright at the very bottom. A release build has no Dev row. Any other build (a commit on <code>development</code>, a branch, a build with local edits) adds <b>Dev: &lt;commit hash&gt;</b> above the version, so a dev build is never mistaken for a release and two dev builds are told apart. The copyright moves off the version row, which also stops that row wrapping in a narrow rail.</p>
+
+  <h2>Footer states</h2>
+  <div class="grid" id="states-a"></div>
+
+  <h2>Admin footer</h2>
+  <p>The same footer, the same text. It also shows on the lock screen.</p>
+  <div class="grid" id="admin"></div>
+
+  <h2>Where else the build shows</h2>
+  <p>In Claude Code, the mod's status line gets a dev segment after the version, set off by a pipe. It shows in every connection state, so a dev build is identifiable even when it is offline or refused, and the only dot on the line is the one that says live or not. A release reporter's line is unchanged. The ⚠ is the plain-http warning and is independent of the build.</p>
+  <div class="reporter" aria-label="Mod status line">
+    <div class="row"><span>Release</span><span class="mono">⚠ podium-reporter: podium v1.1.0 ● 2 live</span></div>
+    <div class="row"><span>Dev</span><span class="mono">⚠ podium-reporter: podium v1.1.0 | dev: a1b2c3d4 ● 2 live</span></div>
+    <div class="row"><span>Dev, offline</span><span class="mono">podium-reporter: podium v1.1.0 | dev: a1b2c3d4 ○ offline</span></div>
+    <div class="row"><span>Dev, connecting</span><span class="mono">podium-reporter: podium v1.1.0 | dev: a1b2c3d4 ○ connecting</span></div>
+    <div class="row"><span>Dev, token refused</span><span class="mono">podium-reporter: podium v1.1.0 | dev: a1b2c3d4 ○ token refused</span></div>
+    <div class="row"><span>Dev, update available</span><span class="mono">podium-reporter: podium v1.1.0 | dev: a1b2c3d4 ● 2 live · update available</span></div>
+  </div>
+  <p>The same dev build shows in two more places, in the same words:</p>
+  <div class="reporter" aria-label="Facts bar and versions line">
+    <div class="row"><span>Facts bar, reporter release</span><span class="mono">1.1.0</span></div>
+    <div class="row"><span>Facts bar, reporter dev</span><span class="mono">1.1.0 · Dev: 3fa9c1d2</span></div>
+    <div class="row"><span>Mod versions line, dev</span><span class="mono">Versions: reporter 1.1.0 · Dev: 3fa9c1d2, server 1.1.0 · Dev: a1b2c3d4</span></div>
+    <div class="row"><span>Mod versions line, release</span><span class="mono">Versions: reporter 1.1.0, server 1.1.0</span></div>
+  </div>
+
+  <h2>Rules shown here</h2>
+  <ul style="margin:0;padding-left:18px;color:var(--ink2);max-width:70ch">
+    <li>Rows, top to bottom: Theme credits and License, Dev (dev builds only), the version, the copyright. The release footer is the same rows without Dev, and the copyright is now its own row instead of sharing the version's.</li>
+    <li>A release is a build whose commit is exactly a <code>vMAJOR.MINOR.PATCH</code> tag. Everything else is Dev, whatever the branch.</li>
+    <li>The hash is the 8-character short hash, set in the mono font. <code>-dirty</code> follows it when the build had local edits.</li>
+    <li>No build information (a tarball with no git, or an older server) shows the version alone. An unknown version shows the copyright alone, as today.</li>
+    <li>The word Dev and the hash carry the meaning. No new color, chip or icon is added, so nothing here depends on color.</li>
+    <li>The footer's links keep their visible focus ring and the text wraps inside the rail at every width. Nothing scrolls sideways.</li>
+  </ul>
+</main>
+
+<script>
+(function () {
+  var COPY = '© 2026 Ed Engelking';
+  var STATES = [
+    { t: 'Release', n: 'The commit is a release tag.', v: '1.1.0', b: null },
+    { t: 'Dev build', n: 'Any other commit.', v: '1.1.0', b: 'a1b2c3d4' },
+    { t: 'Dev build, local edits', n: 'The tree had uncommitted changes.', v: '1.1.0', b: 'a1b2c3d4-dirty' },
+    { t: 'No build information', n: 'An older server, or a build with no git.', v: '1.1.0', b: null },
+    { t: 'Version unknown', n: 'The version row is left out: links and copyright only, as today.', v: null, b: null }
+  ];
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function dev(s) { return s.v && s.b ? '<span>Dev: <span class="hash">' + esc(s.b) + '</span></span>' : ''; }
+  function ver(s) { return (s.v ? '<span>Podium v' + esc(s.v) + '</span>' : '') + '<span>' + COPY + '</span>'; }
+  function links() { return '<span><a href="#">Theme credits</a> · <a href="#">License</a></span>'; }
+  function rows() { return '<div class="rows" aria-hidden="true"><i style="width:70%"></i><i style="width:55%"></i><i style="width:80%"></i></div>'; }
+  function cellA(s) {
+    return '<div class="cell"><h3>' + esc(s.t) + '</h3><div class="frame">' + rows() +
+      '<footer class="rail-foot">' + links() + dev(s) + ver(s) + '</footer></div><p class="note">' + esc(s.n) + '</p></div>';
+  }
+  function adminCell(s) {
+    return '<div class="cell"><h3>' + esc(s.t) + '</h3><div class="podium"><div class="adminv"><div class="frame"><div class="rows" aria-hidden="true"><i style="width:60%"></i><i style="width:75%"></i></div>' +
+      '<footer class="rail-foot">' + links() + dev(s) + ver(s) + '</footer></div></div></div></div>';
+  }
+  document.getElementById('states-a').innerHTML = STATES.map(cellA).join('');
+    document.getElementById('admin').innerHTML = [STATES[0], STATES[1]].map(adminCell).join('');
+
+  var root = document.documentElement;
+  function setPressed(sel, v, key) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(key) === v)); });
+  }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); setPressed('[data-mode]', b.dataset.mode, 'data-mode'); }
+    if (b.dataset.w) { document.getElementById('demo-root').style.setProperty('--w', b.dataset.w); setPressed('[data-w]', b.dataset.w, 'data-w'); }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

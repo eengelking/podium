@@ -538,7 +538,8 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   wall looks, so they take no token. `components/NoticeStack.tsx` draws them (DECISIONS 22).
 - **Compatibility.** `compat.ts` holds `REPORTER_SUPPORT`, the reporter versions this server reads. Only
   `major.minor` is compared. A mod outside the range gets a version note on its card and a toast in the mod
-  (DECISIONS 18).
+  (DECISIONS 18). `build.ts` names the server's own build (`PODIUM_BUILD`, else `server/build.json`) for the footers
+  and the report reply; the mod finds its own with `hooks/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every
   2 s) and `wall`, and accepts at most 100 clients.
 - **Admin pages.** `AdminView` lists eight pages in three groups: People, Groups and Reporters (People and

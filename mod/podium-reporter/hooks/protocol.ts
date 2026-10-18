@@ -253,7 +253,8 @@ export interface SessionReport {
 export interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null };
+  /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
+  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
   session: SessionReport;
   agents: AgentReport[];
   events: ActivityEvent[];
@@ -421,6 +422,8 @@ export interface ReportReply {
   sessionId: string;
   liveSessions: number;
   serverVersion: string;
+  /** The commit of a dev build of the server (#400); null for a release. Older servers do not send it. */
+  serverBuild?: string | null;
   reporterSupport: { min: string; max: string };
   reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
   watch: string[];

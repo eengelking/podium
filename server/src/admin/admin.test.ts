@@ -109,8 +109,8 @@ describe('unlocking', () => {
 
   it('reports whether this browser is unlocked', async () => {
     const { agent } = await unlocked();
-    expect((await agent.get('/api/admin/session').set(H)).body).toEqual({ unlocked: true, enabled: true, version: expect.any(String) });
-    expect((await request(setup().app).get('/api/admin/session').set(H)).body).toEqual({ unlocked: false, enabled: true, version: expect.any(String) });
+    expect((await agent.get('/api/admin/session').set(H)).body).toEqual({ unlocked: true, enabled: true, version: expect.any(String), build: null });
+    expect((await request(setup().app).get('/api/admin/session').set(H)).body).toEqual({ unlocked: false, enabled: true, version: expect.any(String), build: null });
   });
 });
 

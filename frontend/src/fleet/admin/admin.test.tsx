@@ -65,6 +65,19 @@ describe("Admin lock screen", () => {
     expect(await screen.findByRole("navigation", { name: "Admin sections" })).toBeInTheDocument();
   });
 
+  it("shows the version in the footer, with a Dev row when the server is a dev build (#400)", async () => {
+    fakeServer({ unlocked: true });
+    const { unmount } = render(<AdminView />);
+    await screen.findByRole("navigation", { name: "Admin sections" });
+    expect(document.querySelector(".rail-foot")).toHaveTextContent("Podium v1.1.0");
+    expect(document.querySelector(".rail-foot")).not.toHaveTextContent("Dev:");
+    unmount();
+    fakeServer({ unlocked: true, build: "a1b2c3d4" });
+    render(<AdminView />);
+    await screen.findByRole("navigation", { name: "Admin sections" });
+    expect(document.querySelector(".rail-foot")).toHaveTextContent("Dev: a1b2c3d4");
+  });
+
   it("opens without a sign-in when the browser is already signed in to respond as an Administrator", async () => {
     const srv = fakeServer({ respondAdmin: true });
     render(<AdminView />);

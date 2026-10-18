@@ -1004,6 +1004,14 @@ It updates the plugin on disk some minutes after you send a first message, and t
 **The other direction.** A card marked `· upgrade server` means the mod is newer than the server. Upgrade the server with
 `podiumctl build` and then `podiumctl restart`. For a plain Node install, pull, run `npm run build`, then restart.
 
+**Which build is this?** The footer at the bottom of the left list and of Admin shows `Podium v1.1.0` for a release.
+A build of any other commit, such as one from the `development` branch, adds a row above the version that reads
+`Dev: a1b2c3d4`, the commit it was built from, with `-dirty` after it when the tree had local edits. The row comes
+from `podiumctl build`, which records the commit, so a server built another way (`npm run build`, or an image built
+with plain `podman build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
+this repository: its status line reads `podium v1.1.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
+page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release.
+
 ## What leaves a session
 
 Data leaves a session only to the server URL you set, and only the fields

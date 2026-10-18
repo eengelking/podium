@@ -79,6 +79,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
   const [status, setStatus] = useState<Status>("checking");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
+  const [build, setBuild] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>(() => (window.location.hash === "#/admin/settings" ? "settings" : "people"));
   const [created, setCreated] = useState<Created | null>(null);
   const [counts, setCounts] = useState<Partial<Record<TabId, number>>>({});
@@ -109,10 +110,11 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
   );
   useEffect(() => {
     let live = true;
-    api<{ enabled: boolean; unlocked: boolean; version?: string }>("GET", "/session")
+    api<{ enabled: boolean; unlocked: boolean; version?: string; build?: string | null }>("GET", "/session")
       .then(async (s) => {
         if (!live) return;
         setVersion(s.version ?? null);
+        setBuild(s.build ?? null);
         if (s.enabled && !s.unlocked && (await openFromRespond())) return live && setStatus("open");
         if (live) setStatus(!s.enabled ? "disabled" : s.unlocked ? "open" : "locked");
       })
@@ -178,7 +180,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
           {status === "checking" && (
             <div className="solo">
               <div className="solo-in empty">Checking…</div>
-              <AdminFoot version={version} />
+              <AdminFoot version={version} build={build} />
             </div>
           )}
           {status === "disabled" && (
@@ -189,7 +191,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
                   <p className="lead">This server is running without a token, so there is nothing to protect Admin with. Run podiumctl config unset PODIUM_TOKEN and podiumctl restart (the first start makes one), then reload.</p>
                 </div>
               </div>
-              <AdminFoot version={version} />
+              <AdminFoot version={version} build={build} />
             </div>
           )}
           {status === "locked" && (
@@ -197,7 +199,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
               <div className="solo-in">
                 <LockForm api={api} notice={notice} onUnlocked={() => (setNotice(""), setStatus("open"))} />
               </div>
-              <AdminFoot version={version} />
+              <AdminFoot version={version} build={build} />
             </div>
           )}
           {status === "open" && (
@@ -227,7 +229,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
                     <span className="hint">Locks after 10 minutes without activity.</span>
                   </div>
                 </div>
-                <AdminFoot version={version} />
+                <AdminFoot version={version} build={build} />
               </nav>
               <div className="apage" ref={pageRef}>
                 <div className="apage-in">
@@ -242,7 +244,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
                   {tab === "spend" && <SpendTab fleetOptions={fleetOptions} onCount={onCountSpend} />}
                   {tab === "log" && <LogTab api={api} {...paging.log} onPaging={onLogPaging} onCount={onCountLog} onLocked={onLocked} />}
                 </div>
-                <AdminFoot version={version} className="afoot-narrow" />
+                <AdminFoot version={version} build={build} className="afoot-narrow" />
               </div>
             </div>
           )}
