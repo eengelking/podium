@@ -83,8 +83,30 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 - `useFleet` loads `/state`, applies stream messages with a pure reducer (`store.ts`), treats 6 s of silence as
   disconnected and reopens the stream, whose first message is a full snapshot.
 - Sorting, filtering, the agent tree and chart points are pure functions in `logic.ts` and `chart.ts`.
-- Styles are `fleet.css`, the mockup's tokens scoped under `.podium`.
+- Styles are `fleet.css` and `admin/admin.css`, scoped under `.podium` and `.adminv`. Every color token is in `tokens.css`, which `fleet.css` imports.
 - The UI computes nothing it could not recompute from one `SessionView`.
+
+### Design standards (#354)
+
+`docs/standards/` is static HTML that opens from a checkout and loads the app's own `fleet.css`, `admin.css` and
+`tokens.css` by relative path, so nothing is copied. The pages are generated, not written:
+
+- `frontend/src/fleet/standards/screens*.tsx` render the real components with fixture data (the wall, an orchestrator's
+  page, the board, the Respond modal, each Admin tab and so on). `samples.ts` says which part of which screen is each
+  component's sample and holds the words around it (purpose, when to use it, accessibility). `tokens.meta.ts` describes
+  each token. `prose.ts` is the patterns, voice, accessibility and process pages. `build.tsx` assembles them.
+- `npm run standards:sync` rewrites the pages. `npm run standards:parity` fails if a page differs from what the app
+  renders, if a class in the stylesheets is in no sample and not in `docs/standards/not-rendered.json`, if a component file
+  has no section, or if a token has no description. CI runs it on a PR into `main` and on `main`; a plain `npm test` does
+  not, because `development` may be ahead of the standards. The run pins the time zone and locale so the pages are the
+  same on every machine.
+- `scripts/standards-inventory.ts` lists the tokens, classes, components and color literals. `npm test` uses it to fail on
+  a hard-coded color not listed in `docs/standards/deferred.json`, and on a custom property nothing defines.
+- A sample draws a `position: fixed` part (the toast, a tip, a modal's backdrop) in place, and an Admin `main` as a `div`.
+  Those are the only differences between a sample and the app.
+
+Two project skills and an agent keep it honest: `podium-standards-check`, `podium-standards-update` and
+`podium-ui-auditor` (`.claude/`).
 
 ## Components
 

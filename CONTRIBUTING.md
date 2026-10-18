@@ -83,11 +83,18 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/ARCHITECTURE.md` | How it was built, departures from the spec, verification, known issues |
 | `docs/DECISIONS.md` | Why a significant choice was made |
 | `docs/GOTCHAS.md` | Sharp edges that are easy to hit |
+| `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/DEMO.md` | A script for showing Podium to other people |
 | `CHANGELOG.md` | One entry per release |
 
 Update the docs that describe your change in the same PR, and add a line under `[Unreleased]` in
 `CHANGELOG.md` for anything a user would notice.
+
+A change to the UI also follows the standards in `docs/standards/`, and starts with a mockup that links
+`frontend/src/fleet/tokens.css` instead of carrying a `:root` block. A PR into `development` does not edit the standards,
+the same way it does not bump the version. If the maintainer approved a change to a token, a component or a pattern, add
+a line that starts `Standards:` under `[Unreleased]` and names it; the release-prep PR brings the standards in line with
+it (`npm run standards:sync`, then `npm run standards:parity` must pass). A PR into `main` is valid only if parity passes.
 
 ### Writing docs
 

@@ -2420,7 +2420,7 @@ A new third-party origin or a second inline script needs the policy changed in
 
 ## 8. The UI
 
-`mockup/podium.html` is the specification. Open it, read all of it (about 1,100 lines), and reproduce its behavior in React. Where the mockup simulates data, the UI consumes `SessionView`. Do not redesign. `mockup/podium-wall.html` shows the collapsed panes, the disconnect strip and wall mode added in #33.
+`mockup/podium.html` is the specification. Open it, read all of it (about 1,100 lines), and reproduce its behavior in React. Where the mockup simulates data, the UI consumes `SessionView`. Do not redesign. New UI follows the standards in `docs/standards/` and starts with a mockup that links `tokens.css`. `mockup/podium-wall.html` shows the collapsed panes, the disconnect strip and wall mode added in #33.
 
 ### 8.1 What the UI must do
 
@@ -3395,31 +3395,35 @@ with their own tests.
 
 ### 8.3 Visual tokens
 
-Copy from the mockup's `:root` blocks. Dark is the base, and light comes via `prefers-color-scheme` and
-`[data-theme]`. The other themes are token sets keyed by `[data-theme-name]` and `[data-theme]`, shown in
-`mockup/podium-themes.html`.
+Every color token lives in `frontend/src/fleet/tokens.css`, the one source. The app, the standards pages and new
+mockups read that file, and nothing copies its values. Dark is the base, and light comes via
+`prefers-color-scheme` and `[data-theme]`. The other themes are token blocks keyed by `[data-theme-name]` and
+`[data-theme]` in the same file. The tokens by role, the themes, the components, the patterns and the rules below are
+written in `docs/standards/` (open `index.html`). Those pages are generated from the app on `main` and a test fails
+if they differ from it, so they say what production does.
 
-- **Surfaces:** `#0d0d0d` page, `#1a1a19` card, `#222220` raised. Ink `#f0efec`, secondary `#c3c2b7`, muted
-  `#898781`. Grid `#2c2c2a`, axis `#383835`.
-- **Model colors:** opus `#9085e9` (light `#6250d6`), sonnet `#3987e5` (`#2a78d6`), haiku `#199e70`
-  (`#1baf7a`), fable `#d95926` (`#eb6834`).
-- **Status colors** in Podium's own theme are fixed: good `#0ca30c`, warning `#fab219`, serious `#ec835a`,
-  critical `#d03b3b`, and the delegating blue `#2fa4e0` (light `#0a7fb8`; text `#5cbcf0` and `#07608c`).
+- **Surfaces and ink.** A page color, a card color and a raised color; primary, secondary and muted ink; grid and axis
+  lines. Named by role in `tokens.css`, not by value.
+- **Model colors.** One per family (opus, sonnet, haiku, fable) and one for a model that is not a Claude model.
+  Each theme may choose its own but the four stay distinct from each other.
+- **Status colors** in Podium's own theme are fixed: good, warning, serious, critical, and the delegating blue with
+  its text color.
 - **Administrator names.** An administrator's name in Admin > People (#182) uses the text color `--admin-text`,
-  an orange (Podium `#bd7705`, light `#9b6104`), defined in every theme and mode, with a tooltip and a
-  screen-reader label so color is not the only signal.
+  defined in every theme and mode, with a tooltip and a screen-reader label so color is not the only signal.
 - **Other themes** may use their palette's green, amber, orange and red, which stay recognizable as those four,
-  and their own blue or teal for delegating. Model colors may differ per theme but stay distinct from each
-  other.
+  and their own blue or teal for delegating.
 - **Contrast.** Every theme meets 4.5:1 for text on its backgrounds and 3:1 for status and model marks (or
   Podium's own ratio in that mode where that is lower), checked by `scripts/theme-contrast.ts`.
 - **Status** is always shown as icon plus word, never color alone.
 - **Type and motion.** Fonts: Schibsted Grotesk (UI), JetBrains Mono (ids, numbers, paths). Body 13 px.
   Numbers use tabular figures. `prefers-reduced-motion` disables animation.
+- **New UI follows the standards.** A mockup links `tokens.css` and does not carry a `:root` block. A change to the
+  UI that the maintainer approves is brought into the standards at the release that ships it
+  (`docs/standards/process.html`).
 
 ### 8.4 Accessibility and responsiveness
 
-Every interactive element is a real `button`, `a` or `input`, with a visible focus ring. Resize handles are `role="separator"` with `aria-orientation`, `aria-valuenow`, labels and arrow-key support. The pane tabs and the top bar toggle report `aria-expanded` and `aria-controls`. Charts have `role="img"` with an `aria-label`; the same numbers are in text elsewhere. No horizontal scroll of the page at 400 px; the agent tree scrolls inside its own container.
+Every interactive element is a real `button`, `a` or `input`, with a visible focus ring. Resize handles are `role="separator"` with `aria-orientation`, `aria-valuenow`, labels and arrow-key support. The pane tabs and the top bar toggle report `aria-expanded` and `aria-controls`. Charts have `role="img"` with an `aria-label`; the same numbers are in text elsewhere. No horizontal scroll of the page at 400 px; the agent tree scrolls inside its own container. The rules for each control are on `docs/standards/accessibility.html`.
 
 ---
 
