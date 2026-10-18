@@ -957,7 +957,7 @@ export function logSafe(s: string): string {
 /** Refusals already printed, so a wrong token is reported once and not every second. */
 const refused = new Set<string>();
 
-async function post(args: Args, report: Report, token: string | null = null): Promise<{ acked: number; watch: string[] } | null> {
+export async function post(args: Args, report: Report, token: string | null = null): Promise<{ acked: number; watch: string[] } | null> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token ?? args.token) headers['X-Podium-Token'] = (token ?? args.token)!;
   try {
@@ -987,7 +987,7 @@ async function main() {
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`podium-sim: ${logSafe((err as Error).message)}`);
+    console.error(`podium-sim: ${(err as Error).message}`);
     process.exit(2);
   }
   if (args === 'help') {
@@ -1011,7 +1011,7 @@ async function main() {
   }
 
   const sim = new Simulator({ sessions: a.sessions, seed: a.seed, chaos: a.chaos, extraAgents: a.agents, reporterVersion: a.reporterVersion, now: Date.now, home: os.homedir(), people: a.people, unnamed: a.unnamed, nested: a.nested });
-  console.log(`podium-sim: ${a.sessions} sessions, seed ${a.seed}, speed ${a.speed}${a.chaos ? ', chaos' : ''}${a.nested ? ', nested' : ''} -> ${logSafe(a.url)}`);
+  console.log(`podium-sim: ${a.sessions} sessions, seed ${a.seed}, speed ${a.speed}${a.chaos ? ', chaos' : ''}${a.nested ? ', nested' : ''} -> ${a.url}`);
   let stopping = false;
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1027,7 +1027,7 @@ async function main() {
       sim.watch(r.session.id, n.watch);
     });
     const failed = acks.filter((n) => n === null).length;
-    if (failed && failures++ % 10 === 0) console.error(`podium-sim: ${failed} of ${reports.length} reports failed (is the server at ${logSafe(a.url)}?)`);
+    if (failed && failures++ % 10 === 0) console.error(`podium-sim: ${failed} of ${reports.length} reports failed (is the server at ${a.url}?)`);
     if (!stopping) timer = setTimeout(tick, 1000 / a.speed);
   };
 
