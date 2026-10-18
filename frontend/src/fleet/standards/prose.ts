@@ -228,7 +228,7 @@ export function processPage(deferred: Entry[]): string {
       "update",
       "Changing a standard",
       `${list([
-        `A feature or fix PR into development that changes the UI does not edit these pages, the same way it does not bump the version. It adds a ${c("Standards:")} line under [Unreleased] in CHANGELOG.md that names the change the maintainer approved.`,
+        `A feature or fix PR into development that changes the UI does not edit these pages, the same way it does not bump the version. If the maintainer approved a change to a token, a component, a variant or a pattern rule, it adds a ${c("Standards:")} line under [Unreleased] in CHANGELOG.md that names the change and the approval. A change that changes no standard needs no line. Until the release, ${c("npm run standards:parity")} can fail on development because a sample now shows the change.`,
         `The ${c("podium-standards-update")} skill brings these pages in line with the code that is about to become main, in the release-prep PR, from the ${c("Standards:")} lines and the maintainer's approvals. It only acts on an approved change, and it does not finish until ${c("npm run standards:parity")} passes with no differences.`,
         "The release PR into main is valid only if the pages match the app. A hotfix that changes the UI updates the pages in the same PR.",
         "While a change is on development and not yet in these pages, the check treats the approved Standards: lines as allowed.",
