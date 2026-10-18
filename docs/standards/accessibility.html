@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html">Voice</a>
+    <a href="accessibility.html" aria-current="page">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Accessibility and responsiveness</h1><p>What every interactive thing in Podium does for keyboard, screen-reader and narrow-screen use. From SPEC 8.4, and what the app does today.</p></div>
+  <section class="s-panel" id="controls"><h3>Controls</h3>
+    <ul><li>Every interactive element is a real button, a, input or select, with a visible focus ring: a 2 px outline in the Sonnet token.</li><li>A control that opens something reports aria-expanded and aria-controls: the pane tabs, the top bar toggle, the Blowouts cell.</li><li>A toggle button says whether it is pressed. A radio group moves with the arrow keys and only the checked radio is in the tab order.</li><li>Tabs are a tablist with arrow keys; the current tab is aria-selected.</li><li>A resize handle is a separator with aria-orientation, aria-valuenow, aria-valuemin, aria-valuemax and a label. Arrow keys move it, Shift moves it 48 px, Home resets it.</li></ul>
+  </section>
+  <section class="s-panel" id="dialogs"><h3>Dialogs and popups</h3>
+    <ul><li>A modal moves focus to its X, keeps Tab inside, closes with Escape, the X or a press outside, and returns focus to what opened it. The page behind takes no keys while it is open.</li><li>A tip opens on hover and on keyboard focus, closes on Escape, and its text is always in the page as a tooltip the trigger names with aria-describedby.</li></ul>
+  </section>
+  <section class="s-panel" id="meaning"><h3>Meaning without color</h3>
+    <ul><li>State is icon plus word. A chart is a role img with a label, and the same numbers are in text elsewhere.</li><li>Decorative icons are hidden from assistive tech. The word beside an icon carries the meaning.</li><li>A count that changes, such as Showing 1 to 50 of 212, is a status message so the change is announced.</li></ul>
+  </section>
+  <section class="s-panel" id="contrast"><h3>Contrast</h3>
+    <ul><li>Text needs 4.5:1 on the page and surface colors. Marks for status and model need 3:1, or Podium's own ratio for that mode when it is lower.</li><li>Every theme and mode is checked by scripts/theme-contrast.ts in npm test. The targets and the palettes are on the <a href="themes.html">Themes page</a>.</li></ul>
+  </section>
+  <section class="s-panel" id="motion"><h3>Motion</h3>
+    <ul><li>prefers-reduced-motion stops animation and transitions.</li><li>Animation is for a change the person should notice: a new card or row arriving, a row an event opened. It runs for under three seconds.</li><li>While the tab is hidden the console's animations are paused.</li></ul>
+  </section>
+  <section class="s-panel" id="narrow"><h3>Narrow screens</h3>
+    <ul><li>The page does not scroll sideways at 400 px. Rows wrap or stack, and a wide table or the agent tree scrolls inside its own container.</li><li>At 1280 px and below the columns narrow and the agent table drops its tokens column. At 1040 px and below the console stacks: the rail, then the page, then the activity panel. The resize handles and wall mode are hidden then. The Admin menu becomes a strip of icons on a narrow window.</li><li>Text a person must read is never clipped: it wraps, or it scrolls in its own container.</li></ul>
+  </section>
+  </main>
+</div>
+</body>
+</html>

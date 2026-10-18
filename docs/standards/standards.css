@@ -35,6 +35,8 @@ body { margin: 0; font: 13px/1.45 var(--font-ui); background: var(--bg); color: 
 .s-page span { color: var(--muted); font-size: 12px; }
 .s-sample { height: auto; border: 1px solid var(--grid); border-radius: 6px; padding: 12px; display: block; overflow-x: auto; }
 .s-sample .toast, .s-sample .tipbox { position: static; }
+.s-sample .podium-modal { height: auto; }
+.s-sample .scrim { position: relative; inset: auto; z-index: auto; padding: 12px; }
 .s-cap { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
 .s-cap code { color: var(--muted); }
 .s-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }

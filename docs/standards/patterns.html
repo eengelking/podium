@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patterns - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html" aria-current="page">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html">Voice</a>
+    <a href="accessibility.html">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Patterns</h1><p>Written rules for the decisions that come up again. Each says what the app does, and so what new work does. The samples are on the <a href="components.html">components page</a>.</p></div>
+  <section class="s-panel" id="wall-notices"><h3>Wall notices</h3>
+    <p>An informational note about the wall follows five rules. The sample is <a href="components.html#notices">Notices and toast</a>.</p><ul><li>It sits at the bottom of the wall, below the cards, in one stack, one per row. Never above the cards or between them.</li><li>It has an X, named <code>Close notice: &lt;name&gt;</code>. Closing it turns that notice off for everyone and shows a short confirmation, bottom right, that names it and links to Admin &gt; Settings. The confirmation clears itself after about 9 seconds and has its own X.</li><li>It has an on/off switch under Admin &gt; Settings, with a one-line description. A new notice is not done until its switch exists. All notices default to on.</li><li>An action inside the notice, such as Show them, stays as a link in the notice.</li><li>Errors and connection problems are not notices. They keep their place and cannot be closed.</li></ul>
+  </section>
+  <section class="s-panel" id="paging"><h3>Paging and Showing N of M</h3>
+    <ul><li>An Admin list uses the server's pager: <code>Showing 51 to 100 of 212</code>, then Rows per page (25, 50 or 100, default 50), Previous, <code>Page 2 of 5</code> and Next. Previous and Next are disabled at the ends. The count is the server's total.</li><li>The Files tab and the Plan tab share one footer: <code>Showing 1–20 of 45</code>, then page buttons once there is more than one page, otherwise the page size. The Files tab shows 20 files a page.</li><li>A list that the server did not count is not paged with the Admin pager.</li></ul>
+  </section>
+  <section class="s-panel" id="status"><h3>Status: shape, color and word together</h3>
+    <ul><li>A state is shown as an icon and a word. Color is never the only signal.</li><li>Each card, rail and band state has its own shape: a play mark for running, a ring with an exclamation mark for waiting on you, a dashed clock ring for idle on background work, a clock for heartbeat lost, a check for done, and a ring with a dot for delegating.</li><li>Each plan step state has its own shape too.</li><li>A person is a monogram and a name, never a color, because color already means model and status.</li><li>Where a color carries meaning, such as an administrator's name, it also has a tooltip and a screen-reader label.</li></ul>
+  </section>
+  <section class="s-panel" id="consent"><h3>Consent and warnings are not informational notes</h3>
+    <ul><li>A question that needs a yes before something happens, such as sending <code>/clear</code> or removing a reporter, is a confirmation box with a warning-colored border that names what will happen, and a button for each answer.</li><li>A warning line inside a form says what a choice will do, in the warning color, before it is made.</li><li>A note that something was cut or cannot be done is plain text in the panel, in the ink color.</li><li>A dismissible, dashed-border note at the bottom of the wall is a notice. It is only for information.</li><li>An error is text in the critical color with role alert. It says what went wrong and what to do.</li></ul>
+  </section>
+  <section class="s-panel" id="copy"><h3>Copy to clipboard</h3>
+    <ul><li>A value people copy, such as a session id or a resume command, is a quiet whole-cell control that copies on a click.</li><li>It shows Copied with a check for about 1.6 seconds. When the clipboard refuses, nothing changes.</li><li>On a card the id is a span with role button inside the card's own button, and keeps its click and Enter or Space from opening the card.</li></ul>
+  </section>
+  <section class="s-panel" id="primary-button"><h3>The primary button</h3>
+    <ul><li><code>.btn.pri</code> is the ink color as its fill with the page color as its text. No other rule recolors it, in any context. A test fails if one does.</li><li>A view has one primary button, the one that finishes what the view is for. Every other button is the default.</li><li>A destructive action is the bad variant: critical-colored text and border, no fill.</li></ul>
+  </section>
+  <section class="s-panel" id="empty"><h3>Empty, loading and error states</h3>
+    <ul><li>An empty area says why it is empty and, where there is one, what to do. The board's Review column says Nothing waiting on a person right now.</li><li>An empty area inside a column or a list is a dashed-border box with muted text. An empty page is a dashed-border block with a short heading.</li><li>Loading is a short word in the muted color, such as Loading… in the report modal. A pending action says so in words, such as Sending to the session's name.</li><li>An error from the server is shown in place, in words, with what to try. A refusal is in plain words, not the route's error code.</li></ul>
+  </section>
+  <section class="s-panel" id="long"><h3>Long text, long lists and a large fleet</h3>
+    <ul><li>A name in a row is cut with an ellipsis and has its full text as a title. A path is wrapped in bdi so its direction holds. Text from a session is wrapped anywhere it must, never clipped.</li><li>A list shows the most used five tool chips, then Show all. The activity list pages 12 at a time with Show more and Show fewer. The activity feed keeps the latest 20 entries.</li><li>The agent tree scrolls inside its own container, so the page does not scroll sideways at 400 px.</li><li>The wall is a grid that fills the width. A big fleet is a longer wall, not a different layout; the toolbar's filter and search narrow it, and the people view groups it.</li><li>Text from a session or a reporter is drawn as text nodes and never as HTML.</li></ul>
+  </section>
+  </main>
+</div>
+</body>
+</html>

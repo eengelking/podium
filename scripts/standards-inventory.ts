@@ -72,7 +72,7 @@ export function customPropUses(text: string): Set<string> {
 
 /** Every class a stylesheet's selectors name. Declarations are dropped first, so `url(a.png)` is not read as a class, and a class must start with a letter, so `1.5px` is not either. */
 export function classNames(css: string): Set<string> {
-  let t = stripComments(css);
+  let t = stripComments(css).replaceAll(/@import[^;]*;/g, "");
   for (let prev = ""; prev !== t; ) {
     prev = t;
     t = t.replaceAll(/\{[^{}]*\}/g, "{}");
@@ -140,7 +140,8 @@ export function inventory(dir: string = FLEET_DIR, chrome: string | null = CHROM
   return {
     tokens: tokenBlocks(css["tokens.css"]),
     classes: [...classes].sort(),
-    components: tsx.filter((f) => f.startsWith("components/") || f.startsWith("admin/") || !f.includes("/")),
+    // A file named use* is a hook that happens to hold JSX (a provider), not a component with a look of its own.
+    components: tsx.filter((f) => (f.startsWith("components/") || f.startsWith("admin/") || !f.includes("/")) && !/(^|\/)use[A-Z]/.test(f)),
     literals,
     undefined: [...uses].filter((n) => !defs.has(n)).sort(),
   };
@@ -171,6 +172,30 @@ export function literalProblems(found: Inventory["literals"], deferred: Deferred
   for (const [key, n] of seen) {
     const at = found.find((l) => `${l.file} ${l.text}` === key)!;
     problems.push(`hard-coded color ${at.text} in ${at.file}:${at.line}${n > 1 ? ` (and ${n - 1} more)` : ""}: use a token from tokens.css, or list it in docs/standards/deferred.json with a reason`);
+  }
+  return problems;
+}
+
+export interface NotRendered {
+  class: string;
+  reason: string;
+  kind: string;
+}
+
+/**
+ * Compares the classes the stylesheets define with the ones the standards samples render. A class in neither the samples nor
+ * the not-rendered list is missing from the standards; one in both, or in the list but in no stylesheet, makes the list stale.
+ */
+export function coverageProblems(all: string[], rendered: Iterable<string>, notRendered: NotRendered[]): string[] {
+  const shown = new Set(rendered);
+  const listed = new Map(notRendered.map((n) => [n.class, n]));
+  const known = new Set(all);
+  const problems: string[] = [];
+  for (const c of all) if (!shown.has(c) && !listed.has(c)) problems.push(`class .${c} is in the stylesheets but no standards sample renders it and it is not in not-rendered.json`);
+  for (const n of notRendered) {
+    if (!n.reason.trim()) problems.push(`not-rendered.json: .${n.class} has no reason`);
+    if (shown.has(n.class)) problems.push(`not-rendered.json lists .${n.class}, but a standards sample renders it: remove it from the list`);
+    if (!known.has(n.class)) problems.push(`not-rendered.json lists .${n.class}, but no stylesheet has it: remove it from the list`);
   }
   return problems;
 }

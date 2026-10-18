@@ -2,10 +2,14 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
+import { inventory, coverageProblems, type NotRendered } from "../../../../scripts/standards-inventory";
 import { buildPages, componentsPage, indexPage, renderSample } from "./build";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
+import { SAMPLES } from "./samples";
+import { accessibilityPage, patternsPage, processPage, voicePage } from "./prose";
 import type { Sample } from "./samples";
+import { SCREENS } from "./screens";
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..", "docs", "standards");
 
@@ -17,11 +21,12 @@ const fake: Sample = {
   use: ["Use it."],
   avoid: ["Avoid it."],
   a11y: "It is text.",
-  screen: "demo",
-  selector: ".item",
-  labels: ["First", "Second"],
+  cases: [
+    { label: "First", screen: "demo", selector: ".item.a" },
+    { label: "Second", screen: "demo", selector: ".item.b" },
+  ],
 };
-const screens = { demo: () => (<div><i className="item a" data-x={`:r1:`} /><i className="item b" /><i className="other" /></div>) };
+const screens = { demo: { make: () => (<div><i className="item a" data-x={`:r1:`} /><i className="item b" /><i className="other" /></div>) } };
 
 afterEach(cleanup);
 
@@ -58,21 +63,66 @@ describe("html helpers", () => {
 });
 
 describe("rendering a sample from a screen", () => {
-  it("cuts one match per label out of the rendered screen and numbers its ids", () => {
-    expect(renderSample(fake, screens)).toEqual(['<i class="item a" data-x=":s1:"></i>', '<i class="item b"></i>']);
+  it("cuts one match per label out of the rendered screen and numbers its ids", async () => {
+    expect(await renderSample(fake, screens)).toEqual([
+      { label: "First", markup: '<i class="item a" data-x=":s1:"></i>' },
+      { label: "Second", markup: '<i class="item b"></i>' },
+    ]);
   });
 
-  it("says which sample is wrong when the screen or the selector does not fit", () => {
-    expect(() => renderSample({ ...fake, screen: "nope" }, screens)).toThrow("sample demo: no screen named nope");
-    expect(() => renderSample({ ...fake, selector: ".missing" }, screens)).toThrow("sample demo: .missing matched 0, expected 2");
+  it("says which sample is wrong when the screen or the selector does not fit", async () => {
+    await expect(renderSample({ ...fake, cases: [{ label: "x", screen: "nope", selector: ".a" }] }, screens)).rejects.toThrow("sample demo: no screen named nope");
+    await expect(renderSample({ ...fake, cases: [{ label: "x", screen: "demo", selector: ".missing" }] }, screens)).rejects.toThrow("sample demo: .missing matched nothing on screen demo");
   });
 
-  it("builds the components page and the index", () => {
-    const page = componentsPage([fake], screens);
+  it("waits for a screen that needs a click and some data before it reads it", async () => {
+    const slow = { demo: { make: () => <div id="root2" />, act: async () => { await new Promise((r) => setTimeout(r, 5)); document.getElementById("root2")!.innerHTML = '<i class="item a late"></i><i class="item b"></i>'; } } };
+    expect((await renderSample(fake, slow)).map((c) => c.markup)).toEqual(['<i class="item a late"></i>', '<i class="item b"></i>']);
+  });
+
+  it("builds the components page and the index", async () => {
+    const page = await componentsPage([fake], screens);
     expect(page).toContain('<a href="#demo">Demo</a>');
     expect(page).toContain("First");
     expect(indexPage()).toContain('<a class="s-page" href="components.html">');
   });
+});
+
+describe("the written pages", () => {
+  it("each builds with its heading, in the nav, and lists what the process page refers to", () => {
+    expect(patternsPage()).toContain("<h1>Patterns</h1>");
+    expect(patternsPage()).toContain("Close notice: &lt;name&gt;");
+    expect(voicePage()).toContain("<h1>Voice</h1>");
+    expect(accessibilityPage()).toContain("<h1>Accessibility and responsiveness</h1>");
+    const process = processPage([{ file: "fleet.css rgba(0,0,0,.5)", reason: "A shadow." }]);
+    expect(process).toContain("<h1>Process</h1>");
+    expect(process).toContain("<code>fleet.css rgba(0,0,0,.5)</code>");
+    expect(process).toContain("podium-standards-update");
+  });
+});
+
+// Every screen the samples are cut from still renders and reaches its state. This does not compare anything with the files on
+// disk, so a UI change on `development` does not fail it unless the change breaks a screen, which is a fixture to update.
+describe("the screens", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(2_000_000);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("all render and reach their state", async () => {
+    for (const [id, screen] of Object.entries(SCREENS)) {
+      localStorage.clear();
+      const { container } = render(screen.make());
+      try {
+        await screen.act?.(container.ownerDocument.body);
+      } catch (e) {
+        throw new Error(`screen ${id}: ${String(e).split("\n")[0]}`);
+      }
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  }, 120_000);
 });
 
 // The pages are generated from the app, so the committed files must equal what the app renders now. This is the parity check.
@@ -81,17 +131,35 @@ describe("rendering a sample from a screen", () => {
 const SYNC = process.env.STANDARDS_WRITE === "1";
 describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match the app", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     vi.setSystemTime(2_000_000);
   });
   afterEach(() => vi.useRealTimers());
 
-  it("has every generated page equal to what the app renders", () => {
-    const pages = buildPages();
+  it("has every generated page equal to what the app renders", async () => {
+    const pages = await buildPages();
     if (SYNC) {
       mkdirSync(OUT, { recursive: true });
       for (const [file, html] of Object.entries(pages)) writeFileSync(join(OUT, file), html);
     }
     for (const [file, html] of Object.entries(pages)) expect(readFileSync(join(OUT, file), "utf8"), `docs/standards/${file} differs from the app: run npm run standards:sync after the change is approved`).toBe(html);
+  });
+
+  it("renders every class in the stylesheets, or says why it cannot", async () => {
+    const pages = await buildPages();
+    const notRendered = (JSON.parse(readFileSync(join(OUT, "not-rendered.json"), "utf8")) as { entries: NotRendered[] }).entries;
+    expect(coverageProblems(inventory().classes, classesIn(pages["components.html"]), notRendered)).toEqual([]);
+  });
+
+  it("has a section for every component file, and only for files that exist", () => {
+    const inv = inventory();
+    const documented = SAMPLES.flatMap((s) => s.files);
+    expect(inv.components.filter((f) => !documented.includes(f))).toEqual([]);
+    expect(documented.filter((f) => !inv.components.includes(f) && !/\.(ts|css)$/.test(f))).toEqual([]);
+  });
+
+  it("has a page for every link in the nav", async () => {
+    const pages = await buildPages();
+    for (const g of NAV) for (const p of g.pages) expect(Object.keys(pages), p.file).toContain(p.file);
   });
 });

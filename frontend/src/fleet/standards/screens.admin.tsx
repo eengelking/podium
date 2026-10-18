@@ -1,0 +1,118 @@
+// The Admin screens (#354): the real AdminView against the same in-memory stand-in for /api/admin that the Admin tests use.
+import { act, fireEvent, screen } from "@testing-library/react";
+import { vi } from "vitest";
+import { AdminView } from "../admin/AdminView";
+import { fakeServer } from "../admin/fakeAdmin";
+import { makeKpis, makeSession, makeState } from "../fixtures";
+import type { FleetSource } from "../useFleet";
+import type { Screen } from "./screens";
+
+class QuietSource {
+  onerror = null;
+  readyState = 1;
+  addEventListener() {}
+  close() {}
+}
+
+/** Lets the fake server's replies land and React draw them. */
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 40)); });
+
+type Fetch = typeof fetch;
+/** Wraps the fake server's fetch so one path answers differently. */
+function answer(path: string, reply: () => Response | Promise<Response>) {
+  const base = globalThis.fetch as Fetch;
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => (new URL(String(input), "http://x").pathname.endsWith(path) ? reply() : base(input, init)));
+}
+const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+function admin(tab: RegExp | null, opts: Parameters<typeof fakeServer>[0] = {}, after?: () => Promise<void>, tweak?: (srv: ReturnType<typeof fakeServer>) => void): Screen {
+  return {
+    make: () => {
+      vi.stubGlobal("EventSource", QuietSource);
+      const srv = fakeServer({ unlocked: true, people: 6, ...opts });
+      srv.groups.push({ id: 1, name: "Platform" }, { id: 2, name: "Data", builtIn: false }, { id: 3, name: "Administrators", builtIn: true });
+      srv.people[0].groupId = 1;
+      srv.people[1].groupId = 2;
+      srv.people[2].groupId = 3;
+      srv.people[3].revokedAt = 50_000;
+      tweak?.(srv);
+      const state = makeState({
+        sessions: [makeSession({ id: "s1", owner: "person-000", ownerGroup: "Platform" })],
+        kpis: makeKpis({ costTodayByOwner: [{ owner: "person-000", group: "Platform", costUsd: 12.4 }, { owner: "person-001", group: "Data", costUsd: 3.1 }] }),
+      });
+      const quiet = new QuietSource() as unknown as FleetSource;
+      return <AdminView fleetOptions={{ open: () => quiet, fetchState: async () => state }} />;
+    },
+    act: async () => {
+      await screen.findByRole("navigation", { name: "Admin sections" });
+      if (tab) fireEvent.click(screen.getByRole("button", { name: tab }));
+      await settle();
+      await after?.();
+    },
+  };
+}
+
+export const ADMIN_SCREENS: Record<string, Screen> = {
+  "admin-people": admin(null),
+  "admin-groups": admin(/^Groups/),
+  "admin-reporters": admin(/^Reporters/),
+  "admin-reporting": admin(/^Reporting/),
+  "admin-settings": admin(/^Settings/),
+  "admin-prices": admin(/^Model prices/),
+  "admin-spend": admin(/^Spend/),
+  "admin-log": admin(/^Admin log/),
+  "admin-people-created": admin(null, {}, async () => {
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dana" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
+    await screen.findByText(/token: pdm_/);
+    await settle();
+  }),
+  "admin-reporter-detail": admin(/^Reporters/, {}, async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Open details for studio-m2" }));
+    await screen.findByRole("button", { name: "Remove from list" });
+    await settle();
+  }),
+  "admin-reporter-remove": admin(/^Reporters/, {}, async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Open details for studio-m2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove from list" }));
+    await settle();
+  }),
+  "admin-reporters-selected": admin(/^Reporters/, {}, async () => {
+    fireEvent.click(await screen.findByLabelText("Select all 1 on this page"));
+    await settle();
+  }, (srv) => { srv.pageLimit = 1; }),
+  "admin-reporters-ignore": admin(/^Reporters/, {}, async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Open details for studio-m2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ignore…" }));
+    await settle();
+  }),
+  "admin-prices-edit": admin(/^Model prices/, {}, async () => {
+    fireEvent.change(await screen.findByLabelText("Sonnet 5.5 input"), { target: { value: "2.4" } });
+    await settle();
+  }),
+  "admin-groups-filled": admin(/^Groups/, {}, undefined, () => {
+    answer("/groups", () => json(200, { total: 3, page: 1, pageSize: 50, rows: [{ id: 3, name: "Administrators", createdAt: 1, members: ["person-002"], builtIn: true }, { id: 1, name: "Platform", createdAt: 1, members: ["person-000", "person-004"], builtIn: false }, { id: 2, name: "Data", createdAt: 1, members: ["person-001"], builtIn: false }] }));
+  }),
+  "admin-groups-error": admin(/^Groups/, {}, undefined, () => answer("/groups", () => json(500, { ok: false, error: "database is locked" }))),
+  "admin-settings-error": admin(/^Settings/, {}, undefined, () => answer("/settings", () => json(500, { ok: false, error: "database is locked" }))),
+  "admin-reporters-compat": admin(/^Reporters/, {}, undefined, (srv) => {
+    srv.reporters.push(
+      { key: "aa11", state: "reporting", name: "ci-runner", named: true, who: "Dana", credential: "pdm_aa11", adminSecret: false, version: "9.0.0", compat: "newer", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 4, live: 1 },
+      { key: "bb22", state: "idle", name: "hooks-only", named: true, who: "Priya", credential: null, adminSecret: false, version: "", compat: "unknown", firstSeenAt: 1_000, lastSeenAt: 30_000, sessions: 2, live: 0 },
+    );
+  }),
+  "admin-prices-tags": admin(/^Model prices/, {}, undefined, (srv) => {
+    srv.prices["my-local-model"] = { std: { input: 0.2, output: 0.6, cacheRead: 0.02, cacheWrite: 0.25, cacheWrite1h: 0.4 } };
+    srv.prices["sonnet-5-5"].std.input = 3;
+  }),
+  "admin-locked": {
+    make: () => {
+      vi.stubGlobal("EventSource", QuietSource);
+      fakeServer({ unlocked: false });
+      return <AdminView />;
+    },
+    act: async () => {
+      await screen.findByLabelText("Name");
+    },
+  },
+};
