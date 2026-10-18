@@ -1717,7 +1717,16 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
 - Session and sign-in: `GET session` (`{ enabled, unlocked, version }`), `POST unlock` (body `{ name, token }`),
   `POST unlock/from-respond` (a browser signed in to respond as an Administrator), `POST lock`.
 - With an unlocked session:
-  - People: `GET/POST people`, `POST people/:id/rotate`, `POST people/:id/revoke`, `PUT people/:id/group`.
+  - People: `GET/POST people`, `POST people/:id/rotate`, `POST people/:id/revoke`, `PUT people/:id/group`, and
+    `POST people/delete`.
+    - `POST people/delete` takes `{ ids }`, 1 to 500 person ids (one id for a single person), and replies
+      `{ ok, removed }`. It deletes the people and their machine list; their token stops working at once, and an
+      Administrator's open Admin session locks. It is all or nothing: it answers `400` and deletes nobody if the list
+      holds the person signed in to Admin, or would leave the Administrators group empty, and `404` if no id is a
+      person. Sessions, spend rows and Admin log entries that name a person keep the name as text, and the name can be
+      created again. It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
+    - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
+      button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Groups: `GET/POST groups`, `DELETE groups/:id`.
   - Reporters (the Reporters page, [7.7](#77-hardening), [8.1](#81-what-the-ui-must-do)): `GET reporters`,
     `GET reporters/:key`, `DELETE reporters/:key`, and `POST reporters/remove`.
