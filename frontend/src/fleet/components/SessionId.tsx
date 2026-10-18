@@ -22,7 +22,7 @@ export function useCopy(text: string) {
   const copy = () => {
     if (!navigator.clipboard) return settle("failed");
     try {
-      navigator.clipboard.writeText(text).then(() => settle("copied"), () => settle("failed"));
+      navigator.clipboard.writeText(text).then(() => settle("copied")).catch(() => settle("failed"));
     } catch {
       settle("failed");
     }
