@@ -1,11 +1,22 @@
 # Demo script
 
-A script for showing Podium to other people, built to be screen-recorded. It has three parts: setup,
-a prompt to paste into a live Claude Code session, and a simulated fleet for the "many sessions" shot.
-Everything the demo prompt does is read-only, so it is safe to run in this repo or any other.
+This page is for anyone showing Podium to other people. It is a script built to be screen-recorded, in
+three parts: setup, a prompt to paste into a live Claude Code session, and a simulated fleet for the "many
+sessions" shot. Everything the demo prompt does is read-only, so it is safe to run in this repo or any other.
 
-Nothing here has been run end to end by the author of this file. Do one dry run before you record,
-and fix the wording of the prompt if Claude takes a different route than the script expects.
+Nothing here has been run end to end by the author of this file. Do one dry run before you record, and fix
+the wording of the prompt if Claude takes a different route than the script expects.
+
+Contents:
+
+- [What the demo shows](#what-the-demo-shows)
+- [Before you record](#before-you-record)
+- [Beat 1: the live session](#beat-1-the-live-session-the-prompt)
+- [Beat 2: a whole fleet](#beat-2-a-whole-fleet-the-simulator)
+- [Beat 3: sessions that never loaded the mod](#beat-3-sessions-that-never-loaded-the-mod-optional)
+- [Beat 4: history](#beat-4-history-optional)
+- [Known rough edges](#known-rough-edges-so-they-do-not-surprise-you-on-camera)
+- [Clean up after the take](#clean-up-after-the-take)
 
 ## What the demo shows
 
@@ -13,8 +24,8 @@ and fix the wording of the prompt if Claude takes a different route than the scr
 2. The plan Claude writes appears as steps, and the steps tick off as the work finishes.
 3. Agents Claude launches appear as rows with their model, effort, status, tokens and cost.
 4. A failed call is captured with the command, the exit code and the last lines of output.
-5. A second, third and fourth session join the same wall (simulated), including ones that go silent
-   and ones whose context window fills.
+5. A second, third and fourth session join the same wall (simulated), including ones that go silent and ones
+   whose context window fills.
 6. When the sessions end, they leave on their own.
 
 Podium only watches. It never sends a prompt to a session, which is worth saying out loud.
@@ -34,42 +45,36 @@ viewer sees both at once.
    The API is on http://127.0.0.1:4317 and the UI is on http://localhost:5173/#/.
 
    To show the production-style service instead, use `podiumctl start` and open
-   http://127.0.0.1:4317/#/. If the server has a token (`podiumctl token` prints it), set the same
-   value in the mod's `token` option.
+   http://127.0.0.1:4317/#/. If the server has a token (`podiumctl token` prints it), set the same value in
+   the mod's `token` option.
 
-2. Open http://localhost:5173/#/ in the browser. With nothing reporting, the wall explains how to start
-   a session. That empty state is a good first shot.
+2. Open http://localhost:5173/#/ in the browser. With nothing reporting, the wall explains how to start a
+   session. That empty state is a good first shot.
 
-3. Pick the theme you want from the Theme dropdown in the row under the top bar and size the window before you start
-   recording. Layout changes mid-take are distracting.
+3. Pick the theme you want from the Theme dropdown in the row under the top bar and size the window before
+   you start recording. Layout changes mid-take are distracting.
 
-4. In the second terminal, start Claude Code with the mod installed. Install it once from the
-   marketplace (`/plugin marketplace add eengelking/skills`, then
-   `/plugin install podium-reporter@eengelking-marketplace`), or load it from a checkout for this
-   session:
-
-   ```sh
-   claude --plugin-dir /path/to/podium/mod/podium-reporter
-   ```
+4. In the second terminal, start Claude Code with the mod installed. Install it once from the marketplace,
+   or load it from a checkout for this session. Both ways are in [REPORTER.md](REPORTER.md#install-the-mod).
 
    The session appears on the wall once you send it a prompt, not before. Until then the status line under
    the prompt reads `podium vX.Y.Z ● 0 live`. After the first prompt it reads `podium vX.Y.Z ● 1 live`.
 
-5. Type `/podium` to show the link, connection state and report counts. Then give the session a
-   readable name, because the wall shows it on the card:
+5. Type `/podium` to show the link, connection state and report counts. Then give the session a readable
+   name, because the wall shows it on the card:
 
    ```
    /podium name demo-orchestrator
    ```
 
-6. Optional: set `explainFailures` to `true` in the mod options before the take if you want a short
-   Haiku explanation under the failed agent. It costs a little and is off by default.
+6. Optional: set `explainFailures` to `true` in the mod options before the take if you want a short Haiku
+   explanation under the failed agent. It costs a little and is off by default.
 
 ## Beat 1: the live session (the prompt)
 
-Paste this into the Claude session. The agent descriptions are written to match the plan step titles
-word for word on purpose. Podium links an agent to a plan step by matching the text, and a loose match
-leaves the owner column empty.
+Paste this into the Claude session. The agent descriptions are written to match the plan step titles word
+for word on purpose. Podium links an agent to a plan step by matching the text, and a loose match leaves the
+owner column empty.
 
 ````text
 This is a live demo of a fleet dashboard that is watching this session. Please do exactly the
@@ -115,24 +120,25 @@ failing `ls`.
 | The `ls` fails | The failure box on that agent | "Failed calls are captured with the command, the exit code and the last lines of output, with anything that looks like a secret removed." |
 | Summary written | The session card and the facts bar | "Context fill, cost and the git branch are all live. The orchestrator's cost is the session ledger. The agent figures are estimates, and the UI labels them that way." |
 
-Click the session card to open the focused view if you want a closer look at one session. Click an
-agent row to open its detail panel.
+Click the session card to open the focused view if you want a closer look at one session. Click an agent
+row to open its detail panel.
 
 ## Beat 2: a whole fleet (the simulator)
 
-One real session looks tidy. The point of Podium is many at once. With the dev server still running,
-open a third terminal and start the simulator while the recording is going:
+One real session looks tidy. The point of Podium is many at once. With the dev server still running, open a
+third terminal and start the simulator while the recording is going:
 
 ```sh
 npm run podium:sim -- --sessions 5 --chaos
 ```
 
-(Add `--token "$(podiumctl token)"` if the server has a token.)
+Add `--token "$(podiumctl token)"` if the server has a token.
 
 The simulator posts realistic reports for five fake sessions, so the wall fills up next to your real one.
 `--chaos` makes some of them go silent (they turn stale), fail more often and overflow their context
-windows, which are the three situations that are hard to produce on cue with a real session. Use `--seed`
-if you want the same run twice, and `--speed 2` to make it move faster.
+windows. Those are the three situations that are hard to produce on cue with a real session.
+
+Two more flags: `--seed` gives you the same run twice, and `--speed 2` makes it move faster.
 
 Things to show while it runs:
 
@@ -146,32 +152,35 @@ later with no refresh. That is the last shot of this beat.
 
 ## Beat 3: sessions that never loaded the mod (optional)
 
-If you want to make the point that you do not have to restart anything, add the settings hooks from the
-[REPORTER.md](REPORTER.md#sessions-without-the-mod) ("Sessions without the mod") to `~/.claude/settings.json`, start a plain `claude` session in
-another terminal, and send a prompt. It shows up marked "settings hooks" with the session, directory,
-model and agents, and with the context, cost and plan left empty. Remove the hooks afterwards if you do
-not want them on permanently.
+This makes the point that you do not have to restart anything.
+
+1. Add the settings hooks from "Sessions without the mod" in
+   [REPORTER.md](REPORTER.md#sessions-without-the-mod) to `~/.claude/settings.json`.
+2. Start a plain `claude` session in another terminal and send a prompt.
+3. It shows up marked "settings hooks" with the session, directory, model and agents, and with the context,
+   cost and plan left empty.
+4. Remove the hooks afterwards if you do not want them on permanently.
 
 ## Beat 4: history (optional)
 
-- `#/history` lists the sessions that ended on a chosen day. Open one to see its agent detail from
-  stored rows. This works after a server restart too, because everything is in SQLite.
+`#/history` lists the sessions that ended on a chosen day. Open one to see its agent detail from stored
+rows. This works after a server restart too, because everything is in SQLite.
 
-To show that nothing is lost, run `podiumctl restart` (or stop and start `npm run dev`) with a session
-live. The session comes back as stale and recovers as soon as its reporter sends again.
+To show that nothing is lost, run `podiumctl restart` (or stop and start `npm run dev`) with a session live.
+The session comes back as stale and recovers as soon as its reporter sends again.
 
 ## Known rough edges, so they do not surprise you on camera
 
 These come from the known issues in `docs/ARCHITECTURE.md`.
 
-- Elapsed times and the stale countdown pause when the browser tab is in the background. Keep the
-  window visible while recording.
-- A plan step shows no owner if the agent description does not match the step title. The prompt above
-  is written to avoid that. If you edit it, keep the two in sync.
-- An idle interactive session counts as "waiting on you", so a session sitting at the prompt shows a
-  waiting callout. That is correct, but it can look like an error.
-- The status line and a few interactive paths have only been exercised in tests and headless runs, not
-  in a long interactive session. Do the dry run.
+- Elapsed times and the stale countdown pause when the browser tab is in the background. Keep the window
+  visible while recording.
+- A plan step shows no owner if the agent description does not match the step title. The prompt above is
+  written to avoid that. If you edit it, keep the two in sync.
+- An idle interactive session counts as "waiting on you", so a session sitting at the prompt shows a waiting
+  callout. That is correct, but it can look like an error.
+- The status line and a few interactive paths have only been exercised in tests and headless runs, not in a
+  long interactive session. Do the dry run.
 - Cost for agents is an estimate from token counts and a price table. Do not call it a bill.
 
 ## Clean up after the take
