@@ -4,7 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
 COPY frontend/package.json frontend/
-RUN npm ci
+# --ignore-scripts: no dependency needs an install script (the database is node:sqlite, esbuild ships a prebuilt
+# binary), so none is trusted to run. If one ever does, rebuild just that package with `npm rebuild <pkg>`.
+RUN npm ci --ignore-scripts
 # The UI imports the view types from server/src/fleet, so both trees are needed before either build.
 COPY server server
 COPY frontend frontend
@@ -16,7 +18,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
 COPY frontend/package.json frontend/
-RUN npm ci --omit=dev -w server && npm cache clean --force
+RUN npm ci --ignore-scripts --omit=dev -w server && npm cache clean --force
 COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/frontend/dist frontend/dist
 RUN mkdir /data && chown node:node /data

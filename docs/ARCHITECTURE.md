@@ -1111,7 +1111,7 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 ### Container mode
 
-- `Containerfile` is a two-stage Node 24 build. The build stage runs `npm ci` and both builds. The runtime stage
+- `Containerfile` is a two-stage Node 24 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
   has production deps for `server`, the two `dist` trees, user `node`, and the `/data` volume.
 - `podiumctl` runs it as `podium` with `--restart unless-stopped`, the port published on the chosen bind address,
   the named volume `podium-data`, and a `--health-cmd` (the `HEALTHCHECK` instruction is dropped by Podman's

@@ -316,7 +316,7 @@ Added after the first build. `docs/ARCHITECTURE.md` ("Running as a service") rec
 
 `Containerfile` builds the server and the UI into one image:
 
-- a build stage that runs `npm ci` and both builds;
+- a build stage that runs `npm ci --ignore-scripts` and both builds;
 - a runtime stage with the server's production dependencies, the two `dist` trees, a non-root user and a
   `/data` volume for the SQLite file.
 
