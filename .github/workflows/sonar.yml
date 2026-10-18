@@ -1,0 +1,31 @@
+name: Sonar
+
+# Scans development (push), every PR into development, and a PR into main only when it comes from development
+# (the release PR). Any other PR into main is skipped; pr-target-check.yml rejects those anyway.
+on:
+  push:
+    branches: [development]
+  pull_request:
+    branches: [development, main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  scan:
+    # A fork's PR gets no SONAR_TOKEN, so it cannot be scanned.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.base_ref == 'development' || github.head_ref == 'development'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Sonar needs full history for blame and new-code detection
+
+      - uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
