@@ -106,8 +106,7 @@ describe('LogShipper', () => {
     const f = fakeFetch();
     const s = make({ url: 'http://h:9428', batchSize: 3, fetch: f.fn });
     for (let i = 0; i < 3; i++) s.push(`{"i":${i}}`);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(f.calls).toHaveLength(1);
+    await vi.waitFor(() => expect(f.calls).toHaveLength(1), { timeout: 5000 });
   });
 
   it('keeps at most maxBuffer lines while the endpoint is down, dropping the oldest, and says so once', async () => {
@@ -191,10 +190,12 @@ describe('LogShipper', () => {
 
   it('does not start a flush for a full batch while a retry is not yet due', async () => {
     const f = fakeFetch({ fail: true });
-    const s = make({ url: 'http://h:9428', batchSize: 1, fetch: f.fn, notify: () => {}, backoffMs: 60_000 });
+    const notes: string[] = [];
+    const s = make({ url: 'http://h:9428', batchSize: 1, fetch: f.fn, notify: (e) => notes.push(e), backoffMs: 60_000 });
     s.push('{"i":0}');
-    await new Promise((r) => setTimeout(r, 20));
-    expect(f.calls).toHaveLength(1); // the first full batch went, and failed
+    // The first full batch went and failed; the failure note means the backoff is set.
+    await vi.waitFor(() => expect(notes).toEqual(['log.ship_failed']), { timeout: 5000 });
+    expect(f.calls).toHaveLength(1);
     const flush = vi.spyOn(s, 'flush');
     s.push('{"i":1}');
     s.push('{"i":2}');
