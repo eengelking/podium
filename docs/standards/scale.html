@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type, spacing, motion - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html" aria-current="page">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html">Voice</a>
+    <a href="accessibility.html">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Type, spacing, motion</h1><p>The sizes, radii, layers and durations the stylesheets set today, with how many declarations use each. They are not tokens yet, so this page lists what is in use instead of a scale the app might not follow. New work picks a value from these lists; a value that is not on one needs a reason in the PR.</p></div>
+  <section class="s-panel" id="font-size"><h3>Font size</h3><p>The body text is set on .podium. The most used sizes come first.</p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>12px</code></td><td>85</td></tr>
+      <tr><td><code>12.5px</code></td><td>45</td></tr>
+      <tr><td><code>11.5px</code></td><td>38</td></tr>
+      <tr><td><code>13px</code></td><td>20</td></tr>
+      <tr><td><code>11px</code></td><td>14</td></tr>
+      <tr><td><code>14px</code></td><td>7</td></tr>
+      <tr><td><code>15px</code></td><td>7</td></tr>
+      <tr><td><code>16px</code></td><td>4</td></tr>
+      <tr><td><code>22px</code></td><td>3</td></tr>
+      <tr><td><code>10.5px</code></td><td>2</td></tr>
+      <tr><td><code>13.5px</code></td><td>2</td></tr>
+      <tr><td><code>20px</code></td><td>2</td></tr>
+      <tr><td><code>9px</code></td><td>1</td></tr>
+      <tr><td><code>14.5px</code></td><td>1</td></tr>
+      <tr><td><code>17px</code></td><td>1</td></tr>
+      <tr><td><code>18px</code></td><td>1</td></tr>
+      <tr><td><code>24px</code></td><td>1</td></tr>
+      <tr><td><code>28px</code></td><td>1</td></tr>
+      <tr><td><code>inherit</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="font-weight"><h3>Font weight</h3><p></p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>600</code></td><td>61</td></tr>
+      <tr><td><code>500</code></td><td>23</td></tr>
+      <tr><td><code>650</code></td><td>8</td></tr>
+      <tr><td><code>400</code></td><td>7</td></tr>
+      <tr><td><code>700</code></td><td>3</td></tr>
+      <tr><td><code>inherit</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="radius"><h3>Corner radius</h3><p></p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>6px</code></td><td>38</td></tr>
+      <tr><td><code>8px</code></td><td>22</td></tr>
+      <tr><td><code>4px</code></td><td>18</td></tr>
+      <tr><td><code>50%</code></td><td>16</td></tr>
+      <tr><td><code>2px</code></td><td>7</td></tr>
+      <tr><td><code>3px</code></td><td>6</td></tr>
+      <tr><td><code>999px</code></td><td>6</td></tr>
+      <tr><td><code>5px</code></td><td>5</td></tr>
+      <tr><td><code>7px</code></td><td>4</td></tr>
+      <tr><td><code>10px</code></td><td>3</td></tr>
+      <tr><td><code>0 6px 6px 0</code></td><td>2</td></tr>
+      <tr><td><code>6px 6px 0 0</code></td><td>2</td></tr>
+      <tr><td><code>0 0 6px 6px</code></td><td>1</td></tr>
+      <tr><td><code>0 0 7px 7px</code></td><td>1</td></tr>
+      <tr><td><code>0 4px 4px 0</code></td><td>1</td></tr>
+      <tr><td><code>1px</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="layers"><h3>Layers (z-index)</h3><p>Higher sits in front. Tooltips and the toast sit above the page, the modal above both.</p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>5</code></td><td>3</td></tr>
+      <tr><td><code>1</code></td><td>2</td></tr>
+      <tr><td><code>6</code></td><td>2</td></tr>
+      <tr><td><code>2</code></td><td>1</td></tr>
+      <tr><td><code>4</code></td><td>1</td></tr>
+      <tr><td><code>20</code></td><td>1</td></tr>
+      <tr><td><code>30</code></td><td>1</td></tr>
+      <tr><td><code>40</code></td><td>1</td></tr>
+      <tr><td><code>50</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="shadow"><h3>Shadow</h3><p></p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>0 8px 24px -10px rgba(0,0,0,.5)</code></td><td>2</td></tr>
+      <tr><td><code>0 24px 60px rgba(0, 0, 0, 0.35)</code></td><td>2</td></tr>
+      <tr><td><code>inset 0 -2px 0 var(--ink)</code></td><td>2</td></tr>
+      <tr><td><code>inset 0 3px 0 var(--crit)</code></td><td>2</td></tr>
+      <tr><td><code>inset 3px 0 0 var(--warn)</code></td><td>2</td></tr>
+      <tr><td><code>0 0 0 1px var(--sonnet)</code></td><td>1</td></tr>
+      <tr><td><code>0 4px 14px rgb(0 0 0 / .25)</code></td><td>1</td></tr>
+      <tr><td><code>0 4px 14px rgba(0, 0, 0, 0.35)</code></td><td>1</td></tr>
+      <tr><td><code>0 4px 14px rgba(0,0,0,.28)</code></td><td>1</td></tr>
+      <tr><td><code>0 6px 18px rgba(0, 0, 0, 0.28)</code></td><td>1</td></tr>
+      <tr><td><code>0 6px 24px rgba(0, 0, 0, .35)</code></td><td>1</td></tr>
+      <tr><td><code>inset -3px 0 0 var(--crit-text)</code></td><td>1</td></tr>
+      <tr><td><code>inset 0 0 0 1px color-mix(in srgb, var(--deleg) 38%, transparent)</code></td><td>1</td></tr>
+      <tr><td><code>inset 0 0 0 1px color-mix(in srgb, var(--warn) 38%, transparent)</code></td><td>1</td></tr>
+      <tr><td><code>inset 0 0 0 1px var(--crit-text), inset -3px 0 0 var(--crit-text)</code></td><td>1</td></tr>
+      <tr><td><code>inset 3px 0 0 var(--crit)</code></td><td>1</td></tr>
+      <tr><td><code>inset 3px 0 0 var(--ink)</code></td><td>1</td></tr>
+      <tr><td><code>none</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="motion"><h3>Motion</h3><p>Durations in transitions and animations. Every animation stops under prefers-reduced-motion.</p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>.15s</code></td><td>3</td></tr>
+      <tr><td><code>.12s</code></td><td>2</td></tr>
+      <tr><td><code>2.6s</code></td><td>2</td></tr>
+      <tr><td><code>.6s</code></td><td>1</td></tr>
+      <tr><td><code>.9s</code></td><td>1</td></tr>
+      <tr><td><code>.18s</code></td><td>1</td></tr>
+      <tr><td><code>.25s</code></td><td>1</td></tr>
+      <tr><td><code>.28s</code></td><td>1</td></tr>
+      <tr><td><code>0.5s</code></td><td>1</td></tr>
+      <tr><td><code>0.15s</code></td><td>1</td></tr>
+      <tr><td><code>1.2s</code></td><td>1</td></tr>
+      <tr><td><code>1.6s</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="breakpoints"><h3>Breakpoints</h3><p>The widths the layout changes at, in media and container queries.</p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>max-width: 640px</code></td><td>3</td></tr>
+      <tr><td><code>max-width: 760px</code></td><td>3</td></tr>
+      <tr><td><code>max-width: 560px</code></td><td>2</td></tr>
+      <tr><td><code>max-width: 1040px</code></td><td>2</td></tr>
+      <tr><td><code>max-width: 1280px</code></td><td>2</td></tr>
+      <tr><td><code>max-width: 520px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 599px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 634px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 651px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 700px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 1299px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 1469px</code></td><td>1</td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="spacing"><h3>Spacing</h3><p>Padding, margin and gap together: 148 distinct values. Only the ten most used are shown. There is no spacing scale yet, and adopting one would change layouts, so it is left for its own issue.</p>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>8px</code></td><td>54</td></tr>
+      <tr><td><code>0</code></td><td>52</td></tr>
+      <tr><td><code>6px</code></td><td>32</td></tr>
+      <tr><td><code>12px</code></td><td>18</td></tr>
+      <tr><td><code>4px</code></td><td>15</td></tr>
+      <tr><td><code>2px</code></td><td>11</td></tr>
+      <tr><td><code>4px 10px</code></td><td>11</td></tr>
+      <tr><td><code>8px 16px</code></td><td>11</td></tr>
+      <tr><td><code>10px</code></td><td>11</td></tr>
+      <tr><td><code>1px</code></td><td>10</td></tr>
+    </tbody></table></div>
+  </section>
+  </main>
+</div>
+</body>
+</html>

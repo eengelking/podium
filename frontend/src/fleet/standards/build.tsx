@@ -1,8 +1,12 @@
 // Renders the standards pages from the app (#354). `buildPages` returns every file under docs/standards that is generated,
 // keyed by file name. The sync script writes them, and the parity test compares them with what is on disk.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, cleanup } from "@testing-library/react";
+import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES, type Sample } from "./samples";
+import { scalePage, themesPage, tokensPage } from "./pages";
 import { SCREENS } from "./screens";
 
 /** The markup of each match of a sample's selector on its screen. */
@@ -39,7 +43,15 @@ export function indexPage(): string {
 
 /** Every generated page. The parity test and the sync script both use this one list. */
 export function buildPages(): Record<string, string> {
-  return { "index.html": indexPage(), "components.html": componentsPage() };
+  const read = (f: string) => readFileSync(join(FLEET_DIR, f), "utf8");
+  const blocks = tokenBlocks(read("tokens.css"));
+  return {
+    "index.html": indexPage(),
+    "tokens.html": tokensPage(blocks),
+    "themes.html": themesPage(blocks),
+    "scale.html": scalePage(`${read("fleet.css")}\n${read("admin/admin.css")}`),
+    "components.html": componentsPage(),
+  };
 }
 
 export { classesIn };
