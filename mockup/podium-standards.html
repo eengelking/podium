@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Podium standards (mockup for #354)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #354. Layout: the standards site shell. A left list of the pages, a top bar with the theme and mode switch, and a main column. Two views are shown: the index, and one component page (Chips) with live samples, rules, states, accessibility and a parity line. In the built pages the samples use the app's real CSS (tokens.css, fleet.css) instead of the copy below; the page chrome below is the only copy, and it is renamed (.c*, .snav) so it cannot collide with the app's classes. This file is the last mockup that carries its own :root. */
+:root {
+  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --hover: rgba(255,255,255,.045); --sel: rgba(255,255,255,.08);
+  --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926; --other: #898781;
+  --good: #0ca30c; --good-text: #3dbb3d; --warn: #fab219; --serious: #ec835a; --crit: #d03b3b; --crit-text: #ee6a6a;
+  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --hover: rgba(11,11,11,.04); --sel: rgba(11,11,11,.07);
+    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
+    --good-text: #006300; --crit-text: #b52a2a; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --hover: rgba(11,11,11,.04); --sel: rgba(11,11,11,.07);
+  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
+  --good-text: #006300; --crit-text: #b52a2a; color-scheme: light;
+}
+:root[data-theme-name="nord"] {
+  --bg: #2e3440; --surface: #3b4252; --raised: #434c5e; --ink: #eceff4; --ink2: #d8dee9; --muted: #aab4c6;
+  --grid: #434c5e; --axis: #4c566a; --border: rgba(236,239,244,.14); --hover: rgba(236,239,244,.05); --sel: rgba(236,239,244,.09);
+  --opus: #b48ead; --sonnet: #81a1c1; --haiku: #a3be8c; --fable: #d08770; --other: #aab4c6; color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme-name="nord"]:not([data-theme="dark"]) {
+    --bg: #eceff4; --surface: #f5f7fa; --raised: #e5e9f0; --ink: #2e3440; --ink2: #434c5e; --muted: #5c6679;
+    --grid: #d8dee9; --axis: #b9c2d3; --border: rgba(46,52,64,.14); --hover: rgba(46,52,64,.05); --sel: rgba(46,52,64,.08);
+    --opus: #8c5f93; --sonnet: #5e81ac; --haiku: #6f8f58; --fable: #b25a3f; --other: #5c6679; color-scheme: light;
+  }
+}
+:root[data-theme-name="nord"][data-theme="light"] {
+  --bg: #eceff4; --surface: #f5f7fa; --raised: #e5e9f0; --ink: #2e3440; --ink2: #434c5e; --muted: #5c6679;
+  --grid: #d8dee9; --axis: #b9c2d3; --border: rgba(46,52,64,.14); --hover: rgba(46,52,64,.05); --sel: rgba(46,52,64,.08);
+  --opus: #8c5f93; --sonnet: #5e81ac; --haiku: #6f8f58; --fable: #b25a3f; --other: #5c6679; color-scheme: light;
+}
+:root[data-theme="dark"] { --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --hover: rgba(255,255,255,.045); --sel: rgba(255,255,255,.08); --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926; --other: #898781; --good-text: #3dbb3d; --crit-text: #ee6a6a; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+button, select { font: inherit; color: var(--ink); }
+button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.cbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); background: var(--surface); border-bottom: 1px solid var(--border); }
+.clogo { font-weight: 700; font-size: 15px; }
+.clogo span { color: var(--muted); font-weight: 500; }
+.csp { flex: 1; }
+.cfield { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.csel { background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-size: 12px; font-weight: 500; }
+.cseg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.cseg button { font-size: 12px; font-weight: 500; color: var(--ink2); background: var(--raised); border: 0; padding: 5px 9px; cursor: pointer; }
+.cseg button + button { border-left: 1px solid var(--border); }
+.cseg button[aria-checked="true"] { background: var(--sel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: calc(100vh - 50px); }
+.snav { border-right: 1px solid var(--border); padding: 12px 8px; display: grid; gap: 2px; align-content: start; }
+.snav h2 { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 10px 8px 4px; }
+.snav a { text-decoration: none; padding: 5px 8px; border-radius: 6px; color: var(--ink2); }
+.snav a:hover { background: var(--hover); }
+.snav a[aria-current="page"] { background: var(--sel); color: var(--ink); font-weight: 600; }
+main { padding: 20px 24px 56px; display: grid; gap: 22px; align-content: start; max-width: 940px; width: 100%; }
+h1 { font-size: 20px; letter-spacing: -.01em; margin: 0 0 4px; }
+h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; color: var(--ink2); }
+.pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.pg { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-decoration: none; }
+.pg:hover { background: var(--raised); }
+.pg b { font-weight: 600; }
+.pg span { color: var(--muted); font-size: 12px; }
+.panel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 12px 14px; }
+.variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.cell { display: grid; gap: 8px; align-content: space-between; }
+.cell .s { min-height: 22px; display: flex; align-items: center; }
+.cell .l { display: grid; gap: 1px; font-size: 12px; color: var(--ink2); border-top: 1px solid var(--grid); padding-top: 6px; }
+.cell .l code { color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.rules ul { margin: 0; padding-left: 18px; color: var(--ink2); display: grid; gap: 3px; }
+.use { border-left: 3px solid var(--good); } .avoid { border-left: 3px solid var(--crit); }
+.parity { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface); }
+.ok { color: var(--good-text); font-weight: 600; display: inline-flex; gap: 5px; align-items: center; }
+.podium.sample { height: auto; border: 1px solid var(--grid); border-radius: 6px; padding: 12px; display: block; }
+.podium.sample .toast { position: static; }
+.cap { margin-top: 8px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.cap code { color: var(--muted); }
+.gal { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.gal .panel h3 { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.gal .panel h3 a { font-weight: 400; font-size: 12px; color: var(--ink2); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.view { display: grid; gap: 16px; align-content: start; }
+.view[hidden] { display: none; }
+@media (max-width: 760px) {
+  .shell { grid-template-columns: 1fr; }
+  .snav { border-right: 0; border-bottom: 1px solid var(--border); grid-auto-flow: column; overflow-x: auto; padding: 8px; }
+  .snav h2 { display: none; }
+  .snav a { white-space: nowrap; }
+  main { padding: 16px 16px 40px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="cbar">
+  <span class="clogo">Podium <span>standards</span></span>
+  <span class="csp"></span>
+  <label class="cfield">Theme
+    <select class="csel" id="theme">
+      <option value="podium">Podium</option>
+      <option value="nord">Nord</option>
+    </select>
+  </label>
+  <div class="cseg" role="radiogroup" aria-label="Mode" id="mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</div>
+<div class="shell">
+  <nav class="snav" aria-label="Standards pages">
+    <a href="#index" aria-current="page">Index</a>
+    <h2>Foundations</h2>
+    <a href="#tokens">Tokens</a>
+    <a href="#themes">Themes</a>
+    <a href="#type">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="#components">All components</a>
+    <a href="#chips">Chips</a>
+    <a href="#patterns">Patterns</a>
+    <h2>Practice</h2>
+    <a href="#voice">Voice</a>
+    <a href="#a11y">Accessibility</a>
+    <a href="#process">Process</a>
+  </nav>
+  <main>
+    <section class="view" id="v-index">
+      <h1>Podium UI standards</h1>
+      <p>What every Podium screen is built from. The samples on these pages are the app's own CSS and markup, and a test fails if a page and the app on <code>main</code> differ. Mockups and UI changes follow these pages.</p>
+      <div class="pages" style="margin-top:16px">
+        <a class="pg" href="#tokens"><b>Tokens</b><span>Color, type, radius, layers, motion, by role</span></a>
+        <a class="pg" href="#themes"><b>Themes</b><span>Six palettes, light and dark, contrast targets</span></a>
+        <a class="pg" href="#components"><b>Components</b><span>Every shared piece with a live example, its variants and states</span></a>
+        <a class="pg" href="#patterns"><b>Patterns</b><span>Wall notices, paging, status shapes, empty states</span></a>
+        <a class="pg" href="#voice"><b>Voice</b><span>Wording for labels, notes and errors</span></a>
+        <a class="pg" href="#a11y"><b>Accessibility</b><span>Focus, keyboard, labels, reduced motion, narrow width</span></a>
+        <a class="pg" href="#process"><b>Process</b><span>When a mockup is needed and how to add to the system</span></a>
+      </div>
+    </section>
+
+    <section class="view" id="v-components" hidden>
+      <div><h1>All components</h1><p>Every shared piece, built from the app's own CSS and markup. This page shows a sample of the groups; the built page lists every component and class in the app, and the parity test fails if one is missing or extra.</p></div>
+      <div class="gal">
+      <div class="panel">
+        <h3>KPIs </h3>
+        <p>The summary strip above the wall: a label, a big number, a caption.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="kpis"><div class="kpi"><div class="k">Orchestrators live</div><div class="v mono">4</div><div class="kpi-cap">3 running, 1 waiting</div></div><div class="kpi"><div class="k">Subagents running</div><div class="v mono"><span>7</span></div></div><div class="kpi"><div class="k">Plan steps done</div><div class="v mono">12/20</div><div class="kpi-cap">across all plans</div></div><div class="kpi"><div class="k">Est. cost today</div><div class="v mono">$18.42</div><div class="kpi-cap">not counting 1 unpriced session</div></div></div></div>
+        <div class="cap"><code>.kpis</code><code>.kpi</code><code>.kpi-cap</code><code>.k</code><code>.v</code></div>
+      </div>
+      <div class="panel">
+        <h3>Session card </h3>
+        <p>One session on the wall: who, what it is doing, cost and health, status band.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="card-slot" style="max-width:340px"><button type="button" class="card sc"><div class="z1"><div class="h"><span class="sd"><i class="dot running"></i></span><span class="nm">podium-release</span><span class="mdl"><span class="chip" style="--c: var(--opus)"><i></i>Opus 4.7</span></span></div><div class="pathrow"><div class="path mono"><bdi>~/dev/claude-dashboard</bdi></div></div></div><div class="z3"><div class="c"><span class="k">Cost</span><span class="v mono">$4.12</span></div><div class="c"><span class="k">Tokens</span><span class="v mono">1.8M</span></div><div class="c"><span class="k">Time</span><span class="v mono">42m</span></div><div class="c ctx"><span class="k">Context</span><span class="v mono">38%</span></div></div><div class="band running"><span class="bi"><i class="dot running"></i></span><span class="bl">Running</span></div></button></div></div>
+        <div class="cap"><code>.card-slot</code><code>.card.sc</code><code>.z1</code><code>.z3</code><code>.band</code></div>
+      </div>
+      <div class="panel">
+        <h3>Rail item </h3>
+        <p>button.ritem: one orchestrator in the left rail. Default, then selected.</p>
+        <div class="podium sample" style="margin-top:10px"><div style="max-width:300px"><div class="ritem-slot"><button type="button" class="ritem" aria-current="false"><div class="l1"><i class="dot running" aria-hidden="true"></i><span class="nm">podium-release</span><span class="vh">running</span><span class="chip" style="--c: var(--opus)"><i></i>Opus 4.7</span></div><div class="l2"><span style="color:var(--muted)">no plan reported</span><span style="flex:1"></span><span class="mono">2/3</span></div></button></div><div class="ritem-slot"><button type="button" class="ritem" aria-current="true"><div class="l1"><i class="dot waiting" aria-hidden="true"></i><span class="nm">docs-rewrite (selected)</span><span class="vh">waiting</span><span class="chip" style="--c: var(--sonnet)"><i></i>Sonnet 5.5</span></div><div class="l2"><span class="mono">4/9</span><span style="flex:1"></span><span class="mono">1/1</span></div></button></div></div></div>
+        <div class="cap"><code>button.ritem</code><code>.ritem-slot</code><code>.l1</code><code>.l2</code><code>aria-current</code></div>
+      </div>
+      <div class="panel">
+        <h3>Buttons </h3>
+        <p>Default, primary (one per view), destructive, disabled, pressed, and filter chips.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="row"><button type="button" class="btn">Default</button><button type="button" class="btn pri">Primary</button><button type="button" class="btn bad">Destructive</button><button type="button" class="btn" disabled>Disabled</button><button type="button" class="btn" aria-pressed="true">Pressed</button><button type="button" class="chipbtn">Filter</button><button type="button" class="chipbtn on" aria-pressed="true">Filter on</button></div></div>
+        <div class="cap"><code>.btn</code><code>.btn.pri</code><code>.btn.bad</code><code>.chipbtn</code></div>
+      </div>
+      <div class="panel">
+        <h3>Pagination </h3>
+        <p>The Admin pager: count, rows per page, Previous and Next.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="adminv" style="padding:0"><div class="apager"><span class="hint" role="status">Showing 51 to 100 of 212</span><span class="row2"><label class="hint" for="g-size">Rows per page</label><select class="field sm" id="g-size"><option>25</option><option selected>50</option><option>100</option></select><button type="button" class="btn sm">Previous</button><span class="hint">Page 2 of 5</span><button type="button" class="btn sm">Next</button></span></div></div></div>
+        <div class="cap"><code>.apager</code><code>.hint</code><code>.row2</code><code>.btn.sm</code></div>
+      </div>
+      <div class="panel">
+        <h3>Status pills </h3>
+        <p>The connection and health marks. Shape and word, never color alone.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="row"><span class="pill"><i class="dot running"></i>Live</span><span class="pill warn"><i class="dot warn"></i>Reconnecting</span><span class="pill bad"><i class="dot failed"></i>Offline</span></div></div>
+        <div class="cap"><code>.pill</code><code>.pill.warn</code><code>.pill.bad</code><code>.dot</code></div>
+      </div>
+      <div class="panel">
+        <h3>Segmented controls and tabs </h3>
+        <p>Filter group, mode radio group, and tabs.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="row"><span class="seg" role="group" aria-label="Filter by status"><button type="button" aria-pressed="true">All</button><button type="button" aria-pressed="false">Running</button><button type="button" aria-pressed="false">Waiting</button></span><div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false">Light</button><button type="button" role="radio" aria-checked="false">Dark</button><button type="button" role="radio" aria-checked="true">System</button></div></div><div class="tabs" role="tablist" aria-label="Plan and files" style="margin-top:12px"><button type="button" role="tab" aria-selected="true">Plan</button><button type="button" role="tab" aria-selected="false">Files<span class="ct"> 6</span></button><span class="meta mono">4/9</span></div></div>
+        <div class="cap"><code>.seg</code><code>.modeseg</code><code>.tabs</code><code>role=tab</code></div>
+      </div>
+      <div class="panel">
+        <h3>Notices and toast </h3>
+        <p>Informational wall notice with an X, and the confirmation that points to Admin &gt; Settings.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="notices"><div class="fold"><div class="txt">Spend is estimated from list prices and may differ from your bill.</div><button type="button" class="x" aria-label="Close notice: spend estimate"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button></div></div><div class="toast" role="status" style="margin-top:12px"><div class="t"><b>Notice turned off</b><span>"Spend estimate" will not show again. You can turn it back on or off in Admin &gt; Settings.</span><br><a class="go" href="#a">Open Admin &gt; Settings</a></div><button type="button" class="x" aria-label="Close this message"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg></button></div></div>
+        <div class="cap"><code>.notices</code><code>.fold</code><code>.toast</code><code>.x</code></div>
+      </div>
+      <div class="panel">
+        <h3>Failure box </h3>
+        <p>Why something failed: the call and its output.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="failbox"><div class="fh2">Command failed<span style="flex:1"></span><span class="mono" style="font-weight:400;color:var(--ink2)">14:02:11</span></div><div class="fb"><div><span class="lab">Failing call · Bash · exit 1</span><pre class="code">npm test -w frontend</pre></div><div><span class="lab">Output</span><pre class="code"><span class="bad">Error: 3 tests failed</span></pre></div></div></div></div>
+        <div class="cap"><code>.failbox</code><code>.fh2</code><code>.fb</code><code>pre.code</code></div>
+      </div>
+      <div class="panel">
+        <h3>Form fields </h3>
+        <p>Inputs and selects in Admin.</p>
+        <div class="podium sample" style="margin-top:10px"><div class="adminv" style="padding:0"><div class="row"><label class="hint" for="g-f">Name</label><input class="field" id="g-f" value="Platform team"><select class="field"><option>Daily</option><option>Weekly</option></select></div></div></div>
+        <div class="cap"><code>.adminv .field</code><code>label.hint</code></div>
+      </div>
+      </div>
+    </section>
+
+    <section class="view" id="v-chips" hidden>
+      <div>
+        <h1>Chips</h1>
+        <p>A small label for a fact about a session or agent: its model, a skill, a warning. Not for actions. Use a button for those.</p>
+      </div>
+      <div class="panel">
+        <h3>Variants</h3>
+        <div class="variants">
+          <div class="cell"><div class="podium sample"><span class="chip" style="--c: var(--opus)"><i></i>Opus 4.7</span></div><div class="l"><span>Model: Opus</span><code>.chip + --opus</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip" style="--c: var(--sonnet)"><i></i>Sonnet 5.5</span></div><div class="l"><span>Model: Sonnet</span><code>.chip + --sonnet</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip" style="--c: var(--haiku)"><i></i>Haiku 5.5</span></div><div class="l"><span>Model: Haiku</span><code>.chip + --haiku</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip" style="--c: var(--fable)"><i></i>Fable 5.1</span></div><div class="l"><span>Model: Fable</span><code>.chip + --fable</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip" style="--c: var(--other)"><i></i>llama-3</span></div><div class="l"><span>Model: other (not Claude)</span><code>.chip + --other</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip skill">frontend-design</span></div><div class="l"><span>Skill</span><code>.chip.skill</code></div></div>
+          <div class="cell"><div class="podium sample"><span class="chip warn">detached</span></div><div class="l"><span>Warning</span><code>.chip.warn</code></div></div>
+        </div>
+      </div>
+      <div class="rules">
+        <div class="panel use"><h3>Use when</h3><ul><li>Showing a fact that does not change on click.</li><li>Naming a model: color comes from the model token, never a literal.</li></ul></div>
+        <div class="panel avoid"><h3>Do not</h3><ul><li>Recolor a chip to show status. Use the status mark.</li><li>Put an action in a chip.</li></ul></div>
+      </div>
+      <div class="panel">
+        <h3>Tokens and classes it uses</h3>
+        <table>
+          <tr><th>Part</th><th>Source</th></tr>
+          <tr><td>Model color</td><td><code>--opus</code> <code>--sonnet</code> <code>--haiku</code> <code>--fable</code> <code>--other</code></td></tr>
+          <tr><td>Text and border</td><td><code>--ink2</code> <code>--border</code>; warn variant <code>--warn</code></td></tr>
+          <tr><td>Class</td><td><code>.chip</code> <code>.chip.skill</code> <code>.chip.warn</code></td></tr>
+          <tr><td>Component</td><td><code>components/Chips.tsx</code> <code>ModelChip</code></td></tr>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Accessibility</h3>
+        <p>A chip is text, so it needs no role. The model name is the visible text and the full model id is the tooltip. A chip never carries meaning in color alone.</p>
+      </div>
+      <div class="parity"><span class="ok" aria-hidden="true">&#10003;</span> Matches the app on <code>main</code>: rendered by <code>ModelChip</code> and checked by <code>npm run standards:parity</code>.</div>
+    </section>
+
+    <section class="view" id="v-stub" hidden>
+      <h1 id="stub-title">Page</h1>
+      <p>Same shell and rules as the Chips page: purpose, rendered samples, when to use and when not, tokens used, accessibility, and a parity line.</p>
+    </section>
+  </main>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  function setTheme(name) { if (name === "podium") root.removeAttribute("data-theme-name"); else root.setAttribute("data-theme-name", name); }
+  function setMode(mode) {
+    if (mode === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", mode);
+    document.querySelectorAll("#mode button").forEach(function (b) { b.setAttribute("aria-checked", String(b.dataset.mode === mode)); });
+  }
+  document.getElementById("theme").addEventListener("change", function (e) { setTheme(e.target.value); });
+  document.querySelectorAll("#mode button").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
+  var views = { index: "v-index", components: "v-components", chips: "v-chips", stub: "v-stub" };
+  function show() {
+    var h = (location.hash || "#index").slice(1) || "index";
+    var key = views[h] ? h : "stub";
+    Object.keys(views).forEach(function (k) { document.getElementById(views[k]).hidden = k !== key; });
+    document.getElementById("stub-title").textContent = h.charAt(0).toUpperCase() + h.slice(1);
+    document.querySelectorAll(".snav a").forEach(function (a) {
+      if (a.getAttribute("href") === "#" + h) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+  }
+  window.addEventListener("hashchange", show);
+  show();
+})();
+</script>
+</body>
+</html>
