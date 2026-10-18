@@ -1,6 +1,6 @@
 // Color theme and light/dark/system mode. The choice is kept in localStorage and applied as
 // data-theme-name (palette), data-theme (resolved light or dark) and data-mode (the choice) on <html>,
-// which themes.css and fleet.css read. index.html sets the same attributes before first paint.
+// which tokens.css and fleet.css read. index.html sets the same attributes before first paint.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readJson, writeJson } from "./storage";
 import { effectiveTheme, parseChoice, resolveMode, type Mode, type ModeChoice, type ThemeChoice } from "./themes";

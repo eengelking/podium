@@ -39,19 +39,18 @@ describe("themes", () => {
     expect(effectiveTheme("missing", "dark", list)).toBe("podium");
   });
 
-  it("keeps index.html's pre-paint script and themes.css in step with the list", () => {
+  it("keeps index.html's pre-paint script and tokens.css in step with the list", () => {
     const html = readFileSync(resolve(__dirname, "../../index.html"), "utf8");
-    const css = readFileSync(resolve(__dirname, "themes.css"), "utf8");
+    const css = readFileSync(resolve(__dirname, "tokens.css"), "utf8");
     const others = THEMES.filter((t) => t.id !== "podium");
     expect(html).toContain(`/^(${others.map((t) => t.id).join("|")})$/`);
     for (const t of others) for (const m of t.modes) expect(css).toContain(`:root[data-theme-name="${t.id}"][data-theme="${m}"] .podium {`);
   });
 
   it("defines the delegating colors in Podium's blocks and in every palette block (#98)", () => {
-    const fleet = readFileSync(resolve(__dirname, "fleet.css"), "utf8");
-    const themes = readFileSync(resolve(__dirname, "themes.css"), "utf8");
+    const themes = readFileSync(resolve(__dirname, "tokens.css"), "utf8");
     const blocks = (css: string) => css.split("}").filter((b) => /--bg:/.test(b));
-    const all = [...blocks(fleet), ...blocks(themes)];
+    const all = blocks(themes);
     expect(all.length).toBeGreaterThanOrEqual(13);
     for (const b of all) {
       expect(b, b.slice(0, 80)).toMatch(/--deleg:\s*#/);
@@ -60,10 +59,9 @@ describe("themes", () => {
   });
 
   it("defines the administrator name color in Podium's dark base and light blocks and in every palette block (#182)", () => {
-    const fleet = readFileSync(resolve(__dirname, "fleet.css"), "utf8");
-    const themes = readFileSync(resolve(__dirname, "themes.css"), "utf8");
+    const themes = readFileSync(resolve(__dirname, "tokens.css"), "utf8");
     const blocks = (css: string) => css.split("}").filter((b) => /--bg:|--good-text:/.test(b));
-    const all = [...blocks(fleet), ...blocks(themes)];
+    const all = blocks(themes);
     expect(all.length).toBeGreaterThanOrEqual(13);
     for (const b of all) expect(b, b.slice(0, 80)).toMatch(/--admin-text:\s*#/);
   });

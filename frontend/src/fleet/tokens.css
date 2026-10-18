@@ -1,4 +1,57 @@
-/* Color themes other than Podium's own, which stays in fleet.css. Each block sets every token the UI reads, on <html> (for the page background) and on .podium (which re-declares the Podium base). Selected by the attributes useTheme and the inline script in index.html set: data-theme-name is the palette, data-theme is the resolved mode. Palettes are credited in docs/THIRD_PARTY_NOTICES.md. Generated once from mockup/podium-themes.html, then edited by hand. */
+/* The one source of every color token in Podium. fleet.css imports it, docs/standards/ links it, and new mockups link it instead of carrying a :root block. Podium's own palette comes first, as the dark base with the light override, then the other themes. Each block sets every token the UI reads, on <html> (for the page background) and on .podium. Selected by the attributes useTheme and the inline script in index.html set: data-theme-name is the palette, data-theme is the resolved mode. The other palettes are credited in docs/THIRD_PARTY_NOTICES.md and were generated once from mockup/podium-themes.html. */
+:root, .podium {
+  --bg: #0d0d0d;
+  --surface: #1a1a19;
+  --raised: #222220;
+  --ink: #f0efec;
+  --ink2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --hover: rgba(255, 255, 255, 0.045);
+  --sel: rgba(255, 255, 255, 0.08);
+  --opus: #9085e9;
+  --sonnet: #3987e5;
+  --haiku: #199e70;
+  --fable: #d95926;
+  --other: #898781;
+  --good: #0ca30c;
+  --good-text: #3dbb3d;
+  --warn: #fab219;
+  --deleg: #2fa4e0;
+  --deleg-text: #5cbcf0;
+  --serious: #ec835a;
+  --crit: #d03b3b;
+  --crit-text: #ee6a6a;
+  --admin-text: #bd7705;
+  --on-good: #fff;
+  --eff-low: #f58b57; --eff-medium: #91c882; --eff-high: #5aa9f5; --eff-xhigh: #af87ff;
+  --eff-r1: #eb5f57; --eff-r2: #f58b57; --eff-r3: #fac35f; --eff-r4: #91c882; --eff-r5: #82aadc;
+  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]), :root:not([data-theme="dark"]) .podium {
+    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
+    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
+    --good-text: #006300; --crit-text: #b52a2a; --admin-text: #9b6104; --deleg: #0a7fb8; --deleg-text: #07608c;
+    --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
+    --eff-r1: #c9302c; --eff-r2: #d9601f; --eff-r3: #c99a0a; --eff-r4: #2f8f3a; --eff-r5: #4a6fd0;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"], :root[data-theme="light"] .podium {
+  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
+  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
+  --good-text: #006300; --crit-text: #b52a2a; --admin-text: #9b6104; --deleg: #0a7fb8; --deleg-text: #07608c;
+  --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
+  --eff-r1: #c9302c; --eff-r2: #d9601f; --eff-r3: #c99a0a; --eff-r4: #2f8f3a; --eff-r5: #4a6fd0;
+  color-scheme: light;
+}
 :root[data-theme-name="solarized"][data-theme="dark"],
 :root[data-theme-name="solarized"][data-theme="dark"] .podium {
   --bg: #002b36;
@@ -389,6 +442,3 @@
   --on-good: #ffffff;
   color-scheme: light;
 }
-/* Page background sits on <html>, outside .podium, so it reads --bg from the root block above. */
-:root[data-theme-name]:not([data-theme-name="podium"]):has(.podium),
-:root[data-theme-name]:not([data-theme-name="podium"]):has(.podium) body { background: var(--bg); }

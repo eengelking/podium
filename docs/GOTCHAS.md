@@ -585,7 +585,7 @@ a test checks the two match). CI (`mod-version-check`) checks the release PR int
 **Why:** A theme lives in three places:
 
 - its entry in `frontend/src/fleet/themes.ts`,
-- its light and dark token blocks in `themes.css`,
+- its light and dark token blocks in `tokens.css`,
 - the id list in the inline script in `frontend/index.html` that applies the choice before first paint.
 
 `themes.test.ts` fails if they disagree, or if a block lacks a color token such as `--deleg`, `--deleg-text` and

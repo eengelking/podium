@@ -607,9 +607,9 @@ numbers, so they stay fixed.
 21. **CSS scoping.** Every Podium rule is scoped under `.podium` and the tokens are defined on `.podium`, not
     `:root`, apart from a small document base (`html`, `body`, `#root` height and margin) in `fleet.css`.
     The theme attributes live on `<html>`: `data-theme` (resolved light or dark, as in the mockup),
-    `data-theme-name` (the palette) and `data-mode` (light, dark or system). Podium's palette stays in
-    `fleet.css`; the other five are token blocks in `themes.css`, selected by `[data-theme-name][data-theme]`,
-    which also set the page background on `<html>`. `useTheme` sets the attributes and an inline script in
+    `data-theme-name` (the palette) and `data-mode` (light, dark or system). Every palette, Podium's
+    and the other five, is a set of token blocks in `tokens.css`, the one source of color tokens (#354), selected
+    by `[data-theme-name][data-theme]`. The blocks also apply on `<html>`, which is how the page background reads `--bg`. `useTheme` sets the attributes and an inline script in
     `index.html` sets them before first paint from the same `podium.theme` value (`themes.test.ts` checks the
     two lists agree).
 22. **Routing.** `main.tsx` picks the view with `routeFor` (`route.ts`): `#/history` is the history view and
@@ -932,7 +932,7 @@ Fixed test-first (see Spec question 10).
 ### Phase 2: frontend
 
 Built: `frontend/src/fleet/` (`FleetApp`, `useFleet`, `store.ts` reducer, `logic.ts`, `chart.ts`,
-`format.ts`, `useTheme`, `themes.ts`, `themes.css`, `ThemePicker`, `useResizable`, `usePanes`, `useHotkeys`,
+`format.ts`, `useTheme`, `themes.ts`, `tokens.css`, `ThemePicker`, `useResizable`, `usePanes`, `useHotkeys`,
 `useIdle`, `useNow`, `useWallColumns`, `wallLayout.ts`, `storage.ts`, `fleet.css` and the components in 8.2)
 and hash routing in `main.tsx` (`#/` fleet, `#/history`; the old `#/usage` app was removed in #30).
 

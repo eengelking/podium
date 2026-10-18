@@ -1,5 +1,5 @@
 // The shipped color themes and the pure rules for choosing among them. The palettes themselves live in
-// themes.css, keyed by [data-theme-name] and [data-theme] on <html>. The inline script in index.html
+// tokens.css, keyed by [data-theme-name] and [data-theme] on <html>. The inline script in index.html
 // repeats parseChoice and resolveMode in miniature so the page is painted before React loads.
 export type Mode = "light" | "dark";
 export type ModeChoice = Mode | "system";

@@ -6,7 +6,7 @@ const HELP = `theme-contrast: check text and mark contrast for each theme and mo
 
 Usage: npx tsx scripts/theme-contrast.ts [options]
 
-Reads the token blocks in frontend/src/fleet/fleet.css (Podium) and themes.css (the rest).
+Reads the token blocks in frontend/src/fleet/tokens.css (Podium first, then the other themes).
 Checks, on --bg and --surface:
   text     ink, ink2, muted, good-text, crit-text,
            deleg-text, admin-text                                     need 4.5:1
@@ -30,8 +30,7 @@ const json = args.includes('--json');
 const quiet = args.includes('--quiet');
 
 const dir = new URL('../frontend/src/fleet/', import.meta.url);
-const fleet = readFileSync(new URL('fleet.css', dir), 'utf8');
-const themes = readFileSync(new URL('themes.css', dir), 'utf8');
+const themes = readFileSync(new URL('tokens.css', dir), 'utf8');
 
 type Tokens = Record<string, string>;
 
@@ -41,10 +40,10 @@ function parseBlock(body: string): Tokens {
   return t;
 }
 
-// Podium: the dark base is the first .podium block; light is the [data-theme="light"] override.
+// Podium: the dark base is the first block (`:root, .podium`); light is the [data-theme="light"] override.
 function podium(): Record<string, Tokens> {
-  const dark = parseBlock(/\n\.podium \{([\s\S]*?)\n\}/.exec(fleet)![1]);
-  const light = { ...dark, ...parseBlock(/:root\[data-theme="light"\] \.podium \{([\s\S]*?)\n\}/.exec(fleet)![1]) };
+  const dark = parseBlock(/\n:root, \.podium \{([\s\S]*?)\n\}/.exec(themes)![1]);
+  const light = { ...dark, ...parseBlock(/:root\[data-theme="light"\], :root\[data-theme="light"\] \.podium \{([\s\S]*?)\n\}/.exec(themes)![1]) };
   return { 'podium/dark': dark, 'podium/light': light };
 }
 

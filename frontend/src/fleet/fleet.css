@@ -1,63 +1,9 @@
-@import "./themes.css";
+@import "./tokens.css";
 /* Podium fleet console. Ported from mockup/podium.html. Rules are scoped under .podium, except the
    document base (html, body, #root) further down. Dark is the base; light comes
    from prefers-color-scheme or [data-theme="light"] on <html>. */
-.podium {
-  --bg: #0d0d0d;
-  --surface: #1a1a19;
-  --raised: #222220;
-  --ink: #f0efec;
-  --ink2: #c3c2b7;
-  --muted: #898781;
-  --grid: #2c2c2a;
-  --axis: #383835;
-  --border: rgba(255, 255, 255, 0.10);
-  --hover: rgba(255, 255, 255, 0.045);
-  --sel: rgba(255, 255, 255, 0.08);
-  --opus: #9085e9;
-  --sonnet: #3987e5;
-  --haiku: #199e70;
-  --fable: #d95926;
-  --other: #898781;
-  --good: #0ca30c;
-  --good-text: #3dbb3d;
-  --warn: #fab219;
-  --deleg: #2fa4e0;
-  --deleg-text: #5cbcf0;
-  --serious: #ec835a;
-  --crit: #d03b3b;
-  --crit-text: #ee6a6a;
-  --admin-text: #bd7705;
-  --on-good: #fff;
-  --eff-low: #f58b57; --eff-medium: #91c882; --eff-high: #5aa9f5; --eff-xhigh: #af87ff;
-  --eff-r1: #eb5f57; --eff-r2: #f58b57; --eff-r3: #fac35f; --eff-r4: #91c882; --eff-r5: #82aadc;
-  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .podium {
-    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
-    --good-text: #006300; --crit-text: #b52a2a; --admin-text: #9b6104; --deleg: #0a7fb8; --deleg-text: #07608c;
-    --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
-    --eff-r1: #c9302c; --eff-r2: #d9601f; --eff-r3: #c99a0a; --eff-r4: #2f8f3a; --eff-r5: #4a6fd0;
-    color-scheme: light;
-  }
-}
-:root[data-theme="light"] .podium {
-  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
-  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
-  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; --other: #6b6a64;
-  --good-text: #006300; --crit-text: #b52a2a; --admin-text: #9b6104; --deleg: #0a7fb8; --deleg-text: #07608c;
-  --eff-low: #d9601f; --eff-medium: #2f8f3a; --eff-high: #1f78c8; --eff-xhigh: #7a3fe0;
-  --eff-r1: #c9302c; --eff-r2: #d9601f; --eff-r3: #c99a0a; --eff-r4: #2f8f3a; --eff-r5: #4a6fd0;
-  color-scheme: light;
-}
-html:has(.podium), html:has(.podium) body { background: #0d0d0d; }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]):has(.podium), :root:not([data-theme="dark"]):has(.podium) body { background: #f9f9f7; } }
-:root[data-theme="light"]:has(.podium), :root[data-theme="light"]:has(.podium) body { background: #f9f9f7; }
+/* The page background sits on <html>, outside .podium, so it reads --bg from the root block in tokens.css. */
+html:has(.podium), html:has(.podium) body { background: var(--bg); }
 
 html, body, #root { height: 100%; }
 body { margin: 0; }
@@ -946,7 +892,7 @@ body.modal-open #root { filter: blur(5px); }
 .podium .tab[aria-selected="true"] { color: var(--ink); background: var(--sel); border-color: var(--axis); font-weight: 600; }
 .podium .tab .box { width: 11px; height: 11px; border: 1.5px solid currentColor; border-radius: 3px; display: grid; place-items: center; opacity: 0.7; }
 .podium .tab.done .box { background: var(--good); border-color: var(--good); opacity: 1; }
-.podium .tab.done .box::after { content: ""; width: 5px; height: 3px; border: solid var(--on-good, #fff); border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(-45deg); }
+.podium .tab.done .box::after { content: ""; width: 5px; height: 3px; border: solid var(--on-good); border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(-45deg); }
 .podium .ask .qh { font-size: 14px; font-weight: 600; margin: 0 0 10px; max-width: 70ch; text-wrap: balance; }
 .podium .ask .qhint { font-size: 12px; color: var(--muted); margin: -6px 0 10px; }
 .podium .qgrid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
