@@ -36,7 +36,10 @@ const agents = [
 const withAgents = (over: Partial<SessionView> = {}) => makeSession({ id: "s1", name: "api-refactor", agents, ...over });
 const events = [makeEvent({ id: "e1", kind: "note", text: "Started the port" }), makeEvent({ id: "e2", kind: "spawn", text: "Launched Port the invoice endpoints", agentId: "p" })];
 
-function app(sessions: SessionView[], after?: (body: HTMLElement) => Promise<void> | void, features: Record<string, boolean> = { "activity-feed": true }, wall = { notices: { "background-sessions": true }, showBackgroundSessions: false }): Screen {
+const DEFAULT_FEATURES: Record<string, boolean> = { "activity-feed": true };
+const DEFAULT_WALL = { notices: { "background-sessions": true }, showBackgroundSessions: false };
+
+function app(sessions: SessionView[], after?: (body: HTMLElement) => Promise<void> | void, features: Record<string, boolean> = DEFAULT_FEATURES, wall = DEFAULT_WALL): Screen {
   return {
     make: () => {
       vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], since: 0, live: true, enabled: true, serverTime: 2_000_000 }) })));

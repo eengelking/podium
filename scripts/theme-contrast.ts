@@ -36,7 +36,12 @@ type Tokens = Record<string, string>;
 
 function parseBlock(body: string): Tokens {
   const t: Tokens = {};
-  for (const m of body.matchAll(/--([a-z0-9-]+):([^;]+);/g)) t[m[1]] = m[2].trim(); // not `:\s*` before the value: it overlaps `[^;]+` and backtracks on a long run of spaces
+  const parts = body.split(';');
+  parts.pop(); // a last declaration with no `;` is not one
+  for (const part of parts) {
+    const m = /^\s*--([a-z0-9-]+):(.+)$/s.exec(part); // split on `;` first, so no pattern can backtrack across declarations
+    if (m) t[m[1]] = m[2].trim();
+  }
   return t;
 }
 

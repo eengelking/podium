@@ -112,9 +112,12 @@ describe("the screens", () => {
   afterEach(() => vi.useRealTimers());
 
   it("all render and reach their state", async () => {
+    const rendered: string[] = [];
     for (const [id, screen] of Object.entries(SCREENS)) {
       localStorage.clear();
       const { container } = render(screen.make());
+      expect(container.firstElementChild, `screen ${id} rendered nothing`).not.toBeNull();
+      rendered.push(id);
       try {
         await screen.act?.(container.ownerDocument.body);
       } catch (e) {
@@ -124,6 +127,7 @@ describe("the screens", () => {
       vi.unstubAllGlobals();
       screen.cleanup?.();
     }
+    expect(rendered).toEqual(Object.keys(SCREENS));
   }, 120_000);
 });
 

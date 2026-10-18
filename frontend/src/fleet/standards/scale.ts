@@ -8,6 +8,7 @@ export function valuesOf(css: string, prop: string): Array<[string, number]> {
   const re = new RegExp(`(?<![\\w-])${prop}\\s*:\\s*([^;}]+)`, "g");
   for (const m of stripComments(css).matchAll(re)) {
     const v = m[1].trim().replaceAll(/\s+/g, " ").replace(/\s*!important$/, "");
+    if (!v) continue;
     counts.set(v, (counts.get(v) ?? 0) + 1);
   }
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en", { numeric: true }));
@@ -17,7 +18,7 @@ export function valuesOf(css: string, prop: string): Array<[string, number]> {
 export function durations(css: string): Array<[string, number]> {
   const counts = new Map<string, number>();
   for (const prop of ["transition", "animation"])
-    for (const [v, n] of valuesOf(css, prop)) for (const m of v.matchAll(/(?<![\w.-])(\d*\.?\d+m?s)\b/g)) counts.set(m[1], (counts.get(m[1]) ?? 0) + n);
+    for (const [v, n] of valuesOf(css, prop)) for (const m of v.matchAll(/(?<![\w.-])((?:\d+(?:\.\d+)?|\.\d+)m?s)\b/g)) counts.set(m[1], (counts.get(m[1]) ?? 0) + n);
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "en", { numeric: true }));
 }
 

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
+import { byCodeUnit, FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
 import { effective, scalePage, themesPage, tokensPage } from "./pages";
 import { breakpoints, durations, valuesOf } from "./scale";
 import { TOKEN_DOCS, TOKEN_GROUPS } from "./tokens.meta";
@@ -14,6 +14,25 @@ const css = `
 @media (max-width: 520px) { .a { margin: 0; } }
 @container (min-width: 800px) { .b { margin: 0; } }
 `;
+
+describe("scale readers on hostile input", () => {
+  const fast = (run: () => unknown) => {
+    const t0 = performance.now();
+    run();
+    expect(performance.now() - t0).toBeLessThan(1000);
+  };
+
+  it("valuesOf finishes on a long run of spaces and of repeats", () => {
+    fast(() => valuesOf(`width${" ".repeat(200_000)}`, "width"));
+    fast(() => valuesOf("width: ".repeat(30_000), "width"));
+  });
+
+  it("durations finishes on a long run of digits", () => fast(() => durations(`.a { transition: ${"1".repeat(200_000)}x; }`)));
+
+  it("durations reads 1s, 0.5s, .25s and 200ms", () => {
+    expect(durations(".a { transition: a 1s, b 0.5s, c .25s, d 200ms; }").map(([v]) => v).sort(byCodeUnit)).toEqual([".25s", "0.5s", "1s", "200ms"]);
+  });
+});
 
 describe("scale readers", () => {
   it("counts each value of a property, most used first, ignoring comments and !important", () => {
@@ -80,7 +99,7 @@ describe("the contrast text on the themes page", () => {
 describe.runIf(process.env.STANDARDS_PARITY === "1" || process.env.STANDARDS_WRITE === "1")("token docs match tokens.css", () => {
   it("describes every token, and only tokens that exist, in a known group", () => {
     const real = tokenBlocks(readFileSync(join(FLEET_DIR, "tokens.css"), "utf8")).flatMap((b) => Object.keys(b.tokens));
-    expect([...new Set(real)].sort()).toEqual(Object.keys(TOKEN_DOCS).sort());
+    expect([...new Set(real)].sort(byCodeUnit)).toEqual(Object.keys(TOKEN_DOCS).sort(byCodeUnit));
     for (const d of Object.values(TOKEN_DOCS)) expect(TOKEN_GROUPS).toContain(d.group);
   });
 });

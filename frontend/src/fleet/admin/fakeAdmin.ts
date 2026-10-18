@@ -44,7 +44,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     forget: { enabled: false, days: 30 },
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
-      { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 },
+      { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
     ] as { key: string; state: string; name: string; named: boolean; who: string; credential: string | null; adminSecret: boolean; version: string; compat: string; firstSeenAt: number; lastSeenAt: number; sessions: number; live: number }[],
   };
   const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
@@ -56,7 +56,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     return Array.from({ length: Math.max(0, Math.min(size, total - from)) }, (_, i) => ({ id: `s${from + i + 1}`, name: `session-${from + i + 1}`, status: "ended", lastSeenAt: 99_000 - from - i, costUsd: 1.84 }));
   };
   const fetchFn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(String(input), "http://x");
+    const url = new URL(String(input), "https://x");
     const method = init?.method ?? "GET";
     const path = url.pathname.replace("/api/admin", "");
     state.calls.push(`${method} ${path}${url.search}`);
@@ -148,10 +148,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         state.reporters = state.reporters.filter((x) => x.key !== key);
         return json(200, { ok: true });
       }
-      return json(200, { ...r, kind: "mod", machineId: key.includes(":") ? null : key, source: "192.168.1.24", credential: "pdm_3f9a1c07b2e4", engineVersion: "2.1.299", recent: recentPage(r.sessions, url), recentTotal: r.sessions, recentPage: Number(url.searchParams.get("page") ?? 1), recentPageSize: Number(url.searchParams.get("pageSize") ?? 50), rejected: [{ t: 50_000, reason: "wrong token" }], serverTime: 100_000, serverStartedAt: 50_000 });
+      return json(200, { ...r, kind: "mod", machineId: key.includes(":") ? null : key, source: "192.168.1.24", credential: "pdm_3f9a1c07b2e4", engineVersion: "2.1.299", recent: recentPage(r.sessions, url), recentTotal: r.sessions, recentPage: Number(url.searchParams.get("page") ?? 1), recentPageSize: Number(url.searchParams.get("pageSize") ?? 50), rejected: [{ t: 50_000, reason: "wrong token" }], serverTime: 100_000, serverStartedAt: 50_000 }); // NOSONAR S1313: a made-up private address in a fake server, never connected to
     }
     if (path === "/groups") return json(200, { total: 0, page: 1, pageSize: 50, rows: [] });
-    if (path === "/log") return json(200, { retainMs: 90 * 86_400_000, total: 1, page: 1, pageSize: 50, rows: [{ id: 1, t: 1, kind: "unlock_failed", detail: "Wrong secret (1)", source: "10.0.0.1" }] });
+    if (path === "/log") return json(200, { retainMs: 90 * 86_400_000, total: 1, page: 1, pageSize: 50, rows: [{ id: 1, t: 1, kind: "unlock_failed", detail: "Wrong secret (1)", source: "10.0.0.1" }] }); // NOSONAR S1313: a made-up private address in a fake server, never connected to
     if (path === "/settings" && method === "PUT") {
       const b = JSON.parse(String(init?.body));
       state.bodies.push(b);

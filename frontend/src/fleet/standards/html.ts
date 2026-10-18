@@ -1,5 +1,6 @@
 // Builds the standards pages' HTML (#354). Pure string functions, so they run without a browser and a test can check them.
 // The pages themselves are generated from the app (see build.tsx), never edited by hand, which is how they stay identical to it.
+import { byCodeUnit } from "../../../../scripts/standards-inventory";
 import { THEMES } from "../themes";
 
 export const FONTS_HREF = "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap";
@@ -100,7 +101,7 @@ export function normalizeIds(html: string): string {
 export function classesIn(html: string): string[] {
   const out = new Set<string>();
   for (const m of html.matchAll(/\sclass="([^"]*)"/g)) for (const c of m[1].split(/\s+/)) if (c) out.add(c);
-  return [...out].sort();
+  return [...out].sort(byCodeUnit);
 }
 
 export interface SectionSpec {

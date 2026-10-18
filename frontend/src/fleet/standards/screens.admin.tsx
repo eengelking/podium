@@ -21,7 +21,7 @@ type Fetch = typeof fetch;
 /** Wraps the fake server's fetch so one path answers differently. */
 function answer(path: string, reply: () => Response | Promise<Response>) {
   const base = globalThis.fetch as Fetch;
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => (new URL(String(input), "http://x").pathname.endsWith(path) ? reply() : base(input, init)));
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => (new URL(String(input), "https://x").pathname.endsWith(path) ? reply() : base(input, init)));
 }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 

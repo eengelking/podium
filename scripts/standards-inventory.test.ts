@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classNames, colorLiterals, customPropDefs, customPropUses, stripComments, tokenBlocks } from "./standards-inventory";
+import { byCodeUnit, classNames, colorLiterals, customPropDecls, customPropDefs, customPropUses, stripComments, tokenBlocks } from "./standards-inventory";
 
 describe("stripComments", () => {
   it("removes CSS and JS block comments and line comments, keeping line numbers", () => {
@@ -65,5 +65,38 @@ describe("tokenBlocks", () => {
     expect(blocks.map((b) => b.selector)).toEqual([":root, .podium", ':root[data-theme-name="nord"][data-theme="dark"], :root[data-theme-name="nord"][data-theme="dark"] .podium']);
     expect(blocks[0].tokens).toEqual({ bg: "#000", ink: "#fff" });
     expect(blocks[1].tokens).toEqual({ bg: "#2e3440" });
+  });
+});
+
+// Each of these inputs made the old pattern rescan the rest of the text from every start, so the time grew with the square of the length.
+describe("hostile input", () => {
+  const long = 200_000;
+  const fast = (run: () => unknown) => {
+    const t0 = performance.now();
+    run();
+    expect(performance.now() - t0).toBeLessThan(1000);
+  };
+
+  it("classNames finishes on a run of unclosed [", () => fast(() => classNames(".a { x: 1 } " + "[".repeat(long))));
+  it("tokenBlocks finishes on text with no braces and on a run of {", () => {
+    fast(() => tokenBlocks("a".repeat(long)));
+    fast(() => tokenBlocks("{".repeat(long)));
+  });
+  it("customPropDecls finishes on a run of --a: with no ;", () => fast(() => customPropDecls("--a:".repeat(long / 4))));
+
+  it("customPropDecls reads declarations and leaves out one with no closing ;", () => {
+    expect(customPropDecls(" --a: 1;\n --b-c :\n 2 ; --d: 3")).toEqual({ a: "1", "b-c": "2" });
+  });
+
+  it("tokenBlocks still reads a block after a media block and marks it", () => {
+    const blocks = tokenBlocks("@media (x) { :root { --a: 1; } }\n.p { --b: 2; }");
+    expect(blocks.map((b) => [b.selector, b.inMedia])).toEqual([[":root", true], [".p", false]]);
+  });
+});
+
+describe("byCodeUnit", () => {
+  it("orders by code unit like .sort() does, and returns 0 for equal text", () => {
+    expect(["b", "B", "a", "_x", "a"].sort(byCodeUnit)).toEqual(["B", "_x", "a", "a", "b"]);
+    expect(byCodeUnit("a", "a")).toBe(0);
   });
 });

@@ -78,7 +78,7 @@ export function classNames(css: string): Set<string> {
     t = t.replaceAll(/\{[^{}]*\}/g, "{}");
   }
   // An attribute selector's value can hold a dot (`[href$=".pdf"]`), and that is not a class.
-  t = t.replaceAll(/\[[^\]]*\]/g, "");
+  t = t.replaceAll(/\[[^[\]]*\]/g, ""); // `[^[\]]`, not `[^\]]`: a run of unclosed `[` would otherwise rescan to the end from each one
   const out = new Set<string>();
   for (const m of t.matchAll(/(?<!\d)\.([a-zA-Z_][\w-]*)/g)) out.add(m[1]);
   return out;
@@ -94,20 +94,60 @@ export interface TokenBlock {
 export function tokenBlocks(css: string): TokenBlock[] {
   const t = stripComments(css);
   const out: TokenBlock[] = [];
-  for (const m of t.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const tokens: Record<string, string> = {};
-    for (const d of m[2].matchAll(/--([a-zA-Z0-9-]+)\s*:([^;]+);/g)) tokens[d[1]] = d[2].trim();
-    if (!Object.keys(tokens).length) continue;
-    const before = t.slice(0, m.index);
-    out.push({ selector: m[1].trim().replaceAll(/\s+/g, " "), inMedia: before.split("{").length - before.split("}").length > 0, tokens });
+  // A block is a `{` closed by the next brace when that is a `}`; its selector is the text since the brace before the `{`.
+  // Walking the braces once keeps this linear on any input.
+  let from = 0; // just after the previous brace
+  let selStart = -1;
+  let open = -1;
+  let depth = 0; // braces opened minus closed so far, which is how deep a block sits (inside an @media when above 0)
+  let openDepth = 0;
+  for (const b of t.matchAll(/[{}]/g)) {
+    const at = b.index;
+    if (b[0] === "{") {
+      open = at;
+      selStart = from;
+      openDepth = depth;
+      depth++;
+    } else {
+      depth--;
+      if (open < 0) {
+        from = at + 1;
+        continue;
+      }
+      const tokens = customPropDecls(t.slice(open + 1, at));
+      const selector = t.slice(selStart, open);
+      if (selector && Object.keys(tokens).length) {
+        out.push({ selector: selector.trim().replaceAll(/\s+/g, " "), inMedia: openDepth > 0, tokens });
+      }
+      open = -1;
+    }
+    from = at + 1;
   }
   return out;
+}
+
+/** The `--name: value;` declarations of one block body. A last declaration with no `;` after it is not counted. */
+export function customPropDecls(body: string): Record<string, string> {
+  const tokens: Record<string, string> = {};
+  const parts = body.split(";");
+  parts.pop();
+  for (const part of parts) {
+    const d = /^\s*--([a-zA-Z0-9-]+)\s*:(.+)$/s.exec(part);
+    if (d) tokens[d[1]] = d[2].trim();
+  }
+  return tokens;
+}
+
+/** Orders strings by code unit, the order `.sort()` gives, spelled out so it is plain that it is chosen. */
+export function byCodeUnit(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 function walk(dir: string, keep: (f: string) => boolean): string[] {
   return readdirSync(dir, { withFileTypes: true })
     .flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name), keep) : keep(e.name) ? [join(dir, e.name)] : []))
-    .sort();
+    .sort(byCodeUnit);
 }
 
 export interface Inventory {
@@ -141,11 +181,11 @@ export function inventory(dir: string = FLEET_DIR, chrome: string | null = CHROM
 
   return {
     tokens: tokenBlocks(css["tokens.css"]),
-    classes: [...classes].sort(),
+    classes: [...classes].sort(byCodeUnit),
     // A file named use* is a hook that happens to hold JSX (a provider), not a component with a look of its own.
     components: tsx.filter((f) => (f.startsWith("components/") || f.startsWith("admin/") || !f.includes("/")) && !/(^|\/)use[A-Z]/.test(f)),
     literals,
-    undefined: [...uses].filter((n) => !defs.has(n)).sort(),
+    undefined: [...uses].filter((n) => !defs.has(n)).sort(byCodeUnit),
   };
 }
 
