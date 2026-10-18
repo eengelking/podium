@@ -8,6 +8,7 @@
 // register, which resets them, and session.start rebuilds the state from the engine).
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from './git.ts';
+import { follow } from './place.ts';
 import { shortName } from './models.ts';
 import { buildReport, repoFromRemote } from './report.ts';
 import {
@@ -429,41 +430,12 @@ async function readAgents($: Engine, r: Runtime, now: number): Promise<void> {
   }
 }
 
-/** Whether `dir` is `folder` or inside it. */
-function holds(folder: string | null | undefined, dir: string): boolean {
-  return !!folder && (dir === folder || dir.startsWith(folder.endsWith('/') ? folder : `${folder}/`));
-}
-
-/** The project root and repository name for `cwd`, from `$.session` while its answer holds `cwd`, else from git run there, else the folder itself (#382). */
-async function placeOf($: Engine, cwd: string): Promise<{ projectRoot: string; repoName: string }> {
-  const root = await attempt<string | null>(() => $.session.root(), null);
-  const repo = await attempt(() => $.session.repo(), null);
-  const base = repo?.root ?? root;
-  if (base && holds(base, cwd)) return { projectRoot: base, repoName: repo?.name ?? repoFromRemote(repo?.remote) ?? lastSegment(base) };
-  const git = async (argv: string[]) => {
-    const res = await attempt(() => $.process.run(argv, { cwd, timeoutMs: 5000 }), null);
-    return res && res.exitCode === 0 ? res.stdout.trim() : '';
-  };
-  const common = await git(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']);
-  const projectRoot = common ? common.replace(/\/\.git\/?$/, '') : cwd;
-  return { projectRoot, repoName: repoFromRemote(await git(['git', 'config', '--get', 'remote.origin.url'])) ?? lastSegment(projectRoot) };
-}
-
-/**
- * Take the folder the session has moved to (#382): the desktop app moves a pre-warmed spare to the project the person picked
- * without restarting it. The folder is the hook's `cwd` when one is given, else what `$.session.cwd()` answers once that
- * answer has changed. Returns whether the place changed.
- */
+/** Take the folder the session has moved to (#382; place.ts decides). Returns whether the place changed. */
 async function movePlace($: Engine, r: Runtime, hookCwd?: string): Promise<boolean> {
-  const seen = await attempt<string | null>(() => $.session.cwd(), null);
-  const sessionMoved = !!seen && seen !== r.sessionCwd;
-  if (seen) r.sessionCwd = seen;
-  // A hook's cwd follows the shell, so a `cd` into a subfolder of the place already reported is not a move.
-  const inside = !!hookCwd && (holds(r.state.cwd, hookCwd) || holds(r.state.projectRoot, hookCwd));
-  const cwd = (inside ? null : hookCwd) || (sessionMoved ? seen : null) || r.state.cwd;
-  if (cwd === r.state.cwd) return false;
-  r.state = setIdentity(r.state, { cwd, ...(await placeOf($, cwd)) });
-  return true;
+  const m = await follow($, { sessionCwd: r.sessionCwd, cwd: r.state.cwd, projectRoot: r.state.projectRoot }, hookCwd);
+  r.sessionCwd = m.sessionCwd;
+  if (m.place) r.state = setIdentity(r.state, m.place);
+  return !!m.place;
 }
 
 async function pollGit($: Engine, r: Runtime): Promise<void> {
@@ -1173,13 +1145,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
 
 /** A hook carries Claude Code's current `cwd`: take it when the session has moved there, and read git in the new folder at once (#382). */
 async function movedBy($: Engine, cwd: string | undefined): Promise<void> {
-  const r = rt;
-  if (!r || typeof cwd !== 'string') return;
-  try {
-    if (await movePlace($, r, cwd)) void pollGit($, r);
-  } catch (err) {
-    record($, 'place', err);
-  }
+  // The hook's own .catch passes the event on if this ever throws; `follow` answers a failing $.session call itself.
+  if (rt && typeof cwd === 'string' && (await movePlace($, rt, cwd))) void pollGit($, rt);
 }
 
 /** session.end: the final report, awaited, inside a deadline on the engine's clock. */
