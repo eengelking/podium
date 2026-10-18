@@ -47,6 +47,6 @@ while :; do
       }
     });'
   n=$((n + 1))
-  if [ "$count" -gt 0 ] && [ "$n" -ge "$count" ]; then break; fi
+  if [[ "$count" -gt 0 && "$n" -ge "$count" ]]; then break; fi
   sleep "$interval"
 done

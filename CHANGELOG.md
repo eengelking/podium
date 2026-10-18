@@ -38,7 +38,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
-- **The simulator no longer prints a server's reply or a person's name unfiltered (#367).** `scripts/podium-sim.ts` turns newlines and other control characters into spaces before it logs a refusal, a rejected report or an error, so a reply cannot forge a log line. The reporter's `Math.random` fallback is unchanged: it only runs where the sandbox has no `crypto`, and the value is a machine label, not a secret. Dev tool only; nothing changes for a running Podium.
+- **The simulator no longer prints a server's reply or a person's name unfiltered (#367).** `scripts/podium-sim.ts` turns newlines and other control characters into spaces before it logs a refused or rejected report, so a reply cannot forge a log line. The reporter's `Math.random` fallback is unchanged: it only runs where the sandbox has no `crypto`, and the value is a machine label, not a secret. Dev tool only; nothing changes for a running Podium.
+- **The two sampling scripts use `[[` instead of `[` (#368).** `scripts/gpu-sample.sh` and `scripts/agent-tokens-sample.sh` are bash scripts, so the six tests SonarCloud flagged (rule S7688) now use `[[ ... ]]`, and the two tests joined by `&&` in the token sampler became one. Behavior is unchanged; both scripts were run once afterward.
 - **Four accessibility findings from SonarCloud are fixed (#365).** The theme picker's Light, Dark and System buttons each handle the arrow keys themselves instead of the group around them, the sign-in page focuses the Name field from code instead of `autoFocus`, and the model price table's error is an alert inside its cell instead of on the cell. Keyboard behavior is unchanged.
 
 ## [1.1.0] - 2026-10-16
