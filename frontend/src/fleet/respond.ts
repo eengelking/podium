@@ -137,10 +137,17 @@ export function deliverySummary(detail: Pick<AskDetail, "ask">, d: Delivery): st
   }
 }
 
+const MARK = "(recommended)";
+
 /** Claude Code marks a recommended option by ending its label with "(Recommended)": shown as a tag instead. */
 export function cleanLabel(label: string): { label: string; recommended: boolean } {
-  const m = /^(.*?)\s*\(Recommended\)\s*$/i.exec(label);
-  return m ? { label: m[1]!, recommended: true } : { label, recommended: false };
+  // Not a regex, which is quadratic on a long run of spaces (#362). The text before the mark may not hold a line break.
+  const t = label.trimEnd();
+  if (t.length >= MARK.length && t.slice(-MARK.length).toLowerCase() === MARK) {
+    const head = t.slice(0, -MARK.length).trimEnd();
+    if (!/[\n\r\u2028\u2029]/.test(head)) return { label: head, recommended: true };
+  }
+  return { label, recommended: false };
 }
 
 /** The two commands Podium can send, as the typeahead lists them. */

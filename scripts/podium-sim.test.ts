@@ -61,6 +61,15 @@ describe('podium-sim', () => {
     expect(() => parseArgs(['--bogus'])).toThrow();
   });
 
+  it('drops trailing slashes from --url, in linear time (#362)', () => {
+    expect(parseArgs(['--url', 'http://h:1///'])).toMatchObject({ url: 'http://h:1' });
+    expect(parseArgs(['--url', '///'])).toMatchObject({ url: '' });
+    expect(parseArgs(['--url', 'a / '])).toMatchObject({ url: 'a / ' });
+    const start = Date.now();
+    expect(parseArgs(['--url', `${'/'.repeat(100_000)}x`])).toMatchObject({ url: `${'/'.repeat(100_000)}x` });
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
   it('parses people and the unnamed share', () => {
     expect(parseArgs(['--person', 'Ed E.=pdm_a_b', '--person', 'Priya N.', '--unnamed'])).toMatchObject({
       people: [{ name: 'Ed E.', token: 'pdm_a_b' }, { name: 'Priya N.', token: null }],

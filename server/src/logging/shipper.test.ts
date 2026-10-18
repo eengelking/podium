@@ -6,6 +6,21 @@ import { LogShipper, parseShipHeaders, shipUrl } from './shipper.js';
 
 type Call = { url: string; init: RequestInit };
 
+describe('shipUrl trailing slashes (#362)', () => {
+  it('ignores trailing slashes when deciding whether to append the ingest path', () => {
+    expect(shipUrl('http://h:9428')).toContain('http://h:9428/insert/jsonline?');
+    expect(shipUrl('http://h:9428///')).toContain('http://h:9428/insert/jsonline?');
+    expect(shipUrl('http://h/prefix/')).toContain('http://h/prefix/insert/jsonline?');
+    expect(shipUrl('http://h/insert/jsonline//')).toContain('http://h/insert/jsonline//?');
+  });
+
+  it('copes with a very long run of slashes in linear time', () => {
+    const start = Date.now();
+    expect(shipUrl(`http://h/${'/'.repeat(100_000)}x`)).toContain('/x/insert/jsonline?');
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+});
+
 /** A fetch stand-in that records each call and answers with `status` (or never, when `hang`). */
 function fakeFetch(opts: { status?: number; hang?: boolean; fail?: boolean } = {}) {
   const calls: Call[] = [];

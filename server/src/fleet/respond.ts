@@ -129,6 +129,15 @@ function toolShort(ask: Ask): string {
   return t.name;
 }
 
+const RECOMMENDED_MARK = '(recommended)';
+
+/** A label without a trailing "(Recommended)" mark, in any case, and the space before it. Not a regex, which is quadratic on a long run of spaces (#362). */
+function withoutRecommended(label: string): string {
+  const t = label.trimEnd();
+  if (t.length < RECOMMENDED_MARK.length || t.slice(-RECOMMENDED_MARK.length).toLowerCase() !== RECOMMENDED_MARK) return label;
+  return t.slice(0, -RECOMMENDED_MARK.length).trimEnd();
+}
+
 /** What a question answer reads as: each answered question's options (joined with ", ") or typed text, joined with "; ". */
 export function questionSummary(ask: Ask, answers: readonly QuestionAnswer[]): string {
   return (ask.questions ?? [])
@@ -137,7 +146,7 @@ export function questionSummary(ask: Ask, answers: readonly QuestionAnswer[]): s
       if (!a) return '';
       if ('text' in a) return a.text.trim();
       // Without Claude Code's "(Recommended)" mark, as the console shows the option (cleanLabel) and the mockup the answer.
-      return a.options.map((n) => (q.options[n]?.label ?? '').replace(/\s*\(Recommended\)\s*$/i, '')).join(', ');
+      return a.options.map((n) => withoutRecommended(q.options[n]?.label ?? '')).join(', ');
     })
     .filter(Boolean)
     .join('; ');

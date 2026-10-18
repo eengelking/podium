@@ -3,7 +3,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
-import { canAnswer, respondGate } from "./respond";
+import { canAnswer, cleanLabel, respondGate } from "./respond";
 import { RespondProvider, useRespond } from "./useRespond";
 import { RespondButton, RespondModal } from "./components/Respond";
 import { TopBar } from "./components/TopBar";
@@ -90,6 +90,27 @@ async function modal(s: SessionView, api: RespondApi, flagsOn = true) {
   await flush();
   return r;
 }
+
+describe("cleanLabel (#362)", () => {
+  it("splits a trailing (Recommended) mark off a label, however it is cased or spaced", () => {
+    expect(cleanLabel("X (recommended)  ")).toEqual({ label: "X", recommended: true });
+    expect(cleanLabel("X(RECOMMENDED)")).toEqual({ label: "X", recommended: true });
+    expect(cleanLabel("(Recommended)")).toEqual({ label: "", recommended: true });
+    expect(cleanLabel("A (Recommended) B (Recommended)")).toEqual({ label: "A (Recommended) B", recommended: true });
+    expect(cleanLabel("a\n(Recommended)")).toEqual({ label: "a", recommended: true });
+    expect(cleanLabel("Plain  ")).toEqual({ label: "Plain  ", recommended: false });
+    expect(cleanLabel("(Recommended) later")).toEqual({ label: "(Recommended) later", recommended: false });
+    // The label text itself may not hold a line break: such a label is left alone.
+    expect(cleanLabel("a\nb (Recommended)")).toEqual({ label: "a\nb (Recommended)", recommended: false });
+  });
+
+  it("finishes quickly on a very long label with no mark", () => {
+    const start = Date.now();
+    expect(cleanLabel(" ".repeat(100_000) + "x").recommended).toBe(false);
+    expect(cleanLabel("(Recommended" + " ".repeat(100_000)).recommended).toBe(false);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+});
 
 describe("the Respond button", () => {
   it("is live on a waiting card, with the number of questions, and gone with a switch off or an old reporter", () => {

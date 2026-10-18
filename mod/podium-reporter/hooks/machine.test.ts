@@ -1,7 +1,20 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { hostOf, isMachineId, machineIdPath, machineInfo, newMachineId, parseMachineIdFile } from './machine.ts'
+import { hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, parseMachineIdFile } from './machine.ts'
 
 describe('machine', () => {
+  test('trailing slashes are dropped from a URL, in linear time (#362)', () => {
+    expect(trimTrailingSlashes('http://h:1///')).toBe('http://h:1')
+    expect(trimTrailingSlashes('http://h:1')).toBe('http://h:1')
+    expect(trimTrailingSlashes('///')).toBe('')
+    expect(trimTrailingSlashes('')).toBe('')
+    expect(trimTrailingSlashes('a / ')).toBe('a / ')
+    expect(trimTrailingSlashes('/a/b/')).toBe('/a/b')
+    const long = '/'.repeat(100_000) + 'x'
+    const start = Date.now()
+    expect(trimTrailingSlashes(long)).toBe(long)
+    expect(Date.now() - start).toBeLessThan(1000)
+  })
+
   test('the host name is the first line up to the first dot, with no control characters', () => {
     expect(hostOf('Eds-MacBook-Pro.local\n')).toBe('Eds-MacBook-Pro')
     expect(hostOf('build-01.corp.example.com')).toBe('build-01')

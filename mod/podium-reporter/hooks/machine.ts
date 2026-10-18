@@ -16,6 +16,13 @@ export function hostOf(stdout: string | null | undefined): string | null {
   return host ? host.slice(0, HOST_MAX) : null;
 }
 
+/** `s` without the `/` characters at its end. A loop, not `/\/+$/`, which is quadratic on a long run of slashes (#362). */
+export function trimTrailingSlashes(s: string): string {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
+}
+
 /** A stored id this reporter made: 8 to 32 lowercase hex characters. */
 export function isMachineId(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{8,32}$/.test(v);
@@ -29,7 +36,7 @@ export const MACHINE_ID_FILE = 'podium-machine-id';
  * neither is known, in which case the id stays in the mod's store alone.
  */
 export function machineIdPath(configDir: string | undefined, home: string | undefined): string | null {
-  const trim = (p: string | undefined) => (p ?? '').trim().replace(/\/+$/, '');
+  const trim = (p: string | undefined) => trimTrailingSlashes((p ?? '').trim());
   const dir = trim(configDir) || (trim(home) ? `${trim(home)}/.claude` : '');
   // A relative directory would land under each session's own working directory, so loads would disagree.
   return /^(\/|[A-Za-z]:[\\/])/.test(dir) ? `${dir}/${MACHINE_ID_FILE}` : null;
