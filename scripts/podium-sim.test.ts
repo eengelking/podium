@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseArgs, Simulator } from './podium-sim.ts';
+import { logSafe, parseArgs, Simulator } from './podium-sim.ts';
 import { MAIN_LOOP, validateReport, type Report } from '../server/src/fleet/protocol.ts';
 
 function run(seed: number, ticks: number, chaos = false): Report[] {
@@ -170,5 +170,13 @@ describe('podium-sim', () => {
 
   it('sends no name or machine without --person', () => {
     expect(run(4, 20).some((r) => 'userName' in r || 'machine' in r)).toBe(false);
+  });
+});
+
+describe('logSafe', () => {
+  it('replaces newlines and control characters so logged input cannot forge a log line', () => {
+    expect(logSafe('ok\nFAKE podium-sim: forged\r\u001b[31m')).toBe('ok FAKE podium-sim: forged  [31m');
+    expect(logSafe('a\u0085b c d')).toBe('a b c d');
+    expect(logSafe('plain text')).toBe('plain text');
   });
 });

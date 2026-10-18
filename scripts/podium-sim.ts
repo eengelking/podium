@@ -943,6 +943,17 @@ export function parseArgs(argv: string[]): Args | 'help' {
   return a;
 }
 
+/** A value made safe to print: newlines and other control characters become spaces, so it cannot forge a log line. */
+export function logSafe(s: string): string {
+  // C0 and C1 controls, DEL, and the Unicode line/paragraph separators.
+  let out = '';
+  for (const ch of s) {
+    const code = ch.codePointAt(0)!;
+    out += code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029 ? ' ' : ch;
+  }
+  return out;
+}
+
 /** Refusals already printed, so a wrong token is reported once and not every second. */
 const refused = new Set<string>();
 
@@ -955,12 +966,12 @@ async function post(args: Args, report: Report, token: string | null = null): Pr
       const who = `${res.status}:${report.userName ?? ''}`;
       if (refused.has(who)) return null;
       refused.add(who);
-      console.error(`podium-sim: report refused (${res.status}) for ${report.userName ?? 'a session with no name'}: ${(await res.text()).slice(0, 200)}`);
+      console.error(`podium-sim: report refused (${res.status}) for ${logSafe(report.userName ?? 'a session with no name')}: ${logSafe((await res.text()).slice(0, 200))}`);
       return null;
     }
     if (res.status === 400) {
       const body = await res.text();
-      console.error(`podium-sim: report rejected: ${body.slice(0, 200)}`);
+      console.error(`podium-sim: report rejected: ${logSafe(body.slice(0, 200))}`);
       return { acked: report.events.length, watch: [] }; // never retry a 400
     }
     if (!res.ok) return null;
@@ -976,7 +987,7 @@ async function main() {
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
-    console.error(`podium-sim: ${(err as Error).message}`);
+    console.error(`podium-sim: ${logSafe((err as Error).message)}`);
     process.exit(2);
   }
   if (args === 'help') {
@@ -1000,7 +1011,7 @@ async function main() {
   }
 
   const sim = new Simulator({ sessions: a.sessions, seed: a.seed, chaos: a.chaos, extraAgents: a.agents, reporterVersion: a.reporterVersion, now: Date.now, home: os.homedir(), people: a.people, unnamed: a.unnamed, nested: a.nested });
-  console.log(`podium-sim: ${a.sessions} sessions, seed ${a.seed}, speed ${a.speed}${a.chaos ? ', chaos' : ''}${a.nested ? ', nested' : ''} -> ${a.url}`);
+  console.log(`podium-sim: ${a.sessions} sessions, seed ${a.seed}, speed ${a.speed}${a.chaos ? ', chaos' : ''}${a.nested ? ', nested' : ''} -> ${logSafe(a.url)}`);
   let stopping = false;
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -1016,7 +1027,7 @@ async function main() {
       sim.watch(r.session.id, n.watch);
     });
     const failed = acks.filter((n) => n === null).length;
-    if (failed && failures++ % 10 === 0) console.error(`podium-sim: ${failed} of ${reports.length} reports failed (is the server at ${a.url}?)`);
+    if (failed && failures++ % 10 === 0) console.error(`podium-sim: ${failed} of ${reports.length} reports failed (is the server at ${logSafe(a.url)}?)`);
     if (!stopping) timer = setTimeout(tick, 1000 / a.speed);
   };
 
