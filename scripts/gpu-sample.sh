@@ -18,10 +18,10 @@ EOF
 }
 
 seconds=60 window=0 skip=0 csv=""
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --seconds|--window|--skip|--csv)
-      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; usage >&2; exit 2; }
+      [[ $# -ge 2 ]] || { echo "$1 needs a value" >&2; usage >&2; exit 2; }
       case "$1" in
         --seconds) seconds="$2" ;; --window) window="$2" ;; --skip) skip="$2" ;; --csv) csv="$2" ;;
       esac
@@ -33,7 +33,7 @@ done
 for n in "$seconds" "$window" "$skip"; do
   case "$n" in ''|*[!0-9]*) echo "--seconds, --window and --skip take whole numbers" >&2; exit 2 ;; esac
 done
-[ "$window" -gt 0 ] || window="$seconds"
+[[ "$window" -gt 0 ]] || window="$seconds"
 
 start=$(date +%s)
 rows=""
@@ -43,7 +43,7 @@ for _ in $(seq 1 "$seconds"); do
   rows+="${elapsed},${pct:-0}"$'\n'
   sleep 1
 done
-[ -z "$csv" ] || printf '%s' "$rows" > "$csv"
+[[ -z "$csv" ]] || printf '%s' "$rows" > "$csv"
 printf '%s' "$rows" | awk -F, -v w="$window" -v k="$skip" '
   { i = int($1 / w); t = $1 - i * w; if (t < k) next
     s[i] += $2; c[i]++; if (!(i in lo) || $2 < lo[i]) lo[i] = $2; if ($2 > hi[i]) hi[i] = $2; if (i > last) last = i }
