@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium Rail Pager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Issue #242: the left panel pages its orchestrator list once the list would need a scrollbar. The pager is Podium's own
+   page footer (the Files and Plan tabs use it), pinned to the bottom of the panel, directly above the credits footer.
+   A page is as many rows as fit the panel's height, so a tall window shows more per page than a short one (the page size
+   below is measured from each frame's height, the way the real rail will measure). With the people view on, pages hold
+   rows, and a band that continues onto a page gets its header repeated, marked "continued". The "All orchestrators" row
+   and the selected row stay reachable: a selection on another page shows a pointer line in the pager saying which page.
+   Example data only. */
+:root {
+  --bg: #0d0d0d; --surface: #1a1a19; --raised: #222220; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.045); --sel: rgba(255,255,255,0.08);
+  --opus: #9085e9; --sonnet: #3987e5; --haiku: #199e70; --fable: #d95926;
+  --good: #0ca30c; --warn: #fab219; --serious: #ec835a;
+  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
+    --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f9f9f7; --surface: #fcfcfb; --raised: #f1f0ec; --ink: #0b0b0b; --ink2: #52514e; --muted: #6b6a64;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04); --sel: rgba(11,11,11,0.07);
+  --opus: #6250d6; --sonnet: #2a78d6; --haiku: #1baf7a; --fable: #eb6834; color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px 16px 40px; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: inherit; }
+button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; border-radius: 4px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+h1 { font-size: 17px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.lede { color: var(--ink2); max-width: 78ch; margin: 0 0 18px; }
+.row { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 26px; }
+.case { display: grid; gap: 6px; }
+.case h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
+.case p { margin: 0; max-width: 252px; font-size: 12px; color: var(--ink2); }
+
+/* the rail, as in the app: 252px wide, a flex column so the footer sits at the bottom */
+.rail { width: 252px; display: flex; flex-direction: column; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; overflow: hidden; }
+.rail-head { padding: 12px 14px 6px; display: flex; justify-content: space-between; align-items: baseline; flex: none; }
+.rail-head h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+.list { flex: 1; min-height: 0; overflow: hidden; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; display: inline-block; }
+.dot.running { background: var(--good); } .dot.waiting { background: transparent; border: 2px solid var(--warn); } .dot.stale { background: var(--serious); }
+.ritem { display: block; width: 100%; height: 46px; padding: 6px 14px; color: var(--ink2); }
+.ritem:hover { background: var(--hover); }
+.ritem[aria-current="true"] { background: var(--sel); box-shadow: inset 3px 0 0 var(--ink); color: var(--ink); }
+.l1 { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.l1 .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.l2 { display: flex; align-items: center; gap: 8px; margin-top: 3px; font-size: 11.5px; color: var(--muted); }
+.mchip { font-size: 10.5px; font-weight: 500; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--ink2); }
+.plan { flex: 1; height: 4px; border-radius: 2px; background: var(--grid); overflow: hidden; }
+.plan i { display: block; height: 100%; background: var(--sonnet); }
+.rgh { display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 14px; border-top: 1px solid var(--grid); }
+.rgh:hover { background: var(--hover); }
+.rgh .nm { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rgh .cnt { color: var(--muted); font-size: 12px; }
+.rgh .cont { color: var(--muted); font-size: 11px; font-weight: 400; }
+.mono-g { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--axis); background: var(--raised); color: var(--ink2); font-size: 10.5px; font-weight: 600; flex: none; }
+.attn { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--warn); }
+
+/* the existing page footer (PageNav), at rail width */
+.pager { flex: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--grid); font-size: 11.5px; color: var(--muted); }
+.pager .pg { display: inline-flex; gap: 4px; align-items: center; }
+.pager button { font: 500 11.5px var(--font-mono); color: var(--ink2); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; }
+.pager button:disabled { opacity: .4; cursor: default; }
+.pager .at { font: 500 11.5px var(--font-mono); color: var(--ink); padding: 0 4px; }
+.sel-note { flex: none; width: 100%; font-size: 11.5px; color: var(--ink2); }
+.sel-note button { text-decoration: underline; text-underline-offset: 2px; color: var(--ink); }
+.rail-foot { flex: none; padding: 9px 14px; border-top: 1px solid var(--border); font-size: 11.5px; line-height: 1.4; color: var(--muted); display: grid; gap: 2px; }
+.rail-foot a { color: var(--ink2); text-decoration: underline; text-underline-offset: 2px; }
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.note { max-width: 78ch; color: var(--ink2); }
+.note li { margin-bottom: 4px; }
+:root[data-theme="dark"] { color-scheme: dark; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function () {
+  var NAMES = ["api-gateway","billing-sync","docs-site","etl-nightly","fleet-ui","git-hooks","infra-tf","jobs-queue","kb-index","login-flow","mobile-app","notif-svc","ops-bot","pay-risk","qa-runner","report-gen","search-idx","tokenizer","ui-kit","video-enc","web-cache","zero-trust","auth-proxy","ci-lint"];
+  var STATE = ["running","running","waiting","running","stale","running","waiting","running"];
+  var MODEL = ["opus","sonnet","haiku","sonnet","opus","fable"];
+  var PEOPLE = [["Ed Engelking", 9, true], ["Priya Nair", 7, false], ["Sam Okafor", 5, false], ["Unassigned", 3, false]];
+  var HEAD = 38, ALL = 46, ROW = 46, BAND = 30, PAGER = 38, FOOT = 46, NOTE = 22;
+  var sessions = NAMES.map(function (n, i) { return { id: n, name: n, st: STATE[i % STATE.length], m: MODEL[i % MODEL.length], pct: (i * 17) % 100, agents: (i % 5) + "/" + ((i % 5) + 2) }; });
+  var COL = { opus: "var(--opus)", sonnet: "var(--sonnet)", haiku: "var(--haiku)", fable: "var(--fable)" };
+  var n = 0;
+  function owner(i) { var k = 0; for (var p = 0; p < PEOPLE.length; p++) { k += PEOPLE[p][1]; if (i < k) return p; } return PEOPLE.length - 1; }
+  sessions.forEach(function (s, i) { s.owner = owner(i); });
+  function item(s, sel) {
+    return '<button type="button" class="ritem" aria-current="' + (sel === s.id) + '"><div class="l1"><i class="dot ' + s.st + '"></i><span class="nm">' + s.name + '</span><span class="mchip" style="border-color:' + COL[s.m] + '">' + s.m + '</span></div><div class="l2"><span class="plan"><i style="width:' + s.pct + '%"></i></span><span class="mono">' + s.agents + '</span></div></button>';
+  }
+  /* Build one entry per rail line: a session row, or a band header (continued when the band began on an earlier page). */
+  function lines(list, grouped) {
+    if (!grouped) return list.map(function (s) { return { s: s, h: ROW }; });
+    var out = [], last = -1;
+    list.forEach(function (s) { if (s.owner !== last) { out.push({ band: s.owner, h: BAND }); last = s.owner; } out.push({ s: s, band: s.owner, h: ROW }); });
+    return out;
+  }
+  /* Fill pages by measured height. A page that starts mid-band repeats that band's header. */
+  function paginate(all, room) {
+    var pages = [], cur = [], used = 0, prevBand = null;
+    all.forEach(function (ln) {
+      if (ln.band !== undefined && ln.s && prevBand === ln.band && cur.length === 0) { cur.push({ band: ln.band, h: BAND, cont: true }); used += BAND; }
+      if (used + ln.h > room && cur.length) { pages.push(cur); cur = []; used = 0; if (ln.s && ln.band !== undefined) { cur.push({ band: ln.band, h: BAND, cont: true }); used += BAND; } }
+      if (ln.band !== undefined) prevBand = ln.band;
+      if (ln.s || !(cur.length === 0 && false)) { cur.push(ln); used += ln.h; }
+    });
+    if (cur.length) pages.push(cur);
+    return pages;
+  }
+  function frame(opts) {
+    var id = "rail" + (n++);
+    var list = sessions.slice(0, opts.count);
+    var grouped = !!opts.grouped;
+    var all = lines(list, grouped);
+    var fitsAll = all.reduce(function (a, l) { return a + l.h; }, 0) <= opts.height - HEAD - ALL - FOOT;
+    var room = opts.height - HEAD - ALL - FOOT - PAGER - (opts.sel ? NOTE : 0);
+    var pages = fitsAll ? [all] : paginate(all, room);
+    var at = Math.min(opts.page || 0, pages.length - 1);
+    var selPage = -1;
+    pages.forEach(function (pg, i) { pg.forEach(function (l) { if (l.s && l.s.id === opts.sel) selPage = i; }); });
+    var head = '<div class="rail-head"><h2>Orchestrators</h2><span class="mono" style="color:var(--muted)">' + list.length + '</span></div>';
+    var allRow = '<button type="button" class="ritem" aria-current="' + (!opts.sel) + '"><div class="l1"><span class="nm">All orchestrators</span></div><div class="l2"><span>' + Math.ceil(list.length * 0.6) + ' running · ' + Math.floor(list.length * 0.25) + ' waiting · ' + Math.floor(list.length * 0.15) + ' stale</span></div></button>';
+    var rows = pages[at].map(function (l) {
+      if (!l.s) { var p = PEOPLE[l.band]; var w = l.band === 0 ? 2 : 0; return '<button type="button" class="rgh"><span class="mono-g">' + p[0].split(" ").map(function (x) { return x[0]; }).join("").slice(0, 2) + '</span><span class="nm">' + p[0] + (l.cont ? ' <span class="cont">continued</span>' : '') + '</span>' + (w ? '<span class="attn"><i class="dot waiting"></i>' + w + '</span>' : '') + '<span class="cnt mono">' + p[1] + '</span></button>'; }
+      return item(l.s, opts.sel);
+    }).join("");
+    var pager = "";
+    if (pages.length > 1) {
+      var from = 0, shown = 0;
+      pages.forEach(function (pg, i) { var c = pg.filter(function (l) { return l.s; }).length; if (i < at) from += c; if (i === at) shown = c; });
+      pager = '<div class="pager"><span>Showing ' + (from + 1) + '–' + (from + shown) + ' of ' + list.length + '</span>' +
+        '<nav class="pg" aria-label="Orchestrators pages"><button type="button" aria-label="Previous page"' + (at === 0 ? " disabled" : "") + '>‹</button><span class="at">' + (at + 1) + ' of ' + pages.length + '</span><button type="button" aria-label="Next page"' + (at === pages.length - 1 ? " disabled" : "") + '>›</button></nav>' +
+        (opts.sel && selPage !== at ? '<div class="sel-note">Selected: ' + opts.sel + ' is on <button type="button">page ' + (selPage + 1) + '</button></div>' : '') + '</div>';
+    }
+    var foot = '<footer class="rail-foot"><span><a href="#">Theme credits</a> · <a href="#">License</a></span><span>Podium v0.16.0 · © Ed Engelking</span></footer>';
+    return '<nav class="rail" style="height:' + opts.height + 'px" aria-label="Orchestrators">' + head + allRow + '<div class="list">' + rows + '</div>' + pager + foot + '</nav>';
+  }
+  function c(title, text, html) { return '<div class="case"><h2>' + title + '</h2>' + html + '<p>' + text + '</p></div>'; }
+  document.getElementById("app").innerHTML =
+    '<h1>Rail pager (#242)</h1>' +
+    '<p class="lede">The left panel pages its list only when it would otherwise need a scrollbar. The pager is the existing page footer, always directly above the credits footer. Page size is measured from the panel height, so each window below shows a different number of rows. Compact form for a 252px rail: <span class="mono">‹ 1 of 3 ›</span> in place of a button per page.</p>' +
+    '<div class="row">' +
+    c("1. Fits: looks as it does today", "7 orchestrators in a 640px window. No pager, no scrollbar.", frame({ height: 640, count: 7 })) +
+    c("2. Plain list, tall window", "24 orchestrators, 640px. Page 1 of 3, 9 rows per page.", frame({ height: 640, count: 24 })) +
+    c("3. Plain list, short window", "Same 24, 420px. Fewer rows per page, so more pages; the pager and footer stay in view.", frame({ height: 420, count: 24 })) +
+    c("4. Last page", "Next is disabled on the last page.", frame({ height: 640, count: 24, page: 2 })) +
+    '</div><div class="row">' +
+    c("5. Grouped by person, tall", "Pages hold rows. Page 1 ends mid-band.", frame({ height: 640, count: 24, grouped: true })) +
+    c("6. Grouped, page 2", "The band that continues gets its header repeated, marked “continued”, so a page never starts with orphaned rows.", frame({ height: 640, count: 24, grouped: true, page: 1 })) +
+    c("7. Grouped, short window", "420px: two or three rows per band slice, header repeated on each page that continues it.", frame({ height: 420, count: 24, grouped: true, page: 1 })) +
+    c("8. Selection on another page", "tokenizer is selected but lives on page 3; the pager says so and links to it. Paging does not change the selection or the wall.", frame({ height: 640, count: 24, sel: "tokenizer" })) +
+    '</div>' +
+    '<ul class="note"><li><b>Keyboard and screen readers:</b> the buttons are real buttons with labels (“Previous page”, “Next page”). A visually hidden live region announces “Page 2 of 3, showing 10 to 18 of 24 orchestrators” after each change.</li>' +
+    '<li><b>When the list changes</b> while someone is on page 3, the page stays unless it no longer exists, then the last page shows.</li>' +
+    '<li><b>Band counts, attention marks and the band toggle</b> still count the whole band, not the rows on the page, and the wall never loses a card.</li>' +
+    '<li><b>Window resize</b> re-measures; the current page is kept by the first row it showed, so the reader stays near the same place.</li></ul>';
+})();
+</script>
+</body>
+</html>

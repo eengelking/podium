@@ -163,7 +163,8 @@ The dashboard has a top bar, a left rail and a right panel.
   then the connection (`N reporters live`, or a red "disconnected, retrying"). Admin's top bar shows the same
   connection indicator beside its "Admin" pill.
 - **Row under the top bar.** It has the theme picker.
-- **Left rail.** It lists your sessions.
+- **Left rail.** It lists your sessions. When there are more than fit, it shows a page at a time. See
+  [Paging the list](#paging-the-list).
 - **Right panel.** It shows [activity](#activity).
 
 Drag the handles between the columns to resize them.
@@ -313,6 +314,18 @@ many are waiting or stale, and their share of today's estimated spend.
 
 The left list groups the same way. Click a person or group there to show only theirs on the wall. Click it again, or
 click **All orchestrators**, to see everyone again. Spend by person or group is in Admin, under **Spend**.
+
+### Paging the list
+
+When the left list has more sessions than fit, it shows a page of them and a pager at the bottom, just above
+Theme credits: **Showing 1–8 of 24**, then **‹ 1 of 3 ›**. A taller window fits more on a page. The wall always shows
+every card; paging changes only the list.
+
+- With people grouped, a person's or group's header repeats at the top of a page that continues them, marked
+  *continued*. The count on the header is still the whole group's.
+- If the session you picked is on another page, the pager says so, for example *Selected: invoice-v2 is on page 3*.
+  Click the page number to go there. **All orchestrators** stays at the top of every page.
+- The pager buttons work from the keyboard, and a screen reader hears the new page, for example "Page 2 of 3".
 
 When the window is narrow the row makes room in order. The "N shown · M cleared today" caption becomes an info icon
 (hover it to read the words), then the People group moves to a line of its own under the filters. Nothing is hidden.

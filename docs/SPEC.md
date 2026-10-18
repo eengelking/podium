@@ -2634,6 +2634,27 @@ model chip, plan bar and `done/total`, running/total agents.
 - Follows the current sort.
 - Rows enter and leave with the mockup's animations (respect `prefers-reduced-motion`).
 
+**Paging (#242, `mockup/podium-rail-pager.html`).** When the rows would not fit the rail's height, the list shows
+one page of rows and a pager. When they fit there is no pager and no scrollbar, and the rail looks as before.
+
+- A page is as many rows as fit the room between the "All orchestrators" item and the footer, measured in the
+  browser from the rail's height, a row's height and a band header's height. A tall window holds more rows a page
+  than a short one, and a resize re-measures and keeps the reader at the first row they were on. A page always
+  holds at least one row, so a window too short for one row scrolls instead.
+- The pager is the shared page footer (`PageNav`, the one the Files and Plan tabs use) in its compact form:
+  "Showing 1–8 of 24", Previous, "1 of 3", Next. It sits at the bottom of the rail directly above the footer,
+  whatever the page's length. Its room (and the line below it) is reserved whether or not that line shows, so a
+  page break never moves when the line appears.
+- Paging is by rows. With the people view grouped (People or Group), a band that continues onto the next page
+  gets its header repeated there, marked "continued", so a page never starts with orphaned rows. A band's count
+  and attention mark are the whole band's, not the page's, and the header still narrows the wall.
+- A selection on another page stays selected. The pager then carries "Selected: <name> is on page N", and N is a
+  button that goes to that page. "All orchestrators" is not a row and shows on every page.
+- A page change is announced in a visually hidden `role="status"` region ("Page 2 of 3, showing 9 to 16 of 24
+  orchestrators"). The pager buttons are real buttons: "Previous page" and "Next page".
+- When the list changes the page stays unless it no longer exists, then the last page shows.
+- Paging never touches the wall: every card stays on it.
+
 #### Fleet wall (default view)
 
 **KPI tiles**
