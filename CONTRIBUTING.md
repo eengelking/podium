@@ -42,7 +42,7 @@ claude --plugin-dir /path/to/podium/mod/podium-reporter
 
 ```sh
 npm test               # server, UI, simulator and podiumctl tests (vitest)
-npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored)
+npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
 npm run test:mod       # the mod's tests (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
