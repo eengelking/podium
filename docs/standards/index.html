@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium UI standards - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html" aria-current="page">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html">Voice</a>
+    <a href="accessibility.html">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Podium UI standards</h1><p>What every Podium screen is built from. The samples on these pages are the app's own CSS and markup, and a test fails if a page and the app on <code>main</code> differ. Mockups and UI changes follow these pages.</p></div>
+  <div class="s-pages">
+    <a class="s-page" href="tokens.html"><b>Tokens</b><span>Every color token by role, with its value in each theme and mode</span></a>
+    <a class="s-page" href="themes.html"><b>Themes</b><span>The six palettes, light and dark, and the contrast targets</span></a>
+    <a class="s-page" href="scale.html"><b>Type, spacing, motion</b><span>The sizes, radii, layers and durations the app uses today</span></a>
+    <a class="s-page" href="components.html"><b>Components</b><span>Every shared piece rendered from the app, with its states</span></a>
+    <a class="s-page" href="patterns.html"><b>Patterns</b><span>Wall notices, paging, status shapes, empty states</span></a>
+    <a class="s-page" href="voice.html"><b>Voice</b><span>Wording for labels, notes and errors</span></a>
+    <a class="s-page" href="accessibility.html"><b>Accessibility</b><span>Focus, keyboard, labels, reduced motion, narrow width</span></a>
+    <a class="s-page" href="process.html"><b>Process</b><span>When a mockup is needed and how to add to the system</span></a>
+  </div>
+  </main>
+</div>
+</body>
+</html>

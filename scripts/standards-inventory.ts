@@ -9,7 +9,7 @@ const HELP = `standards-inventory: list the tokens, classes, components and colo
 
 Usage: npx tsx scripts/standards-inventory.ts [options]
 
-Reads frontend/src/fleet: tokens.css, fleet.css, admin/admin.css and every non-test .tsx file.
+Reads frontend/src/fleet: tokens.css, fleet.css, admin/admin.css and every non-test .tsx file, and docs/standards/standards.css.
 Prints the counts of what it found. With --json, prints the full inventory:
   tokens       each block in tokens.css (selector, media or not, token name and value)
   classes      every class selector in fleet.css and admin.css
@@ -24,6 +24,8 @@ Always exits 0; the tests (scripts/standards-guard.test.ts) decide what fails.`;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const FLEET_DIR = join(HERE, "..", "frontend", "src", "fleet");
+/** The standards pages' own chrome. It has to use the tokens like everything else, so the guard reads it too. */
+export const CHROME_CSS = join(HERE, "..", "docs", "standards", "standards.css");
 
 export interface Hit {
   line: number;
@@ -115,9 +117,10 @@ export interface Inventory {
 }
 
 /** Reads the app and returns what it has. `dir` is frontend/src/fleet, or a copy of it in a test. */
-export function inventory(dir: string = FLEET_DIR): Inventory {
+export function inventory(dir: string = FLEET_DIR, chrome: string | null = CHROME_CSS): Inventory {
   const read = (f: string) => readFileSync(join(dir, f), "utf8");
-  const css = { "tokens.css": read("tokens.css"), "fleet.css": read("fleet.css"), "admin/admin.css": read("admin/admin.css") };
+  const css: Record<string, string> = { "tokens.css": read("tokens.css"), "fleet.css": read("fleet.css"), "admin/admin.css": read("admin/admin.css") };
+  if (chrome) css["docs/standards/standards.css"] = readFileSync(chrome, "utf8");
   const tsx = walk(dir, (f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx")).map((f) => relative(dir, f));
   const tsxText = Object.fromEntries(tsx.map((f) => [f, read(f)]));
 
