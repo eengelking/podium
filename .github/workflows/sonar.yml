@@ -31,8 +31,9 @@ jobs:
           node-version: 24
           cache: npm
 
+      # No lifecycle scripts: this job holds SONAR_TOKEN, and nothing here needs an install script (Sonar rule S6505).
       - name: Install
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # SonarCloud reads coverage from lcov files; without them every file reports 0% (#371).
       - name: Test with coverage (server, frontend)
