@@ -45,6 +45,26 @@ export function lastSegment(p: string): string {
   return p.split('/').filter(Boolean).pop() ?? p;
 }
 
+/**
+ * The repository holding `cwd`: its main folder (the parent of the common `.git`, so a worktree gives the main
+ * checkout) and its `origin` URL. `root` is the top level when the common dir is not a `.git` folder (a submodule,
+ * a separate git dir), and null outside a repository.
+ */
+export async function readRepoPlace(run: Runner, cwd: string): Promise<{ root: string | null; remote: string | null }> {
+  const out = async (argv: string[]) => {
+    try {
+      const r = await run(argv);
+      return r.exitCode === 0 && r.stdout.trim() ? r.stdout.trim() : null;
+    } catch {
+      return null;
+    }
+  };
+  const common = await out(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']);
+  if (!common) return { root: null, remote: null };
+  const root = common.endsWith('/.git') && common.length > '/.git'.length ? common.slice(0, -'/.git'.length) : await out(['git', 'rev-parse', '--show-toplevel']);
+  return { root: root ?? resolvePath(cwd, '.'), remote: await out(['git', 'config', '--get', 'remote.origin.url']) };
+}
+
 /** Reads branch, worktree and status; null when `cwd` is not in a repository or a query fails. */
 export async function readGit(run: Runner, cwd: string): Promise<GitInfo | null> {
   const ok = async (argv: string[]) => {

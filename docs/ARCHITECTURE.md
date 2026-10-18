@@ -60,7 +60,8 @@ with the default view at `#/`. An earlier usage dashboard lived here until it wa
   wait on the network.
 - A `$.clock.every` timer reads `$.session.id()`, `$.session.usage()` and `$.agent.list()`, and posts a full
   snapshot plus unacknowledged events (`transport.ts`).
-- Git is polled every 10 s (`pollGit` in `register.ts`, reading through `git.ts`).
+- Git is polled every 10 s (`pollGit` in `register.ts`, reading through `git.ts`). Each poll first runs
+  `followMove`, which takes the session's new folder when the desktop app has moved it (#382).
 - `session.end` sends the final report inside a 1 s deadline.
 - A changed session id (after `/clear` or a resume) closes the old id with a `done` report and starts over under
   the new one.
@@ -699,6 +700,16 @@ numbers, so they stay fixed.
     clears `hideAt` on the next report. Unlike #42 this is not an `isUnused`-style server filter, because a
     hidden session is still spending. Known limit: a non-interactive `claude -p` run has no client and reads
     as nobody attached.
+43. **A spare the desktop app moves to a project takes that project (#382).** The app starts a pre-warmed
+    spare in `~/.claude/spares/spare-XXXXXX` and moves it to the project the person opens, in the same
+    process and under the same session id, so `session.start` sees only the spare's folder. The moved
+    process keeps the spare folder as its working directory, and `$.session` may keep answering for it. On
+    each git poll `followMove` takes the folder from the last `classic.SessionStart` or
+    `classic.UserPromptSubmit` hook's `cwd` when that differs from the session's, else from
+    `$.session.cwd()`. It uses `$.session.repo()` only when that repository holds the new folder; otherwise
+    `readRepoPlace` in `git.ts` asks git for the main checkout and the `origin` URL. `session.start` reads
+    its place as before. Known limit: a move from one repository to another keeps the stored git base
+    (`base:<id>`); spares start outside any repository, so they have none.
 
 ## Deviations from the spec
 

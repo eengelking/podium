@@ -9,6 +9,8 @@ const SID = 'sess-e2e-0001'
 /** A compaction leaves at least one message: its summary. */
 const SUMMARY = [{ role: 'user' as const, text: 'Summary of the work so far.', toolUses: [] }]
 const CWD = '/Users/dev/app/.claude/worktrees/feat-x'
+/** Where the desktop app starts a pre-warmed spare session, before it moves it to the project. */
+const SPARE = '/Users/dev/.claude/spares/spare-eB3Cs1'
 
 interface World {
   posts: Report[]
@@ -27,6 +29,8 @@ interface World {
   chunks: { value: TurnStepChunk[] }
   /** The files the plugin reads and writes by path, from memory; `broken` makes every access fail. */
   files: { text: Record<string, string>; broken: boolean }
+  /** Where the session is, as `$.session.cwd()`, `root()` and `repo()` answer; the app can move a spare later. */
+  place: { cwd: string; root: string; repo: { root: string; remote: string | null; internal: boolean; name: string | null } | null }
 }
 
 const GIT: Record<string, string> = {
@@ -35,6 +39,8 @@ const GIT: Record<string, string> = {
   'rev-parse --git-common-dir': '/Users/dev/app/.git',
   'rev-parse --show-toplevel': CWD,
   'status --porcelain=v1 -b': '## feat/x...origin/feat/x [ahead 2]\n M src/a.ts\n',
+  'rev-parse --path-format=absolute --git-common-dir': '/Users/dev/app/.git',
+  'config --get remote.origin.url': 'git@github.com:acme/app.git',
 }
 
 /** Everything beneath the plugin: the engine's answers, from memory. */
@@ -60,10 +66,12 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const ran: string[][] = []
   const watch: World['watch'] = { value: [] }
   const chunks: World['chunks'] = { value: [] }
+  const place: World['place'] = { cwd: CWD, root: CWD, repo: { root: '/Users/dev/app', remote: 'git@github.com:acme/app.git', internal: false, name: null } }
   on('session.id', () => ({ value: sessionId.value }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.root', () => ({ value: CWD }))
-  on('session.repo', () => ({ value: { root: '/Users/dev/app', remote: 'git@github.com:acme/app.git', internal: false, name: null } }))
+  on('session.cwd', () => ({ value: place.cwd }))
+  on('session.root', () => ({ value: place.root }))
+  on('session.repo', () => ({ value: place.repo }))
   on('session.version', () => ({ value: { version: '2.1.296' } }))
   on('session.usage', () => ({ value: { startedAt: 1_800_000_000_000, context: { tokens: 120_000, window: 1_000_000, percent: 12 }, rateLimits: [], cost: { usd: 1.25 } } }))
   on('session.surfaces', () => {
@@ -81,7 +89,9 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
     if (e.argv[0] === 'hostname') return { value: { exitCode: 0, stdout: 'Devs-MBP.local\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-    return { value: { exitCode: e.argv[1] === 'rev-parse' || e.argv[1] === 'status' ? 0 : 1, stdout: GIT[e.argv.slice(1).join(' ')] ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    // A pre-warmed spare's folder is not a repository.
+    if (e.init?.cwd?.startsWith(SPARE)) return { value: { exitCode: 128, stdout: '', stderr: 'not a git repository', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: e.argv[1] === 'rev-parse' || e.argv[1] === 'status' || e.argv[1] === 'config' ? 0 : 1, stdout: GIT[e.argv.slice(1).join(' ')] ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('http.fetch', (_$, e) => {
     if (fetchMode.mode === 'down') throw new Error('ECONNREFUSED')
@@ -121,7 +131,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -475,6 +485,39 @@ describe('podium-reporter end to end', () => {
     await w.clock.advance(1000)
     expect(w.posts.at(-1)!.session.id).toBe('sess-after-clear')
     expect(w.posts.at(-1)!.session.name).toBe('x')
+  })
+
+  test('a spare session moved to a project takes that project on the next git poll', async ($, on) => {
+    const w = world(on)
+    w.place.cwd = SPARE
+    w.place.root = SPARE
+    w.place.repo = null
+    await $.session.start({ cwd: SPARE, surface: 'desktop', isInteractive: true })
+    // Claude Code's SessionStart hook names the spare's folder, as it does before the app moves it
+    await $.classic.SessionStart({ source: 'startup', cwd: SPARE })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ name: 'spare-eB3Cs1', cwd: SPARE, projectRoot: SPARE })
+    // the app hands the spare to a project: same process, same session id, a new folder
+    w.place.cwd = CWD
+    w.place.root = CWD
+    w.place.repo = { root: '/Users/dev/app', remote: 'git@github.com:acme/app.git', internal: false, name: null }
+    await w.clock.advance(10_000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ id: SID, name: 'x', cwd: CWD, projectRoot: '/Users/dev/app', repoName: 'acme/app' })
+    expect(w.posts.at(-1)!.session.git).toMatchObject({ branch: 'feat/x', isWorktree: true })
+  })
+
+  test("a moved spare takes the hooks' folder when $.session still answers the spare's", async ($, on) => {
+    const w = world(on)
+    w.place.cwd = SPARE
+    w.place.root = SPARE
+    w.place.repo = null
+    await $.session.start({ cwd: SPARE, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ name: 'spare-eB3Cs1', cwd: SPARE })
+    // the app moved it; $.session keeps the spare's folder, the prompt's hook carries the new one
+    await $.classic.UserPromptSubmit({ prompt: 'hi', cwd: CWD })
+    await w.clock.advance(10_000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ name: 'x', cwd: CWD, projectRoot: '/Users/dev/app', repoName: 'acme/app' })
   })
 
   test('reports whether any client is attached, from the roster', async ($, on) => {

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { EMPTY_TREE, MAX_FILES, parseNameStatus, parseNumstat, parseStatus, readChanges, readGit, resolvePath, type Runner } from './git.ts'
+import { EMPTY_TREE, MAX_FILES, parseNameStatus, parseNumstat, parseStatus, readChanges, readGit, readRepoPlace, resolvePath, type Runner } from './git.ts'
 
 function runner(map: Record<string, { exitCode?: number; stdout?: string }>): Runner {
   return async (argv) => {
@@ -69,6 +69,26 @@ const top = {
   '-C /repo --literal-pathspecs grep --no-index -I -c -z  -- logo.png notes.txt': { stdout: `notes.txt${Z}7\n` },
   '-C /repo diff --no-index --numstat -z -- /dev/null logo.png': { exitCode: 1, stdout: `-\t-\t${Z}/dev/null${Z}logo.png${Z}` },
 }
+
+describe('repository place', () => {
+  const COMMON = 'rev-parse --path-format=absolute --git-common-dir'
+  const ORIGIN = 'config --get remote.origin.url'
+
+  test('a worktree gives the main checkout and the origin URL', async () => {
+    const run = runner({ [COMMON]: { stdout: '/Users/dev/app/.git\n' }, [ORIGIN]: { stdout: 'git@github.com:acme/app.git\n' } })
+    expect(await readRepoPlace(run, '/Users/dev/app/.claude/worktrees/feat-x')).toEqual({ root: '/Users/dev/app', remote: 'git@github.com:acme/app.git' })
+  })
+
+  test('a submodule, whose common dir is not a .git folder, gives its top level', async () => {
+    const run = runner({ [COMMON]: { stdout: '/super/.git/modules/sub\n' }, 'rev-parse --show-toplevel': { stdout: '/super/sub\n' } })
+    expect(await readRepoPlace(run, '/super/sub/src')).toEqual({ root: '/super/sub', remote: null })
+  })
+
+  test('outside a repository, or when git throws, there is no root', async () => {
+    expect(await readRepoPlace(runner({}), '/Users/dev/.claude/spares/spare-x')).toEqual({ root: null, remote: null })
+    expect(await readRepoPlace(async () => { throw new Error('no git') }, '/x')).toEqual({ root: null, remote: null })
+  })
+})
 
 describe('changed files', () => {
   test('parses name-status and numstat, renames and binary files included', () => {

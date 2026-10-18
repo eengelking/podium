@@ -7,7 +7,7 @@
 // a top-level function taking `$`, and the runtime lives in module variables (a hot reload re-runs
 // register, which resets them, and session.start rebuilds the state from the engine).
 import type { EngineInterface, Register } from 'claude-code';
-import { lastSegment, readChanges, readGit } from './git.ts';
+import { lastSegment, readChanges, readGit, readRepoPlace, type Runner } from './git.ts';
 import { shortName } from './models.ts';
 import { buildReport, repoFromRemote } from './report.ts';
 import {
@@ -212,6 +212,8 @@ let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
 let messagesLineShown = false;
+/** The folder Claude Code's last hook named; it follows the app's move of a pre-warmed spare. */
+let hookCwd: string | null = null;
 const EXPLAIN_MODEL = 'haiku';
 
 const perf = typeof performance !== 'undefined' && typeof performance.now === 'function' ? () => performance.now() : () => Date.now();
@@ -427,13 +429,36 @@ async function readAgents($: Engine, r: Runtime, now: number): Promise<void> {
   }
 }
 
+/** Runs git (or any command) in `cwd` for the git.ts readers. */
+function runnerIn($: Engine, cwd: string): Runner {
+  return async (argv) => {
+    const res = await $.process.run(argv, { cwd, timeoutMs: 5000 });
+    return { exitCode: res.exitCode, stdout: res.stdout };
+  };
+}
+
+/**
+ * The desktop app starts a pre-warmed spare in a folder of its own and moves it to the project later, in the
+ * same process and with the same session id, so session.start saw only the spare's folder. The new folder comes
+ * from the last hook's `cwd`, else `$.session.cwd()`; `$.session` may still answer for the spare, so its
+ * repository counts only when it holds the new folder, and git run there answers otherwise.
+ */
+async function followMove($: Engine, r: Runtime): Promise<void> {
+  const fromHook = hookCwd && hookCwd !== r.state.cwd ? hookCwd : null;
+  const cwd = fromHook ?? (await attempt(() => $.session.cwd(), r.state.cwd));
+  if (!cwd || cwd === r.state.cwd) return;
+  const holds = (dir: string | null | undefined): dir is string => !!dir && (cwd === dir || cwd.startsWith(dir.endsWith('/') ? dir : `${dir}/`));
+  const repo = await attempt(() => $.session.repo(), null);
+  const place = repo && holds(repo.root) ? { root: repo.root, remote: repo.remote, name: repo.name } : { ...(await readRepoPlace(runnerIn($, cwd), cwd)), name: null };
+  const projectRoot = place.root ?? cwd;
+  r.state = setIdentity(r.state, { cwd, projectRoot, repoName: place.name ?? repoFromRemote(place.remote) ?? lastSegment(projectRoot) });
+}
+
 async function pollGit($: Engine, r: Runtime): Promise<void> {
   try {
+    await followMove($, r);
     const cwd = r.state.cwd;
-    const run = async (argv: string[]) => {
-      const res = await $.process.run(argv, { cwd, timeoutMs: 5000 });
-      return { exitCode: res.exitCode, stdout: res.stdout };
-    };
+    const run = runnerIn($, cwd);
     const git = await readGit(run, cwd);
     r.state = setGit(r.state, git);
     const id = r.state.id;
@@ -1213,6 +1238,7 @@ export const register: Register = (on, rawOptions) => {
   checks = new Map();
   lastCalls = new Map();
   messagesLineShown = false;
+  hookCwd = null;
 
   on('session.start', async ($, e, next) => {
     const res = await next(e);
@@ -1424,11 +1450,13 @@ export const register: Register = (on, rawOptions) => {
 
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
+    hookCwd = e.cwd || hookCwd;
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
     return next(e);
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    hookCwd = e.cwd || hookCwd;
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
     return next(e);
   }).catch(($, e, next) => next(e));

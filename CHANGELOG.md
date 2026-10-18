@@ -34,6 +34,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The user guide and the mod doc give one command to update the mod.** `claude plugin marketplace update eengelking-marketplace && claude plugin update podium-reporter@eengelking-marketplace` refreshes the listing and updates the mod in one go. Documentation only.
 
+### Fixed
+
+- **A session opened from the desktop app no longer shows as `spare-XXXXXX` (#382).** The app starts each new session as a pre-warmed spare in `~/.claude/spares/spare-XXXXXX` and moves it to the project you open. The reporter read the session's folder only at start, so the card kept the spare's name and path and had no git data. The reporter now checks the folder on every git poll and takes the new one, with its project root, repository name and git state, within about 10 s of the next prompt. It reads the folder from the prompt's hook, because the moved process can still answer for the spare, and asks git for the repository when Claude Code's own answer belongs to the old folder. Sessions that never move report as before. The mod changed; nothing new is sent or stored. (#382)
+
 ## [1.1.0] - 2026-10-16
 
 ### Added
