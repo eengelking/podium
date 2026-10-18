@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test-and-build:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7
 
@@ -36,4 +36,4 @@ jobs:
         run: npm run standards:parity
 
 # Not run here: `npm run test:mod` and `npm run typecheck:mod` need the Claude Code CLI and its plugin API
-# declarations, which a stock runner does not have. Run them locally when the mod changes (CONTRIBUTING.md).
+# declarations, which the runners do not have. Run them locally when the mod changes (CONTRIBUTING.md).

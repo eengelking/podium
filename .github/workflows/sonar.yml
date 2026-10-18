@@ -20,7 +20,7 @@ jobs:
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        (github.base_ref == 'development' || github.head_ref == 'development'))
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v7
         with:

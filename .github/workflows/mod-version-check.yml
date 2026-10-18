@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check-version-bump:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Check out full history
         uses: actions/checkout@v7
