@@ -300,6 +300,8 @@ scripts/podium-smoke.sh              end-to-end smoke check (has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)
+scripts/podium-peers-e2e.sh          starts a throwaway server from the checkout, seeds it, and runs real Claude Code sessions in tmux that load the mod with --plugin-dir, to try messaging end to end (#347; up and down, has --help and --dry-run)
+scripts/podium-peers-e2e.test.ts     tests its help, argument checks and --dry-run
 scripts/podiumctl.test.ts            tests for podiumctl (4.4)
 bin/podiumctl                        command-line manager for the server (4.4; has --help)
 Containerfile, .containerignore      the server and UI as a Podman image (4.4)
@@ -1817,7 +1819,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured. |
 | `GET /api/fleet/health` | `{ ok, dbPath, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
-| `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations }`. Counts and states, never the text. No token, like the other reads. Details under the messaging routes below. |
+| `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations, retainDays, serverTime }`. Counts and states, never the text. No token, like the other reads. Details under the messaging routes below. |
 
 **`GET /api/fleet/state`**
 - Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, reporterSupport }, wall, features }`.
