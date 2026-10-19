@@ -299,7 +299,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     }).join('');
     return '<nav class="rail' + (S.left ? ' collapsed' : '') + '" aria-label="Orchestrators">' + paneTab('left', S.left, 'podium-rail-body', '[') +
       '<div id="podium-rail-body"' + (S.left ? ' hidden' : '') + '><div class="rail-head"><h2>Orchestrators</h2><span class="mono" style="color:var(--muted)">' + FLEET.length + '</span></div>' +
-      '<button type="button" class="ritem all" aria-current="false"><div class="l1"><span class="nm">All orchestrators</span></div><div class="l2"><span>' + run + ' running · ' + wait + ' waiting · ' + stale + ' stale</span></div></button>' + rows +
+      '<button type="button" class="ritem all" aria-current="true"><div class="l1"><span class="nm">All orchestrators</span></div><div class="l2"><span>' + run + ' running · ' + wait + ' waiting · ' + stale + ' stale</span></div></button>' + rows +
       '<footer class="rail-foot"><span><a href="#credits">Theme credits</a> · <a href="#license">License</a></span><span>Podium v0.16.0</span><span>© 2026 Ed Engelking</span></footer></div></nav>';
   }
   function side() {

@@ -3706,8 +3706,11 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     as on the wall: rail, page, Activity panel.
   - The rail and the Activity panel show the whole fleet, as the wall does. `GET /api/fleet/stream` sends every viewer
     the same fleet, so they show no orchestrator that the wall would not.
-  - Selecting a session or "All orchestrators" in the rail, or a click on an activity event, leaves My reporters for
-    the console, as it does from the Board. The rail selects nothing while the page is open.
+  - Opening the page clears the selected orchestrator, as opening the Board does, so the rail marks "All
+    orchestrators". Selecting a session or "All orchestrators" in the rail, or a click on an activity event, leaves My
+    reporters for the console, as it does from the Board.
+  - The console's own messages, such as a failed Remove in the rail, show at the top of the page in the wall's
+    `.callout.notice`.
   - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 

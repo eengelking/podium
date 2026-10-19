@@ -285,6 +285,34 @@ describe("the rail and the Activity panel around the page (#446)", () => {
     expect(window.location.hash).toBe("#/");
   });
 
+  it("says at the top of the page when a Remove in the rail fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).endsWith("/drop") ? { ok: false, status: 500, json: async () => ({}) } : { ok: true, json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 }) })));
+    const server = fakeServer();
+    const state = stateFrom({ sessions: [makeSession({ id: "s-old", name: "old-one", status: "stale" })], features: { "activity-feed": true, "peer-messaging": true } });
+    render(<FleetView myReporters state={state} respondApi={respondApi()} peersApi={server.api} />);
+    await flush();
+    fireEvent.click(left());
+    fireEvent.click(screen.getByRole("button", { name: "Remove old-one from the fleet" }));
+    await flush();
+    const main = screen.getByRole("main", { name: "My reporters" });
+    expect(within(main).getByText("Could not remove the session: HTTP 500. Try again.").closest(".callout.notice")).toHaveAttribute("role", "status");
+  });
+
+  it("drops the orchestrator picked on the fleet, as the Board does, so it leaving raises nothing here", async () => {
+    const server = fakeServer();
+    const api = respondApi();
+    const features = { "activity-feed": true, "peer-messaging": true };
+    const state = stateFrom({ sessions: [makeSession({ id: "s1", name: "picked" })], features });
+    const { rerender } = render(<FleetView myReporters={false} state={state} respondApi={api} peersApi={server.api} />);
+    await flush();
+    fireEvent.click(within(rail()).getByText("picked"));
+    rerender(<FleetView myReporters state={state} respondApi={api} peersApi={server.api} />);
+    await flush();
+    rerender(<FleetView myReporters state={stateFrom({ sessions: [], features })} respondApi={api} peersApi={server.api} />);
+    await flush();
+    expect(screen.queryByText(/left the fleet/)).toBeNull();
+  });
+
   it("leaves for the orchestrator's page from an activity event", async () => {
     window.location.hash = "#/me/reporters";
     const server = fakeServer();

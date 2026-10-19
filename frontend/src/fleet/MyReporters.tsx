@@ -69,7 +69,8 @@ function ownerLimitState(own: number | undefined, admin: number): string {
   return `The Admin's limit is now ${num(admin)}, lower than yours, ${num(own)}, so ${num(admin)} applies.`;
 }
 
-export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number }) {
+/** `notice` is the console's own message, such as a failed Remove in the rail (#446), shown at the top of the page as on the wall. */
+export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number; notice?: string | null }) {
   const { me, peers } = props;
   let body: React.ReactNode;
   if (!props.peersOn || me?.enabled === false) {
@@ -103,6 +104,11 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
     <main className="adminv" aria-label="My reporters">
       <div className="apage">
         <div className="apage-in">
+          {props.notice && (
+            <div className="callout notice" role="status">
+              <div>{props.notice}</div>
+            </div>
+          )}
           <PageHeader title="My reporters" lead={peers.data?.reporters.length ? `${LEAD} Only your own reporters are here. Podium does not carry messages between people.` : LEAD} />
           {body}
         </div>

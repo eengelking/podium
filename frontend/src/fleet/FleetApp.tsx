@@ -77,7 +77,7 @@ export interface FleetAppProps {
   board?: boolean;
   /** My reporters (#415) in the middle of the console instead of the wall, with the rail and the Activity panel collapsed at first (#446). */
   myReporters?: boolean;
-  /** Traffic (#417) under the console's top bar, the same way. */
+  /** Traffic (#417) under the console's top bar, with no rail, wall or Activity panel. */
   traffic?: boolean;
   /** For tests: drive the app from a given state instead of the server. */
   state?: FleetState;
@@ -202,7 +202,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const ready = state.phase !== "loading";
   const enteringSession = useEntering(all.map((s) => s.id), ready);
   const newEvent = useEntering(state.events.map((e) => e.id), ready);
-  // The board and My reporters stand in for the selected orchestrator's page: they keep the selection, but show none of it.
+  // The board and My reporters stand in for an orchestrator's page and show none of it; both clear the selection, below.
   const showsOrchestrator = !board && !consolePage;
   const selected = sel && showsOrchestrator ? state.sessions[sel] ?? null : null;
 
@@ -266,12 +266,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     flashTimer.current = setTimeout(() => setFlash(null), 1700);
   }, []);
 
-  // Opening the board leaves any orchestrator page behind, so a session that ends later does not raise a notice on the board.
+  // Opening the board or My reporters leaves any orchestrator page behind, so a session that ends later does not raise a notice there (#446).
   useEffect(() => {
-    if (!board) return;
+    if (!board && !myReporters) return;
     setSel(null);
     setSelAgent(null);
-  }, [board]);
+  }, [board, myReporters]);
 
   const selectSession = (id: string | null) => {
     // Opening a session, or the fleet, from the board, My reporters or Traffic leaves that page; the selection is made before the route changes.
@@ -381,7 +381,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     else if (e.key === "[") toggle("left");
     else if (e.key === "]") toggle("right");
     // My reporters has no wall to show, so w does nothing there (#415, #446).
-    else if (consolePage) return;
+    else if (myReporters) return;
     else if (e.key === "w" || e.key === "W") (panes.wall ? stopWall : () => startWall(false))();
   });
 
@@ -469,7 +469,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           />
           <div className="mid">
             {myReporters ? (
-              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} />
+              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
             ) : (
               <main className="main" id="podium-main">
                 {notice && (
