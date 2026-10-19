@@ -231,7 +231,9 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
     const out = withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
     if (!out.ok) return void refuse(req, res, out.status, out.error);
-    res.json({ ok: true, outcome: out.request.outcome });
+    // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
+    const applied = 'applied' in out ? out.applied : null;
+    res.json({ ok: true, outcome: out.request.outcome, ...(applied ? { level: applied.level } : {}) });
   });
 
   router.post('/sessions/:id/peers/deliveries/:deliveryId/result', d.requireToken, json, (req, res) => {
