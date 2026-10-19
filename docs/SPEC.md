@@ -299,7 +299,7 @@ scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
-scripts/podium-peers-seed.mjs        seeds one person's reporters and requests, and prints their token, to view My reporters (#415; has --help)
+scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)
 scripts/podiumctl.test.ts            tests for podiumctl (4.4)
 bin/podiumctl                        command-line manager for the server (4.4; has --help)
 Containerfile, .containerignore      the server and UI as a Podman image (4.4)
@@ -310,6 +310,7 @@ Containerfile, .containerignore      the server and UI as a Podman image (4.4)
 - `FleetApp` for `#/` (the default);
 - `FleetApp` for `#/board` (the same console with the kanban board in the middle, [8.1](#81-what-the-ui-must-do));
 - `FleetApp` for `#/me/reporters` (the same console with My reporters under the top bar, [8.1](#81-what-the-ui-must-do));
+- `FleetApp` for `#/traffic` (the same console with Traffic under the top bar, [8.1](#81-what-the-ui-must-do));
 - `HistoryView` for `#/history`;
 - `AdminView` for `#/admin`.
 
@@ -2028,10 +2029,11 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   drops it, and its sender is told. A notice is let go on any result.
 
 **`GET /api/fleet/peers/traffic?range=live|24h|30d`**: Traffic's map and table, open to every reader.
-- `{ enabled, conversations }`, each `{ link, a, b, owner, messages, lastAt, state: "active" | "waiting" | "paused",
-  aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name, machine, reporterKey }`). `live` (the default) keeps
-  conversations with a live orchestrator; `24h` and `30d` those with a message in that time. Empty while messaging is
-  off. `400` for another range.
+- `{ enabled, conversations, retainDays }`, each conversation `{ link, a, b, owner, messages, lastAt, state: "active" |
+  "waiting" | "paused", aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name, machine, reporterKey }`), and
+  `retainDays` the Admin's setting for how long a conversation is kept, so Traffic can name it (#417). `live` (the
+  default) keeps conversations with a live orchestrator; `24h` and `30d` those with a message in that time. While
+  messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range.
 
 #### Browser routes for orchestrator messaging
 
@@ -2094,8 +2096,11 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     - orchestrator messaging (#347): `peerMessaging` `{ roundTrips, perMinute, maxChars, retainDays }`, whole numbers
       from 1 to 100, 1 to 60, 1 to 20,000 and 1 to 365 (defaults 10, 6, 20,000 and 30), any of them in one change,
       written to the Admin log as `peer_limits_changed`.
-  - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (its reporter, the owner's other reporters,
-    its stored and effective rights both ways, and the open requests about it), `POST reporters/:key/peers/propose`
+  - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (`{ reporter, peers, trust, rights,
+    effective, requests }`: its reporter, the owner's reporters, the owner's Trust my own reporters, and the stored and
+    effective rights and open requests of every pair of the owner's reporters, each request as the owner's read lists
+    it, with `fromKey`, `toKey` and `messageId`, so Admin > Reporters draws the whole Grid in one read, #416),
+    `POST reporters/:key/peers/propose`
     (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`), `PUT reporters/:key/peers/pause`
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once).
   - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
@@ -2715,8 +2720,8 @@ This is the only way anything reaches a session from Podium, so every rule here 
 
 #### Orchestrator messaging (#347)
 
-Designed on #347 (DECISIONS 37). The server and the protocol (#412), the mod (#414) and My reporters (#415) are
-built; the Admin's pages (#416) and Traffic (#417) are not yet. One orchestrator's text becomes a turn in another's session,
+Designed on #347 (DECISIONS 37). The server and the protocol (#412), the mod (#414), My reporters (#415), the
+Admin's pages (#416), Traffic (#417) and an owner's stricter limits (#436) are built. One orchestrator's text becomes a turn in another's session,
 so every rule here holds whatever else is set. The routes are in [7.1](#71-endpoints) and what is kept in
 [7.2](#what-orchestrator-messaging-keeps-and-where-347).
 
@@ -2775,7 +2780,9 @@ so every rule here holds whatever else is set. The routes are in [7.1](#71-endpo
   all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`.
 - A message is only for an orchestrator, and only an orchestrator sends one.
 
-**Limits**, set by the Admin in Admin > Settings, which an owner can make stricter on their own links:
+**Limits**, set by the Admin in Admin > Settings, in an Orchestrator messaging section shown while the flag is on
+(#416), which an owner can make stricter on their own links. A value is saved when its box loses focus or on Enter; one
+out of range is refused in place, and the error says nothing was saved and which value still applies.
 - round trips in a conversation before the owner approves the next message, 10 by default (1 to 100);
 - messages per minute on a link, either way, 6 by default (1 to 60);
 - the longest message, 20,000 characters by default (1 to 20,000), counted after control characters other than line
@@ -3646,8 +3653,17 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     - Giving A the right to send to B asks at once whether B can answer.
 - Every level is an icon and a word, the same everywhere: No access, Can see, Can send, with approval, Can send.
   No hue carries the meaning.
-- The Admin's view is the Messaging section on Admin > Reporters > a reporter, in the Admin shell, with the same
-  Grid | Board switch. A change shows as Proposed, waiting for the owner. **Pause all links** applies at once.
+- The Admin's view (#416) is the Messaging section on Admin > Reporters > a reporter, in the Admin shell, with the
+  same Grid | Board switch. It shows every pair of the owner's reporters, from one read.
+  - A change is sent as a proposal and shows as Proposed, waiting for the owner, until the owner accepts it. No
+    access cannot be proposed: taking a right away is the owner's choice.
+  - A `.warnbar` says a change is sent to the owner to accept, and a second one says when the owner's Trust my own
+    reporters locks the choices.
+  - **Pause all links** in the detail's header applies at once and **Resume all links** undoes it.
+  - The details add System and Messaging (On, Paused, Off on the machine, Reporter can't message: update it, or
+    Cannot take part).
+  - A reporter on the admin secret, with no owner, with messaging off on the machine, or too old to message says so
+    in an empty block and offers no choices. With the flag off, Admin shows none of this.
 - Empty: "No reporters yet", and how a machine gets here. Not signed in, the admin secret and messaging off each
   get their own empty block too.
 - A change shows at once and keeps focus where it was. If saving fails, the page says "Could not save the change:
@@ -3658,21 +3674,38 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 
 #### Traffic page (#347, `mockup/podium-traffic.html`)
 
-Not built yet. A console page, `#/traffic`, reached from **Traffic** in the top bar while the flag is on.
+Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
+on. It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
+still hides and shows the top bar.
 
-- **Who is talking**: a map of the person's orchestrators, grouped in a box per machine with its OS. A node
-  shows the app's status shape. A line joins two orchestrators that have messaged each other:
+- **Who is talking**: a map (inline SVG) of the orchestrators in the open read, grouped in a box per machine with its
+  OS, the busiest machine first and then by name, so nothing moves as messages arrive. A node shows the app's status
+  shape and its state as a word ("ended" once it is no longer live). A line joins two orchestrators that have messaged
+  each other:
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
-    paused, and each also as an icon and a word on the line's label with the message count;
-  - an arrow at one end when only that way can send, and a thicker line for more messages, as a second signal.
-- Each line is a link. Selecting it opens the conversation beside the map: the pair and their machines, its
-  state, **Pause link** or **Resume link**, **Remove link…** (which asks first), the round trips used, then the
-  messages as an Activity feed (`.feed`), oldest first, each with sender, receiver, time and delivery state.
-- **Table** shows the same links as text and is where a narrow screen opens. **Show** picks Live sessions, Last
-  24 hours or Last 30 days.
-- Not signed in, or not the owner: the map and counts show, and the conversation says only its owner and an
-  Admin can read it.
-- Empty: "No orchestrator has messaged another yet", with a link to My reporters.
+    paused; the label has the message count, and for waiting or paused also an icon and the word;
+  - an arrow at one end when only that way can send, and a thicker line for more messages, as a second signal;
+  - each label sits at the first point along its curve that clears the other labels and the nodes;
+  - a legend for the styles, which also names the owner's machines with messaging off.
+- Each line is a link (focus, Enter). Selecting it opens the conversation beside the map (below it at 900 px and
+  narrower):
+  - the pair and their machines, its state, **Pause link** or **Resume link**, and **Remove link…** (a
+    confirmation that names the two machines and what goes);
+  - the round trips used against the limit, or on a one-way link which side cannot answer and that the right is
+    given in My reporters;
+  - the messages as an Activity feed (`.feed`), oldest first, each with sender, receiver, time and delivery state
+    as an icon and words. The text is text nodes; the only element in it is `.rd`;
+  - how many days a conversation is kept, from the read's `retainDays`.
+  - Pause and Remove act on the two reporters, through the owner's routes, so they also pause or remove the other
+    conversations between the same two machines.
+- **Table** shows the same links as text (pair and machines, messages, last message, round trips, state) and is
+  where a 640 px or narrower screen opens. **Show** picks Live sessions, Last 24 hours or Last 30 days. Both are
+  radio groups that move with the arrow keys.
+- Not signed in, or not the owner: the map and counts show, the page never asks for the text, and the conversation
+  says only its owner and an Admin can read it. An Admin reads it, but pauses or removes another person's link in
+  Admin > Reporters.
+- Empty: "No orchestrator has messaged another yet", with a link to My reporters; Show stays. A failed Pause, Resume
+  or Remove says so in place and the link is unchanged.
 - Long names are cut with an ellipsis and keep their full text as a title.
 
 #### Effort meter

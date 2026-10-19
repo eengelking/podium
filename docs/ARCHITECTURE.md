@@ -442,9 +442,11 @@ A container query on the modal (`fleet.css`) shows the one that fits. Its loadin
 
 Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `peerMessages.ts`, `peers.ts`,
 `peerRoutes.ts`; `scripts/podium-peers-demo.mjs`; the mod's `hooks/peers.ts` and the messaging block in
-`hooks/register.ts`; the console's `MyReporters.tsx`, `useMyPeers.ts`, `peers.ts` and `components/PeerRights.tsx`.
-Issue #412 builds the server half of #347, #414 the mod and #415 My reporters; the rules are in SPEC 5.3, 7.7 and
-8.1, and the reasoning in DECISIONS 37. The Admin's pages (#416) and Traffic (#417) are not built yet.
+`hooks/register.ts`; the console's `MyReporters.tsx`, `useMyPeers.ts`, `peers.ts`, `components/PeerRights.tsx` and
+`components/PeerLimits.tsx`; Admin's `admin/ReporterMessaging.tsx`; Traffic's `Traffic.tsx`, `trafficData.ts`,
+`useTraffic.ts` and `components/TrafficMap.tsx`. Issue #412 builds the server half of #347, #414 the mod, #415 My
+reporters, #416 the Admin's pages, #417 Traffic and #436 an owner's stricter limits; the rules are in SPEC 5.3, 7.7 and
+8.1, and the reasoning in DECISIONS 37.
 
 **Parts.** `peerTypes.ts` is the contract: the words (reporter, link, conversation), the rows and the two store
 interfaces. `PeerRights` keeps the rights between reporters, each owner's defaults and stricter limits, and the
@@ -499,11 +501,33 @@ switch, the Grid, the Board, the can-B-answer prompt, quoted text) are in `compo
 Messaging section (#416) to reuse; it passes `shown` and `waitingFor`. Their `pm-*` and `lv-*` CSS is in `admin.css`
 under `.adminv`, so the Admin shell gets it too.
 
+**Admin (#416).** `useReporterMessaging` in `admin/ReporterMessaging.tsx` gives the reporter's detail page three pieces
+(the Pause all links button for the header, the System and Messaging rows, the Messaging section) and nothing while
+the `peer-messaging` flag is off. Its Grid and Board are `PeerRights.tsx` with `showLive: false` (the Admin's read has
+no live counts) and `disabledLevels: ["none"]` (the server refuses a proposal of No access); a change goes to
+`POST reporters/:from/peers/propose`. The Admin's `GET reporters/:key/peers` covers every pair of the owner's reporters
+and returns the owner's `trust`, so the Grid needs one read. `components/PeerLimits.tsx` is the limit rows for Admin >
+Settings and My reporters > Defaults: the ranges and error words mirror `peerSettings.ts` (its test imports the server
+file and compares), and the caller supplies each key's maximum, the state line, the Use the Admin's limit action and
+what a typed value means, so the one component draws both.
+
+**Traffic (#417).** The page is a flag on `FleetApp`, like My reporters, with no wall, rail or side keys.
+`trafficData.ts` (not `traffic.ts`, which a case-insensitive disk would take for `Traffic.tsx`) holds the API, the
+words and `layoutMap`: machines in two columns, busiest first then by name so a new message does not reorder them,
+cubic curves, and each label at the first point along its curve that clears earlier labels and the nodes.
+`components/TrafficMap.tsx` draws it as inline SVG, each line an `<a>`. `useTraffic` reads the open
+`GET /api/fleet/peers/traffic` every 10 seconds while the page is visible, and `useConversation` asks for a
+conversation's text only when the viewer is its owner or an Admin, so a signed-out browser never requests it.
+
 **Testing.** `peerRights.test.ts` and `peerMessages.test.ts` test the stores alone; `peerRoutes.test.ts` plays two of
 one owner's reporters and another person's through the real router and the Admin router. `scripts/podium-peers-demo.mjs`
 does the same against a running server (`--help`). The mod's `peers.test.ts` and `peersMod.test.ts` hold the frame,
-subagent-refusal, separation-from-responding and approval-text tests. The page's tests are `myReporters.test.tsx` and
-`peers.test.ts` in the frontend.
+subagent-refusal, separation-from-responding and approval-text tests. The frame and separation checks are functions in
+`hooks/peerChecks.ts` (test-only, like `scripted.ts`); the tests run them against the real code and against fakes
+broken on purpose, which must fail, so no one has to remove the frame to prove the tests catch it (#437). The pages'
+tests are `myReporters.test.tsx`, `peers.test.ts`, `admin/messaging.test.tsx`, `components/PeerLimits.test.tsx`,
+`traffic.test.tsx` and `trafficData.test.ts` in the frontend. `scripts/podium-peers-seed.mjs` seeds a throwaway
+server for looking at the pages, and with `--talk` adds conversations for Traffic.
 
 ### People view
 
@@ -850,7 +874,8 @@ behavior a reader of the spec would expect:
   ack, `HistoryRow` for `/history`, and a `showStatus` mod option (20, 31, 33).
 - Extra files: `server/src/fleet/fleet.ts`, `testing.ts`, `server/vitest.config.ts`, `frontend/src/fleet/`
   helpers (`logic.ts`, `chart.ts`, `storage.ts`, `useNow.ts`, `fixtures.ts`, `testState.ts`),
-  `mod/podium-reporter/hooks/scripted.ts`, `mod/podium-reporter/tsconfig.json`, and the scripts
+  `mod/podium-reporter/hooks/scripted.ts`, `mod/podium-reporter/hooks/peerChecks.ts`,
+  `mod/podium-reporter/tsconfig.json`, and the scripts
   `podium-mod-typecheck.sh`, `podium-soak.sh`, `mod-report.test.ts` (7).
 
 ## Known issues
