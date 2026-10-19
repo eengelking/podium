@@ -1056,4 +1056,14 @@ reopened step loses it. Steps done in the first plan the server saw have none an
   apart from the field.
 - Two steps that finish between two reports get numbers in plan order, not true order. The order is as fine as the
   reporting interval.
-- A new plan that reuses step ids (TaskCreate numbers from 1) inherits the numbers of ids that were done and still are.
+- A new plan that reuses step ids (TaskCreate numbers from 1) inherited the numbers of ids that were done and still
+  were. #465 closed that, see below.
+
+**Amended (#465): when two plans are the same plan.** The numbers carry over from the stored plan only when the new one
+is the same plan: equal source, equal title, and the same text for every step id the two share (and at least one shared
+id). Anything else is a replaced plan and starts over, as if first seen, so steps done in it get no number until a later
+report sees them finish. Step texts are what separate two TaskCreate plans, since both number from 1 and the title is
+often empty. Renaming a step therefore also starts the order over; the list falls back to plan order, which is the
+accepted cost. A report with no plan no longer drops the numbers: while a report carries none, the server keeps the last
+plan in `plan_kept_json` (migration 21) and compares the next plan with it. Rejected: comparing only titles (usually
+null), and keeping a second copy of every plan (the column is filled only during a gap).

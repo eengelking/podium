@@ -3868,7 +3868,10 @@ selected first and the choice is not saved). While Files is selected the left co
     goes back among the open steps in plan order. Open work stays on the first page. Done steps whose finish
     the server never saw (a plan already part done when it first arrived) come first among the done, in plan
     order. The count, the bar, the inferred step and the Board keep plan order; only this list is reordered.
-    The server numbers the finishes (`doneSeq` on each step of `session.plan`, never sent by a reporter, [7.4](#74-view-types)), so a reload keeps the order. A step
+    The server numbers the finishes (`doneSeq` on each step of `session.plan`, never sent by a reporter, [7.4](#74-view-types)), so a reload keeps the order (#465). Two reports carry the same plan when
+    their source and title are equal and every step id they share has the same text; the numbers carry over only between
+    the same plan. A report with no plan in between does not break that: the server keeps the last plan until one returns.
+    A different plan starts over, and one first seen already part done gets no numbers. A step
     that moves keeps its row and the viewer's page, and the list says once, politely, to assistive
     technology: "<step> finished and moved to the end of the list." (several at once: "N steps finished and
     moved to the end of the list."). Rows do not slide, so reduced motion needs no special case.

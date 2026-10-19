@@ -262,6 +262,11 @@ CREATE INDEX IF NOT EXISTS peer_messages_link ON peer_messages(link, sent_at);
 CREATE INDEX IF NOT EXISTS peer_messages_to ON peer_messages(to_session, state);
 CREATE INDEX IF NOT EXISTS peer_messages_from ON peer_messages(from_session);`,
   },
+  {
+    version: 21,
+    // The last plan a session reported, kept while a report carries none, so the finish order of its steps survives the gap (#465).
+    sql: 'ALTER TABLE sessions ADD COLUMN plan_kept_json TEXT;',
+  },
 ];
 
 export interface SessionRow {
@@ -293,6 +298,8 @@ export interface SessionRow {
   rate_limits_json: string | null;
   blowouts: number;
   plan_json: string | null;
+  /** The last plan stored, while the latest report carries none (#465); NULL otherwise. */
+  plan_kept_json?: string | null;
   reporter_version: string | null;
   reporter_build?: string | null;
   engine_version: string | null;

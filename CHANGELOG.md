@@ -18,6 +18,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The Plan list puts finished steps at the bottom (#454).** On the orchestrator page the Plan tab lists the step in progress first, then blocked steps, then the ones still to do in plan order, then the done steps in the order they finished. The open work stays on the first page of a long plan. A step the model reopens goes back among the open ones. The server numbers the finishes, so a reload keeps the order; steps already done when a plan first arrives come first among the done, in plan order. A step that moves keeps its row and your page, and a screen reader hears one polite line. The count, the bar and the Board keep plan order. See SPEC 8.1 and DECISIONS 38.
 
+### Fixed
+
+- **Plan finish order survives a report with no plan, and a replaced plan starts over (#465).** A plan that went missing for a report and came back unchanged lost every finish number and fell back to plan order; the server now keeps the last plan across the gap. A new plan that reused the old step ids (TaskCreate numbers from 1) inherited the old numbers; plans now count as the same only with equal source, title and step texts, and any other starts over. Database migration 21 adds `plan_kept_json`. See SPEC 8.1 and DECISIONS 38.
+
 ### Added
 
 - **Orchestrator messaging in Admin (#416, C5 of #347).**

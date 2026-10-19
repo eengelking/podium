@@ -297,6 +297,43 @@ describe('ingestReport with a model that has no price (#66)', () => {
       expect(seqs()).toEqual({ a: undefined, b: undefined, c: 1 });
     });
 
+    it('keeps the finish order across a report with no plan (#465)', () => {
+      ingestReport(f, planOf({ '1': 'active', '2': 'active', '3': 'pending' }), T0);
+      ingestReport(f, planOf({ '1': 'done', '2': 'active', '3': 'pending' }), T0 + 1000);
+      ingestReport(f, planOf({ '1': 'done', '2': 'done', '3': 'pending' }), T0 + 2000);
+      const none = fixtureReport();
+      none.session.plan = null;
+      ingestReport(f, none, T0 + 3000);
+      ingestReport(f, none, T0 + 3500);
+      ingestReport(f, planOf({ '1': 'done', '2': 'done', '3': 'done' }), T0 + 4000);
+      expect(seqs()).toEqual({ '1': 1, '2': 2, '3': 3 });
+    });
+
+    it('starts over when the plan is replaced by one that reuses the step ids (#465)', () => {
+      const renamed = (states: Record<string, St>): Report => {
+        const r = planOf(states);
+        for (const x of r.session.plan!.steps) x.text = `new ${x.id}`;
+        return r;
+      };
+      ingestReport(f, planOf({ a: 'active', b: 'pending', c: 'pending' }), T0);
+      ingestReport(f, planOf({ a: 'done', b: 'done', c: 'pending' }), T0 + 1000);
+      expect(seqs()).toEqual({ a: 1, b: 2, c: undefined });
+      ingestReport(f, renamed({ a: 'done', b: 'pending', c: 'pending' }), T0 + 2000);
+      expect(seqs()).toEqual({ a: undefined, b: undefined, c: undefined });
+      ingestReport(f, renamed({ a: 'done', b: 'pending', c: 'done' }), T0 + 3000);
+      ingestReport(f, renamed({ a: 'done', b: 'done', c: 'done' }), T0 + 4000);
+      expect(seqs()).toEqual({ a: undefined, b: 2, c: 1 });
+    });
+
+    it('treats a plan with a different title or source as another plan (#465)', () => {
+      ingestReport(f, planOf({ a: 'active', b: 'pending' }), T0);
+      ingestReport(f, planOf({ a: 'done', b: 'pending' }), T0 + 1000);
+      const titled = planOf({ a: 'done', b: 'done' });
+      titled.session.plan!.title = 'Another plan';
+      ingestReport(f, titled, T0 + 2000);
+      expect(seqs()).toEqual({ a: undefined, b: undefined });
+    });
+
     it('starts over when a report carries a different plan or none', () => {
       ingestReport(f, planOf({ a: 'active' }), T0);
       ingestReport(f, planOf({ a: 'done' }), T0 + 1000);
