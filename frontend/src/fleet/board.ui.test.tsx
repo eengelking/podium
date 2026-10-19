@@ -159,18 +159,37 @@ describe("kanban board", () => {
     expect(screen.getByRole("status", { name: "Board updates" })).toHaveTextContent("Port endpoints moved to Done");
   });
 
-  describe("the Me filter", () => {
+  describe("the My orchestrators | Everyone switch (#451)", () => {
     const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
 
     it("is not offered while nobody is signed in", async () => {
       board(sessions, { enabled: true, signedIn: false, name: null, admin: false });
       expect(screen.getByText("my task")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Me" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "My orchestrators" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Everyone" })).toBeNull();
+      expect(screen.queryByRole("group", { name: "Whose sessions" })).toBeNull();
+    });
+
+    it("shows everyone's sessions by default and names the group for a screen reader", async () => {
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      expect(await screen.findByRole("group", { name: "Whose sessions" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Everyone" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByText("their task")).toBeInTheDocument();
+    });
+
+    it("goes back to everyone when Everyone is pressed", async () => {
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
+      expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Everyone" }));
+      expect(screen.getByText("their task")).toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(false);
     });
 
     it("narrows the board to the signed-in person's sessions, and is remembered", async () => {
       board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.getByText("my task")).toBeInTheDocument();
       expect(screen.queryByText("their task")).toBeNull();
       await waitFor(() => expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(true));
@@ -257,7 +276,7 @@ describe("kanban board", () => {
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1$/);
     });
 
-    it("counts every session the page received while Me narrows the cards, and says whole fleet", async () => {
+    it("counts every session the page received while My orchestrators narrows the cards, and says whole fleet", async () => {
       const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending"), step("2", "done"))];
       render(
         <FleetView
@@ -266,7 +285,7 @@ describe("kanban board", () => {
           respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
         />,
       );
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans2whole fleet$/);
       expect(tile("Plan steps")).toHaveTextContent(/^Plan steps3whole fleet$/);
     });
@@ -310,7 +329,7 @@ describe("kanban board", () => {
       expect(tile("Subagents running")).toHaveTextContent("whole fleet");
     });
 
-    it("stays the whole fleet when the Me filter hides sessions, and says so", async () => {
+    it("stays the whole fleet when My orchestrators hides sessions, and says so", async () => {
       const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
       render(
         <FleetView
@@ -320,7 +339,7 @@ describe("kanban board", () => {
         />,
       );
       expect(tile("Subagents running")).toHaveTextContent("forks included");
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.queryByText("their task")).toBeNull();
       expect(tile("Orchestrators running")).toHaveTextContent("2");
       expect(tile("Subagents running")).toHaveTextContent("6");

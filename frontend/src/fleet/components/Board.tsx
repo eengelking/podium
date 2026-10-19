@@ -125,7 +125,7 @@ export function Board(props: {
   kpis: Kpis | null;
   /** True when the fleet page already hides sessions (a people filter, detached sessions), so the counts cover more than the cards. */
   narrowed?: boolean;
-  /** Who is signed in, or null: the Me filter is offered only to a signed-in person. */
+  /** Who is signed in, or null: the My orchestrators | Everyone switch is offered only to a signed-in person. */
   me: string | null;
   onOpen: (sessionId: string) => void;
 }) {
@@ -266,9 +266,14 @@ export function Board(props: {
           </select>
         )}
         {props.me && (
-          <button type="button" className="kb-chip" aria-pressed={meOn} onClick={() => setPref({ me: !meOn })}>
-            Me
-          </button>
+          <span className="kb-seg" role="group" aria-label="Whose sessions">
+            <button type="button" aria-pressed={meOn} onClick={() => setPref({ me: true })}>
+              My orchestrators
+            </button>
+            <button type="button" aria-pressed={!meOn} onClick={() => setPref({ me: false })}>
+              Everyone
+            </button>
+          </span>
         )}
       </div>
       <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />

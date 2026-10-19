@@ -177,7 +177,7 @@ export const SAMPLES: Sample[] = [
       { label: "Mixed", screen: "board", selector: ".kb" },
       { label: "A column with nothing in it", screen: "app-board-quiet", selector: ".kb" },
       { label: "By orchestrator, with the group filter", screen: "app-board-grouped", selector: ".kb" },
-      { label: "Signed in, with Me", screen: "app-board-me", selector: ".kb" },
+      { label: "Signed in, with My orchestrators", screen: "app-board-me", selector: ".kb" },
       { label: "No plans at all", screen: "app-board-empty", selector: ".kb" },
     ],
   },

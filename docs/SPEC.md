@@ -3106,7 +3106,7 @@ activity panel and legend as the wall, with the board in the middle.
 - **Plans | All (#426).** A two-state switch right after the Board title, the Board's segmented control
   (`kb-seg`, the one that holds Mixed | By orchestrator), named "Sessions shown". **All** (default) is the page
   above. **Plans** shows only the columns: the strip is not on the page, so no session without a plan is listed.
-  The switch changes nothing else: the tiles, the left list and the Me, Group and layout controls work the same
+  The switch changes nothing else: the tiles, the left list and the My orchestrators, Group and layout controls work the same
   in both modes. A no-plan session waiting on its person has a Review card on All only (#443): on Plans every column lists only sessions that have a plan, so a session with no plan or an empty one is in none of them. The
   empty board says "None of the N active sessions has open steps. Switch to All to list them." in Plans and the
   wording above in All. The choice is kept in `podium.board` (`view`: `plans` or `all`).
@@ -3117,10 +3117,12 @@ activity panel and legend as the wall, with the board in the middle.
   buttons, "25 per page" when there is one page) at the bottom of the column, and scrolls inside itself.
 - Mixed (default) shows every orchestrator's cards in each column with the orchestrator on the card. By
   orchestrator puts a lane label before each orchestrator's cards and drops it from the card.
-- The choice and the Me filter are remembered in `localStorage` under `podium.board`.
+- The choice and the My orchestrators | Everyone switch are remembered in `localStorage` under `podium.board`.
 - A Group dropdown appears once any session has a group.
-- **Me** appears only while someone is signed in (see People view below) and narrows the board to that person's
-  sessions.
+- **My orchestrators | Everyone (#451)** is a two-state switch in the same segmented control (`kb-seg`), named
+  "Whose sessions", after the Group dropdown. **Everyone** (default) shows every session. **My orchestrators** narrows
+  the board to the signed-in person's sessions. It appears only while someone is signed in (see People view below);
+  with nobody signed in it is not on the page, and a remembered choice falls back to Everyone.
 - Each column is at least 210 px wide, so a narrower board scrolls sideways. At 640 px or less it becomes one
   column at a time behind a tab row that keeps the counts.
 
@@ -3135,13 +3137,13 @@ activity panel and legend as the wall, with the board in the middle.
 - The orchestrator tile's caption reads "of N live" (`Kpis.live`) and, when any wait on their person, ", M
   waiting" (`Kpis.waiting`). The subagent tile's caption reads "forks included".
 - The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and Me change
-  the cards, never the counts. The tile group is named "Running now and plans, whole fleet". While Group, Me or
+  the cards, never the counts. The tile group is named "Running now and plans, whole fleet". While Group, My orchestrators or
   the Fleet page's own filters (People, hidden detached sessions) narrow the board, the subagent caption reads
   "whole fleet".
 - **Plan tiles (#426).** Two more tiles in the same row: **Orchestrators with plans** (sessions that have a plan
   with steps on the board; a finished plan and a no-plan session waiting on its person do not count), captioned
   "of N live" (`Kpis.live`), and **Plan steps** (every step in those plans, done included), captioned "N done".
-  They are worked out from the sessions the page received, so nothing new is sent or stored, and Me and Group do
+  They are worked out from the sessions the page received, so nothing new is sent or stored, and My orchestrators and Group do
   not change them: under a filter both captions read "whole fleet". Plans | All does not change them either.
 - The tiles update with the rest of the console and never move the columns below them. At 640 px or less they
   sit side by side.
