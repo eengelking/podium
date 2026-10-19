@@ -143,40 +143,56 @@ describe("Markdown", () => {
 
   // Hostile text reaches this renderer from sessions, so a long run of one marker must not stall the tab.
   describe("stays linear on pathological input (#362)", () => {
+    // A quadratic renderer takes 16 times as long on 4n as on n, a linear one 4 times. The
+    // test asserts the ratio, so a slow or busy runner (or coverage) cannot fail it; the
+    // per-test timeout is the backstop for a real hang.
     const N = 50000;
-    const pathological: Record<string, string> = {
-      "backticks": "`a".repeat(N),
-      "bold opens": "**a".repeat(N),
-      "underscore bold opens": "__a".repeat(N),
-      "link opens": "[a](".repeat(N),
-      "open brackets": "[".repeat(N * 2),
-      "open brackets with text": "[a".repeat(N),
-      "link text then a long url run": "[a](" + "[a]".repeat(N),
-      "link text then groups": "[a](" + "[b](c)".repeat(N),
-      "link text then closers": "[a](" + "x]".repeat(N),
-      "link url parens":"[a](" + "(a".repeat(N),
-      "link url nested parens": "[a](" + "(a)".repeat(N) + "(",
-      "italic opens": "*a ".repeat(N),
-      "underscore opens": "_a ".repeat(N),
-      "a lone star then text": "*" + "a".repeat(N * 2),
-      "a lone underscore then text": "_" + "a".repeat(N * 2),
-      "a lone bracket then text": "[" + "a".repeat(N * 2),
-      "bracket text then no paren": "[a]".repeat(N),
-      "spaces then no marker": " ".repeat(N * 2),
-      "spaces then dash": " ".repeat(N * 2) + "-",
-      "spaces then digit": " ".repeat(N * 2) + "1",
-      "spaces then digit dot": " ".repeat(N * 2) + "1.",
-      "digits then no dot": "1".repeat(N * 2),
-      "heading hashes": "#".repeat(N * 2),
-      "heading hashes then spaces": "#" + " ".repeat(N * 2),
-      "dash then spaces": "-" + " ".repeat(N * 2),
-      "many dash lines": "-\n".repeat(N),
-    };
-    for (const [name, src] of Object.entries(pathological)) {
-      it(name, () => {
+    const REPS = 3;
+    const MAX_RATIO = 8;
+    const FLOOR_MS = 1;
+    const best = (src: string): number => {
+      let min = Infinity;
+      for (let i = 0; i < REPS; i++) {
         const t0 = performance.now();
         dom(src);
-        expect(performance.now() - t0).toBeLessThan(3000);
+        min = Math.min(min, performance.now() - t0);
+      }
+      return min;
+    };
+    const pathological: Record<string, (n: number) => string> = {
+      "backticks": (n) => "`a".repeat(n),
+      "bold opens": (n) => "**a".repeat(n),
+      "underscore bold opens": (n) => "__a".repeat(n),
+      "link opens": (n) => "[a](".repeat(n),
+      "open brackets": (n) => "[".repeat(n * 2),
+      "open brackets with text": (n) => "[a".repeat(n),
+      "link text then a long url run": (n) => "[a](" + "[a]".repeat(n),
+      "link text then groups": (n) => "[a](" + "[b](c)".repeat(n),
+      "link text then closers": (n) => "[a](" + "x]".repeat(n),
+      "link url parens": (n) => "[a](" + "(a".repeat(n),
+      "link url nested parens": (n) => "[a](" + "(a)".repeat(n) + "(",
+      "italic opens": (n) => "*a ".repeat(n),
+      "underscore opens": (n) => "_a ".repeat(n),
+      "a lone star then text": (n) => "*" + "a".repeat(n * 2),
+      "a lone underscore then text": (n) => "_" + "a".repeat(n * 2),
+      "a lone bracket then text": (n) => "[" + "a".repeat(n * 2),
+      "bracket text then no paren": (n) => "[a]".repeat(n),
+      "spaces then no marker": (n) => " ".repeat(n * 2),
+      "spaces then dash": (n) => " ".repeat(n * 2) + "-",
+      "spaces then digit": (n) => " ".repeat(n * 2) + "1",
+      "spaces then digit dot": (n) => " ".repeat(n * 2) + "1.",
+      "digits then no dot": (n) => "1".repeat(n * 2),
+      "heading hashes": (n) => "#".repeat(n * 2),
+      "heading hashes then spaces": (n) => "#" + " ".repeat(n * 2),
+      "dash then spaces": (n) => "-" + " ".repeat(n * 2),
+      "many dash lines": (n) => "-\n".repeat(n),
+    };
+    for (const [name, build] of Object.entries(pathological)) {
+      it(name, () => {
+        dom(build(N)); // warm-up
+        const small = Math.max(best(build(N)), FLOOR_MS);
+        const large = best(build(N * 4));
+        expect(large / small).toBeLessThan(MAX_RATIO);
       }, 20000);
     }
   });
