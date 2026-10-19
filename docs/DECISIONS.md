@@ -1014,10 +1014,15 @@ OS (`SPEC.md` 1, 5.3, 5.9, 7.7 and 8.1). It is not built yet; #347 records the d
 - The trust model widens again. Anyone holding a person's token can put text into that person's linked
   orchestrators. That is why the switches are off by default and approval is the default for a new right.
 - A message is another agent's text in a session. A receiving session in auto mode can act on it without asking.
-  Its permission prompts still apply, but what auto mode allows is not a prompt.
+  Its permission prompts still apply, but what auto mode allows is not a prompt. The #411 spike found the
+  auto-mode classifier does not take a plugin's text as the person's intent, and the model refused the risky
+  requests once Podium's opening line was there. Without that line it tried one (SPEC 5.3), so in accept-edits
+  or bypass mode the line and the model's judgment are the only guard.
 - Conversation text is stored on disk, which responding never does, and redaction is best effort.
-- The design rests on the mods API, which is early access, and on points a spike must still verify: keeping a
-  tool from subagents, whether background agents hold a message back, and how the terminal answers a request.
+- The design rests on the mods API, which is early access. The #411 spike checked it on Claude Code 2.1.303: a
+  tool cannot be kept from subagents, so it refuses their calls; background agents do not hold a message back;
+  and a toast plus `/podium`, registered to run mid-turn, answer a request (SPEC 5.3). A later version can change
+  any of it.
 - A managed organization that allows only managed mods turns the whole reporter off, messaging included.
 - A spend cap and a hop count across chains (A to B to C) are not designed. The round-trip cap per link is the
-  only loop guard until the spike says more is needed.
+  only loop guard. The #411 spike did not test chains.

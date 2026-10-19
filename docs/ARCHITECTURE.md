@@ -876,7 +876,9 @@ the window that narrow. Touch input and screen reader output were not checked.
 
 Checked against the engine 2.1.296 type declarations, `claude plugin validate`, `claude plugin test`, and two real
 `claude -p` runs (haiku) on 2026-10-10. The rows marked #206 were checked on 2.1.301 on 2026-10-15 with a
-throwaway mod that recorded every hook's input and timing in an interactive session (SPEC 5.3).
+throwaway mod that recorded every hook's input and timing in an interactive session (SPEC 5.3). The rows marked
+#411 were checked the same way on 2.1.303 on 2026-10-18, for orchestrator messaging (#347); the full record is
+the findings comment on #411.
 
 | Assumption (SPEC 5 and 12) | Result | Evidence |
 |---|---|---|
@@ -895,6 +897,12 @@ throwaway mod that recorded every hook's input and timing in an interactive sess
 | #206: the engine ends a waiting PermissionRequest hook when the terminal answers first | **No.** `next.signal` never aborted; the hook held on for 60 s, past the command's end. The only signal is the call's `tool.call` resolving, so a tool ask stays open while a terminal-allowed command runs. | two Bash prompts answered "Yes" in the terminal |
 | #206: `$.http.fetch` time limit | **30 s**: "no complete answer within 30000ms". Held requests wait 20 s at most. | recorded rejection |
 | #206: `tool.check` before a prompt | Carries `tool_use_id`; resolves to `ask` 3 to 11 ms before `classic.PermissionRequest` fires (Bash and ExitPlanMode). The managed-setup case, where no PermissionRequest fires, is **unverified**. | recorded timings |
+| #411: a `$.tool.register` tool can be kept from subagents | **No.** A foreground agent, a background agent and a fork all list it and call it. `tool.call` carries `agentId` on each of their calls and none of the main loop's, so the tool refuses a call that has one. The prompt-suggestion fork calls tools under an id no `agent.spawn` announced. Every Agent call ran in the background on this build, even one asked for in the foreground. | recorded `tool.call` and `agent.spawn` |
+| #411: `$.prompt.submit` waits for the turn, with background agents running | **Yes, and they don't hold it.** Submitted 10 s into a 40 s Bash call, it resolved 17 ms after `turn.complete`. With a background agent 90 s into a build and the main loop idle, it started a turn within 11 ms. With a permission dialog open, it waited until the dialog was answered. The submitting mod's own `prompt.submit` hook does not fire for it. | recorded timings |
+| #411: what the model reads from a plugin's prompt, and its authority | "The `<plugin>` plugin sent a message:", the text, then a line saying the turn starts "in the user's place"; a user row with `origin: { kind: 'plugin' }` and `promptSource: 'system'`. With that frame alone the model tried a `CLAUDE.md` edit the message asked for, and the auto-mode classifier denied it as `[Instruction Poisoning]`, where the person's typed request was allowed. With Podium's own opening line it refused that, a settings change, a force-push and approving a permission, without trying. | transcript; classifier results |
+| #411: `$.ui.toast`, `$.ui.log` and a command during a turn | Toast in the footer, `⏺ <plugin>: <text>` in the transcript, neither starts a turn. A command without `immediate` waits for the turn to end; with `immediate: true` it runs at once. The transcript echoes the command without its arguments. | recorded `command.run` times |
+| #411: the OS | No call for it. `$.process.run(['sw_vers'])` answers `macOS` and `27.0.1`; a missing executable (`cmd` on macOS) rejects. `/etc/os-release` holds `PRETTY_NAME` on Debian 12 (read in a container, not through the mod). Windows not checked. The `env_info_simple` prompt section does not carry the platform. | live mod; podman container |
+| #411: Claude Code's cross-session messages beside a plugin's prompt | `session.receive` fires for a `SendMessage` from another session (`origin.kind: 'peer'`, a `<cross-session-message>` wrapper) and never for `$.prompt.submit`. Each starts its own turn, in order. A subagent's hand-back reaches `prompt.submit` as `origin.kind: 'peer'`, `isMeta: true`. | recorded events |
 | Worktree detection when started inside a worktree | **Works.** Run 2 in a scratch worktree: `isWorktree: true`, `worktreePath` the worktree, branch `feat/wt-check`, `dirty: 1`, name `wt-check`, project the main checkout. | run 2 |
 | Teammates | Reported as `kind: 'teammate'` from `agent.spawn.isTeammate`; not observed for real. | types |
 | `$.session.version()` | Returns `{ version, base?, builtAt? }`, not a string. | types |
