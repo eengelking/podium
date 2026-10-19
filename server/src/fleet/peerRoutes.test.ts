@@ -472,6 +472,25 @@ describe('the Admin’s side (#412)', () => {
     expect((await admin.get('/api/admin/reporters/nope/peers')).status).toBe(404);
   });
 
+  it('reads every pair of the owner’s reporters in one read, with the owner’s Trust my own reporters (#416)', async () => {
+    const s = await linked('see');
+    const twin = { name: 'build-pi', id: 'pi0pi0pi0001' };
+    expect((await post(s, s.ed.token, report('Ed', 'sess-pi', 'arm', twin))).status).toBe(200);
+    const admin = await adminAgent(s);
+    // A proposal between two other reporters of Ed's shows on this reporter's read too: the Grid draws every pair.
+    const p = await admin.post(`/api/admin/reporters/${twin.id}/peers/propose`).set(HA).send({ to: LINUX.id, level: 'see' });
+    expect(p.status).toBe(202);
+    const view = (await admin.get(`/api/admin/reporters/${MAC.id}/peers`)).body;
+    expect(view.trust).toBe(false);
+    expect(view.rights).toEqual(expect.arrayContaining([expect.objectContaining({ from: MAC.id, to: LINUX.id, level: 'see' })]));
+    const pairs = (view.effective as { from: string; to: string }[]).map((e) => `${e.from}>${e.to}`);
+    expect(pairs).toEqual(expect.arrayContaining([`${twin.id}>${LINUX.id}`, `${LINUX.id}>${twin.id}`, `${MAC.id}>${twin.id}`]));
+    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(view.requests).toEqual([expect.objectContaining({ id: p.body.requestId, fromKey: twin.id, toKey: LINUX.id })]);
+    expect((await s.edBrowser.put('/api/fleet/respond/peers/defaults').set(H).send({ trust: true })).status).toBe(200);
+    expect((await admin.get(`/api/admin/reporters/${MAC.id}/peers`)).body.trust).toBe(true);
+  });
+
   it('pauses all of a reporter’s links at once, and removes a link at once', async () => {
     const s = await linked('send');
     const admin = await adminAgent(s);

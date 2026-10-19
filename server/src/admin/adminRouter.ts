@@ -438,15 +438,15 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!peers || !ref) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
     const owner = ref.owner;
     const mine = owner && !ref.adminSecret ? peers.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
+    // Every pair of the owner's reporters, not only this one's: the page's Grid draws them all, in one read (#416).
+    const keys = new Set(mine.map((r) => r.key));
     res.json({
       reporter: ref,
       peers: mine,
-      rights: owner ? peers.rights.rightsOf(owner).filter((r) => r.from === ref.key || r.to === ref.key) : [],
-      effective: mine.flatMap((o) => [
-        { from: ref.key, to: o.key, ...peers.rights.effective(ref.key, o.key) },
-        ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...peers.rights.effective(o.key, ref.key) }]),
-      ]),
-      requests: owner ? peers.rights.openRequests(owner, ref.key).map((r) => peers.ownerRequestView(r)) : [],
+      trust: owner && mine.length ? peers.rights.defaults(owner).trust : false,
+      rights: owner ? peers.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
+      effective: mine.flatMap((a) => mine.map((b) => ({ from: a.key, to: b.key, ...peers.rights.effective(a.key, b.key) }))),
+      requests: mine.length && owner ? peers.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => peers.ownerRequestView(r)) : [],
     });
   });
 

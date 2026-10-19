@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AdminView } from "./AdminView";
 import { fakeServer, type FakePeerRef } from "./fakeAdmin";
-import { eligible, trustFrom } from "./ReporterMessaging";
+import { eligible } from "./ReporterMessaging";
 import { REFRESH_MS } from "./ReportersTab";
 
 class QuietSource {
@@ -123,9 +123,9 @@ describe("a reporter's Messaging section (#416)", () => {
     expect(within(sec).getByText(/What Dana's reporters may do with each other/)).toBeInTheDocument();
     expect(within(sec).getByText("A change you make here is sent to Dana to accept.").closest(".warnbar")).not.toBeNull();
     await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("see"));
-    // A pair between two other reporters is drawn too, from their own reads.
+    // A pair between two other reporters is drawn too, from the same one read.
     expect(cell("ci-01", "ci-01").value).toBe("none");
-    expect(s.calls).toContain("GET /reporters/lnx01/peers");
+    expect(s.calls.filter((c) => c.endsWith("/peers"))).toEqual(["GET /reporters/9f3a1c7d2e40/peers"]);
     expect(within(sec).getAllByText("Messaging is off on win-lab").length).toBeGreaterThan(0);
     // No live count: the Admin's read has none.
     expect(within(sec).queryByText(/live$/)).toBeNull();
@@ -281,12 +281,5 @@ describe("the reads behind it (#416)", () => {
     expect(eligible(SECRET)).toBe(false);
     expect(eligible({ adminSecret: false, owner: "admin" })).toBe(false);
     expect(eligible({ adminSecret: false, owner: null })).toBe(false);
-  });
-
-  it("sees Trust where a pair sends with no stored right to send", () => {
-    const right = { from: "a", to: "b", owner: "Dana", level: "send" as const, paused: false, setAt: 1 };
-    expect(trustFrom([right], [{ from: "a", to: "b", level: "send", paused: false }])).toBe(false);
-    expect(trustFrom([], [{ from: "a", to: "b", level: "none", paused: false }])).toBe(false);
-    expect(trustFrom([], [{ from: "a", to: "b", level: "send", paused: false }])).toBe(true);
   });
 });

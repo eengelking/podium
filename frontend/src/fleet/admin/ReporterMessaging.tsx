@@ -20,50 +20,24 @@ interface Effective {
   paused: boolean;
 }
 
-/** One reporter's read, GET /api/admin/reporters/:key/peers (SPEC 7.1). */
-interface OneRead {
-  reporter: PeerRef;
-  peers: PeerRef[];
-  rights: PeerRight[];
-  effective: Effective[];
-  requests: PeerRequestView[];
-}
-
-/** The reporter, and every pair between its owner's reporters, put together from one read per reporter. */
+/**
+ * The reporter, and every pair between its owner's reporters, in one read: GET /api/admin/reporters/:key/peers
+ * (SPEC 7.1).
+ */
 export interface AdminPeers {
   reporter: PeerRef;
   peers: PeerRef[];
   rights: PeerRight[];
   effective: Effective[];
   requests: PeerRequestView[];
-  /** The owner's Trust my own reporters, seen in the reads: a pair that can send though no right says so. */
+  /** The owner's Trust my own reporters. */
   trust: boolean;
 }
 
 /** Whether a reporter can take part at all, as the server decides it: a person's token, and not the admin secret. */
 export const eligible = (r: Pick<PeerRef, "adminSecret" | "owner">): boolean => !r.adminSecret && r.owner !== null && r.owner.toLowerCase() !== ADMIN.toLowerCase();
 
-/** Without Trust, what can be sent is what is stored. So a pair that sends with no stored right to send is Trust at work. */
-export function trustFrom(rights: PeerRight[], effective: Effective[]): boolean {
-  const stored = new Map(rights.map((r) => [pairKey(r.from, r.to), r.level]));
-  return effective.some((e) => e.level === "send" && stored.get(pairKey(e.from, e.to)) !== "send");
-}
-
-/**
- * The server's read covers the pairs this reporter is in. The Grid shows every pair of the owner's reporters, so the
- * other reporters' reads are fetched too and put together.
- */
-export async function loadAdminPeers(api: AdminApi, key: string): Promise<AdminPeers> {
-  const one = (k: string) => api<OneRead>("GET", `/reporters/${encodeURIComponent(k)}/peers`);
-  const base = await one(key);
-  const others = eligible(base.reporter) ? await Promise.all(base.peers.filter((p) => p.key !== key).map((p) => one(p.key))) : [];
-  const reads = [base, ...others];
-  const unique = <T,>(rows: T[], id: (t: T) => string) => [...new Map(rows.map((r) => [id(r), r])).values()];
-  const rights = unique(reads.flatMap((r) => r.rights), (r) => pairKey(r.from, r.to));
-  const effective = unique(reads.flatMap((r) => r.effective), (r) => pairKey(r.from, r.to));
-  const requests = unique(reads.flatMap((r) => r.requests), (r) => r.id);
-  return { reporter: base.reporter, peers: base.peers, rights, effective, requests, trust: trustFrom(rights, effective) };
-}
+export const loadAdminPeers = (api: AdminApi, key: string): Promise<AdminPeers> => api<AdminPeers>("GET", `/reporters/${encodeURIComponent(key)}/peers`);
 
 /** Asks again while the page is visible, as the rest of the reporter's detail does. */
 function useEvery(ms: number, run: () => void, enabled: boolean) {
