@@ -107,6 +107,32 @@ names, machines, paths, branches, plan steps, commands from failed calls and the
   could claim any name.
 - Per-person read permissions are not part of Podium.
 
+### Orchestrator messaging
+
+One person's orchestrators can find and message each other through the server, between that person's own
+reporters only. It is off until an Admin turns on **Orchestrator messaging** (`peer-messaging`) in Admin >
+Settings > Feature flags; each change is written to the Admin log as `feature_changed`. It also needs the
+server's auth on, a person's token on each reporter (never the admin secret), and the reporter's `peers` option
+on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
+
+While the flag is on, Admin > Settings has an **Orchestrator messaging** section with the limits for every link
+on the server. A person can make them stricter on their own links in My reporters, not looser.
+
+| Limit | Default | Range |
+|---|---|---|
+| Round trips before a person approves | 10 | 1 to 100 |
+| Messages per minute on a link | 6 | 1 to 60 |
+| Longest message, in characters | 20,000 | 1 to 20,000 |
+| Keep conversations, in days | 30 | 1 to 365 |
+
+A limit is saved when its box loses focus or on Enter, and written to the Admin log as `peer_limits_changed`. A
+value outside its range is refused in place and nothing is saved.
+
+Admin > Reporters > a reporter then has a **Messaging** section with the same Grid and Board as My reporters.
+An Admin's change there is a proposal that waits for the owner to accept it; **Pause all links** holds every link
+of that reporter at once, and **Resume all links** lets them go. With the flag off, Admin shows none of this.
+The rights and limits stay, and every message still waiting is dropped.
+
 ### A page on another site
 
 A web page can point its own name at `127.0.0.1` after it has loaded (DNS rebinding) and then read the

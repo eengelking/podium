@@ -446,7 +446,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
         { from: ref.key, to: o.key, ...peers.rights.effective(ref.key, o.key) },
         ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...peers.rights.effective(o.key, ref.key) }]),
       ]),
-      requests: owner ? peers.rights.openRequests(owner, ref.key).map((r) => ({ ...peers.requestView(r), messageId: r.messageId })) : [],
+      requests: owner ? peers.rights.openRequests(owner, ref.key).map((r) => peers.ownerRequestView(r)) : [],
     });
   });
 

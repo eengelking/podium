@@ -15,6 +15,59 @@ interface P {
   revokedAt: number | null;
 }
 
+/** Orchestrator messaging as the fake server keeps it (#416): one owner's reporters, the stored rights and the open requests. */
+export interface FakePeerRef {
+  key: string;
+  machine: string;
+  owner: string | null;
+  adminSecret: boolean;
+  os: string | null;
+  peers: boolean | null;
+  version: string;
+}
+interface FakeRight {
+  from: string;
+  to: string;
+  owner: string;
+  level: "none" | "see" | "ask" | "send";
+  paused: boolean;
+  setAt: number;
+}
+export interface FakePeers {
+  reporters: FakePeerRef[];
+  rights: FakeRight[];
+  requests: { id: string; kind: string; fromKey: string; toKey: string; level: string | null; [k: string]: unknown }[];
+  trust: boolean;
+}
+
+/** The Admin's read of one reporter, as GET /reporters/:key/peers answers it. */
+function peersRead(P: FakePeers, key: string) {
+  const ref = P.reporters.find((r) => r.key === key)!;
+  const mine = ref.adminSecret || !ref.owner ? [] : P.reporters.filter((r) => !r.adminSecret && r.owner === ref.owner);
+  const row = (a: string, b: string) => P.rights.find((r) => r.from === a && r.to === b);
+  const eff = (a: string, b: string) => ({ from: a, to: b, level: P.trust ? "send" : (row(a, b)?.level ?? "none"), paused: row(a, b)?.paused ?? false });
+  const about = <T extends { from?: string; to?: string; fromKey?: string; toKey?: string }>(r: T) => [r.from, r.to, r.fromKey, r.toKey].includes(key);
+  return {
+    reporter: ref,
+    peers: mine,
+    rights: P.rights.filter(about),
+    effective: mine.flatMap((o) => [eff(key, o.key), ...(o.key === key ? [] : [eff(o.key, key)])]),
+    requests: P.requests.filter(about),
+  };
+}
+
+/** Pause all links: every direction between `key` and the owner's reporters, a `none` row holding a pause with no right. */
+function pauseAll(P: FakePeers, key: string, paused: boolean) {
+  for (const o of peersRead(P, key).peers) {
+    for (const [f, t] of key === o.key ? [[key, key]] : [[key, o.key], [o.key, key]]) {
+      const had = P.rights.find((r) => r.from === f && r.to === t);
+      if (had) had.paused = paused;
+      else if (paused) P.rights.push({ from: f!, to: t!, owner: o.owner!, level: "none", paused: true, setAt: 1 });
+    }
+  }
+  if (!paused) P.rights = P.rights.filter((r) => r.level !== "none");
+}
+
 /** A small in-memory stand-in for /api/admin. */
 export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean; build?: string | null } = {}) {
   const state = {
@@ -43,6 +96,12 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     pageLimit: 50,
     rules: [] as { id: number; kind: string; pattern: string; createdAt: number }[],
     forget: { enabled: false, days: 30 },
+    /** Orchestrator messaging (#416): off unless a test sets it. */
+    peers: null as FakePeers | null,
+    peerLimits: null as Record<string, number> | null,
+    peerLimitError: "",
+    proposeError: "",
+    proposeBodies: [] as unknown[],
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -141,6 +200,28 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       state.rules = state.rules.filter((r) => r.id !== id);
       return json(200, { ok: true });
     }
+    const pm = /^\/reporters\/([^/]+)\/peers(\/propose|\/pause)?$/.exec(path);
+    if (pm) {
+      const key = decodeURIComponent(pm[1]!);
+      const P = state.peers;
+      if (!P?.reporters.some((r) => r.key === key)) return json(404, { ok: false, error: "unknown reporter" });
+      if (pm[2] === "/propose") {
+        const b = JSON.parse(String(init?.body)) as { from: string; to: string; level: string };
+        state.proposeBodies.push(b);
+        if (state.proposeError) return json(403, { ok: false, error: state.proposeError });
+        const machine = (k: string) => P.reporters.find((r) => r.key === k)?.machine ?? k;
+        const open = P.requests.find((r) => r.kind === "proposal" && r.fromKey === b.from && r.toKey === b.to);
+        if (open) open.level = b.level;
+        else P.requests.push({ id: `prq_${P.requests.length + 1}`, kind: "proposal", at: 90_000, from: { machine: machine(b.from), name: null }, to: { machine: machine(b.to), name: null }, level: b.level, by: "Admin", reason: null, text: null, fromKey: b.from, toKey: b.to, messageId: null });
+        return json(202, { ok: true, requestId: open?.id ?? P.requests[P.requests.length - 1]!.id });
+      }
+      if (pm[2] === "/pause") {
+        if (state.proposeError) return json(403, { ok: false, error: state.proposeError });
+        pauseAll(P, key, (JSON.parse(String(init?.body)) as { paused: boolean }).paused);
+        return json(200, { ok: true, links: 1 });
+      }
+      return json(200, peersRead(P, key));
+    }
     if (path.startsWith("/reporters/")) {
       const key = decodeURIComponent(path.slice("/reporters/".length));
       const r = state.reporters.find((x) => x.key === key);
@@ -160,6 +241,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       if (b.notices) for (const [id, on] of Object.entries(b.notices)) state.notices[id] = on as boolean;
       if ("showBackgroundSessions" in b) state.showBackground = b.showBackgroundSessions;
       if (b.forgetReporters) state.forget = { ...state.forget, ...b.forgetReporters };
+      if (b.peerMessaging) {
+        if (state.peerLimitError) return json(400, { ok: false, error: state.peerLimitError });
+        state.peerLimits = { ...state.peerLimits, ...b.peerMessaging };
+      }
       if (b.modelPrice) {
         if (state.priceError) return json(400, { ok: false, error: state.priceError });
         state.prices[b.modelPrice.key] = { std: b.modelPrice.std, ...(b.modelPrice.long ? { long: b.modelPrice.long } : {}) };
@@ -185,13 +270,12 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
           ...(base ? { builtinStd: base } : {}),
         };
       });
-      const features = Object.entries(state.features).map(([id, on]) => ({
-        id,
-        name: "Agent activity feed",
-        description: "Shows an agent's recent tool calls and text in its panel while someone watches.",
-        on,
-      }));
-      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models } });
+      const features = Object.entries(state.features).map(([id, on]) =>
+        id === "peer-messaging"
+          ? { id, name: "Orchestrator messaging", description: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server.", on }
+          : { id, name: "Agent activity feed", description: "Shows an agent's recent tool calls and text in its panel while someone watches.", on },
+      );
+      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
     }
     return json(404, { ok: false, error: "nope" });
   });

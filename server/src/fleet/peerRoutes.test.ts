@@ -460,6 +460,8 @@ describe('the Admin’s side (#412)', () => {
     const view = await admin.get(`/api/admin/reporters/${LINUX.id}/peers`);
     expect(view.body.requests).toEqual([expect.objectContaining({ id: p.body.requestId, kind: 'proposal', level: 'send' })]);
     expect(view.body.effective).toEqual(expect.arrayContaining([{ from: LINUX.id, to: MAC.id, level: 'none', paused: false }]));
+    // Admin > Reporters' Grid matches a proposal to its cell by reporter key, as My reporters does (#416).
+    expect(view.body.requests[0]).toMatchObject({ fromKey: LINUX.id, toKey: MAC.id, messageId: null });
     const ok = await s.edBrowser.post(`/api/fleet/respond/peers/requests/${p.body.requestId}`).set(H).send({ answer: 'allow' });
     expect(ok.body.outcome).toBe('allowed');
     expect((await admin.get(`/api/admin/reporters/${LINUX.id}/peers`)).body.effective).toEqual(expect.arrayContaining([{ from: LINUX.id, to: MAC.id, level: 'send', paused: false }]));
