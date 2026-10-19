@@ -661,6 +661,15 @@ Reporters, whether or not the machine has a live session.
   and **Decline** answer it for you.
 - **A new right to send starts as.** **With approval** (the default) or **Without approval**, for a right an orchestrator
   is given when it asks.
+- **Limits on your links.** Three limits apply to messages between your reporters: **Round trips before a person
+  approves** (after that many exchanges in one conversation, the next message waits for you), **Messages per minute on
+  a link** and **Longest message, in characters**. The Admin sets the most each can be in Admin > Settings, and each box
+  starts at that value, with *Uses the Admin's limit* under the name. Type a lower whole number and leave the box, or
+  press Enter, to make it yours. **Use the Admin's limit** goes back, and so does typing the Admin's value exactly. A
+  value above the Admin's, below 1, not a whole number, or an empty box is refused in the row with the reason, and
+  nothing is saved. Over the rate or the length, a message is refused and its sender is told why; it is never cut. At
+  the round-trip limit, the next message waits under Waiting for you, and approving it starts the count again. If the Admin
+  later sets theirs below yours, theirs applies and the row says so, and yours is kept in case the Admin raises it again.
 
 #### Who can message whom
 

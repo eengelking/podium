@@ -2,7 +2,7 @@
 // Every change carries X-Podium-Respond: 1; the sign-in lives in an HttpOnly cookie the page never sees, and the token
 // typed into the form is sent once and never kept (SPEC 7.7).
 import type { AskDetail, FileDiffReply, PeerLevel, RespondMe } from "./types";
-import type { PeerDefaults, PeersRead } from "./peers";
+import type { PeerDefaults, PeerLimitsView, PeersRead } from "./peers";
 
 const BASE = "/api/fleet/respond";
 
@@ -60,7 +60,9 @@ export type RespondApi = Omit<typeof respondApi, "fileDiff"> & Partial<Pick<type
 export const peersApi = {
   read: () => call<PeersRead>("GET", "/peers"),
   setRight: (from: string, to: string, level: PeerLevel) => call<{ ok: true }>("PUT", "/peers/rights", { from, to, level }),
-  setDefaults: (patch: Partial<Pick<PeerDefaults, "trust" | "onRequest" | "newSend">>) => call<{ ok: true; defaults: PeerDefaults }>("PUT", "/peers/defaults", patch),
+  /** The owner's defaults, and their stricter `limits` (#436): a number at most the Admin's, or null to use the Admin's. */
+  setDefaults: (patch: Partial<Pick<PeerDefaults, "trust" | "onRequest" | "newSend">> & { limits?: Partial<Record<keyof PeerLimitsView, number | null>> }) =>
+    call<{ ok: true; defaults: PeerDefaults }>("PUT", "/peers/defaults", patch),
   answer: (requestId: string, answer: "allow" | "decline" | "deliver") => call<{ ok: true; outcome: string | null }>("POST", `/peers/requests/${encodeURIComponent(requestId)}`, { answer }),
 };
 

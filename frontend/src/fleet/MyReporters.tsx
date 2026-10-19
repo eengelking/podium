@@ -8,7 +8,8 @@ import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago, StateBadge, Version } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
-import { asksBack, LEVEL_LABEL, LEVELS, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
+import { PEER_LIMIT_FIELDS, PeerLimits, type PeerLimitAction, type PeerLimitField, type PeerLimitKey } from "./components/PeerLimits";
+import { asksBack, LEVEL_LABEL, LEVELS, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerLimitsView, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
@@ -35,6 +36,38 @@ const NEW_SEND = [
   { id: "ask", label: "With approval" },
   { id: "send", label: "Without approval" },
 ] as const;
+
+// The owner's stricter limits (#436, SPEC 7.7, mockup/podium-my-reporters.html Defaults): the Admin's rows, with the
+// owner's words. Each box shows the limit that applies and stops at the Admin's value.
+type OwnerLimitKey = keyof PeerLimitsView;
+const OWNER_LIMIT_FIELDS: readonly (PeerLimitField & { key: OwnerLimitKey })[] = [
+  { key: "roundTrips", label: PEER_LIMIT_FIELDS.roundTrips.label, hint: "After this many exchanges in one conversation, the next message waits for you to approve it." },
+  { key: "perMinute", label: PEER_LIMIT_FIELDS.perMinute.label, hint: "More than this is refused, and the sender is told to wait." },
+  { key: "maxChars", label: PEER_LIMIT_FIELDS.maxChars.label, hint: "A longer message is refused, never cut, and the sender is told the limit." },
+];
+const LIMITS_HELP = "What applies to all your reporters, and the limits on your links. The Admin sets the most each limit can be on this server, and yours can only be lower.";
+
+const num = (n: number) => n.toLocaleString("en-US");
+
+/** What was typed, checked against 1 and the Admin's value (`max`): the whole sentence, or null. Nothing is saved on one. */
+function ownerLimitCheck(_key: PeerLimitKey, text: string, max: number): string | null {
+  const t = text.trim();
+  const n = Number(t);
+  const range = `Enter a whole number from 1 to ${num(max)}`;
+  if (t === "") return `${range}. Nothing was saved.`;
+  if (!Number.isInteger(n)) return `${t} is not a whole number. ${range}. Nothing was saved.`;
+  if (n < 1) return `${num(n)} is below 1. ${range}, or pause the link under Who can message whom. Nothing was saved.`;
+  if (n > max) return `${num(n)} is above the Admin's limit, ${num(max)}. ${range}. Nothing was saved.`;
+  return null;
+}
+
+/** The line under a limit's name: whose value applies. The owner's own is kept when the Admin later goes below it. */
+function ownerLimitState(own: number | undefined, admin: number): string {
+  if (own === undefined) return `Uses the Admin's limit, ${num(admin)}.`;
+  if (own < admin) return `Yours, stricter than the Admin's limit, ${num(admin)}.`;
+  if (own === admin) return `Yours, the same as the Admin's limit, ${num(admin)}.`;
+  return `The Admin's limit is now ${num(admin)}, lower than yours, ${num(own)}, so ${num(admin)} applies.`;
+}
 
 export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number }) {
   const { me, peers } = props;
@@ -124,6 +157,29 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
     setSaid(words);
     saved(await peers.change(() => api.setDefaults(patch), (d) => ({ ...d, defaults: { ...d.defaults, ...patch } })));
   };
+
+  // One of the owner's limits (#436): null uses the Admin's. The box keeps what was typed until the server has it, so a
+  // refusal shows in the limit's own row (PeerLimits) and not in the page's error.
+  const saveLimit = async (k: PeerLimitKey, value: number | null): Promise<string | null> => {
+    const f = OWNER_LIMIT_FIELDS.find((x) => x.key === k)!;
+    setBack(null);
+    const failed = await peers.change(() => api.setDefaults({ limits: { [f.key]: value } }));
+    if (!failed) setSaid(value === null ? `${f.label}: ${num(data.limits.server[f.key])}, the Admin's limit.` : `${f.label}: ${num(value)}, yours.`);
+    return failed;
+  };
+  const limitState: Partial<Record<PeerLimitKey, string>> = {};
+  const limitAction: Partial<Record<PeerLimitKey, PeerLimitAction>> = {};
+  for (const f of OWNER_LIMIT_FIELDS) {
+    const own = data.defaults.limits[f.key];
+    limitState[f.key] = ownerLimitState(own, data.limits.server[f.key]);
+    if (own !== undefined) {
+      limitAction[f.key] = {
+        label: "Use the Admin's limit",
+        ariaLabel: `${f.label}: use the Admin's limit, ${num(data.limits.server[f.key])}`,
+        onClick: () => void saveLimit(f.key, null).then(saved),
+      };
+    }
+  }
 
   const answer = async (r: PeerRequestView, how: "allow" | "decline" | "deliver") => {
     setBusy(r.id);
@@ -237,7 +293,7 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
           </div>
         </Panel>
       </Section>
-      <Section id="pm-def-h" title="Defaults">
+      <Section id="pm-def-h" title="Defaults" help={LIMITS_HELP}>
         <Panel>
           <div className="pm-defs">
           <div className="srow">
@@ -264,6 +320,17 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
             </div>
             <Segmented labelledBy="pm-new-n" options={NEW_SEND} value={data.defaults.newSend} onChange={(v) => void setDefaults({ newSend: v }, `A new right to send starts as: ${NEW_SEND.find((o) => o.id === v)!.label}.`)} />
           </div>
+          <PeerLimits
+            idPrefix="pm-lim"
+            fields={OWNER_LIMIT_FIELDS}
+            values={data.limits.effective}
+            max={data.limits.server}
+            state={limitState}
+            action={limitAction}
+            check={ownerLimitCheck}
+            toValue={(k, n) => (n === data.limits.server[k as OwnerLimitKey] ? null : n)}
+            onSave={saveLimit}
+          />
           </div>
         </Panel>
       </Section>
