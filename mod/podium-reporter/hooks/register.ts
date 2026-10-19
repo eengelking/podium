@@ -1892,9 +1892,9 @@ export const register: Register = (on, rawOptions) => {
 
   // The reporter's own tool names the plan: answered here, recorded by the hook above.
   // The matcher is a literal (PLAN_TOOL) so the engine sees which tool this hook answers.
-  on('tool.call', { tool: 'mcp__podium-reporter__plan' }, () => ({ result: { ok: true, note: 'Plan title recorded for the Podium fleet console.' } })).catch(
-    () => ({ result: { ok: true, note: 'Plan title recorded for the Podium fleet console.' } }),
-  );
+  // The result is text: Claude Code rejects any other shape as an error, and an errored call sets no title.
+  const planRecorded = { result: 'Plan title recorded for the Podium fleet console.' };
+  on('tool.call', { tool: 'mcp__podium-reporter__plan' }, () => planRecorded).catch(() => planRecorded);
 
   // Orchestrator messaging (#414): each tool answered here in plain words, recorded by the hook above. A call with an
   // agentId is a subagent's and is refused. With the option off they are never registered; one left from before a

@@ -276,6 +276,20 @@ describe('podium-reporter end to end', () => {
     expect(w.headers[0]!['X-Podium-Token']).toBe('s3cret')
   })
 
+  // A tool's result must be text, content blocks or nothing: Claude Code turns any other shape into an error,
+  // and an errored call never sets the title.
+  test('the plan tool answers in text and the console gets the title', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    const res = await $.tool.call({ tool: 'mcp__podium-reporter__plan', title: 'Ship the booth game', phase: 'M1' } as never)
+    expect(res).not.toHaveProperty('isError', true)
+    expect(typeof (res as { result?: unknown }).result).toBe('string')
+    // A plan is reported once it has a step.
+    await $.tool.call({ tool: 'TaskCreate', subject: 'Engine', description: 'build it' })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.plan).toMatchObject({ title: 'Ship the booth game · M1' })
+  })
+
   test('every hook passes the engine result through unchanged', async ($, on) => {
     world(on)
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
