@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeSession } from "./fixtures";
-import { BOARD_COLUMNS, buildBoard, columnOf, groupBySession, orderCards, sessionFinished, waitWhy } from "./board";
+import { BOARD_COLUMNS, buildBoard, columnOf, groupBySession, orderCards, planFigures, sessionFinished, waitWhy } from "./board";
 import type { PlanStep, RespondMe, SessionView } from "./types";
 
 const step = (id: string, state: PlanStep["state"], over: Partial<PlanStep> = {}): PlanStep => ({ id, text: `step ${id}`, state, activeText: null, ownerAgentId: null, ownerLabel: null, ...over });
@@ -138,5 +138,19 @@ describe("groupBySession", () => {
     const interleaved = orderCards(cards, new Map([["a:2", 9], ["b:1", 5]]));
     expect(interleaved.map((c) => c.key)).toEqual(["a:2", "b:1", "a:1"]);
     expect(groupBySession(interleaved).map((c) => c.key)).toEqual(["a:2", "a:1", "b:1"]);
+  });
+});
+
+describe("planFigures", () => {
+  it("counts the sessions with a plan, their steps and the done ones, and leaves out a no-plan session that only waits", () => {
+    const a = withSteps({ id: "a" }, step("1", "pending"), step("2", "done"), step("3", "done"));
+    const b = withSteps({ id: "b" }, step("1", "active"));
+    const asker = makeSession({ id: "q", status: "waiting", waitReason: "input", plan: null });
+    expect(buildBoard([a, b, asker]).columns.review).toHaveLength(1);
+    expect(planFigures(buildBoard([a, b, asker]))).toEqual({ orchestrators: 2, steps: 4, done: 2 });
+  });
+
+  it("is zero for a fleet with no plans", () => {
+    expect(planFigures(buildBoard([makeSession({ plan: null })]))).toEqual({ orchestrators: 0, steps: 0, done: 0 });
   });
 });

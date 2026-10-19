@@ -98,6 +98,18 @@ export function buildBoard(sessions: readonly SessionView[]): Board {
   return { columns, withoutSteps };
 }
 
+/** What the plan tiles state (#426): sessions with a plan on the board, the steps in those plans, and how many of them are done. A no-plan session waiting on its person has a Review card but no plan, so it is not counted. */
+export interface PlanFigures {
+  orchestrators: number;
+  steps: number;
+  done: number;
+}
+
+export function planFigures(board: Board): PlanFigures {
+  const steps = BOARD_COLUMNS.flatMap((c) => board.columns[c.key]).filter((c) => !c.waiting);
+  return { orchestrators: new Set(steps.map((c) => c.session.id)).size, steps: steps.length, done: steps.filter((c) => c.column === "done").length };
+}
+
 /** The step that changed last first; steps that have not changed since the page opened keep their order. */
 export function orderCards(cards: readonly BoardCard[], changedAt: ReadonlyMap<string, number>): BoardCard[] {
   return cards.map((c, i) => ({ c, i })).sort((a, b) => (changedAt.get(b.c.key) ?? 0) - (changedAt.get(a.c.key) ?? 0) || a.i - b.i).map((x) => x.c);
