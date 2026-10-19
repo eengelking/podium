@@ -55,7 +55,7 @@ export const initialState: FleetState = {
   clearedToday: 0,
   events: [],
   server: null,
-  wall: { notices: {}, showBackgroundSessions: false },
+  wall: { notices: {}, showBackgroundSessions: false, cardTitleMachine: false },
   features: {},
 };
 

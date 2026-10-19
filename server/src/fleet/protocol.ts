@@ -811,11 +811,13 @@ export interface LifecycleConfig {
   detachedHideAfterMs: number;
 }
 
-/** The wall's display settings, set in Admin > Settings (SPEC 8.1). Notices default on; background sessions default off. */
+/** The wall's display settings, set in Admin > Settings (SPEC 8.1). Notices default on; background sessions and machine titles default off. */
 export interface WallSettingsView {
   /** One switch per informational notice, by id. */
   notices: Record<string, boolean>;
   showBackgroundSessions: boolean;
+  /** Title each card `machine | session` instead of the session's name alone (#480). */
+  cardTitleMachine: boolean;
 }
 
 export interface StateBody {

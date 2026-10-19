@@ -46,6 +46,30 @@ export interface CardOwner {
   showName: boolean;
 }
 
+/**
+ * A card's title (#480). Off, the session's name. On, `machine | session` (Silverbolt | Foobar). With no machine name
+ * (a reporter with no userName, or older than 0.9.0) it is the session's name, and with no session name it is the machine's.
+ */
+export function cardTitle(s: SessionView, withMachine: boolean): string {
+  return titleParts(s, withMachine).join(" | ") || s.name;
+}
+
+function titleParts(s: SessionView, withMachine: boolean): string[] {
+  const machine = withMachine ? (s.machine?.name.trim() ?? "") : "";
+  return [machine, s.name.trim()].filter(Boolean);
+}
+
+/** The card's title text. The pipe between machine and session is its own span so it can have room around it; the text still reads `machine | session`. */
+function CardTitle({ s, withMachine }: { s: SessionView; withMachine: boolean }) {
+  const [first, second] = titleParts(s, withMachine);
+  if (second === undefined) return <>{first ?? s.name}</>;
+  return (
+    <>
+      {first} <span className="tsep">|</span> {second}
+    </>
+  );
+}
+
 /** "Delegating to 2 agents." The one sentence the card, the wall and the orchestrator page's band share (SPEC 8.1). */
 export function delegatingLead(delegates: readonly AgentView[]): string {
   return `Delegating to ${delegates.length} agent${delegates.length === 1 ? "" : "s"}.`;
@@ -66,7 +90,7 @@ export function bandLine(s: SessionView, kind: StateKind, sinceSeen: number, now
   return <span className="bl">{kind === "running" ? "Running" : "Done"}</span>;
 }
 
-export function SessionCard(props: { s: SessionView; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner }) {
+export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner }) {
   const { s, now, config } = props;
   const respond = useRespond();
   // Respond (#206) sits at the right end of the band. The card is one big button, so it is laid over the band from the slot.
@@ -96,7 +120,9 @@ export function SessionCard(props: { s: SessionView; now: number; config: Lifecy
       <div className="z1">
         <div className="h">
           <span className="sd"><StateIcon kind={kind} /></span>
-          <span className="nm">{s.name}</span>
+          <span className="nm">
+            <CardTitle s={s} withMachine={props.machineTitle === true} />
+          </span>
           <span className="mdl">
             <ModelChip family={s.modelFamily} model={s.model} />
             <EffortMeter effort={s.effort} />

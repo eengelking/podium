@@ -351,6 +351,18 @@ describe("Settings tab (#114)", () => {
     await waitFor(() => expect(srv.showBackground).toBe(true));
   });
 
+  it("has a Title cards with the machine switch, off by default, that saves for everyone (#480)", async () => {
+    const srv = fakeServer();
+    render(<AdminView />);
+    await unlock();
+    fireEvent.click(screen.getByRole("button", { name: /^Settings/ }));
+    const title = await screen.findByRole("switch", { name: /Title cards with the machine/ });
+    expect(title).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(title);
+    await waitFor(() => expect(srv.cardTitleMachine).toBe(true));
+    await waitFor(() => expect(screen.getByRole("switch", { name: /Title cards with the machine/ })).toHaveAttribute("aria-checked", "true"));
+  });
+
   it("puts Feature flags above Wall notices, with the activity feed's switch, id and description (#118)", async () => {
     const srv = fakeServer();
     render(<AdminView />);

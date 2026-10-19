@@ -17,6 +17,7 @@ interface Settings {
   features: NoticeRow[];
   notices: NoticeRow[];
   showBackgroundSessions: boolean;
+  cardTitleMachine?: boolean;
   /** Issue #167: remove reporters not heard from for this many days. Off by default. */
   forgetReporters?: { enabled: boolean; days: number };
   /** Orchestrator messaging's limits (#347, #416). */
@@ -90,6 +91,13 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
             "Sessions nobody is attached to are set aside after a minute. Turn this on to keep them in view. Off by default.",
             data?.showBackgroundSessions,
             () => data && put({ showBackgroundSessions: !data.showBackgroundSessions }),
+          )}
+          {row(
+            "card-title-machine",
+            "Title cards with the machine",
+            "Titles each card with the machine and the session, such as Silverbolt | Foobar, so cards from several machines are told apart. A session whose machine is not known keeps its own name. Off by default.",
+            data ? (data.cardTitleMachine ?? false) : undefined,
+            () => data && put({ cardTitleMachine: !(data.cardTitleMachine ?? false) }),
           )}
         </Panel>
       </Section>

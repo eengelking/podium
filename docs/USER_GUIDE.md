@@ -955,6 +955,10 @@ switch off for everyone. After you close one, Podium says so and links to this p
 **Background sessions.** **Show background sessions on the wall** keeps sessions nobody is attached to in view. It is off
 by default.
 
+**Card titles.** **Title cards with the machine** titles each card on the wall with the machine and the session, such as
+`Silverbolt | Foobar`, so cards from several machines are told apart at a glance. It is off by default, and it changes
+every browser at once. A session whose machine is not known keeps its own name.
+
 **Forget old reporters** is off by default. It removes a reporter from Admin > Reporters once the server has not heard
 from it for the number of **Days** you set (30 to start with).
 

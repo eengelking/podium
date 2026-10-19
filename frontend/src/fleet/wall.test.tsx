@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, within, fireEvent, cleanup } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { GitLine } from "./components/Chips";
-import { SessionCard } from "./components/SessionCard";
+import { SessionCard, cardTitle } from "./components/SessionCard";
 import { fleetReducer } from "./store";
 import { makeAgent, makeKpis, makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
@@ -472,7 +472,7 @@ describe("sessions nobody is attached to (#45)", () => {
     const now = Date.now();
     const st = stateFrom({
       sessions: [makeSession({ id: "gone", name: "long-gone", attached: false, hideAt: now - 1_000 })],
-      wall: { notices: { "background-sessions": true }, showBackgroundSessions: true },
+      wall: { notices: { "background-sessions": true }, showBackgroundSessions: true, cardTitleMachine: false },
     });
     const { container } = render(<FleetView state={st} />);
     expect([...container.querySelectorAll(".wall .card .nm")].map((e) => e.textContent)).toContain("long-gone");
@@ -510,7 +510,7 @@ describe("wall notices (#114)", () => {
   it("does not render a notice that is switched off in Admin", () => {
     const st = stateFrom({
       sessions: [makeSession({ id: "gone", name: "long-gone", attached: false, hideAt: Date.now() - 1_000 })],
-      wall: { notices: { "background-sessions": false }, showBackgroundSessions: false },
+      wall: { notices: { "background-sessions": false }, showBackgroundSessions: false, cardTitleMachine: false },
     });
     const { container } = render(<FleetView state={st} />);
     expect(container.querySelector(".fold")).toBeNull();
@@ -568,5 +568,31 @@ describe("card layout CSS (#144)", () => {
     const bar = rule(".podium .card-slot.has-remove > .remove-bar");
     expect(bar).toContain("position: absolute");
     expect(bar).toContain("bottom: 1px");
+  });
+});
+
+describe("card titles with the machine (#480)", () => {
+  const titles = (container: HTMLElement) => [...container.querySelectorAll(".wall .card .nm")].map((e) => e.textContent);
+  const machine = (name: string) => ({ name, id: "m1", os: null });
+  const wall = (on: boolean) => ({ notices: { "background-sessions": true }, showBackgroundSessions: false, cardTitleMachine: on });
+
+  it("titles a card with the session name alone while the setting is off", () => {
+    const st = stateFrom({ sessions: [makeSession({ id: "a", name: "Foobar", machine: machine("Silverbolt") })], wall: wall(false) });
+    expect(titles(render(<FleetView state={st} />).container)).toEqual(["Foobar"]);
+  });
+
+  it("titles a card machine | session while it is on, and reads an older server's wall with no setting as off", () => {
+    const sessions = [makeSession({ id: "a", name: "Foobar", machine: machine("Silverbolt") })];
+    expect(titles(render(<FleetView state={stateFrom({ sessions, wall: wall(true) })} />).container)).toEqual(["Silverbolt | Foobar"]);
+    cleanup();
+    const old = { notices: { "background-sessions": true }, showBackgroundSessions: false } as ReturnType<typeof wall>;
+    expect(titles(render(<FleetView state={stateFrom({ sessions, wall: old })} />).container)).toEqual(["Foobar"]);
+  });
+
+  it("falls back to the session name when the machine is unknown, and to the machine when the session has no name", () => {
+    expect(cardTitle(makeSession({ name: "Foobar", machine: null }), true)).toBe("Foobar");
+    expect(cardTitle(makeSession({ name: "Foobar", machine: machine("  ") }), true)).toBe("Foobar");
+    expect(cardTitle(makeSession({ name: "", machine: machine("Silverbolt") }), true)).toBe("Silverbolt");
+    expect(cardTitle(makeSession({ name: "Foobar", machine: machine("Silverbolt") }), false)).toBe("Foobar");
   });
 });

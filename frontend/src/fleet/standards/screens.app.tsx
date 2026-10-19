@@ -37,7 +37,7 @@ const withAgents = (over: Partial<SessionView> = {}) => makeSession({ id: "s1", 
 const events = [makeEvent({ id: "e1", kind: "note", text: "Started the port" }), makeEvent({ id: "e2", kind: "spawn", text: "Launched Port the invoice endpoints", agentId: "p" })];
 
 const DEFAULT_FEATURES: Record<string, boolean> = { "activity-feed": true };
-const DEFAULT_WALL = { notices: { "background-sessions": true }, showBackgroundSessions: false };
+const DEFAULT_WALL = { notices: { "background-sessions": true }, showBackgroundSessions: false, cardTitleMachine: false };
 
 function app(sessions: SessionView[], after?: (body: HTMLElement) => Promise<void> | void, features: Record<string, boolean> = DEFAULT_FEATURES, wall = DEFAULT_WALL): Screen {
   return {
