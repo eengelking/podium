@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Mous
 import { BOARD_COLUMNS, buildBoard, CARDS_PER_PAGE, EMPTY_COLUMN, groupBySession, orderCards, type BoardCard, type BoardColumn } from "../board";
 import { filterByPeople, meKey, peopleActive } from "../people";
 import { readJson, writeJson } from "../storage";
-import { GOTCHAS_URL, type SessionView } from "../types";
+import { GOTCHAS_URL, type Kpis, type SessionView } from "../types";
 import { cssVar, FAMILY_COLOR } from "./Chips";
 import { PageNav } from "./PageNav";
 
@@ -81,9 +81,32 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+/** Orchestrators and subagents running now. Both figures are the ones the server derives for the Fleet page (Kpis.running, Kpis.agentsRunning), so the two pages cannot disagree; the filters never change them. */
+export function RunningCounts({ kpis, filtered }: { kpis: Kpis | null; filtered: boolean }) {
+  const waiting = kpis?.waiting ? `, ${kpis.waiting} waiting` : "";
+  return (
+    <div className="kpis" role="group" aria-label={filtered ? "Running now, whole fleet" : "Running now"}>
+      <div className="kpi">
+        <div className="k">Orchestrators running</div>
+        <div className="v mono">{kpis?.running ?? "–"}</div>
+        <div className="kpi-cap">{kpis ? `of ${kpis.live} live${waiting}` : ""}</div>
+      </div>
+      <div className="kpi">
+        <div className="k">Subagents running</div>
+        <div className="v mono">{kpis?.agentsRunning ?? "–"}</div>
+        <div className="kpi-cap">{filtered ? "whole fleet" : "forks included"}</div>
+      </div>
+    </div>
+  );
+}
+
 export function Board(props: {
   /** The sessions the fleet page shows. */
   sessions: SessionView[];
+  /** The fleet's figures from the server, or null before the first update. */
+  kpis: Kpis | null;
+  /** True when the fleet page already hides sessions (a people filter, detached sessions), so the counts cover more than the cards. */
+  narrowed?: boolean;
   /** Who is signed in, or null: the Me filter is offered only to a signed-in person. */
   me: string | null;
   onOpen: (sessionId: string) => void;
@@ -223,6 +246,7 @@ export function Board(props: {
           </button>
         )}
       </div>
+      <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} />
       <div className="vh" role="status" aria-label="Board updates">
         {note}
       </div>

@@ -2732,6 +2732,22 @@ activity panel and legend as the wall, with the board in the middle.
 - Each column is at least 210 px wide, so a narrower board scrolls sideways. At 640 px or less it becomes one
   column at a time behind a tab row that keeps the counts.
 
+**Running counts (#409)**
+- Two tiles under the Board header, with the Fleet page's KPI tile styling: **Orchestrators running** and
+  **Subagents running**. They show `Kpis.running` and `Kpis.agentsRunning`, the figures the server derives for
+  the Fleet page's KPI strip, so the two pages cannot disagree. The board counts nothing itself; nothing new is sent
+  or stored. Each reads "–" until the first update.
+- Running means: an orchestrator whose status is running, and a subagent whose status is running (forks
+  included). Not counted: an orchestrator waiting on its person, idle on background work, stale or ended;
+  a session that ends takes its subagents out of the count.
+- The orchestrator tile's caption reads "of N live" (`Kpis.live`) and, when any wait on their person, ", M
+  waiting" (`Kpis.waiting`). The subagent tile's caption reads "forks included".
+- The counts are always the whole fleet. Mixed or By orchestrator, the Group dropdown and Me change the cards,
+  never the counts. While Group, Me or the Fleet page's own filters (People, hidden detached sessions) narrow the board, the tile group is named "Running now, whole fleet" and
+  the subagent caption reads "whole fleet".
+- The tiles update with the rest of the console and never move the columns below them. At 640 px or less they
+  sit side by side.
+
 **Panels**
 - The board keeps its own collapsed flags under `podium.collapsed.board` and opens with the left and right
   panels collapsed to their edge tabs, so the columns get the width. The top bar starts open. The fleet page's
@@ -3577,7 +3593,7 @@ Create these. Split further only if a file passes about 250 lines.
 
 - **Pages and layout:** `FleetApp`, `TopBar`, `Rail`, `Legend`.
 - **Wall:** `Wall` (with `KpiStrip`, `Toolbar`, `SessionCard`).
-- **Board:** `Board` (with `board.ts`, the pure bucketing the page and its tests share).
+- **Board:** `Board` (with `RunningCounts` and `board.ts`, the pure bucketing the page and its tests share).
 - **People:** `People` (`Monogram`, `PeopleBar`, `Band`, `OwnerLine`).
 - **Orchestrator page:** `FocusView` (with `FocusHeader`, `MiniCharts`, `FactsBar`, `BlowoutCallout`,
   `PlanPanel`, `AgentTree`, `AgentRow`).

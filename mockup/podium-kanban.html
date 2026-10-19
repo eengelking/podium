@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium kanban board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
-<!-- Mockup for issue #346, for approval; updated for #359 (the no-open-steps strip pinned to the bottom of the page). A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
+<!-- Mockup for issue #346, for approval; updated for #409 (running orchestrator and subagent counts at the top of the page) and #359 (the no-open-steps strip pinned to the bottom of the page). A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
 <style>
 /* Layout: a review page. The controls bar above the specimen is page chrome; the specimen is the console under test and carries Podium's own tokens. */
 :root {
@@ -146,6 +146,13 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .chipf[aria-pressed="true"] { color: var(--ink); border-color: var(--ink2); font-weight: 600; }
 .sel { appearance: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink2); font: 12px var(--font-ui); }
 
+/* running counts (#409): the Fleet page's .kpis/.kpi rules, copied unchanged from fleet.css. The caption wraps and is never clipped. */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 16px 14px; }
+.kpi { background: var(--surface); padding: 10px 12px; min-width: 0; }
+.kpi .k { color: var(--muted); font-size: 12px; }
+.kpi .v { font-size: 22px; font-weight: 600; margin-top: 2px; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 6px; }
+@container (max-width: 640px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* the board: one column per state; columns scroll inside, the page does not */
 .board { display: grid; grid-template-columns: repeat(5, minmax(210px, 1fr)); overflow-x: auto; gap: 12px; padding: 4px 16px 16px; align-items: start; }
 .col { background: color-mix(in srgb, var(--ink) 3%, var(--bg)); border: 1px solid var(--border); border-top: 3px solid var(--c); border-radius: 8px; min-width: 0; display: flex; flex-direction: column; max-height: 640px; }
@@ -276,6 +283,9 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
       <div><b>Narrow layout (#359)</b>On a phone the console stacks and the page scrolls as a whole with the legend at its end. There the strip is sticky to the bottom of the viewport, above the legend, with the same padding, and the board ends with the strip's height of room so it never hides the last card. This mockup's narrow frame is a fixed-height viewport, so it shows the same pinned strip.</div>
       <div><b>Which sessions count (decided)</b>Every session on the Fleet page is on the board: running, waiting, delegating, stale or ended. One with open steps fills columns. One with no plan, or with every step done, is listed in the strip under the board and still links to its page. A stale session's open steps show in their columns like any other.</div>
       <div><b>Done column (decided)</b>A done step stays until its orchestrator is finished, then its Done cards fall off. Finished means every step is done and the session is idle, stale or ended. A running session with every step done keeps its Done cards, with an "all done" mark on its lane. No new signal is sent.</div>
+      <div><b>Running counts (#409)</b>Two tiles under the Board header: Orchestrators running and Subagents running. They are the Fleet page's own KPI tiles (same classes, same label for subagents), so no new component. Both read the same two numbers the server already derives for the Fleet page (<code>Kpis.running</code> and <code>Kpis.agentsRunning</code>), and nothing new is sent or stored. The Board does not count on its own, so the two pages cannot disagree. The tile rules are the Fleet page's, unchanged, so the tiles wrap as the Fleet strip does, and the captions wrap and are never clipped. A number changing width does not move the columns, which sit below the strip. No flash or other animation: the number just changes. Proposed for the maintainer: the tile label \"Orchestrators running\" and the two captions are new wording on the existing tile (Fleet's first tile reads \"Orchestrators live\" with the running/waiting/stale split as its caption). If you would rather keep Fleet's exact tile, say so and the Board shows \"Orchestrators live\" instead.</div>
+      <div><b>What counts as running (#409)</b>Counted: an orchestrator whose status is running, and a subagent whose status is running (forks included). Not counted: an orchestrator waiting on its person, idle on background work, stale or ended; its subagents drop out once it ends. The caption under the orchestrator count says "of N live, M waiting", so a waiting session is visible without being counted. N is the server's <code>Kpis.live</code> (every session not yet dropped), and M is the server's waiting count, which leaves out a session idle on background work (#119); the page takes both from the server and never recounts. This specimen has no idle state to show. Fleet shows the running figure only as text in its first tile's caption; here it is a tile of its own. Try Simulate update 3 and 4: docs-sweep starts running (orchestrators +1), release-prep ends (orchestrators −1, subagents −1).</div>
+      <div><b>Me and layout (#409, picked)</b>The counts always show the whole fleet. Mixed or By orchestrator, the Group filter and Me change which cards show, never the counts, so they equal the Fleet page's. While Me or a group is on, the caption under Subagents reads "whole fleet" and the tile group's name says so for screen readers.</div>
       <div><b>Mixed or grouped</b>Mixed by default, so the board answers "what is in progress across everything". A toggle groups each column by orchestrator, with a lane label. The orchestrator name and model chip sit on every card in mixed view and drop off in grouped view.</div>
       <div><b>Limits</b>Each column scrolls inside itself and pages at 25 cards, with the same footer as the Files and Plan tabs ("Showing 1–25 of 40" and page buttons) at the bottom of the column. Empty columns say what they are waiting for. A 100-step plan fills one lane, never the page. Each column is at least 210px wide, so a board narrower than five of them scrolls sideways inside its own area; on a phone it becomes tabs.</div>
       <div><b>Left and right panels (decided from the running app)</b>The board is a page of the console, so it keeps the same top bar, banner, orchestrator list on the left and activity panel on the right, with the same edge tabs, <kbd>[</kbd> and <kbd>]</kbd> keys and <kbd>\</kbd> for the top bar. The left list, activity panel and legend are the same components as on the fleet page, not look-alikes: the list keeps its model chips, plan bars, agent counts, status dots and footer, and the activity panel its newest-first list. The board opens with both panels collapsed to their 24px edge tabs, so the five columns get the full width; open either from its tab. The board remembers its own panel state, separate from the fleet page's, so opening a panel here does not change the fleet page. A click on a row in the list still opens that orchestrator, and the activity panel shows the same events as on the fleet page. The top bar gets a Fleet button, which goes back to the fleet page, and a Board button, beside History; the page pill reads Board.</div>
@@ -332,6 +342,11 @@ function large() {
   });
 }
 
+// Subagents running now, per orchestrator (the mod's agent list; forks included). An ended session has none.
+const AGENTS = { o1: 3, o2: 1, o3: 1, o4: 12, o8: 1 };
+const agentsOf = o => o.state === "ended" ? 0 : AGENTS[o.id] ?? (o.id[0] === "L" ? +o.id.slice(1) % 4 : 0);
+// The one definition, shared with the Fleet page (Kpis.running and Kpis.agentsRunning): an orchestrator counts when its status is running; waiting, idle on background work, stale and ended do not. A subagent counts when its own status is running.
+function counts(data) { return { orch: data.filter(o => o.state === "running").length, live: data.filter(o => o.state !== "ended").length, waiting: data.filter(o => o.state === "waiting").length, agents: data.reduce((n, o) => n + agentsOf(o), 0) }; }
 let ORCH = JSON.parse(JSON.stringify(ORCH0));
 const S = { info: false, signedIn: true, left: true, right: true, top: false, sim: 0, data: "busy", theme: "dark", width: "wide", group: false, me: false, tab: "active", pg: {} };
 const PER = 25;
@@ -434,6 +449,10 @@ function render() {
   const banner = S.top ? "" : '<div class="banner"><span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span><div class="bannerctl"><select class="sel" aria-label="Update every"><option>Update every 5s</option></select><span class="seg" role="radiogroup" aria-label="Mode"><button aria-pressed="false">Light</button><button aria-pressed="false">Dark</button><button aria-pressed="true">System</button></span></div></div>';
 
   const FAMN = { Opus: "opus", Sonnet: "sonnet", Haiku: "haiku", Fable: "fable" };
+  const cn = counts(data);
+  const kpis = '<div class="kpis" role="group" aria-label="Running now' + ((S.me || S.group) ? ', whole fleet' : '') + '">' +
+    '<div class="kpi"><div class="k">Orchestrators running</div><div class="v mono">' + cn.orch + '</div><div class="kpi-cap">of ' + cn.live + ' live' + (cn.waiting ? ', ' + cn.waiting + ' waiting' : '') + '</div></div>' +
+    '<div class="kpi"><div class="k">Subagents running</div><div class="v mono">' + cn.agents + '</div><div class="kpi-cap">' + ((S.me || S.group) ? 'whole fleet' : 'forks included') + '</div></div></div>';
   const chip = m => '<span class="chip" style="--c:' + FAM[m] + '"><i></i>' + m + '</span>';
   const split = { r: data.filter(o => o.state === "running").length, w: data.filter(o => o.state === "waiting").length, st: data.filter(o => o.state === "stale").length };
   const ritem = o => { const d = o.steps.filter(x => x[0] === "done").length, n = o.steps.length;
@@ -460,7 +479,7 @@ function render() {
     '<div class="app">' + topbar + banner + '<div class="cols' + (S.left ? " l-off" : "") + (S.right ? " r-off" : "") + '">' + rail +
     '<div class="centre"><div class="centre-wrap"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="sum">' + withPlan.length + ' orchestrators with open steps, ' + total + ' steps</span><span class="sp"></span>' +
     '<span class="seg" role="group" aria-label="Layout"><button aria-pressed="' + !S.group + '" data-group="0">Mixed</button><button aria-pressed="' + S.group + '" data-group="1">By orchestrator</button></span>' +
-    '<select class="sel" aria-label="Group"><option>All groups</option><option>Platform</option><option>Docs</option></select>' + (S.signedIn ? '<button class="chipf" aria-pressed="' + S.me + '" data-me>Me</button>' : '') + '</div>' +
+    '<select class="sel" aria-label="Group"><option>All groups</option><option>Platform</option><option>Docs</option></select>' + (S.signedIn ? '<button class="chipf" aria-pressed="' + S.me + '" data-me>Me</button>' : '') + '</div>' + kpis +
     (withPlan.length ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
     '<div class="live" role="status" aria-live="polite">' + esc(lastNote ? lastNote[0] + " " + lastNote[1] : "") + '</div></div>';
   measure();

@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { render, screen, within, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
-import { makeSession } from "./fixtures";
+import { Board } from "./components/Board";
+import { makeKpis, makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import type { PlanStep, RespondMe, SessionView } from "./types";
 import type { RespondApi } from "./respondApi";
@@ -173,6 +174,63 @@ describe("kanban board", () => {
       expect(screen.getByText("my task")).toBeInTheDocument();
       expect(screen.queryByText("their task")).toBeNull();
       await waitFor(() => expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(true));
+    });
+  });
+  describe("the running counts (#409)", () => {
+    const counts = () => screen.getByRole("group", { name: /^Running now/ });
+    const tile = (label: string) => within(counts()).getByText(label).closest(".kpi") as HTMLElement;
+    const withKpis = (kpis: ReturnType<typeof makeKpis>, sessions: SessionView[] = [makeSession()]) => <FleetView board state={stateFrom({ sessions, kpis })} />;
+
+    it("shows the server's running figures, the same ones the Fleet page reads", () => {
+      render(withKpis(makeKpis({ live: 8, running: 5, waiting: 1, agentsRunning: 18 })));
+      expect(tile("Orchestrators running")).toHaveTextContent("5");
+      expect(tile("Orchestrators running")).toHaveTextContent("of 8 live, 1 waiting");
+      expect(tile("Subagents running")).toHaveTextContent("18");
+      expect(tile("Subagents running")).toHaveTextContent("forks included");
+    });
+
+    it("leaves waiting out of the caption when none wait", () => {
+      render(withKpis(makeKpis({ live: 2, running: 2, waiting: 0 })));
+      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running2of 2 live$/);
+    });
+
+    it("changes with the next update and counts nothing it was not told to", () => {
+      const { rerender } = render(withKpis(makeKpis({ live: 3, running: 3, agentsRunning: 4 })));
+      expect(tile("Subagents running")).toHaveTextContent("4");
+      rerender(withKpis(makeKpis({ live: 3, running: 2, agentsRunning: 1 })));
+      expect(tile("Orchestrators running")).toHaveTextContent("2");
+      expect(tile("Subagents running")).toHaveTextContent("1");
+    });
+
+    it("shows a dash for each figure until the server has sent them", () => {
+      render(<FleetView board state={{ ...stateFrom(), kpis: null }} />);
+      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running–/);
+      expect(tile("Subagents running")).toHaveTextContent(/^Subagents running–/);
+    });
+
+    it("says whole fleet too when the Fleet page's own filters hide sessions from the board", () => {
+      render(<Board sessions={[makeSession()]} narrowed kpis={makeKpis({ live: 4, running: 3, agentsRunning: 5 })} me={null} onOpen={() => {}} />);
+      expect(counts()).toHaveAccessibleName("Running now, whole fleet");
+      expect(tile("Orchestrators running")).toHaveTextContent("3");
+      expect(tile("Subagents running")).toHaveTextContent("whole fleet");
+    });
+
+    it("stays the whole fleet when the Me filter hides sessions, and says so", async () => {
+      const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
+      render(
+        <FleetView
+          board
+          state={stateFrom({ sessions, kpis: makeKpis({ live: 2, running: 2, agentsRunning: 6 }), features: { "activity-feed": true, respond: true } })}
+          respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
+        />,
+      );
+      expect(counts()).toHaveAccessibleName("Running now");
+      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      expect(screen.queryByText("their task")).toBeNull();
+      expect(counts()).toHaveAccessibleName("Running now, whole fleet");
+      expect(tile("Orchestrators running")).toHaveTextContent("2");
+      expect(tile("Subagents running")).toHaveTextContent("6");
+      expect(tile("Subagents running")).toHaveTextContent("whole fleet");
     });
   });
 });

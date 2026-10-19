@@ -420,7 +420,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
               {state.phase === "loading" && !state.error ? (
                 <div className="none">Connecting to the Podium server…</div>
               ) : board ? (
-                <Board sessions={peopleShown} me={me} onOpen={selectSession} />
+                <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
               ) : selected ? (
                 <FocusView
                   s={selected}
