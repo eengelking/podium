@@ -2425,7 +2425,7 @@ A stale session that reports again immediately returns to its stored status. A d
 | `session` | one `SessionView` | on change (throttled per session) |
 | `activity` | one `ActivityView` | new event |
 | `removed` | `{ sessionId, reason: 'done'\|'dropped'\|'deleted' }` | leaves the live set |
-| `wall` | `{ notices, showBackgroundSessions }` | when an Admin setting or a closed notice changes the wall's notices (8.1) |
+| `wall` | `{ notices, showBackgroundSessions, cardTitleMachine }` | when an Admin setting or a closed notice changes the wall's notices (8.1) |
 | `tick` | `{ serverTime, kpis }` | every 2 s (also serves as keepalive; the client treats 6 s of silence as disconnected) |
 
 The registry removes a client on `close`/`error`, and a write that throws never crashes the process. Supports 100 simultaneous clients. Send `retry: 2000`.
@@ -3100,7 +3100,9 @@ activity panel and legend as the wall, with the board in the middle.
 **Cards**
 - A card has three parts, always in this order:
   1. the orchestrator's name with its model-colour square as the title (left off in the By orchestrator
-     layout, where the lane names it);
+     layout, where the lane names it). While Admin > Settings > The wall > **Title cards with the machine** is
+     on (#480), the title is `machine | session`, the machine's name, a space, a pipe, a space, then the
+     session's name (`Silverbolt | Foobar`), with the pipe in the muted color and a little extra room either side;
   2. the work, which is `activeText` while the step is in progress (the step text when it has none) and the
      step text otherwise, never both;
   3. as the last line, the agent doing it (`ownerLabel`, for example "general-purpose · Sonnet medium") when
@@ -3472,6 +3474,15 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - Whether background sessions are shown is a separate server setting (`StateBody.wall.showBackgroundSessions`,
   off by default), switched in Admin > Settings > The wall or by the note's Show them / Hide them link, so
   turning the note off never removes the way to show them.
+- Whether a card is titled with its machine is a third setting (`StateBody.wall.cardTitleMachine`, #480), switched
+  in Admin > Settings > The wall (**Title cards with the machine**), off by default, for everyone on this server and
+  without a restart: the change reaches open tabs through the `wall` stream event. Off, a card's title is the
+  session's name alone, as before. On, it is `machine | session` (`Silverbolt | Foobar`), on the wall's cards only;
+  the rail, the Board, the orchestrator page and History keep the session's name. The fallback: a session with no
+  machine name (a reporter with no `userName`, or older than 0.9.0) is titled with its session name alone, and a
+  session with no name with its machine's name alone, so a title is never empty and never has a lone pipe. The
+  change is written to the Admin log (`wall_card_title_changed`). An older server's `wall` with no
+  `cardTitleMachine` reads as off.
 
 #### Model prices (#117, `mockup/podium-model-prices.html`)
 

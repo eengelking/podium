@@ -123,7 +123,7 @@ export function makeState(over: Partial<StateBody> = {}): StateBody {
     clearedToday: 0,
     events: [makeEvent()],
     server: { version: "0.3.0", build: null, reporterSupport: { min: "0.2.0", max: "0.4.0" } },
-    wall: { notices: { "background-sessions": true }, showBackgroundSessions: false },
+    wall: { notices: { "background-sessions": true }, showBackgroundSessions: false, cardTitleMachine: false },
     features: { "activity-feed": true },
     ...over,
   };

@@ -227,6 +227,23 @@ describe('groups and settings', () => {
     expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toEqual(expect.arrayContaining(['wall_notice_changed', 'wall_background_changed']));
   });
 
+  it('lists the card title setting off by default, changes it, refuses a non-boolean and logs the change (#480)', async () => {
+    const { agent, people, wall } = await unlocked();
+    expect((await agent.get('/api/admin/settings').set(H)).body.cardTitleMachine).toBe(false);
+    expect(wall.view().cardTitleMachine).toBe(false);
+    const put = await agent.put('/api/admin/settings').set(H).send({ cardTitleMachine: true });
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ ok: true, cardTitleMachine: true });
+    expect(wall.cardTitleMachine()).toBe(true);
+    expect(wall.view().cardTitleMachine).toBe(true);
+    expect((await agent.get('/api/admin/settings').set(H)).body.cardTitleMachine).toBe(true);
+    expect((await agent.put('/api/admin/settings').set(H).send({ cardTitleMachine: 'yes' })).status).toBe(400);
+    expect(wall.cardTitleMachine()).toBe(true);
+    expect((await agent.put('/api/admin/settings').set(H).send({ cardTitleMachine: false })).status).toBe(200);
+    expect(wall.cardTitleMachine()).toBe(false);
+    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toContain('wall_card_title_changed');
+  });
+
   describe('feature flags (#118)', () => {
     it('refuses the flags before unlocking', async () => {
       const { app } = setup();

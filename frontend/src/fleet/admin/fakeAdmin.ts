@@ -86,6 +86,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     features: { "activity-feed": true } as Record<string, boolean>,
     bodies: [] as unknown[],
     showBackground: false,
+    cardTitleMachine: false,
     prices: {
       "sonnet-5-5": { std: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 } } as { std: PriceSet; long?: PriceSet },
       "haiku-5-5": { std: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.2 }, long: { input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWrite1h: 1 } } as { std: PriceSet; long?: PriceSet },
@@ -246,6 +247,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       if (b.features) for (const [id, on] of Object.entries(b.features)) state.features[id] = on as boolean;
       if (b.notices) for (const [id, on] of Object.entries(b.notices)) state.notices[id] = on as boolean;
       if ("showBackgroundSessions" in b) state.showBackground = b.showBackgroundSessions;
+      if ("cardTitleMachine" in b) state.cardTitleMachine = b.cardTitleMachine;
       if (b.forgetReporters) state.forget = { ...state.forget, ...b.forgetReporters };
       if (b.peerMessaging) {
         if (state.peerLimitError) return json(400, { ok: false, error: state.peerLimitError });
@@ -281,7 +283,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
           ? { id, name: "Orchestrator messaging", description: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server.", on }
           : { id, name: "Agent activity feed", description: "Shows an agent's recent tool calls and text in its panel while someone watches.", on },
       );
-      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
+      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, cardTitleMachine: state.cardTitleMachine, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
     }
     return json(404, { ok: false, error: "nope" });
   });

@@ -518,13 +518,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       features: featureList(),
       notices: noticeList(),
       showBackgroundSessions: wall?.showBackgroundSessions() ?? false,
+      cardTitleMachine: wall?.cardTitleMachine() ?? false,
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
       forgetReporters: reporters?.forgetSetting() ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: peers.settings.get() } : {}),
     });
   });
 
-  // One setting per call: allowAdminSecretReporting, showBackgroundSessions, features ({ id: boolean }), notices ({ id: boolean }),
+  // One setting per call: allowAdminSecretReporting, showBackgroundSessions, cardTitleMachine, features ({ id: boolean }), notices ({ id: boolean }),
   // modelPrice ({ key, std, long? }: one model's prices) or resetModelPrice (a key).
   router.put('/settings', (req, res) => {
     const body = req.body ?? {};
@@ -563,6 +564,13 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       wall.setShowBackgroundSessions(v);
       audit(req, 'wall_background_changed', `Background sessions ${v ? 'shown' : 'hidden'} on the wall`, { on: v });
       return void res.json({ ok: true, showBackgroundSessions: v });
+    }
+    if ('cardTitleMachine' in body) {
+      const v = body.cardTitleMachine;
+      if (typeof v !== 'boolean' || !wall) return void res.status(400).json({ ok: false, error: 'cardTitleMachine must be true or false' });
+      wall.setCardTitleMachine(v);
+      audit(req, 'wall_card_title_changed', `Cards ${v ? 'titled with the machine and the session' : 'titled with the session name alone'}`, { on: v });
+      return void res.json({ ok: true, cardTitleMachine: v });
     }
     if ('features' in body) {
       const f = body.features;

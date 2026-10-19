@@ -479,7 +479,7 @@ describe('GET /stream', () => {
 describe('wall notices', () => {
   it('closes a known notice without a token, rejects an unknown one, and carries the switches in the state body', async () => {
     const { app, fleet } = setup('t');
-    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false });
+    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false });
     expect((await request(app).post('/api/fleet/notices/nope/close')).status).toBe(400);
     expect((await request(app).post('/api/fleet/notices/background-sessions/close')).status).toBe(200);
     expect((await request(app).get('/api/fleet/state')).body.wall.notices['background-sessions']).toBe(false);

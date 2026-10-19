@@ -22,10 +22,11 @@ export function isNoticeId(id: string): boolean {
 
 const NOTICE_PREFIX = 'wall_notice.';
 const SHOW_BACKGROUND = 'wall_show_background_sessions';
+const CARD_TITLE_MACHINE = 'wall_card_title_machine';
 
 /**
  * The wall's server-wide display settings: one on/off switch per notice (default on) and whether background
- * sessions are shown (default off). They live in the settings table with the other Admin settings, so they
+ * sessions are shown (default off), and whether a card is titled with its machine (default off, #480). They live in the settings table with the other Admin settings, so they
  * apply to every browser and survive a restart. `onChange` lets the fleet tell open browsers.
  */
 export class WallSettings {
@@ -66,9 +67,17 @@ export class WallSettings {
     if (this.set(SHOW_BACKGROUND, on ? '1' : '0')) this.onChange();
   }
 
+  cardTitleMachine(): boolean {
+    return this.get(CARD_TITLE_MACHINE) === '1';
+  }
+
+  setCardTitleMachine(on: boolean): void {
+    if (this.set(CARD_TITLE_MACHINE, on ? '1' : '0')) this.onChange();
+  }
+
   view(): WallSettingsView {
     const notices: Record<string, boolean> = {};
     for (const n of NOTICES) notices[n.id] = this.noticeOn(n.id);
-    return { notices, showBackgroundSessions: this.showBackgroundSessions() };
+    return { notices, showBackgroundSessions: this.showBackgroundSessions(), cardTitleMachine: this.cardTitleMachine() };
   }
 }

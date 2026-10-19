@@ -160,6 +160,8 @@ export function Wall(props: {
   noticeOn?: (id: string) => boolean;
   onCloseNotice?: (item: NoticeItem) => void;
   people?: WallPeople;
+  /** Title each card `machine | session` (Admin > Settings, #480). */
+  machineTitle?: boolean;
 }) {
   const pv = props.people;
   // One set of columns for the whole wall, from the total shown, so every band lines up (#145).
@@ -172,6 +174,7 @@ export function Wall(props: {
       config={props.config}
       entering={props.entering(s.id)}
       leaving={!!props.leaving[s.id]}
+      machineTitle={props.machineTitle}
       onOpen={() => props.onOpen(s.id)}
       onRemove={props.onRemove ? () => props.onRemove?.(s.id) : undefined}
       owner={pv ? { machine: pv.machines.get(s.id) ?? null, showName } : undefined}

@@ -510,6 +510,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     leaving={state.leaving}
                     onOpen={selectSession}
                     onRemove={onRemove}
+                    machineTitle={state.wall.cardTitleMachine === true}
                     detached={{
                       count: sets.hidden.length,
                       costUsd: sets.hidden.reduce((n, s) => n + (s.costUsd ?? 0), 0),
