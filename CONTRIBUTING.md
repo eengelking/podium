@@ -51,6 +51,7 @@ scripts/podium-soak.sh --help   # load and restart check
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
+scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code sessions in tmux (costs model usage)
 ```
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
@@ -84,6 +85,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/SERVER.md` | Running the server: `podiumctl`, several people on one server, server settings |
 | `docs/REPORTER.md` | The reporter mod: install, options, what leaves a session |
 | `docs/USER_GUIDE.md` | Using the dashboard, day-to-day |
+| `docs/MESSAGING.md` | Orchestrator messaging from start to finish: how the parts fit, setup, rights, limits, troubleshooting, the end-to-end test |
 | `docs/SPEC.md` | Intended behavior and requirements |
 | `docs/ARCHITECTURE.md` | How it was built, departures from the spec, verification, known issues |
 | `docs/DECISIONS.md` | Why a significant choice was made |

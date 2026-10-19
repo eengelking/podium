@@ -10,7 +10,9 @@ Contents:
   - [Auth token](#auth-token)
   - [Admin and per-person tokens](#admin-and-per-person-tokens)
   - [Several people on one Podium](#several-people-on-one-podium)
+  - [Orchestrator messaging](#orchestrator-messaging)
   - [A page on another site](#a-page-on-another-site)
+  - [Behind a reverse proxy](#behind-a-reverse-proxy)
   - [More settings](#more-settings)
   - [Start on boot](#start-on-boot)
 - [Server settings](#server-settings)
@@ -115,23 +117,16 @@ Settings > Feature flags; each change is written to the Admin log as `feature_ch
 server's auth on, a person's token on each reporter (never the admin secret), and the reporter's `peers` option
 on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
 
-While the flag is on, Admin > Settings has an **Orchestrator messaging** section with the limits for every link
-on the server. A person can make them stricter on their own links in My reporters, not looser.
+- While the flag is on, Admin > Settings has an **Orchestrator messaging** section with four limits for every link
+  on the server: round trips before a person approves (10), messages per minute on a link (6), the longest message
+  (20,000 characters) and how many days a conversation is kept (30). A person can make the first three stricter on
+  their own links, never looser. Each change is written to the Admin log as `peer_limits_changed`.
+- Admin > Reporters > a reporter has a **Messaging** section, where an Admin proposes rights for the owner to accept
+  and pauses every link of that reporter at once.
+- Turning the flag off keeps the rights and limits and drops every message still waiting.
 
-| Limit | Default | Range |
-|---|---|---|
-| Round trips before a person approves | 10 | 1 to 100 |
-| Messages per minute on a link | 6 | 1 to 60 |
-| Longest message, in characters | 20,000 | 1 to 20,000 |
-| Keep conversations, in days | 30 | 1 to 365 |
-
-A limit is saved when its box loses focus or on Enter, and written to the Admin log as `peer_limits_changed`. A
-value outside its range is refused in place and nothing is saved.
-
-Admin > Reporters > a reporter then has a **Messaging** section with the same Grid and Board as My reporters.
-An Admin's change there is a proposal that waits for the owner to accept it; **Pause all links** holds every link
-of that reporter at once, and **Resume all links** lets them go. With the flag off, Admin shows none of this.
-The rights and limits stay, and every message still waiting is dropped.
+[MESSAGING.md](MESSAGING.md) walks through the whole setup, with the ranges in [Limits](MESSAGING.md#limits); the
+Admin's screens are under "Admin" in [USER_GUIDE.md](USER_GUIDE.md#settings).
 
 ### A page on another site
 

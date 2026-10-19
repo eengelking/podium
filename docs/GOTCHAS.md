@@ -17,6 +17,7 @@ This is the short, practical list. The full list of known limitations is under "
 - [Reporters and machines](#reporters-and-machines)
 - [Running the server](#running-the-server)
 - [What the dashboard shows](#what-the-dashboard-shows)
+- [Orchestrator messaging](#orchestrator-messaging)
 - [Developing](#developing)
 
 ## Connecting the mod
@@ -471,6 +472,40 @@ shows as stale. A session the mod reports uses the 15-second default.
 
 **Do:** Install the mod for faster stale detection.
 
+## Orchestrator messaging
+
+The setup is in [MESSAGING.md](MESSAGING.md), and its [Troubleshooting](MESSAGING.md#troubleshooting) table covers
+each answer the tools give. These are the ones that surprise people.
+
+### Two orchestrators on the same machine cannot message each other
+
+**You see:** `podium_peers` does not list the other orchestrators on this machine, and says nothing about them under
+`Not listed:` either. `podium_send` to one of them says "You cannot see an orchestrator called …".
+
+**Why:** Rights belong to reporters, and a reporter is one machine plus one person's token. Two sessions on one
+machine share a reporter, so they need that reporter's right to itself, which no one has given yet.
+
+**Do:** On My reporters, set the cell on the Grid's diagonal for that machine, or turn on **Trust my own reporters**.
+
+### A message does not arrive while the other session waits at a permission prompt
+
+**You see:** `podium_send` answered "Waiting for … It is working, and gets the message when its turn ends", and the
+receiving session sits at a permission prompt.
+
+**Why:** Podium hands a message over only when the receiver reports itself idle. A session at a permission prompt is
+waiting on its person, not idle, so the message waits with it (SPEC 7.7, "Delivery").
+
+**Do:** Answer the prompt. The message arrives once that turn ends.
+
+### My reporters is missing after signing in with the admin secret
+
+**You see:** You signed in with the name `Admin` and the admin secret, and the top bar has no **My reporters**.
+
+**Why:** Messaging is only between one person's own reporters, and the admin secret belongs to no one, so it has no
+reporters to show and cannot take part.
+
+**Do:** Sign in with your own name and token, the ones your reporters use.
+
 ## Developing
 
 ### An Admin style does nothing, or looks like the fleet page's
@@ -499,6 +534,22 @@ uses `asec` and `apage` for this reason).
 **Why:** Forks are off in a non-interactive run. Subagents launching subagents work without any setting.
 
 **Do:** Set `CLAUDE_CODE_FORK_SUBAGENT=1` for the run.
+
+### A prompt sent to Claude Code with `tmux send-keys` stays in the box unsent
+
+**You see:** You sent a long prompt and `Enter` to a Claude Code window in one `tmux send-keys`. The text is in the
+prompt box and no turn starts.
+
+**Why:** The keys arrive in one burst, which Claude Code most likely reads as a paste, and an Enter inside a paste
+does not submit it.
+
+**Do:** Send the text, pause, then send Enter on its own:
+
+```sh
+tmux send-keys -t podium-e2e:planner -l 'Run podium_peers.'
+sleep 1
+tmux send-keys -t podium-e2e:planner C-m
+```
 
 To watch a nested run without touching your own server:
 

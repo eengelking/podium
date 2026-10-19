@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+# Orchestrator messaging (#347) end to end, with real Claude Code sessions against a throwaway Podium server built
+# from this checkout. docs/MESSAGING.md, "Testing it end to end", walks through a run. See --help.
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: scripts/podium-peers-e2e.sh up [options]
+       scripts/podium-peers-e2e.sh down [options]
+       scripts/podium-peers-e2e.sh -h | --help
+
+Tries orchestrator messaging end to end with real Claude Code sessions, against a
+throwaway Podium server built from this checkout. docs/MESSAGING.md has the steps.
+
+up    Makes a work folder and writes a new admin secret to a file in it (mode 0600).
+      Builds the server and the UI if server/dist or frontend/dist is missing. Starts
+      the server on --port in the background, with its database in the work folder,
+      and waits for it. Seeds one person with podium-peers-seed.mjs --talk, which turns
+      on the messaging, responding and activity-feed flags, adds four made-up machines
+      with conversations, and writes the person's name and token to a 0600 file. Then
+      starts the Claude Code sessions in tmux, one window each, each in its own git
+      folder, loading podium-reporter from this checkout with --plugin-dir and
+      reporting to the server as that person. Prints the URL, the person's name and
+      where the token and secret files are, never the token or the secret.
+down  Kills the tmux session, stops the server that up started (by its saved pid) and
+      removes the work folder, unless --keep.
+
+Options:
+  --dir PATH      work folder (default: $TMPDIR/podium-peers-e2e)
+  --port N        server port (default 4380)
+  --sessions N    Claude Code sessions to start, 1 to 20 (default 4: planner, tester,
+                  notes, docs, then s5, s6 and so on)
+  --model NAME    model for every session (default haiku)
+  --tmux NAME     tmux session name (default podium-e2e)
+  --name NAME     the person to seed (default Ed)
+  --keep          down: keep the work folder (database, server log, seed output)
+  --dry-run       print what it would do, and start, stop or write nothing
+  -h, --help      show this help
+
+Notes:
+  - Each session starts in a new folder, so Claude Code asks once in each window
+    whether to trust it. Attach with `tmux attach -t podium-e2e` and accept it in
+    every window before sending a prompt.
+  - The sessions use the model and cost money. --model haiku keeps that low, and
+    `down` ends them.
+  - To type a prompt into a window, send the text, pause, then send Enter on its own.
+    A long prompt sent with its Enter in one send-keys is often left unsubmitted:
+      tmux send-keys -t podium-e2e:planner -l 'Run podium_peers and tell me what you see.'
+      sleep 1; tmux send-keys -t podium-e2e:planner C-m
+  - All the sessions run on this machine, so they share one reporter. Before they can
+    message each other, sign in on My reporters with the printed name and the token
+    from the token file, and give this machine the right to send to itself (the
+    Grid's diagonal), or turn on Trust my own reporters.
+  - The installed podium-reporter is turned off for these sessions only, through the
+    --settings file up writes. ~/.claude/settings.json is not touched.
+  - The token and the secret are read from their files inside each window and passed
+    in the environment, never on a command line that ps shows.
+  - Needs node, curl, git, tmux and claude on PATH.
+USAGE
+}
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+MOD="$ROOT/mod/podium-reporter"
+MARKER=".podium-peers-e2e"
+TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
+
+CMD=""
+TMP_BASE="${TMPDIR:-/tmp}"
+DIR="${TMP_BASE%/}/podium-peers-e2e"
+PORT=4380
+SESSIONS=4
+MODEL=haiku
+TMUX_NAME=podium-e2e
+PERSON=Ed
+KEEP=0
+DRY=0
+
+die() { echo "podium-peers-e2e: $*" >&2; exit 2; }
+need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 needs a value (see --help)"; }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    up|down) [[ -z "$CMD" ]] || die "give one of up or down"; CMD="$1" ;;
+    --dir) need_value "$@"; DIR="$2"; shift ;;
+    --port) need_value "$@"; PORT="$2"; shift ;;
+    --sessions) need_value "$@"; SESSIONS="$2"; shift ;;
+    --model) need_value "$@"; MODEL="$2"; shift ;;
+    --tmux) need_value "$@"; TMUX_NAME="$2"; shift ;;
+    --name) need_value "$@"; PERSON="$2"; shift ;;
+    --keep) KEEP=1 ;;
+    --dry-run) DRY=1 ;;
+    *) die "unknown argument: $1 (see --help)" ;;
+  esac
+  shift
+done
+
+[[ -n "$CMD" ]] || { usage >&2; exit 2; }
+if [[ ! "$PORT" =~ ^[0-9]{1,5}$ ]] || (( PORT < 1 || PORT > 65535 )); then die "--port must be a number from 1 to 65535"; fi
+if [[ ! "$SESSIONS" =~ ^[0-9]{1,2}$ ]] || (( SESSIONS < 1 || SESSIONS > 20 )); then die "--sessions must be a number from 1 to 20"; fi
+[[ "$TMUX_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || die "--tmux takes letters, digits, - and _ only"
+[[ "$MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "--model takes letters, digits, '.', ':', - and _ only"
+# The paths go inside single quotes in the windows' commands.
+[[ "$DIR" != *"'"* && "$ROOT" != *"'"* ]] || die "the work folder and the checkout path cannot hold a single quote"
+[[ "$DIR" = /* ]] || DIR="$PWD/$DIR"
+
+URL="http://127.0.0.1:$PORT"
+SECRET_FILE="$DIR/admin-secret"
+SEED_FILE="$DIR/seed.out"
+SETTINGS="$DIR/settings.json"
+PID_FILE="$DIR/server.pid"
+LOG_FILE="$DIR/server.log"
+
+say() { printf '%s\n' "$*"; }
+step() { if (( DRY )); then say "would: $*"; else say "$*"; fi; }
+
+session_name() {
+  case "$1" in
+    1) echo planner ;; 2) echo tester ;; 3) echo notes ;; 4) echo docs ;;
+    *) echo "s$1" ;;
+  esac
+}
+
+# The pid up saved, when it is still this checkout's server, so down never stops another process that took the pid.
+server_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid
+  pid="$(cat "$PID_FILE")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  ps -p "$pid" -o command= 2>/dev/null | grep -q "server/dist/index.js" || return 1
+  echo "$pid"
+}
+
+up() {
+  if (( ! DRY )); then
+    local tool
+    for tool in node curl git tmux claude; do
+      command -v "$tool" >/dev/null || die "$tool is not on PATH"
+    done
+    if server_pid >/dev/null; then die "a server from an earlier up is still running; run down first (--dir $DIR)"; fi
+    if tmux has-session -t "$TMUX_NAME" 2>/dev/null; then die "the tmux session $TMUX_NAME already exists; run down, or pick another with --tmux"; fi
+    if curl -s -o /dev/null -m 2 "$URL/"; then die "something already answers on port $PORT; pick another with --port"; fi
+  fi
+
+  step "make the work folder $DIR (mode 0700)"
+  if (( ! DRY )); then
+    umask 077
+    mkdir -p "$DIR"
+    : >"$DIR/$MARKER"
+  fi
+
+  step "write a new admin secret to $SECRET_FILE (mode 0600)"
+  if (( ! DRY )); then
+    node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))" >"$SECRET_FILE"
+  fi
+
+  if [[ ! -f "$ROOT/server/dist/index.js" || ! -f "$ROOT/frontend/dist/index.html" ]]; then
+    step "build the server and the UI (npm run build)"
+    if (( ! DRY )); then (cd "$ROOT" && npm run build >"$DIR/build.log" 2>&1) || { tail -40 "$DIR/build.log" >&2; exit 1; }; fi
+  fi
+
+  step "start the server from $ROOT on $URL, database $DIR/podium.sqlite, log $LOG_FILE, pid in $PID_FILE"
+  if (( ! DRY )); then
+    (
+      cd "$ROOT"
+      PODIUM_TOKEN="$(cat "$SECRET_FILE")" PORT="$PORT" HOST=127.0.0.1 PODIUM_DB="$DIR/podium.sqlite" \
+        nohup node server/dist/index.js >"$LOG_FILE" 2>&1 &
+      echo $! >"$PID_FILE"
+    )
+    local ok=0 _
+    for _ in $(seq 1 80); do
+      if curl -sf -m 2 "$URL/api/fleet/health" >/dev/null; then ok=1; break; fi
+      sleep 0.25
+    done
+    if (( ! ok )); then
+      echo "the server did not answer on $URL; its log:" >&2
+      tail -40 "$LOG_FILE" >&2
+      exit 1
+    fi
+  fi
+
+  step "seed the person $PERSON with podium-peers-seed.mjs --talk, output (name and token) in $SEED_FILE (mode 0600)"
+  if (( ! DRY )); then
+    PODIUM_TOKEN="$(cat "$SECRET_FILE")" node "$ROOT/scripts/podium-peers-seed.mjs" --url "$URL" --name "$PERSON" --talk >"$SEED_FILE"
+  fi
+
+  step "write $SETTINGS: the installed podium-reporter off, this checkout's copy reporting to $URL with peers, activityFeed and respond on"
+  if (( ! DRY )); then
+    cat >"$SETTINGS" <<JSON
+{
+  "enabledPlugins": { "podium-reporter@eengelking-marketplace": false },
+  "pluginConfigs": {
+    "podium-reporter": {
+      "options": { "serverUrl": "$URL", "peers": true, "activityFeed": true, "respond": "everything", "heartbeatMs": 3000 }
+    }
+  }
+}
+JSON
+  fi
+
+  step "start the tmux session $TMUX_NAME"
+  (( DRY )) || tmux new-session -d -s "$TMUX_NAME" -n boot -x 200 -y 50
+  local i name dir names=""
+  for i in $(seq 1 "$SESSIONS"); do
+    name="$(session_name "$i")"
+    dir="$DIR/proj-$name"
+    names="$names $name"
+    step "start Claude Code ($MODEL) as $name in $dir, with --plugin-dir $MOD"
+    (( DRY )) && continue
+    mkdir -p "$dir"
+    [[ -d "$dir/.git" ]] || git -C "$dir" init -q
+    tmux new-window -t "$TMUX_NAME" -n "$name" -c "$dir"
+    # Typed into the window's shell: the name and token are read from the file there, so neither is on this
+    # script's command line, nor on tmux's.
+    tmux send-keys -t "$TMUX_NAME:$name" "export PODIUM_USER=\"\$(sed -n 's/^name=//p' '$SEED_FILE')\" PODIUM_TOKEN=\"\$(sed -n 's/^token=//p' '$SEED_FILE')\"; claude --plugin-dir '$MOD' --settings '$SETTINGS' --model '$MODEL' -n '$name' --allowedTools $TOOLS" C-m
+  done
+  (( DRY )) || tmux kill-window -t "$TMUX_NAME:boot"
+
+  local who="$PERSON"
+  (( DRY )) || who="$(sed -n 's/^name=//p' "$SEED_FILE")"
+  say ""
+  say "Podium:    $URL/#/"
+  say "Person:    $who (sign in from the top bar with this name and the token)"
+  say "Token:     the token= line in $SEED_FILE"
+  say "Secret:    $SECRET_FILE (Admin, with the name Admin)"
+  say "Sessions:  tmux attach -t $TMUX_NAME (windows:$names); accept the trust prompt in each"
+  say "Next:      on My reporters, let this machine send to itself (the Grid's diagonal), or turn on Trust my own reporters"
+  say "Stop:      scripts/podium-peers-e2e.sh down --dir '$DIR' --tmux $TMUX_NAME"
+}
+
+down() {
+  if (( DRY )); then
+    step "kill the tmux session $TMUX_NAME, if it exists"
+  elif tmux has-session -t "$TMUX_NAME" 2>/dev/null; then
+    step "kill the tmux session $TMUX_NAME"
+    tmux kill-session -t "$TMUX_NAME"
+  fi
+
+  if (( DRY )); then
+    step "stop the server whose pid is in $PID_FILE, if it is still running"
+  else
+    local pid _
+    if pid="$(server_pid)"; then
+      step "stop the server (pid $pid)"
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+      kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+
+  if (( KEEP )); then
+    say "keeping $DIR"
+  elif (( DRY )); then
+    step "remove $DIR, if up made it"
+  elif [[ -f "$DIR/$MARKER" ]]; then
+    step "remove $DIR"
+    rm -rf "$DIR"
+  elif [[ -e "$DIR" ]]; then
+    say "not removing $DIR: up did not make it"
+  fi
+}
+
+"$CMD"

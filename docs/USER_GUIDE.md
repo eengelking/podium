@@ -5,8 +5,8 @@ How to set up Podium, read the dashboard and fix common problems.
 Podium shows every Claude Code session on your machine in one browser tab. It watches. It never sends a prompt to a
 session, stops an agent or changes anything, unless you turn on [answering from Podium](#answering-a-session-from-podium).
 
-Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERVER.md) for the server's settings and
-[GOTCHAS.md](GOTCHAS.md) for sharp edges.
+Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERVER.md) for the server's settings,
+[MESSAGING.md](MESSAGING.md) for setting up orchestrator messaging and [GOTCHAS.md](GOTCHAS.md) for sharp edges.
 
 ## Contents
 
@@ -619,7 +619,8 @@ An answer counts once the session confirms it, usually within 2 seconds. Until t
 
 **My reporters** (`#/me/reporters`) lists the machines that report your sessions to this server, and is where you
 decide which of them may see and message each other. Only your own reporters are there: Podium does not carry messages
-between people. `mockup/podium-my-reporters.html` shows every case.
+between people. `mockup/podium-my-reporters.html` shows every case. To set messaging up from the start, follow
+[MESSAGING.md](MESSAGING.md); this section is a tour of the page.
 
 It needs authentication on and the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags). Sign in
 with your name and token from **Sign in** at the far right of the top bar. The top bar then reads *Signed in as Ed*,
@@ -692,7 +693,7 @@ the link is paused, and **Proposed** means an Admin's change is waiting for you.
 
 **Traffic** (`#/traffic`) shows which orchestrators message which, like a service mesh's traffic map, and what they said.
 The link is in the top bar after **History** while the Admin's **Orchestrator messaging** switch is on.
-`mockup/podium-traffic.html` shows every case.
+`mockup/podium-traffic.html` shows every case, and [MESSAGING.md](MESSAGING.md#traffic) has a key to the map.
 
 Anyone who can read the console sees the map and the counts. A conversation's text opens only for its owner and an
 Admin: anyone else reads *Only Ed and an Admin can read this conversation*, and the page does not ask the server for the
@@ -701,7 +702,8 @@ text at all. Sign in from the top bar to read your own.
 - **Map.** A dashed box per machine, with its system, and a node per orchestrator with the same status shapes as the
   wall. A line joins two orchestrators that messaged each other. Solid is active; dashed in the warning color means a
   message waits for approval; dotted and muted means the link is paused. The label on the line has the count, and the
-  word and an icon when it is waiting or paused. An arrow at one end means only that way can send, and a thicker line
+  word and an icon when it is waiting or paused. When neither side can send any more, as after Remove link, the label
+  adds No access's struck circle and "no right to send". An arrow at one end means only that way can send, and a thicker line
   carries more messages. The legend under the map says the same, and names a machine of yours that is not drawn because
   messaging is off there. Each line is a link: click it, or Tab to it and press Enter.
 - **Table** shows the same links as text: the pair and their machines, the messages, the last message, the round trips
@@ -710,7 +712,9 @@ text at all. Sign in from the top bar to read your own.
   days**.
 
 The conversation is beside the map, or below it on a narrow screen: the pair and their machines, the state, the round
-trips used against the limit, then the messages oldest first. Each message says who sent it to whom, when, and where it
+trips used against the limit, how many days it is kept, then the messages oldest first. A paused link with a message
+waiting for approval shows both states, and a link neither side can send on reads **No right to send**, here and in
+the Table. Each message says who sent it to whom, when, and where it
 is: delivered, waiting for the receiver's turn to end, waiting for your approval, held while the link is paused,
 declined or dropped (and why). Anything Podium replaced as a possible secret on the sending machine reads `[redacted]`.
 A one-way link says the other side cannot answer, and that you give it the right in My reporters.
@@ -722,8 +726,8 @@ On your own link:
   stays on the page until it expires.
 
 Both act on the two machines, so they also pause or remove every other conversation between them. If either fails, the
-page says so and the link is as it was. An Admin can read anyone's conversation here but pauses or removes another
-person's link in Admin > Reporters.
+page says so and the link is as it was. An Admin can read anyone's conversation here, but cannot pause or remove
+another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter.
 
 Like My reporters, the page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; `\` still hides
 and shows the top bar.
@@ -883,7 +887,8 @@ flagged:
 
 **Messaging.** While **Orchestrator messaging** is on, a reporter's details add its **System** and **Messaging** (On,
 Paused, Off on the machine, Reporter can't message: update it, or Cannot take part), and a **Messaging** section below
-shows the owner's reporters with the same **Grid | Board** as [My reporters](#my-reporters).
+shows the owner's reporters with the same **Grid | Board** as [My reporters](#my-reporters). How rights, proposals and
+pauses fit together is in [MESSAGING.md](MESSAGING.md#rights-and-approval).
 
 - An Admin never decides for the owner. A change you make there is sent to the owner as a proposal, shows as
   Proposed, waiting for them, and applies only once they accept it, on My reporters or in a session on the machine. You
@@ -929,7 +934,7 @@ These settings apply to every browser and stay after a restart.
   [Traffic](#traffic).
 
 **Orchestrator messaging**, shown while that flag is on, sets the limits on every link. An owner can make them stricter
-on their own links in My reporters, never looser.
+on their own links in My reporters, never looser. [MESSAGING.md](MESSAGING.md#limits) says what happens at each one.
 
 | Setting | Default | Range | What it does |
 |---|---|---|---|
