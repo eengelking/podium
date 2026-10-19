@@ -1,0 +1,103 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Board KPI Tiles</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #450, for approval. The Board's KPI panel grows from four tiles to eight using the existing .kpis/.kpi classes.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. The rest is demo chrome. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.page { max-width: 1040px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.spec .cap { color: var(--muted); font-size: 12px; }
+.frame.narrow { max-width: 600px; container-type: inline-size; }
+.frame.wide { container-type: inline-size; }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+/* The panel's layout: four across when there is room, two across in a narrow container, as the Board does today. */
+.frame .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+@container (max-width: 640px) { .frame .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+
+<div class="demo" role="group" aria-label="Review controls">
+  <span class="grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp"><b>Board filter</b>
+    <button type="button" data-filter="0" aria-pressed="true">None</button>
+    <button type="button" data-filter="1" aria-pressed="false">My orchestrators / Group</button>
+  </span>
+</div>
+
+<main class="page podium">
+  <header>
+    <h1>Board: eight KPI tiles</h1>
+    <p>Issue #450. The panel shows live, running and waiting for orchestrators, then orchestrators with plans, then live, running and waiting for subagents, then total cards. Reading order is two rows of four: the orchestrator row on top, the subagent row below, with plans and cards ending each row. Tiles are whole fleet and never change with My orchestrators, Group or Plans | All.</p>
+  </header>
+
+  <section class="spec" aria-labelledby="s1">
+    <h2 id="s1">Proposed: wide (two rows of four)</h2>
+    <div class="frame wide" id="wide"></div>
+    <div class="cap">Orchestrators live / running / waiting come from <code>Kpis.live</code>, <code>running</code>, <code>waiting</code> (the Fleet page's own figures). Subagents live = <code>agentsTotal</code>, running = <code>agentsRunning</code>, waiting = new <code>agentsWaiting</code> (agents queued). Total cards replaces Plan steps.</div>
+  </section>
+
+  <section class="spec" aria-labelledby="s2">
+    <h2 id="s2">Proposed: 600 px and narrower (two across, four rows)</h2>
+    <div class="frame narrow" id="narrow"></div>
+    <div class="cap">The existing container query at 640 px gives two columns, so nothing overflows. Eight tiles side by side would be about 75 px each, too narrow for "Orchestrators with plans".</div>
+  </section>
+
+  <section class="decisions" aria-label="Decisions for the maintainer">
+    <div><b>Subagents waiting = queued</b>Agents have no "waiting" status; the answer was to count <code>status === 'queued'</code>, the way running counts <code>'running'</code>. Its caption reads "queued".</div>
+    <div><b>Total cards</b>Every card in every column, Done included, over all sessions the page received (the Plans view's cards, so it is the old Plan steps number). Caption "N done" as before.</div>
+    <div><b>Captions</b>The repeated "of N live" is dropped from the running tile. Live reads "whole fleet" under a filter and "forks excluded" otherwise; Subagents live keeps "forks included". "whole fleet" shows on every tile under a filter, as today.</div>
+    <div><b>Accessible name</b>The group changes to "Orchestrators and subagents, plans and cards, whole fleet".</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var filtered = false;
+  var t = [
+    ['Orchestrators live', 7, 'forks excluded'],
+    ['Orchestrators running', 3, ''],
+    ['Orchestrators waiting', 2, ''],
+    ['Orchestrators with plans', 4, 'of 7 live'],
+    ['Subagents live', 5, 'forks included'],
+    ['Subagents running', 2, ''],
+    ['Subagents waiting', 1, 'queued'],
+    ['Total cards', 21, '9 done']
+  ];
+  function tiles() {
+    return '<div class="kpis" role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">' + t.map(function (x) {
+      var cap = filtered && x[2] !== '' ? 'whole fleet' : x[2];
+      if (filtered && x[2] === '') cap = 'whole fleet';
+      return '<div class="kpi"><div class="k">' + x[0] + '</div><div class="v mono">' + x[1] + '</div><div class="kpi-cap">' + cap + '</div></div>';
+    }).join('') + '</div>';
+  }
+  function render() { ['wide', 'narrow'].forEach(function (id) { document.getElementById(id).innerHTML = tiles(); }); }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); document.querySelectorAll('[data-mode]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); }); }
+    else if (b.dataset.filter) { filtered = b.dataset.filter === '1'; document.querySelectorAll('[data-filter]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); }); render(); }
+  });
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>

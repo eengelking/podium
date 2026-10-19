@@ -1040,6 +1040,7 @@ body.modal-open #root { filter: blur(5px); }
 /* The kanban board (#346): five columns, one card per plan step. Looks follow mockup/podium-kanban.html. */
 .podium .kb { container-type: inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .podium .kb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.podium .kb > .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @container (max-width: 640px) { .podium .kb > .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .podium .kb-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
 .podium .kb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
@@ -1047,8 +1048,6 @@ body.modal-open #root { filter: blur(5px); }
 .podium .kb-seg button + button { border-left: 1px solid var(--border); }
 .podium .kb-seg button[aria-pressed="true"] { background: var(--sel); color: var(--ink); font-weight: 600; }
 .podium .kb-sel { appearance: none; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink2); font: 12px var(--font-ui); }
-.podium .kb-chip { padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--ink2); }
-.podium .kb-chip[aria-pressed="true"] { color: var(--ink); border-color: var(--ink2); font-weight: 600; background: var(--sel); }
 .podium .kb-tabs { display: none; gap: 4px; overflow-x: auto; }
 .podium .kb-tabs button { flex: none; display: inline-flex; gap: 6px; align-items: center; padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--ink2); }
 .podium .kb-tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600; border-color: var(--ink2); background: var(--sel); }

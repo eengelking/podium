@@ -248,4 +248,62 @@ describe('ingestReport with a model that has no price (#66)', () => {
     ingestReport(f2, r, T0);
     expect(f2.getSession(r.session.id)!.cost_usd).toBe(r.session.costUsd);
   });
+
+  describe('plan finish order (#454)', () => {
+    type St = 'pending' | 'active' | 'done' | 'blocked';
+    const planOf = (states: Record<string, St>): Report => {
+      const r = fixtureReport();
+      r.session.plan = {
+        title: null,
+        source: 'TaskCreate',
+        steps: Object.entries(states).map(([id, state]) => ({ id, text: id, state, activeText: null, ownerAgentId: null, ownerLabel: null })),
+      };
+      return r;
+    };
+    const seqs = (): Record<string, number | undefined> =>
+      Object.fromEntries(
+        (JSON.parse(f.getSession(fixtureReport().session.id)!.plan_json!) as { steps: { id: string; doneSeq?: number }[] }).steps.map((x) => [x.id, x.doneSeq]),
+      );
+
+    it('numbers steps in the order they finish, and keeps the number while a step stays done', () => {
+      ingestReport(f, planOf({ a: 'active', b: 'pending', c: 'pending' }), T0);
+      expect(seqs()).toEqual({ a: undefined, b: undefined, c: undefined });
+      ingestReport(f, planOf({ a: 'pending', b: 'pending', c: 'done' }), T0 + 1000);
+      ingestReport(f, planOf({ a: 'done', b: 'pending', c: 'done' }), T0 + 2000);
+      expect(seqs()).toEqual({ a: 2, b: undefined, c: 1 });
+      ingestReport(f, planOf({ a: 'done', b: 'active', c: 'done' }), T0 + 3000);
+      expect(seqs()).toEqual({ a: 2, b: undefined, c: 1 });
+    });
+
+    it('numbers steps that finish in one report in plan order', () => {
+      ingestReport(f, planOf({ a: 'active', b: 'active' }), T0);
+      ingestReport(f, planOf({ a: 'done', b: 'done' }), T0 + 1000);
+      expect(seqs()).toEqual({ a: 1, b: 2 });
+    });
+
+    it('drops the number when a step is reopened, and gives it a new one when it finishes again', () => {
+      ingestReport(f, planOf({ a: 'active', b: 'pending' }), T0);
+      ingestReport(f, planOf({ a: 'done', b: 'active' }), T0 + 1000);
+      ingestReport(f, planOf({ a: 'pending', b: 'done' }), T0 + 2000);
+      expect(seqs()).toEqual({ a: undefined, b: 2 });
+      ingestReport(f, planOf({ a: 'done', b: 'done' }), T0 + 3000);
+      expect(seqs()).toEqual({ a: 3, b: 2 });
+    });
+
+    it('leaves steps of a plan first seen already part done without a number', () => {
+      ingestReport(f, planOf({ a: 'done', b: 'done', c: 'active' }), T0);
+      expect(seqs()).toEqual({ a: undefined, b: undefined, c: undefined });
+      ingestReport(f, planOf({ a: 'done', b: 'done', c: 'done' }), T0 + 1000);
+      expect(seqs()).toEqual({ a: undefined, b: undefined, c: 1 });
+    });
+
+    it('starts over when a report carries a different plan or none', () => {
+      ingestReport(f, planOf({ a: 'active' }), T0);
+      ingestReport(f, planOf({ a: 'done' }), T0 + 1000);
+      const none = fixtureReport();
+      none.session.plan = null;
+      ingestReport(f, none, T0 + 2000);
+      expect(f.getSession(none.session.id)!.plan_json).toBeNull();
+    });
+  });
 });

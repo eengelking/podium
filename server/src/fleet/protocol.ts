@@ -549,6 +549,15 @@ export interface ReportReply {
 
 // <protocol:end>
 
+/** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
+export interface PlanStepView extends PlanStep {
+  doneSeq?: number;
+}
+
+export interface PlanView extends Omit<Plan, 'steps'> {
+  steps: PlanStepView[];
+}
+
 /** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in hooks/fileDiff.ts. */
 export const FILE_DIFF_LIMITS = {
   /** Lines and bytes the mod sends; more is cut at a line boundary. */
@@ -669,7 +678,7 @@ export interface SessionView {
     loopsTotal: number;
     log: BlowoutLogEntry[];
   };
-  plan: Plan | null;
+  plan: PlanView | null;
   /** The main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a hooks-only session. */
   loop: LoopReport | null;
   /** The files the session changed; null from a reporter older than 0.6.0 and for a hooks-only session. */
@@ -768,6 +777,8 @@ export interface Kpis {
   waiting: number;
   stale: number;
   agentsRunning: number;
+  /** Agents queued, not started yet: what the Board's Subagents waiting tile counts (#450). */
+  agentsWaiting: number;
   agentsTotal: number;
   planDone: number;
   planTotal: number;

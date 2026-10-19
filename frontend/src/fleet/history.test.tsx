@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { HistoryView, localDay } from "./HistoryView";
-import { makeAgent, makeSession } from "./fixtures";
+import { makeAgent, makeSession, makeState } from "./fixtures";
+import type { PeersApi, RespondApi } from "./respondApi";
 import type { HistoryRow } from "./types";
 
 afterEach(() => {
@@ -15,8 +16,13 @@ const row: HistoryRow = {
   startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: null, clearedInto: null,
 };
 
+function stubEventSource() {
+  vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
+}
+
 function server(rows: HistoryRow[], sessionOver: Parameters<typeof makeSession>[0] = {}, total = rows.length) {
   const calls: string[] = [];
+  stubEventSource();
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     calls.push(url);
     if (url.includes("/history?day=")) {
@@ -30,6 +36,18 @@ function server(rows: HistoryRow[], sessionOver: Parameters<typeof makeSession>[
 }
 
 describe("history page", () => {
+  it("draws the shared top bar: Fleet, Board, no History button, and the connection pill (#452)", async () => {
+    server([row]);
+    const { container } = render(<HistoryView initialDay="2026-10-10" />);
+    const bar = container.querySelector("header.top") as HTMLElement;
+    expect(bar.querySelector(".pill")?.textContent).toBe("History");
+    const buttons = [...bar.querySelectorAll("a.btn")].map((a) => a.textContent);
+    expect(buttons).toEqual(["Fleet", "Board"]);
+    expect(screen.queryByRole("link", { name: "Live fleet" })).toBeNull();
+    expect(bar.textContent).toMatch(/reporters? live|connecting|disconnected/i);
+    await screen.findByRole("button", { name: "api-refactor" });
+  });
+
   it("links the two parts of a conversation split by /clear (#206)", async () => {
     server([{ ...row, clearedInto: "9c1e2f4a5b6c7d8e", clearedFrom: "238da512ffeeddcc" }]);
     render(<HistoryView initialDay="2026-10-10" />);
@@ -47,11 +65,26 @@ describe("history page", () => {
     expect(into.closest("td")?.textContent).not.toContain("·");
   });
 
+  it("shows Signed in as and a My reporters link with its waiting count while messaging is on (#452)", async () => {
+    server([row]);
+    const quiet = { onerror: null, readyState: 1, addEventListener() {}, close() {} };
+    const respondApi = { me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false })) } as unknown as RespondApi;
+    const peersApi = { read: vi.fn(async () => ({ requests: [{ id: "a" }, { id: "b" }] })) } as unknown as PeersApi;
+    const fleetOptions = {
+      open: () => quiet,
+      fetchState: async () => makeState({ features: { respond: true, "activity-feed": true, "peer-messaging": true } }),
+    };
+    render(<HistoryView initialDay="2026-10-10" fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />);
+    expect(await screen.findByText("Ed")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "My reporters · 2 waiting" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
   it("lists a day's ended sessions with summary columns", async () => {
     const calls = server([row]);
     render(<HistoryView initialDay="2026-10-10" />);
     expect(await screen.findByRole("button", { name: "api-refactor" })).toBeInTheDocument();
-    expect(calls[0]).toBe("/api/fleet/history?day=2026-10-10&page=1&pageSize=50");
+    expect(calls.find((c) => c.includes("/history?"))).toBe("/api/fleet/history?day=2026-10-10&page=1&pageSize=50");
     const cells = [...document.querySelectorAll("tbody td")].map((td) => td.textContent);
     expect(cells).toEqual(["api-refactor", "~/dev/billing", "Opus 5.5", expect.any(String), "1h 00m", "$12.84", "2", "3", "prompt_input_exit"]);
     expect(screen.getByText("1 sessions ended")).toBeInTheDocument();
@@ -126,7 +159,7 @@ describe("history page", () => {
       const calls = server([row], {}, 120);
       render(<HistoryView />);
       await screen.findByRole("button", { name: "api-refactor" });
-      expect(calls[0]).toBe("/api/fleet/history?day=2026-10-08&page=3&pageSize=25");
+      expect(calls.find((c) => c.includes("/history?"))).toBe("/api/fleet/history?day=2026-10-08&page=3&pageSize=25");
     });
 
     it("returns to the same page when the browser goes back from an opened session", async () => {
@@ -145,7 +178,9 @@ describe("history page", () => {
     it("keeps the table on screen while the next page loads, but not across a change of day (#273)", async () => {
       let release: (r: Response) => void = () => {};
       let n = 0;
+      stubEventSource();
       vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+        if (!url.includes("/history?")) return new Response("{}", { status: 404 });
         const q = new URL(url, "http://x").searchParams;
         const body = (name: string) => new Response(JSON.stringify({ day: q.get("day"), sessions: [{ ...row, name }], total: 120, page: Number(q.get("page")), pageSize: 50 }), { status: 200 });
         if (++n === 1) return body("api-refactor");
@@ -171,6 +206,7 @@ describe("history page", () => {
       expect(await screen.findByText("No sessions ended on 2026-10-10.")).toBeInTheDocument();
       expect(screen.queryByText(/Rows per page/)).toBeNull();
       cleanup();
+      stubEventSource();
       vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
       render(<HistoryView initialDay="2026-10-10" />);
       expect(await screen.findByText(/Cannot reach the Podium server/)).toBeInTheDocument();

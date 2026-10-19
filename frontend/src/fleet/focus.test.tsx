@@ -332,7 +332,7 @@ describe("MiniChart", () => {
 describe("PlanPanel and context bars", () => {
   it("shows state icons, owner labels, and the empty text", () => {
     const { container } = render(<PlanPanel s={makeSession()} />);
-    expect([...container.querySelectorAll(".step")].map((s) => s.className)).toEqual(["step done", "step active", "step blocked", "step pending"]);
+    expect([...container.querySelectorAll(".step")].map((s) => s.className)).toEqual(["step active", "step blocked", "step pending", "step done"]);
     expect(container.textContent).toContain("Explore · Haiku low");
     expect(container.textContent).toContain("blocked by an unfinished step");
     cleanup();
@@ -515,15 +515,78 @@ describe("Plan and Files panel matches the mockup (#200)", () => {
   it("draws each step state as its own shape, not a CSS circle", () => {
     const { container } = render(<PlanPanel s={withSteps(["done", "active", "blocked", "pending"])} />);
     const shapes = [...container.querySelectorAll(".step .mk svg")].map((v) => v.getAttribute("data-shape"));
-    expect(shapes).toEqual(["done", "active", "blocked", "pending"]);
+    expect(shapes).toEqual(["active", "blocked", "pending", "done"]);
     expect(container.querySelector(".step .ic")).toBeNull();
   });
 
   it("the inferred step gets the dashed ring and the others do not", () => {
     const { container } = render(<PlanPanel s={withSteps(["done", "pending", "pending"])} />);
     const shapes = [...container.querySelectorAll(".step .mk svg")].map((v) => v.getAttribute("data-shape"));
-    expect(shapes).toEqual(["done", "inferred", "pending"]);
+    expect(shapes).toEqual(["inferred", "pending", "done"]);
     expect(container.querySelector('.step svg[data-shape="inferred"] circle')).toHaveAttribute("stroke-dasharray");
+  });
+
+  describe("finished steps go to the bottom (#454)", () => {
+    const texts = (c: HTMLElement) => [...c.querySelectorAll(".step .tx")].map((n) => n.firstChild!.textContent);
+    const planOf = (states: Array<"done" | "active" | "pending" | "blocked">, seqs: Record<number, number> = {}) =>
+      makeSession({ plan: { ...base.plan!, steps: states.map((state, i) => ({ id: String(i + 1), text: `Task ${i + 1}`, state, activeText: null, ownerAgentId: null, ownerLabel: null, ...(seqs[i + 1] ? { doneSeq: seqs[i + 1] } : {}) })) } });
+
+    it("23 steps, 4 done, 1 active: page 1 holds the active step and the next 9 open ones, the done steps end the last page", () => {
+      const states = [...Array(2).fill("done"), "active", ...Array(18).fill("pending"), ...Array(2).fill("done")];
+      const { container } = render(<PlanPanel s={planOf(states, { 1: 2, 2: 1, 22: 4, 23: 3 })} />);
+      expect(texts(container)).toEqual(["Task 3", ...Array.from({ length: 9 }, (_, i) => `Task ${i + 4}`)]);
+      expect(container.querySelector(".pager")!.textContent).toContain("Showing 1–10 of 23");
+      fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+      expect(texts(container)).toEqual(["Task 1", "Task 23", "Task 22"]);
+      fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+      expect(texts(container)[9]).toBe("Task 2");
+    });
+
+    it("a step that finishes moves to the end and the next one shows as active at the top", () => {
+      const view = render(<PlanPanel s={planOf(["active", "pending", "pending"])} />);
+      expect(texts(view.container)).toEqual(["Task 1", "Task 2", "Task 3"]);
+      view.rerender(<PlanPanel s={planOf(["done", "active", "pending"], { 1: 1 })} />);
+      expect(texts(view.container)).toEqual(["Task 2", "Task 3", "Task 1"]);
+      view.rerender(<PlanPanel s={planOf(["done", "done", "active"], { 1: 1, 2: 2 })} />);
+      expect(texts(view.container)).toEqual(["Task 3", "Task 1", "Task 2"]);
+    });
+
+    it("a step the model reopens goes back among the open steps", () => {
+      const view = render(<PlanPanel s={planOf(["done", "active", "pending"], { 1: 1 })} />);
+      view.rerender(<PlanPanel s={planOf(["pending", "active", "pending"])} />);
+      expect(texts(view.container)).toEqual(["Task 2", "Task 1", "Task 3"]);
+    });
+
+    it("a plan first seen part done lists open steps first and the done ones in plan order", () => {
+      const { container } = render(<PlanPanel s={planOf(["done", "pending", "done", "active"])} />);
+      expect(texts(container)).toEqual(["Task 4", "Task 2", "Task 1", "Task 3"]);
+    });
+
+    it("keeps the page being viewed when a step moves, and does not open on the last page", () => {
+      const states = (n: number): Array<"done" | "active" | "pending"> => ["active", ...Array(14).fill("pending")].map((x, i) => (i < n ? "done" : i === n ? "active" : "pending")) as Array<"done" | "active" | "pending">;
+      const view = render(<PlanPanel s={planOf(states(0))} />);
+      fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+      expect(view.container.querySelector(".pager")!.textContent).toContain("Showing 11–15 of 15");
+      view.rerender(<PlanPanel s={planOf(states(1), { 1: 1 })} />);
+      expect(view.container.querySelector(".pager")!.textContent).toContain("Showing 11–15 of 15");
+    });
+
+    it("announces nothing for steps already done in a plan that arrives after mount", () => {
+      const view = render(<PlanPanel s={makeSession({ plan: null })} />);
+      view.rerender(<PlanPanel s={planOf(["done", "done", "active"], { 1: 1, 2: 2 })} />);
+      expect(view.container.querySelector('[aria-live="polite"]')!.textContent).toBe("");
+    });
+
+    it("says once, politely, that a step finished and moved, and keeps the row's identity", () => {
+      const view = render(<PlanPanel s={planOf(["active", "pending"])} />);
+      const live = view.container.querySelector('[aria-live="polite"]')!;
+      expect(live.textContent).toBe("");
+      const row = view.container.querySelector(".step")!;
+      view.rerender(<PlanPanel s={planOf(["done", "active"], { 1: 1 })} />);
+      expect(live.textContent).toBe("Task 1 finished and moved to the end of the list.");
+      expect(view.container.querySelectorAll(".step")[1]).toBe(row);
+    });
   });
 
   it("does not say where the plan was read from under a populated plan", () => {
@@ -627,8 +690,8 @@ describe("inferred current step (#179)", () => {
   it("checklist marks the inferred step as current", () => {
     const { container } = render(<PlanPanel s={withSteps(["done", "pending", "pending"])} />);
     const steps = [...container.querySelectorAll(".step")];
-    expect(steps.map((x) => x.className)).toEqual(["step done", "step pending inferred", "step pending"]);
-    expect(steps[1]!.textContent).toContain("inferred");
+    expect(steps.map((x) => x.className)).toEqual(["step pending inferred", "step pending", "step done"]);
+    expect(steps[0]!.textContent).toContain("inferred");
   });
 });
 
@@ -671,17 +734,17 @@ describe("Plan pager", () => {
     expect(container.querySelector(".meta")!.textContent).toBe("5/23");
   });
 
-  it("opens on the page holding the current step", () => {
+  it("opens on the first page, where the current step is because finished steps are at the end (#454)", () => {
     const { container } = render(<PlanPanel s={makeSession({ plan: planOf(23, 14) })} />);
-    expect(container.querySelector(".step")!.textContent).toContain("Step 11");
-    expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-current", "page");
+    expect(container.querySelector(".step")!.textContent).toContain("Step 15");
+    expect(screen.getByRole("button", { name: "1" })).toHaveAttribute("aria-current", "page");
   });
 
   it("stays on its page when the plan changes, and drops back only when the page is gone", () => {
     const { container, rerender } = render(<PlanPanel s={makeSession({ plan: planOf(23) })} />);
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     rerender(<PlanPanel s={makeSession({ plan: planOf(23, 3) })} />);
-    expect(container.querySelector(".step")!.textContent).toContain("Step 11");
+    expect(container.querySelector(".step")!.textContent).toContain("Step 14");
     rerender(<PlanPanel s={makeSession({ plan: planOf(25) })} />);
     expect(container.querySelector(".step")!.textContent).toContain("Step 11");
     rerender(<PlanPanel s={makeSession({ plan: planOf(8) })} />);
@@ -697,8 +760,12 @@ describe("Plan pager across sessions", () => {
 
   it("opens on the current step's page when the plan arrives after mount", () => {
     const { container, rerender } = render(<PlanPanel s={makeSession({ plan: null })} />);
-    rerender(<PlanPanel s={makeSession({ plan: plan(23, 14) })} />);
+    const blocked = { ...plan(23, -1), steps: plan(23, -1).steps.map((x, i) => ({ ...x, state: (i < 11 ? "blocked" : "pending") as "blocked" | "pending" })) };
+    rerender(<PlanPanel s={makeSession({ plan: blocked })} />);
+    // Eleven blocked steps come first, so the inferred up-next step (Step 12) is the 12th row, on page 2, which opens on Step 11.
     expect(container.querySelector(".step")!.textContent).toContain("Step 11");
+    expect(container.querySelector(".step.inferred")!.textContent).toContain("Step 12");
+    expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-current", "page");
   });
 
   it("resets the page when another session is shown", () => {

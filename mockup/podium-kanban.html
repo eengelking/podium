@@ -397,7 +397,7 @@ addEventListener("resize", measure);
 function render() {
   const data = buildData();
   const withPlan = data.filter(o => o.steps.length && !finished(o));
-  // A session with no plan that waits on its person has a Review card, so it is in a column in both modes and not in the strip (as in the running app).
+  // A session with no plan that waits on its person has a Review card on All only (#443): on Plans it is in no column and not in the strip.
   const asking = data.filter(o => !o.steps.length && o.state === "waiting");
   const without = data.filter(o => (!o.steps.length || finished(o)) && !asking.includes(o));
   const plansOnly = S.view === "plans";
@@ -407,7 +407,7 @@ function render() {
 
   const buckets = Object.fromEntries(cols.map(c => [c[0], []]));
   for (const o of withPlan) o.steps.forEach((s, k) => buckets[colOf(o, s[0])]?.push([o, s, k]));
-  for (const o of asking) buckets.review.push([o, ["active", "Waiting on you: which branch should this start from?", "", ""], "w"]);
+  if (!plansOnly) for (const o of asking) buckets.review.push([o, ["active", "Waiting on you: which branch should this start from?", "", ""], "w"]);
   // The step that changed last comes first; the rest keep plan order.
   for (const k in buckets) buckets[k].sort((a, b) => (b[1][4] || 0) - (a[1][4] || 0));
 
@@ -455,7 +455,7 @@ function render() {
   const blankText = !data.length ? "No sessions are active." : plansOnly
     ? "None of the " + data.length + " active sessions has open steps. Switch to All to list them."
     : "None of the " + data.length + " active sessions has a task list yet. Sessions with no plan are listed below.";
-  const board = withPlan.length || asking.length ? '<div class="board">' + colHtml + '</div>' : '<div class="blank"><b>No plans on the board</b><p>' + blankText + '</p></div>';
+  const board = withPlan.length || (!plansOnly && asking.length) ? '<div class="board">' + colHtml + '</div>' : '<div class="blank"><b>No plans on the board</b><p>' + blankText + '</p></div>';
 
   const topbar = '<header class="top" id="podium-top"' + (S.top ? " hidden" : "") + '><a class="logo" href="#fleet" aria-label="Podium, fleet">' + LOGO + 'Podium</a><span class="pill">Board</span>' +
     '<span class="pill"><i class="dot"></i>4 reporters live</span><span class="sp"></span>' +
@@ -496,7 +496,7 @@ function render() {
     '<div class="centre"><div class="centre-wrap"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="seg" role="group" aria-label="Sessions shown"><button aria-pressed="' + plansOnly + '" data-view="plans">Plans</button><button aria-pressed="' + !plansOnly + '" data-view="all">All</button></span><span class="sp"></span>' +
     '<span class="seg" role="group" aria-label="Layout"><button aria-pressed="' + !S.group + '" data-group="0">Mixed</button><button aria-pressed="' + S.group + '" data-group="1">By orchestrator</button></span>' +
     '<select class="sel" aria-label="Group"><option>All groups</option><option>Platform</option><option>Docs</option></select>' + (S.signedIn ? '<button class="chipf" aria-pressed="' + S.me + '" data-me>Me</button>' : '') + '</div>' + kpis +
-    (withPlan.length || asking.length ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
+    (withPlan.length || (!plansOnly && asking.length) ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
     '<div class="live" role="status" aria-live="polite">' + esc(lastNote ? lastNote[0] + " " + lastNote[1] : "") + '</div></div>';
   measure();
   const b = $(".board"); if (b) b.scrollLeft = keep.board;

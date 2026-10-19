@@ -159,18 +159,37 @@ describe("kanban board", () => {
     expect(screen.getByRole("status", { name: "Board updates" })).toHaveTextContent("Port endpoints moved to Done");
   });
 
-  describe("the Me filter", () => {
+  describe("the My orchestrators | Everyone switch (#451)", () => {
     const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
 
     it("is not offered while nobody is signed in", async () => {
       board(sessions, { enabled: true, signedIn: false, name: null, admin: false });
       expect(screen.getByText("my task")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Me" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "My orchestrators" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Everyone" })).toBeNull();
+      expect(screen.queryByRole("group", { name: "Whose sessions" })).toBeNull();
+    });
+
+    it("shows everyone's sessions by default and names the group for a screen reader", async () => {
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      expect(await screen.findByRole("group", { name: "Whose sessions" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Everyone" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByText("their task")).toBeInTheDocument();
+    });
+
+    it("goes back to everyone when Everyone is pressed", async () => {
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
+      expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Everyone" }));
+      expect(screen.getByText("their task")).toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(false);
     });
 
     it("narrows the board to the signed-in person's sessions, and is remembered", async () => {
       board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.getByText("my task")).toBeInTheDocument();
       expect(screen.queryByText("their task")).toBeNull();
       await waitFor(() => expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(true));
@@ -211,12 +230,21 @@ describe("kanban board", () => {
       expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     });
 
-    it("keeps a no-plan session that waits on its person in Review in both modes", () => {
+    it("shows a no-plan session that waits on its person in Review on All only", () => {
       board([makeSession({ id: "q", name: "asker", status: "waiting", waitReason: "input", plan: null })]);
       expect(within(column("Review")).getByRole("link", { name: /asker/ })).toBeInTheDocument();
       expect(strip()).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Plans" }));
+      expect(screen.queryByRole("link", { name: /asker/ })).toBeNull();
+      expect(screen.getByText("None of the 1 active sessions has open steps. Switch to All to list them.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "All" }));
       expect(within(column("Review")).getByRole("link", { name: /asker/ })).toBeInTheDocument();
+    });
+
+    it("keeps a waiting session that has a plan in Review on Plans", () => {
+      board([planned({ id: "p", name: "planner", status: "waiting", waitReason: "input" }, step("1", "pending"))]);
+      fireEvent.click(screen.getByRole("button", { name: "Plans" }));
+      expect(within(column("Review")).getByRole("link", { name: /planner/ })).toBeInTheDocument();
     });
 
     it("explains an empty board in each mode", () => {
@@ -234,13 +262,13 @@ describe("kanban board", () => {
       expect(screen.getByText("No sessions are active.")).toBeInTheDocument();
     });
 
-    it("states the plans as two whole-fleet tiles that the switch never changes", () => {
+    it("states the plans and the cards as two whole-fleet tiles that the switch never changes", () => {
       render(<FleetView board state={stateFrom({ sessions: fleet(), kpis: makeKpis({ live: 2 }) })} />);
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1of 2 live$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps21 done$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards21 done$/);
       fireEvent.click(screen.getByRole("button", { name: "Plans" }));
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1of 2 live$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps21 done$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards21 done$/);
     });
 
     it("leaves the live caption empty until the server has sent its figures", () => {
@@ -248,7 +276,7 @@ describe("kanban board", () => {
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1$/);
     });
 
-    it("counts every session the page received while Me narrows the cards, and says whole fleet", async () => {
+    it("counts every session the page received while My orchestrators narrows the cards, and says whole fleet", async () => {
       const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending"), step("2", "done"))];
       render(
         <FleetView
@@ -257,27 +285,30 @@ describe("kanban board", () => {
           respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
         />,
       );
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans2whole fleet$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps3whole fleet$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards3whole fleet$/);
     });
   });
   describe("the running counts (#409)", () => {
-    const counts = () => screen.getByRole("group", { name: /^Running now/ });
+    const counts = () => screen.getByRole("group", { name: /^Orchestrators and subagents/ });
     const tile = (label: string) => within(counts()).getByText(label).closest(".kpi") as HTMLElement;
     const withKpis = (kpis: ReturnType<typeof makeKpis>, sessions: SessionView[] = [makeSession()]) => <FleetView board state={stateFrom({ sessions, kpis })} />;
 
     it("shows the server's running figures, the same ones the Fleet page reads", () => {
-      render(withKpis(makeKpis({ live: 8, running: 5, waiting: 1, agentsRunning: 18 })));
-      expect(tile("Orchestrators running")).toHaveTextContent("5");
-      expect(tile("Orchestrators running")).toHaveTextContent("of 8 live, 1 waiting");
-      expect(tile("Subagents running")).toHaveTextContent("18");
-      expect(tile("Subagents running")).toHaveTextContent("forks included");
+      render(withKpis(makeKpis({ live: 8, running: 5, waiting: 1, agentsTotal: 20, agentsRunning: 18, agentsWaiting: 2 })));
+      expect(tile("Orchestrators live")).toHaveTextContent(/^Orchestrators live8forks excluded$/);
+      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running5$/);
+      expect(tile("Orchestrators waiting")).toHaveTextContent(/^Orchestrators waiting1$/);
+      expect(tile("Subagents live")).toHaveTextContent(/^Subagents live20forks included$/);
+      expect(tile("Subagents running")).toHaveTextContent(/^Subagents running18$/);
+      expect(tile("Subagents waiting")).toHaveTextContent(/^Subagents waiting2queued$/);
     });
 
-    it("leaves waiting out of the caption when none wait", () => {
-      render(withKpis(makeKpis({ live: 2, running: 2, waiting: 0 })));
-      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running2of 2 live$/);
+    it("shows the eight tiles in order", () => {
+      render(withKpis(makeKpis()));
+      const labels = [...counts().querySelectorAll(".kpi .k")].map((n) => n.textContent);
+      expect(labels).toEqual(["Orchestrators live", "Orchestrators running", "Orchestrators waiting", "Orchestrators with plans", "Subagents live", "Subagents running", "Subagents waiting", "Total cards"]);
     });
 
     it("changes with the next update and counts nothing it was not told to", () => {
@@ -290,18 +321,19 @@ describe("kanban board", () => {
 
     it("shows a dash for each figure until the server has sent them", () => {
       render(<FleetView board state={{ ...stateFrom(), kpis: null }} />);
-      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running–/);
-      expect(tile("Subagents running")).toHaveTextContent(/^Subagents running–/);
+      for (const label of ["Orchestrators live", "Orchestrators running", "Orchestrators waiting", "Subagents live", "Subagents running", "Subagents waiting"]) {
+        expect(tile(label)).toHaveTextContent(new RegExp(`^${label}–`));
+      }
     });
 
     it("says whole fleet too when the Fleet page's own filters hide sessions from the board", () => {
       render(<Board sessions={[makeSession()]} narrowed kpis={makeKpis({ live: 4, running: 3, agentsRunning: 5 })} me={null} onOpen={() => {}} />);
-      expect(counts()).toHaveAccessibleName("Running now and plans, whole fleet");
+      expect(counts()).toHaveAccessibleName("Orchestrators and subagents, plans and cards, whole fleet");
       expect(tile("Orchestrators running")).toHaveTextContent("3");
       expect(tile("Subagents running")).toHaveTextContent("whole fleet");
     });
 
-    it("stays the whole fleet when the Me filter hides sessions, and says so", async () => {
+    it("stays the whole fleet when My orchestrators hides sessions, and says so", async () => {
       const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
       render(
         <FleetView
@@ -310,8 +342,8 @@ describe("kanban board", () => {
           respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
         />,
       );
-      expect(tile("Subagents running")).toHaveTextContent("forks included");
-      fireEvent.click(await screen.findByRole("button", { name: "Me" }));
+      expect(tile("Subagents live")).toHaveTextContent("forks included");
+      fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.queryByText("their task")).toBeNull();
       expect(tile("Orchestrators running")).toHaveTextContent("2");
       expect(tile("Subagents running")).toHaveTextContent("6");

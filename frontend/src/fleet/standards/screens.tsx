@@ -50,7 +50,7 @@ function wallSessions(): SessionView[] {
 }
 
 function wall(): ReactElement {
-  const kpis = makeKpis({ live: 7, running: 3, waiting: 2, stale: 1, agentsRunning: 2, agentsTotal: 3, planDone: 5, planTotal: 12, costToday: 18.42, blowoutsTotal: 5, sessionsAtLevel2: 1 });
+  const kpis = makeKpis({ live: 7, running: 3, waiting: 2, stale: 1, agentsRunning: 2, agentsWaiting: 1, agentsTotal: 3, planDone: 5, planTotal: 12, costToday: 18.42, blowoutsTotal: 5, sessionsAtLevel2: 1 });
   return <FleetView state={stateFrom({ sessions: wallSessions(), kpis, events: [makeEvent()] })} />;
 }
 

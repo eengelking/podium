@@ -154,3 +154,44 @@ describe("planFigures", () => {
     expect(planFigures(buildBoard([makeSession({ plan: null })]))).toEqual({ orchestrators: 0, steps: 0, done: 0 });
   });
 });
+
+describe("buildBoard with plansOnly (#443)", () => {
+  const cols = (b: ReturnType<typeof buildBoard>) => BOARD_COLUMNS.flatMap((c) => b.columns[c.key]);
+  const planless: [string, Partial<SessionView>][] = [
+    ["no plan", { plan: null }],
+    ["an empty plan", { plan: { title: "t", source: "TaskCreate", steps: [] } }],
+  ];
+
+  for (const status of ["waiting", "running", "stale", "done"] as const) {
+    for (const [label, over] of planless) {
+      it(`keeps a ${status} session with ${label} out of every column`, () => {
+        const s = makeSession({ id: "p", status, waitReason: status === "waiting" ? "input" : null, ...over });
+        const plans = buildBoard([s], true);
+        expect(cols(plans)).toEqual([]);
+        expect(plans.withoutSteps).toEqual([s]);
+      });
+    }
+  }
+
+  it("lists a waiting session with no plan in Review when plansOnly is off", () => {
+    const s = makeSession({ id: "p", status: "waiting", waitReason: "input", plan: null });
+    expect(buildBoard([s]).columns.review.map((c) => c.key)).toEqual(["p:waiting"]);
+    expect(buildBoard([s], false).columns.review).toHaveLength(1);
+  });
+
+  it("keeps a waiting session that has a plan in Review, and fills the other columns, under plansOnly", () => {
+    const pendingOnly = withSteps({ id: "a", status: "waiting", waitReason: "input" }, step("1", "pending"));
+    const mixed = withSteps({ id: "b", status: "waiting", waitReason: "input" }, step("1", "active"), step("2", "blocked"), step("3", "done"));
+    const b = buildBoard([pendingOnly, mixed], true);
+    expect(b.columns.pending.map((c) => c.key)).toEqual(["a:1"]);
+    expect(b.columns.review.map((c) => c.key)).toEqual(["a:waiting", "b:1"]);
+    expect(b.columns.blocked.map((c) => c.key)).toEqual(["b:2"]);
+    expect(b.columns.done.map((c) => c.key)).toEqual(["b:3"]);
+  });
+
+  it("keeps a finished plan off the board in both modes", () => {
+    const s = withSteps({ id: "f", status: "done" }, step("1", "done"));
+    expect(cols(buildBoard([s], true))).toEqual([]);
+    expect(cols(buildBoard([s], false))).toEqual([]);
+  });
+});

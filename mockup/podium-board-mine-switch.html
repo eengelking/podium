@@ -1,0 +1,137 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Board Mine Switch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #451, for approval. On the Board, the "Me" chip that follows the Group dropdown becomes a two-button switch in the
+   Board's own segmented control (kb-seg in the app), so no new component and no new CSS in fleet.css. Colors and fonts come from
+   tokens.css through fleet.css; this file has no :root block. Everything below is the mockup's own demo chrome. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.page { max-width: 1040px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.spec .cap { color: var(--muted); font-size: 12px; }
+.spec .cap b { color: var(--ink); }
+.frame { width: 100%; }
+.frame.narrow { max-width: 400px; }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+.sample-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.sample-kpis div { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.sample-kpis .k { color: var(--muted); font-size: 11px; }
+.sample-kpis .v { font: 600 18px var(--font-mono); }
+.sample-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sample-cards div { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--raised); color: var(--ink2); }
+.sample-cards b { display: block; color: var(--ink); font-weight: 600; }
+.sample-cards .gone { opacity: 0.35; }
+</style>
+
+<div class="demo" role="group" aria-label="Review controls">
+  <span class="grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp"><b>Wording</b>
+    <button type="button" data-wording="a" aria-pressed="false">My orchestrators | All</button>
+    <button type="button" data-wording="b" aria-pressed="false">Mine | Everyone</button>
+    <button type="button" data-wording="c" aria-pressed="true">My orchestrators | Everyone</button>
+  </span>
+  <span class="grp"><b>Viewer</b>
+    <button type="button" data-viewer="in" aria-pressed="true">Signed in</button>
+    <button type="button" data-viewer="out" aria-pressed="false">Not signed in</button>
+  </span>
+</div>
+
+<main class="page podium">
+  <header>
+    <h1>Board: a "mine" switch beside the layout controls</h1>
+    <p>Issue #451. The Board's <b>Me</b> chip works today but is easy to miss: one small chip after the Group dropdown, shown only to a signed-in viewer. This mockup turns it into a two-button switch in the Board's own segmented control, the same shape as Plans | All and Mixed | By orchestrator. Behavior is unchanged: it narrows the cards only, the tiles stay whole fleet, and the choice is kept in <code>podium.board</code>. Try it in both modes, all three wordings, and signed in or out.</p>
+  </header>
+
+  <section class="spec" aria-labelledby="s1">
+    <h2 id="s1">Proposed: wide</h2>
+    <div class="frame" id="wide"></div>
+    <div class="cap"><b>Press "<span class="mine-label">My orchestrators</span>"</b> and the cards below keep only the signed-in person's sessions. The four tiles do not change and read "whole fleet" as they do today with Me.</div>
+    <div class="sample-kpis" aria-label="Tiles, whole fleet"><div><div class="k">Orchestrators running</div><div class="v">3</div></div><div><div class="k">Subagents running</div><div class="v">5</div></div><div><div class="k">Orchestrators with plans</div><div class="v">4</div></div><div><div class="k">Plan steps</div><div class="v">21</div></div></div>
+    <div class="sample-cards" id="cards"></div>
+  </section>
+
+  <section class="spec" aria-labelledby="s2">
+    <h2 id="s2">Proposed: narrow (400 px)</h2>
+    <div class="frame narrow" id="narrow"></div>
+    <div class="cap">The header already wraps (<code>kb-head</code> is <code>flex-wrap: wrap</code>), so the switch drops to the next line with no sideways scroll.</div>
+  </section>
+
+  <section class="spec" aria-labelledby="s3">
+    <h2 id="s3">Today, for comparison</h2>
+    <div class="frame" id="today"></div>
+    <div class="cap">The Me chip after the Group dropdown. A viewer who is not signed in sees neither.</div>
+  </section>
+
+  <section class="decisions" aria-label="Decisions for the maintainer">
+    <div><b>Wording (recommend "My orchestrators | Everyone")</b>Your "My orchestrators | All" reads well, but the Board header already has a Plans | All switch, and two buttons both named All next to each other are hard to tell apart for a screen reader user and for a glance. "Everyone" avoids that. "Mine | Everyone" is shorter if the header gets crowded. Pick one with the Wording buttons above.</div>
+    <div><b>Placement (recommend after the Group dropdown)</b>It takes the Me chip's place at the right end, after Mixed | By orchestrator and All groups, so the three controls that narrow or arrange the cards sit together. The Plans | All switch stays by the title.</div>
+    <div><b>Not signed in (recommend hide, as today)</b>The Fleet page's Me is hidden for a viewer nobody has signed in, and the switch follows it. A disabled switch with a hint would need a place to explain how to sign in, and the Board has none. Say if you would rather show it disabled.</div>
+    <div><b>What is the same</b>Two real buttons with <code>aria-pressed</code>, the group named "Whose sessions" for screen readers, the same focus ring, Tab and Enter or Space. No new component. A remembered choice with nobody signed in falls back to everyone, as the Me chip does.</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var wording = { a: ['My orchestrators', 'All'], b: ['Mine', 'Everyone'], c: ['My orchestrators', 'Everyone'] };
+  var state = { wording: 'c', viewer: 'in', mine: false };
+  var cards = [['api-gateway', 'Add rate limiter', true], ['billing', 'Backfill invoices', false], ['web', 'Fix flaky test', true], ['infra', 'Rotate keys', false], ['search', 'Reindex', true], ['docs', 'Update README', false]];
+
+  function bar(mode) {
+    var w = wording[state.wording];
+    var mine = mode === 'today' ? '' : (state.viewer === 'in'
+      ? '<span class="kb-seg" role="group" aria-label="Whose sessions"><button type="button" data-mine="1" aria-pressed="' + state.mine + '">' + w[0] + '</button><button type="button" data-mine="0" aria-pressed="' + !state.mine + '">' + w[1] + '</button></span>'
+      : '');
+    var chip = mode === 'today' && state.viewer === 'in' ? '<button type="button" class="kb-chip" data-chip="1" aria-pressed="' + state.mine + '">Me</button>' : '';
+    return '<div class="kb-head"><h2>Board</h2>'
+      + '<span class="kb-seg" role="group" aria-label="Sessions shown"><button type="button" aria-pressed="true">Plans</button><button type="button" aria-pressed="false">All</button></span>'
+      + '<span class="spacer"></span>'
+      + '<span class="kb-seg" role="group" aria-label="Layout"><button type="button" aria-pressed="true">Mixed</button><button type="button" aria-pressed="false">By orchestrator</button></span>'
+      + '<select class="kb-sel" aria-label="Group"><option>All groups</option></select>'
+      + mine + chip + '</div>';
+  }
+  function render() {
+    ['wide', 'narrow', 'today'].forEach(function (id) {
+      document.getElementById(id).innerHTML = bar(id === 'today' ? 'today' : 'new');
+    });
+    document.getElementById('cards').innerHTML = cards.map(function (c) {
+      return '<div class="' + (state.mine && !c[2] ? 'gone' : '') + '"' + (state.mine && !c[2] ? ' hidden' : '') + '><b>' + c[0] + '</b>' + c[1] + '</div>';
+    }).join('');
+    document.querySelectorAll('.mine-label').forEach(function (n) { n.textContent = wording[state.wording][0]; });
+  }
+  function press(sel, attr, val) {
+    document.querySelectorAll(sel).forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === val)); });
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('[data-mode]', 'data-mode', b.dataset.mode); }
+    else if (b.dataset.wording) { state.wording = b.dataset.wording; press('[data-wording]', 'data-wording', b.dataset.wording); render(); }
+    else if (b.dataset.viewer) { state.viewer = b.dataset.viewer; press('[data-viewer]', 'data-viewer', b.dataset.viewer); render(); }
+    else if (b.dataset.mine) { state.mine = b.dataset.mine === '1'; render(); var f = document.querySelector('#' + (b.closest('.frame') || {}).id + ' [data-mine="' + b.dataset.mine + '"]'); if (f) f.focus(); }
+    else if (b.dataset.chip) { state.mine = !state.mine; render(); }
+  });
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>

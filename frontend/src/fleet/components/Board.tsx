@@ -83,31 +83,27 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/** Orchestrators and subagents running now, then the plans (#426). The running figures are the ones the server derives for the Fleet page (Kpis.running, Kpis.agentsRunning), so the two pages cannot disagree; the plan figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
+/** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
 export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
-  const waiting = kpis?.waiting ? `, ${kpis.waiting} waiting` : "";
+  const tiles: { label: string; value: number | undefined; cap: string }[] = [
+    { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
+    { label: "Orchestrators running", value: kpis?.running, cap: "" },
+    { label: "Orchestrators waiting", value: kpis?.waiting, cap: "" },
+    { label: "Orchestrators with plans", value: plans.orchestrators, cap: kpis ? `of ${kpis.live} live` : "" },
+    { label: "Subagents live", value: kpis?.agentsTotal, cap: "forks included" },
+    { label: "Subagents running", value: kpis?.agentsRunning, cap: "" },
+    { label: "Subagents waiting", value: kpis?.agentsWaiting, cap: "queued" },
+    { label: "Total cards", value: plans.steps, cap: `${plans.done} done` },
+  ];
   return (
-    <div className="kpis" role="group" aria-label="Running now and plans, whole fleet">
-      <div className="kpi">
-        <div className="k">Orchestrators running</div>
-        <div className="v mono">{kpis?.running ?? "–"}</div>
-        <div className="kpi-cap">{kpis ? `of ${kpis.live} live${waiting}` : ""}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Subagents running</div>
-        <div className="v mono">{kpis?.agentsRunning ?? "–"}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : "forks included"}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Orchestrators with plans</div>
-        <div className="v mono">{plans.orchestrators}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : kpis ? `of ${kpis.live} live` : ""}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Plan steps</div>
-        <div className="v mono">{plans.steps}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : `${plans.done} done`}</div>
-      </div>
+    <div className="kpis" role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
+      {tiles.map((t) => (
+        <div className="kpi" key={t.label}>
+          <div className="k">{t.label}</div>
+          <div className="v mono">{t.value ?? "–"}</div>
+          <div className="kpi-cap">{filtered ? "whole fleet" : t.cap}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -125,7 +121,7 @@ export function Board(props: {
   kpis: Kpis | null;
   /** True when the fleet page already hides sessions (a people filter, detached sessions), so the counts cover more than the cards. */
   narrowed?: boolean;
-  /** Who is signed in, or null: the Me filter is offered only to a signed-in person. */
+  /** Who is signed in, or null: the My orchestrators | Everyone switch is offered only to a signed-in person. */
   me: string | null;
   onOpen: (sessionId: string) => void;
 }) {
@@ -147,7 +143,8 @@ export function Board(props: {
     if (group && groups.includes(group)) list = list.filter((s) => s.ownerGroup === group);
     return list;
   }, [props.sessions, props.me, meOn, group, groups]);
-  const board = useMemo(() => buildBoard(visible), [visible]);
+  const plansOnly = prefs.view === "plans";
+  const board = useMemo(() => buildBoard(visible, plansOnly), [visible, plansOnly]);
   // The plan tiles are whole-fleet: when Me or a group narrows the cards, they are counted over every session the page received.
   const fleetPlans = useMemo(() => planFigures(visible === props.sessions ? board : buildBoard(props.sessions)), [visible, props.sessions, board]);
 
@@ -213,7 +210,6 @@ export function Board(props: {
   });
 
   const total = BOARD_COLUMNS.reduce((n, c) => n + board.columns[c.key].length, 0);
-  const plansOnly = prefs.view === "plans";
   const showStrip = !plansOnly && board.withoutSteps.length > 0;
   const [tab, setTab] = useState<BoardColumn>("active");
   // The strip is pinned over the board (#359), so a focused card scrolls into view clear of it: cards read the strip's height from --kb-strip-h.
@@ -266,9 +262,14 @@ export function Board(props: {
           </select>
         )}
         {props.me && (
-          <button type="button" className="kb-chip" aria-pressed={meOn} onClick={() => setPref({ me: !meOn })}>
-            Me
-          </button>
+          <span className="kb-seg" role="group" aria-label="Whose sessions">
+            <button type="button" aria-pressed={meOn} onClick={() => setPref({ me: true })}>
+              My orchestrators
+            </button>
+            <button type="button" aria-pressed={!meOn} onClick={() => setPref({ me: false })}>
+              Everyone
+            </button>
+          </span>
         )}
       </div>
       <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />

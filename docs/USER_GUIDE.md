@@ -269,11 +269,11 @@ Each card is titled with its orchestrator, shows the work under it, and names th
 card to open its orchestrator. You cannot move a card: the state comes from Claude Code, and Podium only watches.
 
 - **Review** holds an in-progress step while its session waits on you (a question, a plan or a permission prompt). A
-  session that waits on you but has no plan shows as one card there. A Review card says why: the question it asks, or
+  session that waits on you but has no plan shows as one card there while the switch is on All, and not on Plans. A Review card says why: the question it asks, or
   the tool it wants to use.
 - A card that changes column slides across and flashes for a moment.
-- **Mixed** shows every orchestrator's cards together. **By orchestrator** groups them. **Me** (only while you are
-  signed in) shows just your sessions.
+- **Mixed** shows every orchestrator's cards together. **By orchestrator** groups them. **My orchestrators | Everyone** (the switch
+  appears only while you are signed in) shows just your sessions, or everyone's.
 - A column shows 25 cards a page. Use the page buttons at its foot.
 - A session with no task list, or with every step done and finished, is listed in a strip pinned to the bottom of the page,
   above the legend. Click the (i) there to see how to get a plan.

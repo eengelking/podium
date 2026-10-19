@@ -62,6 +62,7 @@ Other docs cite entries by number, so numbers never change.
 | [35](#35-trusting-a-reverse-proxys-client-address-only-when-told-to-305) | Trusting a reverse proxy's client address, only when told to (#305) |
 | [36](#36-a-files-diff-is-source-code-so-only-its-owner-can-open-it-319) | A file's diff is source code, so only its owner can open it (#319) |
 | [37](#37-orchestrators-can-message-each-other-but-only-one-persons-own-347) | Orchestrators can message each other, but only one person's own (#347) |
+| [38](#38-the-plan-list-ends-with-the-done-steps-in-the-order-the-server-saw-them-finish-454) | The Plan list ends with the done steps, in the order the server saw them finish (#454) |
 
 ## 1. Podium only observes
 
@@ -1028,3 +1029,31 @@ issues, and `docs/MESSAGING.md` the setup.
 - A managed organization that allows only managed mods turns the whole reporter off, messaging included.
 - A spend cap and a hop count across chains (A to B to C) are not designed. The round-trip cap per link is the
   only loop guard. The #411 spike did not test chains.
+
+## 38. The Plan list ends with the done steps, in the order the server saw them finish (#454)
+
+**Context.** The Plan tab listed steps in the order the model wrote them and paged them 10 at a time. In a long plan the
+step being worked on and the steps still to do landed on different pages with finished steps between them. A step
+carries no finish time, so "in the order they finished" had to come from somewhere.
+
+**Decision.** The list is ordered in progress, blocked, pending in plan order, then done in finish order (`SPEC.md` 8.1).
+Blocked goes right after in progress, above pending: a blocked step is open work a person may need to act on, so it stays
+on the first page. The server records the finish order. On each report it compares the plan with the stored one and gives a
+step that has newly become done the next number (`doneSeq`, in `plan_json`); a step that stays done keeps its number and a
+reopened step loses it. Steps done in the first plan the server saw have none and come first among the done, in plan order.
+
+**Alternatives.**
+
+- The browser notices a step change state. Rejected: a page opened late, or reloaded, has no order, which is the common
+  case for a long plan.
+- The reporter sends a finish time. Rejected: a protocol change in both copies for something the server can see anyway, and
+  every older reporter would still send plans without it.
+- Sliding the rows when a step moves. Left out: optional in the issue and it adds a motion case for reduced motion.
+
+**Cost.**
+
+- The server keeps a number per done step. It is derived on each report from the stored plan, so nothing new is stored
+  apart from the field.
+- Two steps that finish between two reports get numbers in plan order, not true order. The order is as fine as the
+  reporting interval.
+- A new plan that reuses step ids (TaskCreate numbers from 1) inherits the numbers of ids that were done and still are.

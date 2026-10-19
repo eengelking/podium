@@ -20,6 +20,8 @@ export type {
   OwnerSpend,
   Plan,
   PlanStep,
+  PlanStepView,
+  PlanView,
   RemovedReason,
   SessionStatusView,
   SessionView,

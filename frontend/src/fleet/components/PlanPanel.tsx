@@ -1,5 +1,5 @@
-import { useId, useState, type KeyboardEvent } from "react";
-import { inferredStep, planProgress } from "../logic";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { inferredStep, orderedSteps, planProgress } from "../logic";
 import type { PlanStep, SessionView } from "../types";
 import { PlanBar } from "./Chips";
 import { FilesList } from "./FilesList";
@@ -72,7 +72,8 @@ export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab)
   const inferredId = inferredStep(plan)?.id;
   // Opens on the page holding the current step; after that the page is the viewer's, and only clamped when it no longer exists.
   // The page is settled once per session: a plan that arrives after mount, or another session shown in the same panel, gets its own opening page.
-  const steps = plan?.steps ?? [];
+  // Finished steps sit at the end (#454), so the current step is on the first page unless blocked steps push it down.
+  const steps = useMemo(() => orderedSteps(plan), [plan]);
   const openingPage = () => {
     const cur = steps.findIndex((x) => x.state === "active" || x.id === inferredId);
     return cur < 0 ? 0 : Math.floor(cur / STEPS_PER_PAGE);
@@ -88,6 +89,18 @@ export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab)
   const at = Math.min(page, pages - 1);
   const from = at * STEPS_PER_PAGE;
   const shown = steps.slice(from, from + STEPS_PER_PAGE);
+  // One polite line when steps finish while the panel is open. The rows keep their keys, so focus and the page stay where they were.
+  const [said, setSaid] = useState("");
+  const doneBefore = useRef<{ sid: string; n: number; done: Set<string> } | null>(null);
+  useEffect(() => {
+    const now = steps.filter((x) => x.state === "done");
+    const was = doneBefore.current;
+    doneBefore.current = { sid: s.id, n: steps.length, done: new Set(now.map((x) => x.id)) };
+    // A plan that arrives after mount is a baseline, not news: steps already done in it did not just finish.
+    if (!was || was.sid !== s.id || was.n === 0) return setSaid("");
+    const fresh = now.filter((x) => !was.done.has(x.id));
+    if (fresh.length) setSaid(fresh.length === 1 ? `${fresh[0]!.text} finished and moved to the end of the list.` : `${fresh.length} steps finished and moved to the end of the list.`);
+  }, [steps, s.id]);
   const pick = (t: PlanTab) => {
     setTab(t);
     onTab?.(t);
@@ -142,6 +155,7 @@ export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab)
               ))}
             </ol>
             {pages > 1 && <PageNav label="Plan pages" at={at} pages={pages} from={from} shown={shown.length} total={steps.length} perPage={STEPS_PER_PAGE} onPage={setPage} />}
+            <span className="vh" role="status" aria-live="polite">{said}</span>
           </>
         ) : (
           <div className="empty">No plan reported. Agents were launched ad hoc.</div>

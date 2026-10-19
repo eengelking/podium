@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { familyName, modelVersion, delegateText, waitingOnByRow, ORCHESTRATOR_ROW, agentCounts, sessionCounts, orchestratorCostUsd, sessionAgentSec, agentOrder, agentTokens, branchTotals, sessionTokens, buildTree, currentStep, inferredStep, planComplete, filterSessions, parentOf, planProgress, splitDetached, sortAgents, sortSessions, treeDepth, treeOrder, type SortKey } from "./logic";
+import { familyName, modelVersion, delegateText, waitingOnByRow, ORCHESTRATOR_ROW, agentCounts, sessionCounts, orchestratorCostUsd, sessionAgentSec, agentOrder, agentTokens, branchTotals, sessionTokens, buildTree, currentStep, inferredStep, orderedSteps, planComplete, filterSessions, parentOf, planProgress, splitDetached, sortAgents, sortSessions, treeDepth, treeOrder, type SortKey } from "./logic";
 import { makeAgent, makeSession } from "./fixtures";
 import type { SessionView } from "./types";
 
@@ -372,5 +372,29 @@ describe("inferredStep and planComplete", () => {
     expect(planComplete(plan(step("1", "done"), step("2", "pending")))).toBe(false);
     expect(planComplete(plan())).toBe(false);
     expect(planComplete(null)).toBe(false);
+  });
+});
+
+describe("orderedSteps (#454)", () => {
+  const step = (id: string, state: "pending" | "active" | "done" | "blocked", doneSeq?: number) => ({ id, text: `Step ${id}`, state, activeText: null, ownerAgentId: null, ownerLabel: null, ...(doneSeq === undefined ? {} : { doneSeq }) });
+  const plan = (...steps: ReturnType<typeof step>[]) => ({ title: "P", source: "TaskCreate" as const, steps });
+  const ids = (p: ReturnType<typeof plan> | null) => orderedSteps(p).map((x) => x.id);
+  it("lists active, then blocked, then pending in plan order, then done", () => {
+    expect(ids(plan(step("1", "done", 1), step("2", "pending"), step("3", "blocked"), step("4", "active"), step("5", "pending")))).toEqual(["4", "3", "2", "5", "1"]);
+  });
+  it("lists done steps in the order they finished, oldest first", () => {
+    expect(ids(plan(step("1", "done", 3), step("2", "done", 1), step("3", "active"), step("4", "done", 2)))).toEqual(["3", "2", "4", "1"]);
+  });
+  it("puts done steps with no known finish order first among the done, in plan order", () => {
+    expect(ids(plan(step("1", "done", 1), step("2", "done"), step("3", "done"), step("4", "pending")))).toEqual(["4", "2", "3", "1"]);
+  });
+  it("returns a reopened step to its place among the open steps", () => {
+    expect(ids(plan(step("1", "pending"), step("2", "done", 1), step("3", "pending")))).toEqual(["1", "3", "2"]);
+  });
+  it("is empty without a plan, and leaves the plan itself untouched", () => {
+    expect(ids(null)).toEqual([]);
+    const p = plan(step("1", "done", 1), step("2", "active"));
+    orderedSteps(p);
+    expect(p.steps.map((x) => x.id)).toEqual(["1", "2"]);
   });
 });

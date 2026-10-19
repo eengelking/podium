@@ -92,6 +92,7 @@ export const APP_SCREENS: Record<string, Screen> = {
   ]),
   "history-pages": {
     make: () => {
+      vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
       vi.stubGlobal("fetch", vi.fn(async (url: string) => {
         if (url.includes("/history?day=")) return new Response(JSON.stringify({ day: "2026-10-10", sessions: [row], total: 120, page: 1, pageSize: 50 }), { status: 200 });
         return new Response("{}", { status: 404 });
@@ -104,6 +105,7 @@ export const APP_SCREENS: Record<string, Screen> = {
   },
   "history-day": {
     make: () => {
+      vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
       vi.stubGlobal("fetch", vi.fn(async (url: string) => {
         if (url.includes("/history?day=")) return new Response(JSON.stringify({ day: "2026-10-10", sessions: [row, { ...row, id: "h2", name: "docs-rewrite", clearedFrom: null, clearedInto: null, modelFamily: "sonnet", model: "claude-sonnet-5-5" }], total: 2, page: 1, pageSize: 50 }), { status: 200 });
         return new Response("{}", { status: 404 });

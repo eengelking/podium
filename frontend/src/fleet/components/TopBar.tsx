@@ -64,9 +64,12 @@ export function TopBar(props: {
           Board
         </a>
       )}
-      <a className="btn" href="#/history">
-        History
-      </a>
+      {/* History's own pill names it, so the button is left off there (#452). */}
+      {props.page !== "History" && (
+        <a className="btn" href="#/history">
+          History
+        </a>
+      )}
       {/* Traffic (#417) shows only while orchestrator messaging is on. Its map and counts are open to every reader. */}
       {props.traffic && (
         <a className="btn" href="#/traffic" aria-current={props.traffic.current ? "page" : undefined}>

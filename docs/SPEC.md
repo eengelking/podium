@@ -2363,7 +2363,7 @@ interface SessionView {
   costUsd: number | null; tokensTotal: number;
   blowouts: { orchestrator: number; agents: number; total: number; level: 0 | 1 | 2; loopsHit: number; loopsTotal: number;
               log: { t: number; agentId: string | null; kind: string; tokensBefore: number | null; tokensAfter: number | null }[] };
-  plan: Plan | null;
+  plan: Plan | null;                    // each step also carries doneSeq?: number, added by the server (#454): 1 for the first step seen to finish, then 2, ...; absent when not done or done when first seen
   loop: LoopReport | null;              // the main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a settings-hooks session
   files: FilesReport | null;            // the files the session changed; null from a reporter older than 0.6.0 and for a settings-hooks session
   attached: boolean | null;             // whether any client is attached; null from a reporter older than 0.7.0 (counts as attached)
@@ -2994,7 +2994,10 @@ pages, responding, the orchestrator page and the right panel.
   Board, History and Admin buttons. Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
-  Board on the board.
+  Board on the board, no History in History.
+- History draws this same top bar (#452), so its buttons, connection pill and Sign in match the other pages. It has
+  no Hide top bar control or wall mode button, because it has no wall and its bar is one line; the `\` shortcut
+  does nothing there. The My reporters link shows while orchestrator messaging is on and a person is signed in.
 - A pill names the page. The page supplies it, not the top bar: "Fleet" on the wall, "Board" on the board
   (#346), "Orchestrator" on an orchestrator's page (#225), "History" in History, "Admin" in Admin.
 - A connection pill: "N reporters live", or "1 reporter live". There is no synced time (#178). It reads red
@@ -3080,7 +3083,7 @@ activity panel and legend as the wall, with the board in the middle.
   of its state (`pending`, `active`, `blocked`, `done`).
 - Review holds an in-progress step while its session waits on its person (`status` waiting, and not on
   background work). A session that waits on its person with no step in progress (a session with no plan, say)
-  gets one card of its own there that opens its page.
+  gets one card of its own there that opens its page, on All only (#443).
 - A Review card says why the session waits, in the words of its card on the wall: "Waiting for your input" or
   "Waiting for your approval" (or "Waiting on you" when the kind is not known). It adds the question it asks
   (the first `question` of an AskUserQuestion note), the tool it wants to use ("Tool: Bash"), or the short
@@ -3124,8 +3127,8 @@ activity panel and legend as the wall, with the board in the middle.
 - **Plans | All (#426).** A two-state switch right after the Board title, the Board's segmented control
   (`kb-seg`, the one that holds Mixed | By orchestrator), named "Sessions shown". **All** (default) is the page
   above. **Plans** shows only the columns: the strip is not on the page, so no session without a plan is listed.
-  The switch changes nothing else: the tiles, the left list and the Me, Group and layout controls work the same
-  in both modes. A no-plan session waiting on its person has a Review card, so it shows in both modes. The
+  The switch changes nothing else: the tiles, the left list and the My orchestrators, Group and layout controls work the same
+  in both modes. A no-plan session waiting on its person has a Review card on All only (#443): on Plans every column lists only sessions that have a plan, so a session with no plan or an empty one is in none of them. The
   empty board says "None of the N active sessions has open steps. Switch to All to list them." in Plans and the
   wording above in All. The choice is kept in `podium.board` (`view`: `plans` or `all`).
 
@@ -3135,34 +3138,40 @@ activity panel and legend as the wall, with the board in the middle.
   buttons, "25 per page" when there is one page) at the bottom of the column, and scrolls inside itself.
 - Mixed (default) shows every orchestrator's cards in each column with the orchestrator on the card. By
   orchestrator puts a lane label before each orchestrator's cards and drops it from the card.
-- The choice and the Me filter are remembered in `localStorage` under `podium.board`.
+- The choice and the My orchestrators | Everyone switch are remembered in `localStorage` under `podium.board`.
 - A Group dropdown appears once any session has a group.
-- **Me** appears only while someone is signed in (see People view below) and narrows the board to that person's
-  sessions.
+- **My orchestrators | Everyone (#451)** is a two-state switch in the same segmented control (`kb-seg`), named
+  "Whose sessions", after the Group dropdown. **Everyone** (default) shows every session. **My orchestrators** narrows
+  the board to the signed-in person's sessions. It appears only while someone is signed in (see People view below);
+  with nobody signed in it is not on the page, and a remembered choice falls back to Everyone.
 - Each column is at least 210 px wide, so a narrower board scrolls sideways. At 640 px or less it becomes one
   column at a time behind a tab row that keeps the counts.
 
-**Running counts (#409)**
-- Two tiles under the Board header, with the Fleet page's KPI tile styling: **Orchestrators running** and
-  **Subagents running** (two more, the plan tiles, follow below). They show `Kpis.running` and `Kpis.agentsRunning`, the figures the server derives for
-  the Fleet page's KPI strip, so the two pages cannot disagree. The board counts nothing itself; nothing new is sent
-  or stored. Each reads "–" until the first update.
+**Running counts (#409, #426, #450)**
+- Eight tiles under the Board header, with the Fleet page's KPI tile styling, in this order: **Orchestrators live**
+  (`Kpis.live`), **Orchestrators running** (`Kpis.running`), **Orchestrators waiting** (`Kpis.waiting`),
+  **Orchestrators with plans**, **Subagents live** (`Kpis.agentsTotal`), **Subagents running** (`Kpis.agentsRunning`),
+  **Subagents waiting** (`Kpis.agentsWaiting`) and **Total cards**. The server derives the `Kpis` figures for the Fleet
+  page's KPI strip, so the two pages cannot disagree. The board counts nothing of those itself; each reads "–"
+  until the first update.
 - Running means: an orchestrator whose status is running, and a subagent whose status is running (forks
-  included). Not counted: an orchestrator waiting on its person, idle on background work, stale or ended;
-  a session that ends takes its subagents out of the count.
-- The orchestrator tile's caption reads "of N live" (`Kpis.live`) and, when any wait on their person, ", M
-  waiting" (`Kpis.waiting`). The subagent tile's caption reads "forks included".
-- The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and Me change
-  the cards, never the counts. The tile group is named "Running now and plans, whole fleet". While Group, Me or
-  the Fleet page's own filters (People, hidden detached sessions) narrow the board, the subagent caption reads
-  "whole fleet".
-- **Plan tiles (#426).** Two more tiles in the same row: **Orchestrators with plans** (sessions that have a plan
-  with steps on the board; a finished plan and a no-plan session waiting on its person do not count), captioned
-  "of N live" (`Kpis.live`), and **Plan steps** (every step in those plans, done included), captioned "N done".
-  They are worked out from the sessions the page received, so nothing new is sent or stored, and Me and Group do
-  not change them: under a filter both captions read "whole fleet". Plans | All does not change them either.
-- The tiles update with the rest of the console and never move the columns below them. At 640 px or less they
-  sit side by side.
+  included). Waiting for an orchestrator is as the Fleet page counts it (waiting on its person, not idle on background
+  work). Waiting for a subagent means its status is queued (not started yet); an agent has no other waiting status.
+  Not counted as running: an orchestrator waiting, idle on background work, stale or ended; a session that
+  ends takes its subagents out of the count.
+- Captions: Orchestrators live "forks excluded", Subagents live "forks included", Subagents waiting "queued",
+  Orchestrators with plans "of N live" (`Kpis.live`), Total cards "N done". The running and waiting tiles of
+  orchestrators have no caption.
+- The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and My orchestrators change
+  the cards, never the counts. The tile group is named "Orchestrators and subagents, plans and cards, whole fleet".
+  While Group, My orchestrators or the Fleet page's own filters (People, hidden detached sessions) narrow the board,
+  every caption reads "whole fleet".
+- **Plan figures (#426).** **Orchestrators with plans** counts sessions that have a plan with steps on the board; a
+  finished plan and a no-plan session waiting on its person do not count. **Total cards** is every step in those plans,
+  done included, and no Review card for a session without a plan. They are worked out from the sessions the page
+  received, so nothing new is sent or stored, and neither My orchestrators, Group nor Plans | All changes them.
+- The tiles update with the rest of the console and never move the columns below them. They sit four across
+  in two rows, and two across at 640 px or less.
 
 **Panels**
 - The board keeps its own collapsed flags under `podium.collapsed.board` and opens with the left and right
@@ -3852,8 +3861,17 @@ Two columns: the plan section and the agent tree.
 selected first and the choice is not saved). While Files is selected the left column is 400 px wide instead of
 300.
 
-- **Plan** is the checklist (done, active, blocked, pending, with owner label), under a progress bar that a
+- **Plan** is the checklist (active, blocked, pending, done, with owner label), under a progress bar that a
   hairline separates from the first step (#200).
+  - **Order (#454).** In progress first, then blocked, then pending in plan order, then done in the order they
+    finished, oldest first. A step that finishes moves to the end of the done steps; one the model reopens
+    goes back among the open steps in plan order. Open work stays on the first page. Done steps whose finish
+    the server never saw (a plan already part done when it first arrived) come first among the done, in plan
+    order. The count, the bar, the inferred step and the Board keep plan order; only this list is reordered.
+    The server numbers the finishes (`doneSeq` on each step of `session.plan`, never sent by a reporter, [7.4](#74-view-types)), so a reload keeps the order. A step
+    that moves keeps its row and the viewer's page, and the list says once, politely, to assistive
+    technology: "<step> finished and moved to the end of the list." (several at once: "N steps finished and
+    moved to the end of the list."). Rows do not slide, so reduced motion needs no special case.
   - Each state has its own mark, so shape carries the state as well as color: a green circle with a check for
     done, a ring with a filled dot for in progress, a ring with a slash for blocked, an empty ring for not
     started.

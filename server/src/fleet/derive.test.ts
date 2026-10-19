@@ -282,6 +282,18 @@ describe('agents launched by other agents (#101)', () => {
     expect(k).toMatchObject({ agentsRunning: 4, agentsTotal: 6 });
   });
 
+  it('counts the agents that are queued as waiting, and no other status (#450)', () => {
+    const now = 1_791_648_100_000;
+    const f = new FleetDb(openDb(':memory:'));
+    const r = nestedReport();
+    r.agents = r.agents.map((a) => (a.id === 'c' || a.id === 'g' ? { ...a, status: 'queued' as const, endedAt: null } : a));
+    ingestReport(f, r, now - 1000);
+    const id = r.session.id;
+    const v = sessionView({ row: f.getSession(id)!, agents: f.getAgents(id), blowouts: f.getBlowouts(id), samples: f.samplesSince(id, 0), heard: true }, now, CFG);
+    const k = computeKpis({ views: [v], costToday: f.costSince(startOfDay(now)), tokensPerSecond: f.fleetTokensPerSecond(0), costPerMinute: f.fleetCostPerMinute(0) }, now);
+    expect(k).toMatchObject({ agentsWaiting: 2, agentsRunning: 2, agentsTotal: 6 });
+  });
+
   it('keeps a finished nested agent the engine no longer lists, and aborts the running ones when the session ends', () => {
     const now = 1_791_648_100_000;
     const f = new FleetDb(openDb(':memory:'));
