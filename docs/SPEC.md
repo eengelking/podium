@@ -3643,7 +3643,15 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
     outdated reporter is flagged whether or not it has a live session.
   - **Defaults**: Trust my own reporters (a switch), When an orchestrator asks for access (Ask me, Allow,
-    Decline), A new right to send starts as (With approval, Without approval).
+    Decline), A new right to send starts as (With approval, Without approval), and the owner's stricter limits
+    (#436, [7.7](#orchestrator-messaging-347)): round trips, messages per minute and longest message, one
+    `PeerLimits` row each.
+    - A box shows the limit that applies, and its most is the Admin's value. A line says whose value it is.
+    - **Use the Admin's limit**, or typing exactly the Admin's value, sends `null`.
+    - A value above the Admin's, below 1, not a whole number, or an empty box is refused in its row and nothing is
+      saved.
+    - When the Admin later goes below the owner's value, the owner's is kept and the row says the Admin's applies.
+    - It saves through `PUT /api/fleet/respond/peers/defaults`.
   - **Who can message whom**, with a **Grid | Board** switch that the browser remembers:
     - Grid: rows send, columns receive, and every cell is a select labelled "A to B". The diagonal is between
       orchestrators on the same machine. A cell with messaging off says why.
@@ -3670,7 +3678,6 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   … Nothing changed. Try again." and takes back only that change; a newer change still saving stays shown.
 - The page draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]`, `w` and Esc do nothing
   there; `\` still hides and shows the top bar.
-- The owner's stricter limits ([7.7](#orchestrator-messaging-347)) are not on the page yet; the server holds them.
 
 #### Traffic page (#347, `mockup/podium-traffic.html`)
 

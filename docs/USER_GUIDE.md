@@ -881,6 +881,19 @@ flagged:
 - The **Ignore rules** section after the table shows every rule (a key, an address or a version, with `*` for "anything",
   as in `10.88.*` or `*-sim`). **Remove rule** undoes one.
 
+**Messaging.** While **Orchestrator messaging** is on, a reporter's details add its **System** and **Messaging** (On,
+Paused, Off on the machine, Reporter can't message: update it, or Cannot take part), and a **Messaging** section below
+shows the owner's reporters with the same **Grid | Board** as [My reporters](#my-reporters).
+
+- An Admin never decides for the owner. A change you make there is sent to the owner as a proposal, shows as
+  Proposed, waiting for them, and applies only once they accept it, on My reporters or in a session on the machine. You
+  can propose Can see or either Can send; taking a right away is the owner's choice.
+- **Pause all links** in the details' header pauses every link of that reporter at once, with no answer needed, and
+  **Resume all links** undoes it.
+- While the owner has **Trust my own reporters** on, the choices are locked and a band says so.
+- A reporter on the admin secret, with no owner, with messaging off on its machine, or too old to message says why
+  and offers no choices.
+
 A source address and a machine name are personal data, so only Admin shows them.
 
 If one machine shows several rows, or a changed login does not reach a running session, see
@@ -909,9 +922,24 @@ These settings apply to every browser and stay after a restart.
   that asked and keeps no copy. The mod hides what looks like a secret (tokens, passwords, keys, credentials in URLs) as `[redacted]` before
   the diff leaves the machine, and never sends `.env` files, keys or credentials files at all. Hiding is best
   effort, not a guarantee. Off, the Files rows show their counts and no link.
-- **Orchestrator messaging** (`peer-messaging`) is off by default. It will let a person's orchestrators message each
-  other, only between that person's own machines. The server side is in place, but podium-reporter and the pages that
-  use it come in a later release, so turning it on changes nothing you can see yet.
+- **Orchestrator messaging** (`peer-messaging`) is off by default. It lets a person's orchestrators message each
+  other, only between that person's own machines, once each machine's podium-reporter has its `peers` option on and the
+  owner has given the pair a right on [My reporters](#my-reporters). It needs authentication on. Turned on, it adds an
+  **Orchestrator messaging** section here, a Messaging section on each reporter, [My reporters](#my-reporters) and
+  [Traffic](#traffic).
+
+**Orchestrator messaging**, shown while that flag is on, sets the limits on every link. An owner can make them stricter
+on their own links in My reporters, never looser.
+
+| Setting | Default | Range | What it does |
+|---|---|---|---|
+| Round trips before a person approves | 10 | 1 to 100 | After this many exchanges in one conversation, the next message waits for the owner to approve it |
+| Messages per minute on a link | 6 | 1 to 60 | More than this is refused, and the sender is told to wait |
+| Longest message, in characters | 20,000 | 1 to 20,000 | A longer message is refused, never cut |
+| Days kept | 30 | 1 to 365 | How long a conversation is kept after its last message |
+
+A value is saved when you leave its box or press Enter. One out of range is refused in its row: the error says nothing
+was saved and which value still applies.
 
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
 switch off for everyone. After you close one, Podium says so and links to this page.

@@ -69,7 +69,7 @@ If you think you have found something like this, please report it rather than op
 ## Orchestrator messaging
 
 Podium can carry messages between one person's own orchestrators (#347): the server since #412, the mod's tools since
-#414 and the owner's My reporters page since #415. The Admin's pages and Traffic come in later releases. It is off until the Admin turns on Orchestrator messaging and the person turns on the
+#414, the owner's My reporters page since #415, the Admin's pages since #416 and Traffic since #417. It is off until the Admin turns on Orchestrator messaging and the person turns on the
 reporter's `peers` option on each machine and gives the pair a right. What it exposes:
 
 | Topic | How it works |
