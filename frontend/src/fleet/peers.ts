@@ -47,7 +47,8 @@ export interface PeerLimitsView {
   maxChars: number;
 }
 
-export type PeerRequestView = PeerRequest & { messageId: string | null };
+/** A request as the owner's read lists it: the reporters by machine for the words, and by key to find their Grid cell. */
+export type PeerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null };
 
 /** My reporters in one read. */
 export interface PeersRead {
@@ -103,10 +104,7 @@ export function rightsModel(d: Pick<PeersRead, "reporters" | "rights" | "default
   const stored = new Map(d.rights.map((r) => [pairKey(r.from, r.to), r]));
   const proposals = new Map<string, PeerLevel>();
   for (const q of d.requests) {
-    if (q.kind !== "proposal" || !q.level) continue;
-    const from = keyOfMachine(d.reporters, q.from.machine);
-    const to = keyOfMachine(d.reporters, q.to.machine);
-    if (from && to) proposals.set(pairKey(from, to), q.level);
+    if (q.kind === "proposal" && q.level) proposals.set(pairKey(q.fromKey, q.toKey), q.level);
   }
   const off = (a: string, b: string): string | null => {
     const ra = byKey.get(a);
@@ -124,12 +122,6 @@ export function rightsModel(d: Pick<PeersRead, "reporters" | "rights" | "default
     paused: (a, b) => stored.get(pairKey(a, b))?.paused ?? false,
     proposed: (a, b) => proposals.get(pairKey(a, b)) ?? null,
   };
-}
-
-/** A request names reporters by machine; the key is found only when exactly one of the person's reporters has that name. */
-export function keyOfMachine(reporters: readonly Pick<PeerReporter, "key" | "machine">[], machine: string): string | null {
-  const found = reporters.filter((r) => r.machine === machine);
-  return found.length === 1 ? found[0]!.key : null;
 }
 
 /**

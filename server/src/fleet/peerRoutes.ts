@@ -314,7 +314,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
       rights: fleet.peers.rights.rightsOf(me.name),
       defaults: fleet.peers.rights.defaults(me.name),
       limits: { server, effective: fleet.peers.rights.limits(me.name, server) },
-      requests: fleet.peers.rights.openRequests(me.name).map((r) => ({ ...fleet.peers.requestView(r), messageId: r.messageId })),
+      requests: fleet.peers.rights.openRequests(me.name).map((r) => fleet.peers.ownerRequestView(r)),
     });
   });
 

@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings, type PeerLimits } from './peerSettings.js';
-import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
+import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from './protocol.js';
 
 /** A level in the words My reporters and the terminal use. */
@@ -97,6 +97,11 @@ export class PeerService {
       reason: r.reason,
       text: m?.text ?? null,
     };
+  }
+
+  /** A request as the owner's read lists it: `requestView`, plus both reporters by key and the message it is about. */
+  ownerRequestView(r: PeerRequestRow): OwnerRequestView {
+    return { ...this.requestView(r), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId };
   }
 
   serverLimits(): PeerLimits {
