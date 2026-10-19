@@ -7,7 +7,8 @@ export function valuesOf(css: string, prop: string): Array<[string, number]> {
   const counts = new Map<string, number>();
   const re = new RegExp(`(?<![\\w-])${prop}\\s*:\\s*([^;}]+)`, "g");
   for (const m of stripComments(css).matchAll(re)) {
-    const v = m[1].trim().replaceAll(/\s+/g, " ").replace(/\s*!important$/, "");
+    const collapsed = m[1].trim().replaceAll(/\s+/g, " ");
+    const v = collapsed.endsWith("!important") ? collapsed.slice(0, -"!important".length).trimEnd() : collapsed;
     if (!v) continue;
     counts.set(v, (counts.get(v) ?? 0) + 1);
   }

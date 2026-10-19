@@ -27,6 +27,12 @@ describe("scale readers on hostile input", () => {
     fast(() => valuesOf("width: ".repeat(30_000), "width"));
   });
 
+  it("valuesOf drops a trailing !important with any space before it, and keeps one inside the value (#487)", () => {
+    expect(valuesOf(`.a { width: 1px   !important; } .b { width:2px!important } .c { height: ${" ".repeat(100_000)}!important; }`, "width")).toEqual([["1px", 1], ["2px", 1]]);
+    expect(valuesOf(".a { width: 3px !important 4px; }", "width")).toEqual([["3px !important 4px", 1]]);
+    expect(valuesOf(".a { width: !important; }", "width")).toEqual([]);
+  });
+
   it("durations finishes on a long run of digits", () => fast(() => durations(`.a { transition: ${"1".repeat(200_000)}x; }`)));
 
   it("durations reads 1s, 0.5s, .25s and 200ms", () => {

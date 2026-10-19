@@ -195,6 +195,16 @@ describe("kanban board", () => {
       await waitFor(() => expect(JSON.parse(localStorage.getItem("podium.board")!).me).toBe(true));
     });
   });
+  it("lists the groups alphabetically whatever their case (#487)", () => {
+    board([
+      planned({ id: "a", owner: "Ed E.", ownerGroup: "Zeta" }, step("1", "pending")),
+      planned({ id: "b", owner: "Priya N.", ownerGroup: "alpha" }, step("1", "pending")),
+      planned({ id: "c", owner: "Dana K.", ownerGroup: "Beta" }, step("1", "pending")),
+    ]);
+    const opts = within(screen.getByRole("combobox", { name: "Group" })).getAllByRole("option");
+    expect(opts.map((o) => o.textContent)).toEqual(["All groups", "alpha", "Beta", "Zeta"]);
+  });
+
   describe("the Plans | All switch (#426)", () => {
     const strip = () => screen.queryByRole("region", { name: "Sessions with no open steps" });
     const fleet = () => [planned({ id: "a", name: "alpha" }, step("1", "pending"), step("2", "done")), makeSession({ id: "n", name: "no-tasks", plan: null })];

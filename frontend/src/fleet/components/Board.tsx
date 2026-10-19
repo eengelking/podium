@@ -135,7 +135,7 @@ export function Board(props: {
       return next;
     });
 
-  const groups = useMemo(() => (peopleActive(props.sessions) ? [...new Set(props.sessions.map((s) => s.ownerGroup).filter((g): g is string => !!g))].sort() : []), [props.sessions]);
+  const groups = useMemo(() => (peopleActive(props.sessions) ? [...new Set(props.sessions.map((s) => s.ownerGroup).filter((g): g is string => !!g))].sort((a, b) => a.localeCompare(b)) : []), [props.sessions]);
   const meOn = prefs.me && !!props.me;
   const visible = useMemo(() => {
     let list = props.sessions;
