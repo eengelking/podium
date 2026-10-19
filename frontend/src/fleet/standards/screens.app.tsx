@@ -85,6 +85,12 @@ export const APP_SCREENS: Record<string, Screen> = {
     makeSession({ id: "s2", name: "docs-rewrite", owner: "Priya", ownerGroup: "Data", status: "waiting", waitReason: "input" }),
     makeSession({ id: "s3", name: "scratch", owner: null }),
   ]),
+  "app-card-machine-title": app(
+    [makeSession({ id: "s1", name: "api-refactor", machine: { id: "m1", name: "studio-m2" } as never })],
+    undefined,
+    DEFAULT_FEATURES,
+    { ...DEFAULT_WALL, cardTitleMachine: true },
+  ),
   "app-board": app([
     planned({ id: "s1", name: "api-refactor" }, step("1", "done"), step("2", "active", "Port endpoints", { activeText: "Porting" }), step("3", "blocked"), step("4", "pending")),
     planned({ id: "s2", name: "docs-rewrite", status: "waiting", waitReason: "input" }, step("1", "pending")),

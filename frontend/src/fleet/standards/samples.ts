@@ -96,6 +96,7 @@ export const SAMPLES: Sample[] = [
       { label: "Idle on background work", screen: "app-wall-bg", selector: card("s7") },
       { label: "Delegating to an agent", screen: "app-wall-deleg", selector: card("s3") },
       { label: "No effort reported", screen: "app-effort-none", selector: card("s1") },
+      { label: "Titled with the machine (Admin > Settings > The wall)", screen: "app-card-machine-title", selector: card("s1") },
     ]),
   },
   {
