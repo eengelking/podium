@@ -958,7 +958,8 @@ live session and owner, so it could carry that text. But this is a new kind of t
 becomes input to another. #347 made the policy question the first step, since it could end the idea.
 
 **Decision.** Podium carries messages between one person's own orchestrators, on any of their machines and any
-OS (`SPEC.md` 1, 5.3, 5.9, 7.7 and 8.1). It is not built yet; #347 records the design and the follow-up issues.
+OS (`SPEC.md` 1, 5.3, 5.9, 7.7 and 8.1). The server (#412), the mod (#414) and My reporters (#415) are built; the
+Admin's pages and Traffic are not yet. #347 records the design and the follow-up issues.
 
 - Only between reporters with the same owner. The server refuses a link between two owners.
 - Podium carries the messages itself, through the reporter and the server, in the direction reporting already

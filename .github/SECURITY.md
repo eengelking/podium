@@ -68,13 +68,14 @@ If you think you have found something like this, please report it rather than op
 
 ## Orchestrator messaging
 
-Since #412 the server can carry messages between one person's own orchestrators (#347). The mod's side and the pages
-come in later releases. It is off until the Admin turns on Orchestrator messaging and the person turns on the
+Podium can carry messages between one person's own orchestrators (#347): the server since #412, the mod's tools since
+#414 and the owner's My reporters page since #415. The Admin's pages and Traffic come in later releases. It is off until the Admin turns on Orchestrator messaging and the person turns on the
 reporter's `peers` option on each machine and gives the pair a right. What it exposes:
 
 | Topic | How it works |
 |---|---|
 | **Who** | Only between reporters with the same owner. The server refuses a right or a message between two people, and any reporter on the admin secret, whatever the settings say. An Admin can propose a right, which applies only when the owner accepts it; an Admin's pause or removal applies at once. |
+| **In the session** | Only the orchestrator can send; the mod refuses any tool call from a subagent. A received message always starts with Podium's line saying it is another agent's text, never the person's, and it never answers a question or permission prompt, runs a command, or changes a mode or permission rule. A message waiting for the owner's approval, and an orchestrator's reason for asking for access, are shown only to the person (a toast), never to the model. |
 | **Who a message is from** | The person's token and the reporting session that send it, never a name in the message. A `to` is looked up only among that person's own live orchestrators, so another person's orchestrator cannot be named, or found by guessing. |
 | **What it lets a token do** | Anyone holding a person's token can send text into that person's linked orchestrators, within the rights and limits that person set. The text becomes a new turn in the receiving session, marked as another agent's text. Its permission prompts still ask, but what an auto or accept-edits mode allows is not a prompt (DECISIONS 37). |
 | **What is kept** | The text of each message is stored on the server, with its sender, receiver and delivery state, until 30 days after the last message on its link (the Admin can set 1 to 365 days), and deleted with its sessions. Only its owner and an Admin can read it. Everyone else can see that two orchestrators talk, and how much. The mod replaces anything that looks like a secret on the sending machine; that is best effort. |

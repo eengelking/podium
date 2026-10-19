@@ -441,8 +441,10 @@ A container query on the modal (`fleet.css`) shows the one that fits. Its loadin
 ### Orchestrator messaging
 
 Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `peerMessages.ts`, `peers.ts`,
-`peerRoutes.ts`; `scripts/podium-peers-demo.mjs`. Issue #412 builds the server half of #347; the rules are in SPEC 7.7
-and the reasoning in DECISIONS 37. The mod (#414) and the pages (#415, #416, #417) are not built yet.
+`peerRoutes.ts`; `scripts/podium-peers-demo.mjs`; the mod's `hooks/peers.ts` and the messaging block in
+`hooks/register.ts`; the console's `MyReporters.tsx`, `useMyPeers.ts`, `peers.ts` and `components/PeerRights.tsx`.
+Issue #412 builds the server half of #347, #414 the mod and #415 My reporters; the rules are in SPEC 5.3, 7.7 and
+8.1, and the reasoning in DECISIONS 37. The Admin's pages (#416) and Traffic (#417) are not built yet.
 
 **Parts.** `peerTypes.ts` is the contract: the words (reporter, link, conversation), the rows and the two store
 interfaces. `PeerRights` keeps the rights between reporters, each owner's defaults and stricter limits, and the
@@ -480,9 +482,28 @@ Remove link names two machines), and round trips are counted per conversation be
 Traffic mockup shows them per line. Notices to a sender ride the same reply list as messages (`kind: "notice"`), so the
 mod has one list, one result route and one dedupe. SPEC 7.7 records both.
 
+**The mod (#414).** `hooks/peers.ts` is pure: the tools' words, the frame a peer message is submitted under, the
+request lines and toasts, and short ids. The messaging block in `register.ts` is kept apart from responding: peer
+deliveries and requests have their own `Transport` fields (`peers`, `peerDeliveries`, `peerRequests`), and a message
+only ever becomes a framed `$.prompt.submit`. Results share responding's outbox and `acted` dedupe but post to the
+peers result route. A tool call waits on a `PeerCall` queue that `flush` drains (`sendPeerCalls`), so the call is
+made by the timer with the report's credential and backoff. `redactText` in `diffRedact.ts` runs the diff redactor
+over free text. The OS is parsed in `machine.ts` (`osFromSwVers`, `osFromOsRelease`, `osFromVer`, `cleanOs`).
+
+**My reporters (#415).** The page is a flag on `FleetApp`, like the Board, and replaces the rail, middle and Activity
+panel under the console's top bar. `useMyPeers` lives in `FleetViewBody`, so the top bar's count and the page share
+one read. A change is optimistic, with a generation counter so an older read cannot undo a newer change. `peersApi`
+sits beside `respondApi`, on the same router and header, and `RespondProvider` also asks `/me` while
+`peer-messaging` is on. The rights pieces (the access level, system, proposed and paused tags, the Grid | Board
+switch, the Grid, the Board, the can-B-answer prompt, quoted text) are in `components/PeerRights.tsx` for the Admin's
+Messaging section (#416) to reuse; it passes `shown` and `waitingFor`. Their `pm-*` and `lv-*` CSS is in `admin.css`
+under `.adminv`, so the Admin shell gets it too.
+
 **Testing.** `peerRights.test.ts` and `peerMessages.test.ts` test the stores alone; `peerRoutes.test.ts` plays two of
 one owner's reporters and another person's through the real router and the Admin router. `scripts/podium-peers-demo.mjs`
-does the same against a running server (`--help`).
+does the same against a running server (`--help`). The mod's `peers.test.ts` and `peersMod.test.ts` hold the frame,
+subagent-refusal, separation-from-responding and approval-text tests. The page's tests are `myReporters.test.tsx` and
+`peers.test.ts` in the frontend.
 
 ### People view
 
