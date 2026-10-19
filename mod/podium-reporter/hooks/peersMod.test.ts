@@ -644,6 +644,14 @@ describe('peers: requests in the terminal', () => {
     expect((await $.command.run(podium('decline 9c2e'))).text).toBe('Request 9c2e was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.')
   })
 
+  test('/podium deliver on a paused link says the message waits for the link to be resumed', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.peerRequests = [REQ_MSG]
+    w.server.routes[`POST /peers/requests/${REQ_MSG.id}`] = { status: 200, body: { ok: true, outcome: 'delivered', paused: true } }
+    await started($, w)
+    expect((await $.command.run(podium('deliver 9c2e'))).text).toBe('delivered 9c2e. The link is paused, so the message from claude-dashboard on ed-mbp reaches arm64-check once the link is resumed. Closed in Podium too.')
+  })
+
   test('/podium allow names the level Podium applied, not the request\'s, when the server raised it', { options: ON }, async ($, on) => {
     const w = world(on)
     const see = { ...REQ_ACCESS, level: 'see' as const }

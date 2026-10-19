@@ -932,6 +932,8 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - `/podium allow <id>` names the level Podium applied, which can be higher than the request's because allowing never
   lowers a right, and the request's level when the server does not say. The notice to an orchestrator whose access
   request was allowed names the applied level too.
+- `/podium deliver <id>` says the message reaches its receiver when its turn ends, or, when the answer says the link
+  is paused, once the link is resumed.
 - A message that could not be delivered (the receiver ended first, the link was removed) is a log line in the
   sender's session that says so and that the message stays in Podium > Traffic.
 
@@ -2016,9 +2018,11 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   two.
 
 **`POST /api/fleet/sessions/:id/peers/requests/:requestId`**: `/podium allow|decline|deliver <id>`.
-- Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome, level? }`. `level` is there only when
-  an allow applied a right: the level the right now has, which can be higher than the request's (an allowed access
-  request never lowers a right; a proposal applies as proposed). The request closes in Podium too.
+- Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome, level?, paused? }`. `level` is there
+  only when an allow applied a right: the level the right now has, which can be higher than the request's (an allowed
+  access request never lowers a right; a proposal applies as proposed). `paused: true` is there only when a delivered
+  message's link is paused, so the message waits for Resume link and `/podium deliver` says so. The request closes in
+  Podium too.
 - `404` unknown, `403` another owner's, `410` already answered (the error says how), `422` an answer that does not fit
   (`deliver` is for a message; `allow` for a proposal or an access request).
 
@@ -3699,8 +3703,10 @@ still hides and shows the top bar.
   - a legend for the styles, which also names the owner's machines with messaging off.
 - Each line is a link (focus, Enter). Selecting it opens the conversation beside the map (below it at 900 px and
   narrower):
-  - the pair and their machines, its state, **Pause link** or **Resume link**, and **Remove link…** (a
-    confirmation that names the two machines and what goes);
+  - the pair and their machines, its state (on a paused link where a message also waits for approval, both the
+    waiting state and Paused, here and in the Table), **Pause link** or **Resume link**, and **Remove link…** (a
+    confirmation that names the two machines and what goes; once removed, it says neither machine can send to the
+    other, or for two orchestrators on one machine that they cannot message each other);
   - the round trips used against the limit, or on a one-way link which side cannot answer and that the right is
     given in My reporters;
   - the messages as an Activity feed (`.feed`), oldest first, each with sender, receiver, time and delivery state

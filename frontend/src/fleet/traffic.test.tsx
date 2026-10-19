@@ -413,6 +413,18 @@ describe("the conversation, for its owner", () => {
     expect(within(panel()).getByRole("alert")).toHaveTextContent("Could not remove the link: not your reporter. Nothing changed. Try again.");
   });
 
+  it("says the orchestrators on the one machine cannot message each other once a same-machine link is removed", async () => {
+    page();
+    await flush();
+    fireEvent.click(line(/^claude-dashboard and infra-notes/));
+    await flush();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Remove link…" }));
+    fireEvent.click(within(panel()).getByRole("button", { name: "Remove link" }));
+    await flush();
+    expect(screen.getByText("Link removed. The orchestrators on ed-mbp cannot message each other now.")).toBeInTheDocument();
+    expect(screen.queryByText("Link removed. Neither machine can send to the other now.")).toBeNull();
+  });
+
   it("says when the conversation cannot be read, and tries again on the next read", async () => {
     const traffic = fakeTraffic();
     traffic.api.conversation.mockRejectedValueOnce(new TypeError("offline"));
@@ -453,6 +465,36 @@ describe("for anyone but the owner", () => {
     page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: true })]) });
     await flush();
     expect(within(panel()).getAllByRole("listitem")[2]).toHaveTextContent("Held: the link is paused. It goes when the link resumes.");
+  });
+
+  it("shows the pause beside the waiting approval, in the conversation's header and in the Table", async () => {
+    page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: true })]) });
+    await flush();
+    const sub = panel().querySelector(".sub") as HTMLElement;
+    expect(within(sub).getByText("A message waits for approval")).toBeInTheDocument();
+    expect(within(sub).getByText("Paused")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "View" })).getByRole("radio", { name: "Table" }));
+    await flush();
+    const row = within(screen.getByRole("region", { name: "Links" })).getAllByRole("row")[1]!;
+    const state = row.querySelectorAll("td")[4]!;
+    expect(state).toHaveTextContent("A message waits for approval Paused");
+    expect(state.querySelectorAll(".pm-state.paused")).toHaveLength(1);
+  });
+
+  it("shows only the waiting approval while the link is not paused", async () => {
+    page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: false })]) });
+    await flush();
+    const sub = panel().querySelector(".sub") as HTMLElement;
+    expect(within(sub).getByText("A message waits for approval")).toBeInTheDocument();
+    expect(within(sub).queryByText("Paused")).toBeNull();
+  });
+
+  it("shows the pause alone, never beside Active, when only `paused` says the link is paused", async () => {
+    page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "active", paused: true })]) });
+    await flush();
+    const sub = panel().querySelector(".sub") as HTMLElement;
+    expect(within(sub).getByText("Paused")).toBeInTheDocument();
+    expect(sub.querySelectorAll(".pm-state")).toHaveLength(1);
   });
 });
 

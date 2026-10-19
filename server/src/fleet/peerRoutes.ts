@@ -233,7 +233,9 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
     const applied = 'applied' in out ? out.applied : null;
-    res.json({ ok: true, outcome: out.request.outcome, ...(applied ? { level: applied.level } : {}) });
+    // A delivered message on a paused link waits for Resume link, so /podium deliver says so rather than "when its turn ends".
+    const paused = 'message' in out && out.message.deliver && fleet.peers.rights.effective(out.request.fromKey, out.request.toKey).paused;
+    res.json({ ok: true, outcome: out.request.outcome, ...(applied ? { level: applied.level } : {}), ...(paused ? { paused: true } : {}) });
   });
 
   router.post('/sessions/:id/peers/deliveries/:deliveryId/result', d.requireToken, json, (req, res) => {

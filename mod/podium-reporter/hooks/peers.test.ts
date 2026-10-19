@@ -2,6 +2,7 @@ import { describe, test, expect } from 'claude-code/testing'
 import type { PeerDelivery, PeerRequest } from './protocol.ts'
 import {
   accessAnswer,
+  answerPaused,
   appliedLevel,
   errorOf,
   findRequest,
@@ -262,6 +263,19 @@ describe('peers: requests in the terminal', () => {
     expect(requestAnsweredLine('allow', '7f3a', see, 'ask')).toBe('allowed 7f3a. Tester on ci-runner-01 can send to build-pi, with approval. Closed in Podium too.')
     expect(requestAnsweredLine('allow', '7f3a', see, null)).toBe('allowed 7f3a. Tester on ci-runner-01 can see build-pi. Closed in Podium too.')
     expect(requestAnsweredLine('allow', '7f3a', see)).toBe('allowed 7f3a. Tester on ci-runner-01 can see build-pi. Closed in Podium too.')
+  })
+
+  test('deliver on a paused link says the message waits for the link to be resumed', () => {
+    expect(requestAnsweredLine('deliver', '9c2e', req(), null, true)).toBe('delivered 9c2e. The link is paused, so the message from claude-dashboard on ed-mbp reaches arm64-check once the link is resumed. Closed in Podium too.')
+    expect(requestAnsweredLine('deliver', 'x', null, null, true)).toBe('delivered x. The link is paused, so the message is held until the link is resumed. Closed in Podium too.')
+    expect(requestAnsweredLine('deliver', '9c2e', req(), null, false)).toBe('delivered 9c2e. The message from claude-dashboard on ed-mbp reaches arm64-check when its turn ends. Closed in Podium too.')
+  })
+
+  test('the answer says the link is paused only when it says paused: true', () => {
+    expect(answerPaused('{"ok":true,"outcome":"delivered","paused":true}')).toBe(true)
+    expect(answerPaused('{"ok":true,"outcome":"delivered"}')).toBe(false)
+    expect(answerPaused('{"ok":true,"outcome":"delivered","paused":"yes"}')).toBe(false)
+    expect(answerPaused('not json')).toBe(false)
   })
 
   test('the applied level is read from the answer only when it is a level', () => {
