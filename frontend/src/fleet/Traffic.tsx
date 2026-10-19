@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
-import { PausedTag, Segmented } from "./components/PeerRights";
+import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
 import { stateKind, type StateKind } from "./components/Chips";
 import { IconCheck, IconX } from "./components/Icons";
 import { TrafficLegend, TrafficMap, type NodeState } from "./components/TrafficMap";
@@ -18,6 +18,7 @@ import {
   keptWords,
   layoutMap,
   linkId,
+  noRightToSend,
   ordered,
   plural,
   RANGES,
@@ -81,14 +82,28 @@ const ICON_MSG = (
 );
 const DELIVERY_ICON: Record<DeliveryIcon, React.ReactNode> = { ok: <IconCheck />, queue: ICON_QUEUE, clock: ICON_CLOCK, pause: ICON_PAUSE, no: <IconX /> };
 
-/** A link's state as an icon and a word. */
-function StateTag({ link }: { link: TrafficLink }) {
-  if (link.state === "paused") return <PausedTag />;
+/**
+ * A link's state as an icon and a word. `state` reads `waiting` on a paused link while a message also waits for
+ * approval, so `paused` (the server's, or the panel's newer read) adds the paused tag beside it.
+ */
+function StateTag({ link, paused = link.paused === true }: { link: TrafficLink; paused?: boolean }) {
+  if (link.state === "paused" || (paused && link.state !== "waiting")) return <PausedTag />;
+  let icon: React.ReactNode = ICON_ACTIVE;
+  if (link.state === "waiting") icon = ICON_CLOCK;
+  else if (noRightToSend(link)) icon = LEVEL_ICON.none;
   return (
-    <span className={`pm-state${link.state === "waiting" ? " waiting" : ""}`}>
-      {link.state === "waiting" ? ICON_CLOCK : ICON_ACTIVE}
-      <span>{stateWords(link)}</span>
-    </span>
+    <>
+      <span className={`pm-state${link.state === "waiting" ? " waiting" : ""}`}>
+        {icon}
+        <span>{stateWords(link)}</span>
+      </span>
+      {paused && (
+        <>
+          {" "}
+          <PausedTag />
+        </>
+      )}
+    </>
   );
 }
 
@@ -352,6 +367,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
   const [x, y] = ordered(link);
   const ways = waysOf(link);
   const one = ways === "aToB" || ways === "bToA";
+  const same = link.a.reporterKey === link.b.reporterKey;
 
   useEffect(() => {
     if (removing) keepBtn.current?.focus();
@@ -375,7 +391,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
     setErr(null);
     try {
       await api.remove(link.a.reporterKey, link.b.reporterKey);
-      p.onSaid("Link removed. Neither machine can send to the other now.");
+      p.onSaid(same ? `Link removed. The orchestrators on ${link.a.machine} cannot message each other now.` : "Link removed. Neither machine can send to the other now.");
     } catch (e) {
       setErr(`Could not remove the link: ${failReason(e)}. Nothing changed. Try again.`);
     }
@@ -401,7 +417,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
       <div className="sub">
         <span>{whereWords(link)}</span>
         <span>{plural(link.messages, "message")}</span>
-        <StateTag link={link} />
+        <StateTag link={link} paused={paused} />
       </div>
     </>
   );
@@ -418,7 +434,6 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
     );
   }
 
-  const same = link.a.reporterKey === link.b.reporterKey;
   return (
     <section className="pm-conv" aria-labelledby="conv-h">
       {head}

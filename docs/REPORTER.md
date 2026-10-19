@@ -147,7 +147,8 @@ nothing the server sends is taken.
   for your approval show in your live sessions on the machine concerned as a toast and a log line with a short
   id, such as `7f3a`. Answer with `/podium allow 7f3a`, `/podium decline 7f3a` or `/podium deliver 9c2e`, or on
   My reporters; answering in one place closes it in the other. `/podium allow` names the right that now applies,
-  which can be more than the request asked for: allowing never lowers a right already there. A waiting
+  which can be more than the request asked for: allowing never lowers a right already there. `/podium deliver`
+  on a paused link says the message goes once the link is resumed. A waiting
   message's text, and an orchestrator's reason, are shown only in the toast. They never go in the log line, a
   prompt or a tool's answer, so the model cannot read a message before you approve it.
 

@@ -195,6 +195,15 @@ export function errorOf(text: string): string | null {
 }
 
 /** The level an answer to a request says Podium applied; null when it applied none, or a server does not say. */
+/** Whether a request's answer says the link is paused, so a delivered message waits for it to be resumed. */
+export function answerPaused(text: string): boolean {
+  try {
+    return (JSON.parse(text) as { paused?: unknown }).paused === true;
+  } catch {
+    return false;
+  }
+}
+
 export function appliedLevel(text: string): PeerLevel | null {
   try {
     const level = (JSON.parse(text) as { level?: unknown }).level;
@@ -279,9 +288,13 @@ export function parseAnswer(args: string): { answer: 'allow' | 'decline' | 'deli
  * without it. `applied` is the level Podium says it applied, which can be higher than the request's (allowing never
  * lowers a right); the request's own level stands in when a server does not say.
  */
-export function requestAnsweredLine(answer: 'allow' | 'decline' | 'deliver', s: string, q: PeerRequest | null, applied: PeerLevel | null = null): string {
+export function requestAnsweredLine(answer: 'allow' | 'decline' | 'deliver', s: string, q: PeerRequest | null, applied: PeerLevel | null = null, paused = false): string {
   const closed = 'Closed in Podium too.';
   if (answer === 'allow') return q ? `allowed ${s}. ${fromWho(q)} ${canPhrase(applied ?? q.level, oneLine(q.to.machine))}. ${closed}` : `allowed ${s}. ${closed}`;
+  // A paused link holds a delivered message until it is resumed (SPEC 7.1, the answer's paused).
+  if (answer === 'deliver' && paused) {
+    return q ? `delivered ${s}. The link is paused, so the message from ${fromWho(q)} reaches ${toWho(q)} once the link is resumed. ${closed}` : `delivered ${s}. The link is paused, so the message is held until the link is resumed. ${closed}`;
+  }
   if (answer === 'deliver') return q ? `delivered ${s}. The message from ${fromWho(q)} reaches ${toWho(q)} when its turn ends. ${closed}` : `delivered ${s}. ${closed}`;
   if (q?.kind === 'message') return `declined ${s}. The message from ${fromWho(q)} is not delivered, and ${oneLine(q.from.name) || 'its sender'} is told. ${closed}`;
   if (q?.kind === 'access') return `declined ${s}. ${fromWho(q)} gets no new right to ${oneLine(q.to.machine)}. ${closed}`;

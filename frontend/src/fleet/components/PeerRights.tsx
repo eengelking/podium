@@ -8,8 +8,8 @@ import { idPart, LEVEL_LABEL, LEVELS, type PeerLevel, type PeerReporter, type Ri
 
 const svg = { viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.4, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true, focusable: false } as const;
 
-/** One glyph per level: a struck circle, an eye, an arrow with a clock, an arrow to a bar. */
-const LEVEL_ICON: Record<PeerLevel, ReactNode> = {
+/** One glyph per level: a struck circle, an eye, an arrow with a clock, an arrow to a bar. Traffic reuses No access's. */
+export const LEVEL_ICON: Record<PeerLevel, ReactNode> = {
   none: (
     <svg {...svg}>
       <circle cx="8" cy="8" r="5.5" />

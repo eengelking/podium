@@ -59,6 +59,7 @@ import type { Ask, Delivery, DeliveryResult, MachineInfo, PeerDelivery, PeerRequ
 import { redactText } from './diffRedact.ts';
 import {
   accessAnswer,
+  answerPaused,
   appliedLevel,
   deliveredLine,
   errorOf,
@@ -1518,7 +1519,7 @@ async function answerRequest($: Engine, answer: 'allow' | 'decline' | 'deliver',
   if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
   peerOpen = peerOpen.filter((x) => x !== id);
   // Allowing never lowers a right, so the level applied can be higher than the request's: name the one Podium applied.
-  return requestAnsweredLine(answer, s, q, appliedLevel(res.text));
+  return requestAnsweredLine(answer, s, q, appliedLevel(res.text), answerPaused(res.text));
 }
 
 /**

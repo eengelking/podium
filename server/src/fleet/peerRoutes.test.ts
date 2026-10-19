@@ -182,6 +182,17 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect(logKinds(s)).toContain('peer_declined');
   });
 
+  it('delivered from a session on a paused link, says the link is paused, so /podium deliver says it waits for Resume', async () => {
+    const s = await linked('ask');
+    const answer = (id: string) => request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: 'deliver' });
+    const first = await send(s, 'on an open link');
+    expect((await answer(first.body.requestId)).body).toEqual({ ok: true, outcome: 'delivered' });
+    await s.edBrowser.put('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id, paused: true });
+    const held = await send(s, 'on a paused link');
+    expect(held.body).toMatchObject({ state: 'approval', paused: true });
+    expect((await answer(held.body.requestId)).body).toEqual({ ok: true, outcome: 'delivered', paused: true });
+  });
+
   it('is refused between two owners, and nothing is stored', async () => {
     const s = await linked('send');
     const out = await send(s, 'to Alex', 'review@alex-box');

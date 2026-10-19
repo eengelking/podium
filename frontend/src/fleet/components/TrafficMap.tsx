@@ -5,7 +5,7 @@
 // conversation, takes keyboard focus and answers Enter. Names are cut with an ellipsis and keep their full text as a title.
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { StateIcon, type StateKind } from "./Chips";
-import { cut, lineLabel, NODE_R, type LinkState, type MapLayout } from "../trafficData";
+import { cut, lineLabel, noRightToSend, NODE_R, type LinkState, type MapLayout } from "../trafficData";
 
 /** What the map knows of an orchestrator besides the conversations: its status shape and word, from the live fleet. */
 export interface NodeState {
@@ -16,8 +16,14 @@ export interface NodeState {
 const MARKERS = ["active", "waiting", "paused", "sel"] as const;
 const markerId = (k: (typeof MARKERS)[number]) => `pm-ah-${k}`;
 
-/** The pause mark and the clock on a waiting or paused line's label. */
-const LABEL_ICON: Record<Exclude<LinkState, "active">, ReactNode> = {
+/** The pause mark and the clock on a waiting or paused line's label, and No access's struck circle where neither can send. */
+const LABEL_ICON: Record<Exclude<LinkState, "active"> | "none", ReactNode> = {
+  none: (
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M4.2 11.8l7.6-7.6" />
+    </>
+  ),
   paused: (
     <>
       <circle cx="8" cy="8" r="6" />
@@ -81,7 +87,10 @@ export function TrafficMap(props: {
         // The path runs from a to b: an arrow at its end points at b, one at its start (reversed) points at a.
         const start = e.ways === "both" || e.ways === "bToA" ? mk : undefined;
         const end = e.ways === "both" || e.ways === "aToB" ? mk : undefined;
-        const icon = l.state === "active" ? null : LABEL_ICON[l.state];
+        // The stroke keeps the link's state; only the label says no side can send.
+        let icon: ReactNode = null;
+        if (l.state !== "active") icon = LABEL_ICON[l.state];
+        else if (noRightToSend(l)) icon = LABEL_ICON.none;
         return (
           <a
             key={e.id}
