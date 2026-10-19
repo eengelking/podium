@@ -147,7 +147,8 @@ export function Board(props: {
     if (group && groups.includes(group)) list = list.filter((s) => s.ownerGroup === group);
     return list;
   }, [props.sessions, props.me, meOn, group, groups]);
-  const board = useMemo(() => buildBoard(visible), [visible]);
+  const plansOnly = prefs.view === "plans";
+  const board = useMemo(() => buildBoard(visible, plansOnly), [visible, plansOnly]);
   // The plan tiles are whole-fleet: when Me or a group narrows the cards, they are counted over every session the page received.
   const fleetPlans = useMemo(() => planFigures(visible === props.sessions ? board : buildBoard(props.sessions)), [visible, props.sessions, board]);
 
@@ -213,7 +214,6 @@ export function Board(props: {
   });
 
   const total = BOARD_COLUMNS.reduce((n, c) => n + board.columns[c.key].length, 0);
-  const plansOnly = prefs.view === "plans";
   const showStrip = !plansOnly && board.withoutSteps.length > 0;
   const [tab, setTab] = useState<BoardColumn>("active");
   // The strip is pinned over the board (#359), so a focused card scrolls into view clear of it: cards read the strip's height from --kb-strip-h.

@@ -211,12 +211,21 @@ describe("kanban board", () => {
       expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     });
 
-    it("keeps a no-plan session that waits on its person in Review in both modes", () => {
+    it("shows a no-plan session that waits on its person in Review on All only", () => {
       board([makeSession({ id: "q", name: "asker", status: "waiting", waitReason: "input", plan: null })]);
       expect(within(column("Review")).getByRole("link", { name: /asker/ })).toBeInTheDocument();
       expect(strip()).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Plans" }));
+      expect(screen.queryByRole("link", { name: /asker/ })).toBeNull();
+      expect(screen.getByText("None of the 1 active sessions has open steps. Switch to All to list them.")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "All" }));
       expect(within(column("Review")).getByRole("link", { name: /asker/ })).toBeInTheDocument();
+    });
+
+    it("keeps a waiting session that has a plan in Review on Plans", () => {
+      board([planned({ id: "p", name: "planner", status: "waiting", waitReason: "input" }, step("1", "pending"))]);
+      fireEvent.click(screen.getByRole("button", { name: "Plans" }));
+      expect(within(column("Review")).getByRole("link", { name: /planner/ })).toBeInTheDocument();
     });
 
     it("explains an empty board in each mode", () => {

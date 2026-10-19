@@ -76,11 +76,12 @@ export function sessionFinished(s: SessionView): boolean {
 
 export interface Board {
   columns: Record<BoardColumn, BoardCard[]>;
-  /** Sessions with no plan, an empty one, or a finished one, and not waiting on a person: on the board's page, but with nothing to put in a column. */
+  /** Sessions with no plan, an empty one, or a finished one, and (except on the Plans view) not waiting on a person: on the board's page, but with nothing to put in a column. */
   withoutSteps: SessionView[];
 }
 
-export function buildBoard(sessions: readonly SessionView[]): Board {
+/** `plansOnly` is the Plans view (#443): a session with no steps gets no card in any column, so a planless session that asks its person something shows only on All. */
+export function buildBoard(sessions: readonly SessionView[], plansOnly = false): Board {
   const columns: Record<BoardColumn, BoardCard[]> = { pending: [], active: [], review: [], blocked: [], done: [] };
   const withoutSteps: SessionView[] = [];
   for (const s of sessions) {
@@ -90,10 +91,10 @@ export function buildBoard(sessions: readonly SessionView[]): Board {
       const column = columnOf(s, step);
       columns[column].push({ key: `${s.id}:${step.id}`, session: s, step, column, ...(column === "review" ? { why } : {}) });
     }
-    // A session that asks its person something belongs in Review whether or not it has a plan; with an in-progress step, that step is the card.
+    // A session that asks its person something belongs in Review whether or not it has a plan, except on the Plans view; with an in-progress step, that step is the card.
     const asking = waitsOnPerson(s) && !steps.some((x) => columnOf(s, x) === "review");
-    if (asking && why) columns.review.push({ key: `${s.id}:waiting`, session: s, step: waitingStep(why.lead), column: "review", waiting: true, why });
-    if (!steps.length && !asking) withoutSteps.push(s);
+    if (asking && why && !(plansOnly && !steps.length)) columns.review.push({ key: `${s.id}:waiting`, session: s, step: waitingStep(why.lead), column: "review", waiting: true, why });
+    if (!steps.length && !(asking && !plansOnly)) withoutSteps.push(s);
   }
   return { columns, withoutSteps };
 }

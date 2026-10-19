@@ -3062,7 +3062,7 @@ activity panel and legend as the wall, with the board in the middle.
   of its state (`pending`, `active`, `blocked`, `done`).
 - Review holds an in-progress step while its session waits on its person (`status` waiting, and not on
   background work). A session that waits on its person with no step in progress (a session with no plan, say)
-  gets one card of its own there that opens its page.
+  gets one card of its own there that opens its page, on All only (#443).
 - A Review card says why the session waits, in the words of its card on the wall: "Waiting for your input" or
   "Waiting for your approval" (or "Waiting on you" when the kind is not known). It adds the question it asks
   (the first `question` of an AskUserQuestion note), the tool it wants to use ("Tool: Bash"), or the short
@@ -3107,7 +3107,7 @@ activity panel and legend as the wall, with the board in the middle.
   (`kb-seg`, the one that holds Mixed | By orchestrator), named "Sessions shown". **All** (default) is the page
   above. **Plans** shows only the columns: the strip is not on the page, so no session without a plan is listed.
   The switch changes nothing else: the tiles, the left list and the Me, Group and layout controls work the same
-  in both modes. A no-plan session waiting on its person has a Review card, so it shows in both modes. The
+  in both modes. A no-plan session waiting on its person has a Review card on All only (#443): on Plans every column lists only sessions that have a plan, so a session with no plan or an empty one is in none of them. The
   empty board says "None of the N active sessions has open steps. Switch to All to list them." in Plans and the
   wording above in All. The choice is kept in `podium.board` (`view`: `plans` or `all`).
 
