@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asksBack, canSend, idPart, keyOfMachine, LEVEL_LABEL, messagingOff, reporterLook, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
+import { asksBack, canSend, idPart, LEVEL_LABEL, messagingOff, reporterLook, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
 
 const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", live: [], ...over });
 
@@ -51,14 +51,13 @@ describe("rightsModel", () => {
     expect(m.level("k1", "k3")).toBe("none");
   });
 
-  it("knows a paused direction and an Admin's proposal, found by machine name", () => {
+  it("knows a paused direction and an Admin's proposal, found by reporter key", () => {
     const m = rightsModel(
       read({
         rights: [{ from: "k1", to: "k1", owner: "Ed", level: "send", paused: true, setAt: 1 }],
         requests: [
-          { id: "prq_1", kind: "proposal", at: 1, from: { machine: "ci-runner-01", name: null }, to: { machine: "ed-mbp", name: null }, level: "ask", by: "Admin", reason: null, text: null, messageId: null },
-          { id: "prq_2", kind: "access", at: 1, from: { machine: "ed-mbp", name: "x" }, to: { machine: "ci-runner-01", name: null }, level: "see", by: "x", reason: null, text: null, messageId: null },
-          { id: "prq_3", kind: "proposal", at: 1, from: { machine: "nowhere", name: null }, to: { machine: "ed-mbp", name: null }, level: "see", by: "Admin", reason: null, text: null, messageId: null },
+          { id: "prq_1", kind: "proposal", at: 1, from: { machine: "ci-runner-01", name: null }, to: { machine: "ed-mbp", name: null }, fromKey: "k2", toKey: "k1", level: "ask", by: "Admin", reason: null, text: null, messageId: null },
+          { id: "prq_2", kind: "access", at: 1, from: { machine: "ed-mbp", name: "x" }, to: { machine: "ci-runner-01", name: null }, fromKey: "k1", toKey: "k2", level: "see", by: "x", reason: null, text: null, messageId: null },
         ],
       }),
     );
@@ -67,13 +66,16 @@ describe("rightsModel", () => {
     expect(m.proposed("k2", "k1")).toBe("ask");
     expect(m.proposed("k1", "k2")).toBeNull();
   });
-});
 
-describe("keyOfMachine", () => {
-  it("finds a key only when exactly one reporter has the name", () => {
-    expect(keyOfMachine([rep("a", "x"), rep("b", "y")], "y")).toBe("b");
-    expect(keyOfMachine([rep("a", "x"), rep("b", "x")], "x")).toBeNull();
-    expect(keyOfMachine([], "x")).toBeNull();
+  it("puts a proposal on the right cell when two reporters share a machine name (#415)", () => {
+    const m = rightsModel(
+      read({
+        reporters: [rep("k1", "ed-mbp"), rep("k5", "ed-mbp"), rep("k2", "ci-runner-01")],
+        requests: [{ id: "prq_1", kind: "proposal", at: 1, from: { machine: "ed-mbp", name: null }, to: { machine: "ci-runner-01", name: null }, fromKey: "k5", toKey: "k2", level: "send", by: "Admin", reason: null, text: null, messageId: null }],
+      }),
+    );
+    expect(m.proposed("k5", "k2")).toBe("send");
+    expect(m.proposed("k1", "k2")).toBeNull();
   });
 });
 

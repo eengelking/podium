@@ -6,7 +6,7 @@ import { FleetView } from "./FleetApp";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import { VIEW_KEY } from "./components/PeerRights";
+import { gridCellId, VIEW_KEY } from "./components/PeerRights";
 import type { PeerLevel, PeerReporter, PeerRequestView, PeersRead } from "./peers";
 import type { RespondMe } from "./types";
 
@@ -15,9 +15,9 @@ const T0 = 2_000_000;
 
 const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", live: [], ...over });
 
-const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 300_000, from: { machine: "build-pi", name: null }, to: { machine: "ed-mbp", name: null }, level: "ask", by: "Admin", reason: null, text: null, messageId: null };
-const ACCESS: PeerRequestView = { id: "prq_a", kind: "access", at: T0 - 60_000, from: { machine: "ci-runner-01", name: "Tester" }, to: { machine: "build-pi", name: null }, level: "ask", by: "Tester", reason: 'I need the arm64 build <img src=x onerror="alert(1)">', text: null, messageId: null };
-const MESSAGE: PeerRequestView = { id: "prq_m", kind: "message", at: T0 - 42_000, from: { machine: "ed-mbp", name: "claude-dashboard" }, to: { machine: "build-pi", name: "arm64-check" }, level: null, by: "claude-dashboard", reason: null, text: "Run npm run test:mod. The token is [redacted].", messageId: "dlv_1" };
+const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 300_000, from: { machine: "build-pi", name: null }, to: { machine: "ed-mbp", name: null }, fromKey: "k3", toKey: "k1", level: "ask", by: "Admin", reason: null, text: null, messageId: null };
+const ACCESS: PeerRequestView = { id: "prq_a", kind: "access", at: T0 - 60_000, from: { machine: "ci-runner-01", name: "Tester" }, to: { machine: "build-pi", name: null }, fromKey: "k2", toKey: "k3", level: "ask", by: "Tester", reason: 'I need the arm64 build <img src=x onerror="alert(1)">', text: null, messageId: null };
+const MESSAGE: PeerRequestView = { id: "prq_m", kind: "message", at: T0 - 42_000, from: { machine: "ed-mbp", name: "claude-dashboard" }, to: { machine: "build-pi", name: "arm64-check" }, fromKey: "k1", toKey: "k3", level: null, by: "claude-dashboard", reason: null, text: "Run npm run test:mod. The token is [redacted].", messageId: "dlv_1" };
 
 function baseRead(): PeersRead {
   return {
@@ -152,6 +152,19 @@ describe("Waiting for you", () => {
     const message = within(region).getByRole("group", { name: "A message waiting for approval" });
     expect(message).toHaveTextContent("A message from claude-dashboard on ed-mbp to arm64-check on build-pi waits for your approval.");
     expect(within(message).getByRole("button", { name: "Deliver" })).toBeInTheDocument();
+  });
+
+  it("matches a proposal to its Grid cell by reporter key when two machines share a name (#415)", async () => {
+    const d = baseRead();
+    // A second build-pi with no rights yet; the Admin proposes for it, not for k3.
+    d.reporters.push(rep("k5", "build-pi"));
+    d.requests = [{ ...PROPOSAL, fromKey: "k5" }];
+    page({ server: fakeServer(d) });
+    await flush();
+    const proposal = screen.getByRole("group", { name: "A change an Admin proposes" });
+    expect(proposal).toHaveTextContent("Proposed 5 min ago. Today build-pi has no access to ed-mbp.");
+    const tag = screen.getByText("Proposed: Can send, with approval, waiting for you");
+    expect(tag.closest("td")!.querySelector("select")).toHaveAttribute("id", gridCellId("k5", "k1"));
   });
 
   it("draws an orchestrator's reason and message as text, with only Podium's [redacted] marker as an element", async () => {

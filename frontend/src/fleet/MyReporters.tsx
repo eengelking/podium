@@ -8,7 +8,7 @@ import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
-import { asksBack, keyOfMachine, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
+import { asksBack, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
@@ -347,17 +347,15 @@ function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model:
   } else {
     const level = r.level ?? "see";
     const [w, tail] = rightWords(level);
-    const from = keyOfMachine(model.reporters, r.from.machine);
-    const to = keyOfMachine(model.reporters, r.to.machine);
-    const today = from && to ? model.level(from, to) : null;
-    const [tw, ttail] = today ? rightWords(today, true) : ["", ""];
+    // By key, not machine name: two of the person's machines can share a name.
+    const [tw, ttail] = rightWords(model.level(r.fromKey, r.toKey), true);
     lead = (
       <>
         An Admin proposes that <b>{r.from.machine}</b> {w} <b>{r.to.machine}</b>
         {tail}.
       </>
     );
-    hint = `Proposed ${when}.${today ? ` Today ${r.from.machine} ${tw} ${r.to.machine}${ttail}.` : ""}`;
+    hint = `Proposed ${when}. Today ${r.from.machine} ${tw} ${r.to.machine}${ttail}.`;
     yes = { how: "allow", label: "Accept change" };
   }
   const quote = r.kind === "message" ? r.text : r.kind === "access" ? r.reason : null;

@@ -1,6 +1,7 @@
 // My reporters' data (#415): one read of GET /respond/peers, asked again on an interval while the page is visible, and the
 // changes the page makes. The console holds it, so the top bar's "N waiting" and the page always agree. A change shows at
-// once and is then read back from the server; a change that fails is undone by that read, and the error says so.
+// once and is then read back from the server; a change that fails is taken out at once, leaving any newer change that is
+// still saving, and the error says so.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RespondError, type PeersApi } from "./respondApi";
 import type { PeersRead } from "./peers";
@@ -32,24 +33,32 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
   const [loadError, setLoadError] = useState<MyPeers["loadError"]>(null);
   // A read that started before a change must not undo it when it lands after.
   const gen = useRef(0);
-  const current = useRef<PeersRead | null>(null);
-  current.current = data;
+  // What the server is known to have (the last read, plus changes it has saved since), and the changes still saving,
+  // in the order they were made. The page shows the changes on top of what the server has, so a change that fails
+  // takes only itself out, and a read that lands while a change saves does not hide it.
+  const saved = useRef<PeersRead | null>(null);
+  const saving = useRef(new Map<number, (d: PeersRead) => PeersRead>());
+  const nextChange = useRef(0);
+  const shown = useCallback((d: PeersRead | null) => d && [...saving.current.values()].reduce((acc, f) => f(acc), d), []);
 
   const reload = useCallback(async () => {
     const at = gen.current;
     try {
       const d = await api.read();
       if (gen.current !== at) return;
-      setData(d);
+      saved.current = d;
+      setData(shown(d));
       setLoadError(null);
     } catch (err) {
       if (gen.current !== at) return;
       setLoadError({ status: err instanceof RespondError ? err.status : null, text: failReason(err) });
     }
-  }, [api]);
+  }, [api, shown]);
 
   useEffect(() => {
     if (!on) {
+      saved.current = null;
+      saving.current.clear();
       setData(null);
       setLoadError(null);
       return;
@@ -68,21 +77,32 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
   const change = useCallback(
     async (run: () => Promise<unknown>, optimistic?: (d: PeersRead) => PeersRead) => {
       gen.current++;
-      const before = current.current;
-      if (optimistic && before) setData(optimistic(before));
+      const id = nextChange.current++;
+      if (optimistic && saved.current) {
+        saving.current.set(id, optimistic);
+        setData(shown(saved.current));
+      }
       let failed: string | null = null;
       try {
         await run();
+        // The server has it now: it stays shown whatever happens to a change still saving.
+        const f = saving.current.get(id);
+        if (f) {
+          saving.current.delete(id);
+          saved.current = f(saved.current!);
+        }
       } catch (err) {
         failed = failReason(err);
-        // Put back what was there, so nothing shows as changed even if the read below cannot reach the server either.
-        setData(before);
+        // Take out only this change, keeping newer ones still saving, so nothing it did shows as changed even if the
+        // read below cannot reach the server either.
+        saving.current.delete(id);
+        setData(shown(saved.current));
       }
       gen.current++;
       await reload();
       return failed;
     },
-    [reload],
+    [reload, shown],
   );
 
   return { data, loadError, reload, change };
