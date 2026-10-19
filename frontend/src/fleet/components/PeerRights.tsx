@@ -241,7 +241,8 @@ export function RightsGrid({ model, waitingFor, shown, onSet }: ViewProps) {
     );
   };
   return (
-    <div className="pm-gridwrap scroll" tabIndex={0} role="region" aria-label="Rights between reporters. Each row sends to each column.">
+    // A scrolling region takes focus so the keyboard can scroll it (accessibility.html).
+    <div className="pm-gridwrap scroll" tabIndex={0} role="region" aria-label="Rights between reporters. Each row sends to each column." /* NOSONAR S6845: a focusable scroll region, by design */>
       <table className="pm-grid">
         <thead>
           <tr>

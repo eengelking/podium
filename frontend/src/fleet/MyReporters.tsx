@@ -160,7 +160,8 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
       )}
       <Section id="pm-mine-h" title="Your reporters" help="Every machine that reports with your name and token.">
         <Panel>
-          <div className="tw2 scroll" tabIndex={0} role="region" aria-label="Table of your reporters">
+          {/* A scrolling region takes focus so the keyboard can scroll it (accessibility.html). */}
+          <div className="tw2 scroll" tabIndex={0} role="region" aria-label="Table of your reporters" /* NOSONAR S6845: a focusable scroll region, by design */>
             <table className="ptab">
               <thead>
                 <tr>

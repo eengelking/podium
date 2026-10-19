@@ -97,6 +97,8 @@ if (made.status >= 300) {
   made = must(await admin('POST', '/people', { name: person.name }), 'person');
 }
 person.token = made.body.token;
+// The name as the server stored it: what the browser signs in with, and never the raw --name text in the output.
+const storedName = made.body.person.name;
 for (const r of await reportAll()) must(r, 'report');
 
 // Rights set by the owner directly in the database would need a browser sign-in; the mod-side and admin routes do the rest.
@@ -124,7 +126,7 @@ must(await call('POST', `/api/fleet/sessions/${tester.id}/peers/access`, { 'X-Po
 const dev = sessions[0];
 must(await call('POST', `/api/fleet/sessions/${dev.id}/peers/messages`, { 'X-Podium-Token': person.token }, { to: `arm64-check@${pi.name}`, text: 'Also run npm run test:mod there. The registry token is [redacted].' }), 'message');
 
-console.log(`name=${person.name}`);
+console.log(`name=${storedName}`);
 console.log(`token=${person.token}`);
 if (args.includes('--keep')) {
   console.log('reporting every 8 seconds; stop with Ctrl-C');
