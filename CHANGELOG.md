@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Changed
+
+- **The Plan list puts finished steps at the bottom (#454).** On the orchestrator page the Plan tab lists the step in progress first, then blocked steps, then the ones still to do in plan order, then the done steps in the order they finished. The open work stays on the first page of a long plan. A step the model reopens goes back among the open ones. The server numbers the finishes, so a reload keeps the order; steps already done when a plan first arrives come first among the done, in plan order. A step that moves keeps its row and your page, and a screen reader hears one polite line. The count, the bar and the Board keep plan order. See SPEC 8.1 and DECISIONS 38.
+
 ### Added
 
 - **The Board's KPI panel shows eight tiles (#450).** Orchestrators live, running and waiting, Orchestrators with plans, Subagents live, running and waiting, and Total cards, which replaces Plan steps. They match the Fleet page's figures and stay whole fleet under Me, Group and Plans | All. Subagents waiting counts agents that are queued, a new `Kpis.agentsWaiting` the server derives. Four tiles across in two rows, two across at 640 px or less. See `mockup/podium-board-kpi-tiles.html`.

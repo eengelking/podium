@@ -2349,7 +2349,7 @@ interface SessionView {
   costUsd: number | null; tokensTotal: number;
   blowouts: { orchestrator: number; agents: number; total: number; level: 0 | 1 | 2; loopsHit: number; loopsTotal: number;
               log: { t: number; agentId: string | null; kind: string; tokensBefore: number | null; tokensAfter: number | null }[] };
-  plan: Plan | null;
+  plan: Plan | null;                    // each step also carries doneSeq?: number, added by the server (#454): 1 for the first step seen to finish, then 2, ...; absent when not done or done when first seen
   loop: LoopReport | null;              // the main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a settings-hooks session
   files: FilesReport | null;            // the files the session changed; null from a reporter older than 0.6.0 and for a settings-hooks session
   attached: boolean | null;             // whether any client is attached; null from a reporter older than 0.7.0 (counts as attached)
@@ -3798,8 +3798,17 @@ Two columns: the plan section and the agent tree.
 selected first and the choice is not saved). While Files is selected the left column is 400 px wide instead of
 300.
 
-- **Plan** is the checklist (done, active, blocked, pending, with owner label), under a progress bar that a
+- **Plan** is the checklist (active, blocked, pending, done, with owner label), under a progress bar that a
   hairline separates from the first step (#200).
+  - **Order (#454).** In progress first, then blocked, then pending in plan order, then done in the order they
+    finished, oldest first. A step that finishes moves to the end of the done steps; one the model reopens
+    goes back among the open steps in plan order. Open work stays on the first page. Done steps whose finish
+    the server never saw (a plan already part done when it first arrived) come first among the done, in plan
+    order. The count, the bar, the inferred step and the Board keep plan order; only this list is reordered.
+    The server numbers the finishes (`doneSeq` on each step of `session.plan`, never sent by a reporter, [7.4](#74-view-types)), so a reload keeps the order. A step
+    that moves keeps its row and the viewer's page, and the list says once, politely, to assistive
+    technology: "<step> finished and moved to the end of the list." (several at once: "N steps finished and
+    moved to the end of the list."). Rows do not slide, so reduced motion needs no special case.
   - Each state has its own mark, so shape carries the state as well as color: a green circle with a check for
     done, a ring with a filled dot for in progress, a ring with a slash for blocked, an empty ring for not
     started.

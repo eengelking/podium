@@ -1,6 +1,6 @@
 // Pure presentation logic: sorting, filtering, plan progress, agent counts and the agent tree.
 import { MAIN_LOOP } from "../../../server/src/fleet/protocol";
-import type { AgentView, Effort, ModelFamily, Plan, PlanStep, SessionView } from "./types";
+import type { AgentView, Effort, ModelFamily, Plan, PlanStep, PlanStepView, PlanView, SessionView } from "./types";
 
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -99,6 +99,19 @@ export function currentStep(plan: Plan | null): string | null {
 export function inferredStep(plan: Plan | null): PlanStep | null {
   if (!plan || plan.steps.some((x) => x.state === "active")) return null;
   return plan.steps.find((x) => x.state === "pending") ?? null;
+}
+
+const STEP_RANK: Record<PlanStep["state"], number> = { active: 0, blocked: 1, pending: 2, done: 3 };
+
+/**
+ * The order the orchestrator page lists a plan's steps (#454): in progress, blocked, pending in plan order, then done in the order
+ * they finished. Done steps whose finish order the server never saw (a plan already part done when first seen) come first among
+ * the done, in plan order. The plan itself, its counts and the Kanban board keep plan order.
+ */
+export function orderedSteps(plan: PlanView | null): PlanStepView[] {
+  const steps = (plan?.steps ?? []).map((x, i) => ({ x, i }));
+  steps.sort((a, b) => STEP_RANK[a.x.state] - STEP_RANK[b.x.state] || (a.x.state === "done" ? (a.x.doneSeq ?? 0) - (b.x.doneSeq ?? 0) : 0) || a.i - b.i);
+  return steps.map((e) => e.x);
 }
 
 /** A plan with steps, every one of them done. */
