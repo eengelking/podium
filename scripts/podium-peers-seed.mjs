@@ -126,8 +126,10 @@ must(await call('POST', `/api/fleet/sessions/${tester.id}/peers/access`, { 'X-Po
 const dev = sessions[0];
 must(await call('POST', `/api/fleet/sessions/${dev.id}/peers/messages`, { 'X-Podium-Token': person.token }, { to: `arm64-check@${pi.name}`, text: 'Also run npm run test:mod there. The registry token is [redacted].' }), 'message');
 
-console.log(`name=${storedName}`);
-console.log(`token=${person.token}`);
+// One line each: a value with a line break in it could forge a line of this output (log injection).
+const line = (v) => String(v).replaceAll(/[\r\n]+/g, ' ');
+console.log(`name=${line(storedName)}`);
+console.log(`token=${line(person.token)}`);
 if (args.includes('--keep')) {
   console.log('reporting every 8 seconds; stop with Ctrl-C');
   setInterval(() => void reportAll().catch(() => undefined), 8000);
