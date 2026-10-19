@@ -3,6 +3,8 @@ import { AdminError, type AdminApi } from "./adminApi";
 import { Panel, Section, SwitchRow } from "./Page";
 import { failText, useList } from "./useList";
 import { plainHttpCaution } from "./plainHttpCaution";
+import { PEER_FLAG } from "./ReporterMessaging";
+import { ADMIN_LIMIT_FIELDS, PeerLimits, type PeerLimitKey } from "../components/PeerLimits";
 
 interface NoticeRow {
   id: string;
@@ -17,6 +19,8 @@ interface Settings {
   showBackgroundSessions: boolean;
   /** Issue #167: remove reporters not heard from for this many days. Off by default. */
   forgetReporters?: { enabled: boolean; days: number };
+  /** Orchestrator messaging's limits (#347, #416). */
+  peerMessaging?: Record<PeerLimitKey, number>;
 }
 
 /**
@@ -37,6 +41,21 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
     }
   };
   const data = list.data;
+  // The limits show only while the flag is on; the server refuses a bad one in the same words this checks with.
+  const peersOn = data?.features?.some((f) => f.id === PEER_FLAG && f.on) ?? false;
+  const saveLimit = async (key: PeerLimitKey, value: number | null): Promise<string | null> => {
+    try {
+      await api("PUT", "/settings", { peerMessaging: { [key]: value } });
+      list.reload();
+      return null;
+    } catch (e) {
+      if (e instanceof AdminError && e.status === 401) {
+        onLocked();
+        return null;
+      }
+      return failText(e);
+    }
+  };
   const row = (id: string, name: string, description: string, on: boolean | undefined, flip: () => void, tag?: string) => (
     <SwitchRow key={id} id={`set-${id}`} name={name} tag={tag} description={description} on={on} onFlip={flip} />
   );
@@ -49,6 +68,13 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
             : row("feature-loading", "Feature flags", "", undefined, () => {})}
         </Panel>
       </Section>
+      {peersOn && data?.peerMessaging && (
+        <Section id="admin-peer-h" title="Orchestrator messaging" help="Limits for every link on this server. A person can be stricter on their own links in My reporters, not looser.">
+          <Panel>
+            <PeerLimits idPrefix="lim" fields={ADMIN_LIMIT_FIELDS} values={data.peerMessaging} onSave={saveLimit} />
+          </Panel>
+        </Section>
+      )}
       <Section id="admin-notices-h" title="Wall notices" help="Notices sit at the bottom of the wall. Closing one there turns it off here, for everyone.">
         <Panel>
           {data
