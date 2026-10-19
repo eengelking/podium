@@ -212,11 +212,13 @@ function Who(p: WhoProps) {
   const [sel, setSel] = useState<string | null>(null);
   const [said, setSaid] = useState("");
   // The first conversation opens by itself, and stays open: the read is newest first, so falling back to links[0] on
-  // every read would jump to whichever conversation got the latest message.
+  // every read would jump to whichever conversation got the latest message. The same holds when the selected one
+  // drops out of the read (another range), so the one shown in its place becomes the selection.
   const first = links[0] ? linkId(links[0]) : null;
+  const held = sel !== null && links.some((l) => linkId(l) === sel);
   useEffect(() => {
-    if (sel === null && first !== null) setSel(first);
-  }, [sel, first]);
+    if (!held && first !== null) setSel(first);
+  }, [held, first]);
   const selected = links.find((l) => linkId(l) === sel) ?? links[0] ?? null;
   const layout = useMemo(() => layoutMap(links), [links]);
   const reporters = p.peers.data?.reporters ?? [];

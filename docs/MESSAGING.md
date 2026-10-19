@@ -301,7 +301,7 @@ Reading the map:
 | A dashed box with a name and a system | A machine, with its OS. The busiest machine comes first, then by name, so the map does not move as messages arrive |
 | A node with a status shape and a word | An orchestrator, with the wall's status shapes. "ended" once it is no longer live |
 | A solid line | An active conversation |
-| A dashed line in the warning color, with an icon and "waiting" | A message waits for approval |
+| A dashed line in the warning color, with an icon and "waiting" | A message waits for approval. "waiting, paused" means the link is paused too |
 | A dotted, muted line, with an icon and "paused" | The link is paused |
 | A struck circle and "no right to send" on the label | Neither side can send any more, as after Remove link |
 | An arrow at one end | Only that way can send |
@@ -380,12 +380,16 @@ you use.
 
 ### A run with real sessions
 
-1. Start it. It prints the URL, the person's name and where the token and secret files are, never the token or the
-   secret:
+1. Start it. It builds the server and the UI from this checkout with `npm run build` each time, so what runs is the
+   code in front of you; `--no-build` skips that and serves the `server/dist` and `frontend/dist` already there. It
+   prints the URL, the person's name and where the token and secret files are, never the token or the secret:
 
    ```sh
-   scripts/podium-peers-e2e.sh up            # --sessions, --model, --port, --dir, --dry-run; see --help
+   scripts/podium-peers-e2e.sh up            # --sessions, --model, --port, --dir, --no-build, --dry-run; see --help
    ```
+
+   `--dir` must be a new or empty folder, or one an earlier `up` made, and not a symbolic link: `down` removes it
+   whole, so `up` refuses a folder that already holds something else.
 
 2. Attach with `tmux attach -t podium-e2e`. Each session starts in a new folder, so Claude Code asks whether to trust
    it. Accept that once in every window.
@@ -404,7 +408,8 @@ you use.
 
 6. Watch the tester window take the message as a new turn, and Traffic draw the line.
 7. Stop everything. `down` ends the sessions, stops the server it started and removes the work folder (`--keep`
-   leaves the database and logs):
+   leaves the database and logs). It removes only a folder `up` made, and never `/`, the home folder, this checkout or
+   a folder that holds it:
 
    ```sh
    scripts/podium-peers-e2e.sh down

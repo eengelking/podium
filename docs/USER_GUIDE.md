@@ -702,7 +702,8 @@ text at all. Sign in from the top bar to read your own.
 - **Map.** A dashed box per machine, with its system, and a node per orchestrator with the same status shapes as the
   wall. A line joins two orchestrators that messaged each other. Solid is active; dashed in the warning color means a
   message waits for approval; dotted and muted means the link is paused. The label on the line has the count, and the
-  word and an icon when it is waiting or paused. When neither side can send any more, as after Remove link, the label
+  word and an icon when it is waiting or paused; a paused link with a message waiting keeps the waiting line and reads
+  "waiting, paused". When neither side can send any more, as after Remove link, the label
   adds No access's struck circle and "no right to send". An arrow at one end means only that way can send, and a thicker line
   carries more messages. The legend under the map says the same, and names a machine of yours that is not drawn because
   messaging is off there. Each line is a link: click it, or Tab to it and press Enter.

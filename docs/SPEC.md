@@ -2021,8 +2021,8 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
 
 **`POST /api/fleet/sessions/:id/peers/requests/:requestId`**: `/podium allow|decline|deliver <id>`.
 - Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome, level?, paused? }`. `level` is there
-  only when an allow applied a right: the level the right now has, which can be higher than the request's (an allowed
-  access request never lowers a right; a proposal applies as proposed). `paused: true` is there only when a delivered
+  only when an allow applied a right: the level the right now has, which can be higher than the request's (neither an
+  allowed access request nor an accepted proposal lowers a right, even one that rose after it was made). `paused: true` is there only when a delivered
   message's link is paused, so the message waits for Resume link and `/podium deliver` says so. The request closes in
   Podium too.
 - `404` unknown, `403` another owner's, `410` already answered (the error says how), `422` an answer that does not fit
@@ -2109,7 +2109,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     effective rights and open requests of every pair of the owner's reporters, each request as the owner's read lists
     it, with `fromKey`, `toKey` and `messageId`, so Admin > Reporters draws the whole Grid in one read, #416),
     `POST reporters/:key/peers/propose`
-    (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`), `PUT reporters/:key/peers/pause`
+    (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`; `409` for a level at or below
+    the stored right, since a proposal only raises one), `PUT reporters/:key/peers/pause`
     (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once).
   - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
   - `GET log`.
@@ -2770,7 +2771,9 @@ so every rule here holds whatever else is set. The routes are in [7.1](#71-endpo
 - The owner sets rights on My reporters, signed in as for responding. **Trust my own reporters** gives every pair
   of the owner's reporters the right to send without approval, including reporters added later.
 - An Admin can propose a right on Admin > Reporters > a reporter. It applies only once the owner accepts it, and
-  no default accepts it for them. An Admin's **Pause all links** and any removal take effect at once.
+  no default accepts it for them. A proposal only raises a right: the server refuses one at or below the stored level,
+  and accepting one never lowers a right that rose in the meantime. An Admin's **Pause all links** and any removal take
+  effect at once.
 - An orchestrator can ask for a right with `podium_request_access`. The owner's default for that is Ask me, Allow
   or Decline. Allow never lowers a right already given; a right to send is created as the owner's "A new right to send
   starts as". An asked request's answer reaches the orchestrator that asked as a notice.
@@ -3672,8 +3675,8 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 - The Admin's view (#416) is the Messaging section on Admin > Reporters > a reporter, in the Admin shell, with the
   same Grid | Board switch. It shows every pair of the owner's reporters, from one read.
   - A change is sent as a proposal and shows as Proposed, waiting for the owner, until the owner accepts it. Only
-    more than a pair has can be proposed: No access, or a level below today's, would take a right away, which is the
-    owner's choice.
+    more than a pair has can be proposed: No access, today's level, or a level below it are not offered (the server
+    refuses them too), since taking a right away is the owner's choice.
   - A `.warnbar` says a change is sent to the owner to accept, and a second one says when the owner's Trust my own
     reporters locks the choices.
   - **Pause all links** in the detail's header applies at once and **Resume all links** undoes it.
@@ -3700,7 +3703,9 @@ still hides and shows the top bar.
   node shows the app's status shape and its state as a word ("ended" once it is no longer live). A line joins two
   orchestrators that have messaged each other:
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
-    paused; the label has the message count, and for waiting or paused also an icon and the word;
+    paused; the label has the message count, and for waiting or paused also an icon and the word. A paused link where
+    a message also waits for approval keeps the waiting line and icon, and its label reads "N messages, waiting,
+    paused", its accessible name ", a message waits for approval, paused";
   - an active link where neither side can send (both `aToB` and `bToA` false, as after Remove link) keeps the solid
     line, and its label adds No access's struck circle and "no right to send"; the line's accessible name ends
     ", no right to send". The browser works this out from `aToB` and `bToA`; the server's `state` stays `active`;

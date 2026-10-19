@@ -79,6 +79,15 @@ describe("the words", () => {
     expect(lineLabel(link(A, B, { state: "waiting", messages: 3 }))).toBe("alpha and beta, 3 messages, a message waits for approval. Show the conversation");
   });
 
+  it("says a link is paused while a message also waits for approval, on the label and in the line's name", () => {
+    const both = link(A, B, { state: "waiting", paused: true, messages: 3 });
+    expect(labelWords(both)).toBe("3 messages, waiting, paused");
+    expect(lineLabel(both)).toBe("alpha and beta, 3 messages, a message waits for approval, paused. Show the conversation");
+    expect(layoutMap([both]).edges[0]!.label).toBe("3 messages, waiting, paused");
+    // Not paused: the wait alone.
+    expect(labelWords(link(A, B, { state: "waiting", paused: false, messages: 3 }))).toBe("3 messages, waiting");
+  });
+
   it("names a link where neither side can send, in place of Active only", () => {
     const none = link(A, B, { aToB: false, bToA: false, messages: 2 });
     expect(noRightToSend(none)).toBe(true);

@@ -163,12 +163,29 @@ describe("a reporter's Messaging section (#416)", () => {
     await openReporter("studio-m2");
     await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("send"));
     const c = cell("studio-m2", "ci-01");
-    for (const name of ["No access", "Can see", "Can send, with approval"]) expect(within(c).getByRole("option", { name })).toBeDisabled();
-    expect(within(c).getByRole("option", { name: "Can send" })).toBeEnabled();
+    // Today's level is not offered either: proposing it would change nothing.
+    for (const name of ["No access", "Can see", "Can send, with approval", "Can send"]) expect(within(c).getByRole("option", { name })).toBeDisabled();
     // A pair with nothing yet can be given any level but No access.
     expect(within(cell("ci-01", "studio-m2")).getByRole("option", { name: "Can see" })).toBeEnabled();
     fireEvent.change(c, { target: { value: "see" } });
     expect(s.proposeBodies).toEqual([]);
+  });
+
+  it("offers neither today's level nor a lower one while a higher proposal waits", async () => {
+    const s = server();
+    s.peers!.requests.push({ id: "prq_9", kind: "proposal", at: 90_000, from: { machine: "studio-m2", name: null }, to: { machine: "ci-01", name: null }, level: "send", by: "Admin", reason: null, text: null, fromKey: STUDIO.key, toKey: CI.key, messageId: null });
+    await openReporter("studio-m2");
+    // The stored right is Can see; the select shows the proposal waiting.
+    await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("send"));
+    const c = cell("studio-m2", "ci-01");
+    for (const name of ["No access", "Can see"]) expect(within(c).getByRole("option", { name })).toBeDisabled();
+    for (const name of ["Can send, with approval", "Can send"]) expect(within(c).getByRole("option", { name })).toBeEnabled();
+    expect(within(messaging()).getByText("Proposed: Can send, waiting for Dana")).toBeInTheDocument();
+    // Today's level would be a proposal that changes nothing and replaces the one waiting: none is sent.
+    fireEvent.change(c, { target: { value: "see" } });
+    expect(s.proposeBodies).toEqual([]);
+    fireEvent.change(c, { target: { value: "ask" } });
+    await waitFor(() => expect(s.proposeBodies).toEqual([{ from: STUDIO.key, to: CI.key, level: "ask" }]));
   });
 
   it("says when a proposal is refused, and puts the select back", async () => {
@@ -284,6 +301,34 @@ describe("a reporter's Messaging section (#416)", () => {
         await vi.advanceTimersByTimeAsync(REFRESH_MS + 100);
       });
       await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("see"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lands a read slower than the interval, and starts no other while it is out", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const s = server();
+      s.holdPeers = true;
+      await openReporter("studio-m2");
+      await within(await screen.findByRole("region", { name: "Messaging" })).findByText("Loading…");
+      const reads = () => s.calls.filter((c) => c.endsWith("/peers")).length;
+      expect(reads()).toBe(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REFRESH_MS * 2 + 100);
+      });
+      expect(reads()).toBe(1);
+      s.holdPeers = false;
+      await act(async () => {
+        s.held.shift()!();
+      });
+      await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("see"));
+      // Once it is in, the interval reads again.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REFRESH_MS + 100);
+      });
+      expect(reads()).toBe(2);
     } finally {
       vi.useRealTimers();
     }

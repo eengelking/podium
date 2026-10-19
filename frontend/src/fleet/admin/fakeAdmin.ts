@@ -46,14 +46,14 @@ function peersRead(P: FakePeers, key: string) {
   const mine = ref.adminSecret || !ref.owner ? [] : P.reporters.filter((r) => !r.adminSecret && r.owner === ref.owner);
   const row = (a: string, b: string) => P.rights.find((r) => r.from === a && r.to === b);
   const eff = (a: string, b: string) => ({ from: a, to: b, level: P.trust ? "send" : (row(a, b)?.level ?? "none"), paused: row(a, b)?.paused ?? false });
-  // Every pair of the owner's reporters, as the server reads them (#416).
+  // Every pair of the owner's reporters, as the server reads them (#416); the effective levels are this reporter's pairs only.
   const keys = new Set(mine.map((r) => r.key));
   return {
     reporter: ref,
     peers: mine,
     trust: mine.length > 0 && P.trust,
     rights: P.rights.filter((r) => keys.has(r.from) && keys.has(r.to)),
-    effective: mine.flatMap((a) => mine.map((b) => eff(a.key, b.key))),
+    effective: mine.flatMap((o) => [eff(key, o.key), ...(o.key === key ? [] : [eff(o.key, key)])]),
     requests: P.requests.filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)),
   };
 }
@@ -104,6 +104,9 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     peerLimitError: "",
     proposeError: "",
     proposeBodies: [] as unknown[],
+    /** While true, a read of a reporter's messaging waits in `held` until a test calls it: a read slower than the interval. */
+    holdPeers: false,
+    held: [] as (() => void)[],
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -222,6 +225,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         pauseAll(P, key, (JSON.parse(String(init?.body)) as { paused: boolean }).paused);
         return json(200, { ok: true, links: 1 });
       }
+      if (state.holdPeers) return new Promise<void>((go) => state.held.push(go)).then(() => json(200, peersRead(P, key)));
       return json(200, peersRead(P, key));
     }
     if (path.startsWith("/reporters/")) {

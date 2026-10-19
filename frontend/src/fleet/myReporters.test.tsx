@@ -500,6 +500,24 @@ describe("Defaults: the owner's stricter limits (#436)", () => {
     expect(box(SIZE)).toHaveAccessibleDescription("Uses the Admin's limit, 20,000.");
   });
 
+  it("goes back to the Admin's limit by typing it, when the owner's own value is the same as the Admin's or above it", async () => {
+    // Own 15 over the Admin's 10, and own 6 equal to the Admin's 6: each box shows the Admin's value already.
+    const server = withLimits({ roundTrips: 15, perMinute: 6 }, { roundTrips: 10, perMinute: 6, maxChars: 20000 });
+    page({ server });
+    await flush();
+    expect(box(TRIPS).value).toBe("10");
+    await type(TRIPS, "10");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { roundTrips: null } });
+    expect(box(TRIPS)).toHaveAccessibleDescription("Uses the Admin's limit, 10.");
+    await type(RATE, "6", "enter");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { perMinute: null } });
+    expect(server.db.defaults.limits).toEqual({});
+    expect(box(RATE)).toHaveAccessibleDescription("Uses the Admin's limit, 6.");
+    // Now that nothing is the owner's own, the same value again sends nothing.
+    await type(RATE, "6");
+    expect(server.api.setDefaults).toHaveBeenCalledTimes(2);
+  });
+
   it("refuses a value above the Admin's, below 1, not whole, or cleared, in place, and saves nothing", async () => {
     const { server } = page();
     await flush();
