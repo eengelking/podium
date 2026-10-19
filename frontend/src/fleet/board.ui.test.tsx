@@ -262,13 +262,13 @@ describe("kanban board", () => {
       expect(screen.getByText("No sessions are active.")).toBeInTheDocument();
     });
 
-    it("states the plans as two whole-fleet tiles that the switch never changes", () => {
+    it("states the plans and the cards as two whole-fleet tiles that the switch never changes", () => {
       render(<FleetView board state={stateFrom({ sessions: fleet(), kpis: makeKpis({ live: 2 }) })} />);
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1of 2 live$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps21 done$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards21 done$/);
       fireEvent.click(screen.getByRole("button", { name: "Plans" }));
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans1of 2 live$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps21 done$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards21 done$/);
     });
 
     it("leaves the live caption empty until the server has sent its figures", () => {
@@ -287,25 +287,28 @@ describe("kanban board", () => {
       );
       fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(tile("Orchestrators with plans")).toHaveTextContent(/^Orchestrators with plans2whole fleet$/);
-      expect(tile("Plan steps")).toHaveTextContent(/^Plan steps3whole fleet$/);
+      expect(tile("Total cards")).toHaveTextContent(/^Total cards3whole fleet$/);
     });
   });
   describe("the running counts (#409)", () => {
-    const counts = () => screen.getByRole("group", { name: /^Running now/ });
+    const counts = () => screen.getByRole("group", { name: /^Orchestrators and subagents/ });
     const tile = (label: string) => within(counts()).getByText(label).closest(".kpi") as HTMLElement;
     const withKpis = (kpis: ReturnType<typeof makeKpis>, sessions: SessionView[] = [makeSession()]) => <FleetView board state={stateFrom({ sessions, kpis })} />;
 
     it("shows the server's running figures, the same ones the Fleet page reads", () => {
-      render(withKpis(makeKpis({ live: 8, running: 5, waiting: 1, agentsRunning: 18 })));
-      expect(tile("Orchestrators running")).toHaveTextContent("5");
-      expect(tile("Orchestrators running")).toHaveTextContent("of 8 live, 1 waiting");
-      expect(tile("Subagents running")).toHaveTextContent("18");
-      expect(tile("Subagents running")).toHaveTextContent("forks included");
+      render(withKpis(makeKpis({ live: 8, running: 5, waiting: 1, agentsTotal: 20, agentsRunning: 18, agentsWaiting: 2 })));
+      expect(tile("Orchestrators live")).toHaveTextContent(/^Orchestrators live8forks excluded$/);
+      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running5$/);
+      expect(tile("Orchestrators waiting")).toHaveTextContent(/^Orchestrators waiting1$/);
+      expect(tile("Subagents live")).toHaveTextContent(/^Subagents live20forks included$/);
+      expect(tile("Subagents running")).toHaveTextContent(/^Subagents running18$/);
+      expect(tile("Subagents waiting")).toHaveTextContent(/^Subagents waiting2queued$/);
     });
 
-    it("leaves waiting out of the caption when none wait", () => {
-      render(withKpis(makeKpis({ live: 2, running: 2, waiting: 0 })));
-      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running2of 2 live$/);
+    it("shows the eight tiles in order", () => {
+      render(withKpis(makeKpis()));
+      const labels = [...counts().querySelectorAll(".kpi .k")].map((n) => n.textContent);
+      expect(labels).toEqual(["Orchestrators live", "Orchestrators running", "Orchestrators waiting", "Orchestrators with plans", "Subagents live", "Subagents running", "Subagents waiting", "Total cards"]);
     });
 
     it("changes with the next update and counts nothing it was not told to", () => {
@@ -318,13 +321,14 @@ describe("kanban board", () => {
 
     it("shows a dash for each figure until the server has sent them", () => {
       render(<FleetView board state={{ ...stateFrom(), kpis: null }} />);
-      expect(tile("Orchestrators running")).toHaveTextContent(/^Orchestrators running–/);
-      expect(tile("Subagents running")).toHaveTextContent(/^Subagents running–/);
+      for (const label of ["Orchestrators live", "Orchestrators running", "Orchestrators waiting", "Subagents live", "Subagents running", "Subagents waiting"]) {
+        expect(tile(label)).toHaveTextContent(new RegExp(`^${label}–`));
+      }
     });
 
     it("says whole fleet too when the Fleet page's own filters hide sessions from the board", () => {
       render(<Board sessions={[makeSession()]} narrowed kpis={makeKpis({ live: 4, running: 3, agentsRunning: 5 })} me={null} onOpen={() => {}} />);
-      expect(counts()).toHaveAccessibleName("Running now and plans, whole fleet");
+      expect(counts()).toHaveAccessibleName("Orchestrators and subagents, plans and cards, whole fleet");
       expect(tile("Orchestrators running")).toHaveTextContent("3");
       expect(tile("Subagents running")).toHaveTextContent("whole fleet");
     });
@@ -338,7 +342,7 @@ describe("kanban board", () => {
           respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
         />,
       );
-      expect(tile("Subagents running")).toHaveTextContent("forks included");
+      expect(tile("Subagents live")).toHaveTextContent("forks included");
       fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.queryByText("their task")).toBeNull();
       expect(tile("Orchestrators running")).toHaveTextContent("2");

@@ -16,6 +16,9 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
+- **The Board's KPI panel shows eight tiles (#450).** Orchestrators live, running and waiting, Orchestrators with plans, Subagents live, running and waiting, and Total cards, which replaces Plan steps. They match the Fleet page's figures and stay whole fleet under Me, Group and Plans | All. Subagents waiting counts agents that are queued, a new `Kpis.agentsWaiting` the server derives. Four tiles across in two rows, two across at 640 px or less. See `mockup/podium-board-kpi-tiles.html`.
+  - Standards: the Board component's sample changes (the `kpis` row has eight `kpi` tiles in place of four, and "Plan steps" is now "Total cards"); approved with the #450 mockup.
+
 - **The Board's Me chip is now a My orchestrators | Everyone switch (#451).** It sits after the Group dropdown in the same segmented control as Plans | All and Mixed | By orchestrator, named "Whose sessions". **My orchestrators** narrows the cards to the signed-in person's sessions and **Everyone** (the default) shows them all. As before it appears only while someone is signed in, never changes the tiles, and is remembered across a reload.
   - Standards: the Board component's sample changes (the `kb-chip` "Me" button is replaced by a `kb-seg` named "Whose sessions", and the `kb-chip` class is removed); approved with the #451 mockup.
 

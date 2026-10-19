@@ -768,6 +768,8 @@ export interface Kpis {
   waiting: number;
   stale: number;
   agentsRunning: number;
+  /** Agents queued, not started yet: what the Board's Subagents waiting tile counts (#450). */
+  agentsWaiting: number;
   agentsTotal: number;
   planDone: number;
   planTotal: number;

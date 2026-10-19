@@ -83,31 +83,27 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/** Orchestrators and subagents running now, then the plans (#426). The running figures are the ones the server derives for the Fleet page (Kpis.running, Kpis.agentsRunning), so the two pages cannot disagree; the plan figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
+/** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
 export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
-  const waiting = kpis?.waiting ? `, ${kpis.waiting} waiting` : "";
+  const tiles: { label: string; value: number | undefined; cap: string }[] = [
+    { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
+    { label: "Orchestrators running", value: kpis?.running, cap: "" },
+    { label: "Orchestrators waiting", value: kpis?.waiting, cap: "" },
+    { label: "Orchestrators with plans", value: plans.orchestrators, cap: kpis ? `of ${kpis.live} live` : "" },
+    { label: "Subagents live", value: kpis?.agentsTotal, cap: "forks included" },
+    { label: "Subagents running", value: kpis?.agentsRunning, cap: "" },
+    { label: "Subagents waiting", value: kpis?.agentsWaiting, cap: "queued" },
+    { label: "Total cards", value: plans.steps, cap: `${plans.done} done` },
+  ];
   return (
-    <div className="kpis" role="group" aria-label="Running now and plans, whole fleet">
-      <div className="kpi">
-        <div className="k">Orchestrators running</div>
-        <div className="v mono">{kpis?.running ?? "–"}</div>
-        <div className="kpi-cap">{kpis ? `of ${kpis.live} live${waiting}` : ""}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Subagents running</div>
-        <div className="v mono">{kpis?.agentsRunning ?? "–"}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : "forks included"}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Orchestrators with plans</div>
-        <div className="v mono">{plans.orchestrators}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : kpis ? `of ${kpis.live} live` : ""}</div>
-      </div>
-      <div className="kpi">
-        <div className="k">Plan steps</div>
-        <div className="v mono">{plans.steps}</div>
-        <div className="kpi-cap">{filtered ? "whole fleet" : `${plans.done} done`}</div>
-      </div>
+    <div className="kpis" role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
+      {tiles.map((t) => (
+        <div className="kpi" key={t.label}>
+          <div className="k">{t.label}</div>
+          <div className="v mono">{t.value ?? "–"}</div>
+          <div className="kpi-cap">{filtered ? "whole fleet" : t.cap}</div>
+        </div>
+      ))}
     </div>
   );
 }

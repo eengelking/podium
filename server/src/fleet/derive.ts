@@ -325,6 +325,7 @@ export function computeKpis(input: KpiInput, now: number): Kpis {
     waiting: 0,
     stale: 0,
     agentsRunning: 0,
+    agentsWaiting: 0,
     agentsTotal: 0,
     planDone: 0,
     planTotal: 0,
@@ -344,6 +345,7 @@ export function computeKpis(input: KpiInput, now: number): Kpis {
     else if (v.status === 'stale') k.stale++;
     k.agentsTotal += v.agents.length;
     k.agentsRunning += v.agents.filter((a) => a.status === 'running').length;
+    k.agentsWaiting += v.agents.filter((a) => a.status === 'queued').length;
     if (v.plan) {
       k.planTotal += v.plan.steps.length;
       k.planDone += v.plan.steps.filter((s) => s.state === 'done').length;

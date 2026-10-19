@@ -3126,27 +3126,31 @@ activity panel and legend as the wall, with the board in the middle.
 - Each column is at least 210 px wide, so a narrower board scrolls sideways. At 640 px or less it becomes one
   column at a time behind a tab row that keeps the counts.
 
-**Running counts (#409)**
-- Two tiles under the Board header, with the Fleet page's KPI tile styling: **Orchestrators running** and
-  **Subagents running** (two more, the plan tiles, follow below). They show `Kpis.running` and `Kpis.agentsRunning`, the figures the server derives for
-  the Fleet page's KPI strip, so the two pages cannot disagree. The board counts nothing itself; nothing new is sent
-  or stored. Each reads "–" until the first update.
+**Running counts (#409, #426, #450)**
+- Eight tiles under the Board header, with the Fleet page's KPI tile styling, in this order: **Orchestrators live**
+  (`Kpis.live`), **Orchestrators running** (`Kpis.running`), **Orchestrators waiting** (`Kpis.waiting`),
+  **Orchestrators with plans**, **Subagents live** (`Kpis.agentsTotal`), **Subagents running** (`Kpis.agentsRunning`),
+  **Subagents waiting** (`Kpis.agentsWaiting`) and **Total cards**. The server derives the `Kpis` figures for the Fleet
+  page's KPI strip, so the two pages cannot disagree. The board counts nothing of those itself; each reads "–"
+  until the first update.
 - Running means: an orchestrator whose status is running, and a subagent whose status is running (forks
-  included). Not counted: an orchestrator waiting on its person, idle on background work, stale or ended;
-  a session that ends takes its subagents out of the count.
-- The orchestrator tile's caption reads "of N live" (`Kpis.live`) and, when any wait on their person, ", M
-  waiting" (`Kpis.waiting`). The subagent tile's caption reads "forks included".
-- The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and Me change
-  the cards, never the counts. The tile group is named "Running now and plans, whole fleet". While Group, My orchestrators or
-  the Fleet page's own filters (People, hidden detached sessions) narrow the board, the subagent caption reads
-  "whole fleet".
-- **Plan tiles (#426).** Two more tiles in the same row: **Orchestrators with plans** (sessions that have a plan
-  with steps on the board; a finished plan and a no-plan session waiting on its person do not count), captioned
-  "of N live" (`Kpis.live`), and **Plan steps** (every step in those plans, done included), captioned "N done".
-  They are worked out from the sessions the page received, so nothing new is sent or stored, and My orchestrators and Group do
-  not change them: under a filter both captions read "whole fleet". Plans | All does not change them either.
-- The tiles update with the rest of the console and never move the columns below them. At 640 px or less they
-  sit side by side.
+  included). Waiting for an orchestrator is as the Fleet page counts it (waiting on its person, not idle on background
+  work). Waiting for a subagent means its status is queued (not started yet); an agent has no other waiting status.
+  Not counted as running: an orchestrator waiting, idle on background work, stale or ended; a session that
+  ends takes its subagents out of the count.
+- Captions: Orchestrators live "forks excluded", Subagents live "forks included", Subagents waiting "queued",
+  Orchestrators with plans "of N live" (`Kpis.live`), Total cards "N done". The running and waiting tiles of
+  orchestrators have no caption.
+- The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and My orchestrators change
+  the cards, never the counts. The tile group is named "Orchestrators and subagents, plans and cards, whole fleet".
+  While Group, My orchestrators or the Fleet page's own filters (People, hidden detached sessions) narrow the board,
+  every caption reads "whole fleet".
+- **Plan figures (#426).** **Orchestrators with plans** counts sessions that have a plan with steps on the board; a
+  finished plan and a no-plan session waiting on its person do not count. **Total cards** is every step in those plans,
+  done included, and no Review card for a session without a plan. They are worked out from the sessions the page
+  received, so nothing new is sent or stored, and neither My orchestrators, Group nor Plans | All changes them.
+- The tiles update with the rest of the console and never move the columns below them. They sit four across
+  in two rows, and two across at 640 px or less.
 
 **Panels**
 - The board keeps its own collapsed flags under `podium.collapsed.board` and opens with the left and right
