@@ -3070,6 +3070,13 @@ activity panel and legend as the wall, with the board in the middle.
 - A finished session is one whose steps are all done and whose status is stale or done, so its Done cards
   leave the board. A running or waiting session whose steps are all done keeps them.
 - When no session has steps the board says "No plans on the board" and the pinned strip lists them all.
+- **Plans | All (#426).** A two-state switch right after the Board title, the Board's segmented control
+  (`kb-seg`, the one that holds Mixed | By orchestrator), named "Sessions shown". **All** (default) is the page
+  above. **Plans** shows only the columns: the strip is not on the page, so no session without a plan is listed.
+  The switch changes nothing else: the tiles, the left list and the Me, Group and layout controls work the same
+  in both modes. A no-plan session waiting on its person has a Review card, so it shows in both modes. The
+  empty board says "None of the N active sessions has open steps. Switch to All to list them." in Plans and the
+  wording above in All. The choice is kept in `podium.board` (`view`: `plans` or `all`).
 
 **Order, paging and layout**
 - The step that changed last is first in its column. The rest keep plan order, session by session.
@@ -3086,7 +3093,7 @@ activity panel and legend as the wall, with the board in the middle.
 
 **Running counts (#409)**
 - Two tiles under the Board header, with the Fleet page's KPI tile styling: **Orchestrators running** and
-  **Subagents running**. They show `Kpis.running` and `Kpis.agentsRunning`, the figures the server derives for
+  **Subagents running** (two more, the plan tiles, follow below). They show `Kpis.running` and `Kpis.agentsRunning`, the figures the server derives for
   the Fleet page's KPI strip, so the two pages cannot disagree. The board counts nothing itself; nothing new is sent
   or stored. Each reads "–" until the first update.
 - Running means: an orchestrator whose status is running, and a subagent whose status is running (forks
@@ -3094,9 +3101,15 @@ activity panel and legend as the wall, with the board in the middle.
   a session that ends takes its subagents out of the count.
 - The orchestrator tile's caption reads "of N live" (`Kpis.live`) and, when any wait on their person, ", M
   waiting" (`Kpis.waiting`). The subagent tile's caption reads "forks included".
-- The counts are always the whole fleet. Mixed or By orchestrator, the Group dropdown and Me change the cards,
-  never the counts. While Group, Me or the Fleet page's own filters (People, hidden detached sessions) narrow the board, the tile group is named "Running now, whole fleet" and
-  the subagent caption reads "whole fleet".
+- The counts are always the whole fleet. Mixed or By orchestrator, Plans | All, the Group dropdown and Me change
+  the cards, never the counts. The tile group is named "Running now and plans, whole fleet". While Group, Me or
+  the Fleet page's own filters (People, hidden detached sessions) narrow the board, the subagent caption reads
+  "whole fleet".
+- **Plan tiles (#426).** Two more tiles in the same row: **Orchestrators with plans** (sessions that have a plan
+  with steps on the board; a finished plan and a no-plan session waiting on its person do not count), captioned
+  "of N live" (`Kpis.live`), and **Plan steps** (every step in those plans, done included), captioned "N done".
+  They are worked out from the sessions the page received, so nothing new is sent or stored, and Me and Group do
+  not change them: under a filter both captions read "whole fleet". Plans | All does not change them either.
 - The tiles update with the rest of the console and never move the columns below them. At 640 px or less they
   sit side by side.
 

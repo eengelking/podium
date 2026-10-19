@@ -1,6 +1,6 @@
 // The kanban board (#346): every session's plan steps by state, read-only. A card opens its orchestrator's page.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { BOARD_COLUMNS, buildBoard, CARDS_PER_PAGE, EMPTY_COLUMN, groupBySession, orderCards, type BoardCard, type BoardColumn } from "../board";
+import { BOARD_COLUMNS, buildBoard, CARDS_PER_PAGE, EMPTY_COLUMN, groupBySession, orderCards, planFigures, type BoardCard, type BoardColumn, type PlanFigures } from "../board";
 import { filterByPeople, meKey, peopleActive } from "../people";
 import { readJson, writeJson } from "../storage";
 import { GOTCHAS_URL, type Kpis, type SessionView } from "../types";
@@ -13,11 +13,13 @@ interface BoardPrefs {
   group: boolean;
   /** Only the signed-in person's sessions. */
   me: boolean;
+  /** Plans: only the sessions with cards in the columns. All: those too, plus the strip of sessions with nothing to show in a column (#426). */
+  view: "plans" | "all";
 }
 
 function loadPrefs(): BoardPrefs {
   const v = readJson<Partial<BoardPrefs> | null>(PREFS_KEY, null);
-  return { group: v?.group === true, me: v?.me === true };
+  return { group: v?.group === true, me: v?.me === true, view: v?.view === "plans" ? "plans" : "all" };
 }
 
 const FLASH_MS = 2700;
@@ -81,11 +83,11 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-/** Orchestrators and subagents running now. Both figures are the ones the server derives for the Fleet page (Kpis.running, Kpis.agentsRunning), so the two pages cannot disagree; the filters never change them. */
-export function RunningCounts({ kpis, filtered }: { kpis: Kpis | null; filtered: boolean }) {
+/** Orchestrators and subagents running now, then the plans (#426). The running figures are the ones the server derives for the Fleet page (Kpis.running, Kpis.agentsRunning), so the two pages cannot disagree; the plan figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
+export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
   const waiting = kpis?.waiting ? `, ${kpis.waiting} waiting` : "";
   return (
-    <div className="kpis" role="group" aria-label={filtered ? "Running now, whole fleet" : "Running now"}>
+    <div className="kpis" role="group" aria-label="Running now and plans, whole fleet">
       <div className="kpi">
         <div className="k">Orchestrators running</div>
         <div className="v mono">{kpis?.running ?? "–"}</div>
@@ -96,8 +98,24 @@ export function RunningCounts({ kpis, filtered }: { kpis: Kpis | null; filtered:
         <div className="v mono">{kpis?.agentsRunning ?? "–"}</div>
         <div className="kpi-cap">{filtered ? "whole fleet" : "forks included"}</div>
       </div>
+      <div className="kpi">
+        <div className="k">Orchestrators with plans</div>
+        <div className="v mono">{plans.orchestrators}</div>
+        <div className="kpi-cap">{filtered ? "whole fleet" : kpis ? `of ${kpis.live} live` : ""}</div>
+      </div>
+      <div className="kpi">
+        <div className="k">Plan steps</div>
+        <div className="v mono">{plans.steps}</div>
+        <div className="kpi-cap">{filtered ? "whole fleet" : `${plans.done} done`}</div>
+      </div>
     </div>
   );
+}
+
+/** What the page says when no card is on it, in each mode (#426). */
+export function blankText(sessions: number, plansOnly: boolean): string {
+  if (!sessions) return "No sessions are active.";
+  return plansOnly ? `None of the ${sessions} active sessions has open steps. Switch to All to list them.` : `None of the ${sessions} active sessions has a task list yet. They are listed below.`;
 }
 
 export function Board(props: {
@@ -130,6 +148,8 @@ export function Board(props: {
     return list;
   }, [props.sessions, props.me, meOn, group, groups]);
   const board = useMemo(() => buildBoard(visible), [visible]);
+  // The plan tiles are whole-fleet: when Me or a group narrows the cards, they are counted over every session the page received.
+  const fleetPlans = useMemo(() => planFigures(visible === props.sessions ? board : buildBoard(props.sessions)), [visible, props.sessions, board]);
 
   // What moved since the last update, for the flash, the order and the announcement.
   const prev = useRef<Map<string, { column: BoardColumn; text: string }> | null>(null);
@@ -193,12 +213,12 @@ export function Board(props: {
   });
 
   const total = BOARD_COLUMNS.reduce((n, c) => n + board.columns[c.key].length, 0);
-  const planned = new Set(BOARD_COLUMNS.flatMap((c) => board.columns[c.key].map((x) => x.session.id))).size;
+  const plansOnly = prefs.view === "plans";
+  const showStrip = !plansOnly && board.withoutSteps.length > 0;
   const [tab, setTab] = useState<BoardColumn>("active");
   // The strip is pinned over the board (#359), so a focused card scrolls into view clear of it: cards read the strip's height from --kb-strip-h.
   const root = useRef<HTMLElement>(null);
   const strip = useRef<HTMLElement>(null);
-  const hasStrip = board.withoutSteps.length > 0;
   useEffect(() => {
     const el = strip.current;
     const host = root.current;
@@ -212,14 +232,19 @@ export function Board(props: {
     const ro = new ResizeObserver(set);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [hasStrip]);
+  }, [showStrip]);
 
   return (
     <section className="kb" aria-label="Board" ref={root}>
       <div className="kb-head">
         <h2>Board</h2>
-        <span className="kb-sum">
-          {planned} {planned === 1 ? "orchestrator" : "orchestrators"} with open steps, {total} steps
+        <span className="kb-seg" role="group" aria-label="Sessions shown">
+          <button type="button" aria-pressed={plansOnly} onClick={() => setPref({ view: "plans" })}>
+            Plans
+          </button>
+          <button type="button" aria-pressed={!plansOnly} onClick={() => setPref({ view: "all" })}>
+            All
+          </button>
         </span>
         <span className="spacer" />
         <span className="kb-seg" role="group" aria-label="Layout">
@@ -246,7 +271,7 @@ export function Board(props: {
           </button>
         )}
       </div>
-      <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} />
+      <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />
       <div className="vh" role="status" aria-label="Board updates">
         {note}
       </div>
@@ -304,10 +329,10 @@ export function Board(props: {
       ) : (
         <div className="kb-blank">
           <b>No plans on the board</b>
-          <p>{visible.length ? `None of the ${visible.length} active sessions has a task list yet. They are listed below.` : "No sessions are active."}</p>
+          <p>{blankText(visible.length, plansOnly)}</p>
         </div>
       )}
-      {board.withoutSteps.length > 0 && (
+      {showStrip && (
         <section className="kb-none" aria-label="Sessions with no open steps" ref={strip}>
           <div className="kb-none-h">
             <b>
