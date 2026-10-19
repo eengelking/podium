@@ -8,7 +8,7 @@ import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago, StateBadge, Version } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
-import { asksBack, LEVEL_LABEL, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
+import { asksBack, LEVEL_LABEL, LEVELS, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
@@ -329,7 +329,14 @@ function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model:
         <b>{r.by}</b> on <b>{r.from.machine}</b> asks to {level === "see" ? "see" : "send to"} <b>{r.to.machine}</b>.
       </>
     );
-    hint = `Asked ${when}. Allowing it gives ${LEVEL_LABEL[level]}.${r.reason ? " Its reason, in its own words:" : ""}`;
+    // Allowing never lowers a right (the server keeps the higher level), so a pair that already has as much is unchanged.
+    const today = model.level(r.fromKey, r.toKey);
+    let gives = `Allowing it gives ${LEVEL_LABEL[level]}.`;
+    if (LEVELS.indexOf(today) >= LEVELS.indexOf(level)) {
+      const [tw, ttail] = rightWords(today, true);
+      gives = `Allowing it changes nothing: today ${r.from.machine} ${tw} ${r.to.machine}${ttail}.`;
+    }
+    hint = `Asked ${when}. ${gives}${r.reason ? " Its reason, in its own words:" : ""}`;
     yes = { how: "allow", label: "Allow" };
   } else {
     const level = r.level ?? "see";

@@ -154,6 +154,8 @@ interface Runtime {
   /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
   build: string | null;
   flushing: boolean;
+  /** A tool's early run is making calls (`flushPeers`); kept apart from `flushing` so a slow report never holds it. */
+  peerFlushing: boolean;
   lastStatus: string | null;
   toastedOk: boolean;
   toastedFail: boolean;
@@ -622,16 +624,14 @@ async function switchSession($: Engine, r: Runtime, newId: string, now: number):
  */
 async function flush($: Engine, peersOnly = false): Promise<void> {
   const r = rt;
-  if (!r || r.flushing) return;
+  if (!r) return;
+  if (peersOnly) return flushPeers($, r);
+  if (r.flushing) return;
   r.flushing = true;
   let now: number | null = null;
   try {
     // Scheduling (heartbeat, backoff) runs on the engine's clock; hooks stamp events with Date.now().
     now = await engineNow($);
-    if (peersOnly) {
-      await sendPeerCalls($, r, now);
-      return;
-    }
     let id: string | null = null;
     try {
       id = await $.session.id();
@@ -653,6 +653,26 @@ async function flush($: Engine, peersOnly = false): Promise<void> {
   } finally {
     r.flushing = false;
     // A tool queued a call after this flush made its calls: flush again soon rather than at the next tick.
+    if (now !== null && !peerCallsHeld(r, now) && peerCalls.some((c) => !c.abandoned)) kickFlush(r);
+  }
+}
+
+/**
+ * A tool's early run: only the tools' calls, under its own guard, so it goes while a regular flush is still reading
+ * usage or posting a slow report, which can take longer than the tool's wait. Both drain the same queue, one call at a
+ * time each, and both hold back while the report backs off.
+ */
+async function flushPeers($: Engine, r: Runtime): Promise<void> {
+  if (r.peerFlushing) return;
+  r.peerFlushing = true;
+  let now: number | null = null;
+  try {
+    now = await engineNow($);
+    await sendPeerCalls($, r, now);
+  } catch (err) {
+    record($, 'flush', err);
+  } finally {
+    r.peerFlushing = false;
     if (now !== null && !peerCallsHeld(r, now) && peerCalls.some((c) => !c.abandoned)) kickFlush(r);
   }
 }
@@ -731,11 +751,15 @@ async function readMachine($: Engine): Promise<MachineInfo | null> {
   if (!who.userName.trim()) return null;
   try {
     const id = await machineId($);
-    const host = await attempt(async () => {
-      const res = await $.process.run(['hostname'], { timeoutMs: 2000 });
-      return res.exitCode === 0 ? hostOf(res.stdout) : null;
-    }, null);
-    return machineInfo(host, id, await readOs($));
+    // The host name and the OS at once: session.start waits on both, and each can take a process's timeout.
+    const [host, os] = await Promise.all([
+      attempt(async () => {
+        const res = await $.process.run(['hostname'], { timeoutMs: 2000 });
+        return res.exitCode === 0 ? hostOf(res.stdout) : null;
+      }, null),
+      readOs($),
+    ]);
+    return machineInfo(host, id, os);
   } catch (err) {
     record($, 'machine', err);
     return null;
@@ -1358,8 +1382,8 @@ function peerCallsHeld(r: Runtime, now: number): boolean {
 /**
  * Has the flush timer run soon for a call a tool queued, not at its next tick, which a long `flushIntervalMs` puts past
  * the tool's wait. The call is still made by a timer, through the flush, with the report's credential and backoff, and
- * never from inside the hook. One kick waits at a time, and a flush already running never starts a second (`flushing`):
- * it makes the call between the outbox's items, or kicks again when it ends.
+ * never from inside the hook. One kick waits at a time, and its run (`flushPeers`) goes even while a regular flush is
+ * running, since that one can spend seconds on usage and a slow report.
  */
 function kickFlush(r: Runtime): void {
   if (r.kick) return;
@@ -1560,6 +1584,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     engineVersion: version?.version ?? null,
     hostSurface: e.surface,
     flushing: false,
+    peerFlushing: false,
     lastStatus: null,
     toastedOk: rt?.toastedOk ?? false,
     toastedFail: rt?.toastedFail ?? false,
@@ -1874,7 +1899,8 @@ export const register: Register = (on, rawOptions) => {
   // Orchestrator messaging (#414): each tool answered here in plain words, recorded by the hook above. A call with an
   // agentId is a subagent's and is refused. With the option off they are never registered; one left from before a
   // reload that turned it off is refused.
-  const peerFallback = { result: 'Podium did not answer in time. Try again in a minute.' };
+  // Reached on the hook's timeout and on any error in the tool, so it claims neither: it says what to check.
+  const peerFallback = { result: 'podium-reporter could not finish this call, so it may not have gone. podium_peers and Podium > Traffic show what arrived; /podium shows the connection.' };
   on('tool.call', { tool: 'mcp__podium-reporter__podium_peers' }, async ($, e) => ({ result: await peersTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_send' }, async ($, e) => ({ result: await sendTool($, e as never) })).catch(() => peerFallback);
   on('tool.call', { tool: 'mcp__podium-reporter__podium_request_access' }, async ($, e) => ({ result: await accessTool($, e as never) })).catch(() => peerFallback);

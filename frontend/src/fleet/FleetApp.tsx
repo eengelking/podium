@@ -354,12 +354,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   );
   useHotkeys((e) => {
     if (e.key === "\\") toggle("top");
+    // A wall left on from before still leaves with Esc, on My reporters too, as its Exit button says.
+    else if (e.key === "Escape" && panes.wall) stopWall();
     // My reporters draws no rail, side panel or wall, so their keys do nothing there; the top bar's still works (#415).
     else if (myReporters) return;
     else if (e.key === "[") toggle("left");
     else if (e.key === "]") toggle("right");
     else if (e.key === "w" || e.key === "W") (panes.wall ? stopWall : () => startWall(false))();
-    else if (e.key === "Escape" && panes.wall) stopWall();
   });
 
   return (

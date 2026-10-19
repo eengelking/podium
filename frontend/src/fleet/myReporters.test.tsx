@@ -169,6 +169,21 @@ describe("the top bar", () => {
     expect(top.hidden).toBe(false);
   });
 
+  it("still leaves a wall left on from the fleet with Esc (#415)", async () => {
+    const server = fakeServer();
+    const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
+    const api = respondApi();
+    const { container, rerender } = render(<FleetView myReporters={false} state={state} respondApi={api} peersApi={server.api} />);
+    await flush();
+    fireEvent.keyDown(document, { key: "w" });
+    expect(container.querySelector(".podium")).toHaveClass("wall-on");
+    rerender(<FleetView myReporters state={state} respondApi={api} peersApi={server.api} />);
+    await flush();
+    expect(container.querySelector(".podium")).toHaveClass("wall-on");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(container.querySelector(".podium")).not.toHaveClass("wall-on");
+  });
+
   it("offers no Wall mode, in the top bar or in the corner once the top bar is hidden (#415)", async () => {
     page();
     await flush();
@@ -201,6 +216,17 @@ describe("Waiting for you", () => {
     const message = within(region).getByRole("group", { name: "A message waiting for approval" });
     expect(message).toHaveTextContent("A message from claude-dashboard on ed-mbp to arm64-check on build-pi waits for your approval.");
     expect(within(message).getByRole("button", { name: "Deliver" })).toBeInTheDocument();
+  });
+
+  it("says an access request changes nothing when the pair already has as much, since allowing never lowers a right (#414)", async () => {
+    const d = baseRead();
+    d.rights.push({ from: "k2", to: "k3", owner: "Ed", level: "send", paused: false, setAt: 1 });
+    d.requests = [{ ...ACCESS, level: "see" }];
+    page({ server: fakeServer(d) });
+    await flush();
+    const access = screen.getByRole("group", { name: "A request for access" });
+    expect(access).toHaveTextContent("Allowing it changes nothing: today ci-runner-01 can send to build-pi.");
+    expect(access).not.toHaveTextContent("Allowing it gives");
   });
 
   it("matches a proposal to its Grid cell by reporter key when two machines share a name (#415)", async () => {

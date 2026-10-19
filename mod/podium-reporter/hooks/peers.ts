@@ -145,7 +145,9 @@ export function sendAnswer(out: SendOutcome, ctx: { owner: string; here: string 
   const machine = oneLine(out.to?.machine);
   const who = machine ? `${name} on ${machine}` : name;
   let text: string;
-  if (out.state === 'sent') text = `Sent to ${who}. It was waiting, so it has the message now. Its answer arrives here as a new message.`;
+  // A paused link holds the message even when the orchestrator waits at its prompt: it does not have it yet.
+  if (out.state === 'sent' && out.paused === true) text = `Waiting for ${who}. The link is paused, so it gets the message once ${ctx.owner} resumes it. Its answer arrives here as a new message.`;
+  else if (out.state === 'sent') text = `Sent to ${who}. It was waiting, so it has the message now. Its answer arrives here as a new message.`;
   else if (out.state === 'turn') text = `Waiting for ${who}. It is working, and gets the message when its turn ends. Nothing more to do.`;
   else if (out.approvalWhy === 'round-trips') {
     const cap = typeof out.roundTrips?.cap === 'number' ? out.roundTrips.cap : null;
@@ -153,7 +155,7 @@ export function sendAnswer(out: SendOutcome, ctx: { owner: string; here: string 
   } else {
     text = `Waiting for ${ctx.owner} to approve it. ${ctx.here ?? 'This machine'} can send to ${machine || name} with approval. It is delivered once ${ctx.owner} says yes, or dropped if ${ctx.owner} declines.`;
   }
-  if (out.paused === true) text += ` The link is paused, so it also waits until ${ctx.owner} resumes it.`;
+  if (out.paused === true && out.state !== 'sent') text += ` The link is paused, so it also waits until ${ctx.owner} resumes it.`;
   if (ctx.redactions > 0) text += ` Before it left this machine, ${ctx.redactions === 1 ? '1 value that looked like a secret was' : `${ctx.redactions} values that looked like secrets were`} replaced with [redacted].`;
   return text;
 }

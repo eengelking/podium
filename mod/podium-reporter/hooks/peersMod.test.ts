@@ -374,7 +374,7 @@ describe('peers: the tools', () => {
     expect(((await call) as { result: string }).result).toBe(SENT_ANSWER)
   })
 
-  test('a call queued while a flush posts its report goes once that flush ends, not at the next tick', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
+  test('a call queued while a flush posts a slow report goes at once, not after that report', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
     const w = world(on)
     w.server.routes['POST /peers/messages'] = SENT
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
@@ -386,15 +386,15 @@ describe('peers: the tools', () => {
     expect(w.server.held).toHaveLength(1)
     const call = $.tool.call({ tool: 'mcp__podium-reporter__podium_send', to: 'Tester@ci-runner-01', text: 'hi' } as never)
     await settle(w)
-    await w.clock.advance(100) // the early flush finds the timer's still running, and leaves the call to it
-    await settle(w)
+    // Still never from inside the hook, but the early run doesn't wait for the report: it can take longer than the tool's wait.
     expect(peerCallsTo(w, '/messages')).toEqual([])
-    w.server.held.shift()!()
-    await settle(w)
     await w.clock.advance(100)
     await settle(w)
+    expect(w.server.held).toHaveLength(1)
     expect(peerCallsTo(w, '/messages')).toHaveLength(1)
     expect(((await call) as { result: string }).result).toBe(SENT_ANSWER)
+    w.server.held.shift()!()
+    await settle(w)
   })
 
   test('podium_peers lists in plain words from Podium\'s directory', { options: ON }, async ($, on) => {

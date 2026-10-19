@@ -872,8 +872,9 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - A message goes out from the flush timer, with the report's credential and backoff, never from inside a hook.
   Each tool queues its call and waits at most 8 seconds, inside the hook's budget. Queuing a call sets a timer
   (`$.clock.after`, 50 ms) that makes the queued calls at once, whatever `flushIntervalMs` is, without posting a
-  report. A flush makes queued calls before the outbox and between its items, never runs twice at once, and runs
-  again when it ends if a call was queued meanwhile. While the report backs off, calls are held back. A call not
+  report. That early run goes even while a regular flush is still reading usage or posting a slow report; a regular
+  flush also makes queued calls before the outbox and between its items. While the report backs off, calls are held
+  back. A call not
   started within the 8 seconds is taken back, and the tool answers that nothing left the machine. `podium_peers` and
   `podium_request_access` go the same way, and the access request's reason is redacted too.
 
@@ -3627,7 +3628,8 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   - **Waiting for you**: one consent box (`.confirm`) per request, naming who asked and what changes, with a
     button per answer. An orchestrator's reason and a message waiting for approval are quoted as text. An Admin's
     proposal is matched to its Grid cell and Board card by reporter key, not by machine name, and says what the
-    pair has today.
+    pair has today. An orchestrator's request says what allowing gives, or that it changes nothing when the pair
+    already has as much, since allowing never lowers a right.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
     there in words), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted

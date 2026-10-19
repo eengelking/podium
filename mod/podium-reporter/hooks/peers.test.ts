@@ -124,6 +124,10 @@ describe('peers: what the tools answer', () => {
     expect(sendAnswer({ state: 'turn', paused: true, to: { name: 'T', machine: 'm' } }, { ...ctx, redactions: 2 })).toMatch(
       /The link is paused, so it also waits until Ed resumes it\. Before it left this machine, 2 values that looked like secrets were replaced with \[redacted\]\.$/,
     )
+    // A paused link holds the message even when the receiver waits at its prompt: never "it has the message now".
+    expect(sendAnswer({ state: 'sent', paused: true, to: { name: 'T', machine: 'm' } }, ctx)).toBe(
+      'Waiting for T on m. The link is paused, so it gets the message once Ed resumes it. Its answer arrives here as a new message.',
+    )
     expect(sendAnswer({ state: 'sent', to: {} }, { ...ctx, redactions: 1 })).toContain('Sent to x.')
     expect(sendAnswer({ state: 'sent', to: {} }, { ...ctx, redactions: 1 })).toContain('1 value that looked like a secret was replaced')
     expect(sendAnswer({ state: 'approval', approvalWhy: 'link', to: { name: 'n' } }, { ...ctx, here: null })).toContain('This machine can send to n with approval.')
