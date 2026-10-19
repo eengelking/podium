@@ -20,6 +20,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **Admin and History draw the same top bar as every other page, and a page's own button is left off it (#468, #470).** Admin had its own header with only "Back to fleet"; it now shows Fleet, Board, History, Traffic and the sign-in controls like the rest, and the locked, disabled and checking screens keep it. History was missing the Traffic button while orchestrator messaging is on. The Admin button no longer shows on Admin, the Traffic button on Traffic, or the My reporters link on My reporters, each page's pill already naming it. See SPEC 8.1.
+  Standards: the top bar leaves off the button for the page you are on, now including Admin, Traffic and My reporters (approved by the maintainer on #468/#470); `StreamTopBar` is the shared bar for pages without a wall.
 - **Plan finish order survives a report with no plan, and a replaced plan starts over (#465).** A plan that went missing for a report and came back unchanged lost every finish number and fell back to plan order; the server now keeps the last plan across the gap. A new plan that reused the old step ids (TaskCreate numbers from 1) inherited the old numbers; plans now count as the same only with equal source, title and step texts, and any other starts over. Database migration 21 adds `plan_kept_json`. See SPEC 8.1 and DECISIONS 38.
 
 ### Added

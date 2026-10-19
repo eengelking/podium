@@ -176,8 +176,8 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
             </svg>
             Signed in as <b>{ctx.me.name}</b>
           </span>
-          {myReporters && (
-            <a className="btn" href="#/me/reporters" aria-current={myReporters.current ? "page" : undefined}>
+          {myReporters && !myReporters.current && (
+            <a className="btn" href="#/me/reporters">
               {/* The count only while something waits: plain "My reporters" at 0 and before the first read (#415). */}
               My reporters{myReporters.count ? ` · ${myReporters.count} waiting` : ""}
             </a>

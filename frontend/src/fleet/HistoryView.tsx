@@ -10,13 +10,9 @@ import { OrchestratorDetail } from "./components/OrchestratorDetail";
 import type { AgentSort } from "./components/AgentTree";
 import { Cost, ModelChip } from "./components/Chips";
 import { FocusView } from "./components/FocusView";
-import { TopBar } from "./components/TopBar";
-import { RespondProvider, useRespond } from "./useRespond";
-import { useFleet, type UseFleetOptions } from "./useFleet";
-import { useMyPeers } from "./useMyPeers";
-import { peersApi as livePeersApi, type PeersApi, type RespondApi } from "./respondApi";
-import { ADMIN } from "./people";
-import { reportersLive } from "./store";
+import { StreamTopBar } from "./components/StreamTopBar";
+import type { UseFleetOptions } from "./useFleet";
+import type { PeersApi, RespondApi } from "./respondApi";
 import { ThemePicker } from "./components/ThemePicker";
 import { PAGE_SIZES, Pager } from "./admin/Pager";
 import { useTheme } from "./useTheme";
@@ -74,36 +70,6 @@ async function getJson<T>(url: string): Promise<T> {
 }
 
 const CONFIG = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
-
-/**
- * The shared top bar (#452). It owns the fleet stream, so the stream's ticks redraw only the bar and not the table below, and
- * gives the bar what it reads: the live reporter count, the connection, and who is signed in. There is no Hide top bar or wall
- * button here: History is a stored view with no wall, and the bar is one line.
- */
-function HistoryTopBar({ base, fleetOptions, respondApi, peersApi }: { base: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
-  const fleet = useFleet({ base, ...fleetOptions });
-  const flagsOn = fleet.features.respond === true && fleet.features["activity-feed"] !== false;
-  return (
-    <RespondProvider flagsOn={flagsOn} diffOn={fleet.features["file-diff"] === true} peersOn={fleet.features["peer-messaging"] === true} api={respondApi}>
-      <HistoryBar fleet={fleet} peersApi={peersApi} />
-    </RespondProvider>
-  );
-}
-
-function HistoryBar({ fleet, peersApi = livePeersApi }: { fleet: ReturnType<typeof useFleet>; peersApi?: PeersApi }) {
-  const signedIn = useRespond()?.me;
-  const me = signedIn?.signedIn && signedIn.name && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? signedIn.name : null;
-  const peersOn = fleet.features["peer-messaging"] === true;
-  const peers = useMyPeers(peersApi, peersOn && me !== null, false);
-  return (
-    <TopBar
-      page="History"
-      phase={fleet.phase}
-      reporters={reportersLive(fleet.sessions, fleet.leaving)}
-      myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: false } : undefined}
-    />
-  );
-}
 
 export interface HistoryViewProps {
   base?: string;
@@ -198,7 +164,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
   return (
     <div className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
-        <HistoryTopBar base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
+        <StreamTopBar page="History" base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
         <div className="banner has-picker">
           <span>
             <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
