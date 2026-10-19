@@ -6,6 +6,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { checkReporter } from './compat.js';
 import { clampPage, likeTerm, type Paged } from './people.js';
 import type { ReporterCompat } from './protocol.js';
+import type { ReporterLookup, ReporterRef } from './peerTypes.js';
 
 /** A reporter heard from within this long is "reporting". */
 export const REPORTING_MS = 2 * 60_000;
@@ -38,6 +39,10 @@ export interface ReporterSeen {
   version: string;
   engineVersion: string | null;
   sessionId: string;
+  /** The machine's OS as the mod read it (#347); absent or null when not sent, and then the stored one is kept. */
+  os?: string | null;
+  /** The reporter's `peers` option (#347); absent or null from a reporter too old to send it, and then the stored one is kept. */
+  peers?: boolean | null;
 }
 
 export interface ReporterRow {
@@ -57,6 +62,10 @@ export interface ReporterRow {
   lastSeenAt: number;
   sessions: number;
   live: number;
+  /** The machine's OS as last reported (#347); null when it never sent one. */
+  os: string | null;
+  /** The `peers` option as last reported (#347); null from a reporter too old to send it. */
+  peers: boolean | null;
 }
 export interface ReporterList extends Paged<ReporterRow> {
   /** When this server started: what "not since restart" is counted from. */
@@ -112,11 +121,15 @@ interface DbReporter {
   engine_version: string | null;
   first_seen_at: number;
   last_seen_at: number;
+  os: string | null;
+  peers: number | null;
   state: ReporterState;
   sessions: number;
   live: number;
   project: string | null;
 }
+
+type DbPeerRef = Pick<DbReporter, 'key' | 'machine_name' | 'owner' | 'credential' | 'os' | 'peers' | 'reporter_version'>;
 
 /** The state, in SQL, from the last report, the time the server started and now. */
 const STATE_SQL = `CASE WHEN r.last_seen_at < :started THEN 'restart'
@@ -205,19 +218,20 @@ export class ReporterStore {
     return [...new Set([own, account, ...apart, ...(known ? [known] : [])])];
   }
 
-  /** Notes one accepted report: creates the reporter or updates it, and links the session. */
-  record(s: ReporterSeen, now: number): void {
+  /** Notes one accepted report: creates the reporter or updates it, and links the session. Returns the reporter's key. */
+  record(s: ReporterSeen, now: number): string {
     const own = ReporterStore.keyOf(s);
     const known = this.knownKey(s);
     const key = known ?? this.accountKey(s);
     // A row made for this address before a known session turned up here is the same reporter: fold it in.
     if (known && known !== own) this.merge(own, known);
     this.stmt(
-      `INSERT INTO reporters (key, kind, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO reporters (key, kind, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, machine_name = excluded.machine_name, source_address = excluded.source_address,
          owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
-         engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at`,
+         engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
+         os = COALESCE(excluded.os, os), peers = COALESCE(excluded.peers, peers)`,
     ).run(
       key,
       s.kind,
@@ -230,8 +244,32 @@ export class ReporterStore {
       s.engineVersion?.slice(0, 64) ?? null,
       now,
       now,
+      s.os?.slice(0, 80) ?? null,
+      s.peers === undefined || s.peers === null ? null : Number(s.peers),
     );
     this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id) VALUES (?, ?)').run(key, s.sessionId);
+    return key;
+  }
+
+  /** Reporters as orchestrator messaging needs them (#347): one by key, and one owner's, compared case-insensitively. */
+  peerLookup(): ReporterLookup {
+    const ref = (r: DbPeerRef): ReporterRef => ({
+      key: r.key,
+      machine: r.machine_name ?? r.key,
+      owner: r.owner,
+      adminSecret: r.credential === ADMIN_SECRET,
+      os: r.os,
+      peers: r.peers === null ? null : r.peers === 1,
+      version: r.reporter_version,
+    });
+    const cols = 'key, machine_name, owner, credential, os, peers, reporter_version';
+    return {
+      get: (key) => {
+        const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ?`).get(key) as DbPeerRef | undefined;
+        return r ? ref(r) : null;
+      },
+      ofOwner: (owner) => (this.stmt(`SELECT ${cols} FROM reporters WHERE lower(owner) = lower(?) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`).all(owner) as unknown as DbPeerRef[]).map(ref),
+    };
   }
 
   /** Moves `from`'s session links to `into`, keeps the earlier first-seen time, and drops `from`. */
@@ -263,6 +301,8 @@ export class ReporterStore {
       lastSeenAt: r.last_seen_at,
       sessions: r.sessions,
       live: r.live,
+      os: r.os,
+      peers: r.peers === null ? null : r.peers === 1,
     };
   }
 

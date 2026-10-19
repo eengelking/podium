@@ -11,6 +11,7 @@
     "endReason": null,
     "resumeId": null,
     "clearedFrom": null,
+    "peers": true,
     "startedAt": 1791645260000,
     "cwd": "/Users/dev/billing-service/.claude/worktrees/invoice-v2",
     "projectRoot": "/Users/dev/billing-service",
@@ -135,7 +136,7 @@
     }
   ],
   "userName": "Dana",
-  "machine": { "name": "dana-mbp", "id": "3f9a1c7e5b20" },
+  "machine": { "name": "dana-mbp", "id": "3f9a1c7e5b20", "os": "macOS 27.0.1" },
   "events": [
     { "id": "5f0c2a8e-1b7d-4c3e-9a51-2d6f8e0b4c11:a2:spawn:1791647400000:1", "t": 1791647400000, "kind": "spawn", "agentId": "a2", "text": "forked fork (inherits Opus xhigh): Port invoice endpoints", "data": null },
     { "id": "5f0c2a8e-1b7d-4c3e-9a51-2d6f8e0b4c11:a3:fail:1791647700000:2", "t": 1791647700000, "kind": "fail", "agentId": "a3", "text": "failed: Backfill dry run (Tool error)", "data": { "class": "Tool error" } },

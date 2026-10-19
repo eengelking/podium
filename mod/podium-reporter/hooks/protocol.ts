@@ -275,6 +275,8 @@ export interface SessionReport {
   asks?: Ask[];
   /** The session id this one continues after a /clear (SPEC 5.8). */
   clearedFrom?: string | null;
+  /** Whether the reporter's `peers` option is on (#347). Absent from a reporter older than the release that adds it, whose sessions are never listed as peers. */
+  peers?: boolean;
 }
 
 export interface Report {
@@ -295,6 +297,8 @@ export interface Report {
 export interface MachineInfo {
   name: string;
   id: string;
+  /** The machine's OS and version as the mod read it, such as `macOS 27.0.1` (#347). Free text, never parsed; absent or null when it could not be read. */
+  os?: string | null;
 }
 /** "1 shell, 1 agent": the counts of a background wait by kind. The activity feed's wait row is read from it. */
 export function backgroundSummary(b: BackgroundWait): string {
@@ -441,6 +445,78 @@ export interface AskClose {
   planApproved?: boolean;
 }
 
+// ---- Orchestrator messaging (#347, SPEC 5.3, 6.2, 7.7) --------------------------------------
+
+export const PEER_LIMITS = {
+  /** The longest message the server takes; the Admin's limit is at most this. */
+  message: 20_000,
+  /** An orchestrator's reason when it asks for a right. */
+  reason: 1000,
+  /** A `to` address, `name@machine`. */
+  address: 200,
+  /** Peer deliveries in one reply. */
+  deliveries: 20,
+  /** Open requests in one reply. */
+  requests: 20,
+  /** The OS string in a report. */
+  os: 80,
+} as const;
+
+/** A right one reporter has to another: none, can see, can send with approval (`ask`), can send. Sending includes seeing. */
+export type PeerLevel = 'none' | 'see' | 'ask' | 'send';
+export const PEER_LEVELS: readonly PeerLevel[] = ['none', 'see', 'ask', 'send'];
+
+/** One orchestrator, as a message names its sender. */
+export interface PeerParty {
+  name: string;
+  machine: string;
+  owner: string;
+}
+
+/**
+ * Something for this session's orchestrator from the messaging side, in the report reply. `message` is another
+ * orchestrator's text, to be framed by the mod (SPEC 5.3); `notice` is Podium's own sentence about one of this
+ * orchestrator's messages or requests (dropped, declined, answered), with `from` null. Its result goes to the peer
+ * result route, never responding's.
+ */
+export interface PeerDelivery {
+  id: string;
+  kind: 'message' | 'notice';
+  at: number;
+  from: PeerParty | null;
+  text: string;
+}
+
+/** What became of a peer delivery, as the mod reports it. */
+export type PeerResult = 'took' | 'queued' | 'refused';
+export const PEER_RESULTS: readonly PeerResult[] = ['took', 'queued', 'refused'];
+
+/** A request the owner answers: an Admin's proposed right, an orchestrator's request for one, a message waiting for approval. */
+export type PeerRequestKind = 'proposal' | 'access' | 'message';
+
+/** How an owner answers a request: allow a proposal or an access request, deliver a message, or decline either. */
+export type PeerAnswer = 'allow' | 'decline' | 'deliver';
+export const PEER_ANSWERS: readonly PeerAnswer[] = ['allow', 'decline', 'deliver'];
+
+/** One open request, as the owner's sessions on the machine it concerns are told of it. A reporter is named by its machine, an orchestrator by its name too. */
+export interface PeerRequest {
+  id: string;
+  kind: PeerRequestKind;
+  at: number;
+  /** The reporter that would get the right, or the sender of a message. */
+  from: { machine: string; name: string | null };
+  /** The reporter the right is to, or the receiver of a message. */
+  to: { machine: string; name: string | null };
+  /** The right proposed or asked for; null for a message. */
+  level: PeerLevel | null;
+  /** Who asked: `Admin` for a proposal, the orchestrator's name for an access request or a message. */
+  by: string;
+  /** An orchestrator's reason, for an access request. */
+  reason: string | null;
+  /** The message's text, for a message waiting for approval. */
+  text: string | null;
+}
+
 /** The reply to an accepted report. Older servers send only some of it. */
 export interface ReportReply {
   ok: true;
@@ -458,6 +534,12 @@ export interface ReportReply {
   respond: boolean;
   /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
   deliveries: Delivery[];
+  /** Whether this session's orchestrator can take part in messaging now (#347): authentication on, the Admin's flag on, the session owned by a person, and the `peers` option on. */
+  peers?: boolean;
+  /** Messages and notices for this orchestrator, oldest first, handed over only while it is idle; empty while `peers` is false. */
+  peerDeliveries?: PeerDelivery[];
+  /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
+  peerRequests?: PeerRequest[];
 }
 
 // <protocol:end>

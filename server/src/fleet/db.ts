@@ -229,6 +229,39 @@ DELETE FROM person_machines WHERE rowid IN (
     // NULL for a release, for a hooks-only session and for an older mod.
     sql: 'ALTER TABLE sessions ADD COLUMN reporter_build TEXT;',
   },
+  {
+    version: 20,
+    // Orchestrator messaging (#347, #412). A reporter's OS and `peers` option as last reported; the rights between one
+    // owner's reporters, one row per direction; each owner's defaults and stricter limits; the requests the owner
+    // answers; and the messages, whose text is kept until 30 days after the last one on its link (SPEC 7.2, 7.7).
+    sql: `
+ALTER TABLE reporters ADD COLUMN os TEXT;
+ALTER TABLE reporters ADD COLUMN peers INTEGER;
+CREATE TABLE IF NOT EXISTS peer_rights (
+  from_key TEXT NOT NULL, to_key TEXT NOT NULL, owner TEXT NOT NULL,
+  level TEXT NOT NULL, paused INTEGER NOT NULL DEFAULT 0, set_at INTEGER NOT NULL,
+  PRIMARY KEY (from_key, to_key)
+);
+CREATE TABLE IF NOT EXISTS peer_owner_settings (
+  owner_lower TEXT PRIMARY KEY, trust INTEGER NOT NULL DEFAULT 0, on_request TEXT NOT NULL DEFAULT 'ask',
+  new_send TEXT NOT NULL DEFAULT 'ask', limits_json TEXT
+);
+CREATE TABLE IF NOT EXISTS peer_requests (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, kind TEXT NOT NULL, from_key TEXT NOT NULL, to_key TEXT NOT NULL,
+  level TEXT, reason TEXT, by TEXT NOT NULL, from_session TEXT, message_id TEXT,
+  created_at INTEGER NOT NULL, closed_at INTEGER, outcome TEXT
+);
+CREATE INDEX IF NOT EXISTS peer_requests_owner ON peer_requests(owner, closed_at);
+CREATE TABLE IF NOT EXISTS peer_messages (
+  id TEXT PRIMARY KEY, owner TEXT NOT NULL, link TEXT NOT NULL, from_key TEXT NOT NULL, to_key TEXT NOT NULL,
+  from_session TEXT NOT NULL, to_session TEXT NOT NULL, from_name TEXT NOT NULL, from_machine TEXT NOT NULL,
+  to_name TEXT NOT NULL, to_machine TEXT NOT NULL, text TEXT NOT NULL, sent_at INTEGER NOT NULL,
+  state TEXT NOT NULL, state_at INTEGER NOT NULL, why TEXT, approved INTEGER NOT NULL DEFAULT 0, handed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS peer_messages_link ON peer_messages(link, sent_at);
+CREATE INDEX IF NOT EXISTS peer_messages_to ON peer_messages(to_session, state);
+CREATE INDEX IF NOT EXISTS peer_messages_from ON peer_messages(from_session);`,
+  },
 ];
 
 export interface SessionRow {

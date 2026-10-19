@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openDb } from './db.js';
-import { ACTIVITY_FEED, FEATURES, FeatureFlags, isFeatureId, RESPOND } from './featureFlags.js';
+import { ACTIVITY_FEED, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND } from './featureFlags.js';
 
 describe('FeatureFlags', () => {
   it('lists the activity feed first, on by default, and Respond from Podium after it, off by default (#206)', () => {
@@ -14,7 +14,12 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false });
+    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false });
+  });
+
+  it('lists Orchestrator messaging, off by default (#347)', () => {
+    expect(FEATURES.find((f) => f.id === PEER_MESSAGING)).toMatchObject({ name: 'Orchestrator messaging', defaultOn: false });
+    expect(new FeatureFlags(openDb(':memory:')).featureOn(PEER_MESSAGING)).toBe(false);
   });
 
   it('turns the off-by-default flag on and off, firing onChange only on a change', () => {

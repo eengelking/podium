@@ -41,6 +41,27 @@ describe('reporters', () => {
     });
   });
 
+  it('returns the key and keeps the last OS and peers option it was sent (#347)', () => {
+    expect(store.record(seen(), START + MIN)).toBe('9f3a1c7d2e40');
+    expect(store.list({}, START + MIN).rows[0]).toMatchObject({ os: null, peers: null });
+    store.record(seen({ os: 'macOS 27.0.1', peers: true }), START + 2 * MIN);
+    store.record(seen({ os: null, peers: null }), START + 3 * MIN);
+    expect(store.list({}, START + 3 * MIN).rows[0]).toMatchObject({ os: 'macOS 27.0.1', peers: true });
+    store.record(seen({ peers: false }), START + 4 * MIN);
+    expect(store.list({}, START + 4 * MIN).rows[0]).toMatchObject({ os: 'macOS 27.0.1', peers: false });
+  });
+
+  it('looks reporters up for messaging, by key and by owner whatever the case (#347)', () => {
+    store.record(seen({ os: 'macOS 27.0.1', peers: true }), START + MIN);
+    store.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: null, owner: 'dana', credential: 'admin secret', sessionId: 's2' }), START + MIN);
+    store.record(seen({ machineId: 'cccccccccccc', owner: 'Alex', sessionId: 's3' }), START + MIN);
+    const look = store.peerLookup();
+    expect(look.get('9f3a1c7d2e40')).toEqual({ key: '9f3a1c7d2e40', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0' });
+    expect(look.get('bbbbbbbbbbbb')).toMatchObject({ machine: 'bbbbbbbbbbbb', adminSecret: true, peers: null });
+    expect(look.get('nope')).toBeNull();
+    expect(look.ofOwner('DANA').map((r) => r.key)).toEqual(['bbbbbbbbbbbb', '9f3a1c7d2e40']);
+  });
+
   it('counts a session once however often it reports', () => {
     for (let i = 0; i < 4; i++) store.record(seen(), START + i * MIN);
     expect(store.list({}, START + 4 * MIN).rows[0]!.sessions).toBe(1);

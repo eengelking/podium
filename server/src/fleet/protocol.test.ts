@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { validateReport, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS } from './protocol.js';
+import { validateReport, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
 import { bareFixture, loadFixture, REPO_ROOT as repo } from './testing.js';
 import { checkReporter } from './compat.js';
 
@@ -43,7 +43,7 @@ describe('protocol', () => {
   it('fixture is a current-format report: supported reporter version and every optional field', () => {
     const f = loadFixture() as { reporter: { version: string }; session: Record<string, unknown>; agents: Record<string, unknown>[]; userName?: string; machine?: unknown };
     expect(checkReporter(f.reporter.version)).toBe('ok');
-    for (const k of ['activityFeed', 'activity', 'background', 'respond', 'asks', 'clearedFrom', 'usageByModel']) expect(f.session).toHaveProperty(k);
+    for (const k of ['activityFeed', 'activity', 'background', 'respond', 'asks', 'clearedFrom', 'usageByModel', 'peers']) expect(f.session).toHaveProperty(k);
     expect(f.agents.some((a) => Array.isArray(a.activity))).toBe(true);
     expect(f.userName).toBeTruthy();
     expect(f.machine).toBeTruthy();
@@ -421,6 +421,28 @@ describe('protocol', () => {
       expect(r.machine?.name).toHaveLength(LIMITS.machineName - 2);
       expect(r.machine?.name.startsWith('eds-mbp ')).toBe(true);
       expect(r.machine?.id).toBe('a1b2c3d4');
+    });
+
+    it('keeps the OS as free text, clamped, and leaves out a blank or missing one (#347)', () => {
+      const f = top(loadFixture());
+      f.machine = { name: 'eds-mbp', id: 'a1b2c3d4', os: `  Debian GNU/Linux 12 (bookworm)\n${'z'.repeat(100)}` };
+      const os = ok(validateReport(f)).machine?.os ?? '';
+      expect(os.startsWith('Debian GNU/Linux 12 (bookworm) ')).toBe(true);
+      expect(os.length).toBeLessThanOrEqual(PEER_LIMITS.os);
+      for (const blank of ['   ', null, undefined]) {
+        f.machine = { name: 'eds-mbp', id: 'a1b2c3d4', os: blank };
+        expect(ok(validateReport(f)).machine).toEqual({ name: 'eds-mbp', id: 'a1b2c3d4' });
+      }
+      f.machine = { name: 'eds-mbp', id: 'a1b2c3d4', os: 26 };
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.machine.os' });
+    });
+
+    it('keeps the peers option, and leaves it out for an older reporter (#347)', () => {
+      const f = top(loadFixture());
+      expect(ok(validateReport(f)).session.peers).toBe(true);
+      expect(ok(validateReport(bareFixture())).session.peers).toBeUndefined();
+      (f.session as Record<string, unknown>).peers = 'yes';
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.peers' });
     });
 
     it('treats a null machine as none', () => {
