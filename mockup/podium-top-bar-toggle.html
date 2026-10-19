@@ -1,0 +1,212 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Top Bar Toggle</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #402. The "Hide top bar" text button becomes a small icon tab at the middle of the bar's bottom edge (chevron up),
+   and the "Show top bar" strip button becomes the same tab at the middle of the screen's top edge (chevron down).
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block.
+   The rules under "Proposed" are what the change would add to fleet.css; everything else is the mockup's own demo chrome. */
+
+/* ---- Proposed ---- */
+/* The tab is 32 x 16. In the open bar it straddles the bottom border: 8px sits in the bar's own 8px bottom padding, 8px over
+   the banner's top padding, so no pill or button is covered and nothing in the bar moves. position:absolute keeps it out of
+   the flex row, so "synced Xs ago" (#91) cannot shift it. */
+.podium .top { position: relative; }
+.podium .tbar-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .tbar-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .tbar-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .tbar-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .top .tbar-tab { top: calc(100% - 8px); }
+/* Hidden: the strip is 8px (was 4px) and the same tab hangs from the very top edge, so it sits 8px over the content below it. */
+.podium .strip { height: 8px; }
+/* Hidden, the tab is transparent (no fill) and always visible: it is never faded out until hover, as the old strip button was.
+   Its chevron and outline are what show; hover or focus fills it. */
+.podium .strip .tbar-tab { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); opacity: 1; }
+.podium .strip .tbar-tab:hover { background: var(--sel); }
+/* The tooltip is the button's own name. It shows on hover and on keyboard focus, below the tab, and never takes the pointer. */
+.podium .tbar-tab[data-tip]::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .tbar-tab:hover::after, .podium .tbar-tab:focus-visible::after, .podium .frame.tip .tbar-tab::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .tbar-tab[data-tip]::after { transition: none; } }
+
+/* ---- Demo chrome ---- */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.page { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+main.page h1 { font-size: 18px; margin: 0 0 4px; }
+main.page h2 { font-size: 13px; font-weight: 600; margin: 32px 0 6px; }
+main.page p { margin: 0 0 8px; color: var(--ink2); max-width: 70ch; }
+main.page li { color: var(--ink2); }
+kbd { font-family: var(--font-mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px; background: var(--raised); color: var(--ink); }
+.cap { margin: 0 0 6px; font-size: 12px; color: var(--muted); max-width: 70ch; }
+.cap b { color: var(--ink); font-weight: 600; }
+/* a stand-in browser window: the page chrome around it is the fake screen edge */
+.podium.frame { position: relative; width: var(--fw, 100%); max-width: 100%; border: 1px solid var(--axis); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 13px; padding-bottom: 28px; }
+.frame .fbody { padding: 12px 16px; display: grid; gap: 8px; color: var(--muted); font-size: 12px; }
+.frame .fbody i { display: block; height: 8px; border-radius: 4px; background: var(--grid); }
+.frame .logo { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--ink); text-decoration: none; }
+.frame .logo svg { width: 18px; height: 18px; }
+.frame .wall-ctl { top: 14px; }
+.frame .sync { font-variant-numeric: tabular-nums; }
+.frame .top, .frame .banner { padding-inline: 16px; }
+.narrow-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.narrow-row > div { min-width: 0; }
+</style>
+
+<div class="demo">
+  <b>Podium Top Bar Toggle (#402)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-theme-name="podium" aria-pressed="true">Podium</button>
+    <button type="button" data-theme-name="nord" aria-pressed="false">Nord</button>
+    <button type="button" data-theme-name="solarized" aria-pressed="false">Solarized</button>
+    <button type="button" data-theme-name="gruvbox" aria-pressed="false">Gruvbox</button>
+  </span>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-page="Fleet" aria-pressed="true">Fleet</button>
+    <button type="button" data-page="Board" aria-pressed="false">Board</button>
+    <button type="button" data-page="Orchestrator" aria-pressed="false">Orchestrator</button>
+    <button type="button" data-page="Admin" aria-pressed="false">Admin</button>
+  </span>
+  <span>Click a tab or press <kbd>\</kbd> to toggle every bar below.</span>
+</div>
+
+<main class="page">
+  <h1>A tab in the middle, not a text button</h1>
+  <p>The text button <b>Hide top bar</b> leaves the bar's button row. In its place, a small tab with a chevron sits in the middle of the bar's bottom edge. Hidden, the same tab hangs from the middle of the screen's top edge with the chevron turned down. Neither shows text. Each shows its name as a tooltip on hover and on keyboard focus.</p>
+
+  <h2>1. Bar open</h2>
+  <p class="cap">The tab straddles the bottom border. <b>Chevron up</b> means hide. The tooltip is forced open here so it can be read; in the app it appears on hover or focus.</p>
+  <div id="f-open"></div>
+
+  <h2>2. Bar hidden</h2>
+  <p class="cap">Only the 8 px strip is left, with the tab hanging from it. <b>Chevron down</b> means show. Nothing in the page moves when the bar returns except the content below it, as today.</p>
+  <div id="f-hidden"></div>
+
+  <h2>3. Hidden, connection lost</h2>
+  <p class="cap">The strip turns red and the alert banner stays, exactly as now. The tab keeps its place and its neutral color, so the alert is not hidden under it.</p>
+  <div id="f-lost"></div>
+
+  <h2>4. Hidden, in Wall mode</h2>
+  <p class="cap">Wall mode's own buttons stay at the top right (out of scope for #402). The tab is in the middle; the two never meet.</p>
+  <div id="f-wall"></div>
+
+  <h2>5. At 400 px</h2>
+  <p class="cap">The bar wraps to two rows. The tab is out of the flow, so it never covers a button, and it stays on the bottom border of the last row.</p>
+  <div class="narrow-row">
+    <div><div id="f-n-open"></div></div>
+    <div><div id="f-n-hidden"></div></div>
+  </div>
+
+  <h2>Rules shown here</h2>
+  <ul style="margin:0;padding-left:18px;max-width:70ch">
+    <li>Both controls are real buttons with no text. Each keeps its <code>aria-label</code> (Hide top bar, Show top bar), <code>aria-expanded</code> and <code>aria-controls="podium-top"</code>, is a Tab stop, and shows a visible focus ring and its tooltip on keyboard focus too.</li>
+    <li>The <kbd>\</kbd> shortcut and the remembered collapsed state are unchanged. The tooltip carries the name only, as the issue asks.</li>
+    <li>The tab is absolutely placed at 50% of the bar, so the logo, page pill, connection pill and the right-hand buttons cannot collide with it and "synced Xs ago" ticking cannot move it.</li>
+    <li>The chevron is an icon, not a color: the open and hidden states differ by its direction, the tooltip and <code>aria-expanded</code>. No new color token is used (<code>--raised</code>, <code>--border</code>, <code>--sel</code>, <code>--ink</code>, <code>--ink2</code>).</li>
+    <li>When the bar is hidden the tab is transparent and always shown. The old strip button was invisible until hover; this one never fades, so it can be found without hunting for it.</li>
+    <li>The hidden strip grows from 4 px to 8 px so the tab hangs from a visible edge. That is the only existing size that changes.</li>
+    <li>The wall-notice rules are not touched. Wall mode, the lost-connection alert with the bar collapsed and the left and right pane controls keep working as they do now.</li>
+    <li>This is a new small component (an icon tab). If the maintainer accepts it, it is added to the standards in the release-prep PR with a <code>Standards:</code> line, not in the feature PR.</li>
+  </ul>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var page = 'Fleet';
+  var seq = 0;
+  var UP = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5"/></svg>';
+  var DOWN = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5"/></svg>';
+  var LOGO = '<svg viewBox="0 0 18 18" aria-hidden="true"><rect x="1" y="9" width="4" height="8" rx="1" fill="currentColor"/><rect x="7" y="2" width="4" height="15" rx="1" fill="currentColor"/><rect x="13" y="6" width="4" height="11" rx="1" fill="currentColor"/></svg>';
+  var frames = [];
+
+  function btn(href, text) { return '<a class="btn" href="' + href + '">' + text + '</a>'; }
+
+  function render(f) {
+    var id = 'podium-top-' + f.n;
+    var hidden = f.hidden;
+    var bar = '';
+    if (!hidden) {
+      bar = '<header class="top" id="' + id + '">' +
+        '<a class="logo" href="#">' + LOGO + 'Podium</a>' +
+        '<span class="pill">' + page + '</span>' +
+        '<span class="pill"><span class="dot running" aria-hidden="true"></span>' + (f.lost ? '' : '4 reporters live') + '</span>' +
+        '<span class="spacer"></span>' +
+        (page !== 'Fleet' ? btn('#', 'Fleet') : '') +
+        (page !== 'Board' ? btn('#', 'Board') : '') +
+        btn('#', 'History') +
+        '<span class="wallbtn">' + btn('#', 'Wall') + '</span>' +
+        btn('#', 'Admin') +
+        '<button type="button" class="tbar-tab" data-toggle aria-label="Hide top bar" data-tip="Hide top bar" aria-expanded="true" aria-controls="' + id + '">' + UP + '</button>' +
+        '</header>';
+    } else {
+      bar = '<div class="strip' + (f.lost ? ' bad' : '') + '">' +
+        '<button type="button" class="tbar-tab" data-toggle aria-label="Show top bar" data-tip="Show top bar" aria-expanded="false" aria-controls="' + id + '">' + DOWN + '</button></div>';
+    }
+    var banner = f.lost
+      ? '<div class="banner bad" role="alert"><b>Lost the connection to the Podium server.</b> Retrying every 2 seconds. Numbers below are frozen until it reconnects.</div>'
+      : (hidden ? '' : '<div class="banner"><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill. <span class="sync">synced 3s ago</span></div>');
+    var wall = (f.wall && hidden) ? '<div class="wall-ctl"><a class="btn" href="#">Exit wall</a></div>' : '';
+    f.el.className = 'podium frame' + (f.tip ? ' tip' : '');
+    if (f.w) f.el.style.setProperty('--fw', f.w);
+    f.el.innerHTML = wall + bar + banner +
+      '<div class="fbody" aria-hidden="true"><i style="width:60%"></i><i style="width:82%"></i><i style="width:48%"></i></div>';
+  }
+
+  function add(host, cfg) {
+    var mount = document.getElementById(host);
+    var el = document.createElement('div');
+    mount.appendChild(el);
+    cfg.el = el; cfg.n = ++seq;
+    frames.push(cfg);
+    el.addEventListener('click', function (e) {
+      if (!e.target.closest('[data-toggle]')) return;
+      cfg.hidden = !cfg.hidden; render(cfg);
+      var t = el.querySelector('[data-toggle]'); if (t) t.focus();
+    });
+    render(cfg);
+  }
+
+  add('f-open', { hidden: false, tip: true });
+  add('f-hidden', { hidden: true, tip: true });
+  add('f-lost', { hidden: true, lost: true });
+  add('f-wall', { hidden: true, wall: true });
+  add('f-n-open', { hidden: false, w: '400px' });
+  add('f-n-hidden', { hidden: true, w: '400px' });
+
+  function rerender() { frames.forEach(render); }
+  function setPressed(sel, key, v) {
+    Array.prototype.forEach.call(document.querySelectorAll(sel), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(key) === v)); });
+  }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); setPressed('[data-mode]', 'data-mode', b.dataset.mode); }
+    if (b.dataset.themeName) {
+      if (b.dataset.themeName === 'podium') root.removeAttribute('data-theme-name'); else root.setAttribute('data-theme-name', b.dataset.themeName);
+      setPressed('[data-theme-name]', 'data-theme-name', b.dataset.themeName);
+    }
+    if (b.dataset.page) { page = b.dataset.page; setPressed('[data-page]', 'data-page', page); rerender(); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '\\' || e.target.closest('input, textarea, select')) return;
+    var next = !frames[0].hidden;
+    frames.forEach(function (f) { f.hidden = next; });
+    rerender();
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

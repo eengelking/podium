@@ -12,6 +12,7 @@ import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
 import { TopBar } from "./components/TopBar";
+import { TopBarTab } from "./components/TopBarTab";
 import { Legend } from "./components/Legend";
 import { Wall } from "./components/Wall";
 import { Board } from "./components/Board";
@@ -367,9 +368,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
         />
         {panes.collapsed.top && (
           <div className={`strip${state.phase === "disconnected" ? " bad" : ""}`}>
-            <button type="button" aria-expanded="false" aria-controls="podium-top" title={"Show the top bar (\\)"} onClick={() => toggle("top")}>
-              Show top bar
-            </button>
+            <TopBarTab collapsed onToggle={() => toggle("top")} />
           </div>
         )}
         {state.phase === "disconnected" ? (

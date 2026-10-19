@@ -3,6 +3,7 @@ import type { Phase } from "../store";
 import { BrandLink } from "./BrandLink";
 import { ConnectionPill } from "./ConnectionPill";
 import { TopBarSignIn } from "./SignIn";
+import { TopBarTab } from "./TopBarTab";
 import { useRespond } from "../useRespond";
 
 export function TopBar(props: { page: string; phase: Phase; reporters: number; outdated?: number; newer?: number; collapsed?: boolean; onCollapse?: () => void; wall?: ReactNode; onFleet?: () => void }) {
@@ -52,11 +53,6 @@ export function TopBar(props: { page: string; phase: Phase; reporters: number; o
       <a className="btn" href="#/history">
         History
       </a>
-      {props.onCollapse && (
-        <button type="button" className="btn" onClick={props.onCollapse} aria-expanded={!props.collapsed} aria-controls="podium-top" title={"Hide the top bar (\\)"}>
-          Hide top bar
-        </button>
-      )}
       {props.wall}
       {admin && (
         <a className="btn" href="#/admin" title="People, groups, reporters, settings, model prices, spend and the Admin log">
@@ -65,6 +61,8 @@ export function TopBar(props: { page: string; phase: Phase; reporters: number; o
       )}
       {/* Sign in to respond (#206) stays at the far end, after a divider, so nothing before it moves on signing in or out. */}
       <TopBarSignIn />
+      {/* Out of the flex row (absolute, at 50% of the bar), so nothing above can collide with it or move it as the pills' text changes (#91, #402). */}
+      {props.onCollapse && <TopBarTab collapsed={false} onToggle={props.onCollapse} />}
     </header>
   );
 }

@@ -21,7 +21,7 @@ body { margin: 0; }
 .podium .app { height: 100%; display: flex; flex-direction: column; }
 .podium .app > .cols { flex: 1; }
 .podium [hidden] { display: none !important; }
-.podium .top { display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
+.podium .top { position: relative; display: flex; align-items: center; gap: 14px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; }
 .podium .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
 .podium .logo svg { width: 20px; height: 20px; }
 .podium a.logo { color: inherit; text-decoration: none; padding: 3px 6px; margin: -3px -6px; border-radius: 6px; }
@@ -58,10 +58,18 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .rail:not(.collapsed) .rail-head { padding-right: 34px; }
 .podium .side:not(.collapsed) #podium-side-body { padding-top: 32px; }
 .podium .rail.collapsed, .podium .side.collapsed { overflow: hidden; }
-.podium .strip { height: 4px; background: var(--axis); position: relative; z-index: 6; }
+.podium .strip { height: 8px; background: var(--axis); position: relative; z-index: 6; }
 .podium .strip.bad { background: var(--crit); }
-.podium .strip button { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 18px; padding: 0 12px; font-size: 11px; line-height: 16px; background: var(--axis); color: var(--ink); border-radius: 0 0 6px 6px; opacity: 0; }
-.podium .strip:hover button, .podium .strip button:focus-visible { opacity: 1; }
+/* The top bar's icon tab (#402). Open, it straddles the bar's bottom border at the middle: 8px sits in the bar's own bottom padding, 8px over the banner's. Hidden, it hangs from the strip at the screen's top edge, transparent and always shown. */
+.podium .tbar-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .top .tbar-tab { top: calc(100% - 8px); }
+.podium .strip .tbar-tab { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
+.podium .tbar-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .tbar-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .tbar-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .tbar-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .tbar-tab:hover::after, .podium .tbar-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .tbar-tab::after { transition: none; } }
 .podium .wall-ctl { position: absolute; top: 6px; right: 10px; z-index: 20; display: flex; gap: 6px; transition: opacity .25s; }
 .podium.idle .wall-ctl { opacity: 0; pointer-events: none; }
 .podium.idle, .podium.idle * { cursor: none !important; }

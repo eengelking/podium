@@ -189,11 +189,13 @@ For a wall display, collapse what you do not need.
 |---|---|---|
 | Left pane | The tab on its edge, labelled "Collapse the left pane" | `[` |
 | Right pane | The tab on its edge, labelled "Collapse the right pane" | `]` |
-| Top bar | The collapse button in the top bar | `\` |
+| Top bar | The chevron tab at the middle of the bar's bottom edge, labelled "Hide top bar" | `\` |
 | All three (**Wall mode**) | The button in the top right | `w` |
 
 - A collapsed pane leaves a slim tab to open it again, and the pane returns to the width you had. Your choice is
   remembered.
+- A hidden top bar leaves a thin strip along the top of the screen with a chevron tab at its middle, labelled "Show top
+  bar". It stays visible; click it, or press `\`, to bring the bar back.
 - Wall mode collapses all three at once and asks the browser for fullscreen. Leave it with `Esc` or the Exit wall mode
   button, and everything goes back to how it was.
 - After a few seconds without movement the cursor and the buttons hide. Move the mouse or press a key to bring them

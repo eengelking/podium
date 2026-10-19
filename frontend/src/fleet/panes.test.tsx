@@ -208,6 +208,25 @@ describe("FleetView collapsible shell", () => {
     expect(screen.getByText(/Live fleet\./)).toBeVisible();
   });
 
+  it("hides and shows the top bar with an icon-only tab that keeps its name, tooltip and aria attributes (#402)", () => {
+    const { container } = render(<FleetView state={stateFrom()} />);
+    const hide = screen.getByRole("button", { name: "Hide top bar" });
+    expect(hide).toHaveTextContent("");
+    expect(hide).toHaveAttribute("data-tip", "Hide top bar");
+    expect(hide).toHaveAttribute("aria-expanded", "true");
+    expect(hide).toHaveAttribute("aria-controls", "podium-top");
+    expect(container.querySelector("#podium-top")!.contains(hide)).toBe(true);
+    fireEvent.click(hide);
+    const show = screen.getByRole("button", { name: "Show top bar" });
+    expect(show).toHaveTextContent("");
+    expect(show).toHaveAttribute("data-tip", "Show top bar");
+    expect(show).toHaveAttribute("aria-expanded", "false");
+    expect(show).toHaveAttribute("aria-controls", "podium-top");
+    expect(screen.queryByRole("button", { name: "Hide top bar" })).toBeNull();
+    fireEvent.click(show);
+    expect(document.getElementById("podium-top")).toBeVisible();
+  });
+
   it("keeps the disconnect alert with everything collapsed, and clears it on reconnect", () => {
     const { rerender } = render(<FleetView state={lost()} />);
     fireEvent.keyDown(document, { key: "w" });
