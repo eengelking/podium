@@ -7,6 +7,7 @@ import {
   canRead,
   cut,
   deliveryWords,
+  keptWords,
   layoutMap,
   lineLabel,
   ordered,
@@ -47,6 +48,12 @@ const msg = (over: Partial<PeerMessage>): PeerMessage => ({ id: "m", from: A, to
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the words", () => {
+  it("names how long a conversation is kept, in the Admin's days", () => {
+    expect(keptWords(30)).toBe("for 30 days");
+    expect(keptWords(1)).toBe("for 1 day");
+    expect(keptWords(undefined)).toBe("for as long as Admin > Settings says");
+  });
+
   it("reads a link both ways, one way either way, or neither", () => {
     expect(waysOf(link(A, B))).toBe("both");
     expect(waysOf(link(A, B, { bToA: false }))).toBe("aToB");

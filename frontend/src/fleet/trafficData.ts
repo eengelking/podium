@@ -34,6 +34,14 @@ export interface TrafficLink {
 export interface TrafficRead {
   enabled: boolean;
   conversations: TrafficLink[];
+  /** Days a conversation is kept after its last message, the Admin's setting; absent while messaging is off. */
+  retainDays?: number;
+}
+
+/** How long a conversation is kept, in words, for the panel's foot and the rules. */
+export function keptWords(days: number | undefined): string {
+  if (days === undefined) return "for as long as Admin > Settings says";
+  return days === 1 ? "for 1 day" : `for ${days} days`;
 }
 
 export type MessageState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";

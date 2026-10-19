@@ -434,6 +434,8 @@ describe('Traffic’s open read (#412)', () => {
     const t = await request(s.app).get('/api/fleet/peers/traffic');
     expect(t.body.enabled).toBe(true);
     expect(t.body.conversations).toEqual([expect.objectContaining({ messages: 1, state: 'active' })]);
+    // How long a conversation is kept, so Traffic can name the days (#417).
+    expect(t.body.retainDays).toBe(30);
     expect((await request(s.app).get('/api/fleet/peers/traffic?range=forever')).status).toBe(400);
     s.fleet.features.setFeature(PEER_MESSAGING, false);
     expect((await request(s.app).get('/api/fleet/peers/traffic')).body).toEqual({ enabled: false, conversations: [] });

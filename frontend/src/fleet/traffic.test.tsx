@@ -77,7 +77,7 @@ function fakeTraffic(start: TrafficLink[] = baseLinks()) {
   let links = structuredClone(start);
   const between = (l: TrafficLink, a: string, b: string) => (l.a.reporterKey === a && l.b.reporterKey === b) || (l.a.reporterKey === b && l.b.reporterKey === a);
   const api = {
-    read: vi.fn(async (_range: string): Promise<TrafficRead> => ({ enabled: true, conversations: structuredClone(links) })),
+    read: vi.fn(async (_range: string): Promise<TrafficRead> => ({ enabled: true, conversations: structuredClone(links), retainDays: 30 })),
     conversation: vi.fn(async (a: string, b: string) => {
       const m = MESSAGES[`${a}|${b}`];
       if (!m) throw new RespondError(404, { error: "no such conversation" });
@@ -260,6 +260,9 @@ describe("the map", () => {
     page();
     await flush();
     expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+    // The Admin's retention, in days, from the open read (#417).
+    expect(within(panel()).getByText(/^Kept for 30 days after the last message\./)).toBeInTheDocument();
+    expect(screen.getByText(/^Conversations are kept for 30 days after their last message/)).toBeInTheDocument();
     fireEvent.click(line(/^claude-dashboard to arm64-check/));
     await flush();
     expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard → to arm64-check");

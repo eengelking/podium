@@ -15,6 +15,7 @@ import {
   canRead,
   deliveryWords,
   hm,
+  keptWords,
   layoutMap,
   linkId,
   ordered,
@@ -135,6 +136,7 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
         loadError={traffic.loadError}
         reload={traffic.reload}
         tick={traffic.data}
+        retainDays={traffic.data.retainDays}
         {...props}
       />
     );
@@ -145,7 +147,7 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
         <div className="apage-in">
           <PageHeader title="Traffic" lead={lead} />
           {body}
-          {traffic.data?.enabled && links.length > 0 && <Rules />}
+          {traffic.data?.enabled && links.length > 0 && <Rules retainDays={traffic.data.retainDays} />}
         </div>
       </div>
     </main>
@@ -177,6 +179,7 @@ interface WhoProps {
   loadError: string | null;
   reload: () => Promise<void>;
   tick: unknown;
+  retainDays: number | undefined;
   me: RespondMe | null;
   sessions: Record<string, SessionView>;
   peers: MyPeers;
@@ -454,7 +457,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
         </div>
       )}
       <div className="feedfoot">
-        <span>Kept after the last message for as long as Admin &gt; Settings says. Secrets were replaced on the sending machine, before the message left it.</span>
+        <span>Kept {keptWords(p.retainDays)} after the last message. Secrets were replaced on the sending machine, before the message left it.</span>
       </div>
     </section>
   );
@@ -543,7 +546,7 @@ function Part({ text, last }: { text: string; last: boolean }) {
   );
 }
 
-function Rules() {
+function Rules({ retainDays }: { retainDays: number | undefined }) {
   return (
     <Section id="rules-h" title="What a line means">
       <Panel>
@@ -552,7 +555,7 @@ function Rules() {
           <li>A message reaches an orchestrator when its turn has ended. Until then it waits, and the conversation says so.</li>
           <li>Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions.</li>
           <li>Secrets, tokens and personal data are replaced on the sending machine before a message leaves it, so this server never holds them.</li>
-          <li>Conversations are kept for as long as Admin &gt; Settings says. Only their owner and an Admin can read them.</li>
+          <li>Conversations are kept {keptWords(retainDays)} after their last message, as Admin &gt; Settings says. Only their owner and an Admin can read them.</li>
         </ul>
       </Panel>
     </Section>

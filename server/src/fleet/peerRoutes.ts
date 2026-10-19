@@ -250,7 +250,8 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   router.get('/peers/traffic', (req, res) => {
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
-    res.json({ enabled: enabled(), conversations: enabled() ? fleet.peers.messages.conversations(range) : [] });
+    if (!enabled()) return void res.json({ enabled: false, conversations: [] });
+    res.json({ enabled: true, conversations: fleet.peers.messages.conversations(range), retainDays: fleet.peers.settings.get().retainDays });
   });
 }
 
