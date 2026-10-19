@@ -388,7 +388,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     function each(sel, fn) { Array.prototype.forEach.call(app.querySelectorAll(sel), fn); }
     each('select[data-a]', function (s) { s.addEventListener('change', function () { set(s.dataset.a, s.dataset.b, s.value); }); });
     each('select[data-move]', function (s) { s.addEventListener('change', function () { set(S.boardOf, s.dataset.move, s.value); }); });
-    each('[data-pause]', function (b) { b.addEventListener('click', function () { var k = b.dataset.pause.replace('|', '>'); PAUSED[k] = !PAUSED[k]; announce(PAUSED[k] ? 'Link paused.' : 'Link resumed.'); render(); }); });
     each('[data-back]', function (b) { b.addEventListener('click', function () { var v = b.dataset.back; if (v !== 'no') RIGHTS[key(S.back.b, S.back.a)] = v; S.back = null; render(); }); });
     each('[data-seg]', function (b) {
       b.addEventListener('click', function () {
