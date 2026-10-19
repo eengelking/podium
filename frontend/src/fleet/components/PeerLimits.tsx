@@ -104,6 +104,11 @@ export interface PeerLimitsProps {
   check?: (key: PeerLimitKey, text: string, max: number, saved: number | undefined) => string | null;
   /** What a valid number is saved as. An owner sends null for exactly the Admin's value ("use the Admin's"). Defaults to the number. */
   toValue?: (key: PeerLimitKey, n: number) => number | null;
+  /**
+   * What is saved now, in the terms `toValue` sends, when the box shows something else: an owner's own value, missing for
+   * none, while the box shows the limit that applies. A typed value saves only when it would change this. Defaults to `values`.
+   */
+  stored?: Partial<Record<PeerLimitKey, number | null>>;
   /** Saves one value. Resolves to null once saved, or to the server's refusal in words; the page then passes the new `values`. */
   onSave: (key: PeerLimitKey, value: number | null) => Promise<string | null>;
   /** The sentence for a refusal from the server. Defaults to the refusal, then `stillApplies`. */
@@ -121,19 +126,23 @@ export function PeerLimits(props: PeerLimitsProps) {
         const k = f.key;
         const max = Math.min(props.max?.[k] ?? PEER_LIMIT_RANGES[k].max, PEER_LIMIT_RANGES[k].max);
         const saved = props.values?.[k];
+        const stored = props.stored ? (props.stored[k] ?? null) : saved;
+        const sends = (n: number) => (props.toValue ? props.toValue(k, n) : n);
         return (
           <PeerLimitRow
             key={k}
             id={`${props.idPrefix}-${k}`}
             field={f}
             saved={saved}
+            stored={stored}
+            unchanged={(n) => sends(n) === stored}
             max={max}
             state={props.state?.[k]}
             action={props.action?.[k]}
             disabled={props.disabled || props.values === null}
             check={(text) => check(k, text, max, saved)}
             onSave={async (n) => {
-              const out = await props.onSave(k, props.toValue ? props.toValue(k, n) : n);
+              const out = await props.onSave(k, sends(n));
               return out === null ? null : refused(k, out, saved);
             }}
           />
@@ -150,6 +159,10 @@ function PeerLimitRow(props: {
   id: string;
   field: PeerLimitField;
   saved: number | undefined;
+  /** What is saved now, as `onSave` would send it; a change to it resets the box as a change to `saved` does. */
+  stored: number | null | undefined;
+  /** Whether saving this valid number would change nothing. */
+  unchanged: (n: number) => boolean;
   max: number;
   state?: string;
   action?: PeerLimitAction;
@@ -157,7 +170,7 @@ function PeerLimitRow(props: {
   check: (text: string) => string | null;
   onSave: (n: number) => Promise<string | null>;
 }) {
-  const { id, field, saved, state, action } = props;
+  const { id, field, saved, stored, state, action } = props;
   const [text, setText] = useState(show(saved));
   const [err, setErr] = useState("");
   const box = useRef<HTMLInputElement>(null);
@@ -171,13 +184,13 @@ function PeerLimitRow(props: {
     setErr("");
     sent.current = null;
     refused.current = null;
-  }, [saved]);
+  }, [saved, stored]);
   const commit = async () => {
     const why = props.check(text);
     if (why) return setErr(why);
     if (refused.current?.text === text) return setErr(refused.current.err);
     setErr("");
-    if (text.trim() === show(saved) || text === sent.current) return;
+    if (props.unchanged(Number(text.trim())) || text === sent.current) return;
     sent.current = text;
     const no = await props.onSave(Number(text.trim()));
     if (no) {

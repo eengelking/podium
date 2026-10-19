@@ -347,6 +347,9 @@ export class PeerRights implements PeerRightsApi {
     if (level === 'none' || !PEER_LEVELS.includes(level)) return refuse(400, 'level must be see, ask or send');
     const p = this.pair(null, from, to);
     if (!p.ok) return p;
+    // A proposal only ever raises a right: the owner lowers or removes one themselves (SPEC 7.7).
+    const stored = this.row(from, to)?.level ?? 'none';
+    if (RANK[level] <= RANK[stored]) return refuse(409, `a proposal must raise the right; it is already ${stored}`);
     const open = this.stmt("SELECT * FROM peer_requests WHERE kind = 'proposal' AND from_key = ? AND to_key = ? AND closed_at IS NULL").get(from, to) as
       | DbRequest
       | undefined;
@@ -440,9 +443,8 @@ export class PeerRights implements PeerRightsApi {
     const p = this.pair(owner, req.fromKey, req.toKey);
     if (!p.ok) return p;
     const level = req.level as PeerLevel;
-    // A proposal is what the Admin set out and the owner accepted, as is; an allowed access request never lowers a right.
-    const applied =
-      req.kind === 'proposal' ? this.write(req.fromKey, req.toKey, p.owner, level, this.row(req.fromKey, req.toKey)?.paused ?? false) : this.raise(req.fromKey, req.toKey, p.owner, level).right;
+    // Neither an accepted proposal nor an allowed access request lowers a right, even one that rose after it was made.
+    const applied = this.raise(req.fromKey, req.toKey, p.owner, level).right;
     const request = this.close(req, 'allowed');
     this.trail({ kind: 'accepted', request, actor });
     return { ok: true, request, applied };

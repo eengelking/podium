@@ -483,6 +483,10 @@ describe('the Admin’s side (#412)', () => {
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ to: MAC.id, level: 'all' })).status).toBe(400);
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ from: MAC.id, to: MAC.id, level: 'see' })).status).toBe(400);
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ to: ALEX_BOX.id, level: 'see' })).status).toBe(403);
+    // A proposal only raises a right: send is already there, so a lower one is refused and stores nothing.
+    const lower = await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ to: MAC.id, level: 'see' });
+    expect(lower.status).toBe(409);
+    expect(lower.body.error).toBe('a proposal must raise the right; it is already send');
     expect((await admin.get('/api/admin/reporters/nope/peers')).status).toBe(404);
   });
 

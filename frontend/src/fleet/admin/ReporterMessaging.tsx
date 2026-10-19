@@ -8,6 +8,7 @@ import { failText, useList } from "./useList";
 import { LayoutSwitch, PausedTag, RightsBoard, RightsGrid, SystemTag, useRightsLayout } from "../components/PeerRights";
 import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerReporter, type PeerRequestView, type PeerRight } from "../peers";
 import { ADMIN } from "../people";
+import { ReadGate } from "../readGate";
 
 export const PEER_FLAG = "peer-messaging";
 
@@ -150,25 +151,30 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
   const lock = useRef(onLocked);
   lock.current = onLocked;
 
-  // Only the newest read started may land, so an interval read taken before a proposal or a pause cannot undo it.
-  const gen = useRef(0);
-  const reload = useCallback(async () => {
-    const at = ++gen.current;
-    try {
-      const d = await loadAdminPeers(api, reporterKey);
-      if (gen.current !== at) return;
-      setData(d);
-      setLoadErr(null);
-    } catch (e) {
-      if (gen.current !== at) return;
-      if (e instanceof AdminError && e.status === 401) lock.current();
-      else setLoadErr(failText(e));
-    }
-  }, [api, reporterKey]);
+  // An interval read taken before a proposal or a pause cannot land over the read after it, and an interval read slower
+  // than the interval still lands (ReadGate).
+  const [gate] = useState(() => new ReadGate());
+  const read = useCallback(
+    async (at: number | null) => {
+      if (at === null) return;
+      try {
+        const d = await loadAdminPeers(api, reporterKey);
+        if (!gate.land(at)) return;
+        setData(d);
+        setLoadErr(null);
+      } catch (e) {
+        if (!gate.land(at)) return;
+        if (e instanceof AdminError && e.status === 401) lock.current();
+        else setLoadErr(failText(e));
+      }
+    },
+    [api, reporterKey, gate],
+  );
+  const reload = useCallback(() => read(gate.fresh()), [read, gate]);
   useEffect(() => {
     if (on) void reload();
   }, [on, reload]);
-  const tick = useCallback(() => void reload(), [reload]);
+  const tick = useCallback(() => void read(gate.poll()), [read, gate]);
   useEvery(every, tick, on);
 
   if (!on) return NONE;
@@ -185,8 +191,8 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
 
   const ref = data.reporter;
   const owner = ref.owner ?? "the owner";
-  const mine = data.effective.filter((e) => e.from === ref.key || e.to === ref.key);
-  const allPaused = mine.length > 0 && mine.every((e) => e.paused);
+  // The read's effective levels are this reporter's pairs only (SPEC 7.1).
+  const allPaused = data.effective.length > 0 && data.effective.every((e) => e.paused);
   const why = cannot(ref);
   const machine = (key: string) => data.peers.find((p) => p.key === key)?.machine ?? key;
 
@@ -220,8 +226,9 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
   });
   const shown = (a: string, b: string): PeerLevel => sent[pairKey(a, b)] ?? model.proposed(a, b) ?? model.level(a, b);
   // An Admin can only propose more than a pair has: No access, and any level below today's, would take a right away,
-  // which is the owner's choice. The server takes any proposal but No access, so the page holds the line.
-  const below = (a: string, b: string): readonly PeerLevel[] => LEVELS.filter((l) => l === "none" || LEVELS.indexOf(l) < LEVELS.indexOf(model.level(a, b)));
+  // which is the owner's choice, and today's own level would change nothing (the server refuses all three). Today's
+  // level stays off while a higher proposal is shown, or choosing it would replace that proposal with nothing.
+  const below = (a: string, b: string): readonly PeerLevel[] => LEVELS.filter((l) => l === "none" || LEVELS.indexOf(l) <= LEVELS.indexOf(model.level(a, b)));
 
   const propose = async (a: string, b: string, level: PeerLevel) => {
     if (below(a, b).includes(level) || level === shown(a, b)) return;

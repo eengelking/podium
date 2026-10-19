@@ -521,6 +521,15 @@ describe("for anyone but the owner", () => {
     expect(state.querySelectorAll(".pm-state.paused")).toHaveLength(1);
   });
 
+  it("says on the map that a link with a message waiting is also paused, keeping the waiting stroke", async () => {
+    page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: true, messages: 3 })]) });
+    await flush();
+    const both = line(/^claude-dashboard and Tester, 3 messages, a message waits for approval, paused\. Show the conversation$/);
+    expect(both.querySelector(".pill text")!.textContent).toBe("3 messages, waiting, paused");
+    expect(both).toHaveClass("edge", "waiting");
+    expect(both).not.toHaveClass("paused");
+  });
+
   it("shows only the waiting approval while the link is not paused", async () => {
     page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: false })]) });
     await flush();
@@ -551,6 +560,54 @@ describe("the open conversation", () => {
     await flush();
     expect(traffic.api.read.mock.calls.length).toBeGreaterThan(1);
     expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+  });
+
+  it("stays put when the selected conversation drops out of the range, as the list reorders", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(T0);
+    const [devTester, devArm, notesTester, devNotes] = baseLinks();
+    let shown: TrafficLink[] = [devTester!, devArm!, notesTester!, devNotes!];
+    const traffic = fakeTraffic();
+    traffic.api.read.mockImplementation(async (range: string) => ({ enabled: true, conversations: range === "30d" ? baseLinks() : structuredClone(shown), retainDays: 30 }));
+    page({ traffic });
+    await flush();
+    fireEvent.click(screen.getByRole("radio", { name: "Last 30 days" }));
+    await flush();
+    fireEvent.click(line(/^infra-notes and Tester/));
+    await flush();
+    expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("infra-notes ⇄ and Tester");
+    // Live sessions has no infra-notes and Tester, so the first conversation shows.
+    shown = [devTester!, devArm!, devNotes!];
+    fireEvent.click(screen.getByRole("radio", { name: "Live sessions" }));
+    await flush();
+    expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+    // claude-dashboard to arm64-check then gets the newest message and leads the next read: the panel stays put.
+    shown = [{ ...devArm!, lastAt: T0 }, devTester!, devNotes!];
+    act(() => vi.advanceTimersByTime(10_000));
+    await flush();
+    expect(line(/^claude-dashboard to arm64-check/)).toBeInTheDocument();
+    expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+  });
+
+  it("lands a read slower than the interval, and starts no other while it is out", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(T0);
+    const traffic = fakeTraffic();
+    const pending: ((r: TrafficRead) => void)[] = [];
+    traffic.api.read.mockImplementation(() => new Promise<TrafficRead>((resolve) => pending.push(resolve)));
+    page({ traffic });
+    await flush();
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(25_000));
+    await flush();
+    pending[0]!({ enabled: true, conversations: baseLinks(), retainDays: 30 });
+    await flush();
+    expect(line(/^claude-dashboard and Tester/)).toBeInTheDocument();
+    expect(traffic.api.read).toHaveBeenCalledTimes(1);
+    // Once it is in, the interval reads again.
+    act(() => vi.advanceTimersByTime(10_000));
+    await flush();
+    expect(traffic.api.read).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a read that started before a newer one from landing over it", async () => {

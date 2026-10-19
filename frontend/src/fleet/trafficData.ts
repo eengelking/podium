@@ -154,18 +154,21 @@ export function stateWords(l: StateOf): string {
   return noRightToSend(l) ? "No right to send" : "Active";
 }
 
-/** The count on a line's label, with the state's word when it is not active. */
+/**
+ * The count on a line's label, with the state's word when it is not active. `state` reads `waiting` on a paused link
+ * while a message also waits for approval, so `paused` adds the pause after it.
+ */
 export function labelWords(l: StateOf & Pick<TrafficLink, "messages">): string {
   const n = plural(l.messages, "message");
-  if (l.state === "waiting") return `${n}, waiting`;
+  if (l.state === "waiting") return l.paused ? `${n}, waiting, paused` : `${n}, waiting`;
   if (l.state === "paused") return `${n}, paused`;
   return noRightToSend(l) ? `${n}, no right to send` : n;
 }
 
-/** A line's accessible name: who, how many, and its state in full words. */
+/** A line's accessible name: who, how many, and its state in full words, the pause too while a message waits. */
 export function lineLabel(l: TrafficLink): string {
   let st: string = l.state;
-  if (l.state === "waiting") st = "a message waits for approval";
+  if (l.state === "waiting") st = l.paused ? "a message waits for approval, paused" : "a message waits for approval";
   else if (noRightToSend(l)) st = "no right to send";
   return `${pairWords(l)}, ${plural(l.messages, "message")}, ${st}. Show the conversation`;
 }

@@ -13,7 +13,8 @@ Tries orchestrator messaging end to end with real Claude Code sessions, against 
 throwaway Podium server built from this checkout. docs/MESSAGING.md has the steps.
 
 up    Makes a work folder and writes a new admin secret to a file in it (mode 0600).
-      Builds the server and the UI if server/dist or frontend/dist is missing. Starts
+      The folder must be new or empty, or one an earlier up made. Builds the server
+      and the UI from this checkout (npm run build), unless --no-build. Starts
       the server on --port in the background, with its database in the work folder,
       and waits for it. Seeds one person with podium-peers-seed.mjs --talk, which turns
       on the messaging, responding and activity-feed flags, adds four made-up machines
@@ -23,16 +24,19 @@ up    Makes a work folder and writes a new admin secret to a file in it (mode 06
       reporting to the server as that person. Prints the URL, the person's name and
       where the token and secret files are, never the token or the secret.
 down  Kills the tmux session, stops the server that up started (by its saved pid) and
-      removes the work folder, unless --keep.
+      removes the work folder, unless --keep. It removes only a folder up made, and
+      never /, the home folder, this checkout, a folder holding it, or a link.
 
 Options:
-  --dir PATH      work folder (default: $TMPDIR/podium-peers-e2e)
+  --dir PATH      work folder (default: $TMPDIR/podium-peers-e2e); not a symbolic link
   --port N        server port (default 4380)
   --sessions N    Claude Code sessions to start, 1 to 20 (default 4: planner, tester,
                   notes, docs, then s5, s6 and so on)
   --model NAME    model for every session (default haiku)
   --tmux NAME     tmux session name (default podium-e2e)
   --name NAME     the person to seed (default Ed)
+  --no-build      up: skip npm run build and serve server/dist and frontend/dist as they
+                  are (faster, but an old build tests old code)
   --keep          down: keep the work folder (database, server log, seed output)
   --dry-run       print what it would do, and start, stop or write nothing
   -h, --help      show this help
@@ -74,6 +78,7 @@ TMUX_NAME=podium-e2e
 PERSON=Ed
 KEEP=0
 DRY=0
+BUILD=1
 
 die() { echo "podium-peers-e2e: $*" >&2; exit 2; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "$1 needs a value (see --help)"; }
@@ -89,6 +94,7 @@ while [[ $# -gt 0 ]]; do
     --tmux) need_value "$@"; TMUX_NAME="$2"; shift ;;
     --name) need_value "$@"; PERSON="$2"; shift ;;
     --keep) KEEP=1 ;;
+    --no-build) BUILD=0 ;;
     --dry-run) DRY=1 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
@@ -96,13 +102,31 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$CMD" ]] || { usage >&2; exit 2; }
-if [[ ! "$PORT" =~ ^[0-9]{1,5}$ ]] || (( PORT < 1 || PORT > 65535 )); then die "--port must be a number from 1 to 65535"; fi
-if [[ ! "$SESSIONS" =~ ^[0-9]{1,2}$ ]] || (( SESSIONS < 1 || SESSIONS > 20 )); then die "--sessions must be a number from 1 to 20"; fi
+# No leading zero: bash reads 09 as octal and fails, and 0099 as 99.
+if [[ ! "$PORT" =~ ^[1-9][0-9]{0,4}$ ]] || (( 10#$PORT > 65535 )); then die "--port must be a number from 1 to 65535"; fi
+if [[ ! "$SESSIONS" =~ ^[1-9][0-9]?$ ]] || (( 10#$SESSIONS > 20 )); then die "--sessions must be a number from 1 to 20"; fi
 [[ "$TMUX_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || die "--tmux takes letters, digits, - and _ only"
 [[ "$MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "--model takes letters, digits, '.', ':', - and _ only"
 # The paths go inside single quotes in the windows' commands.
 [[ "$DIR" != *"'"* && "$ROOT" != *"'"* ]] || die "the work folder and the checkout path cannot hold a single quote"
 [[ "$DIR" = /* ]] || DIR="$PWD/$DIR"
+while [[ "$DIR" == */ && "$DIR" != "/" ]]; do DIR="${DIR%/}"; done
+
+# A folder as the file system resolves it, when it exists.
+real_dir() { (cd -P -- "$1" 2>/dev/null && pwd -P); }
+
+# down removes the work folder whole, so it can never be /, the home folder, this checkout or a folder that holds it,
+# whatever marker is in it, nor a link, whose target up wrote to and which rm would not follow.
+guard_dir() {
+  [[ ! -L "$DIR" ]] || die "the work folder cannot be a symbolic link: $DIR"
+  local real home root
+  real="$(real_dir "$DIR")" || return 0
+  home="$(real_dir "${HOME:-/}")" || home="/"
+  root="$(real_dir "$ROOT")"
+  [[ "$real" != "/" && "$real" != "$home" ]] || die "the work folder cannot be / or the home folder: $DIR"
+  [[ "$root" != "$real" && "$root" != "$real"/* ]] || die "the work folder cannot be this checkout or a folder that holds it: $DIR"
+}
+guard_dir
 
 URL="http://127.0.0.1:$PORT"
 SECRET_FILE="$DIR/admin-secret"
@@ -132,6 +156,11 @@ server_pid() {
 }
 
 up() {
+  # down removes a folder that holds the marker, so up writes it only into a folder that is new, empty, or its own.
+  if [[ -e "$DIR" ]]; then
+    [[ -d "$DIR" ]] || die "the work folder $DIR is not a folder"
+    if [[ ! -f "$DIR/$MARKER" && -n "$(ls -A "$DIR")" ]]; then die "the work folder $DIR is not empty and an earlier up did not make it; pick a new or empty folder"; fi
+  fi
   if (( ! DRY )); then
     local tool
     for tool in node curl git tmux claude; do
@@ -154,9 +183,13 @@ up() {
     node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))" >"$SECRET_FILE"
   fi
 
-  if [[ ! -f "$ROOT/server/dist/index.js" || ! -f "$ROOT/frontend/dist/index.html" ]]; then
-    step "build the server and the UI (npm run build)"
+  # Built every time, so the server and the UI are this checkout's code, not an older dist's.
+  if (( BUILD )); then
+    step "build the server and the UI from this checkout (npm run build), log $DIR/build.log"
     if (( ! DRY )); then (cd "$ROOT" && npm run build >"$DIR/build.log" 2>&1) || { tail -40 "$DIR/build.log" >&2; exit 1; }; fi
+  else
+    step "skip the build (--no-build) and serve server/dist and frontend/dist as they are"
+    if (( ! DRY )) && [[ ! -f "$ROOT/server/dist/index.js" || ! -f "$ROOT/frontend/dist/index.html" ]]; then die "--no-build, but server/dist or frontend/dist is missing; run up without it"; fi
   fi
 
   step "start the server from $ROOT on $URL, database $DIR/podium.sqlite, log $LOG_FILE, pid in $PID_FILE"

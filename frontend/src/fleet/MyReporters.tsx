@@ -329,6 +329,7 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
             action={limitAction}
             check={ownerLimitCheck}
             toValue={(k, n) => (n === data.limits.server[k as OwnerLimitKey] ? null : n)}
+            stored={data.defaults.limits}
             onSave={saveLimit}
           />
           </div>

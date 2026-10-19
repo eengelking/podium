@@ -3,6 +3,7 @@
 // signed-out browser never asks for text, let alone receives it.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PeerMessage, TrafficApi, TrafficLink, TrafficRange, TrafficRead } from "./trafficData";
+import { ReadGate } from "./readGate";
 import { failReason } from "./useMyPeers";
 
 /** How often Traffic reads again while it is open. */
@@ -21,35 +22,39 @@ export function useTraffic(api: TrafficApi, on: boolean, range: TrafficRange): T
   const [data, setData] = useState<TrafficRead | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [skew, setSkew] = useState(0);
-  // Each read takes a number, and only the newest one started may land: a read for a range no longer chosen, or an
-  // interval read that started before a Pause link's read, must not land over a newer one.
-  const gen = useRef(0);
+  // A read for a range no longer chosen, or an interval read that started before a Pause link's read, must not land
+  // over a newer one; and an interval read slower than the interval must still land (ReadGate).
+  const [gate] = useState(() => new ReadGate());
 
-  const reload = useCallback(async () => {
-    const at = ++gen.current;
-    try {
-      const d = await api.read(range);
-      if (gen.current !== at) return;
-      setData(d);
-      if (typeof d.serverTime === "number") setSkew(d.serverTime - Date.now());
-      setLoadError(null);
-    } catch (err) {
-      if (gen.current !== at) return;
-      setLoadError(failReason(err));
-    }
-  }, [api, range]);
+  const read = useCallback(
+    async (at: number | null) => {
+      if (at === null) return;
+      try {
+        const d = await api.read(range);
+        if (!gate.land(at)) return;
+        setData(d);
+        if (typeof d.serverTime === "number") setSkew(d.serverTime - Date.now());
+        setLoadError(null);
+      } catch (err) {
+        if (!gate.land(at)) return;
+        setLoadError(failReason(err));
+      }
+    },
+    [api, range, gate],
+  );
+  const reload = useCallback(() => read(gate.fresh()), [read, gate]);
 
   useEffect(() => {
     if (!on) return;
     void reload();
     const t = setInterval(() => {
-      if (document.visibilityState !== "hidden") void reload();
+      if (document.visibilityState !== "hidden") void read(gate.poll());
     }, TRAFFIC_MS);
     return () => {
       clearInterval(t);
-      gen.current++;
+      gate.drop();
     };
-  }, [on, reload]);
+  }, [on, read, reload, gate]);
 
   return { data, loadError, skew, reload };
 }

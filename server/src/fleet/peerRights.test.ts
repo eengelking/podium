@@ -314,6 +314,22 @@ describe('peer rights: proposals', () => {
     expect(rights.propose('mac', 'linux', 'none', ADMIN)).toEqual({ ok: false, status: 400, error: 'level must be see, ask or send' });
     expect(rights.propose('mac', 'linux', 'all' as PeerLevel, ADMIN)).toEqual({ ok: false, status: 400, error: 'level must be see, ask or send' });
   });
+
+  it('refuses a proposal at or below the stored right, and keeps the open one', () => {
+    const LOWER = { ok: false, status: 409, error: 'a proposal must raise the right; it is already ask' };
+    rights.setRight('Dana', 'mac', 'linux', 'ask', DANA);
+    const open = rights.propose('mac', 'linux', 'send', ADMIN);
+    if (!open.ok) throw new Error('refused');
+    trails = [];
+    expect(rights.propose('mac', 'linux', 'ask', ADMIN)).toEqual(LOWER);
+    expect(rights.propose('mac', 'linux', 'see', ADMIN)).toEqual(LOWER);
+    expect(rights.openRequests('Dana')).toEqual([open.request]);
+    expect(trails).toEqual([]);
+    // Paused or not, the stored level is what counts; the other direction has none, so any level raises it.
+    rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
+    expect(rights.propose('mac', 'linux', 'ask', ADMIN)).toEqual(LOWER);
+    expect(rights.propose('linux', 'mac', 'see', ADMIN)).toMatchObject({ ok: true });
+  });
 });
 
 describe('peer rights: requests for access', () => {
@@ -436,16 +452,23 @@ describe('peer rights: answering', () => {
   });
 
   it('applies an allowed proposal as proposed, keeping a pause, closes it and trails it', () => {
-    rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
+    rights.setRight('Dana', 'mac', 'linux', 'see', DANA);
     rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
-    const p = proposal('see');
+    const p = proposal('ask');
     trails = [];
     t = START + 50;
     const r = rights.answer(p.id, 'dana', 'allow', DANA);
-    expect(r).toMatchObject({ ok: true, request: { outcome: 'allowed', closedAt: START + 50 }, applied: { level: 'see', paused: true } });
-    expect(rights.effective('mac', 'linux')).toEqual({ level: 'see', paused: true });
+    expect(r).toMatchObject({ ok: true, request: { outcome: 'allowed', closedAt: START + 50 }, applied: { level: 'ask', paused: true } });
+    expect(rights.effective('mac', 'linux')).toEqual({ level: 'ask', paused: true });
     expect(trails).toEqual([{ kind: 'accepted', request: expect.objectContaining({ id: p.id, outcome: 'allowed' }), actor: DANA }]);
     expect(rights.openRequests('Dana')).toEqual([]);
+  });
+
+  it('never lowers a right that rose after the proposal was made', () => {
+    const p = proposal('ask');
+    rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
+    expect(rights.answer(p.id, 'Dana', 'allow', DANA)).toMatchObject({ ok: true, request: { outcome: 'allowed' }, applied: { level: 'send' } });
+    expect(rights.effective('mac', 'linux').level).toBe('send');
   });
 
   it('applies an allowed access request without lowering a higher right', () => {
