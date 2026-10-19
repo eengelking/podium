@@ -117,6 +117,13 @@ describe("rail paging (#242)", () => {
     expect(names()).toHaveLength(5);
   });
 
+  it("lists the sessions that arrive after the list was empty (#420)", () => {
+    const { rerender } = render(view([]));
+    expect(names()).toEqual([]);
+    rerender(view(fleet(2)));
+    expect(names()).toEqual(["proj-1", "proj-2"]);
+  });
+
   it("repeats a band's header on the page that continues it, and counts the whole band", () => {
     const sessions = fleet(12, (i) => ({ owner: i < 10 ? "Ed E." : "Priya N." }));
     const units = buildUnits(sessions, "people", [], null);

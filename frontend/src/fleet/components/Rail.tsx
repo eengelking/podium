@@ -158,7 +158,8 @@ export function Rail(props: {
   // Page only when every row would not fit; the pager (and the line below it) take their room out of the rows'.
   const fit = size ? (need > size.room ? size.room - PAGER_H - NOTE_H : Infinity) : Infinity;
   const pages: RailPage[] = paginateRail(blocks, { rowH: size?.rowH ?? ROW_H, bandH: size?.bandH ?? BAND_H, room: fit });
-  const at = Math.min(page, pages.length - 1);
+  // An empty list has no pages: stay on the first, so the page never goes negative and hides rows that arrive later (#420).
+  const at = Math.max(0, Math.min(page, pages.length - 1));
   const shown = pages[at]?.slices ?? [];
   const range = (n: number) => ({ from: pages.slice(0, n).reduce((sum, p) => sum + p.rows, 0), shown: pages[n]?.rows ?? 0 });
   const selPage = props.selected ? pageOf(blocks, pages, props.selected) : -1;
