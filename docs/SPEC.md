@@ -3698,13 +3698,17 @@ still hides and shows the top bar.
   each other:
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
     paused; the label has the message count, and for waiting or paused also an icon and the word;
+  - an active link where neither side can send (both `aToB` and `bToA` false, as after Remove link) keeps the solid
+    line, and its label adds No access's struck circle and "no right to send"; the line's accessible name ends
+    ", no right to send". The browser works this out from `aToB` and `bToA`; the server's `state` stays `active`;
   - an arrow at one end when only that way can send, and a thicker line for more messages, as a second signal;
   - each label sits at the first point along its curve that clears the other labels and the nodes;
   - a legend for the styles, which also names the owner's machines with messaging off.
 - Each line is a link (focus, Enter). Selecting it opens the conversation beside the map (below it at 900 px and
   narrower):
   - the pair and their machines, its state (on a paused link where a message also waits for approval, both the
-    waiting state and Paused, here and in the Table), **Pause link** or **Resume link**, and **Remove link…** (a
+    waiting state and Paused; "No right to send" with No access's icon in place of Active when neither side can
+    send; the same in the Table), **Pause link** or **Resume link**, and **Remove link…** (a
     confirmation that names the two machines and what goes; once removed, it says neither machine can send to the
     other, or for two orchestrators on one machine that they cannot message each other);
   - the round trips used against the limit, or on a one-way link which side cannot answer and that the right is

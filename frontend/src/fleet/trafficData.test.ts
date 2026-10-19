@@ -8,11 +8,14 @@ import {
   cut,
   deliveryWords,
   keptWords,
+  labelWords,
   layoutMap,
   lineLabel,
+  noRightToSend,
   ordered,
   pairWords,
   pillWidth,
+  stateWords,
   tripsWords,
   trafficApi,
   waysOf,
@@ -74,6 +77,30 @@ describe("the words", () => {
     expect(whereWords(link(A, B))).toBe("mac and linux");
     expect(lineLabel(link(A, B, { messages: 1 }))).toBe("alpha and beta, 1 message, active. Show the conversation");
     expect(lineLabel(link(A, B, { state: "waiting", messages: 3 }))).toBe("alpha and beta, 3 messages, a message waits for approval. Show the conversation");
+  });
+
+  it("names a link where neither side can send, in place of Active only", () => {
+    const none = link(A, B, { aToB: false, bToA: false, messages: 2 });
+    expect(noRightToSend(none)).toBe(true);
+    expect(stateWords(none)).toBe("No right to send");
+    expect(labelWords(none)).toBe("2 messages, no right to send");
+    expect(lineLabel(none)).toBe("alpha and beta, 2 messages, no right to send. Show the conversation");
+    // A paused or waiting state stays as it is.
+    for (const over of [{ paused: true }, { state: "paused" as const }, { state: "waiting" as const }]) {
+      const l = link(A, B, { aToB: false, bToA: false, ...over });
+      expect(noRightToSend(l)).toBe(false);
+      expect(stateWords(l)).not.toBe("No right to send");
+    }
+    expect(noRightToSend(link(A, B, { bToA: false }))).toBe(false);
+    expect(stateWords(link(A, B))).toBe("Active");
+    expect(labelWords(link(A, B))).toBe("1 message");
+  });
+
+  it("makes room on the label for the icon of a link where neither side can send", () => {
+    const l = link(A, B, { aToB: false, bToA: false });
+    const e = layoutMap([l]).edges[0]!;
+    expect(e.label).toBe("1 message, no right to send");
+    expect(e.pill.w).toBe(pillWidth("1 message, no right to send", true));
   });
 
   it("says where each message is", () => {

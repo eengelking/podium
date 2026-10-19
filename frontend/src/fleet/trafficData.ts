@@ -137,22 +137,36 @@ export function whereWords(l: TrafficLink): string {
   return x.reporterKey === y.reporterKey ? `${x.machine}, same machine` : `${x.machine} and ${y.machine}`;
 }
 
+type StateOf = Pick<TrafficLink, "state" | "aToB" | "bToA" | "paused">;
+
+/**
+ * An active link that neither side can send on, as after Remove link: it reads "No right to send" in place of Active.
+ * Worked out here from `aToB` and `bToA`; a paused or waiting link keeps its own state.
+ */
+export function noRightToSend(l: StateOf): boolean {
+  return l.state === "active" && l.paused !== true && !l.aToB && !l.bToA;
+}
+
 /** A link's state as a word, for the panel and the table. */
-export function stateWords(l: Pick<TrafficLink, "state">): string {
+export function stateWords(l: StateOf): string {
   if (l.state === "waiting") return "A message waits for approval";
-  return l.state === "paused" ? "Paused" : "Active";
+  if (l.state === "paused") return "Paused";
+  return noRightToSend(l) ? "No right to send" : "Active";
 }
 
 /** The count on a line's label, with the state's word when it is not active. */
-export function labelWords(l: Pick<TrafficLink, "messages" | "state">): string {
+export function labelWords(l: StateOf & Pick<TrafficLink, "messages">): string {
   const n = plural(l.messages, "message");
   if (l.state === "waiting") return `${n}, waiting`;
-  return l.state === "paused" ? `${n}, paused` : n;
+  if (l.state === "paused") return `${n}, paused`;
+  return noRightToSend(l) ? `${n}, no right to send` : n;
 }
 
 /** A line's accessible name: who, how many, and its state in full words. */
 export function lineLabel(l: TrafficLink): string {
-  const st = l.state === "waiting" ? "a message waits for approval" : l.state;
+  let st: string = l.state;
+  if (l.state === "waiting") st = "a message waits for approval";
+  else if (noRightToSend(l)) st = "no right to send";
   return `${pairWords(l)}, ${plural(l.messages, "message")}, ${st}. Show the conversation`;
 }
 
@@ -357,7 +371,7 @@ export function layoutMap(input: readonly TrafficLink[]): MapLayout {
     }
     const d = `M${p[0][0]} ${p[0][1]} C ${p[1][0]} ${p[1][1]}, ${p[2][0]} ${p[2][1]}, ${p[3][0]} ${p[3][1]}`;
     const label = labelWords(l);
-    const w = pillWidth(label, l.state !== "active");
+    const w = pillWidth(label, l.state !== "active" || noRightToSend(l));
     let pill: Box | null = null;
     for (const t of TRIES) {
       const [mx, my] = bezier(p[0], p[1], p[2], p[3], t);

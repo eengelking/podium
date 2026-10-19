@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
-import { PausedTag, Segmented } from "./components/PeerRights";
+import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
 import { stateKind, type StateKind } from "./components/Chips";
 import { IconCheck, IconX } from "./components/Icons";
 import { TrafficLegend, TrafficMap, type NodeState } from "./components/TrafficMap";
@@ -18,6 +18,7 @@ import {
   keptWords,
   layoutMap,
   linkId,
+  noRightToSend,
   ordered,
   plural,
   RANGES,
@@ -87,10 +88,13 @@ const DELIVERY_ICON: Record<DeliveryIcon, React.ReactNode> = { ok: <IconCheck />
  */
 function StateTag({ link, paused = link.paused === true }: { link: TrafficLink; paused?: boolean }) {
   if (link.state === "paused" || (paused && link.state !== "waiting")) return <PausedTag />;
+  let icon: React.ReactNode = ICON_ACTIVE;
+  if (link.state === "waiting") icon = ICON_CLOCK;
+  else if (noRightToSend(link)) icon = LEVEL_ICON.none;
   return (
     <>
       <span className={`pm-state${link.state === "waiting" ? " waiting" : ""}`}>
-        {link.state === "waiting" ? ICON_CLOCK : ICON_ACTIVE}
+        {icon}
         <span>{stateWords(link)}</span>
       </span>
       {paused && (

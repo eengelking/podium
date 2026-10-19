@@ -399,6 +399,30 @@ describe("the conversation, for its owner", () => {
     expect(panel()).toHaveTextContent("Neither can send now. ed-mbp and ci-runner-01 have no right to send to each other.");
   });
 
+  it("names a link neither side can send on 'No right to send', in the header, the Table and the map, never Active", async () => {
+    page();
+    await flush();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Remove link…" }));
+    fireEvent.click(within(panel()).getByRole("button", { name: "Remove link" }));
+    await flush();
+    const sub = panel().querySelector(".sub") as HTMLElement;
+    expect(within(sub).getByText("No right to send")).toBeInTheDocument();
+    expect(within(sub).queryByText("Active")).toBeNull();
+    // The No access glyph from the rights, in the link-state tag, with no class of its own.
+    expect(sub.querySelector(".pm-state svg path")).toHaveAttribute("d", "M4.2 11.8l7.6-7.6");
+    const removed = line(/^claude-dashboard and Tester, 5 messages, no right to send\. Show the conversation$/);
+    expect(removed).toHaveTextContent("5 messages, no right to send");
+    expect(removed.querySelector(".ic")).not.toBeNull();
+    // The stroke stays the active one.
+    expect(removed).toHaveClass("edge", "active");
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "View" })).getByRole("radio", { name: "Table" }));
+    await flush();
+    const rows = within(screen.getByRole("region", { name: "Links" })).getAllByRole("row").slice(1);
+    expect(rows[0]!.querySelectorAll("td")[4]).toHaveTextContent("No right to send");
+    // A paused link keeps Paused, even once neither side can send.
+    expect(rows[3]!.querySelectorAll("td")[4]).toHaveTextContent("Paused");
+  });
+
   it("names the one machine when both ends share it, and says a failed removal changed nothing", async () => {
     const traffic = fakeTraffic();
     traffic.api.remove.mockRejectedValueOnce(new RespondError(403, { error: "not your reporter" }));
