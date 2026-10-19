@@ -7,7 +7,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import { gridCellId, VIEW_KEY } from "./components/PeerRights";
-import type { PeerLevel, PeerReporter, PeerRequestView, PeersRead } from "./peers";
+import type { PeerLevel, PeerLimitsView, PeerReporter, PeerRequestView, PeersRead } from "./peers";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -67,8 +67,18 @@ function fakeServer(start: PeersRead = baseRead()) {
       if (level !== "none") db.rights.push({ from, to, owner: "Ed", level, paused: false, setAt: 2 });
       return { ok: true as const };
     }),
-    setDefaults: vi.fn(async (patch: Partial<PeersRead["defaults"]>) => {
-      db.defaults = { ...db.defaults, ...patch };
+    setDefaults: vi.fn(async (patch: Parameters<PeersApi["setDefaults"]>[0]) => {
+      const { limits, ...rest } = patch;
+      // As the server's patchLimits: null removes the owner's own value, and one above the Admin's is refused.
+      const own: Partial<PeerLimitsView> = { ...db.defaults.limits };
+      for (const [k, v] of Object.entries(limits ?? {}) as [keyof PeerLimitsView, number | null][]) {
+        if (v === null) delete own[k];
+        else if (v > db.limits.server[k]) throw new RespondError(400, { error: `limit above the Admin's: ${k}` });
+        else own[k] = v;
+      }
+      db.defaults = { ...db.defaults, ...rest, limits: own };
+      const s = db.limits.server;
+      db.limits = { server: s, effective: { roundTrips: Math.min(s.roundTrips, own.roundTrips ?? s.roundTrips), perMinute: Math.min(s.perMinute, own.perMinute ?? s.perMinute), maxChars: Math.min(s.maxChars, own.maxChars ?? s.maxChars) } };
       return { ok: true as const, defaults: db.defaults };
     }),
     answer: vi.fn(async (id: string, how: string) => {
@@ -393,6 +403,153 @@ describe("Defaults", () => {
     fireEvent.click(within(screen.getByRole("radiogroup", { name: "A new right to send starts as" })).getByRole("radio", { name: "Without approval" }));
     await flush();
     expect(server.api.setDefaults).toHaveBeenCalledWith({ newSend: "send" });
+  });
+});
+
+describe("Defaults: the owner's stricter limits (#436)", () => {
+  const TRIPS = "Round trips before a person approves";
+  const RATE = "Messages per minute on a link";
+  const SIZE = "Longest message, in characters";
+  const box = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
+  const type = async (label: string, text: string, how: "blur" | "enter" = "blur") => {
+    fireEvent.change(box(label), { target: { value: text } });
+    if (how === "enter") fireEvent.keyDown(box(label), { key: "Enter" });
+    else fireEvent.blur(box(label));
+    await flush();
+  };
+  const withLimits = (own: Partial<PeerLimitsView>, server: PeerLimitsView = { roundTrips: 10, perMinute: 6, maxChars: 20000 }) => {
+    const d = baseRead();
+    d.defaults.limits = own;
+    d.limits = {
+      server,
+      effective: { roundTrips: Math.min(server.roundTrips, own.roundTrips ?? server.roundTrips), perMinute: Math.min(server.perMinute, own.perMinute ?? server.perMinute), maxChars: Math.min(server.maxChars, own.maxChars ?? server.maxChars) },
+    };
+    return fakeServer(d);
+  };
+
+  it("shows the three limits, each using the Admin's, with the Admin's value as the most", async () => {
+    page();
+    await flush();
+    expect(box(TRIPS).value).toBe("10");
+    expect(box(RATE).value).toBe("6");
+    expect(box(SIZE).value).toBe("20000");
+    expect(box(TRIPS)).toHaveAttribute("max", "10");
+    expect(box(SIZE)).toHaveAttribute("max", "20000");
+    expect(box(TRIPS)).toHaveAccessibleDescription("Uses the Admin's limit, 10.");
+    expect(screen.getByText("Uses the Admin's limit, 20,000.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /use the Admin's limit/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/The Admin sets the most each limit can be on this server, and yours can only be lower\./)).toBeInTheDocument();
+  });
+
+  it("lowers each limit as the owner's own, announces it, and a reload shows it", async () => {
+    const { server, unmount } = page();
+    await flush();
+    await type(TRIPS, "4");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { roundTrips: 4 } });
+    await type(RATE, "3", "enter");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { perMinute: 3 } });
+    await type(SIZE, "8000");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { maxChars: 8000 } });
+    expect(box(TRIPS)).toHaveAccessibleDescription("Yours, stricter than the Admin's limit, 10.");
+    expect(screen.getByText("Longest message, in characters: 8,000, yours.")).toHaveAttribute("role", "status");
+    expect(server.db.defaults.limits).toEqual({ roundTrips: 4, perMinute: 3, maxChars: 8000 });
+    unmount();
+    page({ server });
+    await flush();
+    expect(box(TRIPS).value).toBe("4");
+    expect(box(RATE).value).toBe("3");
+    expect(box(SIZE).value).toBe("8000");
+    expect(screen.getAllByRole("button", { name: /use the Admin's limit/i })).toHaveLength(3);
+  });
+
+  it("saves once for Enter and then leaving the box, and sends nothing when the value did not change", async () => {
+    const { server } = page();
+    await flush();
+    fireEvent.change(box(TRIPS), { target: { value: "4" } });
+    fireEvent.keyDown(box(TRIPS), { key: "Enter" });
+    fireEvent.blur(box(TRIPS));
+    await flush();
+    expect(server.api.setDefaults).toHaveBeenCalledTimes(1);
+    await type(RATE, "6");
+    expect(server.api.setDefaults).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes back to the Admin's limit with its button, which keeps focus on the box", async () => {
+    const server = withLimits({ perMinute: 3 });
+    page({ server });
+    await flush();
+    expect(box(RATE).value).toBe("3");
+    const use = screen.getByRole("button", { name: "Messages per minute on a link: use the Admin's limit, 6" });
+    expect(use).toHaveTextContent("Use the Admin's limit");
+    fireEvent.click(use);
+    await flush();
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { perMinute: null } });
+    expect(box(RATE).value).toBe("6");
+    expect(box(RATE)).toHaveAccessibleDescription("Uses the Admin's limit, 6.");
+    expect(box(RATE)).toHaveFocus();
+    expect(screen.queryByRole("button", { name: /use the Admin's limit/i })).not.toBeInTheDocument();
+  });
+
+  it("treats typing exactly the Admin's value as using the Admin's", async () => {
+    const server = withLimits({ maxChars: 8000 });
+    page({ server });
+    await flush();
+    await type(SIZE, "20000");
+    expect(server.api.setDefaults).toHaveBeenLastCalledWith({ limits: { maxChars: null } });
+    expect(server.db.defaults.limits).toEqual({});
+    expect(box(SIZE)).toHaveAccessibleDescription("Uses the Admin's limit, 20,000.");
+  });
+
+  it("refuses a value above the Admin's, below 1, not whole, or cleared, in place, and saves nothing", async () => {
+    const { server } = page();
+    await flush();
+    await type(TRIPS, "15");
+    expect(screen.getByText("15 is above the Admin's limit, 10. Enter a whole number from 1 to 10. Nothing was saved.")).toHaveAttribute("role", "alert");
+    expect(box(TRIPS)).toHaveAttribute("aria-invalid", "true");
+    expect(box(TRIPS)).toHaveAccessibleDescription("Uses the Admin's limit, 10. 15 is above the Admin's limit, 10. Enter a whole number from 1 to 10. Nothing was saved.");
+    expect(box(TRIPS).value).toBe("15");
+    await type(RATE, "0");
+    expect(screen.getByText("0 is below 1. Enter a whole number from 1 to 6, or pause the link under Who can message whom. Nothing was saved.")).toBeInTheDocument();
+    await type(SIZE, "2.5");
+    expect(screen.getByText("2.5 is not a whole number. Enter a whole number from 1 to 20,000. Nothing was saved.")).toBeInTheDocument();
+    await type(SIZE, "");
+    expect(screen.getByText("Enter a whole number from 1 to 20,000. Nothing was saved.")).toBeInTheDocument();
+    expect(server.api.setDefaults).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Could not save the change/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the owner's value when the Admin lowers theirs below it, and says the lower one applies", async () => {
+    const server = withLimits({ roundTrips: 8, perMinute: 2 }, { roundTrips: 5, perMinute: 2, maxChars: 20000 });
+    page({ server });
+    await flush();
+    expect(box(TRIPS).value).toBe("5");
+    expect(box(TRIPS)).toHaveAttribute("max", "5");
+    expect(box(TRIPS)).toHaveAccessibleDescription("The Admin's limit is now 5, lower than yours, 8, so 5 applies.");
+    expect(box(RATE)).toHaveAccessibleDescription("Yours, the same as the Admin's limit, 2.");
+    expect(screen.getByRole("button", { name: `${TRIPS}: use the Admin's limit, 5` })).toBeInTheDocument();
+    expect(server.db.defaults.limits.roundTrips).toBe(8);
+  });
+
+  it("shows a refusal from the server in place, and the value that still applies", async () => {
+    const server = fakeServer();
+    server.api.setDefaults.mockRejectedValueOnce(new RespondError(400, { error: "Round trips must be a whole number from 1 to 3" }));
+    page({ server });
+    await flush();
+    await type(TRIPS, "4");
+    expect(screen.getByText("Round trips must be a whole number from 1 to 3. Nothing was saved. The saved value, 10, still applies.")).toBeInTheDocument();
+    expect(box(TRIPS).value).toBe("4");
+    expect(screen.queryByText(/Could not save the change/)).not.toBeInTheDocument();
+  });
+
+  it("says when going back to the Admin's limit could not be saved", async () => {
+    const server = withLimits({ roundTrips: 4 });
+    server.api.setDefaults.mockRejectedValueOnce(new Error("offline"));
+    page({ server });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: `${TRIPS}: use the Admin's limit, 10` }));
+    await flush();
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save the change: the server did not answer. Nothing changed. Try again.");
+    expect(box(TRIPS).value).toBe("4");
   });
 });
 
