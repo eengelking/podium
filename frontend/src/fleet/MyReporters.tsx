@@ -239,6 +239,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
       </Section>
       <Section id="pm-def-h" title="Defaults">
         <Panel>
+          <div className="pm-defs">
           <div className="srow">
             <div className="setname">
               <b id="pm-trust-n">Trust my own reporters</b>
@@ -262,6 +263,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
               <p className="hint ink2">You can change it for each pair below.</p>
             </div>
             <Segmented labelledBy="pm-new-n" options={NEW_SEND} value={data.defaults.newSend} onChange={(v) => void setDefaults({ newSend: v }, `A new right to send starts as: ${NEW_SEND.find((o) => o.id === v)!.label}.`)} />
+          </div>
           </div>
         </Panel>
       </Section>

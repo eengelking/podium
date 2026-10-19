@@ -347,6 +347,9 @@ describe("the Board", () => {
     page();
     await flush();
     expect(column("No access")).toHaveAccessibleName("No access, 2 reporters");
+    // A level's class is prefixed: the bare `.none` and `.ask` already style other parts of the console.
+    expect(column("Can send, with approval").querySelector("h3 .pm-lv")).toHaveClass("pm-lv", "lv-ask");
+    expect(column("No access").querySelector("h3 .pm-lv")).not.toHaveClass("none");
     expect(column("Can send")).toHaveAccessibleName("Can send, 2 reporters");
     const ci = within(column("Can send")).getByText("ci-runner-01").closest(".pm-card")!;
     expect(ci.querySelector(".backl")).toHaveTextContent("ci-runner-01 to ed-mbp: Can send");

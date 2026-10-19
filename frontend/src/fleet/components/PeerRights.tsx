@@ -60,7 +60,8 @@ const SYSTEM_ICON: Record<SystemKind, ReactNode> = {
 /** An access level: its icon and its one label. */
 export function AccessLevel({ level }: { level: PeerLevel }) {
   return (
-    <span className={`pm-lv ${level}`}>
+    // lv-<level>, not the bare level: `.none` and `.ask` are already other components' classes.
+    <span className={`pm-lv lv-${level}`}>
       {LEVEL_ICON[level]}
       <span>{LEVEL_LABEL[level]}</span>
     </span>
@@ -175,8 +176,8 @@ export function LayoutSwitch({ layout, onLayout }: { layout: RightsLayout; onLay
     <Segmented
       label="View"
       options={[
-        { id: "grid", label: "Grid", title: "Every pair at once: rows send, columns receive" },
-        { id: "board", label: "Board", title: "One reporter's peers in columns, one per level" },
+        { id: "grid", label: "Grid" },
+        { id: "board", label: "Board" },
       ]}
       value={layout}
       onChange={onLayout}
