@@ -59,6 +59,7 @@ import type { Ask, Delivery, DeliveryResult, MachineInfo, PeerDelivery, PeerRequ
 import { redactText } from './diffRedact.ts';
 import {
   accessAnswer,
+  appliedLevel,
   deliveredLine,
   errorOf,
   findRequest,
@@ -138,6 +139,13 @@ interface Runtime {
   state: SessionState;
   transport: Transport;
   timers: { cancel: () => void }[];
+  /**
+   * Runs a flush PEER_KICK_MS from now on the engine the timers run on (session.start's), so one a tool asks for runs as
+   * the timer's does (#414). `first` runs just before it.
+   */
+  flushSoon: (first: () => void) => { cancel: () => void };
+  /** The flush a tool asked for, waiting to run; null when none waits (`kickFlush`). */
+  kick: { cancel: () => void } | null;
   storedName: string | null;
   /** Claude Code's own name for a session, from a hook's `session_title`, with the id it was taken under; null until a hook carries one (#322). It counts only while that id is the session being reported, so a /clear or resume never inherits it. The hook's own `session_id` is not used: the reporter keys everything on `$.session.id()`. */
   claudeName: { id: string; name: string } | null;
@@ -274,6 +282,8 @@ interface PeerCall {
 
 /** How long a messaging tool waits for the flush timer's answer: inside a hook's 10-second budget, which a plain wait spends. */
 const PEER_CALL_WAIT_MS = 8000;
+/** How soon after a tool queues a call the flush timer runs for it: at once, but from a timer (`kickFlush`). */
+const PEER_KICK_MS = 50;
 /** Requests remembered for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
 const PEER_REQUESTS_KEPT = 50;
 
@@ -606,14 +616,22 @@ async function switchSession($: Engine, r: Runtime, newId: string, now: number):
   messagesLineShown = false;
 }
 
-/** The flush timer: notice a session id change, refresh usage and agents, post a report if due. */
-async function flush($: Engine): Promise<void> {
+/**
+ * The flush timer: notice a session id change, refresh usage and agents, post a report if due. `peersOnly` is the early
+ * run a tool asks for (`kickFlush`): it makes the tools' calls and nothing else, so the report keeps its interval.
+ */
+async function flush($: Engine, peersOnly = false): Promise<void> {
   const r = rt;
   if (!r || r.flushing) return;
   r.flushing = true;
+  let now: number | null = null;
   try {
     // Scheduling (heartbeat, backoff) runs on the engine's clock; hooks stamp events with Date.now().
-    const now = await engineNow($);
+    now = await engineNow($);
+    if (peersOnly) {
+      await sendPeerCalls($, r, now);
+      return;
+    }
     let id: string | null = null;
     try {
       id = await $.session.id();
@@ -621,8 +639,9 @@ async function flush($: Engine): Promise<void> {
       record($, 'session.id', err);
     }
     if (id && id !== r.state.id) await switchSession($, r, id, now);
-    await sendOutbox($);
+    // A tool's call first: it waits seconds at most, and the outbox can hold 50 results after an outage (#414).
     await sendPeerCalls($, r, now);
+    await sendOutbox($, r, now);
     if (r.state.ended) return;
     await readUsage($, r);
     await readSurfaces($, r);
@@ -633,6 +652,8 @@ async function flush($: Engine): Promise<void> {
     record($, 'flush', err);
   } finally {
     r.flushing = false;
+    // A tool queued a call after this flush made its calls: flush again soon rather than at the next tick.
+    if (now !== null && !peerCallsHeld(r, now) && peerCalls.some((c) => !c.abandoned)) kickFlush(r);
   }
 }
 
@@ -789,13 +810,17 @@ function queueClose(a: OpenAsk, outcome: 'terminal' | 'closed' | 'ended', extra:
   queueOut({ path: `${sessionPath(a.sessionId)}/asks/${encodeURIComponent(a.ask.id)}/close`, body: { outcome, at: nowMs(), ...extra } });
 }
 
-/** The flush timer sends what the hooks queued. A failure keeps the rest for the next tick; a refusal drops the item. */
-async function sendOutbox($: Engine): Promise<void> {
+/**
+ * The flush timer sends what the hooks queued. A failure keeps the rest for the next tick; a refusal drops the item.
+ * A call a tool queued meanwhile goes between items, ahead of the rest (#414).
+ */
+async function sendOutbox($: Engine, r: Runtime, now: number): Promise<void> {
   while (outbox.length) {
     const item = outbox[0]!;
     const res = await podiumCall($, 'POST', item.path, item.body);
     if (!res) return;
     outbox.shift();
+    await sendPeerCalls($, r, now);
   }
 }
 
@@ -1325,9 +1350,32 @@ async function registerPeerTools($: Engine): Promise<void> {
 
 // ---- orchestrator messaging: the tools (#414) ------------------------------------------------------------------
 
+/** Whether the report's backoff holds the tools' calls back: Podium did not answer the last report, and its retry is not due. */
+function peerCallsHeld(r: Runtime, now: number): boolean {
+  return r.transport.online === false && now < r.transport.nextAttemptAt;
+}
+
+/**
+ * Has the flush timer run soon for a call a tool queued, not at its next tick, which a long `flushIntervalMs` puts past
+ * the tool's wait. The call is still made by a timer, through the flush, with the report's credential and backoff, and
+ * never from inside the hook. One kick waits at a time, and a flush already running never starts a second (`flushing`):
+ * it makes the call between the outbox's items, or kicks again when it ends.
+ */
+function kickFlush(r: Runtime): void {
+  if (r.kick) return;
+  try {
+    r.kick = r.flushSoon(() => {
+      r.kick = null;
+    });
+  } catch {
+    // no clock: the next tick makes the call
+    r.kick = null;
+  }
+}
+
 /** The flush timer makes the calls the tools wait on, with the report's credential, held back while the report backs off. */
 async function sendPeerCalls($: Engine, r: Runtime, now: number): Promise<void> {
-  if (r.transport.online === false && now < r.transport.nextAttemptAt) return;
+  if (peerCallsHeld(r, now)) return;
   while (peerCalls.length) {
     const call = peerCalls.shift()!;
     if (call.abandoned) continue;
@@ -1347,6 +1395,7 @@ async function peerCall($: Engine, method: 'GET' | 'POST', path: string, body?: 
   const answered = new Promise<{ status: number; text: string } | null>((res) => (resolve = res));
   const call: PeerCall = { method, path, body, sent: false, abandoned: false, resolve };
   peerCalls.push(call);
+  if (rt) kickFlush(rt);
   const timedOut = $.clock.sleep(PEER_CALL_WAIT_MS).then(
     () => 'timeout' as const,
     () => 'timeout' as const,
@@ -1444,7 +1493,8 @@ async function answerRequest($: Engine, answer: 'allow' | 'decline' | 'deliver',
   if (!res) return `Request ${s} was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.`;
   if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
   peerOpen = peerOpen.filter((x) => x !== id);
-  return requestAnsweredLine(answer, s, q);
+  // Allowing never lowers a right, so the level applied can be higher than the request's: name the one Podium applied.
+  return requestAnsweredLine(answer, s, q, appliedLevel(res.text));
 }
 
 /**
@@ -1473,6 +1523,7 @@ async function takeIdentity($: Engine): Promise<Identity> {
 /** session.start (also after a hot reload): build the state, register /podium and the plan tool, start timers. */
 async function start($: Engine, e: { cwd: string; surface: string | null }): Promise<void> {
   for (const t of rt?.timers ?? []) t.cancel();
+  rt?.kick?.cancel();
   const now = nowMs();
   const id = await attempt(() => $.session.id(), `unknown-${now}`);
   who = await takeIdentity($);
@@ -1498,6 +1549,12 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     transport,
     build,
     timers: [],
+    flushSoon: (first) =>
+      $.clock.after(PEER_KICK_MS, () => {
+        first();
+        void flush($, true);
+      }),
+    kick: null,
     storedName: await loadName($, id),
     claudeName: same && rt ? rt.claudeName : null,
     engineVersion: version?.version ?? null,
@@ -1574,6 +1631,8 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   if (e.reason !== 'clear') {
     for (const t of r.timers) t.cancel();
     r.timers = [];
+    r.kick?.cancel();
+    r.kick = null;
   }
 }
 

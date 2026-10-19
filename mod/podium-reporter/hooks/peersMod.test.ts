@@ -41,6 +41,11 @@ function world(on: On) {
     peerRequests: [] as PeerRequest[],
     down: false,
     routes: {} as Record<string, Route>,
+    /** Peer delivery results wait here until the test lets each go: a slow server draining a full outbox. */
+    holdResults: false,
+    /** Reports wait in `held` too: a flush that is still posting one. */
+    holdReports: false,
+    held: [] as (() => void)[],
   }
   const os = { swVers: null as string | null, osRelease: null as string | null, ver: null as string | null }
   const submit = { drop: false }
@@ -99,7 +104,7 @@ function world(on: On) {
     if (server.down) throw new Error('ECONNREFUSED')
     if (url.pathname === '/api/fleet/report') {
       posts.push(body as Report)
-      return ok({
+      const reply = () => ok({
         ok: true,
         ackedEvents: (body as Report).events.length,
         liveSessions: 2,
@@ -110,9 +115,11 @@ function world(on: On) {
         peerDeliveries: server.peerDeliveries.splice(0),
         peerRequests: server.peerRequests,
       })
+      return server.holdReports ? new Promise((resolve) => server.held.push(() => resolve(reply()))) : reply()
     }
     // Responding's held request for an answer: held until the test ends, so nothing ever answers it from here.
     if (method === 'GET' && url.pathname.endsWith('/answer')) return new Promise(() => {})
+    if (server.holdResults && url.pathname.includes('/peers/deliveries/')) return new Promise((resolve) => server.held.push(() => resolve(ok({ ok: true }))))
     const route = server.routes[`${method} ${url.pathname.replace(`/api/fleet/sessions/${SID}`, '')}`]
     if (route) return ok(route.body, route.status)
     return ok({ ok: true })
@@ -322,6 +329,74 @@ describe('peers: the tools', () => {
     expect(w.calls.slice(back).filter((c) => c.path.endsWith('/peers/messages'))).toEqual([])
   })
 
+  const SENT = { status: 202, body: { ok: true, id: 'dlv_x', state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' } } }
+  const SENT_ANSWER = 'Sent to Tester on ci-runner-01. It was waiting, so it has the message now. Its answer arrives here as a new message.'
+
+  test('with a long report interval, a timer makes the call within moments, not at the next report', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/messages'] = SENT
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(30_000) // the first report, at the first tick
+    await settle(w)
+    const reports = w.posts.length
+    const call = $.tool.call({ tool: 'mcp__podium-reporter__podium_send', to: 'Tester@ci-runner-01', text: 'hi' } as never)
+    await settle(w)
+    // Still never from inside the hook: the call waits for the timer.
+    expect(peerCallsTo(w, '/messages')).toEqual([])
+    await w.clock.advance(1000)
+    await settle(w)
+    expect(peerCallsTo(w, '/messages')).toHaveLength(1)
+    expect(peerCallsTo(w, '/messages')[0]!.headers['X-Podium-Token']).toBe('tok-ed')
+    // An early flush, not an extra report: none was due.
+    expect(w.posts.length).toBe(reports)
+    expect(((await call) as { result: string }).result).toBe(SENT_ANSWER)
+  })
+
+  test('a call goes ahead of a full outbox draining after an outage', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/messages'] = SENT
+    await started($, w)
+    w.server.holdResults = true
+    for (let i = 0; i < 20; i++) w.server.peerDeliveries.push(notice(`Your message to Tester on ci-runner-01 was not delivered (${i}).`, `dlv_n${i}`))
+    await w.clock.advance(5000) // the next report's reply: 20 results queued
+    await settle(w)
+    await w.clock.advance(1000) // the outbox starts to drain, one result at a time
+    await settle(w)
+    expect(w.server.held).toHaveLength(1)
+    const call = $.tool.call({ tool: 'mcp__podium-reporter__podium_send', to: 'Tester@ci-runner-01', text: 'hi' } as never)
+    await settle(w)
+    // The server answers the result in flight a moment later; the call goes next, ahead of the other 19.
+    await w.clock.advance(500)
+    w.server.held.shift()!()
+    await settle(w)
+    expect(peerCallsTo(w, '/messages')).toHaveLength(1)
+    expect(w.calls.filter((c) => c.path.includes('/peers/deliveries/'))).toHaveLength(2)
+    expect(((await call) as { result: string }).result).toBe(SENT_ANSWER)
+  })
+
+  test('a call queued while a flush posts its report goes once that flush ends, not at the next tick', { options: { ...ON, flushIntervalMs: 30_000 } }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/messages'] = SENT
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(30_000)
+    await settle(w)
+    w.server.holdReports = true
+    await w.clock.advance(30_000) // the next tick's report, still in flight
+    await settle(w)
+    expect(w.server.held).toHaveLength(1)
+    const call = $.tool.call({ tool: 'mcp__podium-reporter__podium_send', to: 'Tester@ci-runner-01', text: 'hi' } as never)
+    await settle(w)
+    await w.clock.advance(100) // the early flush finds the timer's still running, and leaves the call to it
+    await settle(w)
+    expect(peerCallsTo(w, '/messages')).toEqual([])
+    w.server.held.shift()!()
+    await settle(w)
+    await w.clock.advance(100)
+    await settle(w)
+    expect(peerCallsTo(w, '/messages')).toHaveLength(1)
+    expect(((await call) as { result: string }).result).toBe(SENT_ANSWER)
+  })
+
   test('podium_peers lists in plain words from Podium\'s directory', { options: ON }, async ($, on) => {
     const w = world(on)
     w.server.routes['GET /peers'] = {
@@ -495,6 +570,19 @@ describe('peers: requests in the terminal', () => {
     expect((await $.command.run(podium('allow beef'))).text).toBe('No request beef has reached this session. Requests show here as they arrive, and in Podium > My reporters.')
     w.server.down = true
     expect((await $.command.run(podium('decline 9c2e'))).text).toBe('Request 9c2e was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.')
+  })
+
+  test('/podium allow names the level Podium applied, not the request\'s, when the server raised it', { options: ON }, async ($, on) => {
+    const w = world(on)
+    const see = { ...REQ_ACCESS, level: 'see' as const }
+    w.server.peerRequests = [see]
+    // Build-pi could already send with approval: allowing a request to see never lowers that, and the answer says so.
+    w.server.routes[`POST /peers/requests/${see.id}`] = { status: 200, body: { ok: true, outcome: 'allowed', level: 'ask' } }
+    await started($, w)
+    expect((await $.command.run(podium('allow 7f3a'))).text).toBe('allowed 7f3a. Tester on ci-runner-01 can send to build-pi, with approval. Closed in Podium too.')
+    // An older server says no level: the request's is named.
+    w.server.routes[`POST /peers/requests/${see.id}`] = { status: 200, body: { ok: true, outcome: 'allowed' } }
+    expect((await $.command.run(podium(`allow ${see.id}`))).text).toBe('allowed 7f3a. Tester on ci-runner-01 can see build-pi. Closed in Podium too.')
   })
 
   test('/podium is registered immediate, so an answer runs mid-turn; its status and name verbs still behave', { options: ON }, async ($, on) => {

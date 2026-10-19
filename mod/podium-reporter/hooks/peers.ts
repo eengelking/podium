@@ -2,7 +2,7 @@
 // no `$` here. The words each tool answers, the frame a peer message is submitted under, and the lines and toasts a
 // request shows in the terminal. Nothing here touches responding's answers or approvals (respond.ts): a peer message
 // only ever becomes a framed prompt, and that separation is tested.
-import type { PeerDelivery, PeerLevel, PeerParty, PeerRequest } from './protocol.ts';
+import { PEER_LEVELS, type PeerDelivery, type PeerLevel, type PeerParty, type PeerRequest } from './protocol.ts';
 
 /** The line between Podium's frame and the message, as the mockup draws it. */
 export const RULE = '───';
@@ -192,6 +192,16 @@ export function errorOf(text: string): string | null {
   }
 }
 
+/** The level an answer to a request says Podium applied; null when it applied none, or a server does not say. */
+export function appliedLevel(text: string): PeerLevel | null {
+  try {
+    const level = (JSON.parse(text) as { level?: unknown }).level;
+    return PEER_LEVELS.includes(level as PeerLevel) ? (level as PeerLevel) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---- Requests in the terminal --------------------------------------------------------------------------------------
 
 /** "can send to build-pi, with approval": what a right lets a reporter do. */
@@ -262,10 +272,14 @@ export function parseAnswer(args: string): { answer: 'allow' | 'decline' | 'deli
   return m ? { answer: m[1]!.toLowerCase() as 'allow' | 'decline' | 'deliver', id: m[2] ?? '' } : null;
 }
 
-/** What `/podium allow|decline|deliver` says once Podium took the answer. It names the id: the transcript echoes `/podium` without it. */
-export function requestAnsweredLine(answer: 'allow' | 'decline' | 'deliver', s: string, q: PeerRequest | null): string {
+/**
+ * What `/podium allow|decline|deliver` says once Podium took the answer. It names the id: the transcript echoes `/podium`
+ * without it. `applied` is the level Podium says it applied, which can be higher than the request's (allowing never
+ * lowers a right); the request's own level stands in when a server does not say.
+ */
+export function requestAnsweredLine(answer: 'allow' | 'decline' | 'deliver', s: string, q: PeerRequest | null, applied: PeerLevel | null = null): string {
   const closed = 'Closed in Podium too.';
-  if (answer === 'allow') return q ? `allowed ${s}. ${fromWho(q)} ${canPhrase(q.level, oneLine(q.to.machine))}. ${closed}` : `allowed ${s}. ${closed}`;
+  if (answer === 'allow') return q ? `allowed ${s}. ${fromWho(q)} ${canPhrase(applied ?? q.level, oneLine(q.to.machine))}. ${closed}` : `allowed ${s}. ${closed}`;
   if (answer === 'deliver') return q ? `delivered ${s}. The message from ${fromWho(q)} reaches ${toWho(q)} when its turn ends. ${closed}` : `delivered ${s}. ${closed}`;
   if (q?.kind === 'message') return `declined ${s}. The message from ${fromWho(q)} is not delivered, and ${oneLine(q.from.name) || 'its sender'} is told. ${closed}`;
   if (q?.kind === 'access') return `declined ${s}. ${fromWho(q)} gets no new right to ${oneLine(q.to.machine)}. ${closed}`;

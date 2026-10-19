@@ -276,6 +276,19 @@ describe('access requests (#412)', () => {
     expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_access_requested', 'peer_right_accepted']));
   });
 
+  it('answered from a session, says the level it applied, which can be higher than the request’s (#414)', async () => {
+    const s = await linked('ask');
+    const route = '/api/fleet/sessions/sess-dev/peers/access';
+    const ask = (right: string) => request(s.app).post(route).set('X-Podium-Token', s.ed.token).send({ to: 'ci-runner-01', right, reason: 'Linux tests.' });
+    const answer = (id: string, a: string) => request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${id}`).set('X-Podium-Token', s.ed.token).send({ answer: a });
+    // Mac can already send to Linux with approval: allowing a request to see never lowers that.
+    const see = await ask('see');
+    expect((await answer(see.body.requestId, 'allow')).body).toEqual({ ok: true, outcome: 'allowed', level: 'ask' });
+    // Nothing applied, no level.
+    const declined = await ask('send');
+    expect((await answer(declined.body.requestId, 'decline')).body).toEqual({ ok: true, outcome: 'declined' });
+  });
+
   it('checks the right and the target, and refuses a machine it does not know', async () => {
     const s = await linked('see');
     const route = '/api/fleet/sessions/sess-dev/peers/access';

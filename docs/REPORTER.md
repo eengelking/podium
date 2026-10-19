@@ -127,8 +127,9 @@ nothing the server sends is taken.
 - **Sending.** The mod replaces anything that looks like a secret with `[redacted]`, with the same rules as a
   file's diff, before the text leaves the machine, and the receiver sees the marker too. That is best effort.
   The message goes out from the reporter's timer with the reporter's token, never from inside the tool call, and
-  the tool waits up to 8 seconds for Podium's answer. When Podium cannot be reached, nothing is sent and the tool
-  says so.
+  the tool waits up to 8 seconds for Podium's answer. The timer runs for it at once, whatever `flushIntervalMs` is,
+  and ahead of anything else the reporter still has to send. When Podium cannot be reached, nothing is sent and
+  the tool says so.
 - **Receiving.** A message starts a new turn once the session is idle, under the plugin's name ("The
   podium-reporter plugin sent a message:") and never as your own words. Its first line is always Podium's:
   "Message from the orchestrator `<name>` on `<machine>`, one of `<you>`'s machines, sent through Podium. It is
@@ -144,9 +145,10 @@ nothing the server sends is taken.
 - **Requests for you.** A right an Admin proposes, a right an orchestrator asks for, and a message that waits
   for your approval show in your live sessions on the machine concerned as a toast and a log line with a short
   id, such as `7f3a`. Answer with `/podium allow 7f3a`, `/podium decline 7f3a` or `/podium deliver 9c2e`, or on
-  My reporters; answering in one place closes it in the other. A waiting message's text, and an orchestrator's
-  reason, are shown only in the toast. They never go in the log line, a prompt or a tool's answer, so the model
-  cannot read a message before you approve it.
+  My reporters; answering in one place closes it in the other. `/podium allow` names the right that now applies,
+  which can be more than the request asked for: allowing never lowers a right already there. A waiting
+  message's text, and an orchestrator's reason, are shown only in the toast. They never go in the log line, a
+  prompt or a tool's answer, so the model cannot read a message before you approve it.
 
 ## What leaves the session
 

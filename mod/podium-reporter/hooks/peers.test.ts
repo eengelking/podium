@@ -2,6 +2,7 @@ import { describe, test, expect } from 'claude-code/testing'
 import type { PeerDelivery, PeerRequest } from './protocol.ts'
 import {
   accessAnswer,
+  appliedLevel,
   errorOf,
   findRequest,
   framingLine,
@@ -210,6 +211,20 @@ describe('peers: requests in the terminal', () => {
     expect(requestAnsweredLine('allow', 'x', null)).toBe('allowed x. Closed in Podium too.')
     expect(requestAnsweredLine('deliver', 'x', null)).toBe('delivered x. Closed in Podium too.')
     expect(requestAnsweredLine('decline', 'x', null)).toBe('declined x. Closed in Podium too.')
+  })
+
+  test('allow names the level Podium applied, which can be higher than the request\'s, and the request\'s from an older server', () => {
+    const see = req({ kind: 'access', level: 'see', from: { machine: 'ci-runner-01', name: 'Tester' }, to: { machine: 'build-pi', name: null }, text: null })
+    expect(requestAnsweredLine('allow', '7f3a', see, 'ask')).toBe('allowed 7f3a. Tester on ci-runner-01 can send to build-pi, with approval. Closed in Podium too.')
+    expect(requestAnsweredLine('allow', '7f3a', see, null)).toBe('allowed 7f3a. Tester on ci-runner-01 can see build-pi. Closed in Podium too.')
+    expect(requestAnsweredLine('allow', '7f3a', see)).toBe('allowed 7f3a. Tester on ci-runner-01 can see build-pi. Closed in Podium too.')
+  })
+
+  test('the applied level is read from the answer only when it is a level', () => {
+    expect(appliedLevel('{"ok":true,"outcome":"allowed","level":"send"}')).toBe('send')
+    expect(appliedLevel('{"ok":true,"outcome":"declined"}')).toBeNull()
+    expect(appliedLevel('{"ok":true,"outcome":"allowed","level":"admin"}')).toBeNull()
+    expect(appliedLevel('not json')).toBeNull()
   })
 
   test('/podium lists what waits, by short id, without a message\'s text', () => {
