@@ -497,7 +497,7 @@ describe("for anyone but the owner", () => {
     const p = panel();
     expect(within(p).getAllByRole("listitem")).toHaveLength(3);
     expect(within(p).queryByRole("button", { name: "Pause link" })).toBeNull();
-    expect(p).toHaveTextContent("This is Ed's link. Only Ed can pause or remove it here; an Admin can in Admin > Reporters.");
+    expect(p).toHaveTextContent("This is Ed's link. Only Ed can pause or remove it. An Admin can pause all of a reporter's links in Admin > Reporters.");
   });
 
   it("tells an Admin a message is held on a paused link that also has one waiting for approval", async () => {

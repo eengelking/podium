@@ -3726,8 +3726,9 @@ still hides and shows the top bar.
   where a 640 px or narrower screen opens. **Show** picks Live sessions, Last 24 hours or Last 30 days. Both are
   radio groups that move with the arrow keys.
 - Not signed in, or not the owner: the map and counts show, the page never asks for the text, and the conversation
-  says only its owner and an Admin can read it. An Admin reads it, but pauses or removes another person's link in
-  Admin > Reporters.
+  says only its owner and an Admin can read it. An Admin reads it, but only the owner pauses or removes it here; an
+  Admin's one action on a link is Pause all links, in Admin > Reporters > the reporter. The Admin's remove route
+  (`DELETE reporters/:key/peers/:other`, 7.1) has no button.
 - Empty: "No orchestrator has messaged another yet", with a link to My reporters; Show stays. A failed Pause, Resume
   or Remove says so in place and the link is unchanged.
 - Long names are cut with an ellipsis and keep their full text as a title.

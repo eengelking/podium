@@ -456,7 +456,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
         </div>
       ) : (
         <p className="hint">
-          This is {link.owner}'s link. Only {link.owner} can pause or remove it here; an Admin can in Admin &gt; Reporters.
+          This is {link.owner}'s link. Only {link.owner} can pause or remove it. An Admin can pause all of a reporter's links in Admin &gt; Reporters.
         </p>
       )}
       {err && (
