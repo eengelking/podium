@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { respondApi, RespondError } from "./respondApi";
+import { peersApi, respondApi, RespondError } from "./respondApi";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -20,5 +20,41 @@ describe("respondApi.fileDiff (#319)", () => {
     const err = await respondApi.fileDiff("s", "a").catch((e: unknown) => e);
     expect(err).toBeInstanceOf(RespondError);
     expect(err).toMatchObject({ status: 504, message: "HTTP 504" });
+  });
+});
+
+describe("the respond and peers calls (#467)", () => {
+  it("sends each call to its path with the right method, the respond header, and a JSON body only when it has one", async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const base = "/api/fleet/respond";
+    const calls: [() => Promise<unknown>, string, string, unknown?][] = [
+      [() => respondApi.me(), "GET", `${base}/me`],
+      [() => respondApi.signIn("Ed", "tok"), "POST", `${base}/sign-in`, { name: "Ed", token: "tok" }],
+      [() => respondApi.signOut(), "POST", `${base}/sign-out`],
+      [() => respondApi.ask("s/1", "a b"), "GET", `${base}/sessions/s%2F1/asks/a%20b`],
+      [() => respondApi.answer("s1", "a1", { choice: "yes" }), "POST", `${base}/sessions/s1/asks/a1/answer`, { choice: "yes" }],
+      [() => respondApi.message("s1", { text: "hi" }), "POST", `${base}/sessions/s1/messages`, { text: "hi" }],
+      [() => respondApi.discard("d/1"), "DELETE", `${base}/deliveries/d%2F1`],
+      [() => peersApi.read(), "GET", `${base}/peers`],
+      [() => peersApi.setRight("k1", "k2", "send"), "PUT", `${base}/peers/rights`, { from: "k1", to: "k2", level: "send" }],
+      [() => peersApi.setDefaults({ trust: true }), "PUT", `${base}/peers/defaults`, { trust: true }],
+      [() => peersApi.answer("r/1", "allow"), "POST", `${base}/peers/requests/r%2F1`, { answer: "allow" }],
+    ];
+    for (const [run, method, url, body] of calls) {
+      fetchMock.mockClear();
+      await run();
+      const [gotUrl, init] = fetchMock.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+      expect(gotUrl).toBe(url);
+      expect(init).toMatchObject({ method, credentials: "same-origin" });
+      expect(init.headers["X-Podium-Respond"]).toBe("1");
+      if (body === undefined) {
+        expect(init.body).toBeUndefined();
+        expect(init.headers["Content-Type"]).toBeUndefined();
+      } else {
+        expect(JSON.parse(init.body as string)).toEqual(body);
+        expect(init.headers["Content-Type"]).toBe("application/json");
+      }
+    }
   });
 });
