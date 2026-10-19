@@ -194,7 +194,6 @@ export function errorOf(text: string): string | null {
   }
 }
 
-/** The level an answer to a request says Podium applied; null when it applied none, or a server does not say. */
 /** Whether a request's answer says the link is paused, so a delivered message waits for it to be resumed. */
 export function answerPaused(text: string): boolean {
   try {
@@ -204,6 +203,7 @@ export function answerPaused(text: string): boolean {
   }
 }
 
+/** The level an answer to a request says Podium applied; null when it applied none, or a server does not say. */
 export function appliedLevel(text: string): PeerLevel | null {
   try {
     const level = (JSON.parse(text) as { level?: unknown }).level;
