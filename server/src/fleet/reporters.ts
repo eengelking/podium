@@ -6,7 +6,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { checkReporter } from './compat.js';
 import { clampPage, likeTerm, type Paged } from './people.js';
 import type { ReporterCompat } from './protocol.js';
-import type { ReporterLookup, ReporterRef } from './peerTypes.js';
+import type { PeerReporterLookup, ReporterRef } from './peerTypes.js';
 
 /** A reporter heard from within this long is "reporting". */
 export const REPORTING_MS = 2 * 60_000;
@@ -251,8 +251,11 @@ export class ReporterStore {
     return key;
   }
 
-  /** Reporters as orchestrator messaging needs them (#347): one by key, and one owner's, compared case-insensitively. */
-  peerLookup(): ReporterLookup {
+  /**
+   * Reporters as orchestrator messaging needs them (#347): one by key, and one owner's, compared case-insensitively. The
+   * owner's read on My reporters also gets each one's state and last report, from the same STATE_SQL as the Admin's list (#415).
+   */
+  peerLookup(): PeerReporterLookup {
     const ref = (r: DbPeerRef): ReporterRef => ({
       key: r.key,
       machine: r.machine_name ?? r.key,
@@ -263,13 +266,19 @@ export class ReporterStore {
       version: r.reporter_version,
     });
     const cols = 'key, machine_name, owner, credential, os, peers, reporter_version';
+    const mine = `lower(owner) = lower(:owner) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`;
     return {
+      startedAt: this.startedAt,
+      ofOwnerSeen: (owner, now) =>
+        (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ owner, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
+          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at }),
+        ),
       get: (key) => {
         // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.
         const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ? AND kind = 'mod'`).get(key) as DbPeerRef | undefined;
         return r ? ref(r) : null;
       },
-      ofOwner: (owner) => (this.stmt(`SELECT ${cols} FROM reporters WHERE lower(owner) = lower(?) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`).all(owner) as unknown as DbPeerRef[]).map(ref),
+      ofOwner: (owner) => (this.stmt(`SELECT ${cols} FROM reporters WHERE ${mine}`).all({ owner }) as unknown as DbPeerRef[]).map(ref),
     };
   }
 

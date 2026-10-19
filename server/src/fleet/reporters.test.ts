@@ -66,6 +66,30 @@ describe('reporters', () => {
     expect(look.ofOwner('Dana').map((r) => r.key)).not.toContain('dddddddddddd');
   });
 
+  it('gives one owner its reporters with the state and last report Admin > Reporters shows (#415)', () => {
+    store.record(seen(), START + MIN);
+    store.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: 'build-pi', sessionId: 's2' }), START + 60 * MIN);
+    store.record(seen({ machineId: 'cccccccccccc', machineName: 'ci', sessionId: 's3' }), START + 90 * MIN);
+    // Heard from before the server started: "Not since restart".
+    store.record(seen({ machineId: 'eeeeeeeeeeee', machineName: 'old', sessionId: 's5' }), START - MIN);
+    store.record(seen({ kind: 'hooks', machineId: 'dddddddddddd', sessionId: 's4' }), START + 90 * MIN);
+    const now = START + 91 * MIN;
+    const look = store.peerLookup();
+    expect(look.startedAt).toBe(START);
+    const mine = look.ofOwnerSeen('dana', now);
+    expect(mine.map((r) => [r.machine, r.state, r.lastSeenAt])).toEqual([
+      ['build-pi', 'idle', START + 60 * MIN],
+      ['ci', 'reporting', START + 90 * MIN],
+      ['old', 'restart', START - MIN],
+      ['studio-m2', 'silent', START + MIN],
+    ]);
+    expect(mine[3]).toEqual({ ...look.get('9f3a1c7d2e40'), state: 'silent', lastSeenAt: START + MIN });
+    // The same words as the Admin's list, row for row.
+    const admin = new Map(store.list({}, now).rows.map((r) => [r.key, [r.state, r.lastSeenAt]]));
+    for (const r of mine) expect([r.state, r.lastSeenAt]).toEqual(admin.get(r.key));
+    expect(look.ofOwnerSeen('Alex', now)).toEqual([]);
+  });
+
   it('counts a session once however often it reports', () => {
     for (let i = 0; i < 4; i++) store.record(seen(), START + i * MIN);
     expect(store.list({}, START + 4 * MIN).rows[0]!.sessions).toBe(1);

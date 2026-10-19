@@ -622,7 +622,11 @@ between people. `mockup/podium-my-reporters.html` shows every case.
 
 It needs authentication on and the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags). Sign in
 with your name and token from **Sign in** at the far right of the top bar. The top bar then reads *Signed in as Ed*,
-**My reporters · N waiting** and **Sign out**, where N is how many requests wait for you.
+**My reporters** and **Sign out**. While requests wait for you, the link reads **My reporters · N waiting**, where N is
+how many.
+
+The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it. `\` still hides and shows the top
+bar.
 
 #### Waiting for you
 
@@ -640,8 +644,9 @@ Anything Podium replaced as a possible secret on the sending machine reads `[red
 
 #### Your reporters
 
-One row per machine: whether it has an orchestrator reporting now, its system, whether messaging is on, its
-podium-reporter version, its last report and how many orchestrators are live. **Off on the machine** means the
+One row per machine: its state, its system, whether messaging is on, its podium-reporter version, its last report and
+how many orchestrators are live. The state uses the same words as [Admin > Reporters](#reporters): **Reporting**,
+**Idle**, **Silent** or **Not since restart**; hover or focus it to read what it means. **Off on the machine** means the
 reporter's `peers` option is off there, and only that machine can turn it on: in Claude Code there, run
 `/plugin configure podium-reporter` and set `peers` to on. **Reporter can't message: update it** means the mod is too
 old to send the option.

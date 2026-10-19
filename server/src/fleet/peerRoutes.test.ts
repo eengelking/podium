@@ -310,6 +310,24 @@ describe('the owner’s routes (#412)', () => {
     expect(page.body.rights).toEqual([expect.objectContaining({ from: MAC.id, to: LINUX.id, level: 'send', paused: false })]);
   });
 
+  it('give each reporter its state and last report, the same as Admin > Reporters (#415)', async () => {
+    const s = await linked('send');
+    const started = s.tick(0);
+    s.tick(5 * 60_000);
+    expect((await testerReport(s)).status).toBe(200);
+    const page = (await s.edBrowser.get('/api/fleet/respond/peers')).body;
+    expect(page).toMatchObject({ serverTime: started + 5 * 60_000, serverStartedAt: started });
+    const of = (key: string) => page.reporters.find((r: { key: string }) => r.key === key);
+    expect(of(MAC.id)).toMatchObject({ state: 'idle', lastSeenAt: started });
+    expect(of(LINUX.id)).toMatchObject({ state: 'reporting', lastSeenAt: started + 5 * 60_000 });
+    const admin = await adminAgent(s);
+    const rows = (await admin.get('/api/admin/reporters').set(HA)).body.rows as { key: string; state: string; lastSeenAt: number }[];
+    for (const key of [MAC.id, LINUX.id]) {
+      const row = rows.find((r) => r.key === key)!;
+      expect([of(key).state, of(key).lastSeenAt]).toEqual([row.state, row.lastSeenAt]);
+    }
+  });
+
   it('name both reporters of a request by key as well as by machine, so two machines with one name stay apart (#415)', async () => {
     const s = await linked('see');
     const twin = { name: MAC.name, id: 'macmacmac002' };

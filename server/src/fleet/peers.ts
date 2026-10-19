@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings, type PeerLimits } from './peerSettings.js';
-import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type ReporterLookup, type RightsTrail } from './peerTypes.js';
+import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from './protocol.js';
 
 /** A level in the words My reporters and the terminal use. */
@@ -33,7 +33,7 @@ export class PeerService {
 
   constructor(
     private readonly db: DatabaseSync,
-    readonly reporters: ReporterLookup,
+    readonly reporters: PeerReporterLookup,
     private readonly now: () => number = Date.now,
     /** The Admin's `peer-messaging` flag. */
     readonly flagOn: () => boolean = () => false,

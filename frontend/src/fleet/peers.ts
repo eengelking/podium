@@ -2,6 +2,7 @@
 // GET /api/fleet/respond/peers, and the rules it draws with. The server decides every right; this file only
 // says how a pair looks: its level, whether it can be changed here, and why not.
 import type { PeerLevel, PeerRequest, ReporterCompat, SessionView } from "./types";
+import type { ReporterState } from "./admin/adminApi";
 
 export type { PeerLevel } from "./types";
 
@@ -16,6 +17,9 @@ export interface PeerReporter {
   /** The reporter's `peers` option as last reported; null from a reporter too old to send it. */
   peers: boolean | null;
   version: string;
+  /** Its state as Admin > Reporters shows it (#415), worked out by the server from its last report. */
+  state: ReporterState;
+  lastSeenAt: number;
   /** Its live orchestrators. */
   live: { sessionId: string; name: string; status: "running" | "waiting" | "done"; peers: boolean }[];
 }
@@ -50,6 +54,9 @@ export type PeerRequestView = PeerRequest & { fromKey: string; toKey: string; me
 export interface PeersRead {
   enabled: boolean;
   owner: string;
+  /** The server's clock at the read, and when it started: what each reporter's state and last report are timed by (#415). */
+  serverTime: number;
+  serverStartedAt: number;
   reporters: PeerReporter[];
   rights: PeerRight[];
   defaults: PeerDefaults;
@@ -149,11 +156,11 @@ export function systemKind(os: string | null): SystemKind | null {
   return "linux";
 }
 
-/** What the person's own reporter table shows for one reporter, from its live orchestrators in the fleet. */
+/**
+ * What the person's own reporter table takes from the fleet for one reporter: its version's fit, from the newest of its
+ * live orchestrators. Its state and last report come from the server (#415), as on Admin > Reporters.
+ */
 export interface ReporterLook {
-  /** `reporting` while it has a live orchestrator; `quiet` otherwise. */
-  state: "reporting" | "quiet";
-  lastSeenAt: number | null;
   compat: ReporterCompat | null;
 }
 
@@ -168,7 +175,7 @@ export function reporterLook(r: Pick<PeerReporter, "live">, sessions: Record<str
       compat = s.compat;
     }
   }
-  return { state: r.live.length ? "reporting" : "quiet", lastSeenAt, compat };
+  return { compat };
 }
 
 /** The read with one right changed, as the page shows it while the server saves it. */

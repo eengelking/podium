@@ -12,6 +12,7 @@
 
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery } from './protocol.js';
 import type { PeerLimits } from './peerSettings.js';
+import type { ReporterState } from './reporters.js';
 
 export type { PeerLimits } from './peerSettings.js';
 
@@ -57,6 +58,19 @@ export interface ReporterRef {
 export interface ReporterLookup {
   get(key: string): ReporterRef | null;
   ofOwner(owner: string): ReporterRef[];
+}
+
+/** A reporter with its state and last report, worked out as Admin > Reporters works them out (#415). */
+export interface SeenReporterRef extends ReporterRef {
+  state: ReporterState;
+  lastSeenAt: number;
+}
+
+/** The lookup the reporters table gives the service: also what the owner's read on My reporters lists (#415). */
+export interface PeerReporterLookup extends ReporterLookup {
+  /** When the server started: a reporter last heard before it is "Not since restart". */
+  readonly startedAt: number;
+  ofOwnerSeen(owner: string, now: number): SeenReporterRef[];
 }
 
 // ---- Rights, defaults and requests (peerRights.ts, agent A) ---------------------------------------------------
