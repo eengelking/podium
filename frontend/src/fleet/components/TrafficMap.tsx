@@ -134,7 +134,7 @@ export function TrafficMap(props: {
 }
 
 /** The legend for the line styles, the arrow and the thickness, and the machines that are not drawn. */
-export function TrafficLegend({ off }: { off: string[] }) {
+export function TrafficLegend({ off }: { off: { machine: string; why: string }[] }) {
   const sw = (dash?: string) => (
     <svg viewBox="0 0 34 10" aria-hidden="true" focusable="false">
       <line x1="2" y1="5" x2="32" y2="5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeDasharray={dash} />
@@ -154,7 +154,9 @@ export function TrafficLegend({ off }: { off: string[] }) {
       <span>An arrow at one end: only that way can send</span>
       <span>A thicker line carries more messages</span>
       {off.map((m) => (
-        <span key={m}>{m} is not drawn: messaging is off on that machine</span>
+        <span key={m.machine}>
+          {m.machine} is not drawn: {m.why}
+        </span>
       ))}
     </div>
   );

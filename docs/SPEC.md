@@ -2029,9 +2029,11 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   drops it, and its sender is told. A notice is let go on any result.
 
 **`GET /api/fleet/peers/traffic?range=live|24h|30d`**: Traffic's map and table, open to every reader.
-- `{ enabled, conversations, retainDays }`, each conversation `{ link, a, b, owner, messages, lastAt, state: "active" |
-  "waiting" | "paused", aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name, machine, reporterKey }`), and
-  `retainDays` the Admin's setting for how long a conversation is kept, so Traffic can name it (#417). `live` (the
+- `{ enabled, conversations, retainDays, serverTime }`, each conversation `{ link, a, b, owner, messages, lastAt,
+  state: "active" | "waiting" | "paused", paused, aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name,
+  machine, reporterKey }`; `state` is `waiting` while a message waits for approval even on a paused link, and `paused`
+  says the link is paused either way). `retainDays` is the Admin's setting for how long a conversation is kept, so
+  Traffic can name it, and `serverTime` the clock Traffic counts "ago" by (#417). `live` (the
   default) keeps conversations with a live orchestrator; `24h` and `30d` those with a message in that time. While
   messaging is off, `{ enabled: false, conversations: [] }`. `400` for another range.
 
@@ -3663,8 +3665,9 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   No hue carries the meaning.
 - The Admin's view (#416) is the Messaging section on Admin > Reporters > a reporter, in the Admin shell, with the
   same Grid | Board switch. It shows every pair of the owner's reporters, from one read.
-  - A change is sent as a proposal and shows as Proposed, waiting for the owner, until the owner accepts it. No
-    access cannot be proposed: taking a right away is the owner's choice.
+  - A change is sent as a proposal and shows as Proposed, waiting for the owner, until the owner accepts it. Only
+    more than a pair has can be proposed: No access, or a level below today's, would take a right away, which is the
+    owner's choice.
   - A `.warnbar` says a change is sent to the owner to accept, and a second one says when the owner's Trust my own
     reporters locks the choices.
   - **Pause all links** in the detail's header applies at once and **Resume all links** undoes it.

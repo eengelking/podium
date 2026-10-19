@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { AdminError, type AdminApi } from "./adminApi";
 import { failText, useList } from "./useList";
 import { LayoutSwitch, PausedTag, RightsBoard, RightsGrid, SystemTag, useRightsLayout } from "../components/PeerRights";
-import { LEVEL_LABEL, pairKey, rightsModel, type PeerLevel, type PeerReporter, type PeerRequestView, type PeerRight } from "../peers";
+import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerReporter, type PeerRequestView, type PeerRight } from "../peers";
 import { ADMIN } from "../people";
 
 export const PEER_FLAG = "peer-messaging";
@@ -150,11 +150,17 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
   const lock = useRef(onLocked);
   lock.current = onLocked;
 
+  // Only the newest read started may land, so an interval read taken before a proposal or a pause cannot undo it.
+  const gen = useRef(0);
   const reload = useCallback(async () => {
+    const at = ++gen.current;
     try {
-      setData(await loadAdminPeers(api, reporterKey));
+      const d = await loadAdminPeers(api, reporterKey);
+      if (gen.current !== at) return;
+      setData(d);
       setLoadErr(null);
     } catch (e) {
+      if (gen.current !== at) return;
       if (e instanceof AdminError && e.status === 401) lock.current();
       else setLoadErr(failText(e));
     }
@@ -213,9 +219,12 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
     requests: data.requests,
   });
   const shown = (a: string, b: string): PeerLevel => sent[pairKey(a, b)] ?? model.proposed(a, b) ?? model.level(a, b);
+  // An Admin can only propose more than a pair has: No access, and any level below today's, would take a right away,
+  // which is the owner's choice. The server takes any proposal but No access, so the page holds the line.
+  const below = (a: string, b: string): readonly PeerLevel[] => LEVELS.filter((l) => l === "none" || LEVELS.indexOf(l) < LEVELS.indexOf(model.level(a, b)));
 
   const propose = async (a: string, b: string, level: PeerLevel) => {
-    if (level === "none" || level === shown(a, b)) return;
+    if (below(a, b).includes(level) || level === shown(a, b)) return;
     const k = pairKey(a, b);
     setSent((s) => ({ ...s, [k]: level }));
     // The proposal goes through the sending reporter's page: the server takes one that involves the reporter it names.
@@ -239,7 +248,7 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
     ["Messaging", <MessagingState key="m" r={ref} paused={allPaused} />],
   ];
 
-  const view = { model, waitingFor: owner, shown, onSet: (a: string, b: string, l: PeerLevel) => void propose(a, b, l), showLive: false, disabledLevels: ["none"] as const };
+  const view = { model, waitingFor: owner, shown, onSet: (a: string, b: string, l: PeerLevel) => void propose(a, b, l), showLive: false, disabledLevels: below };
   const section = (
     <MessagingShell help={eligible(ref) ? `What ${owner}'s reporters may do with each other. Only one person's own reporters can be linked.` : null} switcher={why ? null : <LayoutSwitch layout={layout} onLayout={setLayout} />}>
       {err && (
@@ -273,7 +282,7 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
                 ? "Read a row as: this reporter's orchestrators can do this to the column's. Can see lists their orchestrators with project, system and status. Can send includes Can see."
                 : "Drag a card to another column, or use its Move to list. The line at the bottom of a card is what that reporter can do back."}
             </p>
-            <p className="hint">You can propose Can see or either Can send. Taking a right away is {owner}'s choice.</p>
+            <p className="hint">You can propose more than a pair has. Taking a right away, or lowering one, is {owner}'s choice.</p>
           </div>
         </div>
       )}

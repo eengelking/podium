@@ -34,7 +34,7 @@ const LABELS: Record<keyof PeerServerSettings, string> = {
   roundTrips: 'Round trips',
   perMinute: 'Messages per minute',
   maxChars: 'Longest message',
-  retainDays: 'Days kept',
+  retainDays: 'Keep conversations',
 };
 
 /** Checks one setting's value against its range, and an upper bound when one applies. Returns the error, or null. */

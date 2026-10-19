@@ -294,6 +294,8 @@ export interface ConversationSummary {
   lastAt: number;
   /** `waiting` while a message waits for approval, `paused` while the link is paused, else `active`. */
   state: 'active' | 'waiting' | 'paused';
+  /** Whether the link is paused, which `state` hides while a message also waits for approval (#417). */
+  paused: boolean;
   /** Whether each direction can send now. */
   aToB: boolean;
   bToA: boolean;

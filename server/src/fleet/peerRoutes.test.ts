@@ -434,8 +434,9 @@ describe('Traffic’s open read (#412)', () => {
     const t = await request(s.app).get('/api/fleet/peers/traffic');
     expect(t.body.enabled).toBe(true);
     expect(t.body.conversations).toEqual([expect.objectContaining({ messages: 1, state: 'active' })]);
-    // How long a conversation is kept, so Traffic can name the days (#417).
+    // How long a conversation is kept, so Traffic can name the days, and the server's clock to time them by (#417).
     expect(t.body.retainDays).toBe(30);
+    expect(t.body.serverTime).toEqual(expect.any(Number));
     expect((await request(s.app).get('/api/fleet/peers/traffic?range=forever')).status).toBe(400);
     s.fleet.features.setFeature(PEER_MESSAGING, false);
     expect((await request(s.app).get('/api/fleet/peers/traffic')).body).toEqual({ enabled: false, conversations: [] });
@@ -485,9 +486,9 @@ describe('the Admin’s side (#412)', () => {
     const view = (await admin.get(`/api/admin/reporters/${MAC.id}/peers`)).body;
     expect(view.trust).toBe(false);
     expect(view.rights).toEqual(expect.arrayContaining([expect.objectContaining({ from: MAC.id, to: LINUX.id, level: 'see' })]));
+    // The effective levels stay this reporter's pairs, for Pause all links: the Grid reads levels from the rights.
     const pairs = (view.effective as { from: string; to: string }[]).map((e) => `${e.from}>${e.to}`);
-    expect(pairs).toEqual(expect.arrayContaining([`${twin.id}>${LINUX.id}`, `${LINUX.id}>${twin.id}`, `${MAC.id}>${twin.id}`]));
-    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(pairs.sort()).toEqual([`${LINUX.id}>${MAC.id}`, `${MAC.id}>${LINUX.id}`, `${MAC.id}>${MAC.id}`, `${MAC.id}>${twin.id}`, `${twin.id}>${MAC.id}`].sort());
     expect(view.requests).toEqual([expect.objectContaining({ id: p.body.requestId, fromKey: twin.id, toKey: LINUX.id })]);
     expect((await s.edBrowser.put('/api/fleet/respond/peers/defaults').set(H).send({ trust: true })).status).toBe(200);
     expect((await admin.get(`/api/admin/reporters/${MAC.id}/peers`)).body.trust).toBe(true);

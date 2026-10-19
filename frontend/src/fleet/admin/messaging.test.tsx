@@ -131,6 +131,7 @@ describe("a reporter's Messaging section (#416)", () => {
     expect(within(sec).queryByText(/live$/)).toBeNull();
     // An Admin cannot propose No access.
     expect(within(cell("studio-m2", "ci-01")).getByRole("option", { name: "No access" })).toBeDisabled();
+    expect(within(sec).getByText("You can propose more than a pair has. Taking a right away, or lowering one, is Dana's choice.")).toBeInTheDocument();
     // The details say the system and that messaging is on.
     expect(screen.getByText("System", { selector: "dt" }).nextElementSibling).toHaveTextContent("macOS 26.1");
     expect(screen.getByText("Messaging", { selector: "dt" }).nextElementSibling).toHaveTextContent("On");
@@ -154,6 +155,20 @@ describe("a reporter's Messaging section (#416)", () => {
     // Choosing the same level again sends nothing more.
     fireEvent.change(cell("ci-01", "studio-m2"), { target: { value: "send" } });
     expect(s.proposeBodies).toHaveLength(1);
+  });
+
+  it("offers only more than a pair has: a level below today's cannot be proposed", async () => {
+    const s = server();
+    s.peers!.rights[0]!.level = "send";
+    await openReporter("studio-m2");
+    await waitFor(() => expect(cell("studio-m2", "ci-01").value).toBe("send"));
+    const c = cell("studio-m2", "ci-01");
+    for (const name of ["No access", "Can see", "Can send, with approval"]) expect(within(c).getByRole("option", { name })).toBeDisabled();
+    expect(within(c).getByRole("option", { name: "Can send" })).toBeEnabled();
+    // A pair with nothing yet can be given any level but No access.
+    expect(within(cell("ci-01", "studio-m2")).getByRole("option", { name: "Can see" })).toBeEnabled();
+    fireEvent.change(c, { target: { value: "see" } });
+    expect(s.proposeBodies).toEqual([]);
   });
 
   it("says when a proposal is refused, and puts the select back", async () => {

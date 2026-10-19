@@ -383,6 +383,8 @@ describe("the conversation, for its owner", () => {
     const ask = within(panel()).getByRole("button", { name: "Remove link…" });
     fireEvent.click(ask);
     const confirm = within(panel()).getByRole("group", { name: "Remove the link" });
+    expect(ask).toHaveAttribute("aria-expanded", "true");
+    expect(ask).toHaveAttribute("aria-controls", confirm.id);
     expect(confirm).toHaveTextContent("Remove the link between ed-mbp and ci-runner-01? Both directions lose every right, a message still waiting is dropped");
     expect(document.activeElement).toBe(within(confirm).getByRole("button", { name: "Keep it" }));
     fireEvent.click(within(confirm).getByRole("button", { name: "Keep it" }));
@@ -445,9 +447,63 @@ describe("for anyone but the owner", () => {
     expect(within(p).queryByRole("button", { name: "Pause link" })).toBeNull();
     expect(p).toHaveTextContent("This is Ed's link. Only Ed can pause or remove it here; an Admin can in Admin > Reporters.");
   });
+
+  it("tells an Admin a message is held on a paused link that also has one waiting for approval", async () => {
+    // The server's state reads `waiting` then, and `paused` says the rest; the Admin has no rights read of Ed's.
+    page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: true })]) });
+    await flush();
+    expect(within(panel()).getAllByRole("listitem")[2]).toHaveTextContent("Held: the link is paused. It goes when the link resumes.");
+  });
+});
+
+describe("the open conversation", () => {
+  it("stays on the one shown when another conversation gets a newer message", async () => {
+    const traffic = fakeTraffic();
+    page({ traffic });
+    await flush();
+    expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+    // infra-notes and Tester gets the newest message, so the next read lists it first.
+    const [devTester, devArm, notesTester, devNotes] = baseLinks();
+    traffic.api.read.mockResolvedValue({ enabled: true, conversations: [{ ...notesTester!, lastAt: T0 }, devTester!, devArm!, devNotes!], retainDays: 30 });
+    fireEvent.click(within(panel()).getByRole("button", { name: "Pause link" }));
+    await flush();
+    expect(traffic.api.read.mock.calls.length).toBeGreaterThan(1);
+    expect(within(panel()).getByRole("heading", { level: 2 })).toHaveTextContent("claude-dashboard ⇄ and Tester");
+  });
+
+  it("keeps a read that started before a newer one from landing over it", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(T0);
+    const traffic = fakeTraffic();
+    page({ traffic });
+    await flush();
+    // An interval read starts and is slow; Pause link then reads again, and that newer read is the one that counts.
+    let slow: (r: TrafficRead) => void = () => undefined;
+    traffic.api.read.mockImplementationOnce(() => new Promise<TrafficRead>((resolve) => (slow = resolve)));
+    act(() => vi.advanceTimersByTime(10_000));
+    await flush();
+    fireEvent.click(within(panel()).getByRole("button", { name: "Pause link" }));
+    await flush();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeInTheDocument();
+    slow({ enabled: true, conversations: baseLinks(), retainDays: 30 });
+    await flush();
+    expect(within(panel()).getByRole("button", { name: "Resume link" })).toBeInTheDocument();
+  });
 });
 
 describe("the Table and Show", () => {
+  it("counts Last message by the server's clock, not the browser's", async () => {
+    const traffic = fakeTraffic();
+    // The server is 3 minutes ahead of this browser.
+    traffic.api.read.mockImplementation(async () => ({ enabled: true, conversations: baseLinks(), retainDays: 30, serverTime: T0 + 180_000 }));
+    page({ traffic });
+    await flush();
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "View" })).getByRole("radio", { name: "Table" }));
+    await flush();
+    const rows = within(screen.getByRole("region", { name: "Links" })).getAllByRole("row").slice(1);
+    expect(rows[0]).toHaveTextContent("4 min ago");
+  });
+
   it("lists the same links as text and selects one from its name", async () => {
     page();
     await flush();

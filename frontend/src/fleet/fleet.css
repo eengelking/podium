@@ -1135,7 +1135,7 @@ body.modal-open #root { filter: blur(5px); }
 .podium .pm-map .node .st { fill: var(--muted); font-size: 11px; }
 .podium .pm-map .node .si { color: var(--ink2); }
 .podium .pm-map .node.running .si { color: var(--good-text); }
-.podium .pm-map .node.waiting .si { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .pm-map .node.waiting .si { color: var(--warn-text); }
 .podium .pm-map .node.bg .si, .podium .pm-map .node.deleg .si { color: var(--deleg-text); }
 .podium .pm-map .node.stale .si { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
 .podium .pm-map .edge .ln { fill: none; stroke: var(--ink2); stroke-linecap: round; }

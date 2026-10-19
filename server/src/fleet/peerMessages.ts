@@ -469,9 +469,10 @@ export class PeerMessages implements PeerMessagesApi {
     const [a, b] = from.sessionId <= to.sessionId ? [from, to] : [to, from];
     const ab = this.rights.effective(a.reporterKey, b.reporterKey);
     const ba = this.rights.effective(b.reporterKey, a.reporterKey);
+    const paused = ab.paused || ba.paused;
     let state: ConversationSummary['state'] = 'active';
     if (g.some((m) => m.state === 'approval')) state = 'waiting';
-    else if (ab.paused || ba.paused) state = 'paused';
+    else if (paused) state = 'paused';
     return {
       link: last.link,
       a,
@@ -480,6 +481,7 @@ export class PeerMessages implements PeerMessagesApi {
       messages: g.length,
       lastAt: last.sentAt,
       state,
+      paused,
       aToB: canSend(ab.level),
       bToA: canSend(ba.level),
       roundTrips: { used: roundTripsUsed(g), cap: this.rights.limits(last.owner).roundTrips },

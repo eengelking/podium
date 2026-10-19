@@ -50,6 +50,21 @@ describe("PeerLimits, the Admin's limits (#416)", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("sends a value the server refused once, not again when the box loses focus after Enter", async () => {
+    const onSave = vi.fn(async (): Promise<string | null> => "the server is busy");
+    setup({ onSave });
+    const b = box(/^Messages per minute/);
+    fireEvent.change(b, { target: { value: "50" } });
+    await act(async () => fireEvent.keyDown(b, { key: "Enter" }));
+    await act(async () => fireEvent.blur(b));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(/the server is busy/i);
+    // A changed value is sent again.
+    fireEvent.change(b, { target: { value: "40" } });
+    await act(async () => fireEvent.blur(b));
+    expect(onSave).toHaveBeenCalledTimes(2);
+  });
+
   it("saves a valid change when the box loses focus, once even after Enter", async () => {
     const { onSave } = setup();
     const b = box(/^Round trips/);
@@ -93,18 +108,22 @@ describe("PeerLimits, the Admin's limits (#416)", () => {
     setup();
     const b = box(/^Keep conversations/);
     await leave(b, "");
-    expect(screen.getByRole("alert")).toHaveTextContent("Days kept must be a whole number from 1 to 365. Nothing was saved. The saved value, 30, still applies.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Keep conversations must be a whole number from 1 to 365. Nothing was saved. The saved value, 30, still applies.");
     await leave(b, "2.5");
-    expect(screen.getByRole("alert")).toHaveTextContent("Days kept must be a whole number from 1 to 365.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Keep conversations must be a whole number from 1 to 365.");
   });
 
-  it("shows the server's refusal the same way, and lets the same value be tried again", async () => {
+  it("shows the server's refusal the same way, and lets the same value be tried again with Enter", async () => {
     const onSave = vi.fn(async () => "longest message must be a whole number from 1 to 20000");
     setup({ onSave });
     const b = box(/^Longest message/);
     await leave(b, "500");
     expect(screen.getByRole("alert")).toHaveTextContent("Longest message must be a whole number from 1 to 20000. Nothing was saved. The saved value, 20000, still applies.");
+    // Leaving the box again keeps the refusal and sends nothing; Enter tries again.
     await act(async () => fireEvent.blur(b));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("Nothing was saved.");
+    await act(async () => fireEvent.keyDown(b, { key: "Enter" }));
     expect(onSave).toHaveBeenCalledTimes(2);
   });
 

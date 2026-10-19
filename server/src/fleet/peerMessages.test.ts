@@ -514,6 +514,7 @@ describe('PeerMessages: conversations', () => {
       messages: 1,
       lastAt: T0 + 20,
       state: 'waiting',
+      paused: false,
       aToB: true,
       bToA: true,
       roundTrips: { used: 0, cap: 10 },
@@ -521,7 +522,10 @@ describe('PeerMessages: conversations', () => {
     expect(ci).toMatchObject({ a: { sessionId: 's-ci' }, b: { sessionId: 's-mbp' }, messages: 2, lastAt: T0 + 10, state: 'active', aToB: true, bToA: true, roundTrips: { used: 1, cap: 10 } });
     expect(JSON.stringify(all)).not.toContain('one');
     pause('r-ci', 'r-mbp');
-    expect(s.conversations({}).find((c) => c.a.sessionId === 's-ci')?.state).toBe('paused');
+    expect(s.conversations({}).find((c) => c.a.sessionId === 's-ci')).toMatchObject({ state: 'paused', paused: true });
+    // A paused link with a message waiting for approval reads `waiting`, and still says it is paused (#417).
+    pause('r-mbp', 'r-pi');
+    expect(s.conversations({}).find((c) => c.b.sessionId === 's-pi')).toMatchObject({ state: 'waiting', paused: true });
     expect(s.conversations({ owner: 'ed' })).toHaveLength(2);
     expect(s.conversations({ owner: 'Ann' })).toEqual([]);
     expect(s.conversations({ since: T0 + 15 }).map((c) => c.b.sessionId)).toEqual(['s-pi']);

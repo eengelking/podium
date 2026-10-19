@@ -24,7 +24,7 @@ export const PEER_LIMIT_NAMES: Record<PeerLimitKey, string> = {
   roundTrips: "Round trips",
   perMinute: "Messages per minute",
   maxChars: "Longest message",
-  retainDays: "Days kept",
+  retainDays: "Keep conversations",
 };
 
 /** One limit's error, or null: the server's `peerSettingError`, word for word. `max` is lower for an owner (the Admin's value). */
@@ -163,27 +163,34 @@ function PeerLimitRow(props: {
   const box = useRef<HTMLInputElement>(null);
   // What this box last sent, so Enter and then leaving the box save once.
   const sent = useRef<string | null>(null);
+  // What the server last refused, and why, so leaving the box after Enter does not send the same value again.
+  const refused = useRef<{ text: string; err: string } | null>(null);
   // A newly saved value (this box's or another browser's) replaces what is typed.
   useEffect(() => {
     setText(show(saved));
     setErr("");
     sent.current = null;
+    refused.current = null;
   }, [saved]);
   const commit = async () => {
     const why = props.check(text);
     if (why) return setErr(why);
+    if (refused.current?.text === text) return setErr(refused.current.err);
     setErr("");
     if (text.trim() === show(saved) || text === sent.current) return;
     sent.current = text;
     const no = await props.onSave(Number(text.trim()));
     if (no) {
       sent.current = null;
+      refused.current = { text, err: no };
       setErr(no);
     }
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
+    // Enter is a deliberate try, so it sends a value the server refused before; leaving the box does not.
+    refused.current = null;
     void commit();
   };
   const stateId = `${id}-s`;

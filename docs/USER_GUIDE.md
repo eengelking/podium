@@ -887,7 +887,7 @@ shows the owner's reporters with the same **Grid | Board** as [My reporters](#my
 
 - An Admin never decides for the owner. A change you make there is sent to the owner as a proposal, shows as
   Proposed, waiting for them, and applies only once they accept it, on My reporters or in a session on the machine. You
-  can propose Can see or either Can send; taking a right away is the owner's choice.
+  can only propose more than a pair has; lowering a right or taking it away is the owner's choice.
 - **Pause all links** in the details' header pauses every link of that reporter at once, with no answer needed, and
   **Resume all links** undoes it.
 - While the owner has **Trust my own reporters** on, the choices are locked and a band says so.
@@ -936,7 +936,7 @@ on their own links in My reporters, never looser.
 | Round trips before a person approves | 10 | 1 to 100 | After this many exchanges in one conversation, the next message waits for the owner to approve it |
 | Messages per minute on a link | 6 | 1 to 60 | More than this is refused, and the sender is told to wait |
 | Longest message, in characters | 20,000 | 1 to 20,000 | A longer message is refused, never cut |
-| Days kept | 30 | 1 to 365 | How long a conversation is kept after its last message |
+| Keep conversations, in days | 30 | 1 to 365 | How long a conversation is kept after its last message |
 
 A value is saved when you leave its box or press Enter. One out of range is refused in its row: the error says nothing
 was saved and which value still applies.

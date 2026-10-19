@@ -12,21 +12,26 @@ export interface TrafficData {
   data: TrafficRead | null;
   /** Why the last read failed, in the server's words; null after a good one. */
   loadError: string | null;
+  /** The server's clock minus the browser's at the last read, so times are counted as the server counts them. */
+  skew: number;
   reload: () => Promise<void>;
 }
 
 export function useTraffic(api: TrafficApi, on: boolean, range: TrafficRange): TrafficData {
   const [data, setData] = useState<TrafficRead | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // A read for a range that is no longer chosen must not land over the new one.
+  const [skew, setSkew] = useState(0);
+  // Each read takes a number, and only the newest one started may land: a read for a range no longer chosen, or an
+  // interval read that started before a Pause link's read, must not land over a newer one.
   const gen = useRef(0);
 
   const reload = useCallback(async () => {
-    const at = gen.current;
+    const at = ++gen.current;
     try {
       const d = await api.read(range);
       if (gen.current !== at) return;
       setData(d);
+      if (typeof d.serverTime === "number") setSkew(d.serverTime - Date.now());
       setLoadError(null);
     } catch (err) {
       if (gen.current !== at) return;
@@ -46,7 +51,7 @@ export function useTraffic(api: TrafficApi, on: boolean, range: TrafficRange): T
     };
   }, [on, reload]);
 
-  return { data, loadError, reload };
+  return { data, loadError, skew, reload };
 }
 
 export interface Conversation {

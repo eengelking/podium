@@ -21,7 +21,7 @@ describe('PeerSettings', () => {
     [{ roundTrips: 101 }, 'Round trips must be a whole number from 1 to 100'],
     [{ perMinute: 2.5 }, 'Messages per minute must be a whole number from 1 to 60'],
     [{ maxChars: 20_001 }, 'Longest message must be a whole number from 1 to 20000'],
-    [{ retainDays: '30' }, 'Days kept must be a whole number from 1 to 365'],
+    [{ retainDays: '30' }, 'Keep conversations must be a whole number from 1 to 365'],
     [{ hops: 3 }, 'unknown setting: hops'],
   ])('refuses %j and saves nothing', (patch, error) => {
     const s = new PeerSettings(openDb(':memory:'));

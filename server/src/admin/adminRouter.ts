@@ -438,14 +438,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!peers || !ref) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
     const owner = ref.owner;
     const mine = owner && !ref.adminSecret ? peers.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
-    // Every pair of the owner's reporters, not only this one's: the page's Grid draws them all, in one read (#416).
+    // The stored rights and requests of every pair of the owner's reporters, not only this one's: the page's Grid draws
+    // them all, in one read (#416). The effective levels are this reporter's pairs only, for Pause all links: working
+    // them out for every pair would cost a few queries per pair on each poll, and the Grid reads levels from the rights.
     const keys = new Set(mine.map((r) => r.key));
     res.json({
       reporter: ref,
       peers: mine,
       trust: owner && mine.length ? peers.rights.defaults(owner).trust : false,
       rights: owner ? peers.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
-      effective: mine.flatMap((a) => mine.map((b) => ({ from: a.key, to: b.key, ...peers.rights.effective(a.key, b.key) }))),
+      effective: mine.flatMap((o) => [
+        { from: ref.key, to: o.key, ...peers.rights.effective(ref.key, o.key) },
+        ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...peers.rights.effective(o.key, ref.key) }]),
+      ]),
       requests: mine.length && owner ? peers.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => peers.ownerRequestView(r)) : [],
     });
   });

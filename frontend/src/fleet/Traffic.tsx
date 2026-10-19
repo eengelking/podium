@@ -137,6 +137,7 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
         reload={traffic.reload}
         tick={traffic.data}
         retainDays={traffic.data.retainDays}
+        skew={traffic.skew}
         {...props}
       />
     );
@@ -180,6 +181,8 @@ interface WhoProps {
   reload: () => Promise<void>;
   tick: unknown;
   retainDays: number | undefined;
+  /** The server's clock minus the browser's, from the last read. */
+  skew: number;
   me: RespondMe | null;
   sessions: Record<string, SessionView>;
   peers: MyPeers;
@@ -193,6 +196,12 @@ function Who(p: WhoProps) {
   const { links } = p;
   const [sel, setSel] = useState<string | null>(null);
   const [said, setSaid] = useState("");
+  // The first conversation opens by itself, and stays open: the read is newest first, so falling back to links[0] on
+  // every read would jump to whichever conversation got the latest message.
+  const first = links[0] ? linkId(links[0]) : null;
+  useEffect(() => {
+    if (sel === null && first !== null) setSel(first);
+  }, [sel, first]);
   const selected = links.find((l) => linkId(l) === sel) ?? links[0] ?? null;
   const layout = useMemo(() => layoutMap(links), [links]);
   const reporters = p.peers.data?.reporters ?? [];
@@ -230,7 +239,11 @@ function Who(p: WhoProps) {
     const kind = stateKind(s);
     return { kind, word: STATE_WORD[kind] };
   };
-  const off = reporters.filter((r) => r.peers !== true).map((r) => r.machine);
+  // The owner's machines that cannot take part and are not on the map; one that talked before it went off is drawn.
+  const drawn = new Set(layout.machines.map((m) => m.key));
+  const off = reporters
+    .filter((r) => r.peers !== true && !drawn.has(r.key))
+    .map((r) => ({ machine: r.machine, why: r.peers === null ? "its reporter is too old to message, so update it" : "messaging is off on that machine" }));
 
   return (
     <Section id="map-h" title="Who is talking" help={HELP}>
@@ -254,7 +267,8 @@ function Who(p: WhoProps) {
             </div>
           ) : (
             <div className="pm-left">
-              <LinkTable links={links} selected={selected ? linkId(selected) : null} onSelect={choose} now={p.now} />
+              {/* Timed by the server's clock, as Admin > Reporters is: the read's offset applied to the page's clock. */}
+              <LinkTable links={links} selected={selected ? linkId(selected) : null} onSelect={choose} now={p.now + p.skew} />
             </div>
           )}
           {selected && <ConversationPanel key={linkId(selected)} link={selected} {...p} onSaid={setSaid} />}
@@ -332,7 +346,9 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
   const [removing, setRemoving] = useState(false);
   const removeBtn = useRef<HTMLButtonElement>(null);
   const keepBtn = useRef<HTMLButtonElement>(null);
-  const paused = link.state === "paused" || pausedByRights(p.peers, link);
+  // `paused` from the server, which `state` hides while a message also waits for approval; the owner's own read can be
+  // newer after a Pause link.
+  const paused = link.paused || link.state === "paused" || pausedByRights(p.peers, link);
   const [x, y] = ordered(link);
   const ways = waysOf(link);
   const one = ways === "aToB" || ways === "bToA";
@@ -408,10 +424,11 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
       {head}
       {manage ? (
         <div className="acts">
-          <button type="button" className="btn sm" disabled={busy} onClick={() => void togglePause()}>
+          {/* Not disabled while saving, which would drop the focus: a press while busy waits for the first. */}
+          <button type="button" className="btn sm" aria-busy={busy || undefined} onClick={() => !busy && void togglePause()}>
             {paused ? "Resume link" : "Pause link"}
           </button>
-          <button type="button" className="btn sm dng" ref={removeBtn} disabled={busy} aria-expanded={removing} onClick={() => setRemoving(true)}>
+          <button type="button" className="btn sm dng" ref={removeBtn} aria-busy={busy || undefined} aria-expanded={removing} aria-controls={removing ? "conv-remove" : undefined} onClick={() => !busy && setRemoving(true)}>
             Remove link…
           </button>
           <a className="btn sm" href="#/me/reporters">
@@ -429,7 +446,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
         </div>
       )}
       {removing && (
-        <div className="confirm" role="group" aria-label="Remove the link">
+        <div className="confirm" id="conv-remove" role="group" aria-label="Remove the link">
           {same ? `Remove the link between the orchestrators on ${link.a.machine}?` : `Remove the link between ${link.a.machine} and ${link.b.machine}?`} Both directions lose every right, a message still waiting is dropped, and this conversation stays here until it expires.
           <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
             Keep it

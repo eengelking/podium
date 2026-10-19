@@ -196,8 +196,8 @@ interface ViewProps {
   onSet: (from: string, to: string, level: PeerLevel, control: string) => void;
   /** Whether a reporter's live orchestrators are counted. The Admin's view has no count to show (#416). Defaults to true. */
   showLive?: boolean;
-  /** Levels that cannot be chosen here: an Admin cannot propose No access (#416). None by default. */
-  disabledLevels?: readonly PeerLevel[];
+  /** Levels that cannot be chosen here, for every pair or per pair: an Admin can only propose more (#416). None by default. */
+  disabledLevels?: readonly PeerLevel[] | ((from: string, to: string) => readonly PeerLevel[]);
 }
 
 const levelOptions = (prefix = "", disabled: readonly PeerLevel[] = []) =>
@@ -207,6 +207,8 @@ const levelOptions = (prefix = "", disabled: readonly PeerLevel[] = []) =>
       {LEVEL_LABEL[l]}
     </option>
   ));
+
+const disabledFor = (d: ViewProps["disabledLevels"], from: string, to: string): readonly PeerLevel[] => (typeof d === "function" ? d(from, to) : (d ?? []));
 
 export const gridCellId = (a: string, b: string) => `g-${idPart(a)}-${idPart(b)}`;
 export const moveId = (key: string) => `mv-${idPart(key)}`;
@@ -234,7 +236,7 @@ export function RightsGrid({ model, waitingFor, shown, onSet, showLive = true, d
               {ra.machine} to {rb.machine}
             </label>
             <select className="field sm" id={id} value={(shown ?? model.level)(a, b)} disabled={model.locked(a, b)} onChange={(e) => onSet(a, b, e.target.value as PeerLevel, id)}>
-              {levelOptions("", disabledLevels)}
+              {levelOptions("", disabledFor(disabledLevels, a, b))}
             </select>
             {self && <span className="hint cellnote">Between orchestrators on this machine</span>}
             {model.paused(a, b) && <PausedTag />}
@@ -350,7 +352,7 @@ export function RightsBoard({ model, waitingFor, shown, onSet, of, onOf, showLiv
             move(r.key, e.target.value as PeerLevel, id);
           }}
         >
-          {levelOptions("Move to: ", disabledLevels)}
+          {levelOptions("Move to: ", disabledFor(disabledLevels, me.key, r.key))}
         </select>
         {model.paused(me.key, r.key) && <PausedTag />}
         {proposed && <ProposedTag level={proposed} waitingFor={waitingFor} />}
@@ -392,7 +394,7 @@ export function RightsBoard({ model, waitingFor, shown, onSet, of, onOf, showLiv
                 const key = dragging.current ?? e.dataTransfer?.getData("text/plain");
                 dragging.current = null;
                 setDragKey(null);
-                if (key && !model.locked(me.key, key) && level(me.key, key) !== c && !disabledLevels.includes(c)) move(key, c, moveId(key));
+                if (key && !model.locked(me.key, key) && level(me.key, key) !== c && !disabledFor(disabledLevels, me.key, key).includes(c)) move(key, c, moveId(key));
               }}
             >
               <h3>

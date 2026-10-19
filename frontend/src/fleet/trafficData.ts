@@ -25,6 +25,8 @@ export interface TrafficLink {
   messages: number;
   lastAt: number;
   state: LinkState;
+  /** Whether the link is paused, which `state` hides while a message also waits for approval. */
+  paused?: boolean;
   /** Whether each way can send now. */
   aToB: boolean;
   bToA: boolean;
@@ -36,6 +38,8 @@ export interface TrafficRead {
   conversations: TrafficLink[];
   /** Days a conversation is kept after its last message, the Admin's setting; absent while messaging is off. */
   retainDays?: number;
+  /** The server's clock at the read, to count "ago" by; absent while messaging is off. */
+  serverTime?: number;
 }
 
 /** How long a conversation is kept, in words, for the panel's foot and the rules. */
