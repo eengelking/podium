@@ -123,7 +123,9 @@ export class PeerService {
     const r = out.request;
     if (r.kind === 'access' && r.fromSession) {
       const to = this.reporters.get(r.toKey)?.machine ?? r.toKey;
-      const words = r.level ? LEVEL_WORDS[r.level].toLowerCase() : 'access';
+      // The level the right has now: allowing never lowers one, so it can be above what was asked for.
+      const level = out.applied?.level ?? r.level;
+      const words = level ? LEVEL_WORDS[level].toLowerCase() : 'access';
       this.messages.notice(
         r.fromSession,
         r.outcome === 'allowed' ? `${owner} allowed your request for access to ${to}: ${words}. Run podium_peers to see what you can reach now.` : `${owner} declined your request for access to ${to}.`,

@@ -870,8 +870,11 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
   with the same redactor as a file's diff ([6.4](#64-failure-and-excerpt-rules), #319). The message is then
   sent, and the receiver sees the marker too. Redaction is best effort.
 - A message goes out from the flush timer, with the report's credential and backoff, never from inside a hook.
-  Each tool queues its call for the timer and waits at most 8 seconds, inside the hook's budget. A call the timer
-  has not started by then is taken back, and the tool answers that nothing left the machine. `podium_peers` and
+  Each tool queues its call and waits at most 8 seconds, inside the hook's budget. Queuing a call sets a timer
+  (`$.clock.after`, 50 ms) that makes the queued calls at once, whatever `flushIntervalMs` is, without posting a
+  report. A flush makes queued calls before the outbox and between its items, never runs twice at once, and runs
+  again when it ends if a call was queued meanwhile. While the report backs off, calls are held back. A call not
+  started within the 8 seconds is taken back, and the tool answers that nothing left the machine. `podium_peers` and
   `podium_request_access` go the same way, and the access request's reason is redacted too.
 
 **Receiving**
@@ -924,6 +927,9 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - `/podium` is registered with `immediate: true`. Without it, a command typed during a turn waits for the turn
   to end (verified, #411). Its other verbs then run mid-turn too. The transcript echoes `/podium` without its
   arguments, so the command's answer names the request's id.
+- `/podium allow <id>` names the level Podium applied, which can be higher than the request's because allowing never
+  lowers a right, and the request's level when the server does not say. The notice to an orchestrator whose access
+  request was allowed names the applied level too.
 - A message that could not be delivered (the receiver ended first, the link was removed) is a log line in the
   sender's session that says so and that the message stays in Podium > Traffic.
 
@@ -2008,7 +2014,9 @@ refusal is `{ ok: false, error }`, the error in words the mod can show the model
   two.
 
 **`POST /api/fleet/sessions/:id/peers/requests/:requestId`**: `/podium allow|decline|deliver <id>`.
-- Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome }`. The request closes in Podium too.
+- Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome, level? }`. `level` is there only when
+  an allow applied a right: the level the right now has, which can be higher than the request's (an allowed access
+  request never lowers a right; a proposal applies as proposed). The request closes in Podium too.
 - `404` unknown, `403` another owner's, `410` already answered (the error says how), `422` an answer that does not fit
   (`deliver` is for a message; `allow` for a proposal or an access request).
 
@@ -2030,9 +2038,13 @@ On responding's `/respond` router, so they need its sign-in, `X-Podium-Respond: 
 `Cache-Control: no-store`. A browser can sign in while messaging is on even with responding off. Each acts on the
 signed-in person's own reporters: the admin secret has none (`403`). `403` too while messaging is off.
 
-- `GET /api/fleet/respond/peers`: My reporters in one read. `{ enabled, owner, reporters, rights, defaults, limits: {
-  server, effective }, requests }`. `reporters` are the person's mod reporters (`key`, `machine`, `os`, `peers`,
-  `version`, and `live`, its live orchestrators). `requests` are the open ones, each a `PeerRequest` with `messageId`.
+- `GET /api/fleet/respond/peers`: My reporters in one read. `{ enabled, owner, serverTime, serverStartedAt, reporters,
+  rights, defaults, limits: { server, effective }, requests }`. `reporters` are the person's mod reporters (`key`,
+  `machine`, `os`, `peers`, `version`, `state` and `lastSeenAt` as Admin > Reporters works them out, and `live`, its
+  live orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
+  `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
+  can tell apart two machines that share a name) and `messageId`. The mod's `peerRequests` carry the `PeerRequest`
+  alone.
 - `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `200 { ok: true, right }`. `403` when
   either reporter is another person's, on the admin secret, or the two belong to different people.
 - `PUT /api/fleet/respond/peers/links`: `{ a, b, paused }`, Pause link or Resume link, both directions.
@@ -3607,16 +3619,19 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 
 - The top bar reads *Signed in as Ed*, then **My reporters · N waiting**, then **Sign out**, with 16 px between the
   name and the button (approved on #347). **My reporters** shows once a person (not the admin secret) is signed in
-  with messaging on, and "· N waiting" once the first read has come back, 0 included. The page and the count
+  with messaging on, and "· N waiting" only while N is above 0: plain **My reporters** at 0 and before the first
+  read. The page and the count
   share one read, every 10 seconds on the page and every 30 seconds elsewhere.
 - The page mirrors Admin > Reporters for the person's own reporters only, in the Admin page layout under the top
   bar:
   - **Waiting for you**: one consent box (`.confirm`) per request, naming who asked and what changes, with a
-    button per answer. An orchestrator's reason and a message waiting for approval are quoted as text.
+    button per answer. An orchestrator's reason and a message waiting for approval are quoted as text. An Admin's
+    proposal is matched to its Grid cell and Board card by reporter key, not by machine name, and says what the
+    pair has today.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
-    there in words), version, last report, live orchestrators. The owner's read carries no state or report time,
-    so State is Reporting while the reporter has a live orchestrator and "No live session" otherwise, and Last
-    report is the newest live session's time, else "–".
+    there in words), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
+    (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
+    from the server's `serverTime`.
   - **Defaults**: Trust my own reporters (a switch), When an orchestrator asks for access (Ask me, Allow,
     Decline), A new right to send starts as (With approval, Without approval).
   - **Who can message whom**, with a **Grid | Board** switch that the browser remembers:
@@ -3633,7 +3648,9 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 - Empty: "No reporters yet", and how a machine gets here. Not signed in, the admin secret and messaging off each
   get their own empty block too.
 - A change shows at once and keeps focus where it was. If saving fails, the page says "Could not save the change:
-  … Nothing changed. Try again." and shows the old level again.
+  … Nothing changed. Try again." and takes back only that change; a newer change still saving stays shown.
+- The page draws no rail, side panel or wall, so `[`, `]`, `w` and Esc do nothing there; `\` still hides and shows
+  the top bar.
 - The owner's stricter limits ([7.7](#orchestrator-messaging-347)) are not on the page yet; the server holds them.
 
 #### Traffic page (#347, `mockup/podium-traffic.html`)

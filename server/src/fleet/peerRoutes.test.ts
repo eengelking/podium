@@ -289,6 +289,15 @@ describe('access requests (#412)', () => {
     expect((await answer(declined.body.requestId, 'decline')).body).toEqual({ ok: true, outcome: 'declined' });
   });
 
+  it('tells the orchestrator that asked the level it now has, not the one it asked for (#414)', async () => {
+    const s = await linked('ask');
+    const asked = await request(s.app).post('/api/fleet/sessions/sess-dev/peers/access').set('X-Podium-Token', s.ed.token).send({ to: 'ci-runner-01', right: 'see', reason: 'Linux tests.' });
+    await s.edBrowser.post(`/api/fleet/respond/peers/requests/${asked.body.requestId}`).set(H).send({ answer: 'allow' });
+    const [notice] = (await devReport(s)).body.peerDeliveries;
+    expect(notice.text).toContain('can send, with approval');
+    expect(notice.text).not.toContain('can see');
+  });
+
   it('checks the right and the target, and refuses a machine it does not know', async () => {
     const s = await linked('see');
     const route = '/api/fleet/sessions/sess-dev/peers/access';
