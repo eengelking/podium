@@ -36,6 +36,7 @@ import {
 import { useConversation, useTraffic } from "./useTraffic";
 import { failReason, type MyPeers } from "./useMyPeers";
 import type { RespondMe, SessionView } from "./types";
+import { Blank } from "./components/Blank";
 
 type View = "map" | "table";
 const VIEWS = [
@@ -104,15 +105,6 @@ function StateTag({ link, paused = link.paused === true }: { link: TrafficLink; 
         </>
       )}
     </>
-  );
-}
-
-function Blank({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="kb-blank">
-      <b>{title}</b>
-      <p className="hint">{children}</p>
-    </div>
   );
 }
 

@@ -549,6 +549,15 @@ export interface ReportReply {
 
 // <protocol:end>
 
+/** Why the server let go of a held message, as its sender is told: the log rows and Traffic's delivery words (#467). */
+export const PEER_DROP_WORDS: Record<string, string> = {
+  'receiver-ended': 'the receiver ended first',
+  'session-deleted': 'a session was deleted',
+  'link-removed': 'the link was removed',
+  'messaging-off': 'orchestrator messaging was turned off',
+  refused: 'the receiving reporter refused it',
+};
+
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
 export interface PlanStepView extends PlanStep {
   doneSeq?: number;

@@ -14,18 +14,9 @@ import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
 import type { RespondMe } from "./types";
+import { Blank } from "./components/Blank";
 
 const LEAD = "The machines that report your sessions to this server, and which of them may message each other.";
-
-/** Why the page cannot show the person's reporters, as a dashed block with a heading. */
-function Blank({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="kb-blank">
-      <b>{title}</b>
-      <p className="hint">{children}</p>
-    </div>
-  );
-}
 
 const ON_REQUEST = [
   { id: "ask", label: "Ask me" },
@@ -98,7 +89,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
   } else if (!peers.data.reporters.length) {
     body = <Blank title="No reporters yet">A machine shows here once it reports with your name and token. Set both in its podium-reporter options.</Blank>;
   } else {
-    body = <Owner data={peers.data} peers={peers} api={props.api} now={props.now} />;
+    body = <Owner data={peers.data} peers={peers} api={props.api} now={props.now + peers.skew} />;
   }
   return (
     <main className="adminv" aria-label="My reporters">

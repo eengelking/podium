@@ -9,6 +9,7 @@ import { LayoutSwitch, PausedTag, RightsBoard, RightsGrid, SystemTag, useRightsL
 import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerReporter, type PeerRequestView, type PeerRight } from "../peers";
 import { ADMIN } from "../people";
 import { ReadGate } from "../readGate";
+import { Blank } from "../components/Blank";
 
 export const PEER_FLAG = "peer-messaging";
 
@@ -56,15 +57,6 @@ export function WarnIcon() {
       <path d="M8 6.6v3" />
       <path d="M8 11.4v.1" />
     </svg>
-  );
-}
-
-function Blank({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="kb-blank">
-      <b>{title}</b>
-      <p className="hint">{children}</p>
-    </div>
   );
 }
 

@@ -326,6 +326,16 @@ describe("the rail and the Activity panel around the page (#446)", () => {
 });
 
 describe("Waiting for you", () => {
+  it("counts a request's age by the server's clock when the browser's is three minutes ahead (#467)", async () => {
+    vi.setSystemTime(T0 + 3 * 60_000);
+    const read = baseRead();
+    read.requests = [{ ...MESSAGE, at: T0 - 2_000 }];
+    page({ server: fakeServer(read) });
+    await flush();
+    const region = screen.getByRole("region", { name: "Waiting for you" });
+    expect(region).toHaveTextContent("Sent just now.");
+  });
+
   it("names who asked and what changes, with a button per answer", async () => {
     page();
     await flush();

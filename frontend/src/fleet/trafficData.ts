@@ -3,8 +3,9 @@
 // messages come from the owner's read on responding's router, which the server opens only to the owner and an Admin.
 // This file holds the reads, the words the page uses for a link and a message, and the map's layout, so each can be
 // tested without drawing. (Not traffic.ts: on a case-insensitive disk it would be the same file as Traffic.tsx.)
-import { RespondError } from "./respondApi";
+import { call } from "./respondApi";
 import { ADMIN } from "./people";
+import { PEER_DROP_WORDS } from "../../../server/src/fleet/protocol";
 
 /** One end of a conversation: an orchestrator, and the reporter (machine) it runs on. */
 export interface TrafficEnd {
@@ -71,24 +72,6 @@ export const RANGES: readonly { id: TrafficRange; label: string }[] = [
   { id: "24h", label: "Last 24 hours" },
   { id: "30d", label: "Last 30 days" },
 ];
-
-async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    credentials: "same-origin",
-    headers: { "X-Podium-Respond": "1", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await res.text();
-  let parsed: Record<string, unknown> = {};
-  try {
-    parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  } catch {
-    // not JSON: the status says enough
-  }
-  if (!res.ok) throw new RespondError(res.status, parsed);
-  return parsed as T;
-}
 
 const seg = encodeURIComponent;
 
@@ -186,15 +169,6 @@ export function hm(t: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** Why the server let go of a held message, as its sender is told (peerRoutes.ts DROP_WORDS). */
-const DROP_WORDS: Record<string, string> = {
-  "receiver-ended": "the receiver ended first",
-  "session-deleted": "a session was deleted",
-  "link-removed": "the link was removed",
-  "messaging-off": "orchestrator messaging was turned off",
-  refused: "the receiving reporter refused it",
-};
-
 export type DeliveryIcon = "ok" | "queue" | "clock" | "pause" | "no";
 
 /** Where a message is, as an icon and words. `wait` marks a message still held, in the warning ink. */
@@ -207,7 +181,7 @@ export function deliveryWords(m: PeerMessage, linkPaused: boolean): { icon: Deli
     case "declined":
       return { icon: "no", text: `Declined at ${hm(m.stateAt)}. It was not delivered.`, wait: false };
     case "dropped":
-      return { icon: "no", text: `Dropped at ${hm(m.stateAt)}: ${DROP_WORDS[m.why ?? ""] ?? "the server let it go"}. It was not delivered.`, wait: false };
+      return { icon: "no", text: `Dropped at ${hm(m.stateAt)}: ${PEER_DROP_WORDS[m.why ?? ""] ?? "the server let it go"}. It was not delivered.`, wait: false };
     default:
       if (linkPaused) return { icon: "pause", text: "Held: the link is paused. It goes when the link resumes.", wait: true };
       if (m.state === "handed") return { icon: "queue", text: `Handed to ${m.to.machine}. Waiting for it to say ${m.to.name} took it.`, wait: true };

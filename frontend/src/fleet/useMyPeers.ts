@@ -14,6 +14,8 @@ export interface MyPeers {
   data: PeersRead | null;
   /** Why the last read failed, in the server's words; null after a good one. */
   loadError: { status: number | null; text: string } | null;
+  /** The server's clock minus the browser's at the last read: add it to the page's clock to count by the server's (#467). */
+  skew: number;
   reload: () => Promise<void>;
   /**
    * Makes a change: `optimistic` shows it at once, `run` saves it, then the data is read again. Resolves with the reason
@@ -31,6 +33,7 @@ export function failReason(err: unknown): string {
 export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
   const [data, setData] = useState<PeersRead | null>(null);
   const [loadError, setLoadError] = useState<MyPeers["loadError"]>(null);
+  const [skew, setSkew] = useState(0);
   // A read that started before a change must not undo it when it lands after.
   const gen = useRef(0);
   // What the server is known to have (the last read, plus changes it has saved since), and the changes still saving,
@@ -48,6 +51,7 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
       if (gen.current !== at) return;
       saved.current = d;
       setData(shown(d));
+      if (typeof d.serverTime === "number") setSkew(d.serverTime - Date.now());
       setLoadError(null);
     } catch (err) {
       if (gen.current !== at) return;
@@ -105,5 +109,5 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
     [reload, shown],
   );
 
-  return { data, loadError, reload, change };
+  return { data, loadError, skew, reload, change };
 }

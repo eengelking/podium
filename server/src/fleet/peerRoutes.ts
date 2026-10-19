@@ -11,7 +11,7 @@ import express, { type Request, type RequestHandler, type Response, type Router 
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PeopleStore, type PersonRow } from './people.js';
-import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
+import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import { LEVEL_WORDS, type PeerReply } from './peers.js';
 import type { SessionRow } from './db.js';
@@ -75,13 +75,6 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStore | null, logger: L
   const actorName = (a: Actor): string => (a.name === ADMIN_OWNER ? ADMIN_SECRET_ACTOR : a.name);
   const pair = (m: MessageRow): string => `${m.fromName} on ${m.fromMachine} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
-  const DROP_WORDS: Record<string, string> = {
-    'receiver-ended': 'the receiver ended first',
-    'session-deleted': 'a session was deleted',
-    'link-removed': 'the link was removed',
-    'messaging-off': 'orchestrator messaging was turned off',
-    refused: 'the receiving reporter refused it',
-  };
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     try {
       people?.log(kind, detail, source, fleet.now(), actor);
@@ -100,7 +93,7 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStore | null, logger: L
     } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, fields);
     else if (t.kind === 'approved') row('peer_approved', `Message from ${pair(m)}: approved [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
     else if (t.kind === 'declined') row('peer_declined', `Message from ${pair(m)}: declined [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
-    else row('peer_dropped', `Message from ${pair(m)}: dropped, ${DROP_WORDS[t.why] ?? t.why} [${short(m.id)}]`, m.owner, { ...fields, why: t.why });
+    else row('peer_dropped', `Message from ${pair(m)}: dropped, ${PEER_DROP_WORDS[t.why] ?? t.why} [${short(m.id)}]`, m.owner, { ...fields, why: t.why });
   };
 
   const requestRow = (kind: string, r: PeerRequestRow, actor: string, prefix = '') => {

@@ -20,6 +20,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **My reporters counts a request's age by the server's clock (#467).** "Asked 4 min ago" and "Proposed …" under Waiting for you used the browser's clock, while Your reporters used the server's, so a browser whose clock was off showed a request asked seconds ago as minutes old or in the future. They now use the server's time from the read, as Traffic does. The copied `call()`, `DROP_WORDS` and `Blank` on the messaging pages are one each, with no change to what the pages show or to the log's wording.
 - **Plan finish order survives a report with no plan, and a replaced plan starts over (#465).** A plan that went missing for a report and came back unchanged lost every finish number and fell back to plan order; the server now keeps the last plan across the gap. A new plan that reused the old step ids (TaskCreate numbers from 1) inherited the old numbers; plans now count as the same only with equal source, title and step texts, and any other starts over. Database migration 21 adds `plan_kept_json`. See SPEC 8.1 and DECISIONS 38.
 
 ### Added
