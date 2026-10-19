@@ -1,7 +1,8 @@
 // The browser's side of responding (#206, SPEC 7.1): signing in, reading an ask, answering it, and sending a message.
 // Every change carries X-Podium-Respond: 1; the sign-in lives in an HttpOnly cookie the page never sees, and the token
 // typed into the form is sent once and never kept (SPEC 7.7).
-import type { AskDetail, FileDiffReply, RespondMe } from "./types";
+import type { AskDetail, FileDiffReply, PeerLevel, RespondMe } from "./types";
+import type { PeerDefaults, PeersRead } from "./peers";
 
 const BASE = "/api/fleet/respond";
 
@@ -51,3 +52,16 @@ export const respondApi = {
 
 /** The browser's side of responding. `fileDiff` is optional so a test's fake can leave it out; the real one has it. */
 export type RespondApi = Omit<typeof respondApi, "fileDiff"> & Partial<Pick<typeof respondApi, "fileDiff">>;
+
+/**
+ * My reporters (#347, #415, SPEC 7.1 "Browser routes for orchestrator messaging"): on the same router and sign-in as
+ * responding, so a change carries the same header. Each acts on the signed-in person's own reporters only.
+ */
+export const peersApi = {
+  read: () => call<PeersRead>("GET", "/peers"),
+  setRight: (from: string, to: string, level: PeerLevel) => call<{ ok: true }>("PUT", "/peers/rights", { from, to, level }),
+  setDefaults: (patch: Partial<Pick<PeerDefaults, "trust" | "onRequest" | "newSend">>) => call<{ ok: true; defaults: PeerDefaults }>("PUT", "/peers/defaults", patch),
+  answer: (requestId: string, answer: "allow" | "decline" | "deliver") => call<{ ok: true; outcome: string | null }>("POST", `/peers/requests/${encodeURIComponent(requestId)}`, { answer }),
+};
+
+export type PeersApi = typeof peersApi;

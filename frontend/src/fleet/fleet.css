@@ -918,7 +918,8 @@ body.modal-open #root { filter: blur(5px); }
 
 .podium .tb-sep { align-self: stretch; width: 1px; min-height: 22px; background: var(--axis); }
 .podium .tb-me { display: inline-flex; align-items: center; gap: 8px; }
-.podium .tb-who { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 12.5px; }
+/* 16 px after the name in all (the gap plus this margin), approved on #347 now that My reporters follows it. */
+.podium .tb-who { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 12.5px; margin-right: 8px; }
 .podium .tb-who b { color: var(--ink); font-weight: 600; }
 
 .podium .modal.modal-respond { height: min(88vh, 900px); max-height: min(88vh, 900px); }

@@ -27,6 +27,7 @@ Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERV
 - [One session](#one-session)
 - [Activity](#activity)
 - [Answering a session from Podium](#answering-a-session-from-podium)
+- [My reporters](#my-reporters)
 - [History](#history)
 - [What the numbers mean](#what-the-numbers-mean)
 
@@ -612,6 +613,64 @@ An answer counts once the session confirms it, usually within 2 seconds. Until t
   names who answered from Podium and when.
 - A tool request answered in the terminal still looks open in Podium until the command finishes, since Claude Code says
   nothing sooner.
+
+### My reporters
+
+**My reporters** (`#/me/reporters`) lists the machines that report your sessions to this server, and is where you
+decide which of them may see and message each other. Only your own reporters are there: Podium does not carry messages
+between people. `mockup/podium-my-reporters.html` shows every case.
+
+It needs authentication on and the Admin's **Orchestrator messaging** switch (Admin > Settings > Feature flags). Sign in
+with your name and token from **Sign in** at the far right of the top bar. The top bar then reads *Signed in as Ed*,
+**My reporters · N waiting** and **Sign out**, where N is how many requests wait for you.
+
+#### Waiting for you
+
+A request shows here until you answer it. Each one names who asked and what would change, with a button per answer:
+
+- **A change an Admin proposes.** **Accept change** applies it, **Decline** leaves things as they are. A proposal always
+  waits for you, whatever your defaults say.
+- **An orchestrator asks for access.** One of your orchestrators asked to see or send to another of your machines.
+  Its reason is shown as it wrote it. **Allow** or **Decline**.
+- **A message waiting for approval.** On a link with approval, the message is quoted here. **Deliver** sends it when the
+  receiving orchestrator's turn has ended; **Decline** drops it, and the sender is told.
+
+The same request also shows in your sessions on the machine it concerns. Answering in either place closes the other.
+Anything Podium replaced as a possible secret on the sending machine reads `[redacted]`.
+
+#### Your reporters
+
+One row per machine: whether it has an orchestrator reporting now, its system, whether messaging is on, its
+podium-reporter version, its last report and how many orchestrators are live. **Off on the machine** means the
+reporter's `peers` option is off there, and only that machine can turn it on: in Claude Code there, run
+`/plugin configure podium-reporter` and set `peers` to on. **Reporter can't message: update it** means the mod is too
+old to send the option.
+
+#### Defaults
+
+- **Trust my own reporters.** Every reporter of yours can send to every other one, without approval, including
+  machines you add later. While it is on, the choices under Who can message whom are locked. Off by default.
+- **When an orchestrator asks for access.** **Ask me** (the default) puts the request under Waiting for you. **Allow**
+  and **Decline** answer it for you.
+- **A new right to send starts as.** **With approval** (the default) or **Without approval**, for a right an orchestrator
+  is given when it asks.
+
+#### Who can message whom
+
+A right goes one way and has four levels, each with its own icon and word: **No access**, **Can see**, **Can send, with
+approval** and **Can send**. Can send includes Can see. A reply is a message too, so it needs its own right: when you
+let A send to B and B cannot send back, the page asks at once whether B can answer.
+
+Two views show the same rights. **Grid | Board** switches between them, and this browser remembers your choice.
+
+- **Grid** shows every pair at once. Rows send and columns receive, so each cell is a choice named like "ed-mbp to
+  ci-runner-01". The diagonal is between orchestrators on the same machine. A cell for a machine with messaging off says
+  so instead.
+- **Board** shows one machine's peers in four columns, one per level, with a count on each. Drag a card to another
+  column, or use its **Move to** list. The line at the bottom of a card is what that machine can do back.
+
+A change saves at once. If it cannot be saved, the page says so and shows the level as it was. **Paused** on a pair means
+the link is paused, and **Proposed** means an Admin's change is waiting for you.
 
 ### History
 
