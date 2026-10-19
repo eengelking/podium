@@ -3693,16 +3693,18 @@ on. It draws no rail, side panel or wall, so it offers no Wall mode button, and 
 still hides and shows the top bar.
 
 - **Who is talking**: a map (inline SVG) of the orchestrators in the open read, grouped in a box per machine with its
-  OS, the busiest machine first and then by name, so nothing moves as messages arrive. A node shows the app's status
-  shape and its state as a word ("ended" once it is no longer live). A line joins two orchestrators that have messaged
-  each other:
+  OS (from the owner's reporters when signed in, else from a live session on that machine, drawn or not; "System not
+  reported" only when none says), the busiest machine first and then by name, so nothing moves as messages arrive. A
+  node shows the app's status shape and its state as a word ("ended" once it is no longer live). A line joins two
+  orchestrators that have messaged each other:
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
     paused; the label has the message count, and for waiting or paused also an icon and the word;
   - an active link where neither side can send (both `aToB` and `bToA` false, as after Remove link) keeps the solid
     line, and its label adds No access's struck circle and "no right to send"; the line's accessible name ends
     ", no right to send". The browser works this out from `aToB` and `bToA`; the server's `state` stays `active`;
   - an arrow at one end when only that way can send, and a thicker line for more messages, as a second signal;
-  - each label sits at the first point along its curve that clears the other labels and the nodes;
+  - each label sits at the first point along its curve that clears the other labels and the nodes and fits inside the
+    map; when no point fits, the first clear one is slid back inside the map, so a label is never cut off at its edge;
   - a legend for the styles, which also names the owner's machines with messaging off.
 - Each line is a link (focus, Enter). Selecting it opens the conversation beside the map (below it at 900 px and
   narrower):

@@ -185,12 +185,38 @@ describe("the map's layout", () => {
     expect(edge("s-a|s-a2").pill.w).toBe(pillWidth("1 message, paused", true));
   });
 
-  it("falls back to the middle when every place along a curve is taken", () => {
-    // Twenty conversations between the same two orchestrators cannot all find room.
+  it("keeps a long label on a line that bows out of either column inside the map", () => {
+    // Two orchestrators each on linux (the left column, first by name) and mac (the right). Each pair on one machine
+    // has a long label, and its line bows out toward the map's edge.
+    const B2 = end("s-b2", "beta-2", "linux", "k2");
+    const long = { aToB: false, bToA: false, messages: 8 };
+    const m = layoutMap([link(A, A2, long), link(A, B), link(B, B2, long)]);
+    expect(m.machines.find((x) => x.key === "k2")!.x).toBe(30);
+    expect(m.machines.find((x) => x.key === "k1")!.x).toBe(600);
+    for (const id of ["s-a|s-a2", "s-b|s-b2"]) {
+      const e = m.edges.find((x) => x.id === id)!;
+      expect(e.label).toBe("8 messages, no right to send");
+      expect.soft(e.pill.x, `${id} left edge`).toBeGreaterThanOrEqual(0);
+      expect.soft(e.pill.x + e.pill.w, `${id} right edge`).toBeLessThanOrEqual(m.width);
+      expect(e.pill.y).toBeGreaterThanOrEqual(0);
+      expect(e.pill.y + e.pill.h).toBeLessThanOrEqual(m.height);
+    }
+  });
+
+  it("falls back to the middle when every place along a curve is taken, still inside the map", () => {
+    // Twenty conversations from one machine's orchestrators to another's.
     const crowd = Array.from({ length: 20 }, (_, i) => link(end(`s-x${i}`, `x${i}`, "mac", "k1"), B));
     const m = layoutMap(crowd);
     expect(m.edges).toHaveLength(20);
-    for (const e of m.edges) expect(Number.isFinite(e.pill.x)).toBe(true);
+    // Twelve lines along one curve, between the same two orchestrators, cannot all find room: the last falls back to
+    // the middle of its curve, where the first label already sits.
+    const same = layoutMap(Array.from({ length: 12 }, () => link(A, B))).edges;
+    expect(same.at(-1)!.pill).toEqual(same[0]!.pill);
+    for (const e of m.edges) {
+      expect(Number.isFinite(e.pill.x)).toBe(true);
+      expect(e.pill.x).toBeGreaterThanOrEqual(0);
+      expect(e.pill.x + e.pill.w).toBeLessThanOrEqual(m.width);
+    }
   });
 
   it("finds a point on a curve", () => {

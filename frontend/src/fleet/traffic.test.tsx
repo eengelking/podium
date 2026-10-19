@@ -141,11 +141,12 @@ const flush = () =>
     for (let i = 0; i < 12; i++) await Promise.resolve();
   });
 
-function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean } = {}) {
+function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[] } = {}) {
   const traffic = opts.traffic ?? fakeTraffic();
   const sessions = [
     makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
     makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
+    ...(opts.more ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
   const view = render(<FleetView traffic={opts.on ?? true} state={state} respondApi={respondApi(opts.me ?? ED)} peersApi={peersApi()} trafficApi={traffic.api} />);
@@ -472,6 +473,21 @@ describe("for anyone but the owner", () => {
     fireEvent.click(line(/^claude-dashboard to arm64-check/));
     await flush();
     expect(traffic.api.conversation).not.toHaveBeenCalled();
+  });
+
+  it("names a machine's system from another live session on it, once the conversation's own sessions have ended", async () => {
+    // The reporter key is the machine id, or `<machine id>#<owner>` for a second account on that machine.
+    const OLD = end("s-old", "old-run", "lab-box", "m9");
+    const GONE = end("s-gone", "gone-run", "ann-box", "m8#Ed");
+    const traffic = fakeTraffic([link(OLD, GONE)]);
+    const more = [
+      makeSession({ id: "s-other", name: "other", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "lab-box", id: "m9", os: "Fedora 41" } }),
+      makeSession({ id: "s-ann", name: "ann", status: "running", lastSeenAt: T0, owner: "Ann", machine: { name: "ann-box", id: "m8", os: "FreeBSD 14" } }),
+    ];
+    page({ me: OUT, traffic, more });
+    await flush();
+    const map = screen.getByRole("group", { name: /Map of orchestrators/ });
+    expect([...map.querySelectorAll(".mos")].map((t) => t.textContent)).toEqual(["FreeBSD 14", "Fedora 41"]);
   });
 
   it("lets an Admin read a person's conversation without pausing or removing it here", async () => {
