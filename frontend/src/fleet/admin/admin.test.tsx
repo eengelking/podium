@@ -291,16 +291,18 @@ describe("paging and search", () => {
   }, 60_000);
 
   it("changes the rows per page and returns to page one", async () => {
-    const s = fakeServer({ people: 125 });
+    // 60 people is enough for a second page and a smaller page size, and keeps the table small: with 125 this test took
+    // 5.7 s on the CI runner against the 5 s default (#477). The limit is wide for the same reason as the test above.
+    const s = fakeServer({ people: 60 });
     render(<AdminView />);
     await unlock();
-    await screen.findByText("Showing 1 to 50 of 125");
+    await screen.findByText("Showing 1 to 50 of 60");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByText("Showing 51 to 100 of 125");
+    await screen.findByText("Showing 51 to 60 of 60");
     fireEvent.change(screen.getByLabelText("Rows per page"), { target: { value: "25" } });
-    expect(await screen.findByText("Showing 1 to 25 of 125")).toBeInTheDocument();
+    expect(await screen.findByText("Showing 1 to 25 of 60")).toBeInTheDocument();
     expect(s.calls[s.calls.length - 1]).toContain("pageSize=25");
-  });
+  }, 60_000);
 });
 
 describe("side menu", () => {
