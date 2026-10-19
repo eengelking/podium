@@ -446,7 +446,7 @@ Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `pee
 `components/PeerLimits.tsx`; Admin's `admin/ReporterMessaging.tsx`; Traffic's `Traffic.tsx`, `trafficData.ts`,
 `useTraffic.ts` and `components/TrafficMap.tsx`. Issue #412 builds the server half of #347, #414 the mod, #415 My
 reporters, #416 the Admin's pages, #417 Traffic and #436 an owner's stricter limits; the rules are in SPEC 5.3, 7.7 and
-8.1, and the reasoning in DECISIONS 37.
+8.1, and the reasoning in DECISIONS 37. How a person sets it up and uses it is in [MESSAGING.md](MESSAGING.md).
 
 **Parts.** `peerTypes.ts` is the contract: the words (reporter, link, conversation), the rows and the two store
 interfaces. `PeerRights` keeps the rights between reporters, each owner's defaults and stricter limits, and the
@@ -527,7 +527,10 @@ subagent-refusal, separation-from-responding and approval-text tests. The frame 
 broken on purpose, which must fail, so no one has to remove the frame to prove the tests catch it (#437). The pages'
 tests are `myReporters.test.tsx`, `peers.test.ts`, `admin/messaging.test.tsx`, `components/PeerLimits.test.tsx`,
 `traffic.test.tsx` and `trafficData.test.ts` in the frontend. `scripts/podium-peers-seed.mjs` seeds a throwaway
-server for looking at the pages, and with `--talk` adds conversations for Traffic.
+server for looking at the pages, and with `--talk` adds conversations for Traffic. `scripts/podium-peers-e2e.sh` runs it
+with real Claude Code sessions: `up` starts a throwaway server from the checkout, seeds it with `--talk`, and starts
+sessions in tmux that load the mod with `--plugin-dir`; `down` stops them. Its test covers only the help, the argument
+checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSAGING.md#testing-it-end-to-end)).
 
 ### People view
 

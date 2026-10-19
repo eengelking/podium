@@ -112,6 +112,9 @@ The levels of `respond`:
 
 ## Messaging your other orchestrators
 
+This section is the mod's side. To set messaging up across your machines, with the server's flag, rights, limits and
+Traffic, follow [MESSAGING.md](MESSAGING.md).
+
 With `peers` on, and once the server says this session takes part, the orchestrator (the session's main loop)
 gets three tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
 nothing the server sends is taken.
