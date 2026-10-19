@@ -1111,3 +1111,76 @@ body.modal-open #root { filter: blur(5px); }
   .podium .kb-none { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .podium .kb-card.fresh { animation: none; } }
+
+/* Traffic (#347, #417, mockup/podium-traffic.html): which orchestrators message which. pm-split holds the map (or the
+   Table) and the conversation beside it; pm-map is the inline SVG map; pm-state is a link's state as an icon and a word;
+   pm-conv is the conversation, an Activity feed (.feed, .rd) under a header. The map scrolls inside its own container,
+   so the page never scrolls sideways at 400 px. */
+.podium .pm-tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--grid); }
+.podium .pm-tools .grow { flex: 1; }
+.podium .pm-empty { display: grid; justify-items: center; gap: 4px; padding: 8px 16px 24px; }
+.podium .pm-empty .kb-blank { justify-self: stretch; }
+.podium .pm-err { margin: 12px 16px 0; }
+.podium .pm-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); min-height: 460px; }
+.podium .pm-left { border-right: 1px solid var(--grid); min-width: 0; display: grid; grid-template-rows: 1fr auto; }
+.podium .pm-left > * { min-width: 0; }
+.podium .pm-left .rname { max-width: 36ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.podium .pm-mapscroll { overflow-x: auto; padding: 8px; }
+.podium .pm-map { display: block; width: 100%; min-width: 600px; height: auto; font-family: var(--font-ui); }
+.podium .pm-map .mbox { fill: var(--bg); stroke: var(--axis); stroke-dasharray: 4 4; }
+.podium .pm-map .mlabel { fill: var(--ink); font-size: 13px; font-weight: 650; }
+.podium .pm-map .mos { fill: var(--muted); font-size: 11px; }
+.podium .pm-map .node circle.bg { fill: var(--surface); stroke: var(--axis); stroke-width: 1.5; }
+.podium .pm-map .node .nm { fill: var(--ink); font-size: 12px; font-weight: 600; }
+.podium .pm-map .node .st { fill: var(--muted); font-size: 11px; }
+.podium .pm-map .node .si { color: var(--ink2); }
+.podium .pm-map .node.running .si { color: var(--good-text); }
+.podium .pm-map .node.waiting .si { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .pm-map .node.bg .si, .podium .pm-map .node.deleg .si { color: var(--deleg-text); }
+.podium .pm-map .node.stale .si { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .pm-map .edge .ln { fill: none; stroke: var(--ink2); stroke-linecap: round; }
+.podium .pm-map .edge.waiting .ln { stroke: var(--warn); stroke-dasharray: 7 5; }
+.podium .pm-map .edge.paused .ln { stroke: var(--muted); stroke-dasharray: 1 6; }
+.podium .pm-map .edge .hit { fill: none; stroke: transparent; stroke-width: 22; }
+.podium .pm-map a.edge { cursor: pointer; }
+.podium .pm-map a.edge:hover .ln { stroke: var(--ink); }
+.podium .pm-map a.edge.sel .ln { stroke: var(--sonnet); }
+.podium .pm-map a.edge:focus { outline: none; }
+.podium .pm-map a.edge:focus-visible .ring { stroke: var(--sonnet); stroke-width: 2; }
+.podium .pm-map .ring { fill: none; stroke: transparent; }
+.podium .pm-map .pill rect.face { fill: var(--surface); stroke: var(--axis); }
+.podium .pm-map a.edge.sel .pill rect.face { stroke: var(--sonnet); }
+.podium .pm-map .edge.waiting .pill rect.face { stroke: var(--warn); }
+.podium .pm-map .pill text { fill: var(--ink); font-size: 11px; }
+.podium .pm-map .pill .ic { color: var(--ink2); }
+.podium .pm-map .edge.waiting .pill .ic { color: var(--warn); }
+.podium .pm-map .ah { fill: var(--ink2); }
+.podium .pm-map .ah.waiting { fill: var(--warn); }
+.podium .pm-map .ah.paused { fill: var(--muted); }
+.podium .pm-map .ah.sel { fill: var(--sonnet); }
+.podium .pm-left .legend { justify-content: flex-start; text-align: left; border-top: 1px solid var(--grid); }
+.podium .pm-left .legend svg { width: 34px; height: 10px; flex: none; }
+.podium .pm-key-ink { color: var(--ink2); }
+.podium .pm-key-warn { color: var(--warn); }
+.podium .pm-key-muted { color: var(--muted); }
+.podium .pm-state { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.podium .pm-state svg { width: 14px; height: 14px; flex: none; }
+.podium .pm-state.waiting { color: var(--warn-text); }
+.podium .pm-state.paused { color: var(--muted); }
+.podium .pm-conv { display: grid; min-width: 0; padding: 12px 16px; gap: 10px; align-content: start; }
+.podium .pm-conv h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.podium .pm-conv h2 .sep { color: var(--muted); }
+.podium .pm-conv .sub { font-size: 12px; color: var(--muted); display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: center; }
+.podium .pm-conv .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .pm-conv .cap { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
+.podium .pm-conv .feed { height: auto; max-height: 460px; }
+.podium .pm-conv .feed .body { white-space: pre-wrap; color: var(--ink); }
+.podium .pm-conv .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
+.podium .pm-conv .feed .ds { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
+.podium .pm-conv .feed .ds svg { width: 12px; height: 12px; flex: none; }
+.podium .pm-conv .feed .ds.wait { color: var(--warn-text); }
+.podium .pm-conv .feedfoot { margin-top: 0; }
+@media (max-width: 900px) {
+  .podium .pm-split { grid-template-columns: minmax(0, 1fr); }
+  .podium .pm-left { border-right: 0; border-bottom: 1px solid var(--grid); }
+}

@@ -19,6 +19,11 @@ describe("routeFor", () => {
     expect(routeFor("#/me/reporters-x")).toBe("fleet");
   });
 
+  it("opens Traffic for #/traffic only (#417)", () => {
+    expect(routeFor("#/traffic")).toBe("traffic");
+    expect(routeFor("#/traffic-x")).toBe("fleet");
+  });
+
   it("opens Admin for #/admin", () => {
     expect(routeFor("#/admin")).toBe("admin");
   });
