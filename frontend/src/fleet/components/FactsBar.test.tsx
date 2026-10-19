@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, act } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, act, within } from "@testing-library/react";
 import { FactsBar } from "./FactsBar";
 import { makeAgent, makeSession } from "../fixtures";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
@@ -125,6 +125,24 @@ describe("FactsBar copy cells (#352)", () => {
     expect(tips[1]).toMatch(/This session is not changed/);
     expect(tips[1]).toMatch(/Approve them again/);
     expect(tips[1]).toMatch(/30 days/);
+  });
+
+  it("wraps each popup cell in a named group that holds the button and its popup (#487)", () => {
+    render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
+    for (const [group, button] of [["Resume", "Copy resume command"], ["Fork", "Copy fork command"]]) {
+      const g = screen.getByRole("group", { name: group });
+      expect(within(g).getByRole("button", { name: button })).toBeInTheDocument();
+      expect(within(g).getByRole("tooltip", { hidden: true })).toBeInTheDocument();
+    }
+  });
+
+  it("closes the popup on Escape and brings it back when focus leaves and returns (#487)", () => {
+    render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
+    const g = screen.getByRole("group", { name: "Resume" });
+    fireEvent.keyDown(within(g).getByRole("button"), { key: "Escape" });
+    expect(g).toHaveClass("dismissed");
+    fireEvent.blur(within(g).getByRole("button"));
+    expect(g).not.toHaveClass("dismissed");
   });
 
   it("copies the session's own resume and fork commands", async () => {

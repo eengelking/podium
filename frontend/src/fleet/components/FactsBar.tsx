@@ -43,6 +43,8 @@ export function CopyCell({ label, name, text, tip }: { label: string; name: stri
   return (
     <div
       ref={wrap}
+      role="group"
+      aria-label={label}
       className={`fact copy${dismissed ? " dismissed" : ""}${below ? " below" : ""}`}
       onKeyDown={onKeyDown}
       onMouseEnter={place}
