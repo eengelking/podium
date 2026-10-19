@@ -145,8 +145,17 @@ function SignInDialog(props: { onClose: () => void }) {
   );
 }
 
-/** The far right of the top bar, after a divider: Sign in, or who is signed in and Sign out (mockup section 6). */
-export function TopBarSignIn() {
+/** My reporters in the top bar (#415): how many requests wait for the person, once the server has said, and whether it is open. */
+export interface MyReportersLink {
+  count: number | null;
+  current: boolean;
+}
+
+/**
+ * The far right of the top bar, after a divider: Sign in, or who is signed in and Sign out (mockup section 6). With
+ * orchestrator messaging on, My reporters and its count sit between the name and Sign out (mockup/podium-my-reporters.html).
+ */
+export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink }) {
   const ctx = useRespond();
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
@@ -167,6 +176,11 @@ export function TopBarSignIn() {
             </svg>
             Signed in as <b>{ctx.me.name}</b>
           </span>
+          {myReporters && (
+            <a className="btn" href="#/me/reporters" aria-current={myReporters.current ? "page" : undefined}>
+              My reporters{myReporters.count === null ? "" : ` · ${myReporters.count} waiting`}
+            </a>
+          )}
           <button type="button" className="btn" onClick={() => void ctx.signOut()}>
             Sign out
           </button>

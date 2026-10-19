@@ -41,6 +41,9 @@ export type {
   RespondMe,
   FileDiffReply,
   FileDiffStatus,
+  PeerLevel,
+  PeerRequest,
+  ReporterCompat,
 } from "../../../server/src/fleet/protocol";
 export type { ActivityEntryView, ActivityReply } from "../../../server/src/fleet/activity";
 

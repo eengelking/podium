@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { TopBar } from "./TopBar";
 
 afterEach(cleanup);
@@ -51,5 +53,12 @@ describe("TopBar", () => {
   it("has no clock", () => {
     renderBar();
     expect(screen.queryByLabelText("Local time")).toBeNull();
+  });
+
+  // jsdom does not lay out, so this reads fleet.css: 8 px of margin plus the 8 px gap of .tb-me, approved on #347.
+  it("leaves 16 px after Signed in as, before the next button", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/fleet/fleet.css"), "utf8");
+    expect(css).toMatch(/\.podium \.tb-me \{[^}]*gap: 8px/);
+    expect(css).toMatch(/\.podium \.tb-who \{[^}]*margin-right: 8px/);
   });
 });

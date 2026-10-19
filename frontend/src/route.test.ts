@@ -13,6 +13,12 @@ describe("routeFor", () => {
     expect(routeFor("#/boardroom")).toBe("fleet");
   });
 
+  it("opens My reporters for #/me/reporters only", () => {
+    expect(routeFor("#/me/reporters")).toBe("my-reporters");
+    expect(routeFor("#/me")).toBe("fleet");
+    expect(routeFor("#/me/reporters-x")).toBe("fleet");
+  });
+
   it("opens Admin for #/admin", () => {
     expect(routeFor("#/admin")).toBe("admin");
   });

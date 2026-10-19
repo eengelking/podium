@@ -37,7 +37,7 @@ export function useRespond(): RespondContext | null {
 /** How often the page checks the sign-in is still there, so an ended one is noticed before the next answer. */
 const CHECK_MS = 60_000;
 
-export function RespondProvider(props: { children: ReactNode; api?: RespondApi; flagsOn: boolean; diffOn?: boolean }) {
+export function RespondProvider(props: { children: ReactNode; api?: RespondApi; flagsOn: boolean; diffOn?: boolean; peersOn?: boolean }) {
   const api = props.api ?? respondApi;
   const [me, setMe] = useState<RespondMe | null>(null);
   const [expired, setExpired] = useState(false);
@@ -57,16 +57,17 @@ export function RespondProvider(props: { children: ReactNode; api?: RespondApi; 
   }, [api]);
 
   // Asked again when the Admin's flags flip, and once a minute.
-  // With the Admin's flags off nobody can respond, so the server is not even asked.
+  // With the Admin's flags off nobody can respond, so the server is not even asked. Orchestrator messaging (#415) also
+  // lets a person sign in, for My reporters, even with responding off.
   useEffect(() => {
-    if (!props.flagsOn && !props.diffOn) {
+    if (!props.flagsOn && !props.diffOn && !props.peersOn) {
       setMe(null);
       return;
     }
     void refresh();
     const t = setInterval(() => void refresh(), CHECK_MS);
     return () => clearInterval(t);
-  }, [refresh, props.flagsOn, props.diffOn]);
+  }, [refresh, props.flagsOn, props.diffOn, props.peersOn]);
 
   const signIn = useCallback(
     async (name: string, token: string): Promise<SignInResult> => {

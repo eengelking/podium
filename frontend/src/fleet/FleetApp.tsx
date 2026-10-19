@@ -36,7 +36,9 @@ import type { RailPeople } from "./components/Rail";
 import { APP_NAME, type ActivityView } from "./types";
 import { reportersLive, type FleetState } from "./store";
 import { RespondProvider, useRespond } from "./useRespond";
-import type { RespondApi } from "./respondApi";
+import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
+import { useMyPeers } from "./useMyPeers";
+import { MyReportersPage } from "./MyReporters";
 import { RespondModal } from "./components/Respond";
 import type { SessionView } from "./types";
 
@@ -71,12 +73,14 @@ function useEntering(ids: readonly string[], ready: boolean): (id: string) => bo
 export interface FleetAppProps {
   /** The kanban board (#346) instead of the wall; the rest of the console is the same. */
   board?: boolean;
+  /** My reporters (#415) under the console's top bar, in place of the rail, the wall and the Activity panel. */
+  myReporters?: boolean;
   /** For tests: drive the app from a given state instead of the server. */
   state?: FleetState;
   fleetOptions?: UseFleetOptions;
 }
 
-function LiveFleetApp({ fleetOptions, board }: { fleetOptions?: UseFleetOptions; board?: boolean }) {
+function LiveFleetApp({ fleetOptions, board, myReporters }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean }) {
   const live = useFleet(fleetOptions);
   const [every, setEvery] = useState(readUpdateEvery);
   // The page below redraws once per chosen interval (#138); a session needing the viewer or a failure shows at once.
@@ -85,15 +89,15 @@ function LiveFleetApp({ fleetOptions, board }: { fleetOptions?: UseFleetOptions;
     setEvery(n);
     writeUpdateEvery(n);
   }, []);
-  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} />;
+  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} />;
 }
 
 export function FleetApp(props: FleetAppProps = {}) {
   useEffect(() => {
     document.title = APP_NAME;
   }, []);
-  if (props.state) return <FleetView state={props.state} board={props.board} />;
-  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} />;
+  if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} />;
+  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} />;
 }
 
 interface FleetViewProps {
@@ -105,6 +109,10 @@ interface FleetViewProps {
   onUpdateEvery?: (seconds: number) => void;
   /** For tests: the respond API, so the sign-in the wall reads "me" from can be faked. */
   respondApi?: RespondApi;
+  /** Show My reporters (#415) under the top bar instead of the rail, the middle and the Activity panel. */
+  myReporters?: boolean;
+  /** For tests: My reporters' API. */
+  peersApi?: PeersApi;
 }
 
 // Memoized so the held state, which keeps its identity between updates, stops a parent render from redrawing it.
@@ -112,13 +120,13 @@ interface FleetViewProps {
 export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
-    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} api={props.respondApi}>
-      <FleetViewBody state={props.state} updateEvery={props.updateEvery} onUpdateEvery={props.onUpdateEvery} board={props.board} />
+    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
+      <FleetViewBody state={props.state} updateEvery={props.updateEvery} onUpdateEvery={props.onUpdateEvery} board={props.board} myReporters={props.myReporters} peersApi={props.peersApi} />
     </RespondProvider>
   );
 });
 
-function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }: FleetViewProps) {
+function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp }: FleetViewProps) {
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
   const [sel, setSel] = useState<string | null>(null);
@@ -153,6 +161,10 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
   // Who "me" is comes from the browser's sign-in (#245): a signed-in person, never Admin. Signed out there is no "me".
   const signedIn = useRespond()?.me;
   const me = signedIn?.signedIn && signedIn.name && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? signedIn.name : null;
+  // My reporters (#415): read while orchestrator messaging is on and a person is signed in, so the top bar can say how many
+  // requests wait; often while the page is open. The admin secret has no reporters of its own.
+  const peersOn = state.features["peer-messaging"] === true;
+  const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
   const myKey = active ? meKey(sorted, me) : null;
@@ -356,7 +368,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
       )}
       <div className="app">
         <TopBar
-          page={board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          page={myReporters ? "My reporters" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: myReporters } : undefined}
           phase={state.phase}
           reporters={reporters}
           outdated={outdated}
@@ -379,7 +392,14 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
           <div className="banner bad" role="alert">
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
-        ) : panes.collapsed.top ? null : (
+        ) : panes.collapsed.top ? null : myReporters ? (
+          <div className="banner has-picker">
+            <span>
+              <b>My reporters.</b> Your own machines, and which of them may message each other.
+            </span>
+            <ThemePicker theme={theme} />
+          </div>
+        ) : (
           <div className="banner has-picker">
             <span>
               <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
@@ -390,6 +410,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
             </div>
           </div>
         )}
+        {myReporters ? (
+          <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} sessions={state.sessions} now={now} />
+        ) : (
         <div className="cols" ref={cols} style={colStyle}>
           <Rail
             sessions={sorted}
@@ -486,6 +509,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false }:
           {!panes.collapsed.left && <ResizeHandle panel="rail" r={resize} container={container} label="Resize orchestrator list" />}
           {!panes.collapsed.right && <ResizeHandle panel="side" r={resize} container={container} label="Resize activity panel" />}
         </div>
+        )}
       </div>
       <RespondHost sessions={state.sessions} now={now} adminFeedOn={state.features["activity-feed"] !== false} />
     </div>
