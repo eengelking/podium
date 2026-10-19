@@ -18,6 +18,8 @@ export function TopBar(props: {
   onFleet?: () => void;
   /** The My reporters link (#415), while orchestrator messaging is on and a person is signed in. */
   myReporters?: MyReportersLink;
+  /** The Traffic link (#417), while orchestrator messaging is on; `current` on the Traffic page. */
+  traffic?: { current: boolean };
 }) {
   const { phase, reporters } = props;
   // Admin is offered only to a signed-in Administrator (#215). The server checks it again; hiding the button is not the gate.
@@ -65,6 +67,12 @@ export function TopBar(props: {
       <a className="btn" href="#/history">
         History
       </a>
+      {/* Traffic (#417) shows only while orchestrator messaging is on. Its map and counts are open to every reader. */}
+      {props.traffic && (
+        <a className="btn" href="#/traffic" aria-current={props.traffic.current ? "page" : undefined}>
+          Traffic
+        </a>
+      )}
       {props.wall}
       {admin && (
         <a className="btn" href="#/admin" title="People, groups, reporters, settings, model prices, spend and the Admin log">

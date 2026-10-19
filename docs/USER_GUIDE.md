@@ -28,6 +28,7 @@ Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERV
 - [Activity](#activity)
 - [Answering a session from Podium](#answering-a-session-from-podium)
 - [My reporters](#my-reporters)
+- [Traffic](#traffic)
 - [History](#history)
 - [What the numbers mean](#what-the-numbers-mean)
 
@@ -686,6 +687,46 @@ Two views show the same rights. **Grid | Board** switches between them, and this
 
 A change saves at once. If it cannot be saved, the page says so and shows the level as it was. **Paused** on a pair means
 the link is paused, and **Proposed** means an Admin's change is waiting for you.
+
+### Traffic
+
+**Traffic** (`#/traffic`) shows which orchestrators message which, like a service mesh's traffic map, and what they said.
+The link is in the top bar after **History** while the Admin's **Orchestrator messaging** switch is on.
+`mockup/podium-traffic.html` shows every case.
+
+Anyone who can read the console sees the map and the counts. A conversation's text opens only for its owner and an
+Admin: anyone else reads *Only Ed and an Admin can read this conversation*, and the page does not ask the server for the
+text at all. Sign in from the top bar to read your own.
+
+- **Map.** A dashed box per machine, with its system, and a node per orchestrator with the same status shapes as the
+  wall. A line joins two orchestrators that messaged each other. Solid is active; dashed in the warning color means a
+  message waits for approval; dotted and muted means the link is paused. The label on the line has the count, and the
+  word and an icon when it is waiting or paused. An arrow at one end means only that way can send, and a thicker line
+  carries more messages. The legend under the map says the same, and names a machine of yours that is not drawn because
+  messaging is off there. Each line is a link: click it, or Tab to it and press Enter.
+- **Table** shows the same links as text: the pair and their machines, the messages, the last message, the round trips
+  and the state. A narrow screen opens on it. **Map | Table** switches between them.
+- **Show** picks **Live sessions** (conversations with an orchestrator still running), **Last 24 hours** or **Last 30
+  days**.
+
+The conversation is beside the map, or below it on a narrow screen: the pair and their machines, the state, the round
+trips used against the limit, then the messages oldest first. Each message says who sent it to whom, when, and where it
+is: delivered, waiting for the receiver's turn to end, waiting for your approval, held while the link is paused,
+declined or dropped (and why). Anything Podium replaced as a possible secret on the sending machine reads `[redacted]`.
+A one-way link says the other side cannot answer, and that you give it the right in My reporters.
+
+On your own link:
+
+- **Pause link** stops delivery both ways at once and keeps the rights. **Resume link** lets the held messages go.
+- **Remove link…** asks first. Both ways lose every right, a message still waiting is dropped, and the conversation
+  stays on the page until it expires.
+
+Both act on the two machines, so they also pause or remove every other conversation between them. If either fails, the
+page says so and the link is as it was. An Admin can read anyone's conversation here but pauses or removes another
+person's link in Admin > Reporters.
+
+Like My reporters, the page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; `\` still hides
+and shows the top bar.
 
 ### History
 

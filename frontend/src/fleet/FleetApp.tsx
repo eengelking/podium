@@ -39,6 +39,8 @@ import { RespondProvider, useRespond } from "./useRespond";
 import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
 import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
+import { TrafficPage } from "./Traffic";
+import { trafficApi, type TrafficApi } from "./trafficData";
 import { RespondModal } from "./components/Respond";
 import type { SessionView } from "./types";
 
@@ -75,12 +77,14 @@ export interface FleetAppProps {
   board?: boolean;
   /** My reporters (#415) under the console's top bar, in place of the rail, the wall and the Activity panel. */
   myReporters?: boolean;
+  /** Traffic (#417) under the console's top bar, the same way. */
+  traffic?: boolean;
   /** For tests: drive the app from a given state instead of the server. */
   state?: FleetState;
   fleetOptions?: UseFleetOptions;
 }
 
-function LiveFleetApp({ fleetOptions, board, myReporters }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean }) {
+function LiveFleetApp({ fleetOptions, board, myReporters, traffic }: { fleetOptions?: UseFleetOptions; board?: boolean; myReporters?: boolean; traffic?: boolean }) {
   const live = useFleet(fleetOptions);
   const [every, setEvery] = useState(readUpdateEvery);
   // The page below redraws once per chosen interval (#138); a session needing the viewer or a failure shows at once.
@@ -89,15 +93,15 @@ function LiveFleetApp({ fleetOptions, board, myReporters }: { fleetOptions?: Use
     setEvery(n);
     writeUpdateEvery(n);
   }, []);
-  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} />;
+  return <FleetView state={state} updateEvery={every} onUpdateEvery={change} board={board} myReporters={myReporters} traffic={traffic} />;
 }
 
 export function FleetApp(props: FleetAppProps = {}) {
   useEffect(() => {
     document.title = APP_NAME;
   }, []);
-  if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} />;
-  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} />;
+  if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
+  return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
 }
 
 interface FleetViewProps {
@@ -113,6 +117,10 @@ interface FleetViewProps {
   myReporters?: boolean;
   /** For tests: My reporters' API. */
   peersApi?: PeersApi;
+  /** Show Traffic (#417) under the top bar instead of the rail, the middle and the Activity panel. */
+  traffic?: boolean;
+  /** For tests: Traffic's API. */
+  trafficApi?: TrafficApi;
 }
 
 // Memoized so the held state, which keeps its identity between updates, stops a parent render from redrawing it.
@@ -121,12 +129,23 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
     <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
-      <FleetViewBody state={props.state} updateEvery={props.updateEvery} onUpdateEvery={props.onUpdateEvery} board={props.board} myReporters={props.myReporters} peersApi={props.peersApi} />
+      <FleetViewBody
+        state={props.state}
+        updateEvery={props.updateEvery}
+        onUpdateEvery={props.onUpdateEvery}
+        board={props.board}
+        myReporters={props.myReporters}
+        peersApi={props.peersApi}
+        traffic={props.traffic}
+        trafficApi={props.trafficApi}
+      />
     </RespondProvider>
   );
 });
 
-function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp }: FleetViewProps) {
+function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp, traffic = false, trafficApi: trafficApiProp }: FleetViewProps) {
+  // My reporters and Traffic draw no rail, wall or Activity panel: one page under the top bar.
+  const consolePage = myReporters || traffic;
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
   const [sel, setSel] = useState<string | null>(null);
@@ -254,8 +273,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   }, [board]);
 
   const selectSession = (id: string | null) => {
-    // Opening a session, or the fleet, from the board or My reporters leaves that page; the selection is made before the route changes.
-    if (board || myReporters) window.location.hash = "#/";
+    // Opening a session, or the fleet, from the board, My reporters or Traffic leaves that page; the selection is made before the route changes.
+    if (board || consolePage) window.location.hash = "#/";
     setSel(id);
     setSelAgent(null);
     setNotice(null);
@@ -341,13 +360,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   }, [exitWall]);
 
   const { toggle } = panes;
-  // In the top bar's own row while it is open, floating in the corner once it is collapsed. My reporters has no wall to
-  // show, so it offers none (#415); a wall left on from before still shows its way out.
+  // In the top bar's own row while it is open, floating in the corner once it is collapsed. My reporters and Traffic have no
+  // wall to show, so they offer none (#415, #417); a wall left on from before still shows its way out.
   const wallButton = panes.wall ? (
     <button type="button" className="btn wall-exit" data-wall-control onClick={stopWall} aria-label="Exit wall mode" title="Exit wall mode (Esc)">
       Exit wall mode
     </button>
-  ) : myReporters ? null : (
+  ) : consolePage ? null : (
     <button type="button" className="btn wall-enter" data-wall-control onClick={() => startWall(true)} aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">
       Wall mode
     </button>
@@ -356,8 +375,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     if (e.key === "\\") toggle("top");
     // A wall left on from before still leaves with Esc, on My reporters too, as its Exit button says.
     else if (e.key === "Escape" && panes.wall) stopWall();
-    // My reporters draws no rail, side panel or wall, so their keys do nothing there; the top bar's still works (#415).
-    else if (myReporters) return;
+    // My reporters and Traffic draw no rail, side panel or wall, so their keys do nothing there; the top bar's still works (#415).
+    else if (consolePage) return;
     else if (e.key === "[") toggle("left");
     else if (e.key === "]") toggle("right");
     else if (e.key === "w" || e.key === "W") (panes.wall ? stopWall : () => startWall(false))();
@@ -372,8 +391,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       )}
       <div className="app">
         <TopBar
-          page={myReporters ? "My reporters" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          page={myReporters ? "My reporters" : traffic ? "Traffic" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
           myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: myReporters } : undefined}
+          traffic={peersOn ? { current: traffic } : undefined}
           phase={state.phase}
           reporters={reporters}
           outdated={outdated}
@@ -403,6 +423,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             </span>
             <ThemePicker theme={theme} />
           </div>
+        ) : traffic ? (
+          <div className="banner has-picker">
+            <span>
+              <b>Traffic.</b> Which orchestrators message each other, and what they said.
+            </span>
+            <ThemePicker theme={theme} />
+          </div>
         ) : (
           <div className="banner has-picker">
             <span>
@@ -416,6 +443,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
         )}
         {myReporters ? (
           <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} />
+        ) : traffic ? (
+          <TrafficPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} peers={peers} api={trafficApiProp ?? trafficApi} now={now} />
         ) : (
         <div className="cols" ref={cols} style={colStyle}>
           <Rail

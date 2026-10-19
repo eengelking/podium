@@ -46,13 +46,15 @@ function peersRead(P: FakePeers, key: string) {
   const mine = ref.adminSecret || !ref.owner ? [] : P.reporters.filter((r) => !r.adminSecret && r.owner === ref.owner);
   const row = (a: string, b: string) => P.rights.find((r) => r.from === a && r.to === b);
   const eff = (a: string, b: string) => ({ from: a, to: b, level: P.trust ? "send" : (row(a, b)?.level ?? "none"), paused: row(a, b)?.paused ?? false });
-  const about = <T extends { from?: string; to?: string; fromKey?: string; toKey?: string }>(r: T) => [r.from, r.to, r.fromKey, r.toKey].includes(key);
+  // Every pair of the owner's reporters, as the server reads them (#416).
+  const keys = new Set(mine.map((r) => r.key));
   return {
     reporter: ref,
     peers: mine,
-    rights: P.rights.filter(about),
-    effective: mine.flatMap((o) => [eff(key, o.key), ...(o.key === key ? [] : [eff(o.key, key)])]),
-    requests: P.requests.filter(about),
+    trust: mine.length > 0 && P.trust,
+    rights: P.rights.filter((r) => keys.has(r.from) && keys.has(r.to)),
+    effective: mine.flatMap((a) => mine.map((b) => eff(a.key, b.key))),
+    requests: P.requests.filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)),
   };
 }
 
