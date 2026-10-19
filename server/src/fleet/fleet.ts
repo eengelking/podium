@@ -14,9 +14,11 @@ import { formatSse, SseHub } from './sse.js';
 import { ModelPriceStore } from './modelPrices.js';
 import { WallSettings } from './wallSettings.js';
 import { ActivityStore } from './activity.js';
-import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, RESPOND } from './featureFlags.js';
+import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND } from './featureFlags.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
+import { PeerService } from './peers.js';
+import { ReporterStore } from './reporters.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -110,6 +112,8 @@ export class Fleet {
   readonly features: FeatureFlags;
   /** Responding from Podium (#206): asks, answers and messages, in memory only. */
   readonly respond: RespondStore;
+  /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
+  readonly peers: PeerService;
   private readonly live = new Map<string, LiveEntry>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly startedAt: number;
@@ -131,6 +135,8 @@ export class Fleet {
       if (id === FILE_DIFF && !on) this.diffs.clear();
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
+      // Messaging going off drops every message still waiting; the rights stay.
+      if (id === PEER_MESSAGING && !on) this.peers.dropAll();
       this.hub.broadcast('snapshot', this.state());
     });
     this.activity = new ActivityStore(now, () => this.features.featureOn(ACTIVITY_FEED));
@@ -145,6 +151,7 @@ export class Fleet {
         remove: (sid, ref) => this.activity.removePodium(sid, ref),
       },
     );
+    this.peers = new PeerService(db.db, new ReporterStore(db.db, this.startedAt).peerLookup(), now, () => this.features.featureOn(PEER_MESSAGING));
     this.wall = new WallSettings(db.db, () => this.hub.broadcast('wall', this.wall.view()));
     // A price change moves every cost on the wall, so open browsers get a fresh snapshot.
     this.prices = new ModelPriceStore(db.db, () => {
@@ -461,6 +468,7 @@ export class Fleet {
     this.activity.dropSession(id);
     this.diffs.drop(id);
     this.respond.dropSession(id);
+    this.peers.deleted([id]);
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -500,6 +508,7 @@ export class Fleet {
     this.diffs.drop(row.id);
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
+    this.peers.ended(row.id);
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);
@@ -595,8 +604,10 @@ export class Fleet {
   }
 
   /** Hourly: retention. */
-  retain(): { samples: number; events: number; sessions: number; adminLog: number } {
-    return this.db.retain(this.now(), this.cfg.retention);
+  retain(): { samples: number; events: number; sessions: number; adminLog: number; peerMessages: number; peerRequests: number } {
+    const out = this.db.retain(this.now(), this.cfg.retention);
+    const peers = this.peers.retain();
+    return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }
 
   close(): void {

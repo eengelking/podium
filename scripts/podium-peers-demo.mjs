@@ -254,7 +254,7 @@ async function flagOff() {
   check('the Admin turns the flag back on', on.status === 200, show(on));
   const later = await idle(tester);
   check('Linux reports idle: the dropped message is not delivered', later.status === 200 && !messageIn(later, text), deliveriesOf(later));
-  // Not a check: the sender is told a held message was dropped, and notices are handed over only while it is idle.
+  // Not a check: turning the flag off clears Podium's notices too, so the Mac is normally told nothing here.
   const told = deliveriesOf(await idle(dev)).filter((d) => d.kind === 'notice');
   for (const n of told) console.log(`      (Mac was told: ${n.text})`);
 }

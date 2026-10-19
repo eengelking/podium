@@ -17,6 +17,7 @@ import type { Lockout } from './lockout.js';
 import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type DropWhy } from './respond.js';
 import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
+import type { BrowserHelpers } from './peerRoutes.js';
 import type { SessionRow } from './db.js';
 import { FILE_DIFF } from './featureFlags.js';
 
@@ -35,6 +36,10 @@ export interface RespondDeps {
   bridge?: RespondBridge;
   /** Runs ahead of the sign-in, to note a plain-HTTP connection (#306). It never blocks. */
   onSignIn?: RequestHandler;
+  /** Another feature that needs the sign-in is on (orchestrator messaging, #347), so a browser can sign in for it. */
+  alsoSignIn?: () => boolean;
+  /** Mounts more routes on the browser router, behind its no-store, cross-site and body-size checks (#347). */
+  extendBrowser?: (browser: Router, h: BrowserHelpers) => void;
 }
 
 const COOKIE = 'podium_respond';
@@ -105,8 +110,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
 
   /** Authentication on and the Admin's file-diff flag (#319). The reporter's fileDiff option is the mod's to check. */
   const diffEnabled = (): boolean => d.token !== null && fleet.features.featureOn(FILE_DIFF);
-  /** A browser can sign in when either feature that needs the sign-in is on. The respond routes still need `enabled()`. */
-  const signInEnabled = (): boolean => enabled() || diffEnabled();
+  /** A browser can sign in when any feature that needs the sign-in is on. The respond routes still need `enabled()`. */
+  const signInEnabled = (): boolean => enabled() || diffEnabled() || (d.alsoSignIn?.() ?? false);
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
     logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
@@ -529,6 +534,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
     else res.json({ ok: true });
   });
 
+  d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
 }
 

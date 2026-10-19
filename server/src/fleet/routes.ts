@@ -12,6 +12,7 @@ import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
 import { mountRespondRoutes, replyFor } from './respondRoutes.js';
+import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
 
 export interface FleetRouterOptions {
@@ -69,12 +70,13 @@ const credentialOf = (id: Identity): string | null => (id.kind === 'person' ? `p
 /** The `hostSurface` the simulator reports; the Reporters page never lists it (#168). */
 const SIMULATOR_SURFACE = 'simulator';
 
-/** Bookkeeping for the Reporters page must never turn a stored report into a failed one. */
-function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: ReporterSeen, now: number): void {
+/** Bookkeeping for the Reporters page must never turn a stored report into a failed one. Returns the reporter's key, or null. */
+function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: ReporterSeen, now: number): string | null {
   try {
-    opts.reporters?.record(seen, now);
+    return opts.reporters?.record(seen, now) ?? null;
   } catch (err) {
     logger.warn('reporter.record_failed', `podium: could not note the reporter: ${(err as Error).message}`, { reason: (err as Error).message });
+    return null;
   }
 }
 
@@ -214,7 +216,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
       if (r.reporter.hostSurface !== SIMULATOR_SURFACE) {
-        noteReporter(
+        const key = noteReporter(
           opts,
           logger,
           {
@@ -227,9 +229,13 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
             version: r.reporter.version,
             engineVersion: r.reporter.engineVersion,
             sessionId: out.sessionId,
+            os: r.machine?.os ?? null,
+            peers: r.session.peers ?? null,
           },
           fleet.now(),
         );
+        // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
+        if (key && id.kind === 'person' && r.reporter.hostSurface !== 'settings-hooks') fleet.peers.note(out.sessionId, key, id.person.name, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,
@@ -240,7 +246,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
@@ -468,6 +474,10 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     res.json(fleet.health());
   });
 
+  // Orchestrator messaging (#347): the mod's routes here, the owner's on responding's browser router below.
+  const peerDeps: PeerDeps = { fleet, token: opts.token ?? null, people: opts.people ?? null, logger, requireToken, identityOf };
+  mountPeerRoutes(router, peerDeps);
+
   // Responding from Podium (#206): the mod's ask routes and the browser's /respond routes.
   mountRespondRoutes(router, {
     fleet,
@@ -479,6 +489,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     onSignIn: opts.onSignIn,
     requireToken,
     identityOf,
+    alsoSignIn: () => peersEnabled(fleet, opts.token ?? null),
+    extendBrowser: (browser, h) => mountPeerBrowserRoutes(browser, peerDeps, h),
   });
 
   router.use((_req, res) => {
