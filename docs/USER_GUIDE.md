@@ -627,8 +627,10 @@ with your name and token from **Sign in** at the far right of the top bar. The t
 **My reporters** and **Sign out**. While requests wait for you, the link reads **My reporters · N waiting**, where N is
 how many.
 
-The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it. `\` still hides and shows the top
-bar.
+The page sits between the orchestrator list on the left and the Activity panel on the right, which open collapsed so
+the page gets the width. Open either from its edge tab or with `[` and `]`; the page remembers what you left open,
+apart from the Fleet page and the Board. Picking an orchestrator or an activity event takes you to that orchestrator.
+There is no wall here, so `w` does nothing. `\` still hides and shows the top bar.
 
 #### Waiting for you
 
@@ -730,8 +732,8 @@ Both act on the two machines, so they also pause or remove every other conversat
 page says so and the link is as it was. An Admin can read anyone's conversation here, but cannot pause or remove
 another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter.
 
-Like My reporters, the page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; `\` still hides
-and shows the top bar.
+The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; `\` still hides and shows the top
+bar.
 
 ### History
 

@@ -204,6 +204,13 @@ describe("the top bar", () => {
     expect(container.querySelector(".podium")).not.toHaveClass("wall-on");
   });
 
+  it("has no rail or side panel, so [ and ] leave the fleet's collapsed flags alone (#446)", async () => {
+    page();
+    await flush();
+    for (const key of ["[", "]"]) fireEvent.keyDown(document, { key });
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+  });
+
   it("goes back to the fleet from Fleet", async () => {
     window.location.hash = "#/traffic";
     page();

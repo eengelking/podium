@@ -35,6 +35,18 @@ describe("usePanes", () => {
     expect(second.result.current.collapsed.right).toBe(true);
   });
 
+  it("gives the Board and My reporters their own flags, both side panels collapsed at first (#346, #446)", () => {
+    const board = renderHook(() => usePanes("board"));
+    const mine = renderHook(() => usePanes("reporters"));
+    expect(board.result.current.collapsed).toEqual({ left: true, right: true, top: false });
+    expect(mine.result.current.collapsed).toEqual({ left: true, right: true, top: false });
+    act(() => mine.result.current.toggle("left"));
+    expect(JSON.parse(localStorage.getItem("podium.collapsed.reporters")!)).toEqual({ left: false, right: true, top: false });
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+    expect(localStorage.getItem("podium.collapsed.board")).toBeNull();
+    expect(renderHook(() => usePanes()).result.current.collapsed).toEqual({ left: false, right: false, top: false });
+  });
+
   it("ignores junk in storage and survives a storage that throws", () => {
     localStorage.setItem("podium.collapsed", JSON.stringify({ left: "yes", right: 1 }));
     expect(renderHook(() => usePanes()).result.current.collapsed).toEqual({ left: false, right: false, top: false });
