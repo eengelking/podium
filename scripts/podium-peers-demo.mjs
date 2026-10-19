@@ -7,6 +7,8 @@
 //
 // Never point it at a server you use: it changes the Admin's settings and adds people.
 
+import { randomBytes } from 'node:crypto';
+
 const HELP = `Usage: node scripts/podium-peers-demo.mjs [--url <server>] [--secret <admin secret>]
 
 Proves orchestrator messaging (#412) works end to end by playing reporters against a running Podium server.
@@ -34,12 +36,26 @@ const arg = (name, fallback) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : fallback;
 };
-const URL_ = (arg('--url', process.env.PODIUM_URL || 'http://127.0.0.1:4317') ?? '').replace(/\/+$/, '');
+/** The server's origin, from an http or https URL; null for anything else. Only the origin is kept, so a path cannot ride along. */
+function originOf(raw) {
+  try {
+    const u = new URL(raw ?? '');
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+const URL_ = originOf(arg('--url', process.env.PODIUM_URL || 'http://127.0.0.1:4317'));
 const SECRET = arg('--secret', process.env.PODIUM_TOKEN);
 if (!URL_ || !SECRET) {
   console.error(HELP);
   process.exit(2);
 }
+
+/** One line of text for the terminal: a value from the server never starts a line of its own. */
+const oneLine = (v) => String(v).replaceAll('\r', ' ').replaceAll('\n', ' ');
+/** An id from the server, made safe to put in a path. */
+const seg = (v) => encodeURIComponent(String(v));
 
 /** A failure that stops the run before the checks can mean anything; printed as one line. */
 class Stop extends Error {}
@@ -68,7 +84,7 @@ async function call(method, path, { headers = {}, body, cookies } = {}) {
   let res;
   try {
     const cookie = cookies?.header();
-    res = await fetch(`${URL_}${path}`, {
+    res = await fetch(new URL(path, URL_), {
       method,
       headers: { 'Content-Type': 'application/json', ...headers, ...(cookie ? { cookie } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -99,10 +115,11 @@ function browser(cookies) {
 
 let failed = 0;
 function check(label, ok, detail) {
-  if (ok) console.log(`PASS  ${label}`);
+  if (ok) console.log(oneLine(`PASS  ${label}`));
   else {
     failed++;
-    console.log(`FAIL  ${label}${detail === undefined ? '' : `: ${typeof detail === 'string' ? detail : JSON.stringify(detail)}`}`);
+    const why = typeof detail === 'string' ? detail : JSON.stringify(detail);
+    console.log(oneLine(`FAIL  ${label}${detail === undefined ? '' : `: ${why}`}`));
   }
   return !!ok;
 }
@@ -110,8 +127,8 @@ const show = (r) => `${r.status} ${JSON.stringify(r.body)}`.slice(0, 300);
 
 // ---- The fleet -------------------------------------------------------------------------------
 
-const sfx = Math.random().toString(36).slice(2, 7);
-const rid = () => Math.random().toString(36).slice(2, 14);
+const sfx = randomBytes(3).toString('hex').slice(0, 5);
+const rid = () => randomBytes(6).toString('hex');
 const now = Date.now();
 
 const people = { ed: { name: `Ed-${sfx}`, token: '' }, alex: { name: `Alex-${sfx}`, token: '' } };
@@ -145,7 +162,7 @@ function report(s, status, waitReason) {
 const running = (s) => mod(s.reporter.who.token, 'POST', '/report', report(s, 'running', null));
 const idle = (s) => mod(s.reporter.who.token, 'POST', '/report', report(s, 'waiting', 'input'));
 const send = (from, to, text) => mod(from.reporter.who.token, 'POST', `/sessions/${from.id}/peers/messages`, { to: `${to.name}@${to.reporter.machine.name}`, text });
-const result = (s, deliveryId, r) => mod(s.reporter.who.token, 'POST', `/sessions/${s.id}/peers/deliveries/${deliveryId}/result`, { result: r, at: Date.now() });
+const result = (s, deliveryId, r) => mod(s.reporter.who.token, 'POST', `/sessions/${seg(s.id)}/peers/deliveries/${seg(deliveryId)}/result`, { result: r, at: Date.now() });
 const deliveriesOf = (r) => (Array.isArray(r.body?.peerDeliveries) ? r.body.peerDeliveries : []);
 const messageIn = (r, text) => deliveriesOf(r).find((d) => d.kind === 'message' && typeof d.text === 'string' && d.text.includes(text));
 const setFlag = (on) => admin('PUT', '/settings', { features: { 'peer-messaging': on } });
@@ -213,7 +230,7 @@ async function heldForApproval(ed) {
   const requests = Array.isArray(list.body?.requests) ? list.body.requests : [];
   const req = requests.find((r) => r.kind === 'message' && (r.id === requestId || (sent.body?.id && r.messageId === sent.body.id)));
   check('GET /respond/peers lists the request', list.status === 200 && !!req, show(list));
-  const answered = await ed('POST', `/peers/requests/${req?.id ?? requestId}`, { answer: 'deliver' });
+  const answered = await ed('POST', `/peers/requests/${seg(req?.id ?? requestId)}`, { answer: 'deliver' });
   check('Ed answers deliver', answered.status === 200 && answered.body?.ok === true, show(answered));
   const after = await idle(tester);
   const d = messageIn(after, text);
@@ -256,7 +273,7 @@ async function flagOff() {
   check('Linux reports idle: the dropped message is not delivered', later.status === 200 && !messageIn(later, text), deliveriesOf(later));
   // Not a check: turning the flag off clears Podium's notices too, so the Mac is normally told nothing here.
   const told = deliveriesOf(await idle(dev)).filter((d) => d.kind === 'notice');
-  for (const n of told) console.log(`      (Mac was told: ${n.text})`);
+  for (const n of told) console.log(oneLine(`      (Mac was told: ${n.text})`));
 }
 
 try {
@@ -266,7 +283,7 @@ try {
   await twoOwners();
   await flagOff();
 } catch (e) {
-  console.error(`podium-peers-demo: ${e instanceof Stop ? e.message : e?.message ?? String(e)}`);
+  console.error(oneLine(`podium-peers-demo: ${e instanceof Stop ? e.message : (e?.message ?? String(e))}`));
   process.exit(1);
 }
 console.log(failed ? `\n${failed} check(s) failed` : '\nAll checks passed');
