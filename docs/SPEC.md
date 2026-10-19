@@ -2976,7 +2976,10 @@ pages, responding, the orchestrator page and the right panel.
   Board, History and Admin buttons. Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
-  Board on the board.
+  Board on the board, no History in History.
+- History draws this same top bar (#452), so its buttons, connection pill and Sign in match the other pages. It has
+  no Hide top bar control or wall mode button, because it has no wall and its bar is one line; the `\` shortcut
+  does nothing there. The My reporters link shows while orchestrator messaging is on and a person is signed in.
 - A pill names the page. The page supplies it, not the top bar: "Fleet" on the wall, "Board" on the board
   (#346), "Orchestrator" on an orchestrator's page (#225), "History" in History, "Admin" in Admin.
 - A connection pill: "N reporters live", or "1 reporter live". There is no synced time (#178). It reads red

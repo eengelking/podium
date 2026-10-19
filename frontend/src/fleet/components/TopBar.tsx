@@ -62,9 +62,12 @@ export function TopBar(props: {
           Board
         </a>
       )}
-      <a className="btn" href="#/history">
-        History
-      </a>
+      {/* History's own pill names it, so the button is left off there (#452). */}
+      {props.page !== "History" && (
+        <a className="btn" href="#/history">
+          History
+        </a>
+      )}
       {props.wall}
       {admin && (
         <a className="btn" href="#/admin" title="People, groups, reporters, settings, model prices, spend and the Admin log">
