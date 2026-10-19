@@ -3055,7 +3055,8 @@ pages, responding, the orchestrator page and the right panel.
 - A collapsed top bar leaves a 4 px strip with a Show top bar button, and takes the info banner with it.
 - The disconnect alert never collapses. With everything collapsed, a lost connection still shows the red "Lost
   the connection…" alert (and a red strip), and reconnecting clears it.
-- The collapsed flags are remembered in `localStorage` under `podium.collapsed`, apart from the widths.
+- The collapsed flags are remembered in `localStorage` under `podium.collapsed`, apart from the widths. The Board
+  (`podium.collapsed.board`) and My reporters (`podium.collapsed.reporters`) keep their own.
 - Below 1040 px the panes are stacked, so the control collapses the stacked section to a one-row tab, and the
   Wall mode button is hidden.
 
@@ -3697,8 +3698,18 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   get their own empty block too.
 - A change shows at once and keeps focus where it was. If saving fails, the page says "Could not save the change:
   … Nothing changed. Try again." and takes back only that change; a newer change still saving stays shown.
-- The page draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]`, `w` and Esc do nothing
-  there; `\` still hides and shows the top bar.
+- **Panels (#446).** The page sits between the left rail and the Activity panel, as the Board does, and keeps the rail's
+  footer (see Left rail) in the bottom left corner.
+  - It keeps its own collapsed flags under `podium.collapsed.reporters`, apart from `podium.collapsed` and
+    `podium.collapsed.board`, and opens with both side panels collapsed to their edge tabs. The top bar starts open.
+    They open and close with the console's animation, which `prefers-reduced-motion` removes, and stack below 1040 px
+    as on the wall: rail, page, Activity panel.
+  - The rail and the Activity panel show the whole fleet, as the wall does. `GET /api/fleet/stream` sends every viewer
+    the same fleet, so they show no orchestrator that the wall would not.
+  - Selecting a session or "All orchestrators" in the rail, or a click on an activity event, leaves My reporters for
+    the console, as it does from the Board. The rail selects nothing while the page is open.
+  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. `[` and `]` open and
+    close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
 #### Traffic page (#347, `mockup/podium-traffic.html`)
 

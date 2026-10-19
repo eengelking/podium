@@ -653,6 +653,8 @@ body.modal-open #root { filter: blur(5px); }
   .podium .cols { display: flex; flex-direction: column; }
   .podium .mid { display: contents; }
   .podium .rail { order: 1; } .podium .mid > .main { order: 2; flex: none; } .podium .side { order: 3; }
+  /* My reporters (#446) sits where the main column does, between the rail and the Activity panel. */
+  .podium .mid > .adminv { order: 2; }
   .podium .legend { order: 4; padding: 20px 24px 28px; gap: 10px 20px; }
   .podium .rz { display: none; }
   .podium .wall-enter { display: none; }

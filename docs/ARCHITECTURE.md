@@ -492,8 +492,9 @@ peers result route. A tool call waits on a `PeerCall` queue that `flush` drains 
 made by the timer with the report's credential and backoff. `redactText` in `diffRedact.ts` runs the diff redactor
 over free text. The OS is parsed in `machine.ts` (`osFromSwVers`, `osFromOsRelease`, `osFromVer`, `cleanOs`).
 
-**My reporters (#415).** The page is a flag on `FleetApp`, like the Board, and replaces the rail, middle and Activity
-panel under the console's top bar. `useMyPeers` lives in `FleetViewBody`, so the top bar's count and the page share
+**My reporters (#415).** The page is a flag on `FleetApp`, like the Board, and takes the middle column's place between
+the rail and the Activity panel (#446), with no legend. `usePanes` takes the page's name and keeps one set of
+collapsed flags per page (`podium.collapsed`, `.board`, `.reporters`). `useMyPeers` lives in `FleetViewBody`, so the top bar's count and the page share
 one read. A change is optimistic, with a generation counter so an older read cannot undo a newer change. `peersApi`
 sits beside `respondApi`, on the same router and header, and `RespondProvider` also asks `/me` while
 `peer-messaging` is on. The rights pieces (the access level, system, proposed and paused tags, the Grid | Board
@@ -511,7 +512,8 @@ Settings and My reporters > Defaults: the ranges and error words mirror `peerSet
 file and compares), and the caller supplies each key's maximum, the state line, the Use the Admin's limit action and
 what a typed value means, so the one component draws both.
 
-**Traffic (#417).** The page is a flag on `FleetApp`, like My reporters, with no wall, rail or side keys.
+**Traffic (#417).** The page is a flag on `FleetApp`, like My reporters, with no wall, rail or side panel, and no keys
+for them.
 `trafficData.ts` (not `traffic.ts`, which a case-insensitive disk would take for `Traffic.tsx`) holds the API, the
 words and `layoutMap`: machines in two columns, busiest first then by name so a new message does not reorder them,
 cubic curves, and each label at the first point along its curve that clears earlier labels and the nodes.

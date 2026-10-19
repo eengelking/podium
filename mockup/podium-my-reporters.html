@@ -19,15 +19,19 @@
    .badge, .warnbar, .kb-empty and .kb-blank. Classes that start with pm- are new and would be added to the standards with the
    feature: pm-lv (an access level), pm-os (a system), pm-pend (proposed), pm-state (paused), pm-grid, pm-board.
    Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only.
-   #436 (C7) adds the owner's stricter limits to Defaults, inside the dashed box marked "New in #436". Each limit is the
+   #436 (C7) adds the owner's stricter limits to Defaults. Each limit is the
    Admin's setting row from Admin > Settings (.srow, a .field.daysbox, the in-place .err that Forget old reporters uses),
    with the Admin's value as its most, and a Use the Admin's limit button in a .row2 once the owner has their own. The
    Limits buttons in the bar above switch the example. A value is saved when the box loses focus or on Enter, and a
-   refused one saves nothing. The dashed box and its caption (mock-new) are for this review only, not app UI. */
+   refused one saves nothing.
+   #446 puts the console around the page, as on the Board (#346): the left rail with its footer (Theme credits, License,
+   the version, the copyright) and the Activity panel on the right, both collapsed to their 24 px edge tabs when the page
+   opens, and no legend (approved on #446). They are the app's own .rail, .rail-foot, .side and .pane-tab, and show the
+   whole fleet, as the wall does for anyone who opens Podium. The page keeps its own flags
+   (podium.collapsed.reporters), apart from the wall's and the Board's. [ and ] open and close them; there is still no
+   Wall mode here, since there is no wall to show. The Left pane and Right pane buttons above switch the example. A rail
+   row or an activity event leaves My reporters for that orchestrator; All orchestrators leaves for the wall. */
 html, body { height: auto; }
-/* Mockup only: marks the part #436 adds, so the reviewer can find it. Not app UI. */
-.mock-new { outline: 2px dashed var(--sonnet); outline-offset: -3px; }
-.mock-new > .mock-cap { display: block; padding: 10px 16px 0; font: 600 11px var(--font-ui); color: var(--sonnet); }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
 .demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
 .demo b { color: var(--ink); }
@@ -36,13 +40,30 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
 .demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
 .stage { margin: 0 auto; max-width: var(--stage, 1240px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
-.stage .podium .adminv .apage { overflow: visible; }
+/* Mockup only: the stage stands in for the browser window. In the owner's view the page scrolls inside the console, as
+   in the app; Admin's view keeps the page at its full height. */
+.stage .podium { height: 860px; }
+.stage .podium.as-admin { height: auto; }
+.stage .podium.as-admin .adminv .apage { overflow: visible; }
 /* Approved by the maintainer for #347: more room after "Signed in as Ed", now that a button follows it (16 px in all). */
 .podium .tb-who { margin-right: 8px; }
 .stage .podium .adminv .shell { height: auto; }
 .stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
 .stage.narrow .podium .adminv .shell { grid-template-columns: minmax(0, 1fr); }
 .stage.narrow .podium .adminv .nav { display: none; }
+/* Mockup only: the app's own stacked layout below 1040 px (fleet.css), copied here because the stage, not the window, is
+   400 px wide. Rail, then the page, then the Activity panel; the whole page scrolls. */
+.stage.narrow .podium { height: auto; }
+.stage.narrow .podium .cols { display: flex; flex-direction: column; }
+.stage.narrow .podium .mid { display: contents; }
+.stage.narrow .podium .rail { order: 1; border: 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: visible; }
+.stage.narrow .podium .mid > .adminv { order: 2; }
+.stage.narrow .podium .side { order: 3; border: 0; border-top: 1px solid var(--border); overflow: visible; }
+.stage.narrow .podium .adminv .apage { overflow: visible; }
+.stage.narrow .podium .pane-tab { position: static; width: 100%; height: 28px; display: flex; align-items: center; justify-content: flex-start; padding-left: 14px; }
+.stage.narrow .podium .rail:not(.collapsed) .rail-head { padding-right: 14px; }
+.stage.narrow .podium .side:not(.collapsed) #podium-side-body { padding-top: 0; }
+.stage.narrow .podium .top, .stage.narrow .podium .banner { padding-inline: 16px; }
 
 /* Consent rows: the app's .confirm, one per request, with the question on the left and a button per answer. */
 .pm-reqs { display: grid; gap: 10px; padding: 12px 16px; }
@@ -130,6 +151,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <button type="button" data-lim="refused" aria-pressed="false">Refused</button>
     <button type="button" data-lim="lowered" aria-pressed="false">Admin lowered theirs</button>
   </span>
+  <span class="grp" role="group" aria-label="Left pane, new in #446">Left pane (#446)
+    <button type="button" data-left="1" aria-pressed="true">Collapsed</button>
+    <button type="button" data-left="0" aria-pressed="false">Open</button>
+  </span>
+  <span class="grp" role="group" aria-label="Right pane, new in #446">Right pane (#446)
+    <button type="button" data-right="1" aria-pressed="true">Collapsed</button>
+    <button type="button" data-right="0" aria-pressed="false">Open</button>
+  </span>
   <span class="grp" role="group" aria-label="Mode">Mode
     <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
     <button type="button" data-mode="light" aria-pressed="false">Light</button>
@@ -189,7 +218,23 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   PROPOSED[key('build-pi', 'ed-mbp')] = 'ask';
   var PAUSED = {};
   PAUSED[key('ed-mbp', 'ed-mbp')] = true;
-  var S = { layout: 'grid', as: 'owner', trust: false, kase: 'example', boardOf: 'ed-mbp', back: null, adminPaused: false };
+  var S = { layout: 'grid', as: 'owner', trust: false, kase: 'example', boardOf: 'ed-mbp', back: null, adminPaused: false, left: true, right: true };
+
+  // #446: the whole fleet in the rail and the Activity panel, as on the wall. Kim's session is another person's.
+  var FLEET = [
+    { name: 'claude-dashboard', st: 'running', fam: 'opus', model: 'Opus', done: 3, total: 7, agents: '2/4' },
+    { name: 'Tester', st: 'running', fam: 'haiku', model: 'Haiku', done: 1, total: 2, agents: '1/1' },
+    { name: 'infra-notes', st: 'waiting', fam: 'sonnet', model: 'Sonnet', done: 4, total: 5, agents: '0/2' },
+    { name: 'api-refactor', st: 'running', fam: 'opus', model: 'Opus', done: 6, total: 9, agents: '3/5', owner: 'Kim' },
+    { name: 'arm64-check', st: 'stale', fam: 'sonnet', model: 'Sonnet', done: 0, total: 0, agents: '0/0' }
+  ];
+  var EVENTS = [
+    ['14:03:12', 'claude-dashboard', 'opus', 'Edited', 'Edit'],
+    ['14:02:58', 'infra-notes', 'sonnet', 'Waiting for your input', 'AskUserQuestion'],
+    ['14:02:41', 'api-refactor', 'opus', 'Ran the tests', 'Bash'],
+    ['14:02:10', 'Tester', 'haiku', 'Read a file', 'Read'],
+    ['14:01:37', 'arm64-check', 'sonnet', 'Stopped reporting', '']
+  ];
 
   function esc(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
   function rep(id) { for (var i = 0; i < REP.length; i++) if (REP[i].id === id) return REP[i]; return null; }
@@ -228,9 +273,49 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + I.logo + 'Podium</a>' +
       '<span class="pill">My reporters</span><span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span>' +
       '<a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/traffic">Traffic</a>' +
-      '<button type="button" class="btn" aria-expanded="true" aria-controls="podium-top" title="Hide the top bar (\\)">Hide top bar</button><button type="button" class="btn wall-enter" aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">Wall mode</button>' +
+      '<button type="button" class="btn" aria-expanded="true" aria-controls="podium-top" title="Hide the top bar (\\)">Hide top bar</button>' +
       '<span class="tb-sep" aria-hidden="true"></span><span class="tb-me"><span class="tb-who">' + I.me + 'Signed in as <b>Ed</b></span><a class="btn" href="#/me/reporters" aria-current="page">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button></span></header>';
   }
+  function banner() {
+    return '<div class="banner has-picker"><span><b>My reporters.</b> Your own machines, and which of them may message each other.</span>' +
+      '<div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>' +
+      '<div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false" tabindex="-1">Light</button><button type="button" role="radio" aria-checked="false" tabindex="-1">Dark</button><button type="button" role="radio" aria-checked="true" tabindex="0">System</button></div></div></div>';
+  }
+
+  /* ---------- #446: the console around the page ---------- */
+  function paneTab(side, collapsed, controls, key) {
+    var toward = (side === 'left') !== collapsed, verb = collapsed ? 'Expand' : 'Collapse';
+    return '<button type="button" class="pane-tab pane-tab-' + side + '" data-pane="' + side + '" aria-expanded="' + !collapsed + '" aria-controls="' + controls + '" aria-label="' + verb + ' ' + side + ' pane" title="' + verb + ' the ' + side + ' pane (' + key + ')">' +
+      '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="' + (toward ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5') + '"/></svg></button>';
+  }
+  function chip(f) { return '<span class="chip" style="--c:var(--' + f.fam + ')"><i></i>' + f.model + '</span>'; }
+  function rail() {
+    var run = FLEET.filter(function (f) { return f.st === 'running'; }).length, wait = FLEET.filter(function (f) { return f.st === 'waiting'; }).length, stale = FLEET.filter(function (f) { return f.st === 'stale'; }).length;
+    var rows = FLEET.map(function (f) {
+      return '<div class="ritem-slot"><button type="button" class="ritem" aria-current="false"><div class="l1"><i class="dot ' + f.st + '" aria-hidden="true"></i><span class="nm">' + esc(f.name) + '</span><span class="vh">' + f.st + '</span>' +
+        (f.owner ? '<span class="vh">, ' + esc(f.owner) + '</span>' : '') + chip(f) + '</div><div class="l2">' +
+        (f.total ? '<div class="bar plan" aria-hidden="true"><i style="width:' + Math.round(100 * f.done / f.total) + '%"></i></div><span class="mono">' + f.done + '/' + f.total + '</span>' : '<span style="color:var(--muted)">no plan reported</span><span class="spacer"></span>') +
+        '<span class="mono" title="running / total agents">' + f.agents + '</span></div></button></div>';
+    }).join('');
+    return '<nav class="rail' + (S.left ? ' collapsed' : '') + '" aria-label="Orchestrators">' + paneTab('left', S.left, 'podium-rail-body', '[') +
+      '<div id="podium-rail-body"' + (S.left ? ' hidden' : '') + '><div class="rail-head"><h2>Orchestrators</h2><span class="mono" style="color:var(--muted)">' + FLEET.length + '</span></div>' +
+      '<button type="button" class="ritem all" aria-current="false"><div class="l1"><span class="nm">All orchestrators</span></div><div class="l2"><span>' + run + ' running · ' + wait + ' waiting · ' + stale + ' stale</span></div></button>' + rows +
+      '<footer class="rail-foot"><span><a href="#credits">Theme credits</a> · <a href="#license">License</a></span><span>Podium v0.16.0</span><span>© 2026 Ed Engelking</span></footer></div></nav>';
+  }
+  function side() {
+    var rows = EVENTS.map(function (e) {
+      return '<li><button type="button" class="evb"><time class="mono">' + e[0] + '</time><i class="ed" style="--c:var(--' + e[2] + ')" aria-hidden="true"></i><div class="tt"><b>' + esc(e[1]) + ' </b>' + esc(e[3]) +
+        (e[4] ? '<span class="tool">' + esc(e[4]) + '</span>' : '') + '<span class="go">Open orchestrator</span></div></button></li>';
+    }).join('');
+    return '<aside class="side' + (S.right ? ' collapsed' : '') + '" aria-label="Activity and agent detail">' + paneTab('right', S.right, 'podium-side-body', ']') +
+      '<div id="podium-side-body"' + (S.right ? ' hidden' : '') + '><div class="sh"><h2>Activity · all orchestrators</h2><span class="kpi-cap">newest first</span></div><ul class="ev">' + rows + '</ul>' +
+      '<div class="more"><span>Showing ' + EVENTS.length + ' of ' + EVENTS.length + '</span></div></div></aside>';
+  }
+  function shell(page) {
+    var style = (S.left ? '--rail-w:24px;' : '') + (S.right ? '--side-w:24px;' : '');
+    return '<div class="app">' + topBar() + banner() + '<div class="cols"' + (style ? ' style="' + style + '"' : '') + '>' + rail() + '<div class="mid">' + page + '</div>' + side() + '</div></div>';
+  }
+
   function adminNav() {
     return '<nav class="nav" aria-label="Admin sections"><div class="navin">' +
       '<div class="ngroup" role="group" aria-label="People and access"><span class="gh" aria-hidden="true">' + I.gPeople + '<span class="gt">People and access</span></span><button type="button" class="navbtn">People<span class="n">6</span></button><button type="button" class="navbtn">Groups</button><button type="button" class="navbtn" aria-current="page">Reporters<span class="n">4</span></button></div>' +
@@ -330,7 +415,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       '</div>';
   }
   function limits() {
-    return '<div class="mock-new"><span class="mock-cap">New in #436: your limits</span>' + LIMS.map(limRow).join('') + '</div>';
+    return LIMS.map(limRow).join('');
   }
 
   function defaults() {
@@ -444,10 +529,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function render() {
     var active = document.activeElement && document.activeElement.id;
     var app = document.getElementById('app');
+    app.classList.toggle('as-admin', S.as === 'admin');
     if (S.as === 'admin') {
       app.innerHTML = '<div class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></div>';
     } else {
-      app.innerHTML = topBar() + '<div class="adminv" aria-label="My reporters"><div class="apage"><div class="apage-in">' + ownerPage() + '</div></div></div>';
+      app.innerHTML = shell('<main class="adminv" aria-label="My reporters"><div class="apage"><div class="apage-in">' + ownerPage() + '</div></div></main>');
     }
     // Text from an agent is set as text, never as HTML; the [redacted] marker is Podium's own and drawn as .rd.
     Array.prototype.forEach.call(app.querySelectorAll('.pm-quote[data-text]'), function (q) {
@@ -503,6 +589,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         var f = document.getElementById(m.id); if (f) f.focus();
       });
     });
+    // #446: an edge tab opens or closes its pane; the app also takes [ and ].
+    each('[data-pane]', function (b) { b.addEventListener('click', function () { togglePane(b.dataset.pane); }); });
     var tsw = document.getElementById('trust-sw');
     if (tsw) tsw.addEventListener('click', function () { setTrust(!S.trust); });
     var ap = document.getElementById('admin-pause');
@@ -518,6 +606,16 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       col.addEventListener('drop', function (e) { e.preventDefault(); col.classList.remove('over'); set(S.boardOf, e.dataTransfer.getData('text/plain'), col.dataset.col); });
     });
   }
+  function togglePane(p) {
+    S[p] = !S[p];
+    press('data-' + p, S[p] ? '1' : '0');
+    render();
+  }
+  document.addEventListener('keydown', function (e) {
+    if (S.as !== 'owner' || e.ctrlKey || e.metaKey || e.altKey || (e.target.closest && e.target.closest('input, select, textarea'))) return;
+    if (e.key === '[') togglePane('left');
+    else if (e.key === ']') togglePane('right');
+  });
   function setTrust(on) {
     S.trust = on; S.back = null;
     press('data-trust', on ? 'on' : 'off');
@@ -531,6 +629,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (b.dataset.trust) setTrust(b.dataset.trust === 'on');
     if (b.dataset['case']) { S.kase = b.dataset['case']; press('data-case', S.kase); render(); }
     if (b.dataset.lim) { S.as = 'owner'; press('data-as', 'owner'); limCase(b.dataset.lim); press('data-lim', b.dataset.lim); render(); }
+    if (b.dataset.left) { S.left = b.dataset.left === '1'; press('data-left', b.dataset.left); render(); }
+    if (b.dataset.right) { S.right = b.dataset.right === '1'; press('data-right', b.dataset.right); render(); }
     if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
     if (b.dataset.w) {
       var st = document.getElementById('stage');

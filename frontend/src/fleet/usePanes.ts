@@ -7,14 +7,20 @@ import { readJson, writeJson } from "./storage";
 
 export type Pane = "left" | "right" | "top";
 export type Collapsed = Record<Pane, boolean>;
-const KEY = "podium.collapsed";
-/** The board keeps its own flags (#346) and opens with both side panels collapsed, so its columns get the width. */
-const BOARD_KEY = "podium.collapsed.board";
+/** The console page the flags belong to: each keeps its own. */
+export type PanesPage = "fleet" | "board" | "reporters";
 const ALL: Collapsed = { left: true, right: true, top: true };
 const FLEET_OPEN: Collapsed = { left: false, right: false, top: false };
-const BOARD_OPEN: Collapsed = { left: true, right: true, top: false };
+/** The board (#346) and My reporters (#446) open with both side panels collapsed, so the page gets the width. */
+const SIDES_SHUT: Collapsed = { left: true, right: true, top: false };
+const PAGES: Record<PanesPage, { key: string; fallback: Collapsed }> = {
+  fleet: { key: "podium.collapsed", fallback: FLEET_OPEN },
+  board: { key: "podium.collapsed.board", fallback: SIDES_SHUT },
+  reporters: { key: "podium.collapsed.reporters", fallback: SIDES_SHUT },
+};
 
-function load(key: string, fallback: Collapsed): Collapsed {
+function load(page: PanesPage): Collapsed {
+  const { key, fallback } = PAGES[page];
   const v = readJson<Partial<Record<Pane, unknown>> | null>(key, null);
   const flag = (p: Pane) => (typeof v?.[p] === "boolean" ? (v[p] as boolean) : fallback[p]);
   return { left: flag("left"), right: flag("right"), top: flag("top") };
@@ -29,18 +35,17 @@ export interface Panes {
   exitWall: () => void;
 }
 
-export function usePanes(board = false): Panes {
-  const [fleetSaved, setFleetSaved] = useState<Collapsed>(() => load(KEY, FLEET_OPEN));
-  const [boardSaved, setBoardSaved] = useState<Collapsed>(() => load(BOARD_KEY, BOARD_OPEN));
-  const saved = board ? boardSaved : fleetSaved;
+export function usePanes(page: PanesPage = "fleet"): Panes {
+  const [savedBy, setSavedBy] = useState<Record<PanesPage, Collapsed>>(() => ({ fleet: load("fleet"), board: load("board"), reporters: load("reporters") }));
+  const saved = savedBy[page];
   const [wall, setWall] = useState(false);
 
   const save = useCallback(
     (next: Collapsed) => {
-      (board ? setBoardSaved : setFleetSaved)(next);
-      writeJson(board ? BOARD_KEY : KEY, next);
+      setSavedBy((cur) => ({ ...cur, [page]: next }));
+      writeJson(PAGES[page].key, next);
     },
-    [board],
+    [page],
   );
 
   const toggle = useCallback(

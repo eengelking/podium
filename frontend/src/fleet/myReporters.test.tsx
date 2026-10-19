@@ -3,7 +3,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
-import { makeSession } from "./fixtures";
+import { makeEvent, makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import { gridCellId, VIEW_KEY } from "./components/PeerRights";
@@ -162,17 +162,15 @@ describe("the top bar", () => {
     expect(screen.getByRole("link", { name: "My reporters" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("keeps the top bar's own shortcut but not the wall's, the rail's or the side panel's, which this page does not draw (#415)", async () => {
+  it("keeps the top bar's own shortcut but not the wall's, which this page does not draw (#415)", async () => {
     const { container } = page();
     await flush();
     const top = document.getElementById("podium-top")!;
-    for (const key of ["w", "W"]) {
+    for (const key of ["w", "W", "Escape"]) {
       fireEvent.keyDown(document, { key });
       expect(container.querySelector(".podium")).not.toHaveClass("wall-on");
       expect(top.hidden).toBe(false);
     }
-    for (const key of ["[", "]", "Escape"]) fireEvent.keyDown(document, { key });
-    expect(localStorage.getItem("podium.collapsed")).toBeNull();
     fireEvent.keyDown(document, { key: "\\" });
     expect(top.hidden).toBe(true);
     fireEvent.keyDown(document, { key: "\\" });
@@ -207,6 +205,94 @@ describe("the top bar", () => {
     page();
     await flush();
     fireEvent.click(screen.getByRole("link", { name: "Fleet" }));
+    expect(window.location.hash).toBe("#/");
+  });
+});
+
+describe("the rail and the Activity panel around the page (#446)", () => {
+  const rail = () => screen.getByRole("navigation", { name: "Orchestrators" });
+  const side = () => screen.getByRole("complementary", { name: "Activity and agent detail" });
+  const left = () => screen.getByRole("button", { name: /left pane$/ });
+  const right = () => screen.getByRole("button", { name: /right pane$/ });
+
+  it("draws the rail with its footer and the Activity panel, both collapsed to their edge tabs, and no legend", async () => {
+    const { container } = page();
+    await flush();
+    expect(rail()).toHaveClass("collapsed");
+    expect(side()).toHaveClass("collapsed");
+    expect(left()).toHaveAttribute("aria-expanded", "false");
+    expect(right()).toHaveAttribute("aria-expanded", "false");
+    const cols = container.querySelector(".cols") as HTMLElement;
+    expect(cols.style.getPropertyValue("--rail-w")).toBe("24px");
+    expect(cols.style.getPropertyValue("--side-w")).toBe("24px");
+    expect(within(cols).getByRole("main", { name: "My reporters" })).toBeInTheDocument();
+    expect(container.querySelector(".legend")).toBeNull();
+    expect(document.getElementById("podium-top")).toBeVisible();
+    fireEvent.click(left());
+    const foot = rail().querySelector(".rail-foot") as HTMLElement;
+    expect(foot).toBeVisible();
+    expect(within(foot).getByRole("link", { name: "Theme credits" })).toBeInTheDocument();
+    expect(within(foot).getByRole("link", { name: "License" })).toBeInTheDocument();
+  });
+
+  it("opens and closes each panel from its tab and from [ and ], and keeps the flags apart from the wall's and the Board's", async () => {
+    page();
+    await flush();
+    fireEvent.click(left());
+    expect(left()).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(document, { key: "]" });
+    expect(right()).toHaveAttribute("aria-expanded", "true");
+    fireEvent.keyDown(document, { key: "[" });
+    expect(left()).toHaveAttribute("aria-expanded", "false");
+    expect(JSON.parse(localStorage.getItem("podium.collapsed.reporters")!)).toEqual({ left: true, right: false, top: false });
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+    expect(localStorage.getItem("podium.collapsed.board")).toBeNull();
+    cleanup();
+    page();
+    await flush();
+    expect(left()).toHaveAttribute("aria-expanded", "false");
+    expect(right()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("does not take the wall's or the Board's flags", async () => {
+    localStorage.setItem("podium.collapsed", JSON.stringify({ left: false, right: false, top: false }));
+    localStorage.setItem("podium.collapsed.board", JSON.stringify({ left: false, right: false, top: false }));
+    page();
+    await flush();
+    expect(rail()).toHaveClass("collapsed");
+    expect(side()).toHaveClass("collapsed");
+  });
+
+  it("shows the whole fleet in the rail, and selects nothing there", async () => {
+    const server = fakeServer();
+    const sessions = [makeSession({ id: "s-mac", name: "claude-dashboard", owner: "Ed" }), makeSession({ id: "s-kim", name: "kims-work", owner: "Kim" })];
+    render(<FleetView myReporters state={stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } })} respondApi={respondApi()} peersApi={server.api} />);
+    await flush();
+    fireEvent.click(left());
+    expect(within(rail()).getByText("kims-work")).toBeInTheDocument();
+    expect(rail().querySelector('.ritem[aria-current="true"]')).toHaveTextContent("All orchestrators");
+  });
+
+  it("leaves for the orchestrator's page from a rail row, and for the wall from All orchestrators", async () => {
+    window.location.hash = "#/me/reporters";
+    page();
+    await flush();
+    fireEvent.click(left());
+    fireEvent.click(within(rail()).getByText("api-refactor"));
+    expect(window.location.hash).toBe("#/");
+    window.location.hash = "#/me/reporters";
+    fireEvent.click(within(rail()).getByText("All orchestrators"));
+    expect(window.location.hash).toBe("#/");
+  });
+
+  it("leaves for the orchestrator's page from an activity event", async () => {
+    window.location.hash = "#/me/reporters";
+    const server = fakeServer();
+    const state = stateFrom({ sessions: [makeSession({ id: "s1" })], events: [makeEvent({ id: "x", sessionId: "s1", text: "something" })], features: { "activity-feed": true, "peer-messaging": true } });
+    render(<FleetView myReporters state={state} respondApi={respondApi()} peersApi={server.api} />);
+    await flush();
+    fireEvent.click(right());
+    fireEvent.click(within(side()).getByText("something"));
     expect(window.location.hash).toBe("#/");
   });
 });
@@ -301,7 +387,8 @@ describe("Waiting for you", () => {
     expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
     // Nothing waiting: plain "My reporters", never "· 0 waiting" (#415).
     expect(screen.getByRole("link", { name: "My reporters" })).toHaveAttribute("href", "#/me/reporters");
-    expect(screen.queryByText(/0 waiting/)).toBeNull();
+    // In the top bar: the rail's "All orchestrators" line counts "0 waiting" orchestrators, which is another thing (#446).
+    expect(within(document.getElementById("podium-top")!).queryByText(/0 waiting/)).toBeNull();
   });
 });
 

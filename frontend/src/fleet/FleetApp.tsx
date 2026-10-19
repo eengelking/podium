@@ -75,7 +75,7 @@ function useEntering(ids: readonly string[], ready: boolean): (id: string) => bo
 export interface FleetAppProps {
   /** The kanban board (#346) instead of the wall; the rest of the console is the same. */
   board?: boolean;
-  /** My reporters (#415) under the console's top bar, in place of the rail, the wall and the Activity panel. */
+  /** My reporters (#415) in the middle of the console instead of the wall, with the rail and the Activity panel collapsed at first (#446). */
   myReporters?: boolean;
   /** Traffic (#417) under the console's top bar, the same way. */
   traffic?: boolean;
@@ -113,7 +113,7 @@ interface FleetViewProps {
   onUpdateEvery?: (seconds: number) => void;
   /** For tests: the respond API, so the sign-in the wall reads "me" from can be faked. */
   respondApi?: RespondApi;
-  /** Show My reporters (#415) under the top bar instead of the rail, the middle and the Activity panel. */
+  /** Show My reporters (#415) in the middle instead of the wall or an orchestrator's page, between the rail and the Activity panel (#446). */
   myReporters?: boolean;
   /** For tests: My reporters' API. */
   peersApi?: PeersApi;
@@ -144,7 +144,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
 });
 
 function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, myReporters = false, peersApi: peersApiProp, traffic = false, trafficApi: trafficApiProp }: FleetViewProps) {
-  // My reporters and Traffic draw no rail, wall or Activity panel: one page under the top bar.
+  // My reporters and Traffic draw no wall. Traffic is one page under the top bar; My reporters keeps the rail and the Activity panel (#446).
   const consolePage = myReporters || traffic;
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
@@ -159,7 +159,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const cols = useRef<HTMLDivElement>(null);
   const container = useCallback(() => cols.current, []);
   const resize = useResizable(container);
-  const panes = usePanes(board);
+  const panes = usePanes(board ? "board" : myReporters ? "reporters" : "fleet");
   const idle = useIdle(panes.wall);
   const visible = usePageVisible();
   const root = useRef<HTMLDivElement>(null);
@@ -202,8 +202,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const ready = state.phase !== "loading";
   const enteringSession = useEntering(all.map((s) => s.id), ready);
   const newEvent = useEntering(state.events.map((e) => e.id), ready);
-  // The board stands in for the selected orchestrator's page: it keeps the selection, but shows none of it.
-  const selected = sel && !board ? state.sessions[sel] ?? null : null;
+  // The board and My reporters stand in for the selected orchestrator's page: they keep the selection, but show none of it.
+  const showsOrchestrator = !board && !consolePage;
+  const selected = sel && showsOrchestrator ? state.sessions[sel] ?? null : null;
 
   const { prefs } = people;
   const spendByOwner = state.kpis?.costTodayByOwner ?? [];
@@ -302,7 +303,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     const s = state.sessions[e.sessionId];
     if (!s || state.gone[e.sessionId]) return;
     const agent = e.agentId && s.agents.some((a) => a.id === e.agentId) ? e.agentId : null;
-    if (board) window.location.hash = "#/";
+    if (board || consolePage) window.location.hash = "#/";
     setSel(e.sessionId);
     setSelAgent(agent);
     setNotice(null);
@@ -375,10 +376,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     if (e.key === "\\") toggle("top");
     // A wall left on from before still leaves with Esc, on My reporters too, as its Exit button says.
     else if (e.key === "Escape" && panes.wall) stopWall();
-    // My reporters and Traffic draw no rail, side panel or wall, so their keys do nothing there; the top bar's still works (#415).
-    else if (consolePage) return;
+    // Traffic draws no rail or side panel, so their keys do nothing there; the top bar's still works (#415).
+    else if (traffic) return;
     else if (e.key === "[") toggle("left");
     else if (e.key === "]") toggle("right");
+    // My reporters has no wall to show, so w does nothing there (#415, #446).
+    else if (consolePage) return;
     else if (e.key === "w" || e.key === "W") (panes.wall ? stopWall : () => startWall(false))();
   });
 
@@ -441,15 +444,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             </div>
           </div>
         )}
-        {myReporters ? (
-          <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} />
-        ) : traffic ? (
+        {traffic ? (
           <TrafficPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} peers={peers} api={trafficApiProp ?? trafficApi} now={now} />
         ) : (
         <div className="cols" ref={cols} style={colStyle}>
           <Rail
             sessions={sorted}
-            selected={board ? null : sel}
+            selected={showsOrchestrator ? sel : null}
             onSelect={(id) => {
               // "All orchestrators" also drops a person or group picked in the list.
               if (id === null) setPf(NO_FILTER);
@@ -467,60 +468,65 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             people={railPeople}
           />
           <div className="mid">
-            <main className="main" id="podium-main">
-              {notice && (
-                <div className="callout notice" role="status">
-                  <div>{notice}</div>
-                </div>
-              )}
-              {state.phase === "loading" && !state.error ? (
-                <div className="none">Connecting to the Podium server…</div>
-              ) : board ? (
-                <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
-              ) : selected ? (
-                <FocusView
-                  s={selected}
-                  now={now}
-                  config={state.config}
-                  sort={aSort}
-                  onSort={onAgentSort}
-                  selectedAgent={selAgent}
-                  flashAgent={flash}
-                  onAgent={selectAgent}
-                  onRemove={onRemove}
-                />
-              ) : (
-                <Wall
-                  sessions={shown}
-                  totalLive={all.length}
-                  kpis={state.kpis}
-                  split={split}
-                  filter={filter}
-                  onFilter={setFilter}
-                  sort={sort}
-                  onSort={setSort}
-                  cleared={state.clearedToday}
-                  now={now}
-                  config={state.config}
-                  entering={enteringSession}
-                  leaving={state.leaving}
-                  onOpen={selectSession}
-                  onRemove={onRemove}
-                  detached={{
-                    count: sets.hidden.length,
-                    costUsd: sets.hidden.reduce((n, s) => n + (s.costUsd ?? 0), 0),
-                    show: showDetached,
-                    onToggle: () =>
-                      setShowBackgroundSessions(!showDetached).catch((err: Error) => setNotice(`Could not change the setting: ${err.message}. Try again.`)),
-                  }}
-                  noticeOn={(id) => state.wall.notices[id] !== false}
-                  onCloseNotice={onCloseNotice}
-                  people={wallPeople}
-                />
-              )}
-              {closed !== null && <NoticeClosed name={closed} onDismiss={() => setClosed(null)} />}
-            </main>
-            <Legend />
+            {myReporters ? (
+              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} />
+            ) : (
+              <main className="main" id="podium-main">
+                {notice && (
+                  <div className="callout notice" role="status">
+                    <div>{notice}</div>
+                  </div>
+                )}
+                {state.phase === "loading" && !state.error ? (
+                  <div className="none">Connecting to the Podium server…</div>
+                ) : board ? (
+                  <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
+                ) : selected ? (
+                  <FocusView
+                    s={selected}
+                    now={now}
+                    config={state.config}
+                    sort={aSort}
+                    onSort={onAgentSort}
+                    selectedAgent={selAgent}
+                    flashAgent={flash}
+                    onAgent={selectAgent}
+                    onRemove={onRemove}
+                  />
+                ) : (
+                  <Wall
+                    sessions={shown}
+                    totalLive={all.length}
+                    kpis={state.kpis}
+                    split={split}
+                    filter={filter}
+                    onFilter={setFilter}
+                    sort={sort}
+                    onSort={setSort}
+                    cleared={state.clearedToday}
+                    now={now}
+                    config={state.config}
+                    entering={enteringSession}
+                    leaving={state.leaving}
+                    onOpen={selectSession}
+                    onRemove={onRemove}
+                    detached={{
+                      count: sets.hidden.length,
+                      costUsd: sets.hidden.reduce((n, s) => n + (s.costUsd ?? 0), 0),
+                      show: showDetached,
+                      onToggle: () =>
+                        setShowBackgroundSessions(!showDetached).catch((err: Error) => setNotice(`Could not change the setting: ${err.message}. Try again.`)),
+                    }}
+                    noticeOn={(id) => state.wall.notices[id] !== false}
+                    onCloseNotice={onCloseNotice}
+                    people={wallPeople}
+                  />
+                )}
+                {closed !== null && <NoticeClosed name={closed} onDismiss={() => setClosed(null)} />}
+              </main>
+            )}
+            {/* My reporters shows no legend (#446). */}
+            {!myReporters && <Legend />}
           </div>
           <SidePanel
             events={state.events}
