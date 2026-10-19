@@ -42,22 +42,22 @@
   <div><h1>Type, spacing, motion</h1><p>The sizes, radii, layers and durations the stylesheets set today, with how many declarations use each. They are not tokens yet, so this page lists what is in use instead of a scale the app might not follow. New work picks a value from these lists; a value that is not on one needs a reason in the PR.</p></div>
   <section class="s-panel" id="font-size"><h3>Font size</h3><p>The body text is set on .podium. The most used sizes come first.</p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
-      <tr><td><code>12px</code></td><td>85</td></tr>
-      <tr><td><code>12.5px</code></td><td>45</td></tr>
-      <tr><td><code>11.5px</code></td><td>38</td></tr>
-      <tr><td><code>13px</code></td><td>20</td></tr>
-      <tr><td><code>11px</code></td><td>15</td></tr>
+      <tr><td><code>12px</code></td><td>93</td></tr>
+      <tr><td><code>12.5px</code></td><td>44</td></tr>
+      <tr><td><code>11.5px</code></td><td>40</td></tr>
+      <tr><td><code>13px</code></td><td>24</td></tr>
+      <tr><td><code>11px</code></td><td>20</td></tr>
+      <tr><td><code>15px</code></td><td>8</td></tr>
       <tr><td><code>14px</code></td><td>7</td></tr>
-      <tr><td><code>15px</code></td><td>7</td></tr>
       <tr><td><code>16px</code></td><td>4</td></tr>
       <tr><td><code>22px</code></td><td>3</td></tr>
       <tr><td><code>10.5px</code></td><td>2</td></tr>
       <tr><td><code>13.5px</code></td><td>2</td></tr>
+      <tr><td><code>18px</code></td><td>2</td></tr>
       <tr><td><code>20px</code></td><td>2</td></tr>
       <tr><td><code>9px</code></td><td>1</td></tr>
       <tr><td><code>14.5px</code></td><td>1</td></tr>
       <tr><td><code>17px</code></td><td>1</td></tr>
-      <tr><td><code>18px</code></td><td>1</td></tr>
       <tr><td><code>24px</code></td><td>1</td></tr>
       <tr><td><code>28px</code></td><td>1</td></tr>
       <tr><td><code>inherit</code></td><td>1</td></tr>
@@ -65,43 +65,45 @@
   </section>
   <section class="s-panel" id="font-weight"><h3>Font weight</h3><p></p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
-      <tr><td><code>600</code></td><td>61</td></tr>
-      <tr><td><code>500</code></td><td>23</td></tr>
-      <tr><td><code>400</code></td><td>8</td></tr>
-      <tr><td><code>650</code></td><td>8</td></tr>
-      <tr><td><code>700</code></td><td>3</td></tr>
+      <tr><td><code>600</code></td><td>65</td></tr>
+      <tr><td><code>500</code></td><td>25</td></tr>
+      <tr><td><code>650</code></td><td>13</td></tr>
+      <tr><td><code>400</code></td><td>9</td></tr>
+      <tr><td><code>700</code></td><td>4</td></tr>
       <tr><td><code>inherit</code></td><td>1</td></tr>
     </tbody></table></div>
   </section>
   <section class="s-panel" id="radius"><h3>Corner radius</h3><p></p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
       <tr><td><code>6px</code></td><td>38</td></tr>
-      <tr><td><code>8px</code></td><td>22</td></tr>
-      <tr><td><code>4px</code></td><td>18</td></tr>
+      <tr><td><code>8px</code></td><td>24</td></tr>
+      <tr><td><code>4px</code></td><td>19</td></tr>
       <tr><td><code>50%</code></td><td>16</td></tr>
+      <tr><td><code>3px</code></td><td>8</td></tr>
       <tr><td><code>2px</code></td><td>7</td></tr>
-      <tr><td><code>3px</code></td><td>6</td></tr>
       <tr><td><code>999px</code></td><td>6</td></tr>
       <tr><td><code>5px</code></td><td>5</td></tr>
-      <tr><td><code>7px</code></td><td>4</td></tr>
+      <tr><td><code>7px</code></td><td>5</td></tr>
       <tr><td><code>10px</code></td><td>3</td></tr>
       <tr><td><code>0 6px 6px 0</code></td><td>2</td></tr>
       <tr><td><code>6px 6px 0 0</code></td><td>2</td></tr>
-      <tr><td><code>0 0 6px 6px</code></td><td>1</td></tr>
+      <tr><td><code>0</code></td><td>1</td></tr>
       <tr><td><code>0 0 7px 7px</code></td><td>1</td></tr>
+      <tr><td><code>0 0 8px 8px</code></td><td>1</td></tr>
       <tr><td><code>0 4px 4px 0</code></td><td>1</td></tr>
       <tr><td><code>1px</code></td><td>1</td></tr>
     </tbody></table></div>
   </section>
   <section class="s-panel" id="layers"><h3>Layers (z-index)</h3><p>Higher sits in front. Tooltips and the toast sit above the page, the modal above both.</p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>1</code></td><td>3</td></tr>
       <tr><td><code>5</code></td><td>3</td></tr>
-      <tr><td><code>1</code></td><td>2</td></tr>
       <tr><td><code>6</code></td><td>2</td></tr>
+      <tr><td><code>30</code></td><td>2</td></tr>
       <tr><td><code>2</code></td><td>1</td></tr>
       <tr><td><code>4</code></td><td>1</td></tr>
+      <tr><td><code>7</code></td><td>1</td></tr>
       <tr><td><code>20</code></td><td>1</td></tr>
-      <tr><td><code>30</code></td><td>1</td></tr>
       <tr><td><code>40</code></td><td>1</td></tr>
       <tr><td><code>50</code></td><td>1</td></tr>
     </tbody></table></div>
@@ -130,8 +132,8 @@
   </section>
   <section class="s-panel" id="motion"><h3>Motion</h3><p>Durations in transitions and animations. Every animation stops under prefers-reduced-motion.</p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
+      <tr><td><code>.12s</code></td><td>3</td></tr>
       <tr><td><code>.15s</code></td><td>3</td></tr>
-      <tr><td><code>.12s</code></td><td>2</td></tr>
       <tr><td><code>2.6s</code></td><td>2</td></tr>
       <tr><td><code>.6s</code></td><td>1</td></tr>
       <tr><td><code>.9s</code></td><td>1</td></tr>
@@ -146,32 +148,34 @@
   </section>
   <section class="s-panel" id="breakpoints"><h3>Breakpoints</h3><p>The widths the layout changes at, in media and container queries.</p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
-      <tr><td><code>max-width: 640px</code></td><td>3</td></tr>
+      <tr><td><code>max-width: 640px</code></td><td>4</td></tr>
+      <tr><td><code>max-width: 560px</code></td><td>3</td></tr>
       <tr><td><code>max-width: 760px</code></td><td>3</td></tr>
-      <tr><td><code>max-width: 560px</code></td><td>2</td></tr>
-      <tr><td><code>max-width: 1040px</code></td><td>2</td></tr>
+      <tr><td><code>max-width: 1040px</code></td><td>3</td></tr>
       <tr><td><code>max-width: 1280px</code></td><td>2</td></tr>
       <tr><td><code>max-width: 520px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 599px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 634px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 651px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 700px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 720px</code></td><td>1</td></tr>
+      <tr><td><code>max-width: 900px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 1299px</code></td><td>1</td></tr>
       <tr><td><code>max-width: 1469px</code></td><td>1</td></tr>
       <tr><td><code>min-width: 761px</code></td><td>1</td></tr>
     </tbody></table></div>
   </section>
-  <section class="s-panel" id="spacing"><h3>Spacing</h3><p>Padding, margin and gap together: 148 distinct values. Only the ten most used are shown. There is no spacing scale yet, and adopting one would change layouts, so it is left for its own issue.</p>
+  <section class="s-panel" id="spacing"><h3>Spacing</h3><p>Padding, margin and gap together: 155 distinct values. Only the ten most used are shown. There is no spacing scale yet, and adopting one would change layouts, so it is left for its own issue.</p>
     <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Value</th><th scope="col">Uses</th></tr></thead><tbody>
-      <tr><td><code>8px</code></td><td>54</td></tr>
-      <tr><td><code>0</code></td><td>53</td></tr>
-      <tr><td><code>6px</code></td><td>32</td></tr>
-      <tr><td><code>12px</code></td><td>18</td></tr>
-      <tr><td><code>4px</code></td><td>15</td></tr>
+      <tr><td><code>0</code></td><td>60</td></tr>
+      <tr><td><code>8px</code></td><td>59</td></tr>
+      <tr><td><code>6px</code></td><td>41</td></tr>
+      <tr><td><code>4px</code></td><td>20</td></tr>
+      <tr><td><code>12px</code></td><td>19</td></tr>
+      <tr><td><code>10px</code></td><td>14</td></tr>
+      <tr><td><code>8px 16px</code></td><td>12</td></tr>
       <tr><td><code>2px</code></td><td>11</td></tr>
       <tr><td><code>4px 10px</code></td><td>11</td></tr>
-      <tr><td><code>8px 16px</code></td><td>11</td></tr>
-      <tr><td><code>10px</code></td><td>11</td></tr>
       <tr><td><code>1px</code></td><td>10</td></tr>
     </tbody></table></div>
   </section>

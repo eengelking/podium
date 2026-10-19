@@ -14,6 +14,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-19
+
 ### Changed
 
 - **The Plan list puts finished steps at the bottom (#454).** On the orchestrator page the Plan tab lists the step in progress first, then blocked steps, then the ones still to do in plan order, then the done steps in the order they finished. The open work stays on the first page of a long plan. A step the model reopens goes back among the open ones. The server numbers the finishes, so a reload keeps the order; steps already done when a plan first arrives come first among the done, in plan order. A step that moves keeps its row and your page, and a screen reader hears one polite line. The count, the bar and the Board keep plan order. See SPEC 8.1 and DECISIONS 38.
@@ -604,7 +606,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/eengelking/podium/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/eengelking/podium/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/eengelking/podium/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/eengelking/podium/compare/v1.0.0...v1.0.1

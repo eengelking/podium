@@ -42,11 +42,6 @@
       "kind": "transient"
     },
     {
-      "class": "paused",
-      "reason": "Set on the console while the browser tab is hidden, to pause its animations.",
-      "kind": "state"
-    },
-    {
       "class": "modal-open",
       "reason": "Set on the page body while a modal is open, to blur what is behind it.",
       "kind": "state"
@@ -95,6 +90,16 @@
       "class": "cur",
       "reason": "Marks an activity row for the selected agent; the panel shows that agent's detail instead of the list while one is selected.",
       "kind": "state"
+    },
+    {
+      "class": "dragging",
+      "reason": "Set on a Board card while it is being dragged, to dim it. Move to list moves a card without a pointer.",
+      "kind": "pointer"
+    },
+    {
+      "class": "over",
+      "reason": "Set on a Board column while a dragged card is over it.",
+      "kind": "pointer"
     }
   ]
 }

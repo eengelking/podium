@@ -9,6 +9,7 @@ import { stateFrom } from "../testState";
 import type { Failure, LifecycleConfig, SessionView } from "../types";
 import { ADMIN_SCREENS } from "./screens.admin";
 import { APP_SCREENS } from "./screens.app";
+import { MESSAGING_SCREENS } from "./screens.messaging";
 import { RESPOND_SCREENS } from "./screens.respond";
 import { STATE_SCREENS } from "./screens.states";
 
@@ -92,6 +93,7 @@ export const SCREENS: Record<string, Screen> = {
   "focus-agent": { make: () => focus({}, "f") },
   "focus-agent-done": { make: () => focus({}, "c") },
   ...ADMIN_SCREENS,
+  ...MESSAGING_SCREENS,
   ...RESPOND_SCREENS,
   ...APP_SCREENS,
   ...STATE_SCREENS,

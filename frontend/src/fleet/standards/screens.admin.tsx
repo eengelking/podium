@@ -2,7 +2,7 @@
 import { act, fireEvent, screen } from "@testing-library/react";
 import { vi } from "vitest";
 import { AdminView } from "../admin/AdminView";
-import { fakeServer } from "../admin/fakeAdmin";
+import { fakeServer, type FakePeerRef, type FakePeers } from "../admin/fakeAdmin";
 import { makeKpis, makeSession, makeState } from "../fixtures";
 import type { FleetSource } from "../useFleet";
 import type { Screen } from "./screens";
@@ -52,6 +52,24 @@ function admin(tab: RegExp | null, opts: Parameters<typeof fakeServer>[0] = {}, 
   };
 }
 
+// Dana's three reporters and the one that reports with the Admin's secret, as the Messaging tests have them.
+const STUDIO: FakePeerRef = { key: "9f3a1c7d2e40", machine: "studio-m2", owner: "Dana", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0" };
+const CI: FakePeerRef = { key: "lnx01", machine: "ci-01", owner: "Dana", adminSecret: false, os: "Ubuntu 24.04", peers: true, version: "1.2.0" };
+const WIN: FakePeerRef = { key: "win01", machine: "win-lab", owner: "Dana", adminSecret: false, os: "Windows 11", peers: false, version: "1.1.0" };
+const SECRET: FakePeerRef = { key: "addr:10.4.0.52", machine: "10.4.0.52", owner: "Admin", adminSecret: true, os: null, peers: true, version: "1.2.0" }; // NOSONAR S1313: a made-up private address in sample data
+
+/** Orchestrator messaging on, with its limits and Dana's reporters; `peers` changes what the Messaging section finds. */
+const messagingOn = (peers: Partial<FakePeers> = {}) => (srv: ReturnType<typeof fakeServer>) => {
+  srv.features["peer-messaging"] = true;
+  srv.peerLimits = { roundTrips: 10, perMinute: 6, maxChars: 20_000, retainDays: 30 };
+  srv.peers = { reporters: [STUDIO, CI, WIN, SECRET], rights: [{ from: STUDIO.key, to: CI.key, owner: "Dana", level: "see", paused: false, setAt: 1 }], requests: [], trust: false, ...peers };
+};
+const openStudio = async () => {
+  fireEvent.click(await screen.findByRole("button", { name: "Open details for studio-m2" }));
+  await screen.findByRole("region", { name: "Messaging" });
+  await settle();
+};
+
 export const ADMIN_SCREENS: Record<string, Screen> = {
   "admin-people": admin(null),
   "admin-groups": admin(/^Groups/),
@@ -86,6 +104,16 @@ export const ADMIN_SCREENS: Record<string, Screen> = {
     fireEvent.click(await screen.findByRole("button", { name: "Ignore…" }));
     await settle();
   }),
+  "admin-settings-messaging": admin(/^Settings/, {}, undefined, messagingOn()),
+  "admin-settings-messaging-error": admin(/^Settings/, {}, async () => {
+    const trips = await screen.findByLabelText(/^Round trips before/);
+    fireEvent.change(trips, { target: { value: "0" } });
+    fireEvent.blur(trips);
+    await screen.findByRole("alert");
+  }, messagingOn()),
+  "admin-reporter-messaging": admin(/^Reporters/, {}, openStudio, messagingOn()),
+  "admin-reporter-messaging-proposed": admin(/^Reporters/, {}, openStudio, messagingOn({ requests: [{ id: "prq_9", kind: "proposal", at: 90_000, from: { machine: "studio-m2", name: null }, to: { machine: "ci-01", name: null }, level: "send", by: "Admin", reason: null, text: null, fromKey: STUDIO.key, toKey: CI.key, messageId: null }] })),
+  "admin-reporter-messaging-trust": admin(/^Reporters/, {}, openStudio, messagingOn({ trust: true })),
   "admin-prices-edit": admin(/^Model prices/, {}, async () => {
     fireEvent.change(await screen.findByLabelText("Sonnet 5.5 input"), { target: { value: "2.4" } });
     await settle();
