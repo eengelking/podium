@@ -649,7 +649,8 @@ how many orchestrators are live. The state uses the same words as [Admin > Repor
 **Idle**, **Silent** or **Not since restart**; hover or focus it to read what it means. **Off on the machine** means the
 reporter's `peers` option is off there, and only that machine can turn it on: in Claude Code there, run
 `/plugin configure podium-reporter` and set `peers` to on. **Reporter can't message: update it** means the mod is too
-old to send the option.
+old to send the option. A version this server does not support is marked **outdated** or **newer**, as on Admin >
+Reporters, whether or not the machine has a live session.
 
 #### Defaults
 

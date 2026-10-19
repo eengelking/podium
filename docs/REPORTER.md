@@ -62,7 +62,8 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
   prompt, not when you pick it.
 - With `peers` on, `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging
   request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)). `/podium` runs at
-  once, even during a turn, and lists the requests still waiting for you.
+  once, even during a turn, and lists the requests still waiting for you. `/podium allow` names the level the pair
+  has afterwards, which can be higher than the one asked for, since allowing never lowers a right.
 
 The status line under the prompt reads:
 
