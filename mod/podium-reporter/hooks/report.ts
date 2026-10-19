@@ -44,6 +44,8 @@ export interface ReportMeta {
   asks?: Ask[] | null;
   /** The session this one continues after a /clear. */
   clearedFrom?: string | null;
+  /** The `peers` option, for an interactive session (#347, #414): whether this orchestrator may take part in messaging. */
+  peers?: boolean;
 }
 
 /** Display name (SPEC 6.6): /podium name, Claude Code's session name, the option, a worktree's branch or folder, the repo folder, the id. */
@@ -211,6 +213,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       ...(meta.respond ? { respond: meta.respond } : {}),
       ...(meta.asks ? { asks: meta.asks.slice(0, 8) } : {}),
       ...(meta.clearedFrom ? { clearedFrom: meta.clearedFrom } : {}),
+      peers: meta.peers === true,
     },
     agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity))),
     events: events.slice(0, MAX_EVENTS_PER_REPORT).map((e) => ({ ...e, text: clip(e.text, 240) })),

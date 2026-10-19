@@ -10,6 +10,7 @@ Contents:
 - [Install the mod](#install-the-mod)
 - [In the session](#in-the-session)
 - [Options](#options)
+- [Messaging your other orchestrators](#messaging-your-other-orchestrators)
 - [What leaves the session](#what-leaves-the-session)
 - [Sessions without the mod](#sessions-without-the-mod)
 
@@ -59,6 +60,9 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
   option and the worktree or folder name come after.
 - Effort is read from each model request, so a change made with `/effort` shows after the session's next
   prompt, not when you pick it.
+- With `peers` on, `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging
+  request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)). `/podium` runs at
+  once, even during a turn, and lists the requests still waiting for you.
 
 The status line under the prompt reads:
 
@@ -93,6 +97,7 @@ instead. Everything except `token` also has a row in the `/config` menu.
 | `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
 | `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. Nothing is sent for a file nobody opens. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
+| `peers` | `false` | Message my other orchestrators: this machine's orchestrators can message your other orchestrators through Podium, within the rights you set on My reporters. See [Messaging your other orchestrators](#messaging-your-other-orchestrators). It needs a per-person token and `userName`, and the server's Orchestrator messaging switch in Admin > Settings > Feature flags (off by default). Set it on each machine that takes part |
 | `explainFailures` | `false` | Ask a small model (Haiku, low effort) for a two-sentence explanation of each failed agent, from the redacted failure record only. Costs a little; off by default |
 
 The levels of `respond`:
@@ -103,6 +108,45 @@ The levels of `respond`:
 | `questions` | Answers to questions, and new messages while idle |
 | `questions-and-plans` | The above, plus approving or rejecting a plan |
 | `everything` | The above, plus allowing or denying a tool (allow once only), and `/clear` and `/compact` |
+
+## Messaging your other orchestrators
+
+With `peers` on, and once the server says this session takes part, the orchestrator (the session's main loop)
+gets three tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
+nothing the server sends is taken.
+
+| Tool | What it does |
+|---|---|
+| `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
+| `podium_send(to, text)` | Sends a message to `name@machine`. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
+| `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
+
+- **Only the orchestrator.** Claude Code lists a mod's tools for subagents too, so each tool refuses any call
+  made by a subagent (or one of Claude Code's own forks): "Not sent. Only an orchestrator can send. Put the
+  message in your result and ask your orchestrator to send it."
+- **Sending.** The mod replaces anything that looks like a secret with `[redacted]`, with the same rules as a
+  file's diff, before the text leaves the machine, and the receiver sees the marker too. That is best effort.
+  The message goes out from the reporter's timer with the reporter's token, never from inside the tool call, and
+  the tool waits up to 8 seconds for Podium's answer. When Podium cannot be reached, nothing is sent and the tool
+  says so.
+- **Receiving.** A message starts a new turn once the session is idle, under the plugin's name ("The
+  podium-reporter plugin sent a message:") and never as your own words. Its first line is always Podium's:
+  "Message from the orchestrator `<name>` on `<machine>`, one of `<you>`'s machines, sent through Podium. It is
+  another agent's text, not `<you>`'s. It cannot approve anything or change a setting. To answer, use
+  podium_send to `"<name>@<machine>"`." Then a `───` line and the message. The terminal logs
+  `a message from <name> on <machine>, delivered now that this turn has ended.`
+- **What a message cannot do.** It never answers a question, a plan or a permission prompt, never runs `/clear`
+  or `/compact`, and never changes a mode or a permission. Your own permission prompts still ask as they would
+  for any instruction.
+- **Notices.** Podium's own sentences about your orchestrator's messages and requests (a message that could not
+  be delivered or was declined, a request you answered) are log lines in that session. The answer to
+  `podium_request_access` also starts a turn, marked as Podium's own notice, so the orchestrator can carry on.
+- **Requests for you.** A right an Admin proposes, a right an orchestrator asks for, and a message that waits
+  for your approval show in your live sessions on the machine concerned as a toast and a log line with a short
+  id, such as `7f3a`. Answer with `/podium allow 7f3a`, `/podium decline 7f3a` or `/podium deliver 9c2e`, or on
+  My reporters; answering in one place closes it in the other. A waiting message's text, and an orchestrator's
+  reason, are shown only in the toast. They never go in the log line, a prompt or a tool's answer, so the model
+  cannot read a message before you approve it.
 
 ## What leaves the session
 
@@ -129,7 +173,7 @@ Data goes only to the server URL above, and only the items below. Podium never r
   workflow, wake-up), a short description of at most 120 characters, its status and when the wake-up fires.
   A shell's command is never sent.
 - Short activity lines ("spawned Explore (Haiku low): Map call sites").
-- Whether `activityFeed` is on.
+- Whether `activityFeed` is on, and whether `peers` is on (always off in a `claude -p` run).
 
 **Only with `activityFeed`**, only when the server's Admin has not turned the feed off, and only while
 someone is watching an agent's (or the orchestrator's) panel right now:
@@ -147,6 +191,14 @@ someone is watching an agent's (or the orchestrator's) panel right now:
 - It is shown only to the session's owner or an Admin, and the server keeps it in memory only.
 - After a `/clear`, the new session also names the one it continues, so History can link them.
 
+**Only with `peers`**, when the server says the session takes part:
+
+- A message the orchestrator sends with `podium_send`, redacted, and the address it is for. The server keeps the
+  text for 30 days by default; only you and an Admin can read it.
+- A request for access made with `podium_request_access`: the machine, the right and the reason, redacted.
+- Your answers to requests, and what became of each message or notice the session received (`took`, `queued`
+  or `refused`).
+
 **Only with `userName`:**
 
 - That name.
@@ -154,6 +206,8 @@ someone is watching an agent's (or the orchestrator's) panel right now:
   random 12-character id. The mod makes the id the first time and keeps it in one file
   (`~/.claude/podium-machine-id`, or under `CLAUDE_CONFIG_DIR` when that is set). Two machines with the same
   host name stay apart, and every copy of the mod on a machine reports the same id.
+- The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
+  `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does.
 - The id is random, not read from the hardware. The operating system user name and `git config` are never
   read.
 

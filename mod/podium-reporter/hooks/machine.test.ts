@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, parseMachineIdFile } from './machine.ts'
+import { cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile } from './machine.ts'
 
 describe('machine', () => {
   test('trailing slashes are dropped from a URL, in linear time (#362)', () => {
@@ -65,5 +65,39 @@ describe('machine', () => {
     expect(parseMachineIdFile('<b>not-mine</b>')).toBeNull()
     expect(parseMachineIdFile('abcdef012345\nabcdef012346')).toBeNull()
     expect(parseMachineIdFile(null)).toBeNull()
+  })
+
+  test('the OS rides with the machine only when it was read (#414)', () => {
+    expect(machineInfo('devbox', 'abcdef012345', 'macOS 27.0.1')).toEqual({ name: 'devbox', id: 'abcdef012345', os: 'macOS 27.0.1' })
+    expect('os' in machineInfo('devbox', 'abcdef012345', null)).toBe(false)
+  })
+
+  test('macOS: sw_vers gives the product name and version', () => {
+    expect(osFromSwVers('ProductName:\t\tmacOS\nProductVersion:\t\t27.0.1\nBuildVersion:\t\t26A434\n')).toBe('macOS 27.0.1')
+    expect(osFromSwVers('ProductName: Mac OS X\nProductVersion: 10.15.7\n')).toBe('Mac OS X 10.15.7')
+    expect(osFromSwVers('ProductName: macOS\n')).toBe('macOS')
+    expect(osFromSwVers('BuildVersion: 26A434\n')).toBeNull()
+    expect(osFromSwVers('')).toBeNull()
+    expect(osFromSwVers(null)).toBeNull()
+  })
+
+  test('Linux: PRETTY_NAME from /etc/os-release, its quotes taken off', () => {
+    expect(osFromOsRelease('NAME="Debian GNU/Linux"\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\nVERSION_ID="12"\n')).toBe('Debian GNU/Linux 12 (bookworm)')
+    expect(osFromOsRelease("PRETTY_NAME='Ubuntu 24.04.1 LTS'\n")).toBe('Ubuntu 24.04.1 LTS')
+    expect(osFromOsRelease('PRETTY_NAME=Alpine\n')).toBe('Alpine')
+    expect(osFromOsRelease('NAME=Arch\n')).toBeNull()
+    expect(osFromOsRelease(undefined)).toBeNull()
+  })
+
+  test('Windows: the one line cmd /c ver prints', () => {
+    expect(osFromVer('\r\nMicrosoft Windows [Version 10.0.26100.1742]\r\n')).toBe('Microsoft Windows [Version 10.0.26100.1742]')
+    expect(osFromVer('\r\n\r\n')).toBeNull()
+    expect(osFromVer(null)).toBeNull()
+  })
+
+  test('an OS string is one line of at most 80 characters, with no control characters', () => {
+    expect(cleanOs(`Linux\u0007 ${'x'.repeat(200)}`)!.length).toBeLessThanOrEqual(80)
+    expect(cleanOs('a\tb\nc\u001b[31m')).toBe('a b c [31m')
+    expect(cleanOs('   ')).toBeNull()
   })
 })

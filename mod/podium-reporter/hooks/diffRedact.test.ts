@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { redactDiff, withheldPath } from './diffRedact.ts'
+import { redactDiff, redactText, withheldPath } from './diffRedact.ts'
 
 const one = (line: string) => redactDiff(line)
 
@@ -150,4 +150,23 @@ describe('withheldPath', () => {
   for (const p of withheld) test(`withholds ${p}`, () => expect(withheldPath(p)).toBe(true))
   const shown = ['src/environment.ts', 'docs/env.md', 'keyboard.ts', 'monkey.ts', 'README.md', 'src/pemfile.ts', 'my.envelope']
   for (const p of shown) test(`shows ${p}`, () => expect(withheldPath(p)).toBe(false))
+})
+
+describe('redactText (a message to another orchestrator, #414)', () => {
+  test('redacts free text with the diff rules, keeping its lines and what is not a secret', () => {
+    const r = redactText('Use this token: ghp_abcdefghijklmnopqrstuvwxyz0123\n@@ not a hunk @@\n- a list item\nplain line')
+    expect(r.text).toBe('Use this token: [redacted]\n@@ not a hunk @@\n- a list item\nplain line')
+    expect(r.redactions).toBe(1)
+  })
+
+  test('a private key block across lines goes whole', () => {
+    const r = redactText('key:\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----\nafter')
+    expect(r.text).not.toContain('b3BlbnNzaC1rZXktdjEAAAAA')
+    expect(r.text.split('\n')).toHaveLength(5)
+    expect(r.text.endsWith('\nafter')).toBe(true)
+  })
+
+  test('text with nothing secret comes back as it was', () => {
+    expect(redactText('Please run the systemd unit tests.\n')).toEqual({ text: 'Please run the systemd unit tests.\n', redactions: 0 })
+  })
 })
