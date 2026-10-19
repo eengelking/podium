@@ -10,7 +10,7 @@
 //   conversation, since the last message its owner approved.
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
-import type { PeerLevel, PeerAnswer, PeerRequestKind, PeerResult, PeerDelivery } from './protocol.js';
+import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery } from './protocol.js';
 import type { PeerLimits } from './peerSettings.js';
 
 export type { PeerLimits } from './peerSettings.js';
@@ -111,6 +111,13 @@ export interface PeerRequestRow {
   closedAt: number | null;
   outcome: 'allowed' | 'declined' | 'delivered' | 'dropped' | null;
 }
+
+/**
+ * A request as the owner's read lists it (GET /respond/peers): the protocol's view, plus both reporters by key, so My
+ * reporters matches it to a Grid cell even when two machines share a name, and the message it is about. The mod's
+ * `peerRequests` keep the protocol's shape.
+ */
+export type OwnerRequestView = PeerRequest & { fromKey: string; toKey: string; messageId: string | null };
 
 /** What answering a request did. For a message, the message store acts on `message`. */
 export type AnswerOutcome =

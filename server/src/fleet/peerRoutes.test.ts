@@ -310,6 +310,23 @@ describe('the owner’s routes (#412)', () => {
     expect(page.body.rights).toEqual([expect.objectContaining({ from: MAC.id, to: LINUX.id, level: 'send', paused: false })]);
   });
 
+  it('name both reporters of a request by key as well as by machine, so two machines with one name stay apart (#415)', async () => {
+    const s = await linked('see');
+    const twin = { name: MAC.name, id: 'macmacmac002' };
+    expect((await post(s, s.ed.token, report('Ed', 'sess-twin', 'twin', twin))).status).toBe(200);
+    const admin = await adminAgent(s);
+    const p = await admin.post(`/api/admin/reporters/${twin.id}/peers/propose`).set(HA).send({ to: LINUX.id, level: 'send' });
+    expect(p.status).toBe(202);
+    const page = await s.edBrowser.get('/api/fleet/respond/peers');
+    expect(page.body.requests).toEqual([
+      expect.objectContaining({ id: p.body.requestId, kind: 'proposal', fromKey: twin.id, toKey: LINUX.id, from: { machine: 'ed-mbp', name: null }, to: { machine: 'ci-runner-01', name: null }, messageId: null }),
+    ]);
+    // The mod's copy keeps the protocol's shape: machines only.
+    const mod = (await testerReport(s)).body.peerRequests;
+    expect(mod).toEqual([expect.objectContaining({ id: p.body.requestId })]);
+    expect(mod[0]).not.toHaveProperty('fromKey');
+  });
+
   it('pause a link, which holds a message, and resume it, which lets it go', async () => {
     const s = await linked('send');
     expect((await s.edBrowser.put('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id, paused: true })).status).toBe(200);
