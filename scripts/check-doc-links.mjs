@@ -14,8 +14,10 @@ const files = args.length
   ? args
   : ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", ...readdirSync("docs").filter((f) => f.endsWith(".md")).map((f) => join("docs", f))].filter((f) => existsSync(f));
 
+// Strip tags until the text stops changing, so removing one cannot leave another behind (<<b>b>).
+const stripTags = (s) => { const t = s.replace(/<[^>]+>/g, ""); return t === s ? t : stripTags(t); };
 const slug = (h) =>
-  h.toLowerCase().replace(/<[^>]+>/g, "").replace(/[`*~]/g, "").replace(/[^\p{L}\p{N} _-]/gu, "").trim().replace(/ /g, "-");
+  stripTags(h.toLowerCase()).replace(/[`*~]/g, "").replace(/[^\p{L}\p{N} _-]/gu, "").trim().replace(/ /g, "-");
 
 const anchors = (path) => {
   const seen = new Map();
