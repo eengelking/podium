@@ -4,6 +4,7 @@
 // With no files, checks README.md, CONTRIBUTING.md, CHANGELOG.md and docs/*.md.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { slug, stripLinks, trimClosing } from "./docLinks.mjs";
 
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
@@ -13,11 +14,6 @@ if (args.includes("--help") || args.includes("-h")) {
 const files = args.length
   ? args
   : ["README.md", "CONTRIBUTING.md", "CHANGELOG.md", ...readdirSync("docs").filter((f) => f.endsWith(".md")).map((f) => join("docs", f))].filter((f) => existsSync(f));
-
-// Strip tags until the text stops changing, so removing one cannot leave another behind (<<b>b>).
-const stripTags = (s) => { const t = s.replace(/<[^>]+>/g, ""); return t === s ? t : stripTags(t); };
-const slug = (h) =>
-  stripTags(h.toLowerCase()).replace(/[`*~]/g, "").replace(/[^\p{L}\p{N} _-]/gu, "").trim().replace(/ /g, "-");
 
 const anchors = (path) => {
   const seen = new Map();
@@ -65,32 +61,3 @@ for (const file of files) {
 }
 console.log(bad ? `${bad} broken link(s)` : "all links ok");
 process.exit(bad ? 1 : 0);
-
-/** The heading text without its closing hashes or the whitespace around them. */
-function trimClosing(text) {
-  let end = text.length;
-  while (end > 0 && text[end - 1] === "#") end--;
-  return text.slice(0, end).trimEnd();
-}
-
-/** `[text](url)` becomes `text`. A scan, not a pattern, so brackets that never close cost one pass. */
-function stripLinks(text) {
-  let out = "";
-  let from = 0;
-  let open = text.indexOf("[");
-  while (open !== -1) {
-    const close = text.indexOf("]", open + 1);
-    if (close === -1) break;
-    const end = text[close + 1] === "(" ? text.indexOf(")", close + 2) : -1;
-    if (text[close + 1] === "(" && end === -1) break;
-    if (end === -1) {
-      // Every "[" before this "]" pairs with the same "]", so none of them is a link.
-      open = text.indexOf("[", close + 1);
-      continue;
-    }
-    out += text.slice(from, open) + text.slice(open + 1, close);
-    from = end + 1;
-    open = text.indexOf("[", from);
-  }
-  return out + text.slice(from);
-}
