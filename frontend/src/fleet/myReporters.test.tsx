@@ -308,6 +308,9 @@ describe("Your reporters", () => {
     expect(mac.lastElementChild).toHaveTextContent("1");
     const win = table.getByText("win-lab").closest("tr")!;
     expect(within(win).getByText("Off on the machine")).toHaveClass("badge", "off");
+    // A state is a shape and a word, as Admin's badges are (patterns.html#status).
+    expect(within(mac).getByText("On").querySelector(".dot.running")).not.toBeNull();
+    expect(within(win).getByText("Off on the machine").querySelector(".dot:not(.running)")).not.toBeNull();
     expect(win).toHaveTextContent("1.1.0");
     expect(screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/)).toBeInTheDocument();
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();

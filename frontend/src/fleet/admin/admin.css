@@ -275,7 +275,7 @@
 .adminv .pm-card select.field.sm { width: 100%; }
 .adminv .pm-card .pm-pend { white-space: normal; align-items: flex-start; }
 .adminv .pm-card .backl { font-size: 11px; color: var(--muted); border-top: 1px solid var(--grid); padding-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-@media (max-width: 900px) { .adminv .pm-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1040px) { .adminv .pm-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .adminv .pm-board { grid-template-columns: minmax(0, 1fr); } }
 
 /* Administrators group (#172): the built-in tag and the secret's fixed member chip */

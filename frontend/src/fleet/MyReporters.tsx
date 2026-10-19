@@ -188,7 +188,19 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
                       <td>
                         <SystemTag os={r.os} />
                       </td>
-                      <td>{r.peers === true ? <span className="badge ok">On</span> : <span className="badge off">{r.peers === null ? "Reporter can't message: update it" : "Off on the machine"}</span>}</td>
+                      <td>
+                        {r.peers === true ? (
+                          <span className="badge ok">
+                            <span className="dot running" aria-hidden="true" />
+                            On
+                          </span>
+                        ) : (
+                          <span className="badge off">
+                            <span className="dot" aria-hidden="true" />
+                            {r.peers === null ? "Reporter can't message: update it" : "Off on the machine"}
+                          </span>
+                        )}
+                      </td>
                       <td>
                         <Version r={r} />
                       </td>
