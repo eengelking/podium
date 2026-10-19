@@ -286,6 +286,8 @@ server/src/fleet/
   sse.ts                             client registry and broadcast
   routes.ts                          Express router mounted at /api/fleet
   respond.ts, respondRoutes.ts       responding from Podium (#206): the in-memory store, the mod's and the browser's routes
+  peer*.ts, peers.ts                 orchestrator messaging (#347, #412): the contract, the Admin's settings, the rights and
+                                     message stores, the service that joins them, and the routes
   lockout.ts                         wrong-credential lockout shared by Admin and the sign-in to respond
   *.test.ts
 frontend/src/fleet/
@@ -296,6 +298,7 @@ frontend/src/fleet/
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
+scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podiumctl.test.ts            tests for podiumctl (4.4)
 bin/podiumctl                        command-line manager for the server (4.4; has --help)
 Containerfile, .containerignore      the server and UI as a Podman image (4.4)
@@ -828,7 +831,8 @@ so it is not repeated at every turn's end.
 
 #### Orchestrator messaging from the reporter (#347)
 
-Designed on #347 (DECISIONS 37). Mockup: `mockup/podium-peer-messages.html`. Not built yet. The spike on #411
+Designed on #347 (DECISIONS 37). Mockup: `mockup/podium-peer-messages.html`. The server's side and the protocol are
+built (#412); the mod's side below is not built yet (#414). The spike on #411
 checked each point that rests on the mods API in a real interactive session on Claude Code 2.1.303, and those
 points are marked **Verified** with what it found (ARCHITECTURE "Mod API findings"). The server's side is in
 [7.7](#orchestrator-messaging-347).
@@ -1086,7 +1090,7 @@ supported.
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
-| `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. Not built yet (#347). |
+| `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. The server takes it in the report (`session.peers`, #412); the mod's option is not built yet (#414). |
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
@@ -1182,7 +1186,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
     "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" },
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
     "watch": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
-    "diffs": DiffRequest[] }
+    "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[] }
   ```
 
   | Field | Meaning |
@@ -1192,6 +1196,9 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   | `respond` | Whether the server takes answers for this session now ([7.7](#77-hardening): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
   | `diffs` | The file diffs the session's signed-in owner is waiting for now (`{ id, path }`, #319, [6.4](#64-failure-and-excerpt-rules)), at most 4. Always empty while the Admin's `file-diff` flag is off or the session has no owner. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](#62-the-report), [7.1](#71-endpoints)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |
+  | `peers` | Whether this session's orchestrator takes part in orchestrator messaging now (#347, [7.7](#orchestrator-messaging-347)): authentication on, the Admin's `peer-messaging` flag on, the report made with a person's token (not the admin secret), and the report's `session.peers` true. The mod offers its tools only while it is true. |
+  | `peerDeliveries` | Another orchestrator's messages for this one (`kind: "message"`) and Podium's own notices about this orchestrator's messages and requests (`kind: "notice"`), oldest first, at most 20. A message comes only while the session reports itself idle (`status: "waiting"`, `waitReason` not `permission`); a notice comes in any reply. Each takes a result through the peer result route ([7.1](#71-endpoints)), never responding's. Always empty while `peers` is false. |
+  | `peerRequests` | The owner's open requests about this session's reporter (an Admin's proposal, an orchestrator's request for access, a message waiting for approval), at most 20, for the toast and `/podium allow\|decline\|deliver` ([5.3](#orchestrator-messaging-from-the-reporter-347)). Always empty while `peers` is false. |
 
 - `400 { "ok": false, "error": "…", "path": "…" }` for a body that fails validation. The mod drops that report
   and logs once to debug. It never retries a 400.
@@ -1254,11 +1261,12 @@ interface Report {
     };
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise
+    peers?: boolean;                    // whether the reporter's `peers` option is on (#347, 5.9); absent from an older reporter, whose sessions are never listed as peers and never get a message
   };
   agents: AgentReport[];                // every agent seen this session, running or finished
   events: ActivityEvent[];              // not yet acknowledged
   userName?: string;                    // the person this reporter is set up as (the `userName` option); omitted when empty. The server checks it against the token's owner (7.7)
-  machine?: { name: string; id: string };  // sent only with userName (0.9.0 and later): the short host name (`hostname` up to the first dot, ≤ 64) and a random 12-hex id the mod keeps in one file, `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`), made on first use and shared by every load of the mod on the machine (#267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
+  machine?: { name: string; id: string; os?: string | null };  // os (#347): the machine's OS and version as the mod read it, such as "macOS 27.0.1", free text ≤ 80, never parsed, absent or null when it could not be read. Sent only with userName (0.9.0 and later): the short host name (`hostname` up to the first dot, ≤ 64) and a random 12-hex id the mod keeps in one file, `podium-machine-id` in the Claude config directory (`CLAUDE_CONFIG_DIR`, else `~/.claude`), made on first use and shared by every load of the mod on the machine (#267; an id already in a load's own store under `machineId` is adopted into the file, and the store is used alone where the file cannot be), so two machines with one host name stay apart
 }
 
 interface FilesReport {
@@ -1358,6 +1366,29 @@ interface Delivery {
   mode?: 'auto' | 'acceptEdits' | 'default';   // kind 'plan-approve'
   text?: string;                        // 'reply' (a message in place of an answer), 'plan-feedback', 'deny' (the reason, may be empty) and 'message': ≤ 20,000 chars, line breaks kept
   command?: 'clear' | 'compact';        // kind 'command'
+}
+
+// Orchestrator messaging (#347, 7.7). A message or a notice for this session's orchestrator, in the reply to a report.
+// `message` is another orchestrator's text, which the mod frames (5.3); `notice` is Podium's own sentence, `from` null.
+interface PeerDelivery {
+  id: string;                           // 'dlv_' and 24 hex characters, made by the server
+  kind: 'message' | 'notice';
+  at: number;                           // when the server took it (server time)
+  from: { name: string; machine: string; owner: string } | null;   // the sending orchestrator, its machine and its owner
+  text: string;                         // ≤ 20,000 chars, line breaks kept; redacted on the sending machine
+}
+
+// A request the owner answers, as the owner's sessions on the machine it concerns are told of it.
+interface PeerRequest {
+  id: string;                           // 'prq_' and 24 hex characters
+  kind: 'proposal' | 'access' | 'message';
+  at: number;
+  from: { machine: string; name: string | null };   // the reporter that would get the right (with the orchestrator's name for an access request), or a message's sender
+  to: { machine: string; name: string | null };
+  level: 'none' | 'see' | 'ask' | 'send' | null;    // the right proposed or asked for; null for a message. `ask` is "can send, with approval"
+  by: string;                           // 'Admin' for a proposal; the orchestrator's name otherwise
+  reason: string | null;                // an orchestrator's reason, ≤ 1,000 chars
+  text: string | null;                  // a message waiting for approval: its text
 }
 
 interface Failure {
@@ -1756,6 +1787,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured. |
 | `GET /api/fleet/health` | `{ ok, dbPath, liveSessions, uptimeSec, reporterVersionsSeen, serverVersion, serverBuild, reporterSupport, sseClients, maxClockSkewMs }`. |
 | `POST /api/fleet/hook` | Phase 5: classic settings-hook payloads. |
+| `GET /api/fleet/peers/traffic?range=` | Which orchestrators message which, for Traffic (#347): `{ enabled, conversations }`. Counts and states, never the text. No token, like the other reads. Details under the messaging routes below. |
 
 **`GET /api/fleet/state`**
 - Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, reporterSupport }, wall, features }`.
@@ -1922,6 +1954,77 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
   "/compact takes nothing after it from here. Send /compact on its own, or use the terminal." (with the
   command's own name).
 
+#### Mod routes for orchestrator messaging
+
+Issue #347 ([5.3](#orchestrator-messaging-from-the-reporter-347), [7.7](#orchestrator-messaging-347)). Each needs
+`X-Podium-Token` with a person's token that owns the session, the session live, its last report's `peers` true, and
+messaging on (authentication and the Admin's flag). Otherwise: `401` for a wrong credential, `404` for a session that
+is not live, `403` with the reason for the rest (`orchestrator messaging is off`, `a reporter on the admin secret cannot
+take part`, `not your session`, `messaging is off on this machine: turn on the reporter's peers option there`). Every
+refusal is `{ ok: false, error }`, the error in words the mod can show the model as is.
+
+**`GET /api/fleet/sessions/:id/peers`**: what `podium_peers` answers.
+- `200 { ok: true, peers, leftOut }`. `peers` lists the orchestrators this one can see: `{ address: "name@machine", name,
+  machine, os, project, status, level: "see" | "ask" | "send", paused }`. `leftOut` lists the owner's reporters with no
+  orchestrator listed, and why: `messaging off on the machine`, `reporter too old to message`, `no right to see it`, `no
+  orchestrator running`.
+
+**`POST /api/fleet/sessions/:id/peers/messages`**: `podium_send`.
+- Body `{ to: "name@machine", text }`, at most 128 KB.
+- `202 { ok: true, id, state, paused, approvalWhy, requestId, to: { name, machine }, roundTrips: { used, cap } }`.
+  `state` is `sent` (the receiver is idle and gets it in its next reply), `turn` (it gets it when its turn ends) or
+  `approval` (it waits for the owner; `approvalWhy` is `link` or `round-trips`, and `requestId` names the request).
+  `paused` says the link is paused, so it waits for a resume too.
+- `400` for a body that is not `to` and `text` strings, or an empty text. `404` for a `to` that is not one of the owner's
+  live orchestrators this one can see (whoever else it may be). `409` when two orchestrators answer to that address.
+  `422` to itself, or over the longest message. `403` with a right to see only. `429` over the messages per minute on
+  the link. Nothing is stored for a refused message.
+
+**`POST /api/fleet/sessions/:id/peers/access`**: `podium_request_access`.
+- Body `{ to, right: "see" | "send", reason }`. `to` is one of the owner's machines, or `name@machine`.
+- By the owner's default: `202 { ok: true, state: "asked", requestId, to }`, `200 { ok: true, state: "allowed", level, to
+  }` or `200 { ok: true, state: "declined", to }`. An asked request's answer reaches this orchestrator as a notice.
+- `400` for a bad right or a reason over 1,000 characters, `404` for a machine the owner has no reporter on, `409` for
+  two.
+
+**`POST /api/fleet/sessions/:id/peers/requests/:requestId`**: `/podium allow|decline|deliver <id>`.
+- Body `{ answer: "allow" | "decline" | "deliver" }`. `200 { ok: true, outcome }`. The request closes in Podium too.
+- `404` unknown, `403` another owner's, `410` already answered (the error says how), `422` an answer that does not fit
+  (`deliver` is for a message; `allow` for a proposal or an access request).
+
+**`POST /api/fleet/sessions/:id/peers/deliveries/:deliveryId/result`**: what became of a peer delivery.
+- Body `{ result: "took" | "queued" | "refused", at }`. `200 { ok: true }`, also for a repeat of the result it already
+  has. `404` for a delivery the server does not hold for this session.
+- `took` marks a message delivered. `queued` says it waits for the session to be idle (a `took` follows). `refused`
+  drops it, and its sender is told. A notice is let go on any result.
+
+**`GET /api/fleet/peers/traffic?range=live|24h|30d`**: Traffic's map and table, open to every reader.
+- `{ enabled, conversations }`, each `{ link, a, b, owner, messages, lastAt, state: "active" | "waiting" | "paused",
+  aToB, bToA, roundTrips }` (`a` and `b` are `{ sessionId, name, machine, reporterKey }`). `live` (the default) keeps
+  conversations with a live orchestrator; `24h` and `30d` those with a message in that time. Empty while messaging is
+  off. `400` for another range.
+
+#### Browser routes for orchestrator messaging
+
+On responding's `/respond` router, so they need its sign-in, `X-Podium-Respond: 1` on a change, and send
+`Cache-Control: no-store`. A browser can sign in while messaging is on even with responding off. Each acts on the
+signed-in person's own reporters: the admin secret has none (`403`). `403` too while messaging is off.
+
+- `GET /api/fleet/respond/peers`: My reporters in one read. `{ enabled, owner, reporters, rights, defaults, limits: {
+  server, effective }, requests }`. `reporters` are the person's mod reporters (`key`, `machine`, `os`, `peers`,
+  `version`, and `live`, its live orchestrators). `requests` are the open ones, each a `PeerRequest` with `messageId`.
+- `PUT /api/fleet/respond/peers/rights`: `{ from, to, level }`, one direction. `200 { ok: true, right }`. `403` when
+  either reporter is another person's, on the admin secret, or the two belong to different people.
+- `PUT /api/fleet/respond/peers/links`: `{ a, b, paused }`, Pause link or Resume link, both directions.
+- `DELETE /api/fleet/respond/peers/links`: `{ a, b }`, Remove link. A message still waiting on it is dropped.
+- `PUT /api/fleet/respond/peers/defaults`: any of `{ trust, onRequest: "ask" | "allow" | "decline", newSend: "ask" |
+  "send", limits: { roundTrips?, perMinute?, maxChars? } }`. A limit above the Admin's is a `400`; `null` removes one.
+- `POST /api/fleet/respond/peers/requests/:requestId`: `{ answer }`, as the mod's route.
+- `GET /api/fleet/respond/peers/conversations?range=`: the person's conversations, as Traffic's read.
+- `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
+  owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
+  stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
+
 #### Admin API
 
 The `/api/admin/*` routes ([7.7](#77-hardening)):
@@ -1954,7 +2057,15 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     - the wall notice switches and the background-sessions setting;
     - `forgetReporters` (`{ enabled?, days? }`; days a whole number from 1 to 3650);
     - the model prices: `modelPrice` `{ key, std, long? }` saves one model, `resetModelPrice` `key` removes the
-      change.
+      change;
+    - orchestrator messaging (#347): `peerMessaging` `{ roundTrips, perMinute, maxChars, retainDays }`, whole numbers
+      from 1 to 100, 1 to 60, 1 to 20,000 and 1 to 365 (defaults 10, 6, 20,000 and 30), any of them in one change,
+      written to the Admin log as `peer_limits_changed`.
+  - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (its reporter, the owner's other reporters,
+    its stored and effective rights both ways, and the open requests about it), `POST reporters/:key/peers/propose`
+    (`{ from?, to, level }`, a proposal the owner must accept, `202 { ok, requestId }`), `PUT reporters/:key/peers/pause`
+    (`{ paused }`, Pause all links, at once) and `DELETE reporters/:key/peers/:other` (removes that link, at once).
+  - `GET peers/conversations?range=` and `GET peers/conversations/:a/:b`, as the browser's reads, for every owner.
   - `GET log`.
 - Lists take `page`, `pageSize` (default 50, at most 100) and, for people and reporters, `q`, and return
   `{ total, page, pageSize, rows }`. The reporters list also takes `state`, `sort` and `dir` and adds `counts`
@@ -2042,7 +2153,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, which is off, #206); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117)
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff` and `peer-messaging`, which are off, #206, #319, #347); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347)
 ```
 
 Migration 15 (#206) links a session to the one it continues after a `/clear` (5.8):
@@ -2057,6 +2168,35 @@ Migration 17 (#277) drops `people.token_last4`, the last four characters of a pe
 ```sql
 ALTER TABLE people DROP COLUMN token_last4;
 ```
+
+#### What orchestrator messaging keeps, and where (#347)
+
+Migration 20 adds four tables and two reporter columns. Unlike responding, it keeps a message's text, so a person can
+read a conversation afterwards ([7.7](#orchestrator-messaging-347)).
+
+```sql
+ALTER TABLE reporters ADD COLUMN os TEXT;                                 -- Report.machine.os as last reported; a report without one keeps it
+ALTER TABLE reporters ADD COLUMN peers INTEGER;                           -- the `peers` option as last reported (1 or 0); NULL from an older reporter
+CREATE TABLE peer_rights (from_key TEXT, to_key TEXT, owner TEXT, level TEXT, paused INTEGER, set_at INTEGER, PRIMARY KEY (from_key, to_key));
+  -- one direction between two of one owner's reporters (the same reporter twice included); level none | see | ask | send.
+  -- A `none` row exists only to hold a pause, or a removal under Trust my own reporters
+CREATE TABLE peer_owner_settings (owner_lower TEXT PRIMARY KEY, trust INTEGER, on_request TEXT, new_send TEXT, limits_json TEXT);
+  -- My reporters > Defaults: Trust my own reporters, the answer to an orchestrator's request, a new right to send, stricter limits
+CREATE TABLE peer_requests (id TEXT PRIMARY KEY, owner TEXT, kind TEXT, from_key TEXT, to_key TEXT, level TEXT, reason TEXT, by TEXT,
+  from_session TEXT, message_id TEXT, created_at INTEGER, closed_at INTEGER, outcome TEXT);
+  -- kind proposal | access | message; outcome allowed | declined | delivered | dropped once closed
+CREATE TABLE peer_messages (id TEXT PRIMARY KEY, owner TEXT, link TEXT, from_key TEXT, to_key TEXT, from_session TEXT, to_session TEXT,
+  from_name TEXT, from_machine TEXT, to_name TEXT, to_machine TEXT, text TEXT, sent_at INTEGER, state TEXT, state_at INTEGER, why TEXT,
+  approved INTEGER, handed INTEGER);
+  -- link: the two reporter keys, sorted, joined by |. state approval | ready | handed | queued | delivered | declined | dropped
+```
+
+- The Admin's limits and retention are one `settings` row, `peer_settings`, JSON of `{ roundTrips, perMinute, maxChars,
+  retainDays }`; an unset or invalid value takes its default. The flag is `feature.peer-messaging`.
+- In memory only: the live orchestrators (each one's reporter, owner, name, machine, OS, status and `peers` option,
+  refilled by its next report after a restart) and Podium's notices to them (at most 20 each). A restart loses the
+  notices; the messages, rights and requests survive it.
+- A message's text is never in the state, the stream, the Admin log or the server log.
 
 #### What responding keeps, and where (#206)
 
@@ -2102,6 +2242,10 @@ The sweeper runs this hourly:
 - Sessions ended more than 30 days ago are deleted with their rows.
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
+- Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
+  sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the
+  same period. Rights and requests about a reporter that has been removed go too. Deleting a session deletes its
+  messages at once, after dropping any that were still held.
 - The `reporters` table is kept, so a reporter outlives its sessions until the Admin removes it, or until the
   forget-by-age setting does. That setting is off by default. In the same hourly run, once the server has been
   up for an hour (so a long outage cannot empty the list before anyone reports), it removes reporters not heard
@@ -2538,22 +2682,40 @@ This is the only way anything reaches a session from Podium, so every rule here 
 
 #### Orchestrator messaging (#347)
 
-Designed on #347 (DECISIONS 37), not built yet. One orchestrator's text becomes a turn in another's session, so
-every rule here holds whatever else is set. The reporter's side is
+Designed on #347 (DECISIONS 37). The server and the protocol are built (#412); the mod (#414), My reporters (#415),
+the Admin's pages (#416) and Traffic (#417) are not yet. One orchestrator's text becomes a turn in another's session,
+so every rule here holds whatever else is set. The routes are in [7.1](#71-endpoints) and what is kept in
+[7.2](#what-orchestrator-messaging-keeps-and-where-347).
+
+**Words used here**
+- A reporter is one machine plus one person's token. Rights belong to reporters.
+- A link is a pair of reporters, either way round, the same reporter twice included (two orchestrators on one
+  machine). Pause link, Remove link, the messages per minute and how long messages are kept go by link.
+- A conversation is the messages between two orchestrators on a link. Round trips are counted per conversation. The reporter's side is
 [5.3](#orchestrator-messaging-from-the-reporter-347). Mockups: `mockup/podium-my-reporters.html`,
 `mockup/podium-traffic.html`, `mockup/podium-peer-messages.html`.
 
 **Off by default**
 - It needs authentication on, the Admin's **Orchestrator messaging** flag (`peer-messaging` in Admin > Settings >
-  Feature flags, off by default), the `peers` option on both machines, and a right between the two reporters.
+  Feature flags, off by default, a change written to the Admin log as `feature_changed`), the `peers` option on both
+  machines, and a right between the two reporters.
+- The report reply says `peers: true` only with authentication on, the flag on, the report made with a person's token,
+  and its `session.peers` true. Otherwise `peerDeliveries` and `peerRequests` are empty and every messaging route
+  refuses (`403`).
 - With the flag off, the report reply says `peers: false`, no tool is offered, My reporters hides its messaging
-  sections and Traffic leaves the top bar. A message still waiting is dropped.
+  sections and Traffic leaves the top bar. Every message still waiting is dropped and Podium's notices are cleared.
+  The rights stay.
+- A browser can sign in for My reporters while the flag is on, even with responding off.
+- An older reporter sends no `peers`. Its sessions are never listed, never resolved as a `to`, and never sent a
+  message.
 
 **One person only**
 - A right, and a message, can only join two reporters with the same owner. The server refuses anything else,
   whatever the settings say. Messaging between people is not built: Anthropic's terms leave it unclear
   (DECISIONS 37).
-- A reporter on the admin secret cannot take part, since its sessions belong to no one.
+- A reporter on the admin secret cannot take part, since its sessions belong to no one: no right can name it, its
+  sessions are never listed, and a mod route called with the admin secret is refused.
+- Every write that joins two reporters checks this itself, and stores nothing when it fails.
 
 **Rights**
 - Rights belong to a pair of reporters and go one way: A can see B, A can send to B, and the same from B to A.
@@ -2564,41 +2726,66 @@ every rule here holds whatever else is set. The reporter's side is
 - An Admin can propose a right on Admin > Reporters > a reporter. It applies only once the owner accepts it, and
   no default accepts it for them. An Admin's **Pause all links** and any removal take effect at once.
 - An orchestrator can ask for a right with `podium_request_access`. The owner's default for that is Ask me, Allow
-  or Decline.
+  or Decline. Allow never lowers a right already given; a right to send is created as the owner's "A new right to send
+  starts as". An asked request's answer reaches the orchestrator that asked as a notice.
+- Trust my own reporters makes every pair send without approval. A pause still holds under it, and so does a removal,
+  which then leaves the link paused.
+- Lowering a right does not recall a message already taken: it is delivered under the right it was sent with. Remove
+  link drops it.
+- A request is answered in My reporters or with `/podium allow|decline|deliver <id>` in a session. Answering in one
+  closes it in the other; a second answer is a `410` that says how it closed.
 
 **Who a message is from**
 - The sender is the session and token of the request that carries it, never a name in the message. The server
-  resolves `to` only among the same owner's live orchestrators and refuses a name it cannot find there.
+  resolves `to` (`name@machine`, case-insensitive) only among the same owner's live orchestrators whose `peers` is on
+  and that the sender's reporter can see. A name it cannot find there, another person's, and one it has no right to see
+  all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`.
 - A message is only for an orchestrator, and only an orchestrator sends one.
 
 **Limits**, set by the Admin in Admin > Settings, which an owner can make stricter on their own links:
-- round trips on a link before the owner approves the next message, 10 by default;
-- messages per minute on a link, 6 by default;
-- the longest message, 20,000 characters by default.
-- Over a limit, a message is refused with the reason, never cut.
+- round trips in a conversation before the owner approves the next message, 10 by default (1 to 100);
+- messages per minute on a link, either way, 6 by default (1 to 60);
+- the longest message, 20,000 characters by default (1 to 20,000), counted after control characters other than line
+  breaks and tabs are replaced.
+- Over the length or the rate, a message is refused with the reason (`422`, `429`), never cut.
+- A round trip is two changes of direction in a conversation, counted from the last message the owner approved. At the
+  cap the next message waits for approval, as it does on a link with approval, and approving it starts the count again.
+- An owner's stricter limits (My reporters > Defaults) apply to the owner's links. A limit above the Admin's is
+  refused, and if the Admin later lowers theirs, the lower one applies.
 
 **Delivery**
 - A message is held until the receiving orchestrator's turn ends, and a message that needs approval is held
-  until its owner approves it. A held message is dropped if the receiver ends, the link is removed or the flag
-  goes off, and the sender is told.
-- Pause link holds every message on that link and keeps its rights.
+  until its owner approves it. The server hands a message over only in the reply to a report that says the session is
+  idle (`status: "waiting"`, `waitReason` not `permission`).
+- A held message is dropped if the receiver ends (it reports `done` or leaves the live set), a session is deleted, the
+  link is removed, the receiving reporter refuses it, or the flag goes off. The sender is told by a notice while it is
+  live, except when the flag goes off.
+- A declined message is not delivered, and its sender is told.
+- Pause link holds every message on that link and keeps its rights. Resume link lets them go.
+- A message takes a result as responding's do (`took`, `queued`, `refused`), through its own route, with the same
+  dedupe: a repeat of the result it has is a `200` and is logged once.
 
 **What is kept, and who can read it**
 - The text of each message is stored, with its sender, receiver, times and delivery state, until 30 days after
-  the last message on its link (Admin > Settings), and is deleted with its sessions. This is unlike responding,
+  the last message on its link (Admin > Settings, 1 to 365 days), and is deleted with its sessions. This is unlike responding,
   which keeps nothing: a conversation between agents is only worth having if a person can read it afterwards.
-- Only the owner and an Admin can read the text. Everyone else sees that two orchestrators talk, and the counts.
-  The text never goes in the state or the stream.
+- Only the owner and an Admin can read the text. Everyone else sees that two orchestrators talk, and the counts
+  (`GET /api/fleet/peers/traffic`). The text never goes in the state, the stream or a log.
 - Message text is drawn as text nodes. The only element inside it is Podium's own `[redacted]` marker.
 
 **The admin log**
-- Each message sent, delivered, declined or dropped, and each right proposed, accepted, declined, paused or
-  removed, is a row with the sender, the receiver, the owner and the kind. Never the text. The server log has
-  the same.
+- Each message sent, delivered, approved, declined or dropped, and each right set, proposed, accepted, declined,
+  paused, resumed or removed, is a row with the sender, the receiver, the owner and the kind. Never the text. The kinds
+  are `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_set`,
+  `peer_right_proposed`, `peer_right_accepted`, `peer_right_declined`, `peer_right_paused`, `peer_right_resumed`,
+  `peer_right_removed`, `peer_access_requested`, `peer_defaults_changed` and `peer_limits_changed`. A message's row ends
+  with its short id (`dlv_` and 8 hex digits), a request's with `prq_` and 8.
+- The server log has the same as `peers.sent`, `peers.delivered` and so on, and each refusal as `peers.refused` with
+  its reason.
 
 **Security note**
-- `.github/SECURITY.md` will say what messaging exposes: anyone holding a person's token can send text into that
-  person's linked orchestrators, and the text is kept on the server.
+- `.github/SECURITY.md` says what messaging exposes: anyone holding a person's token can send text into that person's
+  linked orchestrators, and the text is kept on the server.
 
 #### The `Host` header (#256, DNS rebinding)
 
@@ -3123,7 +3310,11 @@ features that can be switched off appear here."
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
     the console. The diff is source code, read from the machine only when asked and never stored. Needs the
     reporter's fileDiff option on the machine as well."
-- Flags default to on, except `respond` and `file-diff`, which are off by default.
+  - **Orchestrator messaging** (`peer-messaging`, #347, [7.7](#orchestrator-messaging-347)): "Lets a person's
+    orchestrators find and message each other, on the machines they choose, through this server. Only between one
+    person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
+    right on My reporters."
+- Flags default to on, except `respond`, `file-diff` and `peer-messaging`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.

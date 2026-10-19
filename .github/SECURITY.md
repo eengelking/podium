@@ -14,7 +14,7 @@ problems that matter here are:
 | **Secrets leaving a session** | The mod cuts text to fixed limits and replaces things that look like secrets with `[redacted]` (see [What leaves the session](../docs/REPORTER.md#what-leaves-the-session)). A real credential format that the redaction misses, or data the README says never leaves the session but does. |
 | **Tokens and Admin** | `PODIUM_TOKEN` (the admin secret) opens Admin, and each person's token is bound to their name. A way around either; a token or the admin secret that shows up in a log, an error, the browser's storage or a command line; a token stored in a readable form; a way to open Admin or call its API without the secret or from another site; a way past the lockout; a config file with loose permissions. |
 | **`podiumctl` and the container** | Command injection through a config value, the server listening on more than the user asked for, the container running as root, or a boot service file that does more than it should. |
-| **The mod acting on a session** | Podium can answer a session that waits on its person, and nothing else (see "Responding from Podium" below). A way for the mod or the server to do more than that is a security bug: to send a prompt or an answer to a session whose owner didn't turn the `respond` option on, past the Admin's switch, at a level the session didn't allow, or from anyone but the session's owner or an Admin; to run any command but `/clear` and `/compact`; to change a session's permission rules ("always allow"); or to stop or start a session. |
+| **The mod acting on a session** | Podium can answer a session that waits on its person, and carry a message between one person's own orchestrators, and nothing else (see "Responding from Podium" and "Orchestrator messaging" below). A way for the mod or the server to do more than that is a security bug: to send a prompt or an answer to a session whose owner didn't turn the `respond` option on, past the Admin's switch, at a level the session didn't allow, or from anyone but the session's owner or an Admin; to run any command but `/clear` and `/compact`; to change a session's permission rules ("always allow"); or to stop or start a session. |
 
 ### By design
 
@@ -65,6 +65,24 @@ by sending more than the session's level allows, is in scope.
 | **The admin log has no export.** It keeps entries for 90 days (`RETAIN_ADMIN_LOG_MS`) and the newest 100 whatever their age. | Ship the server log to VictoriaLogs if you need a copy or a longer record. |
 
 If you think you have found something like this, please report it rather than opening a public issue.
+
+## Orchestrator messaging
+
+Since #412 the server can carry messages between one person's own orchestrators (#347). The mod's side and the pages
+come in later releases. It is off until the Admin turns on Orchestrator messaging and the person turns on the
+reporter's `peers` option on each machine and gives the pair a right. What it exposes:
+
+| Topic | How it works |
+|---|---|
+| **Who** | Only between reporters with the same owner. The server refuses a right or a message between two people, and any reporter on the admin secret, whatever the settings say. An Admin can propose a right, which applies only when the owner accepts it; an Admin's pause or removal applies at once. |
+| **Who a message is from** | The person's token and the reporting session that send it, never a name in the message. A `to` is looked up only among that person's own live orchestrators, so another person's orchestrator cannot be named, or found by guessing. |
+| **What it lets a token do** | Anyone holding a person's token can send text into that person's linked orchestrators, within the rights and limits that person set. The text becomes a new turn in the receiving session, marked as another agent's text. Its permission prompts still ask, but what an auto or accept-edits mode allows is not a prompt (DECISIONS 37). |
+| **What is kept** | The text of each message is stored on the server, with its sender, receiver and delivery state, until 30 days after the last message on its link (the Admin can set 1 to 365 days), and deleted with its sessions. Only its owner and an Admin can read it. Everyone else can see that two orchestrators talk, and how much. The mod replaces anything that looks like a secret on the sending machine; that is best effort. |
+| **Limits** | Round trips in a conversation before the owner approves the next message, messages per minute on a link, and the longest message, set by the Admin; an owner can only make them stricter. Over a limit a message is refused, never cut. |
+| **Audit** | Each message sent, delivered, approved, declined or dropped, and each right set, proposed, accepted, declined, paused, resumed or removed, is written to the Admin log and the server log with who, to whom and whose, never the text. |
+
+A way to put text into a session without these switches, from another person's token, through the admin secret, past
+a limit, or a way to read a conversation's text as anyone but its owner or an Admin, is in scope.
 
 ## Where to read more
 

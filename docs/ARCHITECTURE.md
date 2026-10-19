@@ -28,6 +28,7 @@ with the default view at `#/`. An earlier usage dashboard lived here until it wa
   - [Activity feed](#activity-feed)
   - [Responding](#responding)
   - [File diff](#file-diff)
+  - [Orchestrator messaging](#orchestrator-messaging)
   - [People view](#people-view)
   - [Logging](#logging)
   - [Shared contract](#shared-contract)
@@ -436,6 +437,52 @@ own flags. `GET /respond/me` reports `enabled` for either feature, so the top ba
 unchanged. `FileDiffModal` builds on `Modal` and draws `parseDiff` rows as text nodes, twice: two panes and one column.
 A container query on the modal (`fleet.css`) shows the one that fits. Its loading dots step on the shared beat
 (`useHeartbeat`), not a CSS animation.
+
+### Orchestrator messaging
+
+Files: `server/src/fleet/peerTypes.ts`, `peerSettings.ts`, `peerRights.ts`, `peerMessages.ts`, `peers.ts`,
+`peerRoutes.ts`; `scripts/podium-peers-demo.mjs`. Issue #412 builds the server half of #347; the rules are in SPEC 7.7
+and the reasoning in DECISIONS 37. The mod (#414) and the pages (#415, #416, #417) are not built yet.
+
+**Parts.** `peerTypes.ts` is the contract: the words (reporter, link, conversation), the rows and the two store
+interfaces. `PeerRights` keeps the rights between reporters, each owner's defaults and stricter limits, and the
+requests the owner answers. `PeerMessages` keeps the live directory of orchestrators (memory), the messages
+(`peer_messages`) and Podium's notices to an orchestrator (memory). `PeerMessages` sees the rights only through the
+narrow `PeerRightsView`, so each store is tested alone. `PeerSettings` holds the Admin's limits and retention in one
+`settings` row. `PeerService` (`peers.ts`) joins them, and the fleet owns one, as it owns `RespondStore`. It builds its
+reporter lookup from its own `ReporterStore` on the same database.
+
+**Flow.** The report route records the reporter (`ReporterStore.record` now returns its key), then calls
+`fleet.peers.note` with the session, the key and the token's person. The reply spreads `peerReplyFor`, which checks the
+switches the server knows of and asks `PeerService.reply` for the deliveries (messages only while the session reports
+idle) and the open requests about that reporter. A send resolves `to` among the live directory, checks the right, the
+length, the rate and the round trips, and stores the message as `ready` or `approval`. The next idle report hands it
+over (`handed`), and the mod's result moves it to `delivered`, `queued` or `dropped`.
+
+**Same owner, in the store.** Every write that joins two reporters goes through `PeerRights.pair`, which refuses two
+owners, a reporter on the admin secret or owned by `Admin`, and a browser's person who is not the owner. The message
+store resolves `to` only among the sender owner's orchestrators, so a message to another person's orchestrator is a
+`404` before any right is read. Neither depends on the routes for this.
+
+**Logs.** The stores take a `trail` callback and log nothing. `wirePeerLogs` in `peerRoutes.ts` turns each trail into an
+Admin log row and a `peers.*` server log event, and sets `PeerService.withSource`, so a row names the address of the
+request that caused it (`server` for a sweep). The Admin router writes through the same trail, with the Admin as actor,
+so a proposal or a pause is logged once.
+
+**Routes.** The mod's routes are on the fleet router. The owner's routes go on responding's browser router through
+`RespondDeps.extendBrowser`, so they share its sign-in cookie, cross-site check and no-store header, and
+`RespondDeps.alsoSignIn` lets a browser sign in while only messaging needs it. The Admin's routes are in
+`adminRouter.ts`, which gets the service as `peers`.
+
+**Where it departs from the design.** The issue left the meaning of a link to the build, and the design says "round
+trips on a link". A link is a reporter pair here (pause, remove, rate and retention go by it, as the Traffic mockup's
+Remove link names two machines), and round trips are counted per conversation between two orchestrators, as the
+Traffic mockup shows them per line. Notices to a sender ride the same reply list as messages (`kind: "notice"`), so the
+mod has one list, one result route and one dedupe. SPEC 7.7 records both.
+
+**Testing.** `peerRights.test.ts` and `peerMessages.test.ts` test the stores alone; `peerRoutes.test.ts` plays two of
+one owner's reporters and another person's through the real router and the Admin router. `scripts/podium-peers-demo.mjs`
+does the same against a running server (`--help`).
 
 ### People view
 

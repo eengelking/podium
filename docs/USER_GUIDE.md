@@ -794,6 +794,9 @@ These settings apply to every browser and stay after a restart.
   that asked and keeps no copy. The mod hides what looks like a secret (tokens, passwords, keys, credentials in URLs) as `[redacted]` before
   the diff leaves the machine, and never sends `.env` files, keys or credentials files at all. Hiding is best
   effort, not a guarantee. Off, the Files rows show their counts and no link.
+- **Orchestrator messaging** (`peer-messaging`) is off by default. It will let a person's orchestrators message each
+  other, only between that person's own machines. The server side is in place, but podium-reporter and the pages that
+  use it come in a later release, so turning it on changes nothing you can see yet.
 
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
 switch off for everyone. After you close one, Podium says so and links to this page.
