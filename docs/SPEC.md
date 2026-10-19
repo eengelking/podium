@@ -2505,7 +2505,7 @@ A file's diff is source code. Reads are open by design, so this is the one read 
 - A new sign-in to respond starts without a hold, and another browser's sign-in is unaffected. The hold lives
   in memory with the sign-in and ends with it.
 - The Admin button in the top bar shows only to a browser signed in to respond as an Administrator
-  (`GET respond/me` says `admin`). Anyone else reaches Admin at `#/admin`, which shows the name-and-token
+  (`GET respond/me` says `admin`), and not on the Admin page itself. Anyone else reaches Admin at `#/admin`, which shows the name-and-token
   sign-in.
 - Hiding the button is not the check: every Admin route except `GET session` and the two unlocks needs an
   open session.
@@ -2994,10 +2994,16 @@ pages, responding, the orchestrator page and the right panel.
   Board, History and Admin buttons. Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
-  Board on the board, no History in History.
-- History draws this same top bar (#452), so its buttons, connection pill and Sign in match the other pages. It has
-  no Hide top bar control or wall mode button, because it has no wall and its bar is one line; the `\` shortcut
-  does nothing there. The My reporters link shows while orchestrator messaging is on and a person is signed in.
+  Board on the board, no History in History, no Admin in Admin, no Traffic on Traffic and no My reporters link on
+  My reporters (#468; Traffic and My reporters were shown as the current page until then).
+- History and Admin draw this same top bar (#452, #468), so their buttons, connection pill and Sign in match the
+  other pages. Neither has a Hide top bar control or wall mode button, because they have no wall and the bar is one
+  line; the `\` shortcut does nothing there. The Traffic link shows while orchestrator messaging is on, signed in
+  or not, and the My reporters link while it is on and a person is signed in (#470).
+- On Admin the bar's Sign in is the sign-in to respond, the same as everywhere. It does not unlock Admin: the
+  Admin session is its own unlock, with its own form on the locked screen and Lock Admin at the bottom of the Admin
+  menu. The locked, disabled and checking screens keep the same bar. There is no "Back to fleet" link; Fleet is
+  the way back.
 - A pill names the page. The page supplies it, not the top bar: "Fleet" on the wall, "Board" on the board
   (#346), "Orchestrator" on an orchestrator's page (#225), "History" in History, "Admin" in Admin.
 - A connection pill: "N reporters live", or "1 reporter live". There is no synced time (#178). It reads red
@@ -3649,7 +3655,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 - The top bar reads *Signed in as Ed*, then **My reporters · N waiting**, then **Sign out**, with 16 px between the
   name and the button (approved on #347). **My reporters** shows once a person (not the admin secret) is signed in
   with messaging on, and "· N waiting" only while N is above 0: plain **My reporters** at 0 and before the first
-  read. The page and the count
+  read. On the My reporters page the link is left off, since the pill names it. The page and the count
   share one read, every 10 seconds on the page and every 30 seconds elsewhere.
 - The page mirrors Admin > Reporters for the person's own reporters only, in the Admin page layout under the top
   bar:
@@ -3717,7 +3723,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
 #### Traffic page (#347, `mockup/podium-traffic.html`)
 
 Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
-on. It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
+on (left off the bar on the Traffic page itself). It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
 still hides and shows the top bar.
 
 - **Who is talking**: a map (inline SVG) of the orchestrators in the open read, grouped in a box per machine with its

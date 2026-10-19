@@ -131,17 +131,24 @@ afterEach(() => {
 });
 
 describe("the top bar", () => {
-  it("reads Signed in as Ed, then My reporters with the waiting count, then Sign out", async () => {
+  it("names the page in its pill and leaves its own link off (#468)", async () => {
     page();
+    await flush();
+    expect(screen.getByText("My reporters", { selector: ".pill" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /My reporters/ })).toBeNull();
+    expect(screen.getByText(/Signed in as/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("reads Signed in as Ed, then My reporters with the waiting count, then Sign out, on the other pages", async () => {
+    page({ myReporters: false });
     await flush();
     const link = await screen.findByRole("link", { name: "My reporters · 3 waiting" });
     expect(link).toHaveAttribute("href", "#/me/reporters");
-    expect(link).toHaveAttribute("aria-current", "page");
     const who = screen.getByText(/Signed in as/);
     const out = screen.getByRole("button", { name: "Sign out" });
     expect(who.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(link.compareDocumentPosition(out) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("My reporters", { selector: ".pill" })).toBeInTheDocument();
   });
 
   it("shows the link on the fleet page too, not as the current page, and not at all while messaging is off", async () => {
@@ -159,7 +166,7 @@ describe("the top bar", () => {
     server.api.read.mockImplementation(() => new Promise<PeersRead>(() => {}));
     page({ server });
     await flush();
-    expect(screen.getByRole("link", { name: "My reporters" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("link", { name: /My reporters/ })).toBeNull();
   });
 
   it("keeps the top bar's own shortcut but not the wall's, which this page does not draw (#415)", async () => {
@@ -394,7 +401,7 @@ describe("Waiting for you", () => {
     expect(server.api.answer).toHaveBeenCalledWith("prq_p", "allow");
     expect(cell("build-pi", "ed-mbp").value).toBe("ask");
     expect(screen.queryByRole("group", { name: "A change an Admin proposes" })).toBeNull();
-    expect(screen.getByRole("link", { name: "My reporters · 2 waiting" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /My reporters/ })).toBeNull();
   });
 
   it("delivers and declines with the matching answer", async () => {
@@ -420,7 +427,7 @@ describe("Waiting for you", () => {
   });
 
   it("is left out when nothing waits", async () => {
-    page({ server: fakeServer({ ...baseRead(), requests: [] }) });
+    page({ myReporters: false, server: fakeServer({ ...baseRead(), requests: [] }) });
     await flush();
     expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
     // Nothing waiting: plain "My reporters", never "· 0 waiting" (#415).

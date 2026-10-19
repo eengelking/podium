@@ -5,14 +5,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import "../fleet.css";
 import "./admin.css";
-import { BrandLink } from "../components/BrandLink";
-import { ConnectionPill } from "../components/ConnectionPill";
+import { StreamTopBar } from "../components/StreamTopBar";
 import { ThemePicker } from "../components/ThemePicker";
 import { useTheme } from "../useTheme";
-import { useFleet, type UseFleetOptions } from "../useFleet";
+import type { UseFleetOptions } from "../useFleet";
+import type { PeersApi, RespondApi } from "../respondApi";
 import { useHeartbeat } from "../useHeartbeat";
 import { usePageVisible } from "../usePageVisible";
-import { reportersLive } from "../store";
 import { APP_NAME } from "../types";
 import { AdminError, makeApi } from "./adminApi";
 import { GroupsTab } from "./GroupsTab";
@@ -64,13 +63,7 @@ const GROUP_ICON: Record<GroupIconName, ReactNode> = {
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
 };
 
-/** Owns the fleet stream so its 2 s ticks re-render only this pill, not the whole Admin view. */
-function FleetPill({ options }: { options?: UseFleetOptions }) {
-  const fleet = useFleet(options);
-  return <ConnectionPill phase={fleet.phase} reporters={reportersLive(fleet.sessions, fleet.leaving)} />;
-}
-
-export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string; fleetOptions?: UseFleetOptions }) {
+export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peersApi }: { base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
   const theme = useTheme();
   // The reporters pill's dot pulses on the fleet page's shared beat, which this root carries as data-beat.
   const root = useRef<HTMLDivElement>(null);
@@ -161,15 +154,7 @@ export function AdminView({ base = "/api/admin", fleetOptions }: { base?: string
   return (
     <div ref={root} className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
-        <header className="top">
-          <BrandLink />
-          <span className="pill">Admin</span>
-          <FleetPill options={fleetOptions} />
-          <span className="spacer" />
-          <a className="btn" href="#/">
-            Back to fleet
-          </a>
-        </header>
+        <StreamTopBar page="Admin" fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
         <div className="banner has-picker">
           <span>
             <b>Admin.</b> Tokens, groups, reporters and settings for this server.

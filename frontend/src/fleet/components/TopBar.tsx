@@ -16,9 +16,9 @@ export function TopBar(props: {
   onCollapse?: () => void;
   wall?: ReactNode;
   onFleet?: () => void;
-  /** The My reporters link (#415), while orchestrator messaging is on and a person is signed in. */
+  /** The My reporters link (#415), while orchestrator messaging is on and a person is signed in; left off on its own page. */
   myReporters?: MyReportersLink;
-  /** The Traffic link (#417), while orchestrator messaging is on; `current` on the Traffic page. */
+  /** The Traffic link (#417), while orchestrator messaging is on; `current` on the Traffic page, where the link is left off. */
   traffic?: { current: boolean };
 }) {
   const { phase, reporters } = props;
@@ -70,14 +70,15 @@ export function TopBar(props: {
           History
         </a>
       )}
-      {/* Traffic (#417) shows only while orchestrator messaging is on. Its map and counts are open to every reader. */}
-      {props.traffic && (
-        <a className="btn" href="#/traffic" aria-current={props.traffic.current ? "page" : undefined}>
+      {/* Traffic (#417) shows only while orchestrator messaging is on. Its map and counts are open to every reader. Its own page's pill names it, so the button is left off there (#468). */}
+      {props.traffic && !props.traffic.current && (
+        <a className="btn" href="#/traffic">
           Traffic
         </a>
       )}
       {props.wall}
-      {admin && (
+      {/* The Admin page's own pill names it (#468). */}
+      {admin && props.page !== "Admin" && (
         <a className="btn" href="#/admin" title="People, groups, reporters, settings, model prices, spend and the Admin log">
           Admin
         </a>

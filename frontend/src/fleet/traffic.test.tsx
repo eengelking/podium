@@ -169,15 +169,21 @@ afterEach(() => {
 });
 
 describe("the top bar", () => {
-  it("has Traffic after History while messaging is on, current on its own page", async () => {
+  it("names the page in its pill and leaves its own button off, like the other pages (#468)", async () => {
     page();
+    await flush();
+    expect(screen.queryByRole("link", { name: "Traffic" })).toBeNull();
+    expect(screen.getByRole("link", { name: "History" })).toBeInTheDocument();
+    expect(screen.getByText("Traffic", { selector: ".pill" })).toBeInTheDocument();
+  });
+
+  it("has Traffic after History on the fleet page, which is not the Traffic page, while messaging is on", async () => {
+    page({ on: false });
     await flush();
     const traffic = screen.getByRole("link", { name: "Traffic" });
     expect(traffic).toHaveAttribute("href", "#/traffic");
-    expect(traffic).toHaveAttribute("aria-current", "page");
     const history = screen.getByRole("link", { name: "History" });
     expect(history.compareDocumentPosition(traffic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Traffic", { selector: ".pill" })).toBeInTheDocument();
   });
 
   it("shows the link on the fleet page, not as current, and not at all while messaging is off", async () => {

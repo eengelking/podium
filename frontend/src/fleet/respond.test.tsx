@@ -222,6 +222,19 @@ describe("signing in", () => {
     expect(await top(null, false)).toBeNull();
   });
 
+  it("leaves the Admin button off the Admin page, whatever the state (#468)", async () => {
+    const r = render(
+      <RespondProvider api={fakeApi({}, { ...ME, admin: true })} flagsOn>
+        <TopBar page="Admin" phase="live" reporters={1} />
+      </RespondProvider>,
+    );
+    await flush();
+    const bar = within(r.container.querySelector("header")!);
+    expect(bar.getByText(/Signed in as/)).toBeInTheDocument();
+    expect(bar.queryByRole("link", { name: "Admin" })).toBeNull();
+    expect(bar.getByRole("link", { name: "Fleet" })).toBeInTheDocument();
+  });
+
   it("shows Signed in as and Sign out once signed in, and Sign out signs out", async () => {
     const api = fakeApi({ me: vi.fn().mockResolvedValueOnce(ME).mockResolvedValue({ ...ME, signedIn: false, name: null }) });
     const r = render(
