@@ -399,6 +399,18 @@ describe('peer rights: message requests and the list', () => {
     expect(rights.openRequests('Eve')).toEqual([]);
     expect(c.id).not.toBe(a.id);
   });
+
+  it('finds the rights and requests of an owner whose name has a capital beyond ASCII', () => {
+    add('m1', { owner: 'Émile' });
+    add('m2', { owner: 'Émile' });
+    const emile: Actor = { name: 'Émile', admin: false };
+    expect(rights.setRight('Émile', 'm1', 'm2', 'send', emile)).toMatchObject({ ok: true });
+    const r = rights.openMessageRequest({ owner: 'Émile', fromKey: 'm1', toKey: 'm2', by: 'b', fromSession: 's1', messageId: 'mx' });
+    expect(rights.rightsOf('Émile').map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
+    expect(rights.rightsOf('émile').map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
+    expect(rights.openRequests('Émile').map((x) => x.id)).toEqual([r.id]);
+    expect(rights.openRequests('émile', 'm2').map((x) => x.id)).toEqual([r.id]);
+  });
 });
 
 describe('peer rights: answering', () => {
@@ -497,5 +509,19 @@ describe('peer rights: retention', () => {
     expect(rights.getRequest(open.id)).not.toBeNull();
     expect(rights.rightsOf('Dana').map((r) => `${r.from}>${r.to}`)).toEqual(['mac>linux']);
     expect(rights.retain(START + 500)).toBe(0);
+  });
+
+  it("closes a message request whose message is no longer stored, and leaves one whose message is", () => {
+    db.prepare(
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, approved, handed)
+       VALUES ('kept', 'Dana', 'linux|mac', 'mac', 'linux', 's1', 's2', 'a', 'mac', 'b', 'linux', 'hi', 1, 'approval', 1, 0, 0)`,
+    ).run();
+    const kept = rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'kept' });
+    const gone = rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'gone' });
+    t = START + 7;
+    rights.retain(START);
+    expect(rights.getRequest(kept.id)).toMatchObject({ closedAt: null, outcome: null });
+    expect(rights.getRequest(gone.id)).toMatchObject({ closedAt: START + 7, outcome: 'dropped' });
+    expect(rights.openRequests('Dana').map((r) => r.id)).toEqual([kept.id]);
   });
 });

@@ -433,6 +433,11 @@ describe('the Admin’s side (#412)', () => {
     expect((await admin.get('/api/admin/peers/conversations?range=1y')).status).toBe(400);
     expect((await admin.get('/api/admin/peers/conversations/sess-dev/sess-tester')).body.messages).toEqual([expect.objectContaining({ text: 'read by the Admin' })]);
     expect((await admin.get('/api/admin/peers/conversations/sess-dev/sess-none')).status).toBe(404);
+    // As the browser's read, `live` is the default: once both ends have ended, only a time range lists it.
+    await devReport(s, { status: 'done', endReason: 'exit' });
+    await testerReport(s, { status: 'done', endReason: 'exit' });
+    expect((await admin.get('/api/admin/peers/conversations')).body.conversations).toEqual([]);
+    expect((await admin.get('/api/admin/peers/conversations?range=24h')).body.conversations).toHaveLength(1);
   });
 });
 

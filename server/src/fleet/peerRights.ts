@@ -273,8 +273,10 @@ export class PeerRights implements PeerRightsApi {
     return { level: this.defaults(p.owner).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false };
   }
 
+  /** Owners are compared with `nameKey` in JS: SQLite's lower() folds only ASCII, so `Émile` would never match `émile`. */
   rightsOf(owner: string): RightRow[] {
-    return (this.stmt('SELECT * FROM peer_rights WHERE lower(owner) = lower(?) ORDER BY from_key, to_key').all(nameKey(owner)) as unknown as DbRight[]).map(toRight);
+    const key = nameKey(owner);
+    return (this.stmt('SELECT * FROM peer_rights ORDER BY from_key, to_key').all() as unknown as DbRight[]).filter((r) => nameKey(r.owner) === key).map(toRight);
   }
 
   setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): { ok: true; right: RightRow | null } | Refusal {
@@ -403,15 +405,13 @@ export class PeerRights implements PeerRightsApi {
   }
 
   openRequests(owner: string, about?: string): PeerRequestRow[] {
+    // The owner is compared in JS (see rightsOf): SQLite's lower() folds only ASCII.
+    const key = nameKey(owner);
     const rows =
       about === undefined
-        ? this.stmt('SELECT * FROM peer_requests WHERE lower(owner) = lower(?) AND closed_at IS NULL ORDER BY created_at, id').all(nameKey(owner))
-        : this.stmt('SELECT * FROM peer_requests WHERE lower(owner) = lower(?) AND closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, id').all(
-            nameKey(owner),
-            about,
-            about,
-          );
-    return (rows as unknown as DbRequest[]).map(toRequest);
+        ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, id').all()
+        : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, id').all(about, about);
+    return (rows as unknown as DbRequest[]).filter((r) => nameKey(r.owner) === key).map(toRequest);
   }
 
   getRequest(id: string): PeerRequestRow | null {
@@ -449,6 +449,10 @@ export class PeerRights implements PeerRightsApi {
   }
 
   retain(cutoff: number): number {
+    // A message deleted by retention or with its session would otherwise leave its approval request open for good.
+    this.stmt(
+      "UPDATE peer_requests SET closed_at = ?, outcome = 'dropped' WHERE kind = 'message' AND closed_at IS NULL AND message_id NOT IN (SELECT id FROM peer_messages)",
+    ).run(this.now());
     let n = Number(this.stmt('DELETE FROM peer_requests WHERE closed_at IS NOT NULL AND closed_at < ?').run(cutoff).changes);
     const keys = this.stmt(
       'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',

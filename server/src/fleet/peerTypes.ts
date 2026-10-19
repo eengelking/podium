@@ -186,6 +186,9 @@ export interface LiveOrchestrator {
   peers: boolean | undefined;
 }
 
+/** A session that can take a message now: idle at the prompt, with no permission dialog open. */
+export const isIdle = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>): boolean => o.status === 'waiting' && o.waitReason !== 'permission';
+
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface PeerRightsView {
   effective(from: string, to: string): EffectiveRight;
@@ -304,6 +307,8 @@ export interface PeerMessagesApi {
   /** Notes a live orchestrator from its report (the server calls it after every accepted report). */
   note(o: LiveOrchestrator): void;
   live(sessionId: string): LiveOrchestrator | null;
+  /** One stored message by id, with its text, or null. */
+  message(id: string): MessageRow | null;
   /** What podium_peers answers for this orchestrator. */
   list(sessionId: string): { peers: PeerListing[]; leftOut: LeftOut[] };
   send(fromSession: string, to: string, text: string): SendOutcome | Refusal;

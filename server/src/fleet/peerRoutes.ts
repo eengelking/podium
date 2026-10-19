@@ -35,6 +35,8 @@ export interface BrowserHelpers {
 /** A message holds at most 20,000 characters, up to four bytes each, plus the JSON around it. */
 const MESSAGE_BODY_LIMIT = '128kb';
 const DAY_MS = 86_400_000;
+/** How a sent message waits, as its Admin log row says it. */
+const SENT_WORDS = { approval: 'waiting for approval', sent: 'the receiver is idle', turn: "waiting for the receiver's turn to end" } as const;
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
@@ -42,7 +44,7 @@ const sourceOf = (req: Request): string => sourceAddress(req.ip);
 export const peersEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.peers.flagOn();
 
 /** The `range` of a conversations read: live sessions (the default), the last 24 hours, or the last 30 days. */
-function rangeOf(raw: unknown, now: number): { since?: number; liveOnly?: boolean } | null {
+export function rangeOf(raw: unknown, now: number): { since?: number; liveOnly?: boolean } | null {
   if (raw === undefined || raw === 'live') return { liveOnly: true };
   if (raw === '24h') return { since: now - DAY_MS };
   if (raw === '30d') return { since: now - 30 * DAY_MS };
@@ -93,7 +95,7 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStore | null, logger: L
     const m = t.message;
     const fields = { owner: m.owner, from_session: m.fromSession, to_session: m.toSession, message_id: short(m.id) };
     if (t.kind === 'sent') {
-      const how = t.state === 'approval' ? (t.approvalWhy === 'round-trips' ? 'waiting for approval past the round-trip limit' : 'waiting for approval') : t.state === 'sent' ? 'the receiver is idle' : "waiting for the receiver's turn to end";
+      const how = t.approvalWhy === 'round-trips' ? 'waiting for approval past the round-trip limit' : SENT_WORDS[t.state];
       row('peer_sent', `Message from ${pair(m)}: sent, ${how} [${short(m.id)}]`, m.owner, { ...fields, state: t.state });
     } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, fields);
     else if (t.kind === 'approved') row('peer_approved', `Message from ${pair(m)}: approved [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });

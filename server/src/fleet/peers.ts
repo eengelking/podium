@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings, type PeerLimits } from './peerSettings.js';
-import type { Actor, AnswerOutcome, LiveOrchestrator, MessageTrail, PeerRequestRow, Refusal, ReporterLookup, RightsTrail } from './peerTypes.js';
+import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type PeerRequestRow, type Refusal, type ReporterLookup, type RightsTrail } from './peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from './protocol.js';
 
 /** A level in the words My reporters and the terminal use. */
@@ -18,8 +18,7 @@ export interface PeerReply {
   peerRequests: PeerRequest[];
 }
 
-/** A session that can take a message now: idle at the prompt, with no permission dialog open. */
-export const isIdle = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>): boolean => o.status === 'waiting' && o.waitReason !== 'permission';
+export { isIdle } from './peerTypes.js';
 
 export class PeerService {
   readonly settings: PeerSettings;
@@ -86,13 +85,13 @@ export class PeerService {
   /** A request as the owner's sessions and My reporters show it: machines by name, and a message's text for its approval. */
   requestView(r: PeerRequestRow): PeerRequest {
     const machine = (key: string) => this.reporters.get(key)?.machine ?? key;
-    const m = r.messageId ? (this.db.prepare('SELECT from_name, to_name, text FROM peer_messages WHERE id = ?').get(r.messageId) as { from_name: string; to_name: string; text: string } | undefined) : undefined;
+    const m = r.messageId ? this.messages.message(r.messageId) : null;
     return {
       id: r.id,
       kind: r.kind,
       at: r.createdAt,
-      from: { machine: machine(r.fromKey), name: m?.from_name ?? (r.kind === 'access' ? r.by : null) },
-      to: { machine: machine(r.toKey), name: m?.to_name ?? null },
+      from: { machine: machine(r.fromKey), name: m?.fromName ?? (r.kind === 'access' ? r.by : null) },
+      to: { machine: machine(r.toKey), name: m?.toName ?? null },
       level: r.level,
       by: r.by,
       reason: r.reason,

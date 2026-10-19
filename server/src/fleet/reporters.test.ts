@@ -60,6 +60,10 @@ describe('reporters', () => {
     expect(look.get('bbbbbbbbbbbb')).toMatchObject({ machine: 'bbbbbbbbbbbb', adminSecret: true, peers: null });
     expect(look.get('nope')).toBeNull();
     expect(look.ofOwner('DANA').map((r) => r.key)).toEqual(['bbbbbbbbbbbb', '9f3a1c7d2e40']);
+    // A hooks-only reporter has no orchestrator: neither lookup knows it, so no right can name it.
+    expect(store.record(seen({ kind: 'hooks', machineId: 'dddddddddddd', sessionId: 's4' }), START + MIN)).toBe('dddddddddddd');
+    expect(look.get('dddddddddddd')).toBeNull();
+    expect(look.ofOwner('Dana').map((r) => r.key)).not.toContain('dddddddddddd');
   });
 
   it('counts a session once however often it reports', () => {

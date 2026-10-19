@@ -220,7 +220,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
           opts,
           logger,
           {
-            kind: r.reporter.hostSurface === 'settings-hooks' ? 'hooks' : 'mod',
+            kind: asHooks ? 'hooks' : 'mod',
             machineId: r.machine?.id ?? null,
             machineName: r.machine?.name ?? null,
             source: machineOf(req),
@@ -235,7 +235,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
           fleet.now(),
         );
         // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
-        if (key && id.kind === 'person' && r.reporter.hostSurface !== 'settings-hooks') fleet.peers.note(out.sessionId, key, id.person.name, r);
+        if (key && id.kind === 'person' && !asHooks) fleet.peers.note(out.sessionId, key, id.person.name, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,

@@ -10,6 +10,7 @@ import { nameKey } from './people.js';
 import {
   HELD_STATES,
   canSend,
+  isIdle,
   linkKey,
   refuse,
   type Actor,
@@ -168,6 +169,11 @@ export class PeerMessages implements PeerMessagesApi {
     return r ? toRow(r) : null;
   }
 
+  /** One stored message by id, with its text, or null. */
+  message(id: string): MessageRow | null {
+    return this.row(id);
+  }
+
   private setState(id: string, state: MessageState, why: DropWhy | null = null): MessageRow {
     this.stmt('UPDATE peer_messages SET state = ?, why = ?, state_at = ? WHERE id = ?').run(state, why, this.now(), id);
     return this.row(id) as MessageRow;
@@ -311,8 +317,7 @@ export class PeerMessages implements PeerMessagesApi {
     if (approvalWhy) {
       requestId = this.rights.openMessageRequest({ owner: sender.owner, fromKey: sender.reporterKey, toKey: target.reporterKey, by: sender.name, fromSession: sender.sessionId, messageId: id }).id;
     }
-    const idle = target.status === 'waiting' && target.waitReason !== 'permission';
-    let outState: SendOutcome['state'] = idle ? 'sent' : 'turn';
+    let outState: SendOutcome['state'] = isIdle(target) ? 'sent' : 'turn';
     if (approvalWhy) outState = 'approval';
     this.trail({ kind: 'sent', message: this.row(id) as MessageRow, state: outState, approvalWhy });
     return {
@@ -432,7 +437,11 @@ export class PeerMessages implements PeerMessagesApi {
   // ---- Reading -----------------------------------------------------------------------------------------------------
 
   conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): ConversationSummary[] {
-    const all = this.rows(`SELECT * FROM peer_messages ORDER BY sent_at, rowid`);
+    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
+    const all = this.rows(
+      `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved
+       FROM peer_messages ORDER BY sent_at, rowid`,
+    );
     const owner = filter.owner === undefined ? null : nameKey(filter.owner);
     const groups = new Map<string, MessageRow[]>();
     for (const m of all) {

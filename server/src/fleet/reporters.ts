@@ -265,7 +265,8 @@ export class ReporterStore {
     const cols = 'key, machine_name, owner, credential, os, peers, reporter_version';
     return {
       get: (key) => {
-        const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ?`).get(key) as DbPeerRef | undefined;
+        // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.
+        const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ? AND kind = 'mod'`).get(key) as DbPeerRef | undefined;
         return r ? ref(r) : null;
       },
       ofOwner: (owner) => (this.stmt(`SELECT ${cols} FROM reporters WHERE lower(owner) = lower(?) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`).all(owner) as unknown as DbPeerRef[]).map(ref),

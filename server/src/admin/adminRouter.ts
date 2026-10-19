@@ -16,7 +16,7 @@ import { FEATURES, isFeatureId, RESPOND, type FeatureFlags } from '../fleet/feat
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
 import type { PeerService } from '../fleet/peers.js';
-import { messageView } from '../fleet/peerRoutes.js';
+import { messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
@@ -479,10 +479,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   router.get('/peers/conversations', (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
-    const range = req.query.range;
-    const since = range === '24h' ? now() - 86_400_000 : range === '30d' ? now() - 30 * 86_400_000 : undefined;
-    if (range !== undefined && range !== 'live' && since === undefined) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
-    res.json({ conversations: peers.messages.conversations(since === undefined ? { liveOnly: range === 'live' } : { since }) });
+    // As the browser's read (SPEC 7.1): `live` is the default.
+    const range = rangeOf(req.query.range, now());
+    if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
+    res.json({ conversations: peers.messages.conversations(range) });
   });
 
   router.get('/peers/conversations/:a/:b', (req, res) => {
