@@ -127,6 +127,14 @@ describe("the top bar", () => {
     await flush();
     expect(screen.queryByRole("link", { name: /My reporters/ })).toBeNull();
   });
+
+  it("goes back to the fleet from Fleet", async () => {
+    window.location.hash = "#/me/reporters";
+    page();
+    await flush();
+    fireEvent.click(screen.getByRole("link", { name: "Fleet" }));
+    expect(window.location.hash).toBe("#/");
+  });
 });
 
 describe("Waiting for you", () => {

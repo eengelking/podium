@@ -3,6 +3,7 @@
 // mod's own store as a fallback), so two machines that share a host name stay apart, two loads of the
 // mod on one machine agree, and nothing about the hardware is read.
 import type { MachineInfo } from './protocol.ts';
+import { oneLine } from './peers.ts';
 
 /** The `$.store` key the machine id is kept under. */
 export const MACHINE_ID_KEY = 'machineId';
@@ -68,8 +69,7 @@ export const OS_MAX = 80;
 
 /** One line of free text, without control characters, cut to 80. Null when nothing is left. */
 export function cleanOs(v: string | null | undefined): string | null {
-  const s = (v ?? '').replaceAll(/\p{Cc}+/gu, ' ').replaceAll(/\s+/g, ' ').trim();
-  return s ? s.slice(0, OS_MAX).trim() : null;
+  return oneLine(v, OS_MAX) || null;
 }
 
 /** `sw_vers` on macOS: `ProductName` and `ProductVersion`, as `macOS 27.0.1`. Null without the name. */

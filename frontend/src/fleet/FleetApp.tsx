@@ -254,8 +254,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   }, [board]);
 
   const selectSession = (id: string | null) => {
-    // Opening a session, or the fleet, from the board leaves the board; the selection is made before the route changes.
-    if (board) window.location.hash = "#/";
+    // Opening a session, or the fleet, from the board or My reporters leaves that page; the selection is made before the route changes.
+    if (board || myReporters) window.location.hash = "#/";
     setSel(id);
     setSelAgent(null);
     setNotice(null);

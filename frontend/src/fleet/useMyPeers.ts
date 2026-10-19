@@ -58,7 +58,11 @@ export function useMyPeers(api: PeersApi, on: boolean, fast: boolean): MyPeers {
     const t = setInterval(() => {
       if (document.visibilityState !== "hidden") void reload();
     }, fast ? PAGE_MS : BAR_MS);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      // A read still in flight belongs to the sign-in that is going: it must not land under the next one, or after it.
+      gen.current++;
+    };
   }, [on, fast, reload]);
 
   const change = useCallback(

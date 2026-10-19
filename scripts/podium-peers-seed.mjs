@@ -27,13 +27,14 @@ if (args.includes('-h') || args.includes('--help')) {
   process.exit(0);
 }
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
-const URL_ = new URL(arg('--url', '')).origin;
+const URL_ARG = arg('--url', '');
 const SECRET = arg('--secret', process.env.PODIUM_TOKEN);
 const long = args.includes('--long');
-if (!SECRET) {
+if (!URL_ARG || !SECRET) {
   console.error(HELP);
   process.exit(2);
 }
+const URL_ = new URL(URL_ARG).origin;
 
 let adminCookie = '';
 async function call(method, path, headers, body) {
@@ -104,7 +105,9 @@ const browser = async (m, p, b) => {
   const res = await fetch(new URL(`/api/fleet/respond${p}`, URL_), { method: m, headers: { 'Content-Type': 'application/json', 'X-Podium-Respond': '1', cookie: jarCookie.v }, body: b === undefined ? undefined : JSON.stringify(b) });
   const set = res.headers.getSetCookie?.() ?? [];
   // Sign-in clears an old cookie path and then sets the new one under the same name: keep the last value per name.
-  if (set.length) jarCookie.v = [...new Map(set.map((c) => c.split(';')[0].split('=')).filter(([, v]) => v)).entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+  // Split on the first '=' only: a value can hold '=' (base64 padding).
+  const pairs = set.map((c) => c.split(';')[0]).map((p) => [p.slice(0, p.indexOf('=')), p.slice(p.indexOf('=') + 1)]);
+  if (set.length) jarCookie.v = [...new Map(pairs.filter(([, v]) => v)).entries()].map(([k, v]) => `${k}=${v}`).join('; ');
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
 };

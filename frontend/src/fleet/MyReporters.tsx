@@ -8,7 +8,7 @@ import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
-import { asksBack, keyOfMachine, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead } from "./peers";
+import { asksBack, keyOfMachine, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
@@ -152,7 +152,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
           <Panel>
             <div className="pm-reqs">
               {data.requests.map((r) => (
-                <Request key={r.id} r={r} data={data} now={now} busy={busy === r.id} onAnswer={(how) => void answer(r, how)} />
+                <Request key={r.id} r={r} model={model} now={now} busy={busy === r.id} onAnswer={(how) => void answer(r, how)} />
               ))}
             </div>
           </Panel>
@@ -322,7 +322,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
 }
 
 /** One open request as a consent box: who asked, what changes, and a button per answer. */
-function Request({ r, data, now, busy, onAnswer }: { r: PeerRequestView; data: PeersRead; now: number; busy: boolean; onAnswer: (how: "allow" | "decline" | "deliver") => void }) {
+function Request({ r, model, now, busy, onAnswer }: { r: PeerRequestView; model: RightsModel; now: number; busy: boolean; onAnswer: (how: "allow" | "decline" | "deliver") => void }) {
   const when = ago(now, r.at);
   let lead: React.ReactNode;
   let hint: React.ReactNode;
@@ -347,9 +347,9 @@ function Request({ r, data, now, busy, onAnswer }: { r: PeerRequestView; data: P
   } else {
     const level = r.level ?? "see";
     const [w, tail] = rightWords(level);
-    const from = keyOfMachine(data.reporters, r.from.machine);
-    const to = keyOfMachine(data.reporters, r.to.machine);
-    const today = from && to ? rightsModel(data).level(from, to) : null;
+    const from = keyOfMachine(model.reporters, r.from.machine);
+    const to = keyOfMachine(model.reporters, r.to.machine);
+    const today = from && to ? model.level(from, to) : null;
     const [tw, ttail] = today ? rightWords(today, true) : ["", ""];
     lead = (
       <>
