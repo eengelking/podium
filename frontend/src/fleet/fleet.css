@@ -1106,5 +1106,7 @@ body.modal-open #root { filter: blur(5px); }
   .podium .kb-col { max-height: none; }
   .podium .kb-col:not(.on) { display: none; }
   .podium .kb-col-h { display: none; }
+  /* #413: the pinned strip would take over a narrow screen. Hidden, not unmounted, so its list and note survive a resize. */
+  .podium .kb-none { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { .podium .kb-card.fresh { animation: none; } }
