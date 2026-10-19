@@ -16,9 +16,9 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-function setup(token: string | null = null) {
+function setup(token: string | null = null, cfg: Partial<typeof DEFAULT_CONFIG> = {}) {
   const logs: string[] = [];
-  const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:', ...cfg });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token, log: (l) => logs.push(l) }));
   closers.push(() => fleet.close());
@@ -184,7 +184,8 @@ describe('reads', () => {
   describe('paging (#195)', () => {
     /** Ends `n` sessions named s1..sn, and returns the app and today's date. */
     const endMany = async (n: number) => {
-      const ctx = setup();
+      // An hour's throttle keeps the per-session broadcast timers from firing, so no tick reads agents during a request (#494).
+      const ctx = setup(null, { throttleMs: 3_600_000 });
       const r = fixtureReport();
       for (let i = 1; i <= n; i++) {
         const session = { ...r.session, id: `5f0c2a8e-1b7d-4c3e-9a51-${String(i).padStart(12, '0')}`, name: `s${i}`, status: 'done' as const, endReason: 'clear' };

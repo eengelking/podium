@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Fixed
+
+- **The history paging test no longer counts a timer's reads (#494).** "builds rows for the requested page only" spied on every `getAgents` call, so a session broadcast timer that fired during a slow request (under coverage in CI) added to the count. The test now holds the throttle open for its fixture, so only the request's own calls are counted. It still fails if the route builds every row. Test only; no change to the product.
+
 ## [1.2.0] - 2026-10-19
 
 ### Changed
