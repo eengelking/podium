@@ -246,6 +246,10 @@ function Who(p: WhoProps) {
     const r = reporters.find((x) => x.key === key);
     if (r?.os) return r.os;
     for (const n of layout.nodes) if (n.machine === key && p.sessions[n.sessionId]?.machine?.os) return p.sessions[n.sessionId]!.machine!.os!;
+    // Signed out, or once the conversation's own sessions ended: any live session on that machine. A reporter's key is
+    // its machine id, or `<machine id>#<owner>` for a second account on the machine (ReporterStore).
+    const id = key.split("#")[0];
+    for (const s of Object.values(p.sessions)) if (s.machine?.id === id && s.machine.os) return s.machine.os;
     return null;
   };
   const nodeState = (id: string): NodeState => {

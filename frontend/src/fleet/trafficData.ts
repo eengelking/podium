@@ -315,7 +315,7 @@ const TRIES = [0.5, 0.35, 0.65, 0.25, 0.75, 0.2, 0.8, 0.42, 0.58];
  * Lays the map out: a box per machine in two columns (one centred when there is only one), its orchestrators stacked
  * in it, and a curve per conversation. A curve between the columns runs from side to side; one inside a column bows
  * out to that column's outer side. Each label goes at the first point along its curve that clears the labels placed
- * before it and the nodes.
+ * before it and the nodes and fits inside the map; when no point fits, the first clear one slid back inside the map.
  */
 export function layoutMap(input: readonly TrafficLink[]): MapLayout {
   // Machines go by how many orchestrators they hold and then by name, orchestrators by name, and labels are placed in
@@ -372,19 +372,16 @@ export function layoutMap(input: readonly TrafficLink[]): MapLayout {
     const d = `M${p[0][0]} ${p[0][1]} C ${p[1][0]} ${p[1][1]}, ${p[2][0]} ${p[2][1]}, ${p[3][0]} ${p[3][1]}`;
     const label = labelWords(l);
     const w = pillWidth(label, l.state !== "active" || noRightToSend(l));
-    let pill: Box | null = null;
-    for (const t of TRIES) {
+    const at = (t: number): Box => {
       const [mx, my] = bezier(p[0], p[1], p[2], p[3], t);
-      const box = { x: mx - w / 2, y: my - PILL_H / 2, w, h: PILL_H };
-      if (!blocked.some((b) => overlaps(box, b))) {
-        pill = box;
-        break;
-      }
-    }
-    if (!pill) {
-      const [mx, my] = bezier(p[0], p[1], p[2], p[3], 0.5);
-      pill = { x: mx - w / 2, y: my - PILL_H / 2, w, h: PILL_H };
-    }
+      return { x: mx - w / 2, y: my - PILL_H / 2, w, h: PILL_H };
+    };
+    const free = (box: Box): boolean => !blocked.some((b) => overlaps(box, b));
+    const inside = (box: Box): boolean => box.x >= 0 && box.x + box.w <= MAP_W && box.y >= 0 && box.y + box.h <= height;
+    // Slid back inside the map: a long label on a line that bows out to the map's edge would otherwise be cut off.
+    const keepIn = (box: Box): Box => ({ ...box, x: Math.max(0, Math.min(box.x, MAP_W - box.w)), y: Math.max(0, Math.min(box.y, height - box.h)) });
+    const tries = TRIES.map(at);
+    const pill = tries.find((b) => inside(b) && free(b)) ?? tries.map(keepIn).find(free) ?? keepIn(at(0.5));
     blocked.push(pill);
     edges.push({ id: linkId(l), link: l, d, width: Math.min(2 + l.messages * 0.8, 7), pill, label, ways: waysOf(l) });
   }
