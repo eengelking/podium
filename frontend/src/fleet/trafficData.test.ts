@@ -211,7 +211,7 @@ describe("the map's layout", () => {
     // Twelve lines along one curve, between the same two orchestrators, cannot all find room: the last falls back to
     // the middle of its curve, where the first label already sits.
     const same = layoutMap(Array.from({ length: 12 }, () => link(A, B))).edges;
-    expect(same.at(-1)!.pill).toEqual(same[0]!.pill);
+    expect(same[same.length - 1]!.pill).toEqual(same[0]!.pill);
     for (const e of m.edges) {
       expect(Number.isFinite(e.pill.x)).toBe(true);
       expect(e.pill.x).toBeGreaterThanOrEqual(0);
