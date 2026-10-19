@@ -124,6 +124,37 @@ describe("rail paging (#242)", () => {
     expect(names()).toEqual(["proj-1", "proj-2"]);
   });
 
+  it("lists the sessions again after the list empties, even from a later page (#420)", () => {
+    const { rerender } = render(view(fleet(24)));
+    fireEvent.click(within(pager()!).getByRole("button", { name: "Next page" }));
+    expect(names()[0]).toBe("proj-9");
+    rerender(view([]));
+    expect(names()).toEqual([]);
+    expect(pager()).toBeNull();
+    rerender(view(fleet(3)));
+    expect(names()).toEqual(["proj-1", "proj-2", "proj-3"]);
+    expect(pager()).toBeNull();
+  });
+
+  it("lists the sessions of a banded people view that arrive after it was empty (#420)", () => {
+    const people = (sessions: SessionView[]) => ({ groupBy: "people" as const, units: buildUnits(sessions, "people", [], null), picked: null, onPick: () => {}, visible: new Set(sessions.map((s) => s.id)) });
+    const some = fleet(2, () => ({ owner: "Ed E." }));
+    const { rerender } = render(view([], null, { people: people([]) }));
+    expect(document.querySelectorAll(".rgh")).toHaveLength(0);
+    rerender(view(some, null, { people: people(some) }));
+    expect(names()).toEqual(["proj-1", "proj-2"]);
+    expect(document.querySelectorAll(".rgh")).toHaveLength(1);
+  });
+
+  it("never holds a page outside the list, whatever the list does (#420)", () => {
+    const { rerender } = render(view([]));
+    for (const n of [0, 5, 0, 24, 1, 0, 9, 0, 0, 3]) {
+      rerender(view(fleet(n)));
+      expect(names().length).toBe(n > 9 ? 8 : n);
+      expect(screen.queryByText(/Showing 0/)).toBeNull();
+    }
+  });
+
   it("repeats a band's header on the page that continues it, and counts the whole band", () => {
     const sessions = fleet(12, (i) => ({ owner: i < 10 ? "Ed E." : "Priya N." }));
     const units = buildUnits(sessions, "people", [], null);
