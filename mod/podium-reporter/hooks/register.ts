@@ -1,6 +1,7 @@
 // Podium reporter: hook wiring only. Every hook observes: it calls next(e) once and returns what that
 // resolved to, unchanged; its own work is wrapped so a failure is recorded and never reaches the
-// session; and no hook on the tool path awaits the network (reports go out from a timer).
+// session; and no hook on the tool path awaits the network (reports go out from a timer). The exceptions answer the
+// mod's own tools: the messaging tools (#414) wait, at most 8 s, for a call the flush timer makes for them.
 //
 // The engine reads this file's use of `$` statically: `$` is only ever passed to functions declared
 // at the top of the file and always spelled `$.noun.event(...)`. So every helper that touches `$` is
@@ -53,8 +54,33 @@ import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { pickIdentity, worthHolding, type Identity } from './identity.ts';
-import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
-import type { Ask, Delivery, DeliveryResult, MachineInfo, RespondInfo, RespondKind, RespondLevel } from './protocol.ts';
+import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
+import type { Ask, Delivery, DeliveryResult, MachineInfo, PeerDelivery, PeerRequest, PeerResult, RespondInfo, RespondKind, RespondLevel } from './protocol.ts';
+import { redactText } from './diffRedact.ts';
+import {
+  accessAnswer,
+  deliveredLine,
+  errorOf,
+  findRequest,
+  isAccessAnswer,
+  isRequestId,
+  listAnswer,
+  noticePrompt,
+  oneLine,
+  openRequestsLine,
+  parseAnswer,
+  peerPrompt,
+  refusalAnswer,
+  requestAnsweredLine,
+  requestLine,
+  requestToast,
+  sendAnswer,
+  shortId,
+  SUBAGENT_ACCESS,
+  SUBAGENT_PEERS,
+  SUBAGENT_SEND,
+  TOOL_DESCRIPTIONS,
+} from './peers.ts';
 import {
   answeredLine,
   answersMap,
@@ -98,6 +124,8 @@ interface Options {
   fileDiff: boolean;
   /** What this session accepts from Podium (#206). */
   respond: RespondLevel;
+  /** Message the owner's other orchestrators through Podium (#347, #414). */
+  peers: boolean;
 }
 
 interface HookStat {
@@ -155,6 +183,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     activityFeed: o.activityFeed === true,
     fileDiff: o.fileDiff === true,
     respond: respondLevel(o.respond),
+    peers: o.peers === true,
   };
 }
 
@@ -227,6 +256,35 @@ let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
 let messagesLineShown = false;
 const EXPLAIN_MODEL = 'haiku';
 
+// ---- orchestrator messaging (#347, #414, SPEC 5.3) ---------------------------------------------
+// Kept apart from responding: a peer message only ever becomes a framed `$.prompt.submit`, through its own functions
+// below. It never reaches an ask's race, a plan's approval, a tool's decision or `$.command.run`.
+
+/** A call a messaging tool waits on, made by the flush timer (Esc aborts a hook's own fetches). */
+interface PeerCall {
+  method: 'GET' | 'POST';
+  path: string;
+  body?: unknown;
+  /** The timer has started the request: the hook can no longer take it back. */
+  sent: boolean;
+  /** The hook stopped waiting: whatever comes back is nobody's. */
+  abandoned: boolean;
+  resolve: (res: { status: number; text: string } | null) => void;
+}
+
+/** How long a messaging tool waits for the flush timer's answer: inside a hook's 10-second budget, which a plain wait spends. */
+const PEER_CALL_WAIT_MS = 8000;
+/** Requests remembered for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
+const PEER_REQUESTS_KEPT = 50;
+
+let peerCalls: PeerCall[] = [];
+/** The three tools were registered in this load: once the reply first says the session takes part. */
+let peerToolsRegistered = false;
+/** Requests seen in this load, by id, oldest first: each is toasted once. */
+let peerKnown = new Map<string, PeerRequest>();
+/** The ids the last reply listed as open. */
+let peerOpen: string[] = [];
+
 const perf = typeof performance !== 'undefined' && typeof performance.now === 'function' ? () => performance.now() : () => Date.now();
 const nowMs = () => Date.now();
 
@@ -280,6 +338,16 @@ function responding(r: Runtime | null, kind: RespondKind): boolean {
   return !!r && r.transport.respond && !r.state.ended && respondNow(r).accepts.includes(kind);
 }
 
+/** Whether this session's orchestrator may say it takes part in messaging: the option on, and a person on the session. */
+function peersWanted(r: Runtime): boolean {
+  return opts.peers && r.interactive;
+}
+
+/** Whether the mod takes part now (SPEC 5.3 "When the mod takes part"): its own switches, and the server's last word. */
+function peersOn(r: Runtime | null): r is Runtime {
+  return !!r && peersWanted(r) && r.transport.peers && !r.state.ended;
+}
+
 function openAsks(r: Runtime): Ask[] {
   return [...asks.values()].filter((a) => !a.done && a.listening && a.sessionId === r.state.id).map((a) => a.ask);
 }
@@ -311,6 +379,7 @@ function metaOf(r: Runtime, now: number) {
     respond: respondNow(r),
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,
     clearedFrom: r.clearedFrom,
+    peers: peersWanted(r),
   };
 }
 
@@ -412,6 +481,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     toastOnce($, r, true);
     handleDeliveries($, r);
     handleDiffs($, r);
+    handlePeers($, r);
     messagesLine($, r);
   }
   else if (outcome === 'busy') r.state = { ...r.state, dirty: true };
@@ -552,6 +622,7 @@ async function flush($: Engine): Promise<void> {
     }
     if (id && id !== r.state.id) await switchSession($, r, id, now);
     await sendOutbox($);
+    await sendPeerCalls($, r, now);
     if (r.state.ended) return;
     await readUsage($, r);
     await readSurfaces($, r);
@@ -643,11 +714,27 @@ async function readMachine($: Engine): Promise<MachineInfo | null> {
       const res = await $.process.run(['hostname'], { timeoutMs: 2000 });
       return res.exitCode === 0 ? hostOf(res.stdout) : null;
     }, null);
-    return machineInfo(host, id);
+    return machineInfo(host, id, await readOs($));
   } catch (err) {
     record($, 'machine', err);
     return null;
   }
+}
+
+/**
+ * The machine's OS and version (#414, SPEC 5.3 "The OS"): the first of `sw_vers` (macOS), `/etc/os-release` (Linux)
+ * and `cmd /c ver` (Windows) that works. A missing executable rejects, so each is tried in turn. Null when none does.
+ */
+async function readOs($: Engine): Promise<string | null> {
+  const run = async (argv: string[]) => {
+    const res = await $.process.run(argv, { timeoutMs: 2000 });
+    return res.exitCode === 0 ? res.stdout : null;
+  };
+  return (
+    (await attempt(async () => osFromSwVers(await run(['sw_vers'])), null)) ??
+    (await attempt(async () => osFromOsRelease((await $.fs.read('/etc/os-release')) as string), null)) ??
+    (await attempt(async () => osFromVer(await run(['cmd', '/c', 'ver'])), null))
+  );
 }
 
 async function attempt<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -1113,6 +1200,253 @@ function messagesLine($: Engine, r: Runtime): void {
   transcriptLine($, LINE_MESSAGES_ON);
 }
 
+// ---- orchestrator messaging: the reply (#414) ------------------------------------------------------------------
+
+function peerPath(sessionId: string, rest: string): string {
+  return `${sessionPath(sessionId)}/peers${rest}`;
+}
+
+/** What became of a peer delivery: through the peer route, never responding's, from the same queue of 50. */
+function queuePeerResult(sessionId: string, deliveryId: string, result: PeerResult): void {
+  queueOut({ path: peerPath(sessionId, `/deliveries/${encodeURIComponent(deliveryId)}/result`), body: { result, at: nowMs() } });
+}
+
+/** The reply's messaging fields. Unless the mod takes part, nothing in them is taken, whatever the reply says. */
+function handlePeers($: Engine, r: Runtime): void {
+  const deliveries = r.transport.peerDeliveries;
+  const requests = r.transport.peerRequests;
+  r.transport.peerDeliveries = [];
+  r.transport.peerRequests = [];
+  if (!peersOn(r)) return;
+  if (!peerToolsRegistered) {
+    peerToolsRegistered = true;
+    void registerPeerTools($);
+  }
+  for (const d of deliveries) peerDelivery($, r, d);
+  showRequests($, requests);
+}
+
+/** One message or notice, acted on once (responding's dedupe). A message only ever becomes a framed prompt. */
+function peerDelivery($: Engine, r: Runtime, d: PeerDelivery): void {
+  if (!markActed($, d.id)) return;
+  const sid = r.state.id;
+  if (d.kind === 'notice') {
+    // Podium's own sentence: a log line. The answer to an access request is also a turn, as the tool promised.
+    transcriptLine($, oneLine(d.text, 1000));
+    queuePeerResult(sid, d.id, 'took');
+    if (isAccessAnswer(d.text)) void submitNotice($, d.text);
+    return;
+  }
+  const text = peerPrompt(d);
+  if (!text) {
+    queuePeerResult(sid, d.id, 'refused');
+    return;
+  }
+  if (r.state.status === 'running') queuePeerResult(sid, d.id, 'queued');
+  void submitPeerMessage($, sid, d, text);
+}
+
+/** Another orchestrator's message: a turn of its own once the session is idle, under the plugin's name and Podium's frame. Never `asUser`. */
+async function submitPeerMessage($: Engine, sid: string, d: PeerDelivery, text: string): Promise<void> {
+  try {
+    // The resolved value is the record that it entered: the mod's own prompt.submit hook never sees its own call.
+    const res = await $.prompt.submit({ text });
+    if (!res || (res as { drop?: unknown }).drop !== undefined) throw new Error('the message did not enter');
+    if (d.from) transcriptLine($, deliveredLine(d.from));
+    queuePeerResult(sid, d.id, 'took');
+  } catch (err) {
+    record($, 'peers.submit', err);
+    queuePeerResult(sid, d.id, 'refused');
+  }
+}
+
+/** The answer to this orchestrator's access request, as a turn in Podium's own words. */
+async function submitNotice($: Engine, text: string): Promise<void> {
+  try {
+    await $.prompt.submit({ text: noticePrompt(text) });
+  } catch (err) {
+    record($, 'peers.notice', err);
+  }
+}
+
+/** The owner's open requests: each new one is a toast and a log line with its short id (the toast alone shows a message's text). */
+function showRequests($: Engine, list: PeerRequest[]): void {
+  peerOpen = list.map((q) => q.id);
+  for (const q of list) {
+    const seen = peerKnown.has(q.id);
+    peerKnown.delete(q.id);
+    peerKnown.set(q.id, q);
+    if (seen) continue;
+    const s = shortId(q.id);
+    try {
+      $.ui.toast(requestToast(q, s), { timeoutMs: 30_000 });
+    } catch {
+      // no toasts on this host
+    }
+    transcriptLine($, requestLine(q, s));
+  }
+  for (const id of peerKnown.keys()) {
+    if (peerKnown.size <= PEER_REQUESTS_KEPT) break;
+    peerKnown.delete(id);
+  }
+}
+
+/** The three tools, once the reply first says this session takes part (SPEC 5.3): never offered while it does not. */
+async function registerPeerTools($: Engine): Promise<void> {
+  try {
+    await $.tool.register({ name: 'podium_peers', description: TOOL_DESCRIPTIONS.peers, inputSchema: { type: 'object', properties: {} } });
+    await $.tool.register({
+      name: 'podium_send',
+      description: TOOL_DESCRIPTIONS.send,
+      inputSchema: {
+        type: 'object',
+        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine"' }, text: { type: 'string', description: 'The message' } },
+        required: ['to', 'text'],
+      },
+    });
+    await $.tool.register({
+      name: 'podium_request_access',
+      description: TOOL_DESCRIPTIONS.access,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          to: { type: 'string', description: 'A machine, or "name@machine"' },
+          right: { type: 'string', enum: ['see', 'send'], description: 'The right to ask for' },
+          reason: { type: 'string', description: 'Why, in a sentence' },
+        },
+        required: ['to', 'right', 'reason'],
+      },
+    });
+  } catch (err) {
+    peerToolsRegistered = false;
+    record($, 'tool.register', err);
+  }
+}
+
+// ---- orchestrator messaging: the tools (#414) ------------------------------------------------------------------
+
+/** The flush timer makes the calls the tools wait on, with the report's credential, held back while the report backs off. */
+async function sendPeerCalls($: Engine, r: Runtime, now: number): Promise<void> {
+  if (r.transport.online === false && now < r.transport.nextAttemptAt) return;
+  while (peerCalls.length) {
+    const call = peerCalls.shift()!;
+    if (call.abandoned) continue;
+    call.sent = true;
+    call.resolve(await podiumCall($, call.method, call.path, call.body));
+  }
+}
+
+type PeerCallOutcome = { status: number; text: string } | 'unreachable' | 'unanswered';
+
+/**
+ * Queues a call for the flush timer and waits for its answer, at most PEER_CALL_WAIT_MS. One the timer never started
+ * is taken back (nothing left the machine); one it started and that has not come back is `unanswered`.
+ */
+async function peerCall($: Engine, method: 'GET' | 'POST', path: string, body?: unknown): Promise<PeerCallOutcome> {
+  let resolve: PeerCall['resolve'] = () => {};
+  const answered = new Promise<{ status: number; text: string } | null>((res) => (resolve = res));
+  const call: PeerCall = { method, path, body, sent: false, abandoned: false, resolve };
+  peerCalls.push(call);
+  const timedOut = $.clock.sleep(PEER_CALL_WAIT_MS).then(
+    () => 'timeout' as const,
+    () => 'timeout' as const,
+  );
+  const out = await Promise.race([answered, timedOut]);
+  if (out === 'timeout') {
+    call.abandoned = true;
+    peerCalls = peerCalls.filter((c) => c !== call);
+    return call.sent ? 'unanswered' : 'unreachable';
+  }
+  return out ?? 'unreachable';
+}
+
+const UNREACHABLE = 'Podium cannot be reached from this machine right now, so nothing left it. Try again in a minute; /podium shows the connection.';
+const UNANSWERED = 'Podium did not answer in time. It may still have taken it: podium_peers and Podium > Traffic show what arrived.';
+
+/** The person the tools name: the reporter's user name. */
+function ownerName(): string {
+  return who.userName.trim() || 'your person';
+}
+
+/** The mod's refusal when it does not take part now. */
+function notTakingPart(prefix: string): string {
+  return refusalAnswer(prefix, opts.peers ? 'orchestrator messaging is not on for this session in Podium right now' : "messaging is off on this machine: turn on podium-reporter's peers option there");
+}
+
+/** A tool call that carries an `agentId` comes from a subagent (or one of the engine's own forks): refused, whoever it is. */
+function fromSubagent(e: { agentId?: unknown }): boolean {
+  return e.agentId !== undefined && e.agentId !== null;
+}
+
+/** Answers what came back from a call a tool made, or the refusal in Podium's words. */
+function peerOutcome(prefix: string, out: PeerCallOutcome, ok: (body: Record<string, unknown>) => string): string {
+  if (out === 'unreachable') return `${prefix} ${UNREACHABLE}`;
+  if (out === 'unanswered') return `${prefix} ${UNANSWERED}`;
+  if (out.status >= 200 && out.status < 300) {
+    try {
+      return ok(JSON.parse(out.text) as Record<string, unknown>);
+    } catch {
+      return `${prefix} Podium's answer could not be read.`;
+    }
+  }
+  return refusalAnswer(prefix, errorOf(out.text) ?? `Podium answered ${out.status}`);
+}
+
+async function peersTool($: Engine, e: { agentId?: unknown }): Promise<string> {
+  if (fromSubagent(e)) return SUBAGENT_PEERS;
+  const r = rt;
+  if (!peersOn(r)) return notTakingPart('Not listed.');
+  const out = await peerCall($, 'GET', peerPath(r.state.id, ''));
+  return peerOutcome('Not listed.', out, (body) => listAnswer(body, ownerName()));
+}
+
+async function sendTool($: Engine, e: { agentId?: unknown; to?: unknown; text?: unknown }): Promise<string> {
+  if (fromSubagent(e)) return SUBAGENT_SEND;
+  const r = rt;
+  if (!peersOn(r)) return notTakingPart('Not sent.');
+  const to = typeof e.to === 'string' ? e.to.trim() : '';
+  const raw = typeof e.text === 'string' ? e.text : '';
+  if (!to) return 'Not sent. Say who it is for: to is "name@machine", as podium_peers lists it.';
+  if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
+  // Secrets go before the text leaves the machine, with the same redactor as a file's diff (SPEC 6.4).
+  const red = redactText(raw);
+  const out = await peerCall($, 'POST', peerPath(r.state.id, '/messages'), { to, text: red.text });
+  return peerOutcome('Not sent.', out, (body) => sendAnswer(body, { owner: ownerName(), here: r.machine?.name ?? null, to, redactions: red.redactions }));
+}
+
+async function accessTool($: Engine, e: { agentId?: unknown; to?: unknown; right?: unknown; reason?: unknown }): Promise<string> {
+  if (fromSubagent(e)) return SUBAGENT_ACCESS;
+  const r = rt;
+  if (!peersOn(r)) return notTakingPart('Not asked.');
+  const to = typeof e.to === 'string' ? e.to.trim() : '';
+  if (!to) return 'Not asked. Say which machine: to is a machine, or "name@machine".';
+  if (e.right !== 'see' && e.right !== 'send') return 'Not asked. right must be see or send.';
+  const right = e.right;
+  const reason = typeof e.reason === 'string' ? redactText(e.reason).text : '';
+  const out = await peerCall($, 'POST', peerPath(r.state.id, '/access'), { to, right, reason });
+  return peerOutcome('Not asked.', out, (body) => accessAnswer(body, { owner: ownerName(), right, to }));
+}
+
+// ---- orchestrator messaging: answering a request in the terminal (#414) ----------------------------------------
+
+/** `/podium allow|decline|deliver <id>`: answered through the server's route, and the answer names the id. */
+async function answerRequest($: Engine, answer: 'allow' | 'decline' | 'deliver', arg: string): Promise<string> {
+  const r = rt;
+  if (!arg) return `Name the request: /podium ${answer} <id>. The id is in the request's toast and log line.`;
+  if (!r || !peersOn(r)) return 'Orchestrator messaging is not on in this session, so nothing can be answered here. Answer in Podium > My reporters.';
+  const found = findRequest([...peerKnown.values()], arg);
+  if (found && 'ambiguous' in found) return `More than one request starts with ${arg}: ${found.ambiguous.map((q) => q.id).join(', ')}. Use more of the id.`;
+  const q = found?.request ?? null;
+  const id = q?.id ?? (isRequestId(arg) ? arg.trim() : null);
+  if (!id) return `No request ${arg} has reached this session. Requests show here as they arrive, and in Podium > My reporters.`;
+  const s = q ? shortId(q.id) : arg;
+  const res = await podiumCall($, 'POST', peerPath(r.state.id, `/requests/${encodeURIComponent(id)}`), { answer });
+  if (!res) return `Request ${s} was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.`;
+  if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
+  peerOpen = peerOpen.filter((x) => x !== id);
+  return requestAnsweredLine(answer, s, q);
+}
+
 /**
  * The identity this session reports as (#226): the one it already holds (a reload re-runs register with the
  * options as they are now, which may be someone else's), else this terminal's PODIUM_USER and PODIUM_TOKEN,
@@ -1185,7 +1519,13 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   const r = rt;
   await readAgents($, r, now);
   try {
-    await $.command.register({ name: 'podium', description: 'Podium fleet console: link, connection state, and naming this session', argumentHint: '[name <text>]' });
+    // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
+    await $.command.register({
+      name: 'podium',
+      description: 'Podium fleet console: link, connection state, naming this session, and answering a messaging request',
+      argumentHint: '[name <text> | allow <id> | decline <id> | deliver <id>]',
+      immediate: true,
+    });
   } catch (err) {
     record($, 'command.register', err);
   }
@@ -1237,9 +1577,11 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   }
 }
 
-/** /podium and /podium name <text>. */
+/** /podium, /podium name <text>, and /podium allow|decline|deliver <id> (#414). */
 async function podiumCommand($: Engine, args: string): Promise<string> {
   const r = rt;
+  const verb = parseAnswer(args);
+  if (verb) return answerRequest($, verb.answer, verb.id);
   const m = /^name\s+([\s\S]+)$/i.exec(args.trim());
   if (m && r) {
     const name = m[1]!.trim().slice(0, 80);
@@ -1267,6 +1609,7 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     `Last error: ${t.lastError ?? errors[errors.length - 1]?.message ?? 'none'}`,
     `Session: ${r.state.id}${r.storedName ? ` (named "${r.storedName}")` : ''}`,
     describeBackground(r.state),
+    peersOn(r) ? openRequestsLine(peerOpen.map((id) => peerKnown.get(id)).filter((q): q is PeerRequest => !!q)) : '',
     hooks.length ? `Reporter time per hook: ${hooks.join('; ')}` : '',
     'Name this session: /podium name <text>',
   ]
@@ -1293,6 +1636,11 @@ export const register: Register = (on, rawOptions) => {
   checks = new Map();
   lastCalls = new Map();
   messagesLineShown = false;
+  for (const c of peerCalls) c.resolve(null);
+  peerCalls = [];
+  peerToolsRegistered = false;
+  peerKnown = new Map();
+  peerOpen = [];
 
   on('session.start', async ($, e, next) => {
     const res = await next(e);
@@ -1463,6 +1811,14 @@ export const register: Register = (on, rawOptions) => {
   on('tool.call', { tool: 'mcp__podium-reporter__plan' }, () => ({ result: { ok: true, note: 'Plan title recorded for the Podium fleet console.' } })).catch(
     () => ({ result: { ok: true, note: 'Plan title recorded for the Podium fleet console.' } }),
   );
+
+  // Orchestrator messaging (#414): each tool answered here in plain words, recorded by the hook above. A call with an
+  // agentId is a subagent's and is refused. With the option off they are never registered; one left from before a
+  // reload that turned it off is refused.
+  const peerFallback = { result: 'Podium did not answer in time. Try again in a minute.' };
+  on('tool.call', { tool: 'mcp__podium-reporter__podium_peers' }, async ($, e) => ({ result: await peersTool($, e as never) })).catch(() => peerFallback);
+  on('tool.call', { tool: 'mcp__podium-reporter__podium_send' }, async ($, e) => ({ result: await sendTool($, e as never) })).catch(() => peerFallback);
+  on('tool.call', { tool: 'mcp__podium-reporter__podium_request_access' }, async ($, e) => ({ result: await accessTool($, e as never) })).catch(() => peerFallback);
 
   on('skill.prompt', async ($, e, next) => {
     safe('skill.prompt', (r) => {

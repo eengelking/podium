@@ -163,3 +163,12 @@ export function redactDiff(diff: string): Redacted {
   })
   return { text: out.join('\n'), redactions: c.n }
 }
+
+/**
+ * Redacts free text with the same rules, every line read as a diff's context line (#414, a message to another
+ * orchestrator). Line breaks are kept, and a private key block across lines goes as it does in a diff.
+ */
+export function redactText(text: string): Redacted {
+  const r = redactDiff(text.split('\n').map((line) => ` ${line}`).join('\n'))
+  return { text: r.text.split('\n').map((line) => line.slice(1)).join('\n'), redactions: r.redactions }
+}

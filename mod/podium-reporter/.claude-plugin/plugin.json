@@ -85,6 +85,12 @@
         "everything"
       ],
       "default": "off"
+    },
+    "peers": {
+      "type": "boolean",
+      "title": "Message my other orchestrators",
+      "description": "Let this machine's orchestrators message your other orchestrators through Podium, within the rights you set in Podium > My reporters. Gives the main loop three tools (podium_peers, podium_send, podium_request_access); a subagent's call is refused. A message is sent with secrets replaced by [redacted], and one that arrives starts a new turn once this session is idle, marked as another agent's text that cannot approve anything. Needs the Podium server's Orchestrator messaging switch. Off by default.",
+      "default": false
     }
   }
 }

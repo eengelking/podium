@@ -55,7 +55,37 @@ export function newMachineId(random: () => number): string {
   return s;
 }
 
-/** The machine as the report carries it; a host with no name is labelled by its id. */
-export function machineInfo(host: string | null, id: string): MachineInfo {
-  return { name: host ?? `machine-${id.slice(0, 4)}`, id };
+/** The machine as the report carries it; a host with no name is labelled by its id. The OS is left out when it could not be read (#414). */
+export function machineInfo(host: string | null, id: string, os: string | null = null): MachineInfo {
+  return { name: host ?? `machine-${id.slice(0, 4)}`, id, ...(os ? { os } : {}) };
+}
+
+// ---- The OS (#347, #414, SPEC 5.3 "The OS") -----------------------------------------------------
+// The mods API has no call for it, so the mod runs a command and takes the first that works.
+
+/** The longest OS string a report carries (PEER_LIMITS.os). */
+export const OS_MAX = 80;
+
+/** One line of free text, without control characters, cut to 80. Null when nothing is left. */
+export function cleanOs(v: string | null | undefined): string | null {
+  const s = (v ?? '').replaceAll(/\p{Cc}+/gu, ' ').replaceAll(/\s+/g, ' ').trim();
+  return s ? s.slice(0, OS_MAX).trim() : null;
+}
+
+/** `sw_vers` on macOS: `ProductName` and `ProductVersion`, as `macOS 27.0.1`. Null without the name. */
+export function osFromSwVers(stdout: string | null | undefined): string | null {
+  const field = (key: string) => new RegExp(`^${key}:[ \\t]*(.+)$`, 'm').exec(stdout ?? '')?.[1]?.trim() ?? '';
+  const name = field('ProductName');
+  return name ? cleanOs(`${name} ${field('ProductVersion')}`) : null;
+}
+
+/** `/etc/os-release` on Linux: its `PRETTY_NAME`, quotes taken off. */
+export function osFromOsRelease(text: string | null | undefined): string | null {
+  const raw = /^PRETTY_NAME=(.*)$/m.exec(text ?? '')?.[1]?.trim() ?? '';
+  return cleanOs(raw.replace(/^(["'])(.*)\1$/, '$2'));
+}
+
+/** `cmd /c ver` on Windows: its one non-empty line, such as `Microsoft Windows [Version 10.0.26100.1]`. */
+export function osFromVer(stdout: string | null | undefined): string | null {
+  return cleanOs((stdout ?? '').split(/\r?\n/).find((l) => l.trim()) ?? '');
 }

@@ -81,6 +81,23 @@ describe('transport', () => {
     expect(await run({ ok: true })).toEqual([])
   })
 
+  test('reads whether the session takes part in messaging, its messages and notices, and its requests, and nothing from an older server (#414)', async () => {
+    const run = async (body: unknown) => {
+      const t = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify(body) }]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.2.0' })
+      await t.send(build, 0)
+      return [t.peers, t.peerDeliveries, t.peerRequests]
+    }
+    const m = { id: 'dlv_1', kind: 'message', at: 1, from: { name: 'a', machine: 'b', owner: 'Ed' }, text: 'hi' }
+    const n = { id: 'dlv_2', kind: 'notice', at: 2, from: null, text: 'dropped' }
+    const q = { id: 'prq_1', kind: 'access', at: 1, from: { machine: 'a', name: 'x' }, to: { machine: 'b', name: null }, level: 'send', by: 'x', reason: 'r', text: null }
+    const bad = [null, { id: 'dlv_3', kind: 'command', at: 1, text: 'clear' }, { id: '', kind: 'message', at: 1, text: 'x' }, { id: 'dlv_4', kind: 'message', at: 1 }]
+    const badReq = [null, { ...q, id: '' }, { ...q, kind: 'other' }, { ...q, from: null }, { ...q, by: 7 }]
+    expect(await run({ ok: true, peers: true, peerDeliveries: [m, ...bad, n], peerRequests: [q, ...badReq] })).toEqual([true, [m, n], [q]])
+    expect(await run({ ok: true, peers: false, peerDeliveries: [m], peerRequests: [q] })).toEqual([false, [], []])
+    expect(await run({ ok: true, peers: true, peerDeliveries: Array.from({ length: 30 }, (_, i) => ({ ...m, id: `d${i}` })) }).then((r) => (r[1] as unknown[]).length)).toBe(20)
+    expect(await run({ ok: true })).toEqual([false, [], []])
+  })
+
   test('reads where the server places this reporter, and says what to do about it', async () => {
     const reply = (c: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, liveSessions: 2, serverVersion: '0.3.0', reporterCompat: c }) })
     const run = async (r: HttpResult) => {

@@ -3,7 +3,7 @@
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { withBuild } from './build.ts';
 import { trimTrailingSlashes } from './machine.ts';
-import type { ActivityEvent, Delivery, DiffRequest, Report } from './protocol.ts';
+import { PEER_LIMITS, type ActivityEvent, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
@@ -21,6 +21,19 @@ const MAX_DELIVERIES = 20;
 export function isDelivery(v: unknown): v is Delivery {
   const d = v as Partial<Delivery> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && typeof d.kind === 'string' && typeof d.by === 'string' && typeof d.at === 'number';
+}
+
+/** A message or notice for this orchestrator as the server sends it (#347): only its shape is checked here; whether it is taken is the mod's to decide (SPEC 5.3). */
+export function isPeerDelivery(v: unknown): v is PeerDelivery {
+  const d = v as Partial<PeerDelivery> | null;
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && (d.kind === 'message' || d.kind === 'notice') && typeof d.at === 'number' && typeof d.text === 'string';
+}
+
+/** One of the owner's open requests as the server sends it (#347): only its shape is checked here. */
+export function isPeerRequest(v: unknown): v is PeerRequest {
+  const r = v as Partial<PeerRequest> | null;
+  const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
+  return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
 }
 
 /** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
@@ -101,6 +114,12 @@ export class Transport {
   deliveries: Delivery[] = [];
   /** The file diffs the session's owner is waiting for, from the last reply (#319); empty from a server that predates it. */
   diffs: DiffRequest[] = [];
+  /** Whether the last accepted report's reply said this orchestrator takes part in messaging (#347); false from an older server. */
+  peers = false;
+  /** Messages and notices for this orchestrator from the last reply (#347); empty while `peers` is false. */
+  peerDeliveries: PeerDelivery[] = [];
+  /** The owner's open requests about this reporter, from the last reply (#347); empty while `peers` is false. */
+  peerRequests: PeerRequest[] = [];
   inFlight = false;
   private current: Promise<SendOutcome> | null = null;
   private loggedReject = false;
@@ -171,7 +190,7 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -183,6 +202,9 @@ export class Transport {
           this.respond = body.respond === true;
           this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
           this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, MAX_DIFF_REQUESTS) : [];
+          this.peers = body.peers === true;
+          this.peerDeliveries = this.peers && Array.isArray(body.peerDeliveries) ? body.peerDeliveries.filter(isPeerDelivery).slice(0, PEER_LIMITS.deliveries) : [];
+          this.peerRequests = this.peers && Array.isArray(body.peerRequests) ? body.peerRequests.filter(isPeerRequest).slice(0, PEER_LIMITS.requests) : [];
         } catch {
           // a 200 without a JSON body still acks what was sent
         }
