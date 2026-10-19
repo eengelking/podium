@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Podium kanban board</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
-<!-- Mockup for issue #346, for approval; updated for #409 (running orchestrator and subagent counts at the top of the page) and #359 (the no-open-steps strip pinned to the bottom of the page). A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
+<!-- Mockup for issue #346, for approval; updated for #409 (running orchestrator and subagent counts at the top of the page) #359 (the no-open-steps strip pinned to the bottom of the page) and #426 (a Plans | All switch in the Board header). A read-only board of every active orchestrator's plan steps by state. Token values are copied from frontend/src/fleet/fleet.css, as in podium-orchestrator.html. -->
 <style>
 /* Layout: a review page. The controls bar above the specimen is page chrome; the specimen is the console under test and carries Podium's own tokens. */
 :root {
@@ -260,6 +260,7 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
       <label><input type="radio" name="data" value="many"><span>Many in strip (22)</span></label>
       <label><input type="radio" name="data" value="none"><span>None in strip</span></label>
       <label><input type="radio" name="data" value="noplans"><span>No plans at all</span></label>
+      <label><input type="radio" name="data" value="waiting"><span>Waiting, no plan</span></label>
       <label><input type="radio" name="data" value="large"><span>Large fleet</span></label>
     </fieldset>
     <fieldset><legend>Theme</legend>
@@ -283,9 +284,12 @@ button.evb:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
       <div><b>Narrow layout (#359)</b>On a phone the console stacks and the page scrolls as a whole with the legend at its end. There the strip is sticky to the bottom of the viewport, above the legend, with the same padding, and the board ends with the strip's height of room so it never hides the last card. This mockup's narrow frame is a fixed-height viewport, so it shows the same pinned strip.</div>
       <div><b>Which sessions count (decided)</b>Every session on the Fleet page is on the board: running, waiting, delegating, stale or ended. One with open steps fills columns. One with no plan, or with every step done, is listed in the strip under the board and still links to its page. A stale session's open steps show in their columns like any other.</div>
       <div><b>Done column (decided)</b>A done step stays until its orchestrator is finished, then its Done cards fall off. Finished means every step is done and the session is idle, stale or ended. A running session with every step done keeps its Done cards, with an "all done" mark on its lane. No new signal is sent.</div>
-      <div><b>Running counts (#409)</b>Two tiles under the Board header: Orchestrators running and Subagents running. They are the Fleet page's own KPI tiles (same classes, same label for subagents), so no new component. Both read the same two numbers the server already derives for the Fleet page (<code>Kpis.running</code> and <code>Kpis.agentsRunning</code>), and nothing new is sent or stored. The Board does not count on its own, so the two pages cannot disagree. The tile rules are the Fleet page's, unchanged, so the tiles wrap as the Fleet strip does, and the captions wrap and are never clipped. A number changing width does not move the columns, which sit below the strip. No flash or other animation: the number just changes. Proposed for the maintainer: the tile label \"Orchestrators running\" and the two captions are new wording on the existing tile (Fleet's first tile reads \"Orchestrators live\" with the running/waiting/stale split as its caption). If you would rather keep Fleet's exact tile, say so and the Board shows \"Orchestrators live\" instead.</div>
+      <div><b>Running counts (#409)</b>The first two of the tiles under the Board header (#426 adds two more, below): Orchestrators running and Subagents running. They are the Fleet page's own KPI tiles (same classes, same label for subagents), so no new component. Both read the same two numbers the server already derives for the Fleet page (<code>Kpis.running</code> and <code>Kpis.agentsRunning</code>), and nothing new is sent or stored. The Board does not count on its own, so the two pages cannot disagree. The tile rules are the Fleet page's, unchanged, so the tiles wrap as the Fleet strip does, and the captions wrap and are never clipped. A number changing width does not move the columns, which sit below the strip. No flash or other animation: the number just changes. Proposed for the maintainer: the tile label \"Orchestrators running\" and the two captions are new wording on the existing tile (Fleet's first tile reads \"Orchestrators live\" with the running/waiting/stale split as its caption). If you would rather keep Fleet's exact tile, say so and the Board shows \"Orchestrators live\" instead.</div>
       <div><b>What counts as running (#409)</b>Counted: an orchestrator whose status is running, and a subagent whose status is running (forks included). Not counted: an orchestrator waiting on its person, idle on background work, stale or ended; its subagents drop out once it ends. The caption under the orchestrator count says "of N live, M waiting", so a waiting session is visible without being counted. N is the server's <code>Kpis.live</code> (every session not yet dropped), and M is the server's waiting count, which leaves out a session idle on background work (#119); the page takes both from the server and never recounts. This specimen has no idle state to show. Fleet shows the running figure only as text in its first tile's caption; here it is a tile of its own. Try Simulate update 3 and 4: docs-sweep starts running (orchestrators +1), release-prep ends (orchestrators −1, subagents −1).</div>
       <div><b>Me and layout (#409, picked)</b>The counts always show the whole fleet. Mixed or By orchestrator, the Group filter and Me change which cards show, never the counts, so they equal the Fleet page's. While Me or a group is on, the caption under Subagents reads "whole fleet" and the tile group's name says so for screen readers.</div>
+      <div><b>Plans | All switch (#426, for approval)</b>A two-state switch, <b>Plans | All</b>, at the upper left of the Board header, right after the title. It is the page's own segmented control (the Board's <code>kb-seg</code> in the app, which also holds Mixed | By orchestrator), so no new component: two real buttons with <code>aria-pressed</code>, the same focus ring, reachable by Tab and operated with Enter or Space. <b>Plans</b> shows only orchestrators that have open steps, in the columns: today's page without the strip. <b>All</b> is today's page: the columns, plus the strip of sessions with no plan, an empty plan, or only done steps. The choice is kept in <code>localStorage</code> under <code>podium.board</code> with the Board's other preferences (a new <code>view</code> field) and survives a reload. After a press the focus stays on the pressed button, and the group is named "Sessions shown" for screen readers. The switch changes nothing in the tiles, the left list, or the Me, Group and Mixed | By orchestrator controls, which work in both modes. Try Plans and All on Busy fleet, None in strip, No plans at all and Waiting, no plan.</div>
+      <div><b>Plan figures move into the tile row (#426)</b>The sentence "5 orchestrators with open steps, 19 steps" is gone from the header. Its numbers are two more tiles in the same row, the Fleet page's own tile classes, so no new component. All four tiles are whole-fleet facts, so the switch, Me and Group change none of them, as the issue requires: <b>Orchestrators with plans</b> (5, "of 8 live", so the 3 sessions All adds in the strip are visible as the difference) and <b>Plan steps</b> (19, "6 done"). The old sentence said "open steps" but counted Done cards too; the tile says what it counts. While Me or a group is on, both captions read "whole fleet", as the Subagents tile does. Both numbers are worked out from the sessions the page already receives, so nothing new is sent or stored. Tiles are a fixed size, so nothing in the header or under it moves. On a narrow board the row is 2 by 2. With nothing to put in a column, the empty state in Plans reads "None of the 8 active sessions has open steps. Switch to All to list them."; in All it keeps today's wording. The labels and captions are new wording for the maintainer to approve.</div>
+      <div><b>Open questions, with a proposal to pick from (#426)</b><b>Default:</b> All, so nothing changes for anyone until they choose. <b>A plan whose steps are all done:</b> counts as having none (it is in the strip today, so only in All). <b>A session waiting on its person with no plan:</b> counts as having a plan, because it has a card in Review; it shows there in both modes and never in the strip (Waiting, no plan: api-explore). <b>Not changed:</b> the card design, the columns, the Fleet page, which sessions the Board receives, and the Me and Group filters. If you would rather have Plans as the default, or the strip hidden by Plans instead of removed, say so.</div>
       <div><b>Mixed or grouped</b>Mixed by default, so the board answers "what is in progress across everything". A toggle groups each column by orchestrator, with a lane label. The orchestrator name and model chip sit on every card in mixed view and drop off in grouped view.</div>
       <div><b>Limits</b>Each column scrolls inside itself and pages at 25 cards, with the same footer as the Files and Plan tabs ("Showing 1–25 of 40" and page buttons) at the bottom of the column. Empty columns say what they are waiting for. A 100-step plan fills one lane, never the page. Each column is at least 210px wide, so a board narrower than five of them scrolls sideways inside its own area; on a phone it becomes tabs.</div>
       <div><b>Left and right panels (decided from the running app)</b>The board is a page of the console, so it keeps the same top bar, banner, orchestrator list on the left and activity panel on the right, with the same edge tabs, <kbd>[</kbd> and <kbd>]</kbd> keys and <kbd>\</kbd> for the top bar. The left list, activity panel and legend are the same components as on the fleet page, not look-alikes: the list keeps its model chips, plan bars, agent counts, status dots and footer, and the activity panel its newest-first list. The board opens with both panels collapsed to their 24px edge tabs, so the five columns get the full width; open either from its tab. The board remembers its own panel state, separate from the fleet page's, so opening a panel here does not change the fleet page. A click on a row in the list still opens that orchestrator, and the activity panel shows the same events as on the fleet page. The top bar gets a Fleet button, which goes back to the fleet page, and a Board button, beside History; the page pill reads Board.</div>
@@ -348,7 +352,7 @@ const agentsOf = o => o.state === "ended" ? 0 : AGENTS[o.id] ?? (o.id[0] === "L"
 // The one definition, shared with the Fleet page (Kpis.running and Kpis.agentsRunning): an orchestrator counts when its status is running; waiting, idle on background work, stale and ended do not. A subagent counts when its own status is running.
 function counts(data) { return { orch: data.filter(o => o.state === "running").length, live: data.filter(o => o.state !== "ended").length, waiting: data.filter(o => o.state === "waiting").length, agents: data.reduce((n, o) => n + agentsOf(o), 0) }; }
 let ORCH = JSON.parse(JSON.stringify(ORCH0));
-const S = { info: false, signedIn: true, left: true, right: true, top: false, sim: 0, data: "busy", theme: "dark", width: "wide", group: false, me: false, tab: "active", pg: {} };
+const S = { view: "all", info: false, signedIn: true, left: true, right: true, top: false, sim: 0, data: "busy", theme: "dark", width: "wide", group: false, me: false, tab: "active", pg: {} };
 const PER = 25;
 const COLS = [["pending", "Pending", "Not started"], ["active", "In progress", ""], ["review", "Review", "Waiting on a person"], ["blocked", "Blocked", "Needs something"], ["done", "Done", "Until its orchestrator finishes"]];
 const EMPTY = {
@@ -383,6 +387,7 @@ function buildData() {
   if (S.data === "short") return [{ ...ORCH0[1], state: "running", steps: ORCH0[1].steps.slice(0, 2) }];
   if (S.data === "none") return ORCH0.filter(o => o.steps.length && !finished(o));
   if (S.data === "many") return ORCH0.concat(Array.from({ length: 19 }, (_, i) => ({ id: "m" + i, name: ["scratch", "api-explore", "notes", "triage", "spike", "demo", "lint-fix"][i % 7] + "-" + (i + 1), model: ["Opus", "Sonnet", "Haiku", "Fable"][i % 4], state: "running", steps: [], note: "" })));
+  if (S.data === "waiting") return ORCH.map(o => o.id === "o7" ? { ...o, state: "waiting" } : o);
   return S.data === "noplans" ? ORCH.map(o => ({ ...o, steps: [], note: o.note })) : S.data === "large" ? large().concat(ORCH.slice(4)) : ORCH;
 }
 
@@ -392,13 +397,17 @@ addEventListener("resize", measure);
 function render() {
   const data = buildData();
   const withPlan = data.filter(o => o.steps.length && !finished(o));
-  const without = data.filter(o => !o.steps.length || finished(o));
+  // A session with no plan that waits on its person has a Review card, so it is in a column in both modes and not in the strip (as in the running app).
+  const asking = data.filter(o => !o.steps.length && o.state === "waiting");
+  const without = data.filter(o => (!o.steps.length || finished(o)) && !asking.includes(o));
+  const plansOnly = S.view === "plans";
   const cols = COLS;
   const total = withPlan.reduce((n, o) => n + o.steps.filter(s => s[0] !== "done").length + o.steps.filter(s => s[0] === "done").length, 0);
   const ctab = cols.some(c => c[0] === S.tab) ? S.tab : "active";
 
   const buckets = Object.fromEntries(cols.map(c => [c[0], []]));
   for (const o of withPlan) o.steps.forEach((s, k) => buckets[colOf(o, s[0])]?.push([o, s, k]));
+  for (const o of asking) buckets.review.push([o, ["active", "Waiting on you: which branch should this start from?", "", ""], "w"]);
   // The step that changed last comes first; the rest keep plan order.
   for (const k in buckets) buckets[k].sort((a, b) => (b[1][4] || 0) - (a[1][4] || 0));
 
@@ -432,14 +441,21 @@ function render() {
   const tabs = '<div class="tabs" role="tablist" aria-label="Board columns">' + cols.map(([k, l]) =>
     '<button role="tab" aria-selected="' + (k === ctab) + '" data-tab="' + k + '">' + l + '<span class="n">' + buckets[k].length + '</span></button>').join("") + '</div>';
 
-  const noplan = without.length ? '<section class="noplan" aria-label="Sessions with no open steps">' +
+  const noplan = without.length && !plansOnly ? '<section class="noplan" aria-label="Sessions with no open steps">' +
     '<div class="noplan-h"><b>' + without.length + ' ' + (without.length === 1 ? "session has" : "sessions have") + ' no open steps</b><button class="info" data-info aria-label="How to get steps here" aria-expanded="' + S.info + '" aria-controls="how"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v3.6M8 5.1v.1"/></svg></button><span>' +
     (data.length === without.length ? "Podium builds the board from each session's task list." : "Every session on the Fleet page is here. These have nothing to show in a column.") + '</span></div>' +
     '<div class="list"><ul>' + without.map(o => '<li><a href="#orchestrator-' + o.id + '"><i class="sq" style="--fam:' + FAM[o.model] + '"></i>' + esc(o.name) + (o.steps.length ? " · all done" : o.note ? " · " + esc(o.note) : " · no plan") + '</a></li>').join("") + '</ul></div>' +
     '<div class="how" id="how" role="note"' + (S.info ? "" : " hidden") + '>Podium builds the board from each session\'s task list. Start Claude Code with <code>CLAUDE_CODE_ENABLE_TODO_TOOLS=1</code> or add it to the <code>env</code> block of <code>~/.claude/settings.json</code>, then ask Claude to track the work as a task list. <a href="#gotcha">A session shows no plan</a></div></section>' : "";
 
-  const board = withPlan.length ? '<div class="board">' + colHtml + '</div>' : '<div class="blank"><b>No plans on the board</b><p>' +
-    (data.length ? "None of the " + data.length + " active sessions has a task list yet. Sessions with no plan are listed below." : "No sessions are active.") + '</p></div>';
+  // Plan figures (#426): whole-fleet like the two tiles before them, so neither the switch nor Me and Group changes any tile. Under a filter the captions say so, as the Subagents tile does.
+  const done = withPlan.reduce((n, o) => n + o.steps.filter(x => x[0] === "done").length, 0);
+  const whole = S.me || S.group;
+  const boardTiles = '<div class="kpi"><div class="k">Orchestrators with plans</div><div class="v mono">' + withPlan.length + '</div><div class="kpi-cap">' + (whole ? 'whole fleet' : 'of ' + data.filter(o => o.state !== "ended").length + ' live') + '</div></div>' +
+    '<div class="kpi"><div class="k">Plan steps</div><div class="v mono">' + total + '</div><div class="kpi-cap">' + (whole ? 'whole fleet' : done + ' done') + '</div></div>';
+  const blankText = !data.length ? "No sessions are active." : plansOnly
+    ? "None of the " + data.length + " active sessions has open steps. Switch to All to list them."
+    : "None of the " + data.length + " active sessions has a task list yet. Sessions with no plan are listed below.";
+  const board = withPlan.length || asking.length ? '<div class="board">' + colHtml + '</div>' : '<div class="blank"><b>No plans on the board</b><p>' + blankText + '</p></div>';
 
   const topbar = '<header class="top" id="podium-top"' + (S.top ? " hidden" : "") + '><a class="logo" href="#fleet" aria-label="Podium, fleet">' + LOGO + 'Podium</a><span class="pill">Board</span>' +
     '<span class="pill"><i class="dot"></i>4 reporters live</span><span class="sp"></span>' +
@@ -450,9 +466,9 @@ function render() {
 
   const FAMN = { Opus: "opus", Sonnet: "sonnet", Haiku: "haiku", Fable: "fable" };
   const cn = counts(data);
-  const kpis = '<div class="kpis" role="group" aria-label="Running now' + ((S.me || S.group) ? ', whole fleet' : '') + '">' +
+  const kpis = '<div class="kpis" role="group" aria-label="Running now and plans, whole fleet">' +
     '<div class="kpi"><div class="k">Orchestrators running</div><div class="v mono">' + cn.orch + '</div><div class="kpi-cap">of ' + cn.live + ' live' + (cn.waiting ? ', ' + cn.waiting + ' waiting' : '') + '</div></div>' +
-    '<div class="kpi"><div class="k">Subagents running</div><div class="v mono">' + cn.agents + '</div><div class="kpi-cap">' + ((S.me || S.group) ? 'whole fleet' : 'forks included') + '</div></div></div>';
+    '<div class="kpi"><div class="k">Subagents running</div><div class="v mono">' + cn.agents + '</div><div class="kpi-cap">' + ((S.me || S.group) ? 'whole fleet' : 'forks included') + '</div></div>' + boardTiles + '</div>';
   const chip = m => '<span class="chip" style="--c:' + FAM[m] + '"><i></i>' + m + '</span>';
   const split = { r: data.filter(o => o.state === "running").length, w: data.filter(o => o.state === "waiting").length, st: data.filter(o => o.state === "stale").length };
   const ritem = o => { const d = o.steps.filter(x => x[0] === "done").length, n = o.steps.length;
@@ -472,15 +488,15 @@ function render() {
     (lastNote ? evRow("14:03", newEvent ? "new" : "", lastNote[0], lastNote[1], "", lastNote[2]) : "") + evs + '</ul><div class="more"><span>Showing ' + (EVENTS.length + (lastNote ? 1 : 0)) + ' of ' + (EVENTS.length + (lastNote ? 1 : 0)) + '</span></div></div></aside>';
   const legend = '<footer class="legend" aria-label="Legend"><span><i class="a"></i>subagent (blank slate)</span><span><i class="a f"></i>fork (keeps context)</span><span><i class="a q"></i>queued</span><span><i class="a d"></i>done</span><span>Square color is the model: ' + ["Opus", "Sonnet", "Haiku", "Fable"].map(chip).join(" ") + '</span></footer>';
 
-  const demo = '<div class="demo"><b>Mockup for #346 and #359.</b><button class="btn" data-sim' + (S.sim >= 4 ? " disabled" : "") + '>' + (S.sim >= 4 ? "All 4 updates played" : "Simulate update (" + (S.sim + 1) + " of 4)") + '</button><button class="btn" data-reset>Reset</button><button class="btn" data-sign aria-pressed="' + S.signedIn + '">' + (S.signedIn ? "Signed in as Ed" : "Signed out") + '</button><span>' + SIMTEXT[Math.min(S.sim, 3)] + '</span></div>';
+  const demo = '<div class="demo"><b>Mockup for #346, #359 and #426.</b><button class="btn" data-sim' + (S.sim >= 4 ? " disabled" : "") + '>' + (S.sim >= 4 ? "All 4 updates played" : "Simulate update (" + (S.sim + 1) + " of 4)") + '</button><button class="btn" data-reset>Reset</button><button class="btn" data-sign aria-pressed="' + S.signedIn + '">' + (S.signedIn ? "Signed in as Ed" : "Signed out") + '</button><span>' + SIMTEXT[Math.min(S.sim, 3)] + '</span></div>';
 
   const keep = { board: $(".board")?.scrollLeft || 0, main: $(".centre-in")?.scrollTop || 0, cols: [...document.querySelectorAll(".col-b")].map(e => e.scrollTop) };
   $("#spec").innerHTML = '<div class="shell ' + (S.theme === "dark" ? "th-dark" : "th-light") + (S.width === "narrow" ? " narrow" : "") + '"><div class="tag">#/board · ' + S.theme + ' · ' + S.width + '</div>' + demo +
     '<div class="app">' + topbar + banner + '<div class="cols' + (S.left ? " l-off" : "") + (S.right ? " r-off" : "") + '">' + rail +
-    '<div class="centre"><div class="centre-wrap"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="sum">' + withPlan.length + ' orchestrators with open steps, ' + total + ' steps</span><span class="sp"></span>' +
+    '<div class="centre"><div class="centre-wrap"><main class="centre-in" id="podium-main"><div class="bh"><h3>Board</h3><span class="seg" role="group" aria-label="Sessions shown"><button aria-pressed="' + plansOnly + '" data-view="plans">Plans</button><button aria-pressed="' + !plansOnly + '" data-view="all">All</button></span><span class="sp"></span>' +
     '<span class="seg" role="group" aria-label="Layout"><button aria-pressed="' + !S.group + '" data-group="0">Mixed</button><button aria-pressed="' + S.group + '" data-group="1">By orchestrator</button></span>' +
     '<select class="sel" aria-label="Group"><option>All groups</option><option>Platform</option><option>Docs</option></select>' + (S.signedIn ? '<button class="chipf" aria-pressed="' + S.me + '" data-me>Me</button>' : '') + '</div>' + kpis +
-    (withPlan.length ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
+    (withPlan.length || asking.length ? tabs : "") + board + '</main>' + noplan + '</div>' + legend + '</div>' + side + '</div></div>' +
     '<div class="live" role="status" aria-live="polite">' + esc(lastNote ? lastNote[0] + " " + lastNote[1] : "") + '</div></div>';
   measure();
   const b = $(".board"); if (b) b.scrollLeft = keep.board;
@@ -530,13 +546,14 @@ document.addEventListener("change", e => {
   newEvent = false; render();
 });
 document.addEventListener("click", e => {
-  const t = e.target.closest("[data-tab],[data-group],[data-me],[data-pane],[data-top],[data-sim],[data-reset],[data-sign],[data-pg],[data-info]"); if (!t) return;
+  const t = e.target.closest("[data-tab],[data-group],[data-view],[data-me],[data-pane],[data-top],[data-sim],[data-reset],[data-sign],[data-pg],[data-info]"); if (!t) return;
   if (t.hasAttribute("data-sim")) return simulate();
   if (t.hasAttribute("data-reset")) { ORCH = JSON.parse(JSON.stringify(ORCH0)); S.sim = 0; lastNote = ""; newEvent = false; return render(); }
   if (t.hasAttribute("data-info")) { S.info = !S.info; }
   else if (t.hasAttribute("data-sign")) { S.signedIn = !S.signedIn; if (!S.signedIn) S.me = false; }
   else if (t.dataset.pg) { const [k, n] = t.dataset.pg.split(":"); S.pg[k] = +n; }
   else if (t.dataset.tab) S.tab = t.dataset.tab;
+  else if (t.dataset.view) { S.view = t.dataset.view; newEvent = false; render(); return $('[data-view="' + S.view + '"]')?.focus(); }
   else if (t.dataset.group) S.group = t.dataset.group === "1";
   else if (t.dataset.pane) S[t.dataset.pane] = !S[t.dataset.pane];
   else if (t.hasAttribute("data-top")) S.top = !S.top;
