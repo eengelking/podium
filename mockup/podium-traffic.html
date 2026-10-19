@@ -1,0 +1,393 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Traffic</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #347: Traffic, a console page that maps which orchestrators message which. Machines are boxes, orchestrators
+   are nodes inside them with the app's status shapes, and a line joins two orchestrators that have messaged each other.
+   A thicker line carries more messages, as a second signal; a line's state is its dash pattern, an icon and a word. Each
+   line is a real link that opens the conversation beside the map, with Pause link and Remove link on it. The Table view
+   is the same links as text, and the narrow width opens on it. The idea follows a service mesh's traffic map
+   (NeuVector, Istio's Kiali). Only one person's own reporters appear. A conversation's text opens only for its owner and an
+   Admin, as a file's diff does (#319); anyone else sees that two orchestrators talk, and the counts.
+   The conversation reuses the Activity feed (.feed, .rd): one entry per message, the text drawn as text, never as HTML.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Classes that start with pm- are
+   new: pm-split, pm-map (the diagram and its panel) and pm-state (a link's state). Example data only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1280px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage .podium .adminv .apage { overflow: visible; }
+/* Approved by the maintainer for #347: more room after "Signed in as Ed", now that a button follows it (16 px in all). */
+.podium .tb-who { margin-right: 8px; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+
+.pm-tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--grid); }
+.pm-tools .grow { flex: 1; }
+
+.pm-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); min-height: 460px; }
+.pm-left { border-right: 1px solid var(--grid); min-width: 0; display: grid; grid-template-rows: 1fr auto; }
+.pm-mapscroll { overflow-x: auto; padding: 8px; }
+.pm-map { display: block; width: 100%; min-width: 600px; height: auto; font-family: var(--font-ui); }
+.pm-map .mbox { fill: var(--bg); stroke: var(--axis); stroke-dasharray: 4 4; }
+.pm-map .mlabel { fill: var(--ink); font-size: 13px; font-weight: 650; }
+.pm-map .mos { fill: var(--muted); font-size: 11px; }
+.pm-map .node circle.bg { fill: var(--surface); stroke: var(--axis); stroke-width: 1.5; }
+.pm-map .node .nm { fill: var(--ink); font-size: 12px; font-weight: 600; }
+.pm-map .node .st { fill: var(--muted); font-size: 11px; }
+.pm-map .node .si { color: var(--ink2); }
+.pm-map .node.running .si { color: var(--good); }
+.pm-map .node.waiting .si { color: var(--warn); }
+.pm-map .edge .ln { fill: none; stroke: var(--ink2); stroke-linecap: round; }
+.pm-map .edge.waiting .ln { stroke: var(--warn); stroke-dasharray: 7 5; }
+.pm-map .edge.paused .ln { stroke: var(--muted); stroke-dasharray: 1 6; }
+.pm-map .edge .hit { fill: none; stroke: transparent; stroke-width: 22; }
+.pm-map a.edge { cursor: pointer; }
+.pm-map a.edge:hover .ln { stroke: var(--ink); }
+.pm-map a.edge.sel .ln { stroke: var(--sonnet); }
+.pm-map a.edge:focus { outline: none; }
+.pm-map a.edge:focus-visible .ring { stroke: var(--sonnet); stroke-width: 2; }
+.pm-map .ring { fill: none; stroke: transparent; }
+.pm-map .pill rect.face { fill: var(--surface); stroke: var(--axis); }
+.pm-map a.edge.sel .pill rect.face { stroke: var(--sonnet); }
+.pm-map .edge.waiting .pill rect.face { stroke: var(--warn); }
+.pm-map .pill text { fill: var(--ink); font-size: 11px; }
+.pm-map .pill .ic { color: var(--ink2); }
+.pm-map .edge.waiting .pill .ic { color: var(--warn); }
+.pm-map .ah { fill: var(--ink2); }
+.pm-map .ah.waiting { fill: var(--warn); }
+.pm-map .ah.paused { fill: var(--muted); }
+.pm-map .ah.sel { fill: var(--sonnet); }
+.pm-left .legend { justify-content: flex-start; text-align: left; border-top: 1px solid var(--grid); }
+.pm-left .legend svg { width: 34px; height: 10px; flex: none; }
+.pm-key-ink { color: var(--ink2); }
+.pm-key-warn { color: var(--warn); }
+.pm-key-muted { color: var(--muted); }
+
+.pm-state { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.pm-state svg { width: 14px; height: 14px; flex: none; }
+.pm-state.waiting { color: var(--warn-text); }
+.pm-state.paused { color: var(--muted); }
+
+/* The conversation: a header, then the Activity feed, one entry per message. */
+.pm-conv { display: grid; min-width: 0; padding: 12px 16px; gap: 10px; align-content: start; }
+.pm-conv h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+.pm-conv h2 .sep { color: var(--muted); }
+.pm-conv .sub { font-size: 12px; color: var(--muted); display: flex; gap: 4px 12px; flex-wrap: wrap; align-items: center; }
+.pm-conv .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.pm-conv .cap { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
+.pm-conv .feed { height: auto; max-height: 460px; }
+.pm-conv .feed .body { white-space: pre-wrap; color: var(--ink); }
+.pm-conv .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
+.pm-conv .feed .ds { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
+.pm-conv .feed .ds svg { width: 12px; height: 12px; flex: none; }
+.pm-conv .feed .ds.wait { color: var(--warn-text); }
+.pm-conv .feedfoot { margin-top: 0; }
+
+.stage.narrow .pm-split { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .pm-left { border-right: 0; border-bottom: 1px solid var(--grid); }
+@media (max-width: 900px) {
+  .pm-split { grid-template-columns: minmax(0, 1fr); }
+  .pm-left { border-right: 0; border-bottom: 1px solid var(--grid); }
+}
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Traffic (#347)</b>
+  <span class="grp" role="group" aria-label="Viewer">Viewer
+    <button type="button" data-viewer="owner" aria-pressed="true">Ed, signed in</button>
+    <button type="button" data-viewer="other" aria-pressed="false">Not signed in</button>
+  </span>
+  <span class="grp" role="group" aria-label="Case">Case
+    <button type="button" data-case="full" aria-pressed="true">Four links</button>
+    <button type="button" data-case="empty" aria-pressed="false">None yet</button>
+    <button type="button" data-case="error" aria-pressed="false">Pause failed</button>
+    <button type="button" data-case="long" aria-pressed="false">Long names</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  'use strict';
+  var I = {
+    logo: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path></svg>',
+    me: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"></circle><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"></path></svg>',
+    pause: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg>',
+    clock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/></svg>',
+    ok: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>',
+    queue: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg>',
+    active: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h12M10 4l4 4-4 4"/></svg>',
+    msg: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>'
+  };
+  // The app's status shapes (components/Chips.tsx StateIcon), drawn at a node's centre.
+  var SHAPE = {
+    running: '<path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="none"/>',
+    waiting: '<circle cx="8" cy="8" r="6"/><path d="M8 4.8v3.8M8 11v.1" stroke-width="1.9"/>'
+  };
+  var MACHINES = [
+    { id: 'ed-mbp', os: 'macOS 26.1', x: 30, y: 30, w: 270, h: 360 },
+    { id: 'ci-runner-01', os: 'Ubuntu 24.04', x: 600, y: 30, w: 270, h: 160 },
+    { id: 'build-pi', os: 'Debian 12, arm64', x: 600, y: 230, w: 270, h: 160 }
+  ];
+  var NODES = {
+    'claude-dashboard': { m: 'ed-mbp', x: 165, y: 130, st: 'running', w: 'Running' },
+    'infra-notes': { m: 'ed-mbp', x: 165, y: 300, st: 'waiting', w: 'Waiting' },
+    'Tester': { m: 'ci-runner-01', x: 735, y: 115, st: 'running', w: 'Running' },
+    'arm64-check': { m: 'build-pi', x: 735, y: 315, st: 'running', w: 'Running' }
+  };
+  var LONG = { 'claude-dashboard': 'claude-dashboard-issue-347-peer-messaging', 'ed-mbp': 'ed-macbook-pro-16-inch-2026-home-office' };
+  var EDGES = [
+    { id: 'e1', a: 'claude-dashboard', b: 'Tester', n: 5, st: 'active', last: '1 min ago', trips: 2,
+      msgs: [
+        { f: 'claude-dashboard', t: '13:52', ds: ['ok', 'Delivered at 13:52. Tester was waiting.'], tx: 'Please run the systemd unit tests on this branch:\ngit fetch && git checkout issue/412-systemd-units\nnpm run test:systemd\nReport each failure with the unit name.' },
+        { f: 'Tester', t: '13:58', ds: ['ok', 'Delivered at 14:01, when claude-dashboard\'s turn ended.'], tx: '2 of 14 failed on Ubuntu 24.04, systemd 255:\n- podium.service: ExecStart points at /usr/local/bin, the package installs to /usr/bin.\n- podium-reporter.timer has no [Install] section, so enable does nothing.' },
+        { f: 'claude-dashboard', t: '14:06', ds: ['ok', 'Delivered at 14:06.'], tx: 'Pushed the fix as 8c1f2e0. Rerun the two units. If the fetch asks, use the token [redacted].' },
+        { f: 'Tester', t: '14:09', ds: ['ok', 'Delivered at 14:12, when claude-dashboard\'s turn ended.'], tx: 'All 14 pass. Logs are in /tmp/systemd-run-2.log on ci-runner-01. Questions go to [redacted].' },
+        { f: 'claude-dashboard', t: '14:13', ds: ['queue', 'Waiting: Tester is working. It gets this when its turn ends.'], tx: 'Thanks. Can you run the same on Debian 12 next?' }
+      ] },
+    { id: 'e2', at: 0.74, a: 'claude-dashboard', b: 'arm64-check', n: 2, st: 'waiting', oneway: true, last: '4 min ago', trips: 0,
+      msgs: [
+        { f: 'claude-dashboard', t: '14:02', ds: ['ok', 'Delivered at 14:04, after Ed approved it.'], tx: 'Build podium-reporter for arm64 and tell me the binary size.' },
+        { f: 'claude-dashboard', t: '14:10', ds: ['clock', 'Waiting for Ed to approve it, in My reporters or in a session on build-pi.'], tx: 'Also run npm run test:mod there. The registry token is [redacted].' }
+      ] },
+    { id: 'e3', at: 0.26, a: 'infra-notes', b: 'Tester', n: 2, st: 'active', last: '22 min ago', trips: 1,
+      msgs: [
+        { f: 'infra-notes', t: '13:40', ds: ['ok', 'Delivered at 13:40.'], tx: 'What version of systemd does ci-runner-01 have?' },
+        { f: 'Tester', t: '13:41', ds: ['ok', 'Delivered at 13:44, when infra-notes\'s turn ended.'], tx: 'systemd 255 (255.4-1ubuntu8).' }
+      ] },
+    { id: 'e4', a: 'claude-dashboard', b: 'infra-notes', n: 3, st: 'paused', last: '1 h ago', trips: 1,
+      msgs: [
+        { f: 'claude-dashboard', t: '12:58', ds: ['ok', 'Delivered at 12:58.'], tx: 'Add the systemd install steps to your notes when they are settled.' },
+        { f: 'infra-notes', t: '13:02', ds: ['ok', 'Delivered at 13:05.'], tx: 'Will do. Send me the final unit files.' },
+        { f: 'claude-dashboard', t: '13:20', ds: ['pause', 'Held: Ed paused this link at 13:21. It goes when the link resumes.'], tx: 'Here are the unit files, in the branch issue/412-systemd-units.' }
+      ] }
+  ];
+  var S = { viewer: 'owner', kase: 'full', view: 'map', range: 'live', sel: 'e1', removing: false, pauseErr: false };
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+  function nm(id) { return S.kase === 'long' && LONG[id] ? LONG[id] : id; }
+  function cut(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function edge(id) { for (var i = 0; i < EDGES.length; i++) if (EDGES[i].id === id) return EDGES[i]; return null; }
+  function where(e) { var a = NODES[e.a].m, b = NODES[e.b].m; return a === b ? esc(nm(a)) + ', same machine' : esc(nm(a)) + ' and ' + esc(nm(b)); }
+  function stateTag(e) {
+    if (e.st === 'waiting') return '<span class="pm-state waiting">' + I.clock + '<span>1 waiting for approval</span></span>';
+    if (e.st === 'paused') return '<span class="pm-state paused">' + I.pause + '<span>Paused</span></span>';
+    return '<span class="pm-state">' + I.active + '<span>Active</span></span>';
+  }
+  function announce(t) { document.getElementById('announce').textContent = t; }
+
+  function topBar() {
+    var me = S.viewer === 'owner'
+      ? '<span class="tb-me"><span class="tb-who">' + I.me + 'Signed in as <b>Ed</b></span><a class="btn" href="#/me/reporters">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button></span>'
+      : '<span class="tb-me"><button type="button" class="btn">Sign in</button></span>';
+    return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + I.logo + 'Podium</a>' +
+      '<span class="pill">Traffic</span><span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span>' +
+      '<a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/traffic" aria-current="page">Traffic</a>' +
+      '<button type="button" class="btn" aria-expanded="true" aria-controls="podium-top" title="Hide the top bar (\\)">Hide top bar</button><button type="button" class="btn wall-enter" aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">Wall mode</button>' +
+      '<span class="tb-sep" aria-hidden="true"></span>' + me + '</header>';
+  }
+
+  function mapSvg() {
+    var s = '<svg class="pm-map" viewBox="0 0 900 420" role="group" aria-label="Map of orchestrators and the messages between them. The Table view has the same links as text.">';
+    s += '<defs>' + ['active', 'waiting', 'paused', 'sel'].map(function (k) {
+      return '<marker id="ah-' + k + '" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="ah ' + k + '" d="M0 0L10 5L0 10z"/></marker>';
+    }).join('') + '</defs>';
+    MACHINES.forEach(function (m) {
+      var full = nm(m.id);
+      s += '<rect class="mbox" x="' + m.x + '" y="' + m.y + '" width="' + m.w + '" height="' + m.h + '" rx="10"/>';
+      s += '<text class="mlabel" x="' + (m.x + 14) + '" y="' + (m.y + 22) + '"><title>' + esc(full) + '</title>' + esc(cut(full, 30)) + '</text><text class="mos" x="' + (m.x + 14) + '" y="' + (m.y + 38) + '">' + esc(m.os) + '</text>';
+    });
+    EDGES.forEach(function (e) {
+      var A = NODES[e.a], B = NODES[e.b], w = Math.min(2 + e.n * 0.8, 7), d, mx, my;
+      if (A.m === B.m) { // same machine: bow the line out to the left
+        d = 'M' + (A.x - 22) + ' ' + A.y + ' C ' + (A.x - 110) + ' ' + (A.y + 40) + ', ' + (B.x - 110) + ' ' + (B.y - 40) + ', ' + (B.x - 22) + ' ' + B.y;
+        mx = A.x - 84; my = (A.y + B.y) / 2;
+      } else {
+        var ax = A.x + 24, bx = B.x - 24, t = e.at || 0.5, u = 1 - t;
+        d = 'M' + ax + ' ' + A.y + ' C ' + (ax + 140) + ' ' + A.y + ', ' + (bx - 140) + ' ' + B.y + ', ' + bx + ' ' + B.y;
+        // The count sits on the curve, at its own point along it, so labels where lines cross do not overlap.
+        mx = u * u * u * ax + 3 * u * u * t * (ax + 140) + 3 * u * t * t * (bx - 140) + t * t * t * bx;
+        my = u * u * u * A.y + 3 * u * u * t * A.y + 3 * u * t * t * B.y + t * t * t * B.y;
+      }
+      var mk = 'url(#ah-' + (S.sel === e.id ? 'sel' : e.st) + ')';
+      var ends = e.oneway ? ' marker-end="' + mk + '"' : ' marker-start="' + mk + '" marker-end="' + mk + '"';
+      var label = e.n + ' messages';
+      var icon = e.st === 'paused' || e.st === 'waiting';
+      var pw = 76 + (icon ? 16 : 0);
+      var aria = nm(e.a) + (e.oneway ? ' to ' : ' and ') + nm(e.b) + ', ' + label + ', ' + (e.st === 'waiting' ? 'one waiting for approval' : e.st);
+      s += '<a class="edge ' + e.st + (S.sel === e.id ? ' sel' : '') + '" href="#link-' + e.id + '" data-edge="' + e.id + '" aria-label="' + esc(aria) + '"' + (S.sel === e.id ? ' aria-current="true"' : '') + '>';
+      s += '<path class="hit" d="' + d + '"/><path class="ln" d="' + d + '" stroke-width="' + w + '"' + ends + '/>';
+      s += '<g class="pill" transform="translate(' + (mx - pw / 2) + ',' + (my - 11) + ')"><rect class="ring" x="-3" y="-3" width="' + (pw + 6) + '" height="28" rx="14"/><rect class="face" width="' + pw + '" height="22" rx="11"/>';
+      var tx = 10;
+      if (icon) { s += '<g class="ic" transform="translate(' + (tx - 2) + ',4) scale(0.875)" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">' + (e.st === 'paused' ? '<circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/>' : '<circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/>') + '</g>'; tx += 16; }
+      s += '<text x="' + tx + '" y="15">' + esc(label) + '</text></g></a>';
+    });
+    Object.keys(NODES).forEach(function (k) {
+      var n = NODES[k], full = nm(k);
+      s += '<g class="node ' + n.st + '"><circle class="bg" cx="' + n.x + '" cy="' + n.y + '" r="22"/>' +
+        '<svg class="si" x="' + (n.x - 9) + '" y="' + (n.y - 9) + '" width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SHAPE[n.st] + '</svg>' +
+        '<text class="nm" x="' + n.x + '" y="' + (n.y + 40) + '" text-anchor="middle"><title>' + esc(full) + '</title>' + esc(cut(full, 24)) + '</text>' +
+        '<text class="st" x="' + n.x + '" y="' + (n.y + 55) + '" text-anchor="middle">Orchestrator, ' + esc(n.w.toLowerCase()) + '</text></g>';
+    });
+    return s + '</svg>';
+  }
+  function legend() {
+    function sw(dash) { return '<svg viewBox="0 0 34 10" aria-hidden="true"><line x1="2" y1="5" x2="32" y2="5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"' + (dash ? ' stroke-dasharray="' + dash + '"' : '') + '/></svg>'; }
+    return '<div class="legend"><span><span class="pm-key-ink">' + sw('') + '</span>Active</span>' +
+      '<span><span class="pm-key-warn">' + sw('7 5') + '</span>A message waits for approval</span>' +
+      '<span><span class="pm-key-muted">' + sw('1 6') + '</span>Paused</span>' +
+      '<span>An arrow at one end: only that way can send</span><span>A thicker line carries more messages</span>' +
+      '<span>win-lab is not drawn: messaging is off on that machine</span></div>';
+  }
+  function table() {
+    var rows = EDGES.map(function (e) {
+      return '<tr class="rw' + (S.sel === e.id ? ' sel' : '') + '"><td><button type="button" class="rname" data-edge="' + e.id + '" title="' + esc(nm(e.a) + ' and ' + nm(e.b)) + '">' + esc(nm(e.a)) + (e.oneway ? ' to ' : ' and ') + esc(nm(e.b)) + '</button><span class="sub">' + where(e) + '</span></td>' +
+        '<td class="n mono">' + e.n + '</td><td class="mono muted nowrap">' + esc(e.last) + '</td><td class="n mono">' + (e.oneway ? 'n/a, one way' : e.trips + ' of 10') + '</td><td>' + stateTag(e) + '</td></tr>';
+    }).join('');
+    return '<div class="tw2 scroll" tabindex="0" aria-label="Links"><table class="ptab"><thead><tr><th>Link</th><th class="n">Messages</th><th>Last message</th><th class="n">Round trips</th><th>State</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="apager"><span class="hint" role="status">Showing 1 to 4 of 4</span></div>';
+  }
+  function conversation() {
+    var e = edge(S.sel);
+    var head = '<h2 id="conv-h">' + esc(nm(e.a)) + ' <span class="sep" aria-hidden="true">' + (e.oneway ? '→' : '⇄') + '</span><span class="vh">' + (e.oneway ? ' to ' : ' and ') + '</span> ' + esc(nm(e.b)) + '</h2>' +
+      '<div class="sub"><span>' + where(e) + '</span><span>' + e.n + ' messages</span>' + stateTag(e) + '</div>';
+    if (S.viewer !== 'owner') {
+      return '<section class="pm-conv" aria-labelledby="conv-h">' + head + '<div class="offnote"><b>Only Ed and an Admin can read this conversation.</b><span>Messages can hold source code and paths, so the text is not open to everyone who can see the console. Sign in as its owner to read it.</span></div></section>';
+    }
+    var acts = '<div class="acts"><button type="button" class="btn sm" data-act="pause" id="act-pause">' + (e.st === 'paused' ? 'Resume link' : 'Pause link') + '</button><button type="button" class="btn sm dng" data-act="remove" id="act-remove">Remove link…</button><a class="btn sm" href="#/me/reporters">Open My reporters</a></div>';
+    var err = S.pauseErr ? '<div class="errbox" role="alert">Could not pause the link: the server did not answer. The link is still active. Try again.</div>' : '';
+    var removing = S.removing ? '<div class="confirm">Remove the link between ' + esc(nm(NODES[e.a].m)) + ' and ' + esc(nm(NODES[e.b].m)) + '? Both directions lose every right, a message still waiting is dropped, and this conversation stays here until it expires.<button type="button" class="btn sm" data-act="keep">Keep it</button><button type="button" class="btn sm dng">Remove link</button></div>' : '';
+    var cap = e.oneway ? '<div class="cap"><span><b>arm64-check cannot answer.</b> build-pi cannot send to ed-mbp. Give it that right in My reporters if a reply is wanted.</span></div>'
+      : '<div class="cap"><span>' + e.trips + ' of 10 round trips. At 10, Ed approves the next message, so two orchestrators cannot keep going on their own.</span><div class="bar" role="img" aria-label="' + e.trips + ' of 10 round trips"><i data-w="' + (e.trips * 10) + '"></i></div></div>';
+    var feed = '<div class="feedwrap"><ol class="feed" id="conv-feed" aria-label="Messages, oldest first" tabindex="0"></ol></div>' +
+      '<div class="feedfoot"><span>Kept until 30 days after the last message. Secrets were replaced on the sending machine, before the message left it.</span></div>';
+    return '<section class="pm-conv" aria-labelledby="conv-h">' + head + acts + err + removing + cap + feed + '</section>';
+  }
+  // Each message is one feed entry. Its text is set as text; only Podium's own [redacted] marker is an element.
+  function fillFeed() {
+    Array.prototype.forEach.call(document.querySelectorAll('.bar i[data-w]'), function (i) { i.style.width = i.dataset.w + '%'; });
+    var ol = document.getElementById('conv-feed'); if (!ol) return;
+    var e = edge(S.sel);
+    e.msgs.forEach(function (m) {
+      var li = document.createElement('li'); li.className = 'txt';
+      var at = document.createElement('span'); at.className = 'at'; at.textContent = m.t; li.appendChild(at);
+      var k = document.createElement('span'); k.className = 'k'; k.setAttribute('role', 'img'); k.setAttribute('aria-label', 'Message'); k.title = 'Message'; k.innerHTML = I.msg; li.appendChild(k);
+      var body = document.createElement('span'); body.className = 'body';
+      var who = document.createElement('span'); who.className = 'who'; who.textContent = nm(m.f) + ' to ' + nm(m.f === e.a ? e.b : e.a); body.appendChild(who);
+      m.tx.split('[redacted]').forEach(function (part, i) {
+        if (i > 0) { var r = document.createElement('span'); r.className = 'rd'; r.title = 'Replaced on the sending machine. The original never left it.'; r.textContent = '[redacted]'; body.appendChild(r); }
+        body.appendChild(document.createTextNode(part));
+      });
+      var ds = document.createElement('span'); ds.className = 'ds' + (m.ds[0] === 'clock' || m.ds[0] === 'pause' ? ' wait' : '');
+      ds.innerHTML = I[m.ds[0]]; var dt = document.createElement('span'); dt.textContent = m.ds[1]; ds.appendChild(dt); body.appendChild(ds);
+      li.appendChild(body); ol.appendChild(li);
+    });
+  }
+  function radioGroup(attr, label, opts, cur) {
+    return '<div class="modeseg" role="radiogroup" aria-label="' + esc(label) + '">' + opts.map(function (o) {
+      return '<button type="button" role="radio" id="' + attr + '-' + o[0] + '" aria-checked="' + (o[0] === cur) + '" tabindex="' + (o[0] === cur ? 0 : -1) + '" data-' + attr + '="' + o[0] + '">' + esc(o[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function page() {
+    var head = '<div class="page-h"><div><h1>Traffic</h1><p class="lead">Messages between Ed\'s orchestrators, on every machine that reports here.</p></div></div>';
+    if (S.kase === 'empty') {
+      return head + '<div class="kb-blank"><b>No orchestrator has messaged another yet</b><p class="hint">A line appears here once one of your orchestrators sends a message. Choose which reporters can talk in My reporters.</p><a class="btn sm" href="#/me/reporters">Open My reporters</a></div>';
+    }
+    var left = S.view === 'map'
+      ? '<div class="pm-left"><div class="pm-mapscroll">' + mapSvg() + '</div>' + legend() + '</div>'
+      : '<div class="pm-left"><div>' + table() + '</div></div>';
+    return head +
+      '<section class="asec" aria-labelledby="map-h"><div class="asec-h"><div><h2 id="map-h">Who is talking</h2><p class="hint">A line joins two orchestrators that messaged each other. Select one to read the conversation.</p></div></div>' +
+      '<div class="panel"><div class="pm-tools"><span class="hint">Show</span>' + radioGroup('range', 'Show', [['live', 'Live sessions'], ['24h', 'Last 24 hours'], ['30d', 'Last 30 days']], S.range) +
+      '<span class="grow"></span><span class="hint">View</span>' + radioGroup('view', 'View', [['map', 'Map'], ['table', 'Table']], S.view) + '</div>' +
+      '<div class="pm-split">' + left + conversation() + '</div></div></section>' +
+      '<section class="asec" aria-labelledby="rules-h"><div class="asec-h"><div><h2 id="rules-h">What a line means</h2></div></div><div class="panel"><ul class="plain">' +
+      '<li>Messages go only between your own orchestrators, through this server. Agents they launched never receive one.</li>' +
+      '<li>A message reaches an orchestrator when its turn has ended. Until then it waits, and the conversation says so.</li>' +
+      '<li>Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions.</li>' +
+      '<li>Secrets, tokens and personal data are replaced on the sending machine before a message leaves it, so this server never holds them.</li>' +
+      '<li>Conversations are kept for 30 days (Admin &gt; Settings). Only you and an Admin can read them.</li></ul></div></section>';
+  }
+
+  function render() {
+    var active = document.activeElement && document.activeElement.id;
+    var app = document.getElementById('app');
+    app.innerHTML = topBar() + '<div class="adminv" aria-label="Traffic"><div class="apage"><div class="apage-in">' + page() + '</div></div></div>';
+    fillFeed();
+    wire(app);
+    if (active) { var el = document.getElementById(active); if (el) el.focus(); }
+  }
+  function choose(id) {
+    S.sel = id; S.removing = false; S.pauseErr = false; render();
+    var f = document.querySelector('[data-edge="' + id + '"]'); if (f) f.focus();
+    announce('Showing the conversation between ' + nm(edge(id).a) + ' and ' + nm(edge(id).b) + '.');
+  }
+  function wire(app) {
+    function each(sel, fn) { Array.prototype.forEach.call(app.querySelectorAll(sel), fn); }
+    each('[data-edge]', function (g) { g.addEventListener('click', function (ev) { ev.preventDefault(); choose(g.dataset.edge); }); });
+    each('[data-act]', function (x) {
+      x.addEventListener('click', function () {
+        var e = edge(S.sel), a = x.dataset.act;
+        if (a === 'pause') {
+          if (S.kase === 'error') { S.pauseErr = true; }
+          else { e.st = e.st === 'paused' ? 'active' : 'paused'; S.pauseErr = false; announce(e.st === 'paused' ? 'Link paused.' : 'Link resumed.'); }
+        }
+        if (a === 'remove') S.removing = true;
+        if (a === 'keep') S.removing = false;
+        render();
+      });
+    });
+    each('[data-view]', function (x) { x.addEventListener('click', function () { S.view = x.dataset.view; render(); }); });
+    each('[data-range]', function (x) { x.addEventListener('click', function () { S.range = x.dataset.range; render(); }); });
+    // A radio group moves with the arrow keys.
+    each('[role="radiogroup"]', function (g) {
+      g.addEventListener('keydown', function (ev) {
+        if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].indexOf(ev.key) < 0) return;
+        var items = Array.prototype.slice.call(g.querySelectorAll('[role="radio"]')), i = items.indexOf(document.activeElement);
+        if (i < 0) return;
+        var n = items[(i + (ev.key === 'ArrowRight' || ev.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
+        var nid = n.id; n.click(); var f = document.getElementById(nid); if (f) f.focus(); ev.preventDefault();
+      });
+    });
+  }
+  var root = document.documentElement;
+  function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.viewer) { S.viewer = b.dataset.viewer; press('data-viewer', S.viewer); render(); }
+    if (b.dataset['case']) { S.kase = b.dataset['case']; S.pauseErr = false; press('data-case', S.kase); render(); }
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1280px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      if (b.dataset.w === 'narrow') S.view = 'table';
+      press('data-w', b.dataset.w); render();
+    }
+  });
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>

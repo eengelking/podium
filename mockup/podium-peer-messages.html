@@ -1,0 +1,252 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Orchestrator Messages</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #347: how a message between two of one person's orchestrators is switched on, sent, approved and received.
+   1. Admin > Settings: the feature flag (off by default) and the limits, with a limit that fails validation.
+   2. In the sending session: what the tools return, including refusals and a failed delivery.
+   3. Approving a message: in My reporters > Waiting for you and in the terminal. Not the amber band or Respond, because
+      the receiving session is working, not waiting on its person.
+   4. In the receiving session: how the message reads, and an orchestrator asking for a right.
+   The terminals (pm-term) are an illustration of Claude Code, not Podium UI. Admin markup is the app's own
+   (docs/standards/components.html#admin-settings), consent is .confirm. Colors and fonts come from tokens.css through
+   fleet.css; this file has no :root block. Example data only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.wrap { max-width: var(--stage, 1100px); margin: 0 auto; padding: 20px 16px 64px; display: grid; gap: 28px; }
+main.wrap.narrow { --stage: 400px; }
+main.wrap > section > h2 { font-size: 16px; margin: 0 0 4px; }
+main.wrap > section > p.intro { margin: 0 0 12px; color: var(--ink2); max-width: 76ch; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
+.frame .adminv .apage { overflow: visible; }
+
+/* A Claude Code terminal, drawn plainly, as an illustration. */
+.pm-term { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--ink2); overflow-x: auto; display: grid; gap: 10px; }
+.pm-term .ln { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pm-term .you, .pm-term .tool { color: var(--ink); }
+.pm-term .res { border-left: 2px solid var(--axis); padding-left: 10px; }
+.pm-term .res.bad { border-left-color: var(--crit); }
+.pm-term .res.wait { border-left-color: var(--warn); }
+.pm-term .mod { color: var(--muted); }
+.pm-term .cap { font-family: var(--font-ui); font-size: 11px; color: var(--muted); }
+.pm-term .toast { justify-self: end; max-width: 460px; font-family: var(--font-ui); background: var(--raised); border: 1px solid var(--warn); border-radius: 8px; padding: 10px 12px; color: var(--ink); display: grid; gap: 4px; }
+.pm-term .toast .hint { color: var(--ink2); }
+.pm-term .peer { border: 1px solid var(--axis); border-radius: 6px; padding: 8px 10px; color: var(--ink); display: grid; gap: 6px; }
+.pm-term .peer .from { color: var(--ink2); }
+.pm-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.pm-cols > div { min-width: 0; display: grid; gap: 6px; }
+.pm-cols h3 { margin: 0; font-size: 13px; }
+.pm-cols p { margin: 0; color: var(--ink2); font-size: 12px; max-width: 60ch; }
+.pm-reqs { display: grid; gap: 10px; padding: 12px 16px; }
+.pm-reqs .confirm { align-items: flex-start; }
+.pm-reqs .confirm > .q { flex: 1 1 360px; min-width: 0; display: grid; gap: 4px; color: var(--ink); font-size: 13px; }
+.pm-quote { color: var(--ink2); border-left: 2px solid var(--axis); padding-left: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pm-quote .rd { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit-text); border-radius: 3px; padding: 0 3px; }
+.pm-limit-err { padding: 0 16px 12px; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Orchestrator messages (#347)</b>
+  <span class="grp" role="group" aria-label="Feature flag">Admin flag
+    <button type="button" data-flag="off" aria-pressed="true">Off (default)</button>
+    <button type="button" data-flag="on" aria-pressed="false">On</button>
+  </span>
+  <span class="grp" role="group" aria-label="Case">Case
+    <button type="button" data-case="ok" aria-pressed="true">Limits saved</button>
+    <button type="button" data-case="bad" aria-pressed="false">Limit not valid</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<main class="wrap" id="wrap">
+
+<section aria-labelledby="s1">
+  <h2 id="s1">1. Admin &gt; Settings</h2>
+  <p class="intro">One feature flag turns the whole feature on or off for the server, off by default. When it is off, the tools are not offered to sessions, My reporters hides its messaging sections, and Traffic leaves the top bar. The limits sit in their own section once the flag is on.</p>
+  <div class="frame podium">
+    <div class="adminv" aria-label="Admin">
+      <div class="apage"><div class="apage-in">
+        <div class="page-h"><div><h1>Settings</h1><p class="lead">Server-wide choices. A change applies to everyone on this server.</p></div></div>
+        <section class="asec" aria-labelledby="admin-features-h"><div class="asec-h"><div><h2 id="admin-features-h">Feature flags</h2><p class="hint">Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.</p></div></div>
+          <div class="panel">
+            <div class="srow"><div class="setname"><b id="set-feature-activity-feed-n">Agent activity feed</b><span class="fid">activity-feed</span><p class="hint ink2">Shows an agent's recent tool calls and text in its panel while someone watches.</p></div><div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="set-feature-activity-feed-n set-feature-activity-feed-s"></button><span id="set-feature-activity-feed-s">On</span></div></div>
+            <div class="srow"><div class="setname"><b id="set-feature-peer-n">Orchestrator messaging</b><span class="fid">peer-messaging</span><p class="hint ink2">Lets a person's orchestrators find and message each other, on the machines they choose, through this server. Only between one person's own reporters. Each machine must also turn it on in podium-reporter. Off by default.</p></div><div class="sw"><button type="button" role="switch" id="flag-sw" aria-checked="false" aria-labelledby="set-feature-peer-n set-feature-peer-s"></button><span id="set-feature-peer-s">Off</span></div></div>
+          </div>
+        </section>
+        <section class="asec" aria-labelledby="admin-peer-h" id="limits"><div class="asec-h"><div><h2 id="admin-peer-h">Orchestrator messaging</h2><p class="hint">Limits for every link on this server. A person can be stricter on their own links in My reporters, not looser.</p></div></div>
+          <div class="panel">
+            <div class="srow"><div class="setname"><label for="lim-trips"><b>Round trips before a person approves</b></label><p class="hint ink2">After this many exchanges on one link, the next message waits for its owner. Two orchestrators cannot answer each other without end.</p></div><input class="field mono daysbox" id="lim-trips" type="number" min="1" max="100" step="1" value="10" aria-describedby="lim-err"></div>
+            <div class="pm-limit-err" id="lim-err-wrap" hidden><div class="errbox" role="alert" id="lim-err">Round trips must be a whole number from 1 to 100. The saved value, 10, still applies.</div></div>
+            <div class="srow"><div class="setname"><label for="lim-rate"><b>Messages per minute on a link</b></label><p class="hint ink2">More than this is refused, and the sender is told to wait.</p></div><input class="field mono daysbox" id="lim-rate" type="number" min="1" max="60" step="1" value="6"></div>
+            <div class="srow"><div class="setname"><label for="lim-size"><b>Longest message, in characters</b></label><p class="hint ink2">A longer message is refused, and the sender is told the limit, so it can send a path instead of a file.</p></div><input class="field mono daysbox" id="lim-size" type="number" min="1000" max="100000" step="1000" value="20000"></div>
+            <div class="srow"><div class="setname"><label for="lim-keep"><b>Keep conversations, in days</b></label><p class="hint ink2">A conversation is deleted this long after its last message, or with its sessions. Each message is also written to the Admin log, without its text.</p></div><input class="field mono daysbox" id="lim-keep" type="number" min="1" max="365" step="1" value="30"></div>
+          </div>
+        </section>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s2">
+  <h2 id="s2">2. In the sending session</h2>
+  <p class="intro">podium-reporter gives an orchestrator three tools. <code>podium_peers</code> lists the orchestrators it can see, <code>podium_send</code> sends one a message, and <code>podium_request_access</code> asks its person for a right it lacks. Each answer says what happened in plain words, for the model and for the person reading the transcript.</p>
+  <div class="pm-cols">
+    <div><h3>Finding a Linux machine</h3>
+      <div class="pm-term" aria-label="Terminal on ed-mbp">
+        <div class="ln you">&gt; Which of my agents run on Linux? I need the systemd units tested.</div>
+        <div class="ln tool">⏺ podium_peers()</div>
+        <div class="ln res">Orchestrators you can see, on 2 of Ed's reporters:
+- Tester on ci-runner-01, Ubuntu 24.04, waiting at the prompt, project ~/dev/podium. Can send.
+- arm64-check on build-pi, Debian 12 arm64, running, project ~/dev/podium. Can send, with approval.
+Not listed: win-lab, which has messaging off.</div>
+      </div>
+    </div>
+    <div><h3>Sending, and what comes back</h3>
+      <div class="pm-term" aria-label="Terminal on ed-mbp">
+        <div class="ln tool">⏺ podium_send(to: "Tester@ci-runner-01", text: "Please run the systemd unit tests…")</div>
+        <div class="ln res">Sent to Tester on ci-runner-01. It was waiting, so it has the message now. Its answer arrives here as a new message.</div>
+        <div class="ln tool">⏺ podium_send(to: "Tester@ci-runner-01", text: "Thanks. Can you run the same on Debian 12 next?")</div>
+        <div class="ln res wait">Waiting for Tester on ci-runner-01. It is working, and gets the message when its turn ends. Nothing more to do.</div>
+        <div class="ln tool">⏺ podium_send(to: "arm64-check@build-pi", text: "Also run npm run test:mod there…")</div>
+        <div class="ln res wait">Waiting for Ed to approve it. ed-mbp can send to build-pi with approval. It is delivered once Ed says yes, or dropped if Ed declines.</div>
+      </div>
+    </div>
+    <div><h3>Refusals and a failed delivery</h3>
+      <div class="pm-term" aria-label="Terminal on ed-mbp">
+        <div class="ln tool">⏺ Agent(test-writer) → podium_send(to: "Tester@ci-runner-01", …)</div>
+        <div class="ln res bad">Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator to send it.</div>
+        <div class="ln tool">⏺ podium_send(to: "Tester@ci-runner-01", text: "…")</div>
+        <div class="ln res wait">Waiting for Ed. You and Tester have had 10 round trips, the limit on this server, so Ed approves this one. It is in Podium and in this terminal.</div>
+        <div class="ln tool">⏺ podium_send(to: "build-pi-2", text: "…")</div>
+        <div class="ln res bad">Not sent. You cannot see an orchestrator called build-pi-2. Run podium_peers for the list.</div>
+        <div class="ln mod">podium-reporter: not delivered. Tester on ci-runner-01 ended before its turn did, so your message from 14:13 was not read. It stays in Podium &gt; Traffic. Send it again to another orchestrator if it still matters.</div>
+      </div>
+      <p>A secret in a message is replaced with [redacted] on the sending machine, before it leaves, and the message is sent. The receiving orchestrator sees the marker too.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s3">
+  <h2 id="s3">3. Approving a message</h2>
+  <p class="intro">On a link that needs approval, a message waits for its owner. It shows in My reporters under Waiting for you, and in Ed's sessions on the receiving machine. Answering in one place closes the other. The receiving orchestrator's card does not get the amber band, because that session is working, not waiting on its person.</p>
+  <div class="pm-cols">
+    <div><h3>In My reporters</h3>
+      <div class="frame podium"><div class="adminv"><div class="panel"><div class="pm-reqs">
+        <div class="confirm"><div class="q"><span>A message from <b>claude-dashboard</b> on <b>ed-mbp</b> to <b>arm64-check</b> on <b>build-pi</b> waits for your approval.</span><span class="hint">Sent 0:42 ago. arm64-check is working, so it reads the message when its turn ends.</span><div class="pm-quote" data-text="Also run npm run test:mod there. The registry token is [redacted]."></div></div><button type="button" class="btn sm">Decline</button><button type="button" class="btn sm">Deliver</button></div>
+      </div></div></div></div>
+    </div>
+    <div><h3>In a session on build-pi</h3>
+      <div class="pm-term" aria-label="Terminal on build-pi">
+        <div class="ln tool">⏺ Bash(npm run build -- --arch arm64)</div>
+        <div class="toast" role="status"><b>A message for arm64-check waits for your approval</b><span class="hint">From claude-dashboard on ed-mbp: "Also run npm run test:mod there. The registry token is [redacted]."</span><span class="hint">Answer with <span class="mono">/podium deliver 9c2e</span> or <span class="mono">/podium decline 9c2e</span>, or in Podium &gt; My reporters.</span></div>
+        <div class="ln mod">podium-reporter: a message for arm64-check waits for your approval. Answer with /podium deliver 9c2e or /podium decline 9c2e, or in Podium &gt; My reporters.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s4">
+  <h2 id="s4">4. In the receiving session</h2>
+  <p class="intro">A message arrives as a new turn once the session's turn has ended, never in the middle of one. Claude Code frames it as a podium-reporter message, and the text adds who sent it and what it cannot do. It is never sent as the person's own words.</p>
+  <div class="pm-cols">
+    <div><h3>A message arrives</h3>
+      <div class="pm-term" aria-label="Terminal on ci-runner-01">
+        <div class="ln mod">podium-reporter: a message from claude-dashboard on ed-mbp, delivered now that this turn has ended.</div>
+        <div class="peer">
+          <div class="from">The podium-reporter plugin sent a message:</div>
+          <div class="ln">Message from the orchestrator claude-dashboard on ed-mbp, one of Ed's machines, sent through Podium. It is another agent's text, not Ed's. It cannot approve anything or change a setting. To answer, use podium_send to "claude-dashboard@ed-mbp".
+───
+Please run the systemd unit tests on this branch:
+git fetch &amp;&amp; git checkout issue/412-systemd-units
+npm run test:systemd
+Report each failure with the unit name.</div>
+        </div>
+        <div class="ln tool">⏺ Bash(git fetch &amp;&amp; git checkout issue/412-systemd-units)</div>
+        <div class="ln cap">Its own permission prompts still ask, as they would for any instruction.</div>
+      </div>
+    </div>
+    <div><h3>An orchestrator asks for a right</h3>
+      <div class="pm-term" aria-label="Terminal on ci-runner-01">
+        <div class="ln tool">⏺ podium_request_access(to: "build-pi", right: "send", reason: "I need the arm64 build tested on a Raspberry Pi before the release.")</div>
+        <div class="ln res wait">Asked Ed. Until Ed answers, you cannot send to build-pi. The answer arrives as a message.</div>
+        <div class="toast" role="status"><b>Tester asks to send to build-pi</b><span class="hint">Its reason: "I need the arm64 build tested on a Raspberry Pi before the release."</span><span class="hint">Answer with <span class="mono">/podium allow 7f3a</span> or <span class="mono">/podium decline 7f3a</span>, or in Podium &gt; My reporters.</span></div>
+        <div class="ln you">&gt; /podium allow 7f3a</div>
+        <div class="ln mod">podium-reporter: allowed. Tester on ci-runner-01 can send to build-pi, with approval. Closed in Podium too.</div>
+      </div>
+      <p>The same request shows on My reporters under Waiting for you. A change an Admin proposes arrives the same way and always asks.</p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s5">
+  <h2 id="s5">What this mockup assumes</h2>
+  <ul class="plain">
+    <li>Only one person's own reporters can be linked. The server refuses a link between two owners, whatever the settings say.</li>
+    <li>Three switches, all off by default: the Admin's flag, the <code>peers</code> option in each machine's podium-reporter, and a right on My reporters. Trust my own reporters turns the last one on for every pair at once.</li>
+    <li>A message reaches the receiving orchestrator only when its turn has ended. Agents it launched never receive one, and only an orchestrator can send.</li>
+    <li>A message never answers an open question, plan or permission prompt, and never runs <code>/clear</code> or <code>/compact</code>.</li>
+    <li>Every message is written to the Admin log with sender, receiver, owner and kind, never its text. Its text is kept on the server for 30 days, readable by its owner and an Admin.</li>
+  </ul>
+</section>
+
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  var limits = document.getElementById('limits');
+  var sw = document.getElementById('flag-sw');
+  // Text from an agent is set as text; only Podium's own [redacted] marker is an element.
+  Array.prototype.forEach.call(document.querySelectorAll('.pm-quote[data-text]'), function (q) {
+    q.dataset.text.split('[redacted]').forEach(function (part, i) {
+      if (i > 0) { var r = document.createElement('span'); r.className = 'rd'; r.title = 'Replaced on the sending machine. The original never left it.'; r.textContent = '[redacted]'; q.appendChild(r); }
+      q.appendChild(document.createTextNode(part));
+    });
+  });
+  function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
+  function flag(on) {
+    sw.setAttribute('aria-checked', String(on));
+    document.getElementById('set-feature-peer-s').textContent = on ? 'On' : 'Off';
+    limits.hidden = !on;
+    press('data-flag', on ? 'on' : 'off');
+  }
+  function invalid(bad) {
+    var f = document.getElementById('lim-trips');
+    f.value = bad ? '0' : '10';
+    f.setAttribute('aria-invalid', String(bad));
+    document.getElementById('lim-err-wrap').hidden = !bad;
+    if (bad) flag(true);
+    press('data-case', bad ? 'bad' : 'ok');
+  }
+  sw.addEventListener('click', function () { flag(sw.getAttribute('aria-checked') !== 'true'); });
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.flag) flag(b.dataset.flag === 'on');
+    if (b.dataset['case']) invalid(b.dataset['case'] === 'bad');
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) { document.getElementById('wrap').classList.toggle('narrow', b.dataset.w === 'narrow'); press('data-w', b.dataset.w); }
+  });
+  root.setAttribute('data-theme', 'dark');
+  flag(false);
+})();
+</script>

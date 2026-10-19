@@ -1,0 +1,449 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium My Reporters</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #347: My reporters, a console page for a signed-in person. It mirrors Admin > Reporters, shows only that
+   person's reporters, and is where they decide which of their reporters may see and message each other. Messaging is
+   between one person's own reporters only (the policy finding on #347).
+   Two views of the same rights, both accepted by the maintainer, with a Grid | Board switch on the page: Grid shows every
+   pair at once; Board shows one reporter's peers in columns you drag them across. The switch is remembered in this browser.
+   (A third view, a list of links, was dropped as too complex.)
+   The Admin's side is the Reporters detail page in the Admin shell, where a change is only proposed until the owner accepts.
+   Built from the app's own parts: the top bar, the Admin page classes, .confirm for consent, .modeseg for a choice of a few,
+   .badge, .warnbar, .kb-empty and .kb-blank. Classes that start with pm- are new and would be added to the standards with the
+   feature: pm-lv (an access level), pm-os (a system), pm-pend (proposed), pm-state (paused), pm-grid, pm-board.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { margin: 0 auto; max-width: var(--stage, 1240px); border-left: 1px solid var(--border); border-right: 1px solid var(--border); min-height: 100vh; background: var(--bg); }
+.stage .podium .adminv .apage { overflow: visible; }
+/* Approved by the maintainer for #347: more room after "Signed in as Ed", now that a button follows it (16 px in all). */
+.podium .tb-who { margin-right: 8px; }
+.stage .podium .adminv .shell { height: auto; }
+.stage.narrow .podium .adminv .apage { padding: 16px 16px 0; }
+.stage.narrow .podium .adminv .shell { grid-template-columns: minmax(0, 1fr); }
+.stage.narrow .podium .adminv .nav { display: none; }
+
+/* Consent rows: the app's .confirm, one per request, with the question on the left and a button per answer. */
+.pm-reqs { display: grid; gap: 10px; padding: 12px 16px; }
+.pm-reqs .confirm { align-items: flex-start; }
+.pm-reqs .confirm > .q { flex: 1 1 360px; min-width: 0; display: grid; gap: 4px; color: var(--ink); font-size: 13px; }
+.pm-reqs .confirm .hint { color: var(--muted); }
+.pm-quote { color: var(--ink2); border-left: 2px solid var(--axis); padding-left: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.pm-quote .rd { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit-text); border-radius: 3px; padding: 0 3px; }
+
+/* A level is an icon and a word, never a hue. */
+.pm-lv { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; color: var(--ink2); }
+.pm-lv svg, .pm-os svg, .pm-pend svg, .pm-state svg { width: 14px; height: 14px; flex: none; }
+.pm-lv.none { color: var(--muted); }
+.pm-lv.send, .pm-lv.ask { color: var(--ink); }
+.pm-os { display: inline-flex; align-items: center; gap: 6px; }
+.pm-pend { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--warn-text); white-space: nowrap; }
+.pm-state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; }
+.pm-state.paused { color: var(--muted); }
+
+.pm-note { padding: 10px 16px; border-top: 1px solid var(--grid); }
+.pm-note .hint { margin: 0; }
+
+/* Layout A: the grid. Rows send, columns receive. */
+.pm-gridwrap { overflow-x: auto; }
+.pm-grid { border-collapse: separate; border-spacing: 0; font-size: 12px; min-width: 660px; width: 100%; }
+.pm-grid th, .pm-grid td { padding: 8px 10px; border-bottom: 1px solid var(--grid); border-right: 1px solid var(--grid); text-align: left; vertical-align: top; }
+.pm-grid tr > *:last-child { border-right: 0; }
+.pm-grid tbody tr:last-child > * { border-bottom: 0; }
+.pm-grid thead th { color: var(--muted); font-weight: 600; background: var(--surface); }
+.pm-grid .mn { color: var(--ink); display: block; font-weight: 650; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-grid tbody th { font-weight: 650; color: var(--ink); }
+.pm-grid tbody th .hint { display: block; font-weight: 400; }
+.pm-grid td { background: var(--surface); display: table-cell; }
+.pm-grid td > * + * { margin-top: 4px; }
+.pm-grid td.self { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--hover) 6px 7px); }
+.pm-grid td.off { background: var(--raised); }
+.pm-grid select { width: 100%; min-width: 160px; }
+.pm-grid .cellnote { display: block; }
+
+.pm-back { padding: 0 16px 12px; }
+
+/* Layout B: the board. */
+.pm-pick { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--grid); }
+.pm-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 12px 16px 16px; }
+.pm-col { border: 1px solid var(--grid); border-radius: 8px; padding: 10px; display: grid; gap: 8px; align-content: start; min-height: 150px; min-width: 0; background: var(--bg); }
+.pm-col.over { border-color: var(--sonnet); background: var(--hover); }
+.pm-col h3 { margin: 0; font-size: 12px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
+.pm-col h3 .n { color: var(--muted); font-weight: 500; margin-left: auto; }
+.pm-col > .hint { margin: 0; }
+.pm-card { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 9px 10px; display: grid; gap: 6px; cursor: grab; min-width: 0; }
+.pm-card.locked { cursor: default; }
+.pm-card.dragging { opacity: .5; }
+.pm-card .ct { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.pm-card .ct b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pm-card .grip { color: var(--muted); margin-left: auto; flex: none; }
+.pm-card .sub { font-size: 11px; color: var(--muted); display: flex; gap: 4px 10px; flex-wrap: wrap; }
+.pm-card select { width: 100%; }
+.pm-card .backl { font-size: 11px; color: var(--muted); border-top: 1px solid var(--grid); padding-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.stage.narrow .pm-board { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 900px) { .pm-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .pm-board { grid-template-columns: minmax(0, 1fr); } }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>My reporters (#347)</b>
+  <span class="grp" role="group" aria-label="Viewing as">Viewing as
+    <button type="button" data-as="owner" aria-pressed="true">Ed, on My reporters</button>
+    <button type="button" data-as="admin" aria-pressed="false">Admin, on Admin &gt; Reporters</button>
+  </span>
+  <span class="grp" role="group" aria-label="Trust my own reporters">Trust my own reporters
+    <button type="button" data-trust="off" aria-pressed="true">Off</button>
+    <button type="button" data-trust="on" aria-pressed="false">On</button>
+  </span>
+  <span class="grp" role="group" aria-label="Case">Case
+    <button type="button" data-case="example" aria-pressed="true">Example</button>
+    <button type="button" data-case="empty" aria-pressed="false">No reporters</button>
+    <button type="button" data-case="error" aria-pressed="false">Save failed</button>
+    <button type="button" data-case="long" aria-pressed="false">Long names</button>
+  </span>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage" id="stage"><div class="podium" id="app"></div></div>
+<div class="vh" role="status" aria-live="polite" id="announce"></div>
+
+<script>
+(function () {
+  'use strict';
+  var I = {
+    logo: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path></svg>',
+    me: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"></circle><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"></path></svg>',
+    mac: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1"/><path d="M1 13h14"/></svg>',
+    linux: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M4.5 6l2 2-2 2M8 10h3"/></svg>',
+    win: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M2 3.5l5-.7v4.7H2zM9 2.6l5-.7v5.6H9zM2 8.5h5v4.7l-5-.7zM9 8.5h5v5.6l-5-.7z"/></svg>',
+    none: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/></svg>',
+    see: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8s-2.4 4.5-6.5 4.5S1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>',
+    send: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h10M8.5 4.5L12 8l-3.5 3.5"/><path d="M14 3v10"/></svg>',
+    ask: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8h6M5 5l3 3-3 3"/><circle cx="12" cy="8" r="3"/><path d="M12 6.6V8l.9.6"/></svg>',
+    arrow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9.5 4.5L13 8l-3.5 3.5"/></svg>',
+    clock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.4 1.4"/></svg>',
+    pause: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.5 5.5v5M9.5 5.5v5"/></svg>',
+    warn: '<svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"/><path d="M8 6.5v3M8 11.6v.1"/></svg>',
+    grip: '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><circle cx="6" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="6" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/></svg>',
+    gPeople: '<svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"></circle><path d="M1.5 13.5c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8"></path><path d="M11 3.4a2.4 2.4 0 0 1 0 4.4M12.6 10c1.2.5 1.9 1.6 2.1 3.2"></path></svg>',
+    gServer: '<svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="4.5" rx="1"></rect><rect x="2" y="9" width="12" height="4.5" rx="1"></rect><path d="M4.5 4.75h.01M4.5 11.25h.01"></path></svg>',
+    gAct: '<svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"></path></svg>'
+  };
+  // One label per level, the same in every layout, in the Admin's view and in the terminal.
+  var LV = { none: 'No access', see: 'Can see', ask: 'Can send, with approval', send: 'Can send' };
+  var ORDER = ['none', 'see', 'ask', 'send'];
+
+  var BASE = [
+    { id: 'ed-mbp', os: 'macOS 26.1', k: 'mac', state: 'reporting', st: 'Reporting', local: true, ver: '0.16.0', last: '12 s ago', orch: ['claude-dashboard', 'infra-notes'] },
+    { id: 'ci-runner-01', os: 'Ubuntu 24.04', k: 'linux', state: 'reporting', st: 'Reporting', local: true, ver: '0.16.0', last: '40 s ago', orch: ['Tester'] },
+    { id: 'build-pi', os: 'Debian 12, arm64', k: 'linux', state: 'reporting', st: 'Reporting', local: true, ver: '0.16.0', last: '1 min ago', orch: ['arm64-check'] },
+    { id: 'win-lab', os: 'Windows 11', k: 'win', state: 'silent', st: 'Silent', local: false, ver: '0.15.2', last: '3 days ago', orch: [] }
+  ];
+  var LONG = { 'ed-mbp': 'ed-macbook-pro-16-inch-2026-home-office', 'ci-runner-01': 'ci-runner-01.lab.internal.example' };
+  var REP = BASE;
+
+  function key(a, b) { return a + '>' + b; }
+  var RIGHTS = {};
+  RIGHTS[key('ed-mbp', 'ed-mbp')] = 'send';
+  RIGHTS[key('ed-mbp', 'ci-runner-01')] = 'send';
+  RIGHTS[key('ci-runner-01', 'ed-mbp')] = 'send';
+  RIGHTS[key('ed-mbp', 'build-pi')] = 'ask';
+  RIGHTS[key('build-pi', 'ed-mbp')] = 'see';
+  var PROPOSED = {};
+  PROPOSED[key('build-pi', 'ed-mbp')] = 'ask';
+  var PAUSED = {};
+  PAUSED[key('ed-mbp', 'ed-mbp')] = true;
+  var S = { layout: 'grid', as: 'owner', trust: false, kase: 'example', boardOf: 'ed-mbp', back: null, adminPaused: false };
+
+  function esc(s) { var d = document.createElement('div'); d.textContent = String(s); return d.innerHTML; }
+  function rep(id) { for (var i = 0; i < REP.length; i++) if (REP[i].id === id) return REP[i]; return null; }
+  function nm(id) { return S.kase === 'long' && LONG[id] ? LONG[id] : id; }
+  // A name in a row is cut with an ellipsis and keeps its full text as a title.
+  function name(id, cls) { var n = nm(id); return '<span class="' + (cls || '') + '" title="' + esc(n) + '">' + esc(n) + '</span>'; }
+  function get(a, b) {
+    if (!rep(a).local || !rep(b).local) return 'none';
+    if (S.trust) return 'send';
+    return RIGHTS[key(a, b)] || 'none';
+  }
+  function canSend(l) { return l === 'send' || l === 'ask'; }
+  function locked(a, b) { return !rep(a).local || !rep(b).local || S.trust; }
+  function lv(level) { return '<span class="pm-lv ' + level + '">' + I[level] + '<span>' + esc(LV[level]) + '</span></span>'; }
+  function osTag(r) { return '<span class="pm-os">' + I[r.k] + '<span>' + esc(r.os) + '</span></span>'; }
+  function pend(a, b) {
+    var p = PROPOSED[key(a, b)];
+    if (!p) return '';
+    return '<span class="pm-pend">' + I.clock + '<span>Proposed: ' + esc(LV[p]) + (S.as === 'admin' ? ', waiting for Ed' : ', waiting for you') + '</span></span>';
+  }
+  function paused(a, b) { return PAUSED[key(a, b)] || (S.as === 'admin' && S.adminPaused && (a === 'ed-mbp' || b === 'ed-mbp')); }
+  function pausedTag() { return '<span class="pm-state paused">' + I.pause + '<span>Paused</span></span>'; }
+  function announce(t) { document.getElementById('announce').textContent = t; }
+
+  function set(a, b, level) {
+    if (S.as === 'admin') { PROPOSED[key(a, b)] = level; S.back = null; announce('Proposed to Ed: ' + nm(a) + ' to ' + nm(b) + ', ' + LV[level] + '.'); render(); return; }
+    var before = get(a, b);
+    RIGHTS[key(a, b)] = level;
+    S.back = (a !== b && canSend(level) && !canSend(before) && !canSend(get(b, a))) ? { a: a, b: b } : null;
+    announce(nm(a) + ' to ' + nm(b) + ': ' + LV[level] + '.');
+    render();
+  }
+
+  /* ---------- chrome ---------- */
+  function topBar() {
+    return '<header class="top" id="podium-top"><a class="logo" href="#/" aria-label="Podium, fleet">' + I.logo + 'Podium</a>' +
+      '<span class="pill">My reporters</span><span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>3 reporters live</span><span class="spacer"></span>' +
+      '<a class="btn" href="#/board">Board</a><a class="btn" href="#/history">History</a><a class="btn" href="#/traffic">Traffic</a>' +
+      '<button type="button" class="btn" aria-expanded="true" aria-controls="podium-top" title="Hide the top bar (\\)">Hide top bar</button><button type="button" class="btn wall-enter" aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">Wall mode</button>' +
+      '<span class="tb-sep" aria-hidden="true"></span><span class="tb-me"><span class="tb-who">' + I.me + 'Signed in as <b>Ed</b></span><a class="btn" href="#/me/reporters" aria-current="page">My reporters · 3 waiting</a><button type="button" class="btn">Sign out</button></span></header>';
+  }
+  function adminNav() {
+    return '<nav class="nav" aria-label="Admin sections"><div class="navin">' +
+      '<div class="ngroup" role="group" aria-label="People and access"><span class="gh" aria-hidden="true">' + I.gPeople + '<span class="gt">People and access</span></span><button type="button" class="navbtn">People<span class="n">6</span></button><button type="button" class="navbtn">Groups</button><button type="button" class="navbtn" aria-current="page">Reporters<span class="n">4</span></button></div>' +
+      '<div class="ngroup" role="group" aria-label="Server"><span class="gh" aria-hidden="true">' + I.gServer + '<span class="gt">Server</span></span><button type="button" class="navbtn">Settings</button><button type="button" class="navbtn">Model prices</button><button type="button" class="navbtn">Reporting and security</button></div>' +
+      '<div class="ngroup" role="group" aria-label="Activity"><span class="gh" aria-hidden="true">' + I.gAct + '<span class="gt">Activity</span></span><button type="button" class="navbtn">Spend</button><button type="button" class="navbtn">Admin log</button></div>' +
+      '<div class="navfoot"><button type="button" class="btn">Lock Admin</button><span class="hint">Locks after 10 minutes without activity.</span></div></div></nav>';
+  }
+
+  /* ---------- the owner's sections ---------- */
+  function requests() {
+    var msg = document.createElement('div');
+    return '<section class="asec" aria-labelledby="req-h"><div class="asec-h"><div><h2 id="req-h">Waiting for you</h2>' +
+      '<p class="hint">3 requests. Nothing changes until you answer. Each one also shows in your sessions on the machine it concerns, and answering in either place closes the other.</p></div></div>' +
+      '<div class="panel"><div class="pm-reqs">' +
+      '<div class="confirm"><div class="q"><span>An Admin proposes that <b>' + esc(nm('build-pi')) + '</b> can send to <b>' + esc(nm('ed-mbp')) + '</b>, with approval.</span><span class="hint">Proposed 5 min ago. Today build-pi can only see ed-mbp.</span></div><button type="button" class="btn sm">Decline</button><button type="button" class="btn sm">Accept change</button></div>' +
+      '<div class="confirm"><div class="q"><span><b>Tester</b> on <b>' + esc(nm('ci-runner-01')) + '</b> asks to send to <b>' + esc(nm('build-pi')) + '</b>.</span><span class="hint">Asked 1 min ago. Its reason, in its own words:</span><div class="pm-quote" data-text="I need the arm64 build of podium-reporter tested on a Raspberry Pi before the release."></div></div><button type="button" class="btn sm">Decline</button><button type="button" class="btn sm">Allow</button></div>' +
+      '<div class="confirm"><div class="q"><span>A message from <b>claude-dashboard</b> on <b>' + esc(nm('ed-mbp')) + '</b> to <b>arm64-check</b> on <b>' + esc(nm('build-pi')) + '</b> waits for your approval.</span><span class="hint">Sent 0:42 ago. arm64-check is working, so it reads the message when its turn ends.</span><div class="pm-quote" data-text="Also run npm run test:mod there. The registry token is [redacted]."></div></div><button type="button" class="btn sm">Decline</button><button type="button" class="btn sm">Deliver</button></div>' +
+      '</div></div></section>';
+  }
+
+  function reportersTable() {
+    var rows = REP.map(function (r) {
+      return '<tr class="rw"><td><span class="rstate ' + r.state + '"><span class="rdot ' + r.state + '" aria-hidden="true"></span>' + esc(r.st) + '</span></td>' +
+        '<td><button type="button" class="rname" title="' + esc(nm(r.id)) + '">' + esc(nm(r.id)) + '</button></td>' +
+        '<td>' + osTag(r) + '</td>' +
+        '<td>' + (r.local ? '<span class="badge ok">On</span>' : '<span class="badge off">Off on the machine</span>') + '</td>' +
+        '<td><span class="compat ok"><span class="mono">' + esc(r.ver) + '</span></span></td>' +
+        '<td class="mono muted nowrap">' + esc(r.last) + '</td>' +
+        '<td class="n mono">' + r.orch.length + '</td></tr>';
+    }).join('');
+    return '<section class="asec" aria-labelledby="mine-h"><div class="asec-h"><div><h2 id="mine-h">Your reporters</h2>' +
+      '<p class="hint">Every machine that reports with your name and token.</p></div></div>' +
+      '<div class="panel"><div class="tw2 scroll" tabindex="0" aria-label="Your reporters"><table class="ptab"><thead><tr><th>State</th><th>Machine</th><th>System</th><th>Messaging</th><th>Reporter version</th><th>Last report</th><th class="n">Live orchestrators</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div class="pm-note"><p class="hint">win-lab has messaging off. Only that machine can turn it on: in Claude Code there, run <span class="mono">/plugin configure podium-reporter</span> and set <span class="mono">peers</span> to on.</p></div>' +
+      '<div class="apager"><span class="hint" role="status">Showing 1 to 4 of 4</span></div></div></section>';
+  }
+
+  function seg(id, label, opts, cur) {
+    return '<div class="modeseg" role="radiogroup" aria-label="' + esc(label) + '">' + opts.map(function (o) {
+      return '<button type="button" role="radio" aria-checked="' + (o[0] === cur) + '" tabindex="' + (o[0] === cur ? 0 : -1) + '" data-seg="' + id + '" data-v="' + o[0] + '">' + esc(o[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  function defaults() {
+    return '<section class="asec" aria-labelledby="def-h"><div class="asec-h"><div><h2 id="def-h">Defaults</h2></div></div><div class="panel">' +
+      '<div class="srow"><div class="setname"><b id="trust-n">Trust my own reporters</b><p class="hint ink2">Every reporter of yours can send to every other one, and messages are delivered without approval. A reporter you add later is included. Off by default.</p></div>' +
+      '<div class="sw"><button type="button" role="switch" id="trust-sw" aria-checked="' + S.trust + '" aria-labelledby="trust-n trust-s"></button><span id="trust-s">' + (S.trust ? 'On' : 'Off') + '</span></div></div>' +
+      '<div class="srow"><div class="setname"><b id="askdef-n">When an orchestrator asks for access</b><p class="hint ink2">One of your orchestrators can ask to see or send to another of your reporters. A change an Admin proposes always waits for you, whatever this says.</p></div>' + seg('askdef', 'When an orchestrator asks for access', [['ask', 'Ask me'], ['allow', 'Allow'], ['deny', 'Decline']], 'ask') + '</div>' +
+      '<div class="srow"><div class="setname"><b id="msgdef-n">A new right to send starts as</b><p class="hint ink2">You can change it for each pair below.</p></div>' + seg('msgdef', 'A new right to send starts as', [['ask', 'With approval'], ['send', 'Without approval']], 'ask') + '</div>' +
+      '</div></section>';
+  }
+
+  function backPrompt() {
+    if (!S.back) return '';
+    var a = nm(S.back.a), b = nm(S.back.b);
+    return '<div class="pm-back"><div class="confirm"><div class="q"><span><b>' + esc(a) + '</b> can now send to <b>' + esc(b) + '</b>. Can <b>' + esc(b) + '</b> answer?</span><span class="hint">A reply is a message too, so it needs its own right. Without it, ' + esc(b) + '\'s orchestrators read what arrives and cannot answer.</span></div>' +
+      '<button type="button" class="btn sm" data-back="no">Not now</button><button type="button" class="btn sm" data-back="ask">Can send, with approval</button><button type="button" class="btn sm" data-back="send">Can send</button></div></div>';
+  }
+
+  function trustNote() {
+    if (!S.trust) return '';
+    return '<div class="warnbar" role="status">' + I.warn + '<div class="tx"><b>Trust my own reporters is on.</b> Every reporter below can send to every other one, so these choices are locked. Turn it off under Defaults to set them one by one.</div></div>';
+  }
+
+  /* ---------- layout A: grid ---------- */
+  function selectFor(a, b) {
+    var cur = (S.as === 'admin' && PROPOSED[key(a, b)]) || get(a, b);
+    var id = 'g-' + a + '-' + b;
+    return '<label class="vh" for="' + id + '">' + esc(nm(a)) + ' to ' + esc(nm(b)) + '</label><select class="field sm" id="' + id + '" data-a="' + a + '" data-b="' + b + '"' + (locked(a, b) ? ' disabled' : '') + '>' +
+      ORDER.map(function (l) { return '<option value="' + l + '"' + (l === cur ? ' selected' : '') + '>' + esc(LV[l]) + '</option>'; }).join('') + '</select>';
+  }
+  function gridLayout() {
+    var head = '<tr><th scope="col">From, to</th>' + REP.map(function (r) { return '<th scope="col">' + name(r.id, 'mn') + esc(r.os) + '</th>'; }).join('') + '</tr>';
+    var body = REP.map(function (ra) {
+      return '<tr><th scope="row">' + name(ra.id, 'mn') + '<span class="hint">' + ra.orch.length + ' live</span></th>' + REP.map(function (rb) {
+        var off = !ra.local || !rb.local, self = ra.id === rb.id;
+        var cell = off ? lv('none') + '<span class="hint cellnote">Messaging is off on ' + esc(nm(!ra.local ? ra.id : rb.id)) + '</span>'
+          : selectFor(ra.id, rb.id) + (self ? '<span class="hint cellnote">Between orchestrators on this machine</span>' : '') + (paused(ra.id, rb.id) ? pausedTag() : '') + pend(ra.id, rb.id);
+        return '<td class="' + (off ? 'off' : '') + (self ? ' self' : '') + '">' + cell + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+    return '<div class="pm-gridwrap" tabindex="0" aria-label="Rights between reporters. Each row sends to each column."><table class="pm-grid"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' + backPrompt() +
+      '<div class="pm-note"><p class="hint">Read a row as: this reporter\'s orchestrators can do this to the column\'s. Can see lists their orchestrators with project, system and status. Can send includes Can see.</p></div>';
+  }
+
+  /* ---------- layout B: board ---------- */
+  function boardLayout() {
+    var me = S.boardOf;
+    var list = [rep(me)].concat(REP.filter(function (r) { return r.id !== me; }));
+    function cardFor(r) {
+      var l = get(me, r.id), lockedHere = locked(me, r.id), self = r.id === me, id = 'mv-' + r.id;
+      return '<div class="pm-card' + (lockedHere ? ' locked' : '') + '" draggable="' + !lockedHere + '" data-card="' + r.id + '">' +
+        '<div class="ct"><span class="rdot ' + r.state + '" aria-hidden="true"></span>' + (self ? '<b>Within ' + name(r.id) + '</b>' : '<b title="' + esc(nm(r.id)) + '">' + esc(nm(r.id)) + '</b>') + (lockedHere ? '' : '<span class="grip" aria-hidden="true">' + I.grip + '</span>') + '</div>' +
+        '<div class="sub">' + osTag(r) + '<span>' + r.orch.length + ' live</span>' + (!r.local ? '<span>Messaging off on the machine</span>' : '') + '</div>' +
+        '<label class="vh" for="' + id + '">Move ' + esc(nm(r.id)) + ' to</label><select class="field sm" id="' + id + '" data-move="' + r.id + '"' + (lockedHere ? ' disabled' : '') + '>' +
+        ORDER.map(function (c) { return '<option value="' + c + '"' + (c === l ? ' selected' : '') + '>Move to: ' + esc(LV[c]) + '</option>'; }).join('') + '</select>' +
+        (paused(me, r.id) ? pausedTag() : '') + pend(me, r.id) +
+        (self ? '' : '<div class="backl">' + esc(nm(r.id)) + ' to ' + esc(nm(me)) + ': ' + lv(get(r.id, me)) + '</div>') + '</div>';
+    }
+    var cols = ORDER.map(function (c) {
+      var cards = list.filter(function (r) { return get(me, r.id) === c; });
+      var hid = 'col-' + c;
+      return '<section class="pm-col" data-col="' + c + '" aria-labelledby="' + hid + '"><h3 id="' + hid + '">' + lv(c) + '<span class="n mono">' + cards.length + '</span></h3>' +
+        (cards.length ? cards.map(cardFor).join('') : '<div class="kb-empty">None here. Drag a reporter here or use its Move to list.</div>') + '</section>';
+    }).join('');
+    var pick = REP.filter(function (r) { return r.local; }).map(function (r) {
+      return '<button type="button" role="radio" aria-checked="' + (r.id === me) + '" tabindex="' + (r.id === me ? 0 : -1) + '" data-seg="boardOf" data-v="' + r.id + '" title="' + esc(nm(r.id)) + '">' + esc(nm(r.id)) + '</button>';
+    }).join('');
+    return '<div class="pm-pick"><span id="pick-l" class="hint">What this reporter\'s orchestrators can do</span><div class="modeseg" role="radiogroup" aria-labelledby="pick-l">' + pick + '</div></div>' +
+      '<div class="pm-board">' + cols + '</div>' + backPrompt() +
+      '<div class="pm-note"><p class="hint">Drag a card to another column, or use its Move to list. The line at the bottom of a card is what that reporter can do back.</p></div>';
+  }
+
+  function viewSwitch() {
+    return '<div class="modeseg" role="radiogroup" aria-label="View">' + [['grid', 'Grid'], ['board', 'Board']].map(function (o) {
+      return '<button type="button" role="radio" id="view-' + o[0] + '" aria-checked="' + (S.layout === o[0]) + '" tabindex="' + (S.layout === o[0] ? 0 : -1) + '" data-seg="view" data-v="' + o[0] + '">' + o[1] + '</button>';
+    }).join('') + '</div>';
+  }
+  function rights() {
+    return S.layout === 'grid' ? gridLayout() : boardLayout();
+  }
+  function errBox() {
+    return S.kase === 'error' ? '<div class="errbox" role="alert">Could not save the change: the server did not answer. Nothing changed. Try again.</div>' : '';
+  }
+
+  function ownerPage() {
+    if (S.kase === 'empty') {
+      return '<div class="page-h"><div><h1>My reporters</h1><p class="lead">The machines that report your sessions to this server, and which of them may message each other.</p></div></div>' +
+        '<div class="kb-blank"><b>No reporters yet</b><p class="hint">A machine shows here once it reports with your name and token. Set both in its podium-reporter options.</p></div>';
+    }
+    return '<div class="page-h"><div><h1>My reporters</h1><p class="lead">The machines that report your sessions to this server, and which of them may message each other. Only your own reporters are here. Podium does not carry messages between people.</p></div></div>' +
+      errBox() + requests() + reportersTable() + defaults() +
+      '<section class="asec" aria-labelledby="rights-h"><div class="asec-h"><div><h2 id="rights-h">Who can message whom</h2><p class="hint">Messages go from orchestrator to orchestrator, never to an agent they launched. An orchestrator receives one when its turn has ended.</p></div>' + viewSwitch() + '</div>' +
+      '<div class="panel">' + trustNote() + rights() + '</div></section>';
+  }
+
+  function adminPage() {
+    var r = rep('ed-mbp');
+    return '<div class="page-h"><div><h1>Reporters</h1><p class="lead">Every reporter this server has heard from, and whether it is still reporting.</p></div></div>' + errBox() +
+      '<div class="panel"><button type="button" class="back"><span aria-hidden="true">‹</span> All reporters</button>' +
+      '<div class="dhead"><h2>' + name('ed-mbp') + ' <span class="rstate reporting"><span class="rdot reporting" aria-hidden="true"></span>Reporting</span></h2>' +
+      '<div class="dacts"><button type="button" class="btn sm" id="admin-pause">' + (S.adminPaused ? 'Resume all links' : 'Pause all links') + '</button><button type="button" class="btn sm">Ignore…</button><button type="button" class="btn sm dng">Remove from list</button></div></div>' +
+      '<div class="dgrid"><section class="dsec" aria-labelledby="rep-h1"><h3 id="rep-h1">Reporter</h3><dl class="kv"><div class="kvrow"><dt>Version</dt><dd><span class="mono">' + r.ver + '</span></dd></div><div class="kvrow"><dt>System</dt><dd>' + osTag(r) + '</dd></div><div class="kvrow"><dt>Messaging</dt><dd><span class="badge ok">On</span>' + (S.adminPaused ? ' ' + pausedTag() : '') + '</dd></div></dl></section>' +
+      '<section class="dsec" aria-labelledby="rep-h2"><h3 id="rep-h2">Where it comes from</h3><dl class="kv"><div class="kvrow"><dt>Machine</dt><dd>' + name('ed-mbp') + '</dd></div><div class="kvrow"><dt>Person</dt><dd>Ed</dd></div><div class="kvrow"><dt>Token</dt><dd><span class="mono">pdm_3f9a1c07b2e4</span></dd></div></dl></section></div></div>' +
+      '<section class="asec" aria-labelledby="rights-h"><div class="asec-h"><div><h2 id="rights-h">Messaging</h2><p class="hint">What Ed\'s reporters may do with each other. Only one person\'s own reporters can be linked.</p></div>' + viewSwitch() + '</div>' +
+      '<div class="panel"><div class="warnbar" role="status">' + I.warn + '<div class="tx"><b>A change you make here is sent to Ed to accept.</b> It shows as Proposed until Ed answers, in Podium or in a session on the machine. Pause all links takes effect at once and needs no answer.</div></div>' +
+      trustNote() + rights() + '</div></section>';
+  }
+
+  function render() {
+    var active = document.activeElement && document.activeElement.id;
+    var app = document.getElementById('app');
+    if (S.as === 'admin') {
+      app.innerHTML = '<div class="adminv" aria-label="Admin"><div class="shell">' + adminNav() + '<div class="apage"><div class="apage-in">' + adminPage() + '</div></div></div></div>';
+    } else {
+      app.innerHTML = topBar() + '<div class="adminv" aria-label="My reporters"><div class="apage"><div class="apage-in">' + ownerPage() + '</div></div></div>';
+    }
+    // Text from an agent is set as text, never as HTML; the [redacted] marker is Podium's own and drawn as .rd.
+    Array.prototype.forEach.call(app.querySelectorAll('.pm-quote[data-text]'), function (q) {
+      q.dataset.text.split('[redacted]').forEach(function (part, i) {
+        if (i > 0) { var r = document.createElement('span'); r.className = 'rd'; r.title = 'Replaced on the sending machine. The original never left it.'; r.textContent = '[redacted]'; q.appendChild(r); }
+        q.appendChild(document.createTextNode(part));
+      });
+    });
+    wire(app);
+    if (active) { var el = document.getElementById(active); if (el) el.focus(); }
+  }
+
+  function wire(app) {
+    function each(sel, fn) { Array.prototype.forEach.call(app.querySelectorAll(sel), fn); }
+    each('select[data-a]', function (s) { s.addEventListener('change', function () { set(s.dataset.a, s.dataset.b, s.value); }); });
+    each('select[data-move]', function (s) { s.addEventListener('change', function () { set(S.boardOf, s.dataset.move, s.value); }); });
+    each('[data-pause]', function (b) { b.addEventListener('click', function () { var k = b.dataset.pause.replace('|', '>'); PAUSED[k] = !PAUSED[k]; announce(PAUSED[k] ? 'Link paused.' : 'Link resumed.'); render(); }); });
+    each('[data-back]', function (b) { b.addEventListener('click', function () { var v = b.dataset.back; if (v !== 'no') RIGHTS[key(S.back.b, S.back.a)] = v; S.back = null; render(); }); });
+    each('[data-seg]', function (b) {
+      b.addEventListener('click', function () {
+        if (b.dataset.seg === 'boardOf') { S.boardOf = b.dataset.v; S.back = null; render(); return; }
+        if (b.dataset.seg === 'view') { S.layout = b.dataset.v; S.back = null; try { localStorage.setItem('podium.peers.view', S.layout); } catch (err) { /* a per-viewer convenience only */ } render(); return; }
+        Array.prototype.forEach.call(b.parentNode.children, function (x) { x.setAttribute('aria-checked', String(x === b)); x.tabIndex = x === b ? 0 : -1; });
+      });
+    });
+    // A radio group moves with the arrow keys.
+    each('[role="radiogroup"]', function (g) {
+      g.addEventListener('keydown', function (e) {
+        if (['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].indexOf(e.key) < 0) return;
+        var items = Array.prototype.slice.call(g.querySelectorAll('[role="radio"]')), i = items.indexOf(document.activeElement);
+        if (i < 0) return;
+        var n = items[(i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
+        n.click(); var f = document.querySelector('[data-seg="' + n.dataset.seg + '"][data-v="' + n.dataset.v + '"]'); if (f) f.focus(); e.preventDefault();
+      });
+    });
+    var tsw = document.getElementById('trust-sw');
+    if (tsw) tsw.addEventListener('click', function () { setTrust(!S.trust); });
+    var ap = document.getElementById('admin-pause');
+    if (ap) ap.addEventListener('click', function () { S.adminPaused = !S.adminPaused; announce(S.adminPaused ? 'Every link on ed-mbp is paused.' : 'Links on ed-mbp resumed.'); render(); });
+    // Drag and drop on the board. The Move to list on each card does the same from the keyboard.
+    each('.pm-card[draggable="true"]', function (c) {
+      c.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', c.dataset.card); c.classList.add('dragging'); });
+      c.addEventListener('dragend', function () { c.classList.remove('dragging'); });
+    });
+    each('.pm-col', function (col) {
+      col.addEventListener('dragover', function (e) { e.preventDefault(); col.classList.add('over'); });
+      col.addEventListener('dragleave', function () { col.classList.remove('over'); });
+      col.addEventListener('drop', function (e) { e.preventDefault(); col.classList.remove('over'); set(S.boardOf, e.dataTransfer.getData('text/plain'), col.dataset.col); });
+    });
+  }
+  function setTrust(on) {
+    S.trust = on; S.back = null;
+    press('data-trust', on ? 'on' : 'off');
+    render();
+  }
+  var root = document.documentElement;
+  function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.as) { S.as = b.dataset.as; S.back = null; press('data-as', S.as); render(); }
+    if (b.dataset.trust) setTrust(b.dataset.trust === 'on');
+    if (b.dataset['case']) { S.kase = b.dataset['case']; press('data-case', S.kase); render(); }
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) {
+      var st = document.getElementById('stage');
+      st.style.setProperty('--stage', b.dataset.w === 'narrow' ? '400px' : '1240px');
+      st.classList.toggle('narrow', b.dataset.w === 'narrow');
+      press('data-w', b.dataset.w);
+    }
+  });
+  try { var v = localStorage.getItem('podium.peers.view'); if (v === 'grid' || v === 'board') S.layout = v; } catch (err) { /* private window: start on Grid */ }
+  root.setAttribute('data-theme', 'dark');
+  render();
+})();
+</script>

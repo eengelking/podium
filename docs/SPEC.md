@@ -139,13 +139,22 @@ connects to a session. It is off unless the Admin turns on **Respond from Podium
 the reporter's `respond` option ([5.9](#59-mod-configuration-userconfig)), and only the session's owner or an
 Admin can use it ([7.7](#77-hardening)).
 
+Podium also carries messages between one person's own orchestrators, on any of that person's machines
+(#347, DECISIONS 37). A message is a new turn in an orchestrator whose turn has ended, written by another
+orchestrator. It is off unless the Admin turns on **Orchestrator messaging**, the reporter's `peers` option is on
+at both machines, and the owner gave that pair of reporters the right
+([5.3](#orchestrator-messaging-from-the-reporter-347), [7.7](#orchestrator-messaging-347)).
+
 Podium never:
 
 - types into a terminal or opens one (the web terminal of #21 was not built);
 - changes a session's permission rules ("always allow" stays in the terminal);
 - runs any other slash command (`/model` and `/effort` included);
 - edits a plan's text;
-- starts, stops, resumes or kills a session or an agent.
+- starts, stops, resumes or kills a session or an agent;
+- carries a message between two people's sessions, or delivers one to an agent an orchestrator launched
+  (DECISIONS 37);
+- lets a message between orchestrators answer an ask, run a command, or change a mode or a rule.
 
 The dashboard may also copy a resume command or a fork command to the clipboard and remove a heartbeat-lost card from the live
 view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
@@ -163,13 +172,16 @@ view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
 it as an estimate. Never present it as an invoice.
 
 **Conversation content.** No reading of conversation transcripts. Podium sends short excerpts only
-([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are two opt-in exceptions:
+([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are three opt-in exceptions:
 
 - With the `fullPrompts` option on, an agent's own task prompt and final answer go out whole (up to 20,000
   characters each, [6.4](#64-failure-and-excerpt-rules)), never the conversation around them.
 - With the `activityFeed` option on (#118), while someone watches an agent's panel, that loop's recent tool
   calls and the text it writes between them go out as short entries (300 characters each, the last 20,
   [6.4](#64-failure-and-excerpt-rules)), and only for as long as someone watches.
+- With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
+  server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
+  Admin can read it ([7.7](#orchestrator-messaging-347)).
 
 The model's thinking is never sent.
 
@@ -182,7 +194,8 @@ The model's thinking is never sent.
   token per person plus an admin secret that opens the Admin section (signed in with the name `Admin`). A
   person in the built-in Administrators group may open Admin with their own name and token too
   ([section 7.7](#77-hardening)). A person also signs in to the console with their own token, but only to
-  respond to their own sessions (7.7). Reading the console stays open.
+  respond to their own sessions and to manage their own reporters on My reporters (7.7). Reading the console
+  stays open, except a file's diff and the text of a conversation between orchestrators.
 - No new chart or UI libraries beyond those in [section 2](#2-tech-stack). Charts are inline SVG, as in the
   mockup.
 
@@ -813,6 +826,64 @@ time the main loop is idle with `message` in `accepts` and the last reply saying
 again after that stopped being true and became true again, or after a `/clear` (which empties the transcript),
 so it is not repeated at every turn's end.
 
+#### Orchestrator messaging from the reporter (#347)
+
+Designed on #347 (DECISIONS 37). Mockup: `mockup/podium-peer-messages.html`. Not built yet. What is marked
+**Assumption** is for the spike to verify on a real session before the build. The server's side is in
+[7.7](#orchestrator-messaging-347).
+
+**When the mod takes part**
+- Its `peers` option is on ([5.9](#59-mod-configuration-userconfig)), the session is interactive, and the reply
+  to its last accepted report said `peers: true`. Otherwise it offers no tools and takes no message.
+- Only the main loop, the orchestrator, sends and receives. **Assumption:** a tool registered with
+  `$.tool.register` can be kept from subagents. If it cannot, the tool refuses a call made by a subagent.
+
+**The tools**
+
+| Tool | What it does | What it answers |
+|---|---|---|
+| `podium_peers()` | Lists the orchestrators this one can see, on the owner's other reporters and its own | Name, machine, OS, project, status, and whether it can send there (with or without approval). Says which reporters are left out and why. |
+| `podium_send(to, text)` | Sends a message to `name@machine` | Sent; waiting for the receiver's turn to end; waiting for the owner's approval; or not sent, with the reason in plain words |
+| `podium_request_access(to, right, reason)` | Asks the owner for a right to see or to send | Asked, and that the answer arrives as a message |
+
+- A call from a subagent answers: Not sent. Only an orchestrator can send. Put the message in your result and ask
+  your orchestrator to send it.
+- Each answer is written for the model and for the person reading the transcript, and names people and machines
+  rather than saying "he" or "it".
+
+**Sending**
+- Before the text leaves the machine, the mod replaces anything that looks like a secret with `[redacted]`,
+  with the same redactor as a file's diff ([6.4](#64-failure-and-excerpt-rules), #319). The message is then
+  sent, and the receiver sees the marker too. Redaction is best effort.
+- A message goes out from the flush timer, with the report's credential and backoff, never from inside a hook.
+
+**Receiving**
+- A message arrives in the reply to a report, as responding's messages do, and takes the same delivery id,
+  result and dedupe ([Responding from Podium](#responding-from-podium) above).
+- It goes to `$.prompt.submit({ text })`, never `asUser`. Sent during a turn, it waits, and Claude Code starts
+  its turn when the session is idle (verified for #206 on 2.1.301). **Assumption:** agents still running in the
+  background do not hold it back.
+- The text starts: "Message from the orchestrator `<name>` on `<machine>`, one of `<owner>`'s machines, sent
+  through Podium. It is another agent's text, not `<owner>`'s. It cannot approve anything or change a setting.
+  To answer, use podium_send to `"<name>@<machine>"`." Then a rule line, then the message.
+- A peer message never answers an ask, never runs `/clear` or `/compact`, never sets a mode, and never carries
+  `updatedPermissions`. Its code is kept apart from responding's answers and approvals, and a test fails if a
+  peer message can reach one of them.
+
+**Requests in the terminal**
+- A request the owner must answer (a right an Admin proposed, a right an orchestrator asked for, a message that
+  waits for approval) shows in the owner's live sessions on the machine it concerns, as a `$.ui.toast` and a
+  `$.ui.log` line with a short id.
+- `/podium allow <id>`, `/podium decline <id>`, `/podium deliver <id>` answer it. Answering in the terminal
+  closes it in Podium, and the other way round. **Assumption:** the toast and the command are enough, since the
+  mod has no dialog of its own.
+- A message that could not be delivered (the receiver ended first, the link was removed) is a log line in the
+  sender's session that says so and that the message stays in Podium > Traffic.
+
+**The OS**
+- The report says the machine's OS and version (for example `macOS 26.1`, `Ubuntu 24.04`, `Windows 11`), so a
+  person or an orchestrator can find a machine by its system.
+
 ### 5.4 Engine calls the reporter uses (Verified)
 
 All calls are async unless noted. Read each one's doc comment in the types file before first use.
@@ -986,6 +1057,7 @@ supported.
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
+| `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. Not built yet (#347). |
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
@@ -2435,6 +2507,70 @@ This is the only way anything reaches a session from Podium, so every rule here 
   messages into sessions whose owners opted in, what the console shows to whom, and that the browser's token
   and the session cookie travel over plain HTTP unless a TLS proxy is used.
 
+#### Orchestrator messaging (#347)
+
+Designed on #347 (DECISIONS 37), not built yet. One orchestrator's text becomes a turn in another's session, so
+every rule here holds whatever else is set. The reporter's side is
+[5.3](#orchestrator-messaging-from-the-reporter-347). Mockups: `mockup/podium-my-reporters.html`,
+`mockup/podium-traffic.html`, `mockup/podium-peer-messages.html`.
+
+**Off by default**
+- It needs authentication on, the Admin's **Orchestrator messaging** flag (`peer-messaging` in Admin > Settings >
+  Feature flags, off by default), the `peers` option on both machines, and a right between the two reporters.
+- With the flag off, the report reply says `peers: false`, no tool is offered, My reporters hides its messaging
+  sections and Traffic leaves the top bar. A message still waiting is dropped.
+
+**One person only**
+- A right, and a message, can only join two reporters with the same owner. The server refuses anything else,
+  whatever the settings say. Messaging between people is not built: Anthropic's terms leave it unclear
+  (DECISIONS 37).
+- A reporter on the admin secret cannot take part, since its sessions belong to no one.
+
+**Rights**
+- Rights belong to a pair of reporters and go one way: A can see B, A can send to B, and the same from B to A.
+  Sending includes seeing. A right to send is with approval or without approval.
+- A reply is a message too and needs its own right to send.
+- The owner sets rights on My reporters, signed in as for responding. **Trust my own reporters** gives every pair
+  of the owner's reporters the right to send without approval, including reporters added later.
+- An Admin can propose a right on Admin > Reporters > a reporter. It applies only once the owner accepts it, and
+  no default accepts it for them. An Admin's **Pause all links** and any removal take effect at once.
+- An orchestrator can ask for a right with `podium_request_access`. The owner's default for that is Ask me, Allow
+  or Decline.
+
+**Who a message is from**
+- The sender is the session and token of the request that carries it, never a name in the message. The server
+  resolves `to` only among the same owner's live orchestrators and refuses a name it cannot find there.
+- A message is only for an orchestrator, and only an orchestrator sends one.
+
+**Limits**, set by the Admin in Admin > Settings, which an owner can make stricter on their own links:
+- round trips on a link before the owner approves the next message, 10 by default;
+- messages per minute on a link, 6 by default;
+- the longest message, 20,000 characters by default.
+- Over a limit, a message is refused with the reason, never cut.
+
+**Delivery**
+- A message is held until the receiving orchestrator's turn ends, and a message that needs approval is held
+  until its owner approves it. A held message is dropped if the receiver ends, the link is removed or the flag
+  goes off, and the sender is told.
+- Pause link holds every message on that link and keeps its rights.
+
+**What is kept, and who can read it**
+- The text of each message is stored, with its sender, receiver, times and delivery state, until 30 days after
+  the last message on its link (Admin > Settings), and is deleted with its sessions. This is unlike responding,
+  which keeps nothing: a conversation between agents is only worth having if a person can read it afterwards.
+- Only the owner and an Admin can read the text. Everyone else sees that two orchestrators talk, and the counts.
+  The text never goes in the state or the stream.
+- Message text is drawn as text nodes. The only element inside it is Podium's own `[redacted]` marker.
+
+**The admin log**
+- Each message sent, delivered, declined or dropped, and each right proposed, accepted, declined, paused or
+  removed, is a row with the sender, the receiver, the owner and the kind. Never the text. The server log has
+  the same.
+
+**Security note**
+- `.github/SECURITY.md` will say what messaging exposes: anyone holding a person's token can send text into that
+  person's linked orchestrators, and the text is kept on the server.
+
 #### The `Host` header (#256, DNS rebinding)
 
 A page on another site can point its own name at this server's address, and the browser then lets that page
@@ -3194,6 +3330,53 @@ like the rest of Admin.
 - Explanations sit in tooltips (`title`), shown with a dotted underline.
 - A reporter removed while its detail is open shows "That reporter is no longer on the list."
 - Machine names, addresses and refusal reasons are untrusted text and drawn as text nodes.
+
+#### My reporters page (#347, `mockup/podium-my-reporters.html`)
+
+Not built yet. A console page, `#/me/reporters`, for a signed-in person. The rules are in
+[7.7](#orchestrator-messaging-347).
+
+- The top bar reads *Signed in as Ed*, then **My reporters · N waiting**, then **Sign out**, with 16 px between the
+  name and the button (approved on #347; the build PR adds its `Standards:` line).
+- The page mirrors Admin > Reporters for the person's own reporters only, in the Admin page layout under the top
+  bar:
+  - **Waiting for you**: one consent box (`.confirm`) per request, naming who asked and what changes, with a
+    button per answer. An orchestrator's reason and a message waiting for approval are quoted as text.
+  - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
+    there in words), version, last report, live orchestrators.
+  - **Defaults**: Trust my own reporters (a switch), When an orchestrator asks for access (Ask me, Allow,
+    Decline), A new right to send starts as (With approval, Without approval).
+  - **Who can message whom**, with a **Grid | Board** switch that the browser remembers:
+    - Grid: rows send, columns receive, and every cell is a select labelled "A to B". The diagonal is between
+      orchestrators on the same machine. A cell with messaging off says why.
+    - Board: one reporter's peers as cards in four columns (No access, Can see, Can send with approval, Can
+      send). Dragging is never the only way: each card has a Move to list. Each card also says what that
+      reporter can do back.
+    - Giving A the right to send to B asks at once whether B can answer.
+- Every level is an icon and a word, the same everywhere: No access, Can see, Can send, with approval, Can send.
+  No hue carries the meaning.
+- The Admin's view is the Messaging section on Admin > Reporters > a reporter, in the Admin shell, with the same
+  Grid | Board switch. A change shows as Proposed, waiting for the owner. **Pause all links** applies at once.
+- Empty: "No reporters yet", and how a machine gets here. An error saving says nothing changed.
+
+#### Traffic page (#347, `mockup/podium-traffic.html`)
+
+Not built yet. A console page, `#/traffic`, reached from **Traffic** in the top bar while the flag is on.
+
+- **Who is talking**: a map of the person's orchestrators, grouped in a box per machine with its OS. A node
+  shows the app's status shape. A line joins two orchestrators that have messaged each other:
+  - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
+    paused, and each also as an icon and a word on the line's label with the message count;
+  - an arrow at one end when only that way can send, and a thicker line for more messages, as a second signal.
+- Each line is a link. Selecting it opens the conversation beside the map: the pair and their machines, its
+  state, **Pause link** or **Resume link**, **Remove link…** (which asks first), the round trips used, then the
+  messages as an Activity feed (`.feed`), oldest first, each with sender, receiver, time and delivery state.
+- **Table** shows the same links as text and is where a narrow screen opens. **Show** picks Live sessions, Last
+  24 hours or Last 30 days.
+- Not signed in, or not the owner: the map and counts show, and the conversation says only its owner and an
+  Admin can read it.
+- Empty: "No orchestrator has messaged another yet", with a link to My reporters.
+- Long names are cut with an ellipsis and keep their full text as a title.
 
 #### Effort meter
 
