@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-// #487: the heading and link patterns in check-doc-links.mjs must stay linear on hostile input.
+// The script end to end. The helpers behind it, and their linearity on hostile input (#487), are tested in docLinks.test.ts.
 // #489: a tag nested inside another must not leave tag text in an anchor.
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "check-doc-links.mjs");
 const dir = mkdtempSync(join(tmpdir(), "doclinks-"));
@@ -14,9 +14,8 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }));
 function check(name: string, md: string) {
   const file = join(dir, name);
   writeFileSync(file, md);
-  const t = Date.now();
   const r = spawnSync("node", [SCRIPT, file], { encoding: "utf8", timeout: 20000 });
-  return { out: r.stdout, code: r.status, ms: Date.now() - t };
+  return { out: r.stdout, code: r.status };
 }
 
 describe("check-doc-links.mjs", () => {
@@ -44,21 +43,5 @@ describe("check-doc-links.mjs", () => {
     expect(check("nest1.md", "## Hi <<script>script>x<</script>/script>\n\n[x](#hi-scriptxscript)\n").code).toBe(0);
     expect(check("nest2.md", "## Hi <<b>b>there\n\n[x](#hi-bthere)\n").code).toBe(0);
     expect(check("nest3.md", "## Hi <scr<script>ipt>there\n\n[x](#hi-iptthere)\n").code).toBe(0);
-  });
-
-  it("finishes quickly on a heading with a long run of spaces", () => {
-    const { out, ms } = check("spaces.md", `# a${" ".repeat(60000)}b\n\n[a](#a)\n`);
-    expect(out).toContain("no anchor #a");
-    expect(ms).toBeLessThan(5000);
-  });
-
-  it("finishes quickly on a heading with many unclosed brackets", () => {
-    const { ms } = check("brackets.md", `# ${"[".repeat(60000)}\n\n[a](#a)\n`);
-    expect(ms).toBeLessThan(5000);
-  });
-
-  it("finishes quickly on a heading with many link-like starts and no end", () => {
-    const { ms } = check("links.md", `# ${"[a](".repeat(30000)}\n\n[a](#a)\n`);
-    expect(ms).toBeLessThan(5000);
   });
 });
