@@ -6,13 +6,13 @@
 import { useCallback, useState } from "react";
 import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
-import { ago, StateBadge } from "./admin/ReportersTab";
+import { ago, StateBadge, Version } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
-import { asksBack, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
+import { asksBack, LEVEL_LABEL, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
 import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
-import type { RespondMe, SessionView } from "./types";
+import type { RespondMe } from "./types";
 
 const LEAD = "The machines that report your sessions to this server, and which of them may message each other.";
 
@@ -36,7 +36,7 @@ const NEW_SEND = [
   { id: "send", label: "Without approval" },
 ] as const;
 
-export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; sessions: Record<string, SessionView>; now: number }) {
+export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean; peers: MyPeers; api: PeersApi; now: number }) {
   const { me, peers } = props;
   let body: React.ReactNode;
   if (!props.peersOn || me?.enabled === false) {
@@ -64,7 +64,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
   } else if (!peers.data.reporters.length) {
     body = <Blank title="No reporters yet">A machine shows here once it reports with your name and token. Set both in its podium-reporter options.</Blank>;
   } else {
-    body = <Owner data={peers.data} peers={peers} api={props.api} sessions={props.sessions} now={props.now} />;
+    body = <Owner data={peers.data} peers={peers} api={props.api} now={props.now} />;
   }
   return (
     <main className="adminv" aria-label="My reporters">
@@ -80,7 +80,7 @@ export function MyReportersPage(props: { me: RespondMe | null; peersOn: boolean;
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: MyPeers; api: PeersApi; sessions: Record<string, SessionView>; now: number }) {
+function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api: PeersApi; now: number }) {
   const [err, setErr] = useState<string | null>(null);
   const [said, setSaid] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -175,7 +175,6 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
               </thead>
               <tbody>
                 {data.reporters.map((r) => {
-                  const look = reporterLook(r, sessions);
                   return (
                     <tr key={r.key}>
                       <td>
@@ -191,9 +190,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
                       </td>
                       <td>{r.peers === true ? <span className="badge ok">On</span> : <span className="badge off">{r.peers === null ? "Reporter can't message: update it" : "Off on the machine"}</span>}</td>
                       <td>
-                        <span className={`compat ${look.compat ?? "ok"}`}>
-                          <span className="mono">{r.version}</span>
-                        </span>
+                        <Version r={r} />
                       </td>
                       <td className="mono muted nowrap">{ago(data.serverTime, r.lastSeenAt)}</td>
                       <td className="n mono">{r.live.length}</td>

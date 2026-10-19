@@ -2040,8 +2040,8 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 
 - `GET /api/fleet/respond/peers`: My reporters in one read. `{ enabled, owner, serverTime, serverStartedAt, reporters,
   rights, defaults, limits: { server, effective }, requests }`. `reporters` are the person's mod reporters (`key`,
-  `machine`, `os`, `peers`, `version`, `state` and `lastSeenAt` as Admin > Reporters works them out, and `live`, its
-  live orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
+  `machine`, `os`, `peers`, `version`, `state`, `lastSeenAt` and `compat` as Admin > Reporters works them out, and
+  `live`, its live orchestrators). `serverTime` and `serverStartedAt` time the states, as on `GET /api/admin/reporters`.
   `requests` are the open ones, each a `PeerRequest` with `fromKey` and `toKey` (the two reporter keys, so the page
   can tell apart two machines that share a name) and `messageId`. The mod's `peerRequests` carry the `PeerRequest`
   alone.
@@ -3631,7 +3631,8 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
     there in words), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
-    from the server's `serverTime`.
+    from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
+    outdated reporter is flagged whether or not it has a live session.
   - **Defaults**: Trust my own reporters (a switch), When an orchestrator asks for access (Ask me, Allow,
     Decline), A new right to send starts as (With approval, Without approval).
   - **Who can message whom**, with a **Grid | Board** switch that the browser remembers:
@@ -3649,8 +3650,8 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
   get their own empty block too.
 - A change shows at once and keeps focus where it was. If saving fails, the page says "Could not save the change:
   … Nothing changed. Try again." and takes back only that change; a newer change still saving stays shown.
-- The page draws no rail, side panel or wall, so `[`, `]`, `w` and Esc do nothing there; `\` still hides and shows
-  the top bar.
+- The page draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]`, `w` and Esc do nothing
+  there; `\` still hides and shows the top bar.
 - The owner's stricter limits ([7.7](#orchestrator-messaging-347)) are not on the page yet; the server holds them.
 
 #### Traffic page (#347, `mockup/podium-traffic.html`)

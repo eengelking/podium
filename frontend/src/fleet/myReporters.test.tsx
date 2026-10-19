@@ -24,6 +24,7 @@ const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): Pe
   version: "1.2.0",
   state: "reporting",
   lastSeenAt: T0 - 40_000,
+  compat: "ok",
   live: [],
   ...over,
 });
@@ -168,6 +169,14 @@ describe("the top bar", () => {
     expect(top.hidden).toBe(false);
   });
 
+  it("offers no Wall mode, in the top bar or in the corner once the top bar is hidden (#415)", async () => {
+    page();
+    await flush();
+    expect(screen.queryByRole("button", { name: "Enter wall mode" })).toBeNull();
+    fireEvent.keyDown(document, { key: "\\" });
+    expect(screen.queryByRole("button", { name: "Enter wall mode" })).toBeNull();
+  });
+
   it("goes back to the fleet from Fleet", async () => {
     window.location.hash = "#/me/reporters";
     page();
@@ -297,6 +306,17 @@ describe("Your reporters", () => {
     expect(row("win-lab")).toHaveTextContent("3 days ago");
     // A reporter with no live session is not given a state of its own: the server's words are the only ones.
     expect(screen.queryByText("No live session")).toBeNull();
+  });
+
+  it("flags an outdated reporter from the server's check, as Admin > Reporters does, live session or not (#415)", async () => {
+    const d = baseRead();
+    d.reporters[3] = { ...d.reporters[3]!, compat: "outdated" };
+    page({ server: fakeServer(d) });
+    await flush();
+    const table = within(screen.getByRole("region", { name: "Table of your reporters" }));
+    const version = table.getByText("win-lab", { selector: ".pm-name" }).closest("tr")!.querySelector(".compat")!;
+    expect(version).toHaveClass("compat", "outdated");
+    expect(version).toHaveTextContent("1.1.0 outdated");
   });
 
   it("says how to update a reporter too old to message", async () => {

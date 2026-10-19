@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { asksBack, canSend, idPart, LEVEL_LABEL, messagingOff, reporterLook, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
+import { asksBack, canSend, idPart, LEVEL_LABEL, messagingOff, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
 
-const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", state: "reporting", lastSeenAt: 1, live: [], ...over });
+const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", state: "reporting", lastSeenAt: 1, compat: "ok", live: [], ...over });
 
 function read(over: Partial<PeersRead> = {}): PeersRead {
   return {
@@ -124,19 +124,6 @@ describe("systemKind", () => {
   });
 });
 
-describe("reporterLook", () => {
-  it("takes the newest live session's compatibility, and no state of its own: the server gives that (#415)", () => {
-    const look = reporterLook({ live: [{ sessionId: "s1", name: "a", status: "running", peers: true }, { sessionId: "s2", name: "b", status: "waiting", peers: true }, { sessionId: "gone", name: "c", status: "waiting", peers: true }] }, {
-      s1: { lastSeenAt: 10, compat: "ok" },
-      s2: { lastSeenAt: 20, compat: "outdated" },
-    });
-    expect(look).toEqual({ compat: "outdated" });
-  });
-
-  it("has no compatibility when no orchestrator is live", () => {
-    expect(reporterLook({ live: [] }, {})).toEqual({ compat: null });
-  });
-});
 
 describe("withRight", () => {
   it("adds, changes and removes a direction, keeping a pause", () => {

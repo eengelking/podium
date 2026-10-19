@@ -83,10 +83,10 @@ describe('reporters', () => {
       ['old', 'restart', START - MIN],
       ['studio-m2', 'silent', START + MIN],
     ]);
-    expect(mine[3]).toEqual({ ...look.get('9f3a1c7d2e40'), state: 'silent', lastSeenAt: START + MIN });
-    // The same words as the Admin's list, row for row.
-    const admin = new Map(store.list({}, now).rows.map((r) => [r.key, [r.state, r.lastSeenAt]]));
-    for (const r of mine) expect([r.state, r.lastSeenAt]).toEqual(admin.get(r.key));
+    expect(mine[3]).toEqual({ ...look.get('9f3a1c7d2e40'), state: 'silent', lastSeenAt: START + MIN, compat: 'ok' });
+    // The same words and version check as the Admin's list, row for row.
+    const admin = new Map(store.list({}, now).rows.map((r) => [r.key, [r.state, r.lastSeenAt, r.compat]]));
+    for (const r of mine) expect([r.state, r.lastSeenAt, r.compat]).toEqual(admin.get(r.key));
     expect(look.ofOwnerSeen('Alex', now)).toEqual([]);
   });
 

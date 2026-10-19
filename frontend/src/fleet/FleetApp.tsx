@@ -341,12 +341,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   }, [exitWall]);
 
   const { toggle } = panes;
-  // In the top bar's own row while it is open, floating in the corner once it is collapsed.
+  // In the top bar's own row while it is open, floating in the corner once it is collapsed. My reporters has no wall to
+  // show, so it offers none (#415); a wall left on from before still shows its way out.
   const wallButton = panes.wall ? (
     <button type="button" className="btn wall-exit" data-wall-control onClick={stopWall} aria-label="Exit wall mode" title="Exit wall mode (Esc)">
       Exit wall mode
     </button>
-  ) : (
+  ) : myReporters ? null : (
     <button type="button" className="btn wall-enter" data-wall-control onClick={() => startWall(true)} aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">
       Wall mode
     </button>
@@ -363,7 +364,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
 
   return (
     <div ref={root} className={`podium${panes.wall ? " wall-on" : ""}${idle ? " idle" : ""}${visible ? "" : " paused"}`}>
-      {panes.collapsed.top && (
+      {panes.collapsed.top && wallButton && (
         <div className="wall-ctl" data-wall-control>
           {wallButton}
         </div>
@@ -413,7 +414,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           </div>
         )}
         {myReporters ? (
-          <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} sessions={state.sessions} now={now} />
+          <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} />
         ) : (
         <div className="cols" ref={cols} style={colStyle}>
           <Rail

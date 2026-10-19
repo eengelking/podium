@@ -271,7 +271,7 @@ export class ReporterStore {
       startedAt: this.startedAt,
       ofOwnerSeen: (owner, now) =>
         (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ owner, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
-          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at }),
+          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version) }),
         ),
       get: (key) => {
         // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.

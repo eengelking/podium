@@ -343,10 +343,10 @@ describe('the owner’s routes (#412)', () => {
     expect(of(MAC.id)).toMatchObject({ state: 'idle', lastSeenAt: started });
     expect(of(LINUX.id)).toMatchObject({ state: 'reporting', lastSeenAt: started + 5 * 60_000 });
     const admin = await adminAgent(s);
-    const rows = (await admin.get('/api/admin/reporters').set(HA)).body.rows as { key: string; state: string; lastSeenAt: number }[];
+    const rows = (await admin.get('/api/admin/reporters').set(HA)).body.rows as { key: string; state: string; lastSeenAt: number; compat: string }[];
     for (const key of [MAC.id, LINUX.id]) {
       const row = rows.find((r) => r.key === key)!;
-      expect([of(key).state, of(key).lastSeenAt]).toEqual([row.state, row.lastSeenAt]);
+      expect([of(key).state, of(key).lastSeenAt, of(key).compat]).toEqual([row.state, row.lastSeenAt, row.compat]);
     }
   });
 

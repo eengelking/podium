@@ -119,7 +119,8 @@ export function StateBadge({ r, serverTime, serverStartedAt }: { r: Pick<Reporte
   );
 }
 
-function Version({ r }: { r: ReporterRow }) {
+/** A reporter's version and how it fits this server; My reporters shows it the same way (#415). */
+export function Version({ r }: { r: Pick<ReporterRow, "version" | "compat"> }) {
   const flag = r.compat === "outdated" || r.compat === "newer";
   return (
     <span className={`compat ${r.compat}`} title={COMPAT[r.compat]}>

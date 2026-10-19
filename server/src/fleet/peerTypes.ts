@@ -10,7 +10,7 @@
 //   conversation, since the last message its owner approved.
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
-import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery } from './protocol.js';
+import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
 import type { PeerLimits } from './peerSettings.js';
 import type { ReporterState } from './reporters.js';
 
@@ -64,6 +64,8 @@ export interface ReporterLookup {
 export interface SeenReporterRef extends ReporterRef {
   state: ReporterState;
   lastSeenAt: number;
+  /** The reporter's version against what this server supports, as Admin > Reporters shows it. */
+  compat: ReporterCompat;
 }
 
 /** The lookup the reporters table gives the service: also what the owner's read on My reporters lists (#415). */

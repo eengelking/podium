@@ -1,7 +1,7 @@
 // Orchestrator messaging on My reporters (#347, #415, SPEC 7.7 and 8.1): what the page reads from
 // GET /api/fleet/respond/peers, and the rules it draws with. The server decides every right; this file only
 // says how a pair looks: its level, whether it can be changed here, and why not.
-import type { PeerLevel, PeerRequest, ReporterCompat, SessionView } from "./types";
+import type { PeerLevel, PeerRequest, ReporterCompat } from "./types";
 import type { ReporterState } from "./admin/adminApi";
 
 export type { PeerLevel } from "./types";
@@ -20,6 +20,8 @@ export interface PeerReporter {
   /** Its state as Admin > Reporters shows it (#415), worked out by the server from its last report. */
   state: ReporterState;
   lastSeenAt: number;
+  /** Its version against what this server supports, from the server's check, as on Admin > Reporters. */
+  compat: ReporterCompat;
   /** Its live orchestrators. */
   live: { sessionId: string; name: string; status: "running" | "waiting" | "done"; peers: boolean }[];
 }
@@ -156,27 +158,6 @@ export function systemKind(os: string | null): SystemKind | null {
   return "linux";
 }
 
-/**
- * What the person's own reporter table takes from the fleet for one reporter: its version's fit, from the newest of its
- * live orchestrators. Its state and last report come from the server (#415), as on Admin > Reporters.
- */
-export interface ReporterLook {
-  compat: ReporterCompat | null;
-}
-
-export function reporterLook(r: Pick<PeerReporter, "live">, sessions: Record<string, Pick<SessionView, "lastSeenAt" | "compat">>): ReporterLook {
-  let lastSeenAt: number | null = null;
-  let compat: ReporterCompat | null = null;
-  for (const o of r.live) {
-    const s = sessions[o.sessionId];
-    if (!s) continue;
-    if (lastSeenAt === null || s.lastSeenAt > lastSeenAt) {
-      lastSeenAt = s.lastSeenAt;
-      compat = s.compat;
-    }
-  }
-  return { compat };
-}
 
 /** The read with one right changed, as the page shows it while the server saves it. */
 export function withRight(d: PeersRead, from: string, to: string, level: PeerLevel): PeersRead {
