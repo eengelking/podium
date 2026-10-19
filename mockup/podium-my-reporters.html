@@ -18,8 +18,16 @@
    Built from the app's own parts: the top bar, the Admin page classes, .confirm for consent, .modeseg for a choice of a few,
    .badge, .warnbar, .kb-empty and .kb-blank. Classes that start with pm- are new and would be added to the standards with the
    feature: pm-lv (an access level), pm-os (a system), pm-pend (proposed), pm-state (paused), pm-grid, pm-board.
-   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only. */
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only.
+   #436 (C7) adds the owner's stricter limits to Defaults, inside the dashed box marked "New in #436". Each limit is the
+   Admin's setting row from Admin > Settings (.srow, a .field.daysbox, the in-place .err that Forget old reporters uses),
+   with the Admin's value as its most, and a Use the Admin's limit button in a .row2 once the owner has their own. The
+   Limits buttons in the bar above switch the example. A value is saved when the box loses focus or on Enter, and a
+   refused one saves nothing. The dashed box and its caption (mock-new) are for this review only, not app UI. */
 html, body { height: auto; }
+/* Mockup only: marks the part #436 adds, so the reviewer can find it. Not app UI. */
+.mock-new { outline: 2px dashed var(--sonnet); outline-offset: -3px; }
+.mock-new > .mock-cap { display: block; padding: 10px 16px 0; font: 600 11px var(--font-ui); color: var(--sonnet); }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
 .demo { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
 .demo b { color: var(--ink); }
@@ -114,6 +122,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <button type="button" data-case="empty" aria-pressed="false">No reporters</button>
     <button type="button" data-case="error" aria-pressed="false">Save failed</button>
     <button type="button" data-case="long" aria-pressed="false">Long names</button>
+  </span>
+  <span class="grp" role="group" aria-label="Limits, new in #436">Limits (#436)
+    <button type="button" data-lim="mixed" aria-pressed="true">One of each</button>
+    <button type="button" data-lim="admin" aria-pressed="false">All the Admin's</button>
+    <button type="button" data-lim="stricter" aria-pressed="false">All stricter</button>
+    <button type="button" data-lim="refused" aria-pressed="false">Refused</button>
+    <button type="button" data-lim="lowered" aria-pressed="false">Admin lowered theirs</button>
   </span>
   <span class="grp" role="group" aria-label="Mode">Mode
     <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
@@ -259,13 +274,74 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     }).join('') + '</div>';
   }
 
+  /* ---------- #436: the owner's stricter limits ---------- */
+  // The same rows Admin > Settings draws for the Admin's limits, with a per-key most: the Admin's value.
+  var LIMS = [
+    { k: 'roundTrips', id: 'lim-trips', label: 'Round trips before a person approves', hint: 'After this many exchanges in one conversation, the next message waits for you to approve it.' },
+    { k: 'perMinute', id: 'lim-rate', label: 'Messages per minute on a link', hint: 'More than this is refused, and the sender is told to wait.' },
+    { k: 'maxChars', id: 'lim-size', label: 'Longest message, in characters', hint: 'A longer message is refused, never cut, and the sender is told the limit.' }
+  ];
+  var ADMIN0 = { roundTrips: 10, perMinute: 6, maxChars: 20000 };
+  var LIM_CASES = {
+    mixed: { admin: {}, own: { perMinute: 3 }, typed: { maxChars: '25000' } },
+    admin: { admin: {}, own: {}, typed: {} },
+    stricter: { admin: {}, own: { roundTrips: 4, perMinute: 3, maxChars: 8000 }, typed: {} },
+    refused: { admin: {}, own: {}, typed: { roundTrips: '15', perMinute: '0', maxChars: '2.5' } },
+    lowered: { admin: { roundTrips: 5 }, own: { roundTrips: 8 }, typed: {} }
+  };
+  var L = null;
+  function limCase(name) {
+    var c = LIM_CASES[name];
+    L = { admin: Object.assign({}, ADMIN0, c.admin), own: Object.assign({}, c.own), typed: {}, err: {} };
+    Object.keys(c.typed).forEach(function (k) { check(k, c.typed[k]); });
+  }
+  function num(n) { return Number(n).toLocaleString('en-US'); }
+  function limLabel(k) { for (var i = 0; i < LIMS.length; i++) if (LIMS[i].k === k) return LIMS[i]; return null; }
+  // Checks a typed value against 1 and the Admin's value. Saves it, or keeps the text and the reason and saves nothing.
+  function check(k, text) {
+    var most = L.admin[k], t = String(text).trim(), n = Number(t), tryIt = 'Enter a whole number from 1 to ' + num(most);
+    var why = null;
+    if (t === '') why = tryIt + '. Nothing was saved.';
+    else if (!Number.isFinite(n) || !Number.isInteger(n)) why = t + ' is not a whole number. ' + tryIt + '. Nothing was saved.';
+    else if (n < 1) why = num(n) + ' is below 1. ' + tryIt + ', or pause the link under Who can message whom. Nothing was saved.';
+    else if (n > most) why = num(n) + ' is above the Admin\'s limit, ' + num(most) + '. ' + tryIt + '. Nothing was saved.';
+    if (why) { L.typed[k] = t; L.err[k] = why; return false; }
+    delete L.typed[k]; delete L.err[k];
+    if (n === most) delete L.own[k]; else L.own[k] = n;
+    return true;
+  }
+  function useAdmin(k) { delete L.own[k]; delete L.typed[k]; delete L.err[k]; }
+  function applies(k) { var own = L.own[k], most = L.admin[k]; return own === undefined ? most : Math.min(own, most); }
+  function limState(k) {
+    var own = L.own[k], most = L.admin[k];
+    if (own === undefined) return 'Uses the Admin\'s limit, ' + num(most) + '.';
+    if (own < most) return 'Yours, stricter than the Admin\'s limit, ' + num(most) + '.';
+    return 'The Admin\'s limit is now ' + num(most) + ', lower than yours, ' + num(own) + ', so ' + num(most) + ' applies.';
+  }
+  function limRow(m) {
+    var k = m.k, bad = !!L.err[k], val = bad ? L.typed[k] : String(applies(k));
+    return '<div class="srow"><div class="setname"><label for="' + m.id + '"><b>' + esc(m.label) + '</b></label>' +
+      '<p class="hint ink2">' + esc(m.hint) + '</p>' +
+      '<div class="row2"><span class="hint" id="' + m.id + '-s">' + esc(limState(k)) + '</span>' +
+      (L.own[k] !== undefined ? '<button type="button" class="btn sm" id="' + m.id + '-use" data-lim-use="' + k + '" aria-label="' + esc(m.label) + ': use the Admin\'s limit, ' + num(L.admin[k]) + '">Use the Admin\'s limit</button>' : '') + '</div>' +
+      (bad ? '<p class="err" role="alert" id="' + m.id + '-e">' + esc(L.err[k]) + '</p>' : '') + '</div>' +
+      '<input class="field mono daysbox" id="' + m.id + '" data-lim-k="' + k + '" type="number" min="1" max="' + L.admin[k] + '" step="1" value="' + esc(val) + '"' +
+      ' aria-describedby="' + m.id + '-s' + (bad ? ' ' + m.id + '-e' : '') + '"' + (bad ? ' aria-invalid="true"' : '') + '>' +
+      '</div>';
+  }
+  function limits() {
+    return '<div class="mock-new"><span class="mock-cap">New in #436: your limits</span>' + LIMS.map(limRow).join('') + '</div>';
+  }
+
   function defaults() {
-    return '<section class="asec" aria-labelledby="def-h"><div class="asec-h"><div><h2 id="def-h">Defaults</h2></div></div><div class="panel">' +
+    // New in #436: the help line under the heading, which says what the limits are.
+    return '<section class="asec" aria-labelledby="def-h"><div class="asec-h"><div><h2 id="def-h">Defaults</h2>' +
+      '<p class="hint">What applies to all your reporters, and the limits on your links. The Admin sets the most each limit can be on this server, and yours can only be lower.</p></div></div><div class="panel"><div class="pm-defs">' +
       '<div class="srow"><div class="setname"><b id="trust-n">Trust my own reporters</b><p class="hint ink2">Every reporter of yours can send to every other one, and messages are delivered without approval. A reporter you add later is included. Off by default.</p></div>' +
       '<div class="sw"><button type="button" role="switch" id="trust-sw" aria-checked="' + S.trust + '" aria-labelledby="trust-n trust-s"></button><span id="trust-s">' + (S.trust ? 'On' : 'Off') + '</span></div></div>' +
       '<div class="srow"><div class="setname"><b id="askdef-n">When an orchestrator asks for access</b><p class="hint ink2">One of your orchestrators can ask to see or send to another of your reporters. A change an Admin proposes always waits for you, whatever this says.</p></div>' + seg('askdef', 'When an orchestrator asks for access', [['ask', 'Ask me'], ['allow', 'Allow'], ['deny', 'Decline']], 'ask') + '</div>' +
       '<div class="srow"><div class="setname"><b id="msgdef-n">A new right to send starts as</b><p class="hint ink2">You can change it for each pair below.</p></div>' + seg('msgdef', 'A new right to send starts as', [['ask', 'With approval'], ['send', 'Without approval']], 'ask') + '</div>' +
-      '</div></section>';
+      limits() + '</div></div></section>';
   }
 
   function backPrompt() {
@@ -406,6 +482,27 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         n.click(); var f = document.querySelector('[data-seg="' + n.dataset.seg + '"][data-v="' + n.dataset.v + '"]'); if (f) f.focus(); e.preventDefault();
       });
     });
+    // #436: a limit is saved when its box loses focus or on Enter; a refused value keeps its text and saves nothing.
+    each('input[data-lim-k]', function (f) {
+      function commit() {
+        var k = f.dataset.limK, m = limLabel(k);
+        if (!L.err[k] && f.value === String(applies(k))) return;
+        var ok = check(k, f.value);
+        announce(ok ? m.label + ': ' + num(applies(k)) + (L.own[k] === undefined ? ', the Admin\'s limit.' : ', yours.') : L.err[k]);
+        render();
+      }
+      f.addEventListener('blur', commit);
+      f.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+    });
+    each('[data-lim-use]', function (b) {
+      b.addEventListener('click', function () {
+        var k = b.dataset.limUse, m = limLabel(k);
+        useAdmin(k);
+        announce(m.label + ': ' + num(L.admin[k]) + ', the Admin\'s limit.');
+        render();
+        var f = document.getElementById(m.id); if (f) f.focus();
+      });
+    });
     var tsw = document.getElementById('trust-sw');
     if (tsw) tsw.addEventListener('click', function () { setTrust(!S.trust); });
     var ap = document.getElementById('admin-pause');
@@ -433,6 +530,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (b.dataset.as) { S.as = b.dataset.as; S.back = null; press('data-as', S.as); render(); }
     if (b.dataset.trust) setTrust(b.dataset.trust === 'on');
     if (b.dataset['case']) { S.kase = b.dataset['case']; press('data-case', S.kase); render(); }
+    if (b.dataset.lim) { S.as = 'owner'; press('data-as', 'owner'); limCase(b.dataset.lim); press('data-lim', b.dataset.lim); render(); }
     if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
     if (b.dataset.w) {
       var st = document.getElementById('stage');
@@ -443,6 +541,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   });
   try { var v = localStorage.getItem('podium.peers.view'); if (v === 'grid' || v === 'board') S.layout = v; } catch (err) { /* private window: start on Grid */ }
   root.setAttribute('data-theme', 'dark');
+  limCase('mixed');
   render();
 })();
 </script>
