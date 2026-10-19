@@ -145,8 +145,10 @@ describe("Markdown", () => {
   describe("stays linear on pathological input (#362)", () => {
     // A quadratic renderer takes 16 times as long on 4n as on n, a linear one 4 times. The
     // test asserts the ratio, so a slow or busy runner (or coverage) cannot fail it; the
-    // per-test timeout is the backstop for a real hang.
-    const N = 50000;
+    // per-test timeout is the backstop for a real hang. N is kept small because the cases that
+    // build a node per marker took about 4.5 s each at 50,000, which a loaded coverage runner
+    // stretched to the old 20 s limit (#471); a quadratic renderer still fails at 15,000.
+    const N = 15000;
     const REPS = 3;
     const MAX_RATIO = 8;
     const FLOOR_MS = 1;
@@ -193,7 +195,7 @@ describe("Markdown", () => {
         const small = Math.max(best(build(N)), FLOOR_MS);
         const large = best(build(N * 4));
         expect(large / small).toBeLessThan(MAX_RATIO);
-      }, 20000);
+      }, 60000);
     }
   });
 
