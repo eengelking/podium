@@ -303,10 +303,14 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const me = owner(req, res);
     if (!me) return;
     const server = fleet.peers.serverLimits();
+    const t = now();
     res.json({
       enabled: true,
       owner: me.name,
-      reporters: fleet.peers.reporters.ofOwner(me.name).filter((r) => !r.adminSecret).map((r) => ({ ...r, live: liveOn(r.key) })),
+      // Each reporter's state and last report as Admin > Reporters has them (#415), timed by the server's clock as there.
+      serverTime: t,
+      serverStartedAt: fleet.peers.reporters.startedAt,
+      reporters: fleet.peers.reporters.ofOwnerSeen(me.name, t).filter((r) => !r.adminSecret).map((r) => ({ ...r, live: liveOn(r.key) })),
       rights: fleet.peers.rights.rightsOf(me.name),
       defaults: fleet.peers.rights.defaults(me.name),
       limits: { server, effective: fleet.peers.rights.limits(me.name, server) },

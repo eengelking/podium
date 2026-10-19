@@ -13,7 +13,20 @@ import type { RespondMe } from "./types";
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
 const T0 = 2_000_000;
 
-const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", live: [], ...over });
+const HOUR = 3_600_000;
+const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({
+  key,
+  machine,
+  owner: "Ed",
+  adminSecret: false,
+  os: "macOS 26.1",
+  peers: true,
+  version: "1.2.0",
+  state: "reporting",
+  lastSeenAt: T0 - 40_000,
+  live: [],
+  ...over,
+});
 
 const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 300_000, from: { machine: "build-pi", name: null }, to: { machine: "ed-mbp", name: null }, level: "ask", by: "Admin", reason: null, text: null, messageId: null };
 const ACCESS: PeerRequestView = { id: "prq_a", kind: "access", at: T0 - 60_000, from: { machine: "ci-runner-01", name: "Tester" }, to: { machine: "build-pi", name: null }, level: "ask", by: "Tester", reason: 'I need the arm64 build <img src=x onerror="alert(1)">', text: null, messageId: null };
@@ -23,11 +36,13 @@ function baseRead(): PeersRead {
   return {
     enabled: true,
     owner: "Ed",
+    serverTime: T0,
+    serverStartedAt: T0 - HOUR,
     reporters: [
       rep("k1", "ed-mbp", { live: [{ sessionId: "s-mac", name: "claude-dashboard", status: "running", peers: true }] }),
-      rep("k2", "ci-runner-01", { os: "Ubuntu 24.04" }),
-      rep("k3", "build-pi", { os: "Debian 12, arm64" }),
-      rep("k4", "win-lab", { os: "Windows 11", peers: false, version: "1.1.0" }),
+      rep("k2", "ci-runner-01", { os: "Ubuntu 24.04", state: "idle", lastSeenAt: T0 - 10 * 60_000 }),
+      rep("k3", "build-pi", { os: "Debian 12, arm64", state: "restart", lastSeenAt: T0 - 2 * HOUR }),
+      rep("k4", "win-lab", { os: "Windows 11", peers: false, version: "1.1.0", state: "silent", lastSeenAt: T0 - 3 * 24 * HOUR }),
     ],
     rights: [
       { from: "k1", to: "k1", owner: "Ed", level: "send", paused: true, setAt: 1 },
@@ -128,6 +143,31 @@ describe("the top bar", () => {
     expect(screen.queryByRole("link", { name: /My reporters/ })).toBeNull();
   });
 
+  it("reads plain My reporters before the first read lands (#415)", async () => {
+    const server = fakeServer();
+    server.api.read.mockImplementation(() => new Promise<PeersRead>(() => {}));
+    page({ server });
+    await flush();
+    expect(screen.getByRole("link", { name: "My reporters" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the top bar's own shortcut but not the wall's, the rail's or the side panel's, which this page does not draw (#415)", async () => {
+    const { container } = page();
+    await flush();
+    const top = document.getElementById("podium-top")!;
+    for (const key of ["w", "W"]) {
+      fireEvent.keyDown(document, { key });
+      expect(container.querySelector(".podium")).not.toHaveClass("wall-on");
+      expect(top.hidden).toBe(false);
+    }
+    for (const key of ["[", "]", "Escape"]) fireEvent.keyDown(document, { key });
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+    fireEvent.keyDown(document, { key: "\\" });
+    expect(top.hidden).toBe(true);
+    fireEvent.keyDown(document, { key: "\\" });
+    expect(top.hidden).toBe(false);
+  });
+
   it("goes back to the fleet from Fleet", async () => {
     window.location.hash = "#/me/reporters";
     page();
@@ -201,7 +241,9 @@ describe("Waiting for you", () => {
     page({ server: fakeServer({ ...baseRead(), requests: [] }) });
     await flush();
     expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull();
-    expect(screen.getByRole("link", { name: "My reporters · 0 waiting" })).toBeInTheDocument();
+    // Nothing waiting: plain "My reporters", never "· 0 waiting" (#415).
+    expect(screen.getByRole("link", { name: "My reporters" })).toHaveAttribute("href", "#/me/reporters");
+    expect(screen.queryByText(/0 waiting/)).toBeNull();
   });
 });
 
@@ -217,11 +259,31 @@ describe("Your reporters", () => {
     expect(mac).toHaveTextContent("40 s ago");
     expect(mac.lastElementChild).toHaveTextContent("1");
     const win = table.getByText("win-lab").closest("tr")!;
-    expect(win).toHaveTextContent("No live session");
     expect(within(win).getByText("Off on the machine")).toHaveClass("badge", "off");
     expect(win).toHaveTextContent("1.1.0");
     expect(screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/)).toBeInTheDocument();
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();
+  });
+
+  it("shows the server's state for each reporter with the badge, words and note Admin > Reporters uses, and its last report (#415)", async () => {
+    page();
+    await flush();
+    const table = within(screen.getByRole("region", { name: "Table of your reporters" }));
+    const row = (machine: string) => table.getByText(machine, { selector: ".pm-name" }).closest("tr")!;
+    const badge = (machine: string) => row(machine).querySelector(".tip.rstate")!;
+    expect(badge("ed-mbp")).toHaveClass("reporting");
+    expect(badge("ed-mbp").firstChild).toHaveClass("rdot", "reporting");
+    expect(within(row("ed-mbp")).getByRole("tooltip", { hidden: true })).toHaveTextContent(/^Heard from in the last 2 minutes\. Last heard 40 s ago/);
+    expect(badge("ci-runner-01")).toHaveClass("idle");
+    expect(badge("ci-runner-01")).toHaveTextContent(/^Idle/);
+    expect(row("ci-runner-01")).toHaveTextContent("10 min ago");
+    expect(badge("build-pi")).toHaveTextContent(/^Not since restart/);
+    expect(within(row("build-pi")).getByRole("tooltip", { hidden: true })).toHaveTextContent(/This server started 1 h ago/);
+    expect(badge("win-lab")).toHaveClass("silent");
+    expect(badge("win-lab")).toHaveTextContent(/^Silent/);
+    expect(row("win-lab")).toHaveTextContent("3 days ago");
+    // A reporter with no live session is not given a state of its own: the server's words are the only ones.
+    expect(screen.queryByText("No live session")).toBeNull();
   });
 
   it("says how to update a reporter too old to message", async () => {

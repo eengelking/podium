@@ -6,7 +6,7 @@
 import { useCallback, useState } from "react";
 import "./admin/admin.css";
 import { PageHeader, Panel, Section } from "./admin/Page";
-import { ago } from "./admin/ReportersTab";
+import { ago, StateBadge } from "./admin/ReportersTab";
 import { AnswerBack, LayoutSwitch, QuotedText, RightsBoard, RightsGrid, Segmented, SystemTag, useRightsLayout } from "./components/PeerRights";
 import { asksBack, keyOfMachine, LEVEL_LABEL, reporterLook, rightsModel, rightWords, withRight, type PeerDefaults, type PeerLevel, type PeerRequestView, type PeersRead, type RightsModel } from "./peers";
 import type { PeersApi } from "./respondApi";
@@ -179,17 +179,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
                   return (
                     <tr key={r.key}>
                       <td>
-                        {look.state === "reporting" ? (
-                          <span className="rstate reporting" title="It has an orchestrator reporting now.">
-                            <span className="rdot reporting" aria-hidden="true" />
-                            Reporting
-                          </span>
-                        ) : (
-                          <span className="rstate restart" title="No orchestrator on this machine is reporting now. It shows as Reporting again once one starts.">
-                            <span className="rdot restart" aria-hidden="true" />
-                            No live session
-                          </span>
-                        )}
+                        <StateBadge r={r} serverTime={data.serverTime} serverStartedAt={data.serverStartedAt} />
                       </td>
                       <td>
                         <span className="pm-name strong" title={r.machine}>
@@ -205,7 +195,7 @@ function Owner({ data, peers, api, sessions, now }: { data: PeersRead; peers: My
                           <span className="mono">{r.version}</span>
                         </span>
                       </td>
-                      <td className="mono muted nowrap">{look.lastSeenAt === null ? <span title="Not in the live fleet">–</span> : ago(now, look.lastSeenAt)}</td>
+                      <td className="mono muted nowrap">{ago(data.serverTime, r.lastSeenAt)}</td>
                       <td className="n mono">{r.live.length}</td>
                     </tr>
                   );

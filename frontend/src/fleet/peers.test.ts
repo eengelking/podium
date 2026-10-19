@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { asksBack, canSend, idPart, keyOfMachine, LEVEL_LABEL, messagingOff, reporterLook, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
 
-const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", live: [], ...over });
+const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", state: "reporting", lastSeenAt: 1, live: [], ...over });
 
 function read(over: Partial<PeersRead> = {}): PeersRead {
   return {
     enabled: true,
     owner: "Ed",
+    serverTime: 2,
+    serverStartedAt: 0,
     reporters: [rep("k1", "ed-mbp"), rep("k2", "ci-runner-01", { os: "Ubuntu 24.04" }), rep("k3", "win-lab", { os: "Windows 11", peers: false })],
     rights: [{ from: "k1", to: "k2", owner: "Ed", level: "send", paused: false, setAt: 1 }],
     defaults: { trust: false, onRequest: "ask", newSend: "ask", limits: {} },
@@ -121,16 +123,16 @@ describe("systemKind", () => {
 });
 
 describe("reporterLook", () => {
-  it("is Reporting with the newest live session's time and compatibility", () => {
+  it("takes the newest live session's compatibility, and no state of its own: the server gives that (#415)", () => {
     const look = reporterLook({ live: [{ sessionId: "s1", name: "a", status: "running", peers: true }, { sessionId: "s2", name: "b", status: "waiting", peers: true }, { sessionId: "gone", name: "c", status: "waiting", peers: true }] }, {
       s1: { lastSeenAt: 10, compat: "ok" },
       s2: { lastSeenAt: 20, compat: "outdated" },
     });
-    expect(look).toEqual({ state: "reporting", lastSeenAt: 20, compat: "outdated" });
+    expect(look).toEqual({ compat: "outdated" });
   });
 
-  it("is quiet with no time when no orchestrator is live", () => {
-    expect(reporterLook({ live: [] }, {})).toEqual({ state: "quiet", lastSeenAt: null, compat: null });
+  it("has no compatibility when no orchestrator is live", () => {
+    expect(reporterLook({ live: [] }, {})).toEqual({ compat: null });
   });
 });
 

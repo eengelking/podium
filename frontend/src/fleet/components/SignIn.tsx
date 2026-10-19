@@ -178,7 +178,8 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
           </span>
           {myReporters && (
             <a className="btn" href="#/me/reporters" aria-current={myReporters.current ? "page" : undefined}>
-              My reporters{myReporters.count === null ? "" : ` · ${myReporters.count} waiting`}
+              {/* The count only while something waits: plain "My reporters" at 0 and before the first read (#415). */}
+              My reporters{myReporters.count ? ` · ${myReporters.count} waiting` : ""}
             </a>
           )}
           <button type="button" className="btn" onClick={() => void ctx.signOut()}>
