@@ -479,7 +479,7 @@ function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string
       )}
       <Capacity link={link} />
       <div className="feedwrap">
-        <ol className="feed" aria-label="Messages, oldest first" tabIndex={0}>
+        <ol className="feed" aria-label="Messages, oldest first" tabIndex={0} /* NOSONAR S6845: a focusable scroll region, by design */>
           {conv.messages === null ? (
             <li className="empty">{conv.error ? "No messages to show." : "Loading…"}</li>
           ) : conv.messages.length ? (
