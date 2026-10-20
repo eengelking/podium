@@ -1,0 +1,282 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Admin Reporting</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #484. Admin gets a Reporting menu group of seven pages; Spend moves into it from Activity, and the old
+   "Reporting and security" page is renamed Security so two entries do not both say "Reporting". Colors and fonts come
+   from tokens.css through fleet.css; this file has no :root block. Only the demo chrome (.demo, .stage, .notes) and the
+   few report-only pieces (.rbar, .note-line, .chart, .exp) are the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 760px; max-width: 100%; background: var(--bg); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 12px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv[hidden] { display: none; }
+/* report-only pieces */
+.note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
+.note-line b { color: var(--ink); font-weight: 600; }
+.chart { padding: 12px 16px 4px; }
+.chart svg { display: block; width: 100%; height: 150px; }
+.chart .gl { stroke: var(--grid); stroke-width: 1; }
+.chart .ax { stroke: var(--axis); stroke-width: 1; }
+.chart .bar { fill: var(--ink2); }
+.chart .tx { fill: var(--muted); font: 10px var(--font-mono); }
+.exp { display: inline-flex; gap: 6px; align-items: flex-end; }
+.partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
+.hb .shr { min-width: 3.5em; }
+.klink { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+@media print { .demo, .nav, .notes, .banner, .exp { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Admin Reporting (#484)</b>
+  <span class="grp" role="group" aria-label="Page">Page
+    <button type="button" data-pg="usage" aria-pressed="true">Usage</button>
+    <button type="button" data-pg="spend" aria-pressed="false">Spend</button>
+    <button type="button" data-pg="failures" aria-pressed="false">Failures (partial history)</button>
+    <button type="button" data-pg="kept" aria-pressed="false">Data kept</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn" data-nav="usage" aria-current="page">Usage</button>
+        <button type="button" class="navbtn" data-nav="spend">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn" data-nav="failures">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+        <button type="button" class="navbtn" data-nav="kept">Data kept</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Usage -->
+  <div class="pgv" id="pg-usage">
+    <div class="page-h"><div><h1>Usage</h1><p class="lead">Who used Podium, how many sessions they started, and how many ran at once.</p></div>
+      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+    <section class="asec" aria-labelledby="u-f"><div class="asec-h"><div><h2 id="u-f">Period and filters</h2></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="u-per">Period</label><select class="field" id="u-per"><option>Last 30 days</option><option>Last 7 days</option><option>Last 90 days</option><option>This month</option><option>Last month</option><option>Custom…</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="true">Week</button><button type="button" aria-pressed="false">Month</button></span></div>
+          <div class="f"><label class="lab" for="u-grp">Group</label><select class="field" id="u-grp"><option>All groups</option><option>Platform</option><option>Research</option></select></div>
+        </div>
+        <div class="note-line"><b>Weeks start Monday, in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="u-r"><div class="asec-h"><div><h2 id="u-r">Usage by week</h2><p class="hint">Sessions started and people who reported, 2026-09-21 to 2026-10-20.</p></div></div>
+      <div class="panel">
+        <div class="tool alone">
+          <div class="sum" style="margin-left:0;text-align:left">
+            <div><span class="big mono">11</span><span class="cap">active people</span></div>
+            <div><span class="big mono">16</span><span class="cap">active reporters</span></div>
+            <div><span class="big mono">312</span><span class="cap">sessions started</span></div>
+            <div><span class="big mono">9</span><span class="cap">most live at once</span></div>
+          </div>
+        </div>
+        <div class="chart"><svg viewBox="0 0 600 150" role="img" aria-label="Sessions started per week: 61, 74, 88, 69, 20 so far this week" preserveAspectRatio="none">
+          <line class="gl" x1="30" x2="600" y1="20" y2="20"/><line class="gl" x1="30" x2="600" y1="70" y2="70"/><line class="ax" x1="30" x2="600" y1="120" y2="120"/>
+          <text class="tx" x="0" y="23">100</text><text class="tx" x="0" y="73">50</text><text class="tx" x="14" y="123">0</text>
+          <rect class="bar" x="60" y="59" width="70" height="61"/><rect class="bar" x="180" y="46" width="70" height="74"/><rect class="bar" x="300" y="32" width="70" height="88"/><rect class="bar" x="420" y="51" width="70" height="69"/><rect class="bar" x="540" y="100" width="50" height="20"/>
+          <text class="tx" x="75" y="138">09-21</text><text class="tx" x="195" y="138">09-28</text><text class="tx" x="315" y="138">10-05</text><text class="tx" x="435" y="138">10-12</text><text class="tx" x="545" y="138">10-19*</text>
+        </svg></div>
+        <div class="tw2"><table class="ptab" aria-label="Usage by week">
+          <thead><tr><th scope="col">Week of</th><th scope="col" class="n">People</th><th scope="col" class="n">Reporters</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Most live</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10-19 (so far)</td><td class="n mono">6</td><td class="n mono">8</td><td class="n mono">20</td><td class="n mono">5</td></tr>
+            <tr><td class="who">2026-10-12</td><td class="n mono">9</td><td class="n mono">13</td><td class="n mono">69</td><td class="n mono">8</td></tr>
+            <tr><td class="who">2026-10-05</td><td class="n mono">10</td><td class="n mono">15</td><td class="n mono">88</td><td class="n mono">9</td></tr>
+            <tr><td class="who">2026-09-28</td><td class="n mono">10</td><td class="n mono">14</td><td class="n mono">74</td><td class="n mono">7</td></tr>
+            <tr><td class="who">2026-09-21</td><td class="n mono">8</td><td class="n mono">12</td><td class="n mono">61</td><td class="n mono">6</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Whole period</th><td class="n mono">11</td><td class="n mono">16</td><td class="n mono">312</td><td class="n mono">9</td></tr></tfoot>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 5 of 5</span><span class="row2"><label class="hint" for="u-size">Rows per page</label><select class="field sm" id="u-size"><option>25</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Spend -->
+  <div class="pgv" id="pg-spend" hidden>
+    <div class="page-h"><div><h1>Spend</h1><p class="lead">What was spent, by person, group, model or project. Estimated from tokens, not a bill.</p></div>
+      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+    <section class="asec" aria-labelledby="s-t"><div class="asec-h"><div><h2 id="s-t">Spend today, by person</h2></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f"><span class="lab" aria-hidden="true">Group by</span><span class="seg" role="group" aria-label="Group by"><button type="button" aria-pressed="true">People</button><button type="button" aria-pressed="false">Groups</button></span></div>
+          <div class="f"><span class="lab" aria-hidden="true">Show as</span><span class="seg" role="group" aria-label="Show as"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></span></div>
+          <div class="sum"><div><span class="big mono">$42.18</span><span class="cap">spent today, all 6 people</span></div><div><span class="big mono">7</span><span class="cap">live sessions</span></div></div></div>
+        <ul class="hb" aria-label="Spend today, by person">
+          <li><span class="lbl"><span>Maya Okafor<span class="gp"> Platform</span></span></span><span class="trk"><i style="width:100%"></i></span><span class="val mono">$16.40</span><span class="shr mono">39%</span></li>
+          <li><span class="lbl"><span>Jonas Weber<span class="gp"> Research</span></span></span><span class="trk"><i style="width:63%"></i></span><span class="val mono">$10.31</span><span class="shr mono">24%</span></li>
+          <li><span class="lbl"><span>Admin</span></span><span class="trk"><i style="width:34%"></i></span><span class="val mono">$5.60</span><span class="shr mono">13%</span></li>
+        </ul>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 6</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 2</span><button type="button" class="btn sm">Next</button></span></div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="s-r"><div class="asec-h"><div><h2 id="s-r">Spend by month</h2><p class="hint">A session counts on the day it was last seen. A model without a price shows a dash.</p></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="s-per">Period</label><select class="field" id="s-per"><option>Last 90 days</option></select></div>
+          <div class="f"><span class="lab" aria-hidden="true">By</span><span class="seg" role="group" aria-label="By"><button type="button" aria-pressed="false">Day</button><button type="button" aria-pressed="false">Week</button><button type="button" aria-pressed="true">Month</button></span></div>
+          <div class="f"><label class="lab" for="s-brk">Break down by</label><select class="field" id="s-brk"><option>Model</option><option>Person</option><option>Group</option><option>Project</option></select></div>
+          <div class="f"><label class="lab" for="s-mod">Model</label><select class="field" id="s-mod"><option>All models</option></select></div>
+        </div>
+        <div class="note-line"><b>Months are in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02; today is read live.</div>
+        <div class="tw2"><table class="ptab" aria-label="Spend by month and model">
+          <thead><tr><th scope="col">Month</th><th scope="col">Model</th><th scope="col" class="n">Sessions</th><th scope="col" class="n">Tokens in</th><th scope="col" class="n">Tokens out</th><th scope="col" class="n">Spend</th></tr></thead>
+          <tbody>
+            <tr><td class="who">2026-10</td><td>Opus 5.5</td><td class="n mono">96</td><td class="n mono">41.2M</td><td class="n mono">3.1M</td><td class="n mono">$412.80</td></tr>
+            <tr><td class="who">2026-10</td><td>Sonnet 5.5</td><td class="n mono">181</td><td class="n mono">88.6M</td><td class="n mono">5.4M</td><td class="n mono">$301.15</td></tr>
+            <tr><td class="who">2026-10</td><td>mystery-model</td><td class="n mono">3</td><td class="n mono">0.4M</td><td class="n mono">0.1M</td><td class="n mono muted">–</td></tr>
+          </tbody>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 9</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 3</span><button type="button" class="btn sm">Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Failures, period reaches before the first rollup day -->
+  <div class="pgv" id="pg-failures" hidden>
+    <div class="page-h"><div><h1>Failures</h1><p class="lead">What failed, how often and for whom, to find a root cause.</p></div>
+      <div class="exp"><button type="button" class="btn">CSV</button><button type="button" class="btn">JSON</button><button type="button" class="btn">Print</button></div></div>
+    <section class="asec" aria-labelledby="f-f"><div class="asec-h"><div><h2 id="f-f">Period and filters</h2></div></div>
+      <div class="panel"><div class="tool">
+        <div class="f"><label class="lab" for="f-per">Period</label><select class="field" id="f-per"><option>Custom…</option></select></div>
+        <div class="f"><label class="lab" for="f-from">From</label><input class="field" id="f-from" value="2026-01-01"></div>
+        <div class="f"><label class="lab" for="f-to">To</label><input class="field" id="f-to" value="2026-03-31"></div>
+        <div class="f"><label class="lab" for="f-p">Person</label><select class="field" id="f-p"><option>Everyone</option></select></div>
+      </div>
+      <div class="partial" role="status">Podium has no history before 2026-03-02. The figures below cover 2026-03-02 to 2026-03-31.</div>
+      <div class="note-line"><b>Days are in Europe/Berlin time.</b> Based on daily rollups since 2026-03-02.</div></div>
+    </section>
+    <section class="asec" aria-labelledby="f-r"><div class="asec-h"><div><h2 id="f-r">Failures by class</h2><p class="hint">Each row opens History for sessions from the last 30 days. Older ones have counts only.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Failures by class">
+        <thead><tr><th scope="col">Class</th><th scope="col">Tool</th><th scope="col" class="n">Count</th><th scope="col" class="n">People</th><th scope="col">History</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Command failed</td><td class="mono">Bash</td><td class="n mono">38</td><td class="n mono">7</td><td class="muted">Older than 30 days</td></tr>
+          <tr><td class="who">Permission denied</td><td class="mono">Edit</td><td class="n mono">11</td><td class="n mono">4</td><td class="muted">Older than 30 days</td></tr>
+          <tr><td class="who">Timeout</td><td class="mono">WebFetch</td><td class="n mono">6</td><td class="n mono">3</td><td class="muted">Older than 30 days</td></tr>
+        </tbody>
+        <tfoot><tr><th scope="row">Total</th><td></td><td class="n mono">55</td><td class="n mono">8</td><td></td></tr></tfoot>
+      </table></div></div>
+    </section>
+  </div>
+
+  <!-- Data kept -->
+  <div class="pgv" id="pg-kept" hidden>
+    <div class="page-h"><div><h1>Data kept</h1><p class="lead">What Podium stores, and for how long. Reports read this, never the live stream alone.</p></div></div>
+    <section class="asec" aria-labelledby="k-r"><div class="asec-h"><div><h2 id="k-r">Daily rollups</h2><p class="hint">A rollup holds counts, tokens, cost and names. It holds no prompts, answers, tool input or paths.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Daily rollups">
+        <thead><tr><th scope="col">Table</th><th scope="col" class="n">Rows</th><th scope="col">Oldest day</th><th scope="col">Kept</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Usage (person, model, project)</td><td class="n mono">2,418</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Sessions (outcome, effort, plan)</td><td class="n mono">702</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Failures (person, class, tool)</td><td class="n mono">388</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Fleet (people, reporters, versions)</td><td class="n mono">232</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+        </tbody></table></div></div>
+    </section>
+    <section class="asec" aria-labelledby="k-l"><div class="asec-h"><div><h2 id="k-l">Detail rows</h2><p class="hint">The rows the rollups are built from, and how long each lasts.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Detail rows">
+        <thead><tr><th scope="col">Data</th><th scope="col">Kept</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Per-second samples</td><td>24 hours</td></tr>
+          <tr><td class="who">Events and ended sessions</td><td>30 days</td></tr>
+          <tr><td class="who">Admin log</td><td>90 days</td></tr>
+        </tbody></table></div></div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li>A new menu group, <b>Reporting</b>, with seven pages: Usage, Spend, People and groups, Sessions, Failures, Admin activity, Data kept. Spend moves here from Activity, which keeps only the Admin log.</li>
+    <li>The old <b>Reporting and security</b> page is renamed <b>Security</b> (content unchanged), so there is one "Reporting".</li>
+    <li>Every report has the same shape: Period and filters, then the report with totals, a neutral-ink chart, the table, the pager, and CSV / JSON / Print.</li>
+    <li>A line under the filters states the time zone, what the figures are based on, and how far back the data goes. A period before the first rollup says so instead of drawing zeros.</li>
+    <li>Spend keeps its "Spend today" section unchanged at the top, then the new period report. A session counts on the day it was last seen.</li>
+    <li>The Failures page links each class to History only for sessions still within the 30 days History keeps.</li>
+    <li>Data kept shows each rollup table, its oldest day and its retention (395 days), next to the shorter detail retention. Consistent with #432.</li>
+  </ul>
+  <h2>Pages not drawn</h2>
+  <ul><li>People and groups, Sessions and Admin activity use the same stack and the same table and filter pieces. Their columns are in docs/SPEC.md.</li></ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function page(id) {
+    document.querySelectorAll(".pgv").forEach(function (p) { p.hidden = p.id !== "pg-" + id; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { if (b.getAttribute("data-nav") === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    press("[data-pg]", "data-pg", id);
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-nav")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+  page("usage");
+})();
+</script>
