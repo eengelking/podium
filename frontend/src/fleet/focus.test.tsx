@@ -87,7 +87,7 @@ describe("orchestrator page", () => {
     const { container } = openFocus();
     const cells = [...container.querySelectorAll(".facts > .fact")];
     expect(cells.map((c) => c.querySelector(".k")?.textContent ?? c.textContent)).toEqual([
-      "Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Session", "Resume", "Fork",
+      "Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "System", "Reporter", "Session", "Resume", "Fork",
     ]);
     expect(container.querySelector(".facts .blow.l2")?.textContent).toContain("1 failed");
   });

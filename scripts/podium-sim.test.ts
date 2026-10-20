@@ -97,6 +97,15 @@ describe('podium-sim', () => {
     expect(new Set(ed.map((r) => r.machine!.id)).size).toBe(2);
     for (const r of reports) if (r.machine) expect(r.machine.id).toMatch(/^[0-9a-f]{12}$/);
     expect(reports.find((r) => !r.userName)!.machine).toBeUndefined();
+    // Each person's laptop reports one of a few systems, or none (an older reporter), and the build box is Ubuntu (#427).
+    expect(new Set(ed.filter((r) => r.machine!.name.endsWith('-build')).map((r) => r.machine!.os))).toEqual(new Set(['Ubuntu 24.04']));
+    expect(new Set(ed.filter((r) => r.machine!.name.endsWith('-laptop')).map((r) => r.machine!.os)).size).toBe(1);
+    const systems = new Set(Array.from({ length: 40 }, (_, i) => {
+      const one = new Simulator({ sessions: 1, seed: 2, chaos: false, extraAgents: 0, now: () => 1000, home: '/Users/sim', people: [{ name: `Person ${i}`, token: null }] });
+      return one.step()[0]!.machine!.os ?? null;
+    }));
+    expect(systems.has(null)).toBe(true);
+    expect([...systems].filter((o) => o !== null).length).toBeGreaterThan(1);
     expect(sim.tokenFor(ed[0]!.session.id)).toBe('tok-ed');
     expect(sim.tokenFor(reports[1]!.session.id)).toBeNull();
     expect(sim.tokenFor(reports[2]!.session.id)).toBeNull();

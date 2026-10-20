@@ -4084,9 +4084,10 @@ The session id is not in the header; it is a cell in the facts grid (#352).
 
 **Facts grid**
 
-Ten cells in fixed places, five to a row (two columns at 640 px and narrower, by the page's own width, so five
-rows). Row one is Agents, Est. cost, Tokens, Running for, Agent time. Row two is Blowouts, Reporter, Session,
-Resume, Fork (#352, `mockup/podium-fork.html`). A cell never moves because another has nothing to say.
+Twelve cells in fixed places, six to a row (two columns at 640 px and narrower, by the page's own width, so six
+rows). Row one is Agents, Est. cost, Tokens, Running for, Agent time, Blowouts. Row two is Machine, System,
+Reporter, Session, Resume, Fork (#352, `mockup/podium-fork.html`; #427, `mockup/podium-facts-system.html`). A cell
+never moves because another has nothing to say.
 
 - **Agents**: running, done, and a red "N failed" button that opens the first failure. The orchestrator counts
   as an agent, running while the session runs, done once it is done, and neither while the session is stale.
@@ -4095,13 +4096,26 @@ Resume, Fork (#352, `mockup/podium-fork.html`). A cell never moves because anoth
 - **Running for**: wall-clock time.
 - **Agent time**: the orchestrator's time plus every agent's own. It can be longer than running for when
   agents run at once.
+- **Machine** (#427) is `machine.name` from the session's report, in the mono face, with the popup "The machine
+  this session runs on. As its reporter named it." A session that sent no machine (no `userName`, so a
+  settings-hooks session or one in the Admin or Unassigned band) reads "Not reported" in the muted face, and the
+  popup says Podium learns the machine only from a reporter that has a user name, and that installing
+  podium-reporter and setting `userName` in its options fills it in.
+- **System** (#427) is `machine.os` as the reporter sent it, such as `Fedora Linux 44` or `macOS 15.4`, with the
+  icon for its family and the wording My reporters and Admin > Reporters use (`systemKind`, `SystemTag`), so the
+  three never disagree. The text is cut with an ellipsis when it is long, and its popup holds the whole text.
+  When the report has a machine but no OS (a reporter older than the one that sends it, or a command that failed
+  on the machine) it reads "Not reported" in the muted face, never blank or "undefined", and the popup says the
+  reporter did not send the system and that updating podium-reporter fills it in. A session that sent no machine
+  reads "Not reported" with the Machine cell's popup. Both cells are focusable, so the popup opens from the
+  keyboard.
 - **Reporter** (#124):
   - `reporterVersion` as given, such as `0.11.0`.
   - "Settings hooks" when it is null, with the hooks note as its tooltip.
   - When `compat` is `outdated` or `newer`, the card chip's wording without the leading "reporter", for
     example `0.3.0 · update`, in the warning color, with the same tooltip text as the note, taken from the
     same `versionNote` so the card and the bar never disagree.
-- **Blowouts** is always present: "none" when clear, otherwise the count with a warning shape, amber at level 1
+- **Blowouts** (the last cell of row one since #427) is always present: "none" when clear, otherwise the count with a warning shape, amber at level 1
   and red at level 2. A button (`aria-expanded`, `aria-controls`) opens and closes the blowout detail (the
   sentence and each affected loop as a link), closed by default. A level 2 blowout also gives the whole
   surface the card's red top edge.
@@ -4116,6 +4130,8 @@ Resume, Fork (#352, `mockup/podium-fork.html`). A cell never moves because anoth
     or when the pointer or focus leaves. It holds text only, and the cell points to it with
     `aria-describedby`. It opens above the cell, aligned to the cell's right edge, so it must not be clipped
     by the surface.
+  - Machine and System have the same kind of popup, text only, opened by hover and keyboard focus and closed by
+    Escape. In the two-column layout a popup in the left column opens to the right, so it stays on the page.
   - The Resume popup says it continues this same session in a new terminal with the whole conversation, that it
     should be run once the session has ended because resuming one that is still running in another terminal
     writes both into the same conversation, that it starts in the session's working directory and does not

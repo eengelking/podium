@@ -209,10 +209,10 @@ export const SAMPLES: Sample[] = [
     id: "facts",
     title: "Facts",
     files: ["components/FactsBar.tsx"],
-    purpose: "Ten cells in fixed places, five to a row: agents, cost, tokens, running time and more. Resume and Fork copy a command on a click.",
+    purpose: "Twelve cells in fixed places, six to a row: agents, cost, tokens, running time, the machine and its system, and more. Resume and Fork copy a command on a click.",
     use: ["A figure about the orchestrator that has a fixed place."],
     avoid: ["Moving a cell. A person learns where each one is."],
-    a11y: "A copy cell says what it copies and shows \"Copied\" with a check for a moment. Its tip opens on hover and keyboard focus and closes on Escape.",
+    a11y: "A copy cell says what it copies and shows \"Copied\" with a check for a moment. The Machine and System cells are focusable. A cell's tip opens on hover and keyboard focus and closes on Escape.",
     cases: [{ label: "The facts of a running session", screen: "focus-running", selector: ".facts" }],
   },
   {

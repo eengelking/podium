@@ -194,14 +194,14 @@ describe("the header's path line (#352)", () => {
 describe("the facts grid", () => {
   const labels = (c: HTMLElement) => [...c.querySelectorAll(".osum .facts > .fact")].map((f) => f.querySelector(".k")!.textContent);
 
-  it("has ten fixed places: five in each row (#352)", () => {
+  it("has twelve fixed places: six in each row (#352, #427)", () => {
     const { container } = page();
-    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Session", "Resume", "Fork"]);
+    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "System", "Reporter", "Session", "Resume", "Fork"]);
   });
 
-  it("keeps the same ten places whatever the session holds", () => {
-    for (const over of [{ blowouts: blow(1, 0, 1) }, { reporter: "hooks" as const, reporterVersion: null }, { status: "done" as const }]) {
-      expect(labels(page(over).container), JSON.stringify(over)).toHaveLength(10);
+  it("keeps the same twelve places whatever the session holds", () => {
+    for (const over of [{ blowouts: blow(1, 0, 1) }, { reporter: "hooks" as const, reporterVersion: null }, { status: "done" as const }, { machine: null }, { machine: { name: "ci-01", id: "m1", os: null } }]) {
+      expect(labels(page(over).container), JSON.stringify(over)).toHaveLength(12);
       cleanup();
     }
   });
@@ -319,18 +319,27 @@ describe("page layout CSS (#165)", () => {
     expect(rule(".podium .osum .band .rm")).toContain("position: absolute");
   });
 
-  it("the facts are a grid of five columns, two rows (#352)", () => {
+  it("the facts are a grid of six columns, two rows (#352, #427)", () => {
     const r = rule(".podium .osum .facts");
     expect(r).toContain("display: grid");
     expect(r).toMatch(/grid-template-columns: ([^;]+ ){3}[^;]+;/);
     expect(r.match(/grid-template-columns: ([^;]+);/)![1]!.replace(/\([^)]*\)/g, "()").trim().split(/\s+/)).toHaveLength(2);
-    expect(r).toContain("repeat(4, minmax(0, 1fr))");
+    expect(r).toContain("repeat(5, minmax(0, 1fr))");
   });
 
   it("the facts become two columns at 640 px and the plan and tree stack at 700 px, by the page's own width", () => {
     expect(rule(".podium .op")).toContain("container-type: inline-size");
     expect(container("(max-width: 640px)")).toMatch(/\.facts \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
     expect(container("(max-width: 700px)")).toMatch(/\.two[^{]*\{[^}]*grid-template-columns: minmax\(0, 1fr\)/);
+  });
+
+  it("a popup in the left column of the two-column facts opens to the right, so it stays inside the page (#427)", () => {
+    expect(container("(max-width: 640px)")).toMatch(/\.fact\.pop:nth-child\(odd\) > \.tip \{[^}]*left: 0/);
+  });
+
+  it("Machine and System popups open from the left edge, and from the right in the right column of two (#427)", () => {
+    expect(rule(".podium .fact.pop.start > .tip")).toContain("left: 0");
+    expect(container("(max-width: 640px)")).toMatch(/\.fact\.pop\.start:nth-child\(even\) > \.tip \{[^}]*right: 0/);
   });
 
   it("a level 2 blowout gives the surface the card's red edge", () => {
