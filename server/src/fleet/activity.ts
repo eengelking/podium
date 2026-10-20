@@ -1,10 +1,14 @@
-// The agent activity feed (#118), held in memory only. Nothing here is written to the database.
+// The agent activity feed (#118), the live window: held in memory only. Nothing in this file is written to a database.
 //
 // A viewer watching an agent's panel takes a lease by fetching GET /sessions/:id/agents/:agentId/activity, and
 // renews it with every fetch. The reply to each mod report lists the loops under a live lease (`watch`); the mod
-// captures and sends a loop's entries only while it is listed. The server keeps the last 20 entries of a watched
+// captures and sends a loop's entries only while it is listed. This store keeps the last 20 entries of a watched
 // loop and drops them when the lease lapses, when the session leaves the live set or is deleted, and on restart.
-// Entries from before the lease began are never kept, so a viewer who comes back starts empty.
+// Entries from before the lease began are never kept here, so a viewer who comes back starts empty.
+//
+// Under a keep policy (#432) the Admin also has the server store the feed durably, in activityHistory.ts. That store
+// needs no lease: `watched()` then also lists the loops the history asks for, for a session whose reporter has the
+// option on, and the history takes every entry a report carries. This live window behaves as above either way.
 //
 // The Admin can turn the whole feature off (Admin > Settings > Feature flags, `activity-feed`). While it is off no lease
 // is granted, nothing is listed as watched and nothing a mod sends is kept; the fleet calls `clear()` when it goes off.
@@ -74,6 +78,11 @@ export class ActivityStore {
     private readonly now: () => number,
     /** Whether the Admin has the feature on (the `activity-feed` flag). */
     private readonly isOn: () => boolean = () => true,
+    /**
+     * Loops the Activity history wants captured for a session (#432): empty under the default policy. Listed in `watched()`
+     * only for a session whose reporter has the `activityFeed` option on.
+     */
+    private readonly historyLoops: (sessionId: string) => string[] = () => [],
   ) {}
 
   /** Whether the feature is on for this server. The route grants no lease while it is off. */
@@ -110,7 +119,10 @@ export class ActivityStore {
   watched(sessionId: string): string[] {
     if (!this.isOn()) return [];
     this.expireSession(sessionId, this.now());
-    return [...(this.leases.get(sessionId)?.keys() ?? [])];
+    const loops = [...(this.leases.get(sessionId)?.keys() ?? [])];
+    if (this.feed.get(sessionId) !== true) return loops;
+    for (const loop of this.historyLoops(sessionId)) if (!loops.includes(loop)) loops.push(loop);
+    return loops;
   }
 
   /** Whether the session's reporter has the option on; null when no report has said (an older reporter, or since a restart). */

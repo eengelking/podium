@@ -15,6 +15,10 @@ import { formatSse, SseHub } from './sse.js';
 import { ModelPriceStore } from './modelPrices.js';
 import { WallSettings } from './wallSettings.js';
 import { ActivityStore } from './activity.js';
+import { openActivityDb } from './activityDb.js';
+import { ActivityHistory, type SessionMeta } from './activityHistory.js';
+import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
+import type { DatabaseSync } from 'node:sqlite';
 import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
@@ -109,6 +113,10 @@ export class Fleet {
   readonly prices: ModelPriceStore;
   /** The agent activity feed (#118): in memory only, and only for loops a viewer is watching. */
   readonly activity: ActivityStore;
+  /** The Admin's Activity history choice (#432): kept in the main database's settings table. */
+  readonly activityHistorySettings: ActivityHistorySettingsStore;
+  /** The Activity history (#432): the feed kept in the second SQLite file under a keep policy. Idle under the default policy. */
+  readonly activityHistory: ActivityHistory;
   /** A file's diff on demand (#319): in memory only, held just while the owner's browser waits. */
   readonly diffs = new DiffBroker();
   /** The Admin's feature flags. Turning the activity feed off drops what it held; any change reaches open browsers. */
@@ -133,6 +141,8 @@ export class Fleet {
     readonly now: () => number = Date.now,
     /** Lifecycle events (#140): session.started/ended, reporter.connected/silent, sweep.removed. Silent by default. */
     readonly logger: Logger = silentLogger,
+    /** The activity database (a memory one when absent) and whether the server has a sign-in token; a keep policy needs one. */
+    history: { db?: DatabaseSync; authOn?: boolean } = {},
   ) {
     this.startedAt = now();
     this.features = new FeatureFlags(db.db, (id, on) => {
@@ -146,16 +156,40 @@ export class Fleet {
       if (id === UPDATE_CHECK && on) void this.updates.check();
       this.hub.broadcast('snapshot', this.state());
     });
-    this.activity = new ActivityStore(now, () => this.features.featureOn(ACTIVITY_FEED));
+    const authOn = history.authOn ?? true;
+    this.activityHistorySettings = new ActivityHistorySettingsStore(db.db, authOn);
+    this.activityHistory = new ActivityHistory(history.db ?? openActivityDb(':memory:'), {
+      now,
+      settings: () => this.activityHistorySettings.get(),
+      featureOn: () => this.features.featureOn(ACTIVITY_FEED),
+      isLive: (sid) => this.live.has(sid),
+      agentsOf: (sid) => this.db.getAgents(sid).filter((a) => a.status === 'running').map((a) => a.id),
+      authOn,
+    });
+    this.activity = new ActivityStore(
+      now,
+      () => this.features.featureOn(ACTIVITY_FEED),
+      (sid) => (this.activityHistory.enabled() ? this.activityHistory.loopsToWatch(sid) : []),
+    );
     this.respond = new RespondStore(
       now,
       (sid) => {
         if (this.live.has(sid)) this.scheduleSession(sid);
       },
       {
-        add: (sid, loop, ref, e) => this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e),
-        update: (sid, ref, note) => this.activity.updatePodium(sid, ref, note),
-        remove: (sid, ref) => this.activity.removePodium(sid, ref),
+        add: (sid, loop, ref, e) => {
+          this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
+          const meta = this.historyMeta(sid);
+          if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
+        },
+        update: (sid, ref, note) => {
+          this.activity.updatePodium(sid, ref, note);
+          this.activityHistory.updatePodium(sid, ref, note);
+        },
+        remove: (sid, ref) => {
+          this.activity.removePodium(sid, ref);
+          this.activityHistory.removePodium(sid, ref);
+        },
       },
     );
     this.peers = new PeerService(db.db, new ReporterStore(db.db, this.startedAt).peerLookup(), now, () => this.features.featureOn(PEER_MESSAGING));
@@ -213,6 +247,7 @@ export class Fleet {
     const res = ingestReport(this.db, report, this.now(), owner);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
+    if (this.activityHistory.enabled()) this.activityHistory.ingest(report, res.clockSkewMs, this.historyMeta(res.sessionId) ?? { name: report.session.name, project: null, owner });
     if (typeof report.session.fileDiff === 'boolean') this.diffs.noteOption(res.sessionId, report.session.fileDiff);
     this.respond.noteReport(report, this.respondFlagsOn());
     this.noteReporter(report, owner);
@@ -248,6 +283,12 @@ export class Fleet {
     }
     if (this.live.has(res.sessionId)) this.scheduleSession(res.sessionId);
     return res;
+  }
+
+  /** What the Stored activity table shows about a session; undefined when the main database does not hold it. */
+  private historyMeta(sessionId: string): SessionMeta | undefined {
+    const row = this.db.getSession(sessionId);
+    return row ? { name: row.name, project: row.repo_name ?? row.project_root, owner: row.owner } : undefined;
   }
 
   /** `reporter.connected` the first time a reporter is heard, and again when it comes back after going quiet. */
@@ -487,6 +528,7 @@ export class Fleet {
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
+    this.activityHistory.deleteSession(id);
     this.diffs.drop(id);
     this.respond.dropSession(id);
     this.peers.deleted([id]);
@@ -526,6 +568,7 @@ export class Fleet {
     this.live.delete(row.id);
     this.clockSkew.delete(row.id);
     this.activity.dropSession(row.id);
+    this.activityHistory.forgetSession(row.id);
     this.diffs.drop(row.id);
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
@@ -634,6 +677,12 @@ export class Fleet {
       this.logger.error('retention.rollups_failed', `podium: could not write the daily rollups: ${(err as Error).message}`, { reason: (err as Error).message });
     }
     const out = this.db.retain(this.now(), this.cfg.retention);
+    // A session's retention ends its activity history too, whatever the policy: the shorter wins (#432).
+    try {
+      this.activityHistory.dropMissingSessions((id) => this.db.getSession(id) !== undefined);
+    } catch (err) {
+      this.logger.error('retention.activity_failed', `podium: could not remove the activity history of expired sessions: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
     const peers = this.peers.retain();
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }

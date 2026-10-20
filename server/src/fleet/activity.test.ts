@@ -195,3 +195,37 @@ describe('everyOf', () => {
     expect(everyOf(['5', '60'])).toBe(5);
   });
 });
+
+describe('ActivityStore with the Activity history (#432)', () => {
+  const withLoops = (loops: string[]) => new ActivityStore(() => T0, () => true, () => loops);
+
+  it('lists the history’s loops only for a reporter with the option on, after the leased ones, once each', () => {
+    const store = withLoops(['@orchestrator', 'a1']);
+    const r = report([]);
+    const sid = r.session.id;
+    expect(store.watched(sid)).toEqual([]);
+    store.ingest(r, 0);
+    expect(store.watched(sid)).toEqual(['@orchestrator', 'a1']);
+    store.watch(sid, 'a1', 5);
+    store.watch(sid, 'a9', 5);
+    expect(store.watched(sid)).toEqual(['a1', 'a9', '@orchestrator']);
+    store.ingest(report([], [], false), 0);
+    expect(store.watched(sid)).toEqual(['a1', 'a9']);
+  });
+
+  it('without a history it behaves as before: the leases and nothing else', () => {
+    const store = new ActivityStore(() => T0);
+    const r = report([]);
+    store.ingest(r, 0);
+    expect(store.watched(r.session.id)).toEqual([]);
+    store.watch(r.session.id, 'a1', 5);
+    expect(store.watched(r.session.id)).toEqual(['a1']);
+  });
+
+  it('lists nothing while the feature is off, whatever the history asks for', () => {
+    const store = new ActivityStore(() => T0, () => false, () => ['a1']);
+    const r = report([]);
+    store.ingest(r, 0);
+    expect(store.watched(r.session.id)).toEqual([]);
+  });
+});

@@ -24,7 +24,7 @@ export const FEATURES: readonly FeatureDef[] = [
     id: ACTIVITY_FEED,
     name: 'Agent activity feed',
     description:
-      "Shows an agent's recent tool calls and text in its panel while someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after the panel closes.",
+      "Shows an agent's recent tool calls and text in its panel while someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after the panel closes unless the Admin chooses to keep activity in Admin > Server > Data. Off, nothing is captured or kept.",
     defaultOn: true,
   },
   {
