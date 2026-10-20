@@ -277,6 +277,8 @@ export interface SessionReport {
   clearedFrom?: string | null;
   /** Whether the reporter's `peers` option is on (#347). Absent from a reporter older than the release that adds it, whose sessions are never listed as peers. */
   peers?: boolean;
+  /** Whether the reporter's `sessionRecording` option is on (#353): the owner's consent to be recorded. Absent from a reporter older than the release that adds it. */
+  sessionRecording?: boolean;
 }
 
 export interface Report {
@@ -542,6 +544,202 @@ export interface ReportReply {
   peerDeliveries?: PeerDelivery[];
   /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
   peerRequests?: PeerRequest[];
+  /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
+  recording?: RecordingGrant;
+}
+
+/**
+ * Session recording (#353, SPEC 6.4 "Session recording"). Everything an orchestrator and the agents under it do, whole, for
+ * troubleshooting. Three yes answers are needed before anything leaves the machine: the Admin's `session-recording` flag,
+ * a choice by the session's owner or an Admin, and the reporter's `sessionRecording` option (off by default).
+ */
+export const RECORDING_KINDS = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'gap', 'stopped', 'limit'] as const;
+/**
+ * What one recorded entry is. The mod writes `prompt` (a task prompt, a person's prompt or a message from Podium), `text` (what the
+ * model wrote), `tool` (a call with its whole input), `result` (that call's whole output, `name` the tool, `failed` when it failed),
+ * `thinking` (a mark where the model thought; its text is not available, see SPEC 6.4), `clear` and `compact` (the transcript was
+ * emptied or compacted) and `gap` (`lost` entries never reached the server). The server writes `stopped` and `limit` itself.
+ */
+export type RecordingKind = (typeof RECORDING_KINDS)[number];
+
+/** One recorded entry, as the mod sends it. `(loop, seq)` is the entry's identity: a resend of an entry the server holds is dropped. */
+export interface RecordingEntry {
+  /** The loop it belongs to: `@orchestrator` (MAIN_LOOP) or an agent id. */
+  loop: string;
+  /** Counts up from 1 per session and loop, assigned by the mod when the entry happens. */
+  seq: number;
+  /** When it happened on the machine, epoch ms. */
+  at: number;
+  kind: RecordingKind;
+  /** The whole text, redacted on the machine and cut at RECORDING_LIMITS.text with a visible marker. An empty string for `thinking`, `clear`, `compact` and `gap`. */
+  text: string;
+  /** The tool's name, for `tool` and `result`. */
+  name?: string;
+  /** The `seq` of the `tool` entry a `result` answers, in the same loop. */
+  callSeq?: number;
+  /** A `result` of a call that failed. */
+  failed?: boolean;
+  /** The text was cut at the limit. */
+  cut?: boolean;
+  /** For `gap`: how many entries of this loop were dropped on the machine (the queue was full during an outage). */
+  lost?: number;
+}
+
+/** What one request to the recording route carries. The mod splits a larger backlog so each request stays within RECORDING_LIMITS.bodyBytes. */
+export interface RecordingBatch {
+  v: 1;
+  sentAt: number;
+  /** Oldest first. At most RECORDING_LIMITS.entries. */
+  entries: RecordingEntry[];
+}
+
+/** The server's answer to a batch. A batch that was accepted is never sent again. */
+export interface RecordingBatchReply {
+  ok: true;
+  /** How many entries were new; the rest were already held. */
+  stored: number;
+  /** The state after this batch, so a cap reached by it stops the mod at once. */
+  recording: RecordingGrant;
+}
+
+export const RECORDING_STATES = ['off', 'recording', 'stopped', 'limit'] as const;
+/** `off`: nothing is chosen. `recording`: capturing. `stopped`: capture ended and what was recorded is kept. `limit`: the per-session cap or the disk budget stopped it. */
+export type RecordingState = (typeof RECORDING_STATES)[number];
+
+/** Which cap stopped a recording. */
+export type RecordingLimit = 'session' | 'budget';
+
+/** The three yes answers. Capture needs all three. */
+export interface RecordingConsent {
+  /** The Admin's `session-recording` flag is on and the server has authentication on. */
+  admin: boolean;
+  /** Someone with the right (the session's owner or an Admin) chose to record this session. */
+  chosen: boolean;
+  /** The session's last report said the `sessionRecording` option is on. */
+  owner: boolean;
+}
+
+/**
+ * The consent state in a report's reply (`recording`) and in a batch's. The mod captures only while `state` is `recording` and
+ * every `consent` answer is true, and only the loops in `loops`. When `chosen` is true but `owner` is false it captures nothing and
+ * tells the owner so in the terminal. It is sent in every reply while a recording is chosen or kept, and `state: "off"` otherwise.
+ */
+export interface RecordingGrant {
+  state: RecordingState;
+  consent: RecordingConsent;
+  /** The loops to capture (`@orchestrator` or agent ids). A loop that starts later under a recorded session is not in it until chosen. */
+  loops: string[];
+  limit: RecordingLimit | null;
+  /** Who chose it (a person's name, or `Admin`), for the terminal text and the notice. */
+  startedBy: string | null;
+  startedAt: number | null;
+  /** Who stopped it and when, once `state` is `stopped`. */
+  stoppedBy: string | null;
+  stoppedAt: number | null;
+  /** When the oldest part still kept goes, epoch ms; null when nothing is kept. */
+  keptUntil: number | null;
+  /** The recording's size so far, in bytes. */
+  bytes: number;
+}
+
+/** Limits for session recording. Sizes marked provisional are set from measurement before release (#353); the Admin's values are in RECORDING_DEFAULTS. */
+export const RECORDING_LIMITS = {
+  /** Entries in one batch. */
+  entries: 200,
+  /** Characters of one entry's text; the mod's cut-off marker comes on top (room for it is added on the server). */
+  text: 100_000,
+  /** Serialized bytes of one batch, below the 512 KB body limit with room for JSON escaping. */
+  bodyBytes: 480_000,
+  /** Bytes the mod queues while the server cannot be reached. Past it the oldest entries go and a `gap` entry says how many. Provisional. */
+  queueBytes: 8_000_000,
+  /** Rows of one replay page, and the most a request may ask for. */
+  page: 200,
+} as const;
+
+/** What the Admin sets, one JSON row `recording_settings` in `settings`. All three are provisional until measured (#353). */
+export interface RecordingSettings {
+  /** How long each part is kept, counted from when it was recorded. */
+  keepHours: number;
+  /** Disk budget for all recordings, in megabytes. At this size every recording stops. */
+  budgetMb: number;
+  /** Limit for one session, in megabytes. A recording stops when its session reaches it. */
+  sessionMb: number;
+}
+export const RECORDING_DEFAULTS: RecordingSettings = { keepHours: 6, budgetMb: 2048, sessionMb: 256 };
+/** Whole numbers. `keepHours` is at most 7 days. */
+export const RECORDING_RANGES = { keepHours: { min: 1, max: 168 }, budgetMb: { min: 64, max: 102_400 }, sessionMb: { min: 8, max: 4096 } } as const;
+
+/** What a person with the right sends to start (or change) a recording: the loops to record from now on. Nothing before it is kept. */
+export interface RecordingStartRequest {
+  loops: string[];
+}
+
+/** One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`. */
+export interface RecordingRow {
+  n: number;
+  loop: string;
+  at: number;
+  kind: RecordingKind;
+  text: string;
+  name?: string;
+  callSeq?: number;
+  failed?: boolean;
+  cut?: boolean;
+  lost?: number;
+  by?: string | null;
+}
+
+/** A loop the layer and the replay's loop filter name, with whether it is recorded. */
+export interface RecordingLoopInfo {
+  loop: string;
+  name: string;
+  recorded: boolean;
+}
+
+/** One page of a replay, oldest first: the newest `RECORDING_LIMITS.page` rows, then older ones with `before` = `olderBefore`. */
+export interface RecordingPage {
+  entries: RecordingRow[];
+  /** The `n` to pass as `before` for the next older page, or null. */
+  olderBefore: number | null;
+  total: number;
+  grant: RecordingGrant;
+  loops: RecordingLoopInfo[];
+  /** The session's owner, for the refusal a viewer who may not read it is shown. */
+  owner: string | null;
+}
+
+/** A row of the Admin's Recordings table. */
+export interface RecordingAdminRow {
+  sessionId: string;
+  name: string;
+  owner: string | null;
+  startedBy: string | null;
+  state: RecordingState;
+  limit: RecordingLimit | null;
+  /** How many loops are recorded, and a short label such as "orchestrator and 3 agents". */
+  loops: number;
+  label: string;
+  bytes: number;
+  keptUntil: number | null;
+}
+
+/**
+ * What everyone sees of a recording (#353): the card's band and the orchestrator page's layer. State, who started it, which loops
+ * and when it goes; never any text. `SessionView.recording` is this, or null when nothing is chosen or kept.
+ */
+export interface RecordingView {
+  state: Exclude<RecordingState, 'off'>;
+  limit: RecordingLimit | null;
+  startedBy: string | null;
+  startedAt: number | null;
+  stoppedBy: string | null;
+  stoppedAt: number | null;
+  keptUntil: number | null;
+  bytes: number;
+  /** Every loop of the session, with whether it is recorded; the layer names both groups in words. */
+  loops: RecordingLoopInfo[];
+  /** Whether the reporter's `sessionRecording` option is on. False while the recording is chosen means nothing is being captured. */
+  ownerAllows: boolean;
 }
 
 // <protocol:end>
