@@ -16,6 +16,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The Sonar scan no longer stalls for five minutes (#501).** Every full analysis spent 300 s in SonarJasmin's React render simulation, which starts at `frontend/src/main.tsx` and walks the whole component tree until it hits its time limit; the job took 6 to 8 minutes, which looked like a hang during the 1.2.0 release. `main.tsx`, a 30-line bootstrap with no logic or tests, is now excluded from the scan. CI configuration only; no change to the product.
 - **The history paging test no longer counts a timer's reads (#494).** "builds rows for the requested page only" spied on every `getAgents` call, so a session broadcast timer that fired during a slow request (under coverage in CI) added to the count. The test now holds the throttle open for its fixture, so only the request's own calls are counted. It still fails if the route builds every row. Test only; no change to the product.
 
 ## [1.2.0] - 2026-10-19
