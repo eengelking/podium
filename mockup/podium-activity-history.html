@@ -138,20 +138,22 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <tr><td class="who">Per-second samples</td><td>24 hours</td></tr>
           <tr><td class="who">Events and ended sessions</td><td>30 days</td></tr>
           <tr><td class="who">Admin log</td><td>90 days</td></tr>
-          <tr><td class="who">Activity history</td><td id="k-row">Not stored (default)</td></tr>
+          <tr><td class="who">Activity history</td><td id="k-row">Purge after 30 days</td></tr>
         </tbody></table></div></div>
     </section>
     <section class="asec" aria-labelledby="k-a"><div class="asec-h"><div><h2 id="k-a">Activity history</h2><p class="hint">How long an Activity window's entries are kept after a viewer leaves. Off by default.</p></div></div>
       <form class="panel" id="polform" aria-label="Activity history retention">
         <div class="srow"><div class="setname"><b>Keep activity history</b><p class="hint ink2">Not stored: a window shows the last 20 entries while someone watches, and drops them when they leave.</p></div>
-          <select class="field" id="pol" aria-label="Keep activity history"><option value="default">Not stored (default)</option><option value="after">Purge after a set time</option><option value="end">Purge when the session ends</option><option value="all">Keep everything</option></select></div>
-        <div class="srow" id="row-after" hidden><div class="setname"><b>Purge after</b><p class="hint ink2">Entries older than this are removed at the next purge, which runs every few minutes. A shorter time removes older entries that are already stored.</p></div>
-          <span class="row2"><input class="field mono daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number"><select class="field" id="pol-u" aria-label="Unit"><option>hours</option><option>days</option><option selected>weeks</option><option>months</option></select></span></div>
-        <div class="srow" id="row-cap" hidden><div class="setname"><b>Size cap</b><p class="hint ink2">Stop at a total size and remove the oldest entries first.</p></div>
+          <select class="field" id="pol" aria-label="Keep activity history"><option value="default">Not stored (default)</option><option value="after" selected>Purge after a set time</option><option value="end">Purge when the session ends</option><option value="all">Keep everything</option></select></div>
+        <div class="srow" id="row-after"><div class="setname"><b>Purge after</b><p class="hint ink2">Entries older than this are removed at the next purge, which runs every few minutes. A shorter time removes older entries that are already stored.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number"><select class="field" id="pol-u" aria-label="Unit"><option>hours</option><option selected>days</option><option>weeks</option><option>months</option></select></span></div>
+        <div class="srow" id="row-cap"><div class="setname"><b>Size cap</b><p class="hint ink2">Stop at a total size and remove the oldest entries first.</p></div>
           <span class="row2"><input type="checkbox" id="cap-on" aria-label="Use a size cap"><input class="field mono daysbox" id="cap-n" inputmode="numeric" value="2" aria-label="Size in gigabytes" disabled><span class="hint">GB</span></span></div>
-        <div class="warnbar" id="polwarn" role="note" hidden><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
+        <div class="warnbar" id="polwarn" role="note"><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
+        <div id="polconfirm" hidden></div>
         <div class="srow"><span class="hint" id="polhint">Saving is written to the Admin log.</span><span class="formacts"><button type="reset" class="btn">Cancel</button><button type="submit" class="btn pri" id="polsave">Save</button></span></div>
-        <div class="note-line"><b class="mono" id="k-sum">0 entries</b> <span id="k-sum2">Nothing is stored under the default.</span> Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</div>
+        <div class="note-line" id="k-last"><b>Last purge</b> 11:02 today removed 214 entries (96 KB). It runs every few minutes, and each run that removes something is written to the Admin log as one entry with the count, the size and the policy.</div>
+        <div class="note-line"><b class="mono" id="k-sum">18,402 entries, 7.9 MB</b> <span id="k-sum2">stored now, in 52 sessions.</span> Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</div>
       </form>
     </section>
   </div>
@@ -167,6 +169,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <div class="f"><label class="lab" for="s-proj">Project</label><select class="field" id="s-proj"><option>All projects</option><option>podium</option><option>docs-site</option></select></div>
           <div class="f"><label class="lab" for="s-own">Owner</label><select class="field" id="s-own"><option>Everyone</option><option>Maya Okafor</option><option>Jonas Weber</option><option>Ed</option></select></div>
           <div class="f"><label class="lab" for="s-age">Older than</label><select class="field" id="s-age"><option>Any age</option><option>7 days</option><option selected>30 days</option><option>90 days</option><option>Custom…</option></select></div>
+          <div class="f"><label class="lab" for="s-from">Entries from</label><input class="field" id="s-from" placeholder="2026-10-01"></div>
+          <div class="f"><label class="lab" for="s-to">to</label><input class="field" id="s-to" placeholder="2026-10-08"></div>
           <div class="f"><label class="lab" for="s-src">Source</label><select class="field" id="s-src"><option>Activity</option></select></div>
         </div>
         <div class="tool alone">
@@ -199,7 +203,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           </tbody>
         </table></div>
         <div class="apager"><span class="hint" role="status">Showing 1 to 7 of 52</span><span class="row2"><label class="hint" for="s-size">Rows per page</label><select class="field sm" id="s-size"><option>25</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 3</span><button type="button" class="btn sm">Next</button></span></div>
-        <div class="note-line">Deleting removes stored entries only. Sessions, History and the live feed are not touched, and each delete is written to the Admin log with who did it and how much went.</div>
+        <div class="note-line">Deleting removes stored entries only. Sessions, History and the live feed are not touched. The space comes back: the file is compacted after a delete, which can take a few seconds. Each delete is written to the Admin log with who did it and how much went. Copies of the database in backups you made are not changed.</div>
       </div>
     </section>
   </div>
@@ -236,7 +240,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <h2>What this mockup proposes</h2>
   <ul>
     <li><b>Where it lives.</b> The issue says "Admin > Data". Reporting pages are read-only reports with an Export row, while this page has a setting and deletes, so it moves out of Reporting. <b>Data kept</b> becomes <b>Data</b> and sits in the <b>Server</b> group beside Settings, Model prices and Security. It keeps its two tables and gains an <b>Activity history</b> section. A second page, <b>Stored activity</b>, sits under it in the same group for totals, filters and deleting. This changes #484's menu (Reporting goes from seven pages to six), so its mockup and the SPEC text are updated in the same pull request.</li>
-    <li><b>The setting</b> uses the same rows as Admin > Settings: a name and a help line on the left, the control on the right, each row the full width of its panel. A select picks the policy (not stored, purge after a set time, purge when the session ends, keep everything). Picking a time adds a row for the number and unit. Picking any keeping policy adds a row for an optional size cap and a warning bar that says reporters will send more, the server will store more, and who can read it. The default, "Not stored", is the current behavior, so nobody who leaves it alone sees a change. Save is the one primary button, and saving is written to the Admin log. A shorter time also removes entries that are already stored, and its help line says so.</li>
+    <li><b>The setting</b> uses the same rows as Admin > Settings: a name and a help line on the left, the control on the right, each row the full width of its panel. A select picks the policy (not stored, purge after a set time, purge when the session ends, keep everything). Picking a time adds a row for the number and unit. Picking any keeping policy adds a row for an optional size cap and a warning bar that says reporters will send more, the server will store more, and who can read it. The default, "Not stored", is the current behavior, so nobody who leaves it alone sees a change. Save is the one primary button, and saving is written to the Admin log. Saving a choice that removes stored entries asks first, in the warning-bordered box: a shorter time, purge when the session ends, or a return to Not stored. The box says how many entries and how much space will go. Returning to Not stored offers to stop and delete, or to stop and keep what is stored for Stored activity to delete later. A line under the form shows the last purge, and each run that removes something writes one Admin log entry.</li>
+    <li><b>Three reasons an Admin deletes.</b> To stop keeping history and clear it: set Not stored, then choose Stop and delete. To remove something private that leaked: delete that session's history on Stored activity, or use Entries from / to to remove just the minutes concerned across sessions, then check the Admin log entry. To save database space: sort by size, delete, and the file is compacted so the space comes back (the result line says how much). Redaction already runs before sending, but it is not a guarantee, so deletion has to be quick and complete.</li>
     <li><b>Stored activity</b> shows the totals first (entries, size on disk, sessions, and how many match the filter), then the filters (session, loop, project, owner, age, source), then the sessions with a tick box. Deleting works three ways: the ticked sessions, everything that matches the filter, or everything. Each one asks first in a warning-bordered box that says how many entries and how much space will go, and offers a button for each answer. After it runs, a line says what was removed and that the Admin log has it.</li>
     <li>The <b>Source</b> filter has one choice today, Activity. Opt-in recordings (#353, H2) add a second source here without a new screen.</li>
     <li><b>The Activity window</b> keeps its place and look. With history kept it shows the newest page of stored entries and a "Show older" row, so a long history pages instead of loading at once. The footer says what is stored ("412 stored entries since 2026-10-12") and when it will go ("Kept until 2026-11-11"). A session that has ended shows its history with no refresh control. Under the default policy the window reads exactly as it does today.</li>
@@ -254,6 +259,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       <tr><td>4. Redaction</td><td>Keep the redaction done before sending. Add no second pass now, and say so on the setting.</td><td>The text is already cut to 300 characters and scrubbed. The warning line and the owner-and-Admin read rule carry the rest. A second pass can follow if a gap shows.</td></tr>
       <tr><td>5. Size cap</td><td>Offer it, optional, off by default, removing the oldest first.</td><td>A retention in time can still grow without limit on a busy fleet. The Stored activity totals show whether it is needed.</td></tr>
       <tr><td>6. "Purge when the session ends" against the 30-day session retention</td><td>The shorter of the two wins.</td><td>A history never outlives the session it describes, and the Admin can see the rule stated on the setting.</td></tr>
+      <tr><td>7. Deleting one entry</td><td>Not in this issue. Delete by session, by a time range, or everything.</td><td>Finding one entry needs searching inside stored text, which the issue leaves out. A time range reaches a single leaked entry's minutes without it. A per-entry delete can follow if searching is added.</td></tr>
+      <tr><td>8. Getting the space back</td><td>Compact the activity file after every bulk delete, and recreate it when everything is deleted.</td><td>Deleting rows does not shrink a SQLite file. A separate file makes compaction cheap and keeps it from stalling the main database, which is another reason for decision 1. The result line says how much was freed.</td></tr>
     </tbody>
   </table>
   <h2>Shared with #353 (recording and replay)</h2>
@@ -302,15 +309,48 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     $("row-after").hidden = p !== "after"; $("row-cap").hidden = !keep;
     $("cap-n").disabled = !$("cap-on").checked;
     $("polwarn").hidden = !keep;
-    var label = { default: "Not stored (default)", after: "Purge after " + $("pol-n").value + " " + $("pol-u").value, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[p];
-    if (keep && $("cap-on").checked) label += ", capped at " + $("cap-n").value + " GB";
-    $("k-row").textContent = label;
-    $("k-sum").textContent = keep ? "18,402 entries, 7.9 MB" : "0 entries";
-    $("k-sum2").textContent = keep ? "stored now, in 52 sessions." : "Nothing is stored under the default.";
   }
   form.addEventListener("change", syncPolicy); form.addEventListener("input", syncPolicy);
   form.addEventListener("reset", function () { setTimeout(syncPolicy, 0); });
-  form.addEventListener("submit", function (e) { e.preventDefault(); $("polhint").textContent = "Saved. Written to the Admin log."; });
+  var saved = { p: "after", days: 30 };
+  function rowText() {
+    var label = { default: "Not stored (default)", after: "Purge after " + $("pol-n").value + " " + $("pol-u").value, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[saved.p];
+    if (saved.p !== "default" && $("cap-on").checked) label += ", capped at " + $("cap-n").value + " GB";
+    $("k-row").textContent = label;
+  }
+  function daysOf() { var n = +$("pol-n").value || 0, u = $("pol-u").value; return u === "hours" ? n / 24 : u === "weeks" ? n * 7 : u === "months" ? n * 30 : n; }
+  function kbOf(entries) { return Math.round(entries * 0.43); }
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var p = pol(), d = daysOf(), box = $("polconfirm"), ask = null;
+    if (p === "default" && saved.p !== "default") {
+      ask = { t: "Stop keeping Activity history?", b: "Podium stops capturing now. <b>18,402 entries, 7.9 MB</b> are still stored.",
+        acts: [["Stop and delete 18,402 entries", "del", " dng"], ["Stop, keep what is stored", "keep", ""], ["Cancel", "no", ""]],
+        done: { del: "Saved. Stopped capturing and removed 18,402 entries (7.9 MB).", keep: "Saved. Stopped capturing. 18,402 entries are still stored, and Stored activity can delete them." }, removed: 18402 };
+    } else if (p === "after" && d < (saved.p === "after" ? saved.days : 90)) {
+      var span = saved.p === "after" ? saved.days : 90, n = Math.round(18402 * (1 - d / span));
+      ask = { t: "Saving removes entries that are already stored", b: "Everything older than " + $("pol-n").value + " " + $("pol-u").value + " goes at the next purge: <b>" + fmtN(n) + " entries, " + fmtKb(kbOf(n)) + "</b>.",
+        acts: [["Save and remove " + fmtN(n) + " entries", "del", " dng"], ["Cancel", "no", ""]], done: { del: "Saved. Removed " + fmtN(n) + " entries (" + fmtKb(kbOf(n)) + ")." }, removed: n };
+    } else if (p === "end" && saved.p !== "end") {
+      ask = { t: "Saving removes the history of sessions that have ended", b: "The history of the <b>38 ended sessions (6.0 MB)</b> goes at the next purge. Running sessions keep theirs until they end.",
+        acts: [["Save and remove 6.0 MB", "del", " dng"], ["Cancel", "no", ""]], done: { del: "Saved. Removed the history of 38 ended sessions (6.0 MB)." }, removed: 14000 };
+    }
+    if (!ask) { saved = { p: p, days: d }; rowText(); box.hidden = true; $("polhint").textContent = "Saved. Written to the Admin log."; return; }
+    box.hidden = false;
+    box.innerHTML = '<div class="callout" role="alert">' + warn + "<h3>" + ask.t + "</h3><p>" + ask.b + " The file is compacted afterward, so the space comes back. This is written to the Admin log.</p>" +
+      '<p class="formacts">' + ask.acts.map(function (a) { return '<button type="button" class="btn' + a[2] + '" data-pc="' + a[1] + '">' + a[0] + "</button>"; }).join("") + "</p></div>";
+    box.querySelectorAll("[data-pc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var k = btn.getAttribute("data-pc");
+        box.hidden = true;
+        if (k === "no") return;
+        saved = { p: p, days: d }; rowText();
+        $("polhint").textContent = ask.done[k] + " Written to the Admin log.";
+        if (k === "del") { $("k-sum").textContent = fmtN(18402 - ask.removed) + " entries, " + (ask.removed >= 18402 ? "0 KB" : fmtKb(8090 - kbOf(ask.removed))); $("k-last").innerHTML = "<b>Last purge</b> just now removed " + fmtN(ask.removed) + " entries (" + fmtKb(kbOf(ask.removed)) + ")."; }
+      });
+    });
+    box.querySelector(".btn.dng, .btn").focus();
+  });
 
   /* Stored activity */
   var rows = Array.prototype.slice.call(document.querySelectorAll("#s-rows tr"));
@@ -334,14 +374,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     $("s-result").hidden = true;
     $("s-confirm").hidden = false;
     $("s-confirm").innerHTML = '<div class="callout" role="alert">' + warn + '<h3>Delete ' + what + '?</h3>' +
-      '<p><b>' + e + ' entries, ' + size + '</b> will be removed for good. The sessions, History and the live feed are not touched. This is written to the Admin log.' + (live ? ' A session that is still running keeps being captured while the policy keeps history.' : '') + '</p>' +
+      '<p><b>' + e + ' entries, ' + size + '</b> will be removed for good and the space freed. The sessions, History and the live feed are not touched. This is written to the Admin log.' + (live ? ' A session that is still running keeps being captured while the policy keeps history.' : '') + '</p>' +
       '<p class="formacts"><button type="button" class="btn dng" data-do="' + kind + '">Delete ' + e + ' entries</button><button type="button" class="btn" data-do="no">Keep them</button></p></div>';
     $("s-confirm").querySelectorAll("[data-do]").forEach(function (b) {
       b.addEventListener("click", function () {
         $("s-confirm").hidden = true;
         if (b.getAttribute("data-do") === "no") return;
         $("s-result").hidden = false;
-        $("s-result").textContent = "Deleted " + e + " entries (" + size + ") from " + n + (n === 1 ? " session" : " sessions") + ". Written to the Admin log.";
+        $("s-result").textContent = "Deleted " + e + " entries (" + size + ") from " + n + (n === 1 ? " session" : " sessions") + ". " + size + " freed and the file compacted. Written to the Admin log.";
         if (kind === "sel") picked().forEach(function (r) { r.remove(); rows.splice(rows.indexOf(r), 1); });
         bar();
       });
