@@ -20,14 +20,16 @@ import { ModelPricesTab } from "./ModelPricesTab";
 import { AdminFoot, PageHeader } from "./Page";
 import { PeopleTab, type Created } from "./PeopleTab";
 import { ReportersTab, type ReporterPaging } from "./ReportersTab";
-import { REPORT_CONFIGS, ReportPage, RetentionPage, SPEND_CONFIG } from "./ReportPages";
+import { DataPage } from "./DataPage";
+import { REPORT_CONFIGS, ReportPage, SPEND_CONFIG } from "./ReportPages";
 import { ReportingTab } from "./ReportingTab";
 import { makeReportsClient } from "./reportsApi";
 import { SettingsTab } from "./SettingsTab";
 import { SpendPage } from "./SpendPage";
+import { StoredActivityTab } from "./StoredActivityTab";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
@@ -42,17 +44,18 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
   sessions: { name: REPORT_CONFIGS.sessions.title, lead: REPORT_CONFIGS.sessions.lead },
   failures: { name: REPORT_CONFIGS.failures.title, lead: REPORT_CONFIGS.failures.lead },
   activity: { name: REPORT_CONFIGS.activity.title, lead: REPORT_CONFIGS.activity.lead },
-  kept: { name: "Data kept", lead: "What Podium stores, and for how long. Reports read this, never the live stream alone." },
+  kept: { name: "Data", lead: "What Podium stores, for how long, and what you can remove. Reports read this, never the live stream alone." },
+  stored: { name: "Stored activity", lead: "The Activity history Podium has kept, by session. Delete what you no longer need, in bulk." },
 };
 /** The side menu: pages in groups, in the order they are listed. */
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
-  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting"] },
-  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity", "kept"] },
+  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "kept", "stored"] },
+  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity"] },
   { name: "Activity", icon: "activity", ids: ["log"] },
 ];
 /** Reporting pages draw their own header, which carries Export (#484). */
-const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "failures", "activity", "kept"]);
+const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "failures", "activity"]);
 
 type GroupIconName = "access" | "server" | "reporting" | "activity";
 /** Outline glyphs that lead a menu group's heading; on the narrow strip they stand in for the heading. */
@@ -153,6 +156,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const onCountReporters = useMemo(() => setCount("reporters"), []);
   const onCountSpend = useMemo(() => setCount("spend"), []);
   const onCountLog = useMemo(() => setCount("log"), []);
+  const onCountStored = useMemo(() => setCount("stored"), []);
   const onPeoplePaging = useCallback((p: { page?: number; pageSize?: number; q?: string }) => setPaging((s) => ({ ...s, people: { ...s.people, ...p } })), []);
   const onGroupPaging = useCallback((p: { page?: number; pageSize?: number }) => setPaging((s) => ({ ...s, groups: { ...s.groups, ...p } })), []);
   const onReportersPaging = useCallback((p: Partial<ReporterPaging>) => setPaging((s) => ({ ...s, reporters: { ...s.reporters, ...p } })), []);
@@ -245,7 +249,8 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "sessions" && <ReportPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
                   {tab === "failures" && <ReportPage cfg={REPORT_CONFIGS.failures} client={client} onLocked={onLocked} />}
                   {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}
-                  {tab === "kept" && <RetentionPage api={api} onLocked={onLocked} />}
+                  {tab === "kept" && <DataPage api={api} onLocked={onLocked} onGo={setTab} onCountStored={onCountStored} />}
+                  {tab === "stored" && <StoredActivityTab api={api} onGo={setTab} onCount={onCountStored} onLocked={onLocked} />}
                   {tab === "log" && <LogTab api={api} {...paging.log} onPaging={onLogPaging} onCount={onCountLog} onLocked={onLocked} />}
                 </div>
                 <AdminFoot version={version} build={build} className="afoot-narrow" />
