@@ -3242,6 +3242,9 @@ one page of rows and a pager. When they fit there is no pager and no scrollbar, 
   orchestrators"). The pager buttons are real buttons: "Previous page" and "Next page".
 - When the list changes the page stays unless it no longer exists, then the last page shows.
 - Paging never touches the wall: every card stays on it.
+- **Stacked (#474).** At 1040 px and below the panes stack and the page scrolls as a whole, so the rail has no height
+  to fit rows into and does not page: it lists every row and shows no pager. Widening past 1040 px while the page is
+  open pages again and lands on the page that holds the selection (the first page when nothing is selected).
 
 #### Fleet wall (default view)
 
