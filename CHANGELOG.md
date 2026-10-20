@@ -14,6 +14,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-20
+
 ### Fixed
 
 - **Board columns reach the footer in wall mode (#497).** The columns stopped at a fixed 640 px height and left a gap above the legend. In wall mode they now take all the height between the Board header and the legend, follow the window as it is resized or goes fullscreen, and scroll inside themselves when they hold more cards than fit. With the "no open steps" strip showing, the columns end above it. Outside wall mode the Board is unchanged.
@@ -618,7 +620,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/eengelking/podium/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eengelking/podium/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/eengelking/podium/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/eengelking/podium/compare/v1.0.1...v1.0.2

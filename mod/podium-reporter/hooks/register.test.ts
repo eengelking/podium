@@ -502,9 +502,9 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
     await w.clock.advance(1000)
     expect(w.posts[0]!.reporter.build).toBe('a1b2c3d4')
-    expect(w.statuses.at(-1)).toBe('podium v1.2.0 | dev: a1b2c3d4 ● 3 live')
+    expect(w.statuses.at(-1)).toBe('podium v1.2.1 | dev: a1b2c3d4 ● 3 live')
     const info = await $.command.run(podium(''))
-    expect(info.text).toContain('Versions: reporter 1.2.0 · Dev: a1b2c3d4, server 1.1.0 · Dev: 9f8e7d6c')
+    expect(info.text).toContain('Versions: reporter 1.2.1 · Dev: a1b2c3d4, server 1.1.0 · Dev: 9f8e7d6c')
     expect(w.ran.filter((a) => a[1] === '-C').length).toBeGreaterThan(0)
   })
 
@@ -513,9 +513,9 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
     await w.clock.advance(1000)
     expect(w.posts[0]!.reporter).not.toHaveProperty('build')
-    expect(w.statuses.at(-1)).toBe('podium v1.2.0 ● 3 live')
+    expect(w.statuses.at(-1)).toBe('podium v1.2.1 ● 3 live')
     const info = await $.command.run(podium(''))
-    expect(info.text).toContain('Versions: reporter 1.2.0, server 1.1.0')
+    expect(info.text).toContain('Versions: reporter 1.2.1, server 1.1.0')
   })
 
   test("Claude Code's own session name is the display name once a hook carries it (#322)", async ($, on) => {
