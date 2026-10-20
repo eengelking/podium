@@ -336,15 +336,16 @@ the unit. Standalone mode restarts a crashed server after 3 seconds.
 
 **Do:** Use `podiumctl start`. Or run `systemctl --user stop podium.service` and then `start`.
 
-### The Linux start-on-boot unit has not been through a reboot
+### The Linux start-on-boot unit was rebooted in standalone mode only
 
 **You see:** Nothing is wrong. This is a gap in our testing.
 
 **Why:** `podiumctl enable` has run on Bazzite 44 (Fedora Atomic, systemd 259, Podman 5.8.7, SELinux enforcing) in both
-modes, with Node from Homebrew (#268). Starting, `stop` and `disable` behave as described above. A reboot, with and
-without `loginctl enable-linger $USER`, has not been tried.
+modes, with Node from Homebrew (#268). Starting, `stop` and `disable` behave as described above. Standalone mode has
+also been through a reboot, with `loginctl enable-linger $USER` (the server was up at boot before anyone logged in) and
+without it (the server started at login). Container mode has not been rebooted.
 
-**Do:** If you have tried it, tell us.
+**Do:** If you have tried container mode through a reboot, tell us.
 
 ## What the dashboard shows
 
