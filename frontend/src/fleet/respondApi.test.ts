@@ -23,6 +23,22 @@ describe("respondApi.fileDiff (#319)", () => {
   });
 });
 
+describe("respondApi.activityHistory (#432)", () => {
+  it("asks for one loop's newest page, or the page before a cursor, with the cookie", async () => {
+    const page = { entries: [], olderBefore: null, total: 0, since: null, keptUntil: null };
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, page));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await respondApi.activityHistory("sess/1", "@orchestrator")).toEqual(page);
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/fleet/respond/sessions/sess%2F1/activity-history?loop=%40orchestrator", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+    await respondApi.activityHistory("s1", "a1", 42, 20);
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/fleet/respond/sessions/s1/activity-history?loop=a1&before=42&limit=20", expect.anything());
+  });
+  it("throws a RespondError for a refusal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => reply(401, { error: "sign in" })));
+    await expect(respondApi.activityHistory("s", "a")).rejects.toMatchObject({ status: 401 });
+  });
+});
+
 describe("the respond and peers calls (#467)", () => {
   it("sends each call to its path with the right method, the respond header, and a JSON body only when it has one", async () => {
     const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, {}));
