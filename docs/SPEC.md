@@ -1584,7 +1584,10 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   `activity_purged`, with the count, the size and the policy. A run that removes nothing writes nothing.
 - A session's own retention ([7.5](#75-lifecycle-timers), Retention) still applies: the entries of a session
   that is deleted, or whose retention has run out, are removed with it, so the shorter of the two wins.
-- Each removal compacts the file (incremental vacuum, then a WAL checkpoint) so the space comes back.
+- Each removal compacts the file (incremental vacuum, then a WAL checkpoint) so the space comes back. Removal and
+  compaction run in small chunks that give the server's other work a turn between them, so a large purge or delete
+  does not stall the console, and takes longer in total than it would in one go. A delete request answers when its
+  removal has finished.
 - Reading it needs a signed-in browser that is the session's owner or an Admin (the same sign-in as the file
   diff, [7.7](#77-hardening)): `GET /api/fleet/respond/sessions/:id/activity-history?loop=&before=&limit=`
   answers 401 without one and 403 for anyone else. The live route's reply carries only counts about the loop's
@@ -2258,12 +2261,15 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       while the server runs without a token. A change is written to the Admin log as `activity_history_changed`.
   - The Activity history (#432, [6.4](#64-failure-and-excerpt-rules)):
     - `POST activity-history/preview` (`{ settings }`): what saving those settings would do now without doing it.
-      For a keep policy, `{ entries, bytes, sessions, stopsCapturing: false }` is what the purge would remove. For
-      `default`, it is what is stored now, with `stopsCapturing` true when anything is stored.
+      For a keep policy, `{ entries, bytes, sessions, stopsCapturing: false }` is an estimate of what the purge would
+      remove (counts by index, bytes from each session's average entry size). For `default`, it is what is stored
+      now, with `stopsCapturing` true when anything is stored.
     - `GET stored-activity?page=&pageSize=&q=&loop=&project=&owner=&olderThanDays=&from=&to=`: the stored sessions
       (`{ total, page, pageSize, rows, totals, match, projects, owners }`; a row is `{ sessionId, name, project, owner,
       live, entries, bytes, oldestAt }`). `loop` is `all`, `main` or `agents`; `from` and `to` are epoch
-      milliseconds. `match` is what the filter matches, for "Delete all N that match". A bad value is a `400`.
+      milliseconds on the server's clock. `match` is what the filter matches, for "Delete all N that match". When a
+      filter changes which entries count (`loop`, `olderThanDays`, `from`, `to`), `bytes` is an estimate from each
+      session's average entry size. A bad value is a `400`.
     - `POST stored-activity/delete` (`{ ids }` of at most 200 sessions, or `{ match: <filter> }`, or `{ all: true }`;
       an empty filter is a `400`): removes the entries, compacts the file, and answers `{ entries, sessions,
       bytes, freed }`. It writes one `activity_deleted` entry to the Admin log with the count, the size and how
