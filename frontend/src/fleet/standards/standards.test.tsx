@@ -1,10 +1,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { atWall } from "../testState";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { inventory, coverageProblems, type NotRendered } from "../../../../scripts/standards-inventory";
+import { atWall } from "../testState";
 import { buildPages, componentsPage, indexPage, renderSample } from "./build";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES } from "./samples";

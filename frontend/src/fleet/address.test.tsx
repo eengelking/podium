@@ -111,6 +111,17 @@ describe("the open orchestrator in the address", () => {
     expect(screen.getByText("That session is not in the fleet. Sessions that ended are listed in History.")).toBeInTheDocument();
   });
 
+  it("an address naming an inherited object key lands on the wall instead of crashing", () => {
+    for (const key of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+      window.history.replaceState(null, "", `#/?open=${key}`);
+      render(<FleetView state={two()} />);
+      expect(window.location.hash, key).toBe("#/");
+      expect(pageName(), key).toBe("Fleet");
+      expect(screen.getByText("That session is not in the fleet. Sessions that ended are listed in History.")).toBeInTheDocument();
+      cleanup();
+    }
+  });
+
   it("an event opened from the activity panel is in the address too, and keeps its agent open", () => {
     window.history.replaceState(null, "", "#/");
     const s2 = makeSession({ id: "s2", name: "docs-pass", agents: [makeAgent({ id: "a9", description: "Backfill dry run" })] });

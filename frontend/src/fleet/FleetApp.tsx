@@ -215,7 +215,10 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const newEvent = useEntering(state.events.map((e) => e.id), ready);
   // The board and My reporters stand in for an orchestrator's page and show none of it; both clear the selection, below.
   const showsOrchestrator = !board && !consolePage;
-  const selected = sel && showsOrchestrator ? state.sessions[sel] ?? null : null;
+  // `sel` can come from the address, so it is looked up as an own key: `#/?open=constructor` must not find Object's.
+  const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
+  const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
+  const selected = showsOrchestrator ? selSession : null;
 
   const { prefs } = people;
   const spendByOwner = state.kpis?.costTodayByOwner ?? [];
@@ -252,11 +255,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // An address naming a session the fleet never had lands on the wall the same way.
   useEffect(() => {
     if (!sel) return;
-    if (state.gone[sel] || (ready && !state.sessions[sel])) {
-      const name = state.sessions[sel]?.name ?? "That session";
+    if (selGone || (ready && !selSession)) {
+      const name = selSession?.name ?? "That session";
       setNotice(
-        state.gone[sel] || state.sessions[sel]
-          ? `${name} ${state.gone[sel] === "dropped" ? "stopped reporting" : "ended"} and left the fleet.`
+        selGone || selSession
+          ? `${name} ${selGone === "dropped" ? "stopped reporting" : "ended"} and left the fleet.`
           : "That session is not in the fleet. Sessions that ended are listed in History.",
       );
       selRef.current = null;
@@ -264,7 +267,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       setSelAgent(null);
       if (openIn(window.location.hash) === sel) window.history.replaceState(null, "", fleetHash(null));
     }
-  }, [sel, state.gone, state.sessions, ready]);
+  }, [sel, selGone, selSession, ready]);
 
   // Back, Forward and a link to another address (the logo is one) open the orchestrator the address names.
   useEffect(() => {

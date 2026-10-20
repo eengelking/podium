@@ -1,11 +1,11 @@
 // Renders the standards pages from the app (#354). `buildPages` returns every file under docs/standards that is generated,
 // keyed by file name. The sync script writes them, and the parity test compares them with what is on disk.
 import { readFileSync } from "node:fs";
-import { atWall } from "../testState";
 import { join } from "node:path";
 import { render, cleanup } from "@testing-library/react";
 import { vi } from "vitest";
 import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
+import { atWall } from "../testState";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES, type Sample } from "./samples";
 import { scalePage, themesPage, tokensPage } from "./pages";
