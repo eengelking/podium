@@ -1,7 +1,8 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is FleetDb; rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { SAME_USAGE } from './db.js';
+import { ROLLUP_KEEP_MS, SAME_USAGE } from './db.js';
+import { costFn, writeRollups } from './rollups.js';
 import type { CostOf, FleetDb, RetentionPolicy, SessionRow } from './db.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
 import { serverBuild } from './build.js';
@@ -44,7 +45,7 @@ export const DEFAULT_CONFIG: Omit<FleetConfig, 'home' | 'dbPath'> = {
   dropAfterMs: 60_000,
   lingerMs: 8_000,
   detachedHideAfterMs: 60_000,
-  retention: { samplesMs: 24 * 3600_000, eventsMs: 30 * 24 * 3600_000, sessionsMs: 30 * 24 * 3600_000, adminLogMs: 90 * 24 * 3600_000 },
+  retention: { samplesMs: 24 * 3600_000, eventsMs: 30 * 24 * 3600_000, sessionsMs: 30 * 24 * 3600_000, adminLogMs: 90 * 24 * 3600_000, rollupMs: ROLLUP_KEEP_MS },
   throttleMs: 500,
 };
 
@@ -75,6 +76,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv, base: { home: string; dbPa
       eventsMs: envMs(env, 'RETAIN_EVENTS_MS', d.retention.eventsMs),
       sessionsMs: envMs(env, 'RETAIN_SESSIONS_MS', d.retention.sessionsMs),
       adminLogMs: envMs(env, 'RETAIN_ADMIN_LOG_MS', d.retention.adminLogMs),
+      rollupMs: envMs(env, 'RETAIN_ROLLUP_MS', ROLLUP_KEEP_MS),
     },
   };
 }
@@ -605,6 +607,8 @@ export class Fleet {
 
   /** Hourly: retention. */
   retain(): { samples: number; events: number; sessions: number; adminLog: number; peerMessages: number; peerRequests: number } {
+    // The daily rollups first (#484), so what retention is about to delete is counted before it goes.
+    writeRollups(this.db, this.now(), costFn(this.prices.pricing()), this.cfg.retention);
     const out = this.db.retain(this.now(), this.cfg.retention);
     const peers = this.peers.retain();
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
