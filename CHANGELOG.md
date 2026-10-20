@@ -14,11 +14,16 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
-## [1.2.1] - 2026-10-19
+## [1.2.2] - 2026-10-19
 
 ### Fixed
 
 - **SonarCloud's main branch is scanned after each release (#510).** The Sonar workflow ran on pushes to `development` and on PRs only, so SonarCloud's default branch, `main`, kept the analysis of the 1.1.0 release from 2026-10-17 and showed none of 1.2.0 or 1.2.1. A push to `main` now runs the scan. CI configuration only; no change to the product.
+
+## [1.2.1] - 2026-10-19
+
+### Fixed
+
 - **Board columns reach the footer in wall mode (#497).** The columns stopped at a fixed 640 px height and left a gap above the legend. In wall mode they now take all the height between the Board header and the legend, follow the window as it is resized or goes fullscreen, and scroll inside themselves when they hold more cards than fit. With the "no open steps" strip showing, the columns end above it. Outside wall mode the Board is unchanged.
 - **The rail no longer pages one orchestrator at a time on a narrow window (#474).** Below 1040 px the panes stack and the rail's height follows its rows, so it measured only the room its rows already took, paged, shrank, and settled on one row a page ("Showing 1–1 of 5"). A stacked rail now lists every row with no pager, and widening past 1040 px pages again on the page that holds the selection. Wide windows page as before.
 - **The Sonar scan no longer stalls for five minutes (#501).** Every full analysis spent 300 s in SonarJasmin's React render simulation, which starts at `frontend/src/main.tsx` and walks the whole component tree until it hits its time limit; the job took 6 to 8 minutes, which looked like a hang during the 1.2.0 release. `main.tsx`, a 30-line bootstrap with no logic or tests, is now excluded from the scan. CI configuration only; no change to the product.
@@ -621,7 +626,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/eengelking/podium/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/eengelking/podium/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eengelking/podium/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/eengelking/podium/compare/v1.0.2...v1.1.0
