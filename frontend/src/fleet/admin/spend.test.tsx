@@ -64,7 +64,7 @@ describe("Admin > Spend", () => {
     const f = fleetOf(3);
     render(<AdminView fleetOptions={{ open: () => new QuietSource() as unknown as FleetSource, fetchState: async () => f.body }} />);
     const group = await screen.findByRole("group", { name: "Reporting" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Usage", "Spend", "People and groups", "Sessions", "Failures", "Admin activity", "Data kept"]);
+    expect(within(group).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Usage", "Spend", "People and groups", "Sessions", "Failures", "Admin activity"]);
     const activity = screen.getByRole("group", { name: "Activity" });
     expect(within(activity).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Admin log"]);
   });
