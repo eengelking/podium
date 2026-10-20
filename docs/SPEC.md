@@ -4592,7 +4592,9 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
     session is removed from Podium.", each followed by "Only the owner and the Admin can open it. Secrets are
     removed before they leave the session." The modal shows the same line.
   - A viewer who may not read it sees no entries. The list says "History is kept for this session. Only Ed and
-    the Admin can open it." (or, when not signed in, "Sign in as Ed or an Admin to open it."), the count says
+    the Admin can open it." (or, when not signed in, "Sign in as Ed or an Admin to open it."; for a session owned
+    by `Admin`, "Only an Admin can open it." and "Sign in as an Admin to open it."; on the History page, which does
+    not know whether the viewer is signed in, the plain line is followed by "Sign in if that is you."), the count says
     "Nothing to show", and the line under says stored activity can hold anything an agent read or ran, so it is
     not shown to other viewers. A refusal from the history route (401 or 403) shows the same.
   - A failure to load stored history does not stop the live entries; the next fetch asks again.

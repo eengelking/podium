@@ -241,7 +241,10 @@ export function feedEmpty(feed: FeedState, signedIn: boolean | null, fallback: s
   const adminOwned = st.owner === "Admin";
   const owner = st.owner ?? "its owner";
   if (signedIn === false) return adminOwned ? "History is kept for this session. Sign in as an Admin to open it." : `History is kept for this session. Sign in as ${owner} or an Admin to open it.`;
-  return adminOwned ? "History is kept for this session. Only an Admin can open it." : `History is kept for this session. Only ${owner} and the Admin can open it.`;
+  const plain = adminOwned ? "History is kept for this session. Only an Admin can open it." : `History is kept for this session. Only ${owner} and the Admin can open it.`;
+  // Where the page does not know whether the viewer is signed in (the History page has no sign-in state), the line offers the sign-in too.
+  if (signedIn === null) return `${plain} ${adminOwned ? "Sign in if you are one." : "Sign in if that is you."}`;
+  return plain;
 }
 
 export function footer(feed: FeedState, active: boolean, isMain: boolean, now: number): [string, string] {

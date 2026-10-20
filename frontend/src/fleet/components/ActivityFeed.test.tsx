@@ -2,14 +2,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
-import { ActivityFeed } from "./ActivityFeed";
+import { ActivityFeed, feedEmpty } from "./ActivityFeed";
 import { fmtDay } from "../format";
 import { RespondError, type RespondApi } from "../respondApi";
 import { RespondProvider } from "../useRespond";
 import type { ActivityHistoryNote, ActivityHistoryPage } from "../types";
 import { SidePanel } from "./SidePanel";
 import { ORCHESTRATOR_ROW as MAIN_LOOP } from "../logic";
-import { EVERY_KEY, type ActivityReply, type FetchActivity, type FetchHistory } from "../useActivityFeed";
+import { EVERY_KEY, type ActivityReply, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
 import { makeAgent, makeSession } from "../fixtures";
 import type { SessionView } from "../types";
 
@@ -425,7 +425,7 @@ describe("stored history (#432)", () => {
     const { container } = showKept({ fetch: fetcher(reply([], { history: note({ canRead: false }) })), history: h });
     await flush();
     expect(h).not.toHaveBeenCalled();
-    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it. Sign in if that is you."]);
     expect(screen.getByText("Nothing to show")).toBeInTheDocument();
     expect(screen.getByText("Stored activity can hold anything an agent read or ran, so it is not shown to other viewers.")).toBeInTheDocument();
     expect(container.querySelector(".feedfoot.stat.older")).toBeNull();
@@ -449,7 +449,7 @@ describe("stored history (#432)", () => {
     });
     showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
     await flush();
-    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it. Sign in if that is you."]);
     expect(screen.getByText("Nothing to show")).toBeInTheDocument();
     await wait(15_000);
     expect(h).toHaveBeenCalledTimes(1);
@@ -464,7 +464,7 @@ describe("stored history (#432)", () => {
     await flush();
     fireEvent.click(screen.getByRole("button", { name: "Show older" }));
     await flush();
-    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it. Sign in if that is you."]);
   });
 
   it("another failure of the history route is retried on the next fetch, and one on Show older is reported", async () => {
@@ -580,7 +580,7 @@ describe("stored history (#432)", () => {
   it("says an Admin, not 'Admin and the Admin', when the session is owned by Admin", async () => {
     showKept({ fetch: fetcher(reply([], { history: note({ canRead: false, owner: "Admin" }) })), history: history(page([1], null)) });
     await flush();
-    expect(rows()).toEqual(["History is kept for this session. Only an Admin can open it."]);
+    expect(rows()).toEqual(["History is kept for this session. Only an Admin can open it. Sign in if you are one."]);
     cleanup();
     const api = { me: vi.fn(async () => ({ enabled: true, signedIn: false, name: "", admin: false })) } as unknown as RespondApi;
     const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true });
@@ -603,6 +603,18 @@ describe("stored history (#432)", () => {
     showKept({ fetch: fetcher(reply([], { history: note() })), history: history({ ...page([], null), entries: [at(5000, 1), at(3_599_000, 2)] }) });
     await flush();
     expect(list().className).toBe("feed");
+  });
+
+  it("words the empty line by what is known of the viewer: signed in, signed out, or not known", () => {
+    const feed = { stored: { total: 3, since: 1, keptUntil: null, hasOlder: false, canRead: false, owner: "Ed", policy: "all" } } as unknown as FeedState;
+    expect(feedEmpty(feed, true, "x")).toBe("History is kept for this session. Only Ed and the Admin can open it.");
+    expect(feedEmpty(feed, false, "x")).toBe("History is kept for this session. Sign in as Ed or an Admin to open it.");
+    expect(feedEmpty(feed, null, "x")).toBe("History is kept for this session. Only Ed and the Admin can open it. Sign in if that is you.");
+  });
+
+  it("gives the Expand modal's feed the wider time column too, since its own column rule is more specific", () => {
+    const css = readFileSync(resolve(__dirname, "../fleet.css"), "utf8");
+    expect(css).toMatch(/\.podium \.modal \.mb\.feedmb \.feed\.hours li \{[^}]*grid-template-columns: 64px/);
   });
 
   it("keeps the scroll anchoring of the browser off the list, so Show older is the only thing that moves it", () => {

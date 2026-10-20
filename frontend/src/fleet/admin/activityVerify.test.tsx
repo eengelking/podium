@@ -113,7 +113,7 @@ describe("Cancel and Escape (#432)", () => {
     const saveBtn = screen.getByRole("button", { name: "Save" });
     fireEvent.click(saveBtn);
     fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Save and remove 400 entries" }));
-    await screen.findByText(/^Saved\. Removed/);
+    await screen.findByText(/^Saved\. .* go at the next purge/);
     await waitFor(() => expect(document.activeElement).toBe(saveBtn));
   });
 

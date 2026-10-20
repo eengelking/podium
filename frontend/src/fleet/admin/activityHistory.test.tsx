@@ -243,7 +243,7 @@ describe("Data, the Activity history section", () => {
       expect(s.previewBodies).toEqual([{ settings: { policy: "after", n: 7, unit: "days", capGb: null } }]);
       expect(putBodies(s)).toEqual([]);
       fireEvent.click(within(box).getByRole("button", { name: "Save and remove 400 entries" }));
-      expect(await screen.findByText("Saved. Removed 400 entries (about 2 KB). Written to the Admin log.")).toBeInTheDocument();
+      expect(await screen.findByText("Saved. 400 entries (about 2 KB) go at the next purge. Written to the Admin log.")).toBeInTheDocument();
       expect(putBodies(s)).toEqual([{ activityHistory: { policy: "after", n: 7, unit: "days", capGb: null } }]);
       expect(screen.queryByRole("alert")).toBeNull();
     });

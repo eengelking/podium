@@ -528,6 +528,8 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal .mb.feedmb .feed { height: auto; flex: 1; max-width: none; margin: 0; padding: 0; }
 .podium .modal .mb.feedmb .feed li { margin: 0; }
 .podium .modal .mb.feedmb .feed li { font-size: 13px; grid-template-columns: 48px 16px minmax(0, 1fr); }
+/* The modal's own column rule is more specific than .feed.hours, so the wider time column is repeated here. */
+.podium .modal .mb.feedmb .feed.hours li { grid-template-columns: 64px 16px minmax(0, 1fr); }
 .podium .modal .mb.feedmb .feed .tool .body { font-size: 12.5px; }
 @media (prefers-reduced-motion: reduce) { .podium .feed li.new { animation: none; } }
 .podium .modal .mb .mnote { font-size: 12px; margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--grid); }

@@ -269,7 +269,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
               </button>
             </>
           ) : (
-            <button type="button" className="btn dng" ref={first} disabled={busy} onClick={() => void run(async () => (await save(a.settings), `Saved. Removed ${removed(a.pv.entries, a.pv.bytes)}.`))}>
+            <button type="button" className="btn dng" ref={first} disabled={busy} onClick={() => void run(async () => (await save(a.settings), `Saved. ${removed(a.pv.entries, a.pv.bytes)} go at the next purge.`))}>
               Save and remove {fmtCount(a.pv.entries)} entries
             </button>
           )}
