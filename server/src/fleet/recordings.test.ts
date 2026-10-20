@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openActivityDb } from './activityDb.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type RecordingBatch, type RecordingEntry, type RecordingSettings } from './protocol.js';
-import { SessionRecordings, type RecordingTrail } from './recordings.js';
+import { PODIUM_PROMPT_MATCH_MS, SessionRecordings, type RecordingTrail } from './recordings.js';
 import { HOUR_MS, MB } from './recordingSettings.js';
 
 const T0 = 1_800_000_000_000;
@@ -402,26 +402,124 @@ describe('a /clear', () => {
   });
 });
 
+const prompt = (loop: string, seq: number, text: string, at: number): RecordingEntry => ({ loop, seq, at, kind: 'prompt', text });
+
 describe('a prompt delivered from Podium', () => {
-  it('is kept as a prompt entry with who sent it, redacted, for a loop that is being captured', () => {
+  it('writes nothing of its own: only the mod entry that matches it is stored, with the sender as its marker', () => {
     const m = running({}, [MAIN_LOOP]);
-    m.rec.addPodiumPrompt('s1', MAIN_LOOP, { at: T0 + 10, text: `Answer from Ed: use password=hunter2 and ${SECRET}`, by: 'Ed' });
-    m.rec.addPodiumPrompt('s1', MAIN_LOOP, { at: T0 + 11, text: 'second', by: 'Ed' });
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0 + 10, text: `Answer from Ed: use password=hunter2 and ${SECRET}`, by: 'Ed' });
+    expect(m.rec.page('s1', null, 10, null).entries).toEqual([]);
+    // the mod redacted its copy its own way; the text still matches the delivered one
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'Answer from Ed:   use password=[redacted] and [redacted]', T0 + 12), prompt(MAIN_LOOP, 2, 'typed by the person', T0 + 13)));
     const rows = m.rec.page('s1', null, 10, null).entries;
-    expect(rows.map((r) => [r.kind, r.by, r.at])).toEqual([
-      ['prompt', 'Ed', T0 + 10],
-      ['prompt', 'Ed', T0 + 11],
+    expect(rows.map((r) => [r.kind, r.by, r.at, r.text])).toEqual([
+      ['prompt', 'Ed', T0 + 12, 'Answer from Ed:   use password=[redacted] and [redacted]'],
+      ['prompt', undefined, T0 + 13, 'typed by the person'],
     ]);
-    expect(rows[0]!.text).toBe('Answer from Ed: use password=[redacted] and [redacted]');
   });
 
-  it('is not kept when capture is off, or for a loop nobody chose', () => {
+  it('marks a mod entry that carries more than the delivered text, and each delivery only once', () => {
     const m = running({}, [MAIN_LOOP]);
-    m.rec.addPodiumPrompt('s1', 'a1', { at: T0, text: 'for an agent', by: 'Ed' });
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'please also update the guide', by: 'Boss' });
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'Message from Boss: please also update the guide', T0 + 5), prompt(MAIN_LOOP, 2, 'please also update the guide', T0 + 6)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual(['Boss', undefined]);
+  });
+
+  it('stores nothing for a delivery no mod entry ever matches', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'never recorded by the mod', by: 'Ed' });
+    m.s.now = T0 + 2 * PODIUM_PROMPT_MATCH_MS;
+    m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => [r.kind, r.by])).toEqual([['tool', undefined]]);
+  });
+
+  it('does not mark a different text, another loop, a tool entry, or a prompt outside the window', () => {
+    const m = running({}, [MAIN_LOOP, 'a1']);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'for the orchestrator', by: 'Ed' });
+    m.rec.ingest(
+      's1',
+      batch(
+        prompt(MAIN_LOOP, 1, 'something else entirely', T0 + 1),
+        prompt('a1', 1, 'for the orchestrator', T0 + 1),
+        entry(MAIN_LOOP, 2, 'for the orchestrator'),
+        prompt(MAIN_LOOP, 3, 'for the orchestrator', T0 + PODIUM_PROMPT_MATCH_MS + 1),
+      ),
+    );
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, undefined, undefined, undefined]);
+    // an empty delivered text matches nothing
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: '  ', by: 'Ed' });
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'a real one', by: 'Ed' });
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 4, 'anything', T0 + 1), prompt(MAIN_LOOP, 5, '', T0 + 1)));
+    expect(m.rec.page('s1', null, 10, null).entries.slice(-2).map((r) => r.by)).toEqual([undefined, undefined]);
+  });
+
+  it('forgets deliveries that outlived the window, so the memory stays small', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'old', by: 'Ed' });
+    m.s.now = T0 + PODIUM_PROMPT_MATCH_MS + 1;
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: m.s.now, text: 'new', by: 'Ed' });
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'old', m.s.now), prompt(MAIN_LOOP, 2, 'new', m.s.now)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, 'Ed']);
+  });
+
+  it('is not remembered when capture is off, or for a loop nobody chose, and goes with the session', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.notePodiumPrompt('s1', 'a1', { at: T0, text: 'for an agent', by: 'Ed' });
+    m.rec.notePodiumPrompt('s2', MAIN_LOOP, { at: T0, text: 'nothing chosen', by: 'Ed' });
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'forgotten with the session', by: 'Ed' });
+    m.rec.forgetSession('s1');
+    m.rec.noteOption('s1', true);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'kept for a moment', by: 'Ed' });
     m.rec.noteOption('s1', false);
-    m.rec.addPodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'owner has not allowed it', by: 'Ed' });
-    m.rec.addPodiumPrompt('s2', MAIN_LOOP, { at: T0, text: 'nothing chosen', by: 'Ed' });
-    expect(m.rec.page('s1', null, 10, null).entries).toEqual([]);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'owner has not allowed it', by: 'Ed' });
+    m.rec.noteOption('s1', true);
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'for an agent', T0), prompt(MAIN_LOOP, 2, 'forgotten with the session', T0), prompt(MAIN_LOOP, 3, 'owner has not allowed it', T0), prompt(MAIN_LOOP, 4, 'kept for a moment', T0)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, undefined, undefined, 'Ed']);
+  });
+});
+
+describe('late entries of a stopped recording', () => {
+  it('stores entries recorded at or before the stop, and refuses the ones after it', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.s.now = T0 + 100;
+    m.rec.stop('s1', 'Boss');
+    expect(m.rec.acceptsUntil('s1')).toBe(T0 + 100);
+    expect(m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1, 'before', { at: T0 + 99 }), entry(MAIN_LOOP, 2, 'at the stop', { at: T0 + 100 }), entry(MAIN_LOOP, 3, 'after', { at: T0 + 101 })))).toBe(2);
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.text)).toEqual(['', 'before', 'at the stop']);
+    expect(m.rec.grant('s1').state).toBe('stopped');
+  });
+
+  it('accepts everything while it records, and nothing when it is off, over its limit, deleted, or the owner turned the option off', async () => {
+    const m = running({}, [MAIN_LOOP]);
+    expect(m.rec.acceptsUntil('s1')).toBe(Number.POSITIVE_INFINITY);
+    m.rec.stop('s1', 'Boss');
+    m.rec.noteOption('s1', false);
+    expect(m.rec.acceptsUntil('s1')).toBeNull();
+    m.rec.noteOption('s1', true);
+    m.s.flag = false;
+    expect(m.rec.acceptsUntil('s1')).toBeNull();
+    m.s.flag = true;
+    expect(m.rec.acceptsUntil('nope')).toBeNull();
+    m.s.settings = { ...m.s.settings, sessionMb: 100 / MB };
+    const lim = make();
+    lim.rec.noteOption('s1', true);
+    lim.rec.start('s1', [MAIN_LOOP], 'Ed', META);
+    lim.s.settings = { ...lim.s.settings, sessionMb: 100 / MB };
+    lim.rec.ingest('s1', batch(entry(MAIN_LOOP, 1, 'x'.repeat(200))));
+    expect(lim.rec.grant('s1').state).toBe('limit');
+    expect(lim.rec.acceptsUntil('s1')).toBeNull();
+    const del = running({}, [MAIN_LOOP]);
+    await del.rec.removeMany(['s1']);
+    expect(del.rec.acceptsUntil('s1')).toBeNull();
+  });
+
+  it('does not turn a stopped recording into a limit one when a late entry would pass the limit; it just stores no more', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.stop('s1', 'Boss');
+    m.s.settings = { ...m.s.settings, sessionMb: 200 / MB };
+    expect(m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1, 'x'.repeat(300), { at: T0 })))).toBe(0);
+    expect(m.rec.grant('s1')).toMatchObject({ state: 'stopped', limit: null });
+    expect(m.trails).toEqual([]);
   });
 });
 

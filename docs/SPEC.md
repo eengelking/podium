@@ -1684,8 +1684,13 @@ the console ("This session's reporter does not allow recording"), and the owner 
 Admin turning the flag off also stops every recording, and what was recorded is kept until it expires.
 
 **What is captured.** For each chosen loop (the orchestrator, a subagent, a fork), in the order things happened:
-- `prompt`: the task prompt an agent starts with, the person's prompt, and a message or answer sent from Podium
-  (each with its marker, as in the Activity history).
+- `prompt`: the task prompt an agent starts with, the person's prompt, and a message or answer sent from Podium.
+  The mod records every prompt of a loop and cannot tell where one came from, so a prompt from Podium arrives as
+  an ordinary `prompt` entry. The server remembers what it delivered (loop, time, sender, text) and, when the mod's
+  entry for it arrives (same loop, within 10 minutes, the text the delivered one or holding it), adds the sender as
+  the entry's marker (`by`), as the Activity history marks them. The server writes no prompt of its own: a delivery
+  the mod never records leaves nothing in the recording. Redaction differs between mod and server, so a prompt whose
+  redacted text no longer matches stays unmarked.
 - `text`: what the model wrote in each request, whole.
 - `tool`: each call, with its **whole** input (a Bash command in full, the content of a Write, the old and new text
   of an Edit), not the short summary the Activity feed carries.
@@ -1768,7 +1773,10 @@ JSON row, `recording_settings`, in the `settings` table ([7.2](#72-database-sqli
 **Stopping, keeping and deleting.**
 - **Stop** ends capture for the whole session (the orchestrator and every agent and fork). The server writes a
   `stopped` mark with who stopped it and when. What was recorded is **kept** until it expires, can still be
-  replayed, and can be deleted. Stopping is for the session's owner and an Admin.
+  replayed, and can be deleted. Stopping is for the session's owner and an Admin. The mod sends in batches, so
+  its last batch can still be on its way when the person stops: the server takes entries from a stopped recording
+  whose `at` is at or before the stop time, and refuses any after it. A recording that stopped for a limit, a
+  deleted one, and any batch while the flag or the owner's option is off are refused as before.
 - **Delete** removes the whole recording for good, and stops capture if it is still running. It does not touch the
   session, History or the live feed. Deleting is for the session's owner and an Admin.
 - A session that ends keeps its recording as it is (capture ended with it) until it expires. Deleting the
@@ -2384,8 +2392,13 @@ Needs `X-Podium-Token` from the session's owner ([7.7](#77-hardening)), like the
   `(loop, seq)`, is dropped and not an error) and `recording` is the `RecordingGrant` after the batch, so a limit
   reached by this batch stops the mod at once. The entries that fit are stored, and the one that would pass the limit
   and everything after it are not; the batch is then answered with `recording.state: "limit"`.
-- `403 { ok: false, error: "recording is off" }` while the three yes answers are not all true for this session
-  (nothing is stored, and the mod stops capturing). `404` for a session that is not live and has no recording, `400`
+- A recording a person stopped (state `stopped`) still takes entries whose `at` is at or before the stop time
+  (`stoppedAt`), so the last batch interval is not lost; entries after it are dropped (not stored, not an error), and
+  the answer is `200` with `recording.state: "stopped"`. The entries are stored after the `stopped` mark in the
+  replay's order of storing.
+- `403 { ok: false, error: "recording is off" }` while the three yes answers are not all true for this session,
+  except for that late batch of a stopped recording; also for a recording stopped by a limit or the budget, and one
+  that was deleted (nothing is stored, and the mod stops capturing). `404` for a session that is not live and has no recording, `400`
   for a body that fails validation, `401` for a missing or wrong credential, `409` as for a report, `413` above
   512 KB.
 - A session that has ended is not accepted again: its recording is kept as it is.
