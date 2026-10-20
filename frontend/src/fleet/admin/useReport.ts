@@ -112,7 +112,7 @@ export function useReport(client: ReportsClient, cfg: ReportConfig, onLocked: ()
         if (!live) return;
         setReply(r);
         // The kinds to choose from are the ones an unfiltered reply holds.
-        if (cfg.kinds && !kindRef.current) setKinds([...new Set(r.rows.map((x) => String(x.kind)))].sort());
+        if (cfg.kinds && !kindRef.current) setKinds([...new Set(r.rows.map((x) => String(x.kind)))].sort((a, b) => a.localeCompare(b)));
       },
       (e: unknown) => {
         if (!live) return;

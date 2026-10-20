@@ -90,7 +90,7 @@ function useChoices(client: ReportsClient, r: ReportState) {
     let live = true;
     client
       .get<ReportReply>(`/reports/${cfg.report}${query({ from: range.from, to: range.to, by: cfg.hasBy ? "month" : undefined, breakdown: "model" })}`)
-      .then((res) => live && setModels([...new Set(res.rows.map((x) => String(x.key)))].sort()), () => undefined);
+      .then((res) => live && setModels([...new Set(res.rows.map((x) => String(x.key)))].sort((a, b) => a.localeCompare(b))), () => undefined);
     return () => {
       live = false;
     };
