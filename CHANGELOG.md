@@ -33,12 +33,15 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- Admin > Reporting: the Admin activity report says when the log held more than 1,000 entries in the period and only the newest are shown, and its reply carries `truncated` (#529).
+- Reporting reads less: a report for today no longer scans the agents, reporter links and failures of every stored session, and the Spend breakdown reads its sessions and agents in two queries instead of several per session (#529).
 - Admin: Spend moved from Activity into the new Reporting group, and the Server page "Reporting and security" is now called **Security** so there is one "Reporting" (#484).
 - Standards: a green variant of the pill, `pill good`, joins the default, `warn` and `bad`. It is used first by the update notice. Approved by the maintainer on #499, with the mockups `mockup/podium-update-notice.html` and `mockup/podium-update-check-admin.html`.
 - Added SonarCloud quality and CodeQL status badges to the README (#517).
 
 ### Fixed
 
+- The first retention run after an upgrade now writes the day the session cutoff falls in, so the oldest reporting day is no longer missing; it can be partly built (#529).
 - The Markdown linearity test is less sensitive to a contended CI runner: it takes the best of five measurements, allows a ratio below 10, remeasures a case once only if the first ratio exceeds the limit, and cleans up each render outside the timed interval so large DOM trees do not accumulate. A quadratic renderer still measures near 16 and fails (#514).
 
 - The three SonarCloud issues that held Security and Reliability at C on `main` are fixed in code (#515). The machine id no longer falls back to `Math.random()` when the sandbox has no `crypto`; `/podium name` uses a pattern whose parts cannot overlap; and the wall button's fullscreen request no longer sits in a `try` that Sonar flagged. The id is still 12 hex characters, and a refused or missing fullscreen still leaves wall mode on and fullscreen off.

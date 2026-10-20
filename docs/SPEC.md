@@ -2151,7 +2151,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       - `failures`: `breakdown` is `class` (default), `tool` or `person`. Rows: `period, key, count, people` and, while the
         stored sessions still exist (30 days), `sessionIds` (at most 10) for the History link.
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
-        at most 1,000. It has no `by`.
+        at most 1,000. It has no `by`. `truncated` is `true` when the log held more than 1,000 entries in the period, and
+        the page then says "Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest."
       - `retention`: `{ tables: [{ name, rows, oldestDay, keptDays }], detail: [{ name, keptDays }] }`.
       - An empty person, group, model or project is `-` in every `key` and in the filters.
       - `spend/projection` (`horizon=month|30d`, `window=7|14|30`, default 14, `by=person|group`): rows `key, runRatePerDay, spentThisMonth, projected` (`null` for both `runRatePerDay` and `projected`
@@ -2405,7 +2406,9 @@ The sweeper runs this hourly:
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
   `failures_daily` and `fleet_daily` from the rows still stored (a day that began before the session retention is
-  skipped, since what is left of it would lower its figures), in one transaction, so a run twice gives the
+  skipped, since what is left of it would lower its figures, except the day the retention cutoff falls in: when no run
+  has written it yet, as on the first run after an upgrade, it is written from what is left, so the oldest day can be
+  partly built), in one transaction, so a run twice gives the
   same rows. A day whose raw rows are already gone is left as it is. Rollup rows older than 395 days are deleted.
   `peak_live_sessions` is the highest count of sessions live at one second, read from the day's samples while
   they last and never lowered once written (a day's figure only grows).
