@@ -16,6 +16,11 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
+- **Admin > Reporting (#484, #482, #483).** A new menu group with seven pages: Usage, Spend, People and groups, Sessions, Failures, Admin activity and Data kept. Each takes a period, a day, week or month grouping and filters, states the time zone and how far back its data goes, and exports exactly what it shows as CSV or JSON (and prints). Podium now keeps daily summaries of usage, sessions, failures and the fleet for 395 days (`RETAIN_ROLLUP_MS`), written before the detailed rows are swept, so a report can reach past the 30 days of sessions and events. The summaries hold counts, tokens, cost and names, and no session content. Admin > Reporting > Data kept lists what is stored and for how long.
+  - **Spend breakdown (#482).** A person's row in Spend today opens what the figure is made of: by session, by model, and orchestrator against agents. Each cut adds up to the row, and a model without a price shows a dash.
+  - **Spend projection (#483).** A straight run rate over the last 7, 14 or 30 days projected to the end of the month or 30 days ahead, with the window and assumptions shown, and "Not enough history" when there are fewer than 7 days.
+  - `scripts/podium-seed-history.ts` fills a throwaway database with past days so the simulator can show the reports and the projection.
+
 - **`podiumctl` runs the container with Docker as well as Podman.** Container mode uses Podman when it is installed and Docker otherwise, for building, running and every other container command, and it is the default mode when either is installed. `--engine podman|docker` chooses, and the choice is saved as `PODIUMCTL_ENGINE` so `stop`, `status` and the boot unit keep using the engine that started the container. `status` shows the engine. Under Docker the container can reach this machine as `host.docker.internal`, and a new `.dockerignore` keeps a Docker build to the same files as a Podman one.
 
 - **Pin cards on the Fleet wall (#496).** A pin button in each card's first row, just before the model, holds that card's place on the wall while statuses, costs, the sort order and new sessions change around it, until it is unpinned. Several cards can be pinned. Pins are kept in this browser, hold their slot inside a band under Group by, and are dropped when their session ends.
@@ -23,6 +28,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- Admin: Spend moved from Activity into the new Reporting group, and the Server page "Reporting and security" is now called **Security** so there is one "Reporting" (#484).
 - Added SonarCloud quality and CodeQL status badges to the README (#517).
 
 ### Fixed
