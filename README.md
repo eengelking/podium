@@ -90,8 +90,8 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |
 | [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing Podium to other people |
 | [Spec](docs/SPEC.md) | The build spec: intended behavior and requirements |
-| [Architecture](docs/ARCHITECTURE.md) | How it was built, departures from the spec, verification, known issues |
-| [Decisions](docs/DECISIONS.md) | Why a significant choice was made |
+| [Architecture](docs/ARCHITECTURE.md) | How it was built, where it departs from the spec and why, what was verified, known issues |
+| [Decisions](docs/DECISIONS.md) | Why the significant choices were made |
 | [Changelog](CHANGELOG.md) | What changed in each release |
 | [Contributing](CONTRIBUTING.md) | How to propose and land a change, and the tests and checks to run (PRs go to `development`, not `main`) |
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |
