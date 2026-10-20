@@ -83,6 +83,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .podium .rec-bar .tx b { font-weight: 650; }
 .podium .rec-bar .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .podium .rec-bar .confirm { flex: 1 1 100%; }
+/* PROPOSED .fact.rec: the Recording cell, a thirteenth fact on a row of its own. Not recorded, it is the same kind of
+   cell button as Resume and Fork and says Record this session. Otherwise it states the recording's state. */
+.podium .osum .facts .fact.rec { grid-column: 1 / -1; }
+.podium .osum .facts .fact.rec .v.recording { color: var(--crit-text); }
 /* PROPOSED .rec-bar.kept: the same layer once capture has ended and the recording is only kept. A ring instead of a
    filled dot, the neutral color instead of the critical one, and Open replay and Delete recording. */
 .podium .rec-bar.kept { background: var(--raised); box-shadow: inset 4px 0 0 var(--muted); }
@@ -250,13 +254,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <h2>What this mockup proposes</h2>
   <ul>
     <li><b>Admin.</b> <b>Session recording</b> is a feature flag in Admin > Settings, beside the others, off by default, and unavailable when the server has no <span class="mono">PODIUM_TOKEN</span>. A section under it sets how long recordings are kept (hours or days, 6 hours by default, at most 7 days), a disk budget, and a limit for one session. A table lists every recording with its owner, who started it, its state, size and when it is deleted. An Admin can stop or delete any of them, each after a confirmation. Recordings also appear on #432's Stored activity page through its Source filter.</li>
-    <li><b>Choosing what to record.</b> Record this session, on the orchestrator page for its owner and for an Admin, opens the app's modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each with a box. Recording is per loop, starts when Start is pressed, and keeps nothing from before. The picker has five states: the owner allows it, after Start, the owner has not allowed it (nothing to press, and it names the <span class="mono">sessionRecording</span> option), the feature is off, and a viewer who is not the owner.</li>
+    <li><b>Choosing what to record.</b> Record this session is in the orchestrator page's facts panel, in a new Recording cell, for its owner and for an Admin. The cell is a button like Resume and Fork while the session is not recorded; once it is recorded, the cell states the recording's state and when it goes, and the buttons for Stop, Open replay and Delete stay in the layer above the band. The button opens the app's modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each with a box. Recording is per loop, starts when Start is pressed, and keeps nothing from before. The picker has five states: the owner allows it, after Start, the owner has not allowed it (nothing to press, and it names the <span class="mono">sessionRecording</span> option), the feature is off, and a viewer who is not the owner.</li>
     <li><b>The notice cannot be hidden.</b> Two always-on signs. On the wall, a recorded card gets a second band in the critical color with a filled dot and who started it (<span class="mono">.band.recording</span>). On the orchestrator page, a layer inside the page's surface above its band (<span class="mono">.rec-bar</span>) says what is kept, who started it, which loops are recorded and when it is deleted. Neither has an X or a switch. This is not a wall notice: those are for informational notes that someone may close, and consent is not one. The owner's terminal shows the same text (see the Owner's terminal screen).</li>
     <li><b>Replay.</b> A page of its own, reached from Open replay and from Admin's table, with a back link to the orchestrator page. It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under each tool call. A loop filter, a position slider and Jump to next failure move through it. A failed call uses the failure box. A compaction or a stop is a marked row. Show older pages back through a long run. It is read-only.</li>
     <li><b>Getting into a replay after the recording has ended.</b> Stopping a recording does not remove it: the page goes to a third state, "Recording stopped", with the same layer in the neutral color and a ring instead of the filled dot, and it keeps Open replay and Delete recording. The same layer shows on an ended session. An ended session is found in History: its row has a line under the name, "recording kept until 17:42", and opening the session shows its read-only page with that layer. Admin's Recordings table opens it too. Nothing is shown once the recording is deleted or has expired.</li>
     <li><b>Thinking.</b> The research on #353 found that the mod receives thinking without its text on the model and effort tested. The replay says so in the header, and each place the model thought has a Reasoning row that reads "Thinking: text is not available".</li>
     <li><b>Confirmations.</b> In Admin, the warning-bordered box with a button for each answer. Everywhere else, the Respond modal's confirmation box: a bold question, Cancel, and the critical-colored action button. Stop, Delete and Delete this recording all ask first and say what stays and what goes.</li>
     <li><b>States.</b> Replay has loading ("Loading…"), a failed load (the error box, with Try again), nothing recorded yet, a delete asking first, a stopped recording, a recording that reached its limit, and a viewer who is not the owner (the empty-state box with a plain refusal). A loop name too long for its row is cut with its full name as a title.</li>
+  </ul>
+  <h2>Source of truth</h2>
+  <ul>
+    <li>The markup is taken from the components on <span class="mono">development</span>, not from the standards pages, which follow <span class="mono">main</span>. That is why the facts panel has Machine and System, the card has the pin button (#496), and the replay's feed shows elapsed time as h:mm:ss, as the Activity feed does.</li>
   </ul>
   <h2>Reused as they are</h2>
   <ul>
@@ -267,6 +275,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <ul>
     <li><span class="mono">.band.recording</span>, <span class="mono">.rec-bar</span> (and its kept variant, <span class="mono">.rec-bar.kept</span>) and <span class="mono">.badge.recording</span>: nothing existing is a state that cannot be closed or switched off.</li>
     <li><span class="mono">.feed li.mark</span> and <span class="mono">.feed li.cur</span>: a marked row and the row the slider is on. Plus the loop's name (<span class="mono">.who</span>) and a collapsed result (<span class="mono">.res</span>) around the existing code block.</li>
+    <li><span class="mono">.fact.rec</span>: the Recording cell, a thirteenth fact. The facts are twelve cells in two rows of six on <span class="mono">development</span>, so it takes a row of its own, full width. The alternative is to put it in the header or the band, which changes more of the page.</li>
     <li><span class="mono">.scrub</span>: a labelled range input. The standards have no slider.</li>
     <li>The standards change only after you approve, through <span class="mono">Standards:</span> lines in the CHANGELOG, and the implementation adds each piece to the standards in its own PR.</li>
   </ul>
@@ -302,6 +311,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   function screen(id) {
     current = id;
     ["admin", "pick", "wall", "history", "op", "term", "replay"].forEach(function (s) { $("s-" + s).hidden = s !== id; });
+    if (id === "wall") { wallCards(); placePins(); }
     $("pkstates").hidden = id !== "pick";
     $("opstates").hidden = id !== "op";
     $("rpstates").hidden = id !== "replay";
@@ -356,7 +366,67 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (withActs) { var a = node("div", "acts"); a.appendChild(btn("Stop recording", "", function () { op("stop"); })); a.appendChild(btn("Open replay", "", function () { screen("replay"); })); b.appendChild(a); }
     return b;
   }
+  /* The facts panel as FactsBar.tsx on development builds it: twelve cells, six to a row. Row one: Agents, Est. cost,
+     Tokens, Running for, Agent time, Blowouts. Row two: Machine, System, Reporter, Session, Resume, Fork. The copied
+     sample came from the standards pages, which follow main, so it lacked Machine and System. Recording is the
+     proposed thirteenth cell, on a row of its own. */
+  var MAC_ICON = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="3" width="12" height="8" rx="1"></rect><path d="M1 13h14"></path></svg>';
+  function popCell(label, valueHtml, valueClass, tipHtml) {
+    var c = node("div", "fact start"); c.setAttribute("role", "group"); c.setAttribute("aria-label", label); c.tabIndex = 0;
+    c.appendChild(node("div", "k", label));
+    var v = node("div", "v " + valueClass); v.innerHTML = valueHtml; c.appendChild(v);
+    var tip = node("div", "tip"); tip.setAttribute("role", "tooltip"); tip.textContent = tipHtml; c.appendChild(tip);
+    return c;
+  }
+  function buildFacts() {
+    var f = document.querySelector("#op-root .facts");
+    f.classList.add("six");
+    function cell(label) { return Array.prototype.find.call(f.querySelectorAll(".fact"), function (c) { var k = c.querySelector(".k"); return k && k.textContent.trim().indexOf(label) === 0; }); }
+    var order = [cell("Agents"), cell("Est. cost"), cell("Tokens"), cell("Running for"), cell("Agent time"), cell("Blowouts"),
+      popCell("Machine", "Silverbolt", "mono", "The machine this session runs on. As its reporter named it."),
+      popCell("System", '<span class="sysi">' + MAC_ICON + '</span><span class="sys-t">macOS 26.0</span>', "", "The system on this machine. macOS 26.0"),
+      cell("Reporter"), cell("Session"), cell("Resume"), cell("Fork")];
+    order.forEach(function (c) { f.appendChild(c); });
+    var rc = node("div", "fact copy rec"); rc.id = "rec-cell"; f.appendChild(rc);
+  }
+  /* The Recording cell. Not recorded: a button that opens the picker, for the owner and an Admin. Recording, kept and
+     viewers: the state in shape, word and color, with the time it goes. The buttons for Stop, Open replay and Delete
+     stay in the layer above the band. */
+  function renderRecCell(id) {
+    var c = $("rec-cell"); c.textContent = "";
+    c.className = "fact rec" + (id === "not" ? " copy" : "");
+    if (id === "not") {
+      var b = node("button", "cellbtn"); b.type = "button"; b.setAttribute("aria-label", "Record this session"); b.addEventListener("click", function () { screen("pick"); });
+      b.appendChild(node("span", "k", "Recording")); b.appendChild(node("span", "v", "Record this session")); c.appendChild(b); return;
+    }
+    var live = id !== "stopped" && id !== "ended";
+    c.appendChild(node("div", "k", "Recording"));
+    var v = node("div", "v" + (live ? " recording" : "")), shape = node("span", "", live ? "●" : "○"); shape.setAttribute("aria-hidden", "true");
+    v.appendChild(shape); v.appendChild(document.createTextNode(live ? " Recording, deleted at 17:42" : " Kept until 17:42")); c.appendChild(v);
+  }
   var backTo = "rec";
+  /* An ended session shows its final state, as the app's own Done band, Agents fact and agent rows do. The live
+     sample's values are kept so the other states can put them back. Markup here is the app's, copied as it is. */
+  var DONE_BAND = '<span class="bi"><svg class="si si-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M5.2 8.2l2 2 3.6-4"></path></svg></span><span class="bt"><span class="bl">Done</span></span>';
+  var DONE_ST = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"></path></svg>done';
+  var DONE_AGENTS = '<span class="n-running">0 running</span><span class="n-done"> / 4 done</span>';
+  function remember(el, key) { if (el && el.dataset[key] === undefined) el.dataset[key] = el.innerHTML; if (el && el.dataset[key + "Cls"] === undefined) el.dataset[key + "Cls"] = el.className; }
+  function setEnded(on) {
+    var root = document.getElementById("op-root");
+    var band = root.querySelector(".osum .band"), agents = root.querySelector(".fact.agents .v");
+    var cells = root.querySelectorAll(".trow .cell .st");
+    remember(band, "live"); remember(agents, "live"); cells.forEach(function (c) { remember(c, "live"); });
+    function put(el, html, cls) { el.innerHTML = html; if (cls) el.className = cls; }
+    if (on) {
+      put(band, DONE_BAND, "band done"); band.removeAttribute("title");
+      put(agents, DONE_AGENTS);
+      cells.forEach(function (c) { put(c, DONE_ST, "st done"); });
+    } else {
+      put(band, band.dataset.live, band.dataset.liveCls);
+      put(agents, agents.dataset.live);
+      cells.forEach(function (c) { put(c, c.dataset.live, c.dataset.liveCls); });
+    }
+  }
   /* The layer once capture has ended: the recording is only kept. Open replay and Delete recording stay. */
   function keptLayer(ended) {
     var b = node("div", "rec-bar kept"); b.setAttribute("role", "status");
@@ -373,14 +443,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   }
   function op(id) {
     press("[data-op]", "data-op", id);
+    setEnded(id === "ended");
+    renderRecCell(id);
     if (id !== "not" && id !== "viewer") backTo = (id === "stopped" || id === "ended") ? id : "rec";
     var osum = document.querySelector("#op-root .osum"), band = osum.querySelector(".band");
     osum.querySelectorAll(".rec-bar, .rec-row").forEach(function (n) { n.remove(); });
     function row(n) { var r = node("div", "rec-row"); r.appendChild(n); return r; }
-    if (id === "not") {
-      var rr = node("div", "respond-bar rec-row"); rr.appendChild(btn("Record this session", " pri", function () { screen("pick"); })); osum.appendChild(rr);
-      return;
-    }
+    if (id === "not") return;
     if (id === "stopped" || id === "ended") { osum.insertBefore(keptLayer(id === "ended"), band); return; }
     var layer = recLayer(id !== "viewer");
     if (id === "started") { var st = node("div", "tx"); st.appendChild(node("b", "", "Recording started at 11:42. ")); st.appendChild(document.createTextNode("Nothing before this point was kept.")); layer.insertBefore(st, layer.children[2] || null); }
@@ -392,11 +461,27 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   document.querySelectorAll("[data-op]").forEach(function (b) { b.addEventListener("click", function () { op(b.getAttribute("data-op")); }); });
 
   /* Wall: the app's own card, cloned from the template, with the proposed recording band added */
+  var PIN_ICON = '<svg class="pin-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M9.5 1.8l4.7 4.7-2 .8-2.4 2.4.2 3-1 1-2.7-2.7-3.8 3.8-.7-.7 3.8-3.8L3 7.6l1-1 3 .2 2.4-2.4z"></path></svg>';
+  function placePins() {
+    document.querySelectorAll("#wall-cards .card-slot").forEach(function (host) {
+      var gap = host.querySelector(".pinslot"), pin = host.querySelector(".pin");
+      if (!gap || !pin) return;
+      var left = 0, top = 0;
+      for (var el = gap; el && el !== host; el = el.offsetParent) { left += el.offsetLeft; top += el.offsetTop; }
+      pin.style.left = left + "px"; pin.style.top = top + "px";
+    });
+  }
   function wallCards() {
     var host = $("wall-cards"); host.textContent = "";
     [["api-refactor", ["Recording everything", "Maya Okafor started it. Deleted at 17:42."]], ["flaky-tests", ["Recording 2 of 3 loops", "The orchestrator and test-fixer. Ed started it. Deleted at 15:10."]], ["docs-sweep", null]].forEach(function (c) {
       var t = $("card-t").content.cloneNode(true), slot = t.querySelector(".card-slot");
       slot.querySelector(".nm").textContent = c[0];
+      /* The pin (#496), as SessionCard.tsx draws it: an empty .pinslot in the first row, before the model, and a button
+         that is a sibling of the card button, laid over the slot once it is on the page. */
+      slot.querySelector(".h").insertBefore(node("span", "pinslot"), slot.querySelector(".mdl"));
+      slot.querySelector(".pinslot").setAttribute("aria-hidden", "true");
+      var pin = node("button", "pin"); pin.type = "button"; pin.setAttribute("aria-pressed", "false"); pin.setAttribute("aria-label", "Pin " + c[0] + " to its place on the wall"); pin.title = "Pin to this place";
+      pin.innerHTML = PIN_ICON; slot.appendChild(pin);
       if (c[1]) {
         var b = node("div", "band recording"); b.setAttribute("role", "status");
         var dot = node("span", "dot"); dot.setAttribute("aria-hidden", "true"); b.appendChild(dot);
@@ -473,17 +558,24 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     ["11:49", "endpoint-port", "txt", "The handler drops currency when it maps the row. I will map it in the serializer and run the invoices tests again."],
     ["11:52", "test-fixer-with-a-very-long-name-that-has-to-be-cut-in-a-row", "you", "Asked: Check why list.test.ts expected a currency before the change."],
     ["12:05", "api-refactor", "txt", "Context reached 92%. The conversation was compacted, 412k to 88k tokens.", "mark"],
-    ["12:30", "api-refactor", "tool", ["Bash", "git diff --stat", " server/src/invoices/serialize.ts | 12 ++++++++----\n server/src/invoices/list.ts      |  4 ++--\n 2 files changed, 10 insertions(+), 6 deletions(-)"]]
+    ["12:58", "api-refactor", "tool", ["Bash", "git diff --stat", " server/src/invoices/serialize.ts | 12 ++++++++----\n server/src/invoices/list.ts      |  4 ++--\n 2 files changed, 10 insertions(+), 6 deletions(-)"]]
   ];
   var LOOPS = ["All loops", "api-refactor", "schema-writer", "endpoint-port", "test-fixer-with-a-very-long-name-that-has-to-be-cut-in-a-row"];
   var state2 = "ended", filt = "All loops", cur = 0;
   function setRp(v) { state2 = v; press("[data-rp]", "data-rp", v); rp(); }
   function svg(html) { var d = document.createElement("span"); d.innerHTML = html; return d.firstChild; }
+  /* The feed shows time since the loop began, with the clock time as the title. It is h:mm:ss for the whole list once any
+     row is an hour in (ActivityFeed.tsx), and this run is more than an hour long. */
+  function elapsed(hhmm) {
+    var p = hhmm.split(":"), s = ((+p[0]) * 60 + (+p[1]) - (11 * 60 + 42)) * 60;
+    function pad(n) { return (n < 10 ? "0" : "") + n; }
+    return Math.floor(s / 3600) + ":" + pad(Math.floor(s % 3600 / 60)) + ":" + pad(s % 60);
+  }
   function eventRow(e, i) {
     var kind = e[2], li = node("li", kind === "tool" ? "tool" : kind === "you" ? "you" : "txt"); li.dataset.i = i;
     if (e[4] === "mark") li.classList.add("mark");
     if (filt !== "All loops" && e[1] !== filt) li.hidden = true;
-    var at = node("span", "at", e[0]); at.title = e[0] + ":00"; li.appendChild(at);
+    var at = node("span", "at", elapsed(e[0])); at.title = e[0] + ":00"; li.appendChild(at);
     var k = node("span", "k"); k.setAttribute("role", "img"); k.setAttribute("aria-label", LAB[kind]); k.title = LAB[kind]; k.appendChild(svg(ICON[kind])); li.appendChild(k);
     var body = node("span", "body"), who = node("span", "who", e[1] + ":"); who.title = e[1]; body.appendChild(who);
     if (kind === "tool") {
@@ -532,10 +624,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     rg.setAttribute("aria-valuetext", "Row " + (cur + 1) + " of " + EV.length);
     rg.addEventListener("input", function () { cur = +rg.value; mark(); pos.textContent = "Row " + (cur + 1) + " of " + EV.length; rg.setAttribute("aria-valuetext", pos.textContent); });
     sc.appendChild(pl); sc.appendChild(rg); sc.appendChild(pos); sec.appendChild(sc);
-    var ol = node("ol", "feed"); ol.setAttribute("aria-label", "Recorded activity, oldest first"); ol.tabIndex = 0;
+    var ol = node("ol", "feed hours"); ol.setAttribute("aria-label", "Recorded activity, oldest first"); ol.tabIndex = 0;
     EV.forEach(function (e, i) { ol.appendChild(eventRow(e, i)); });
     if (state2 === "stopped" || state2 === "cap") {
-      var m = node("li", "txt mark"); m.appendChild(node("span", "at", state2 === "cap" ? "13:40" : "13:02")); var mk = node("span", "k"); mk.appendChild(svg(ICON.txt)); m.appendChild(mk);
+      var m = node("li", "txt mark"); m.appendChild(node("span", "at", elapsed(state2 === "cap" ? "13:40" : "13:02"))); var mk = node("span", "k"); mk.appendChild(svg(ICON.txt)); m.appendChild(mk);
       var mb = node("span", "body"); mb.appendChild(node("span", "who", "Podium:")); mb.appendChild(node("span", "", state2 === "cap" ? "Recording stopped: this session reached its 256 MB limit. Nothing after this point was kept." : "Recording stopped by Maya Okafor. Everything up to here was kept.")); m.appendChild(mb); ol.appendChild(m);
     }
     sec.appendChild(ol);
@@ -548,6 +640,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   document.querySelectorAll("[data-rp]").forEach(function (b) { b.addEventListener("click", function () { setRp(b.getAttribute("data-rp")); }); });
 
   root.setAttribute("data-theme", "dark");
-  picker("ok"); wallCards(); op("rec"); rp(); screen("admin");
+  picker("ok"); wallCards(); buildFacts(); op("rec"); rp(); screen("admin");
 })();
 </script>
