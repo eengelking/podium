@@ -72,7 +72,10 @@ export interface ActivityHistoryPreviewBody {
   settings: ActivityHistorySettings;
 }
 
-/** Its reply. `stopsCapturing` is true when the settings are `default` and something is stored. */
+/**
+ * Its reply. For a keep policy: what saving would remove now, and `stopsCapturing` false. For `default` nothing is removed:
+ * `entries`, `bytes` and `sessions` are what is stored now, and `stopsCapturing` is true when anything is stored.
+ */
 export interface ActivityHistoryPreview {
   entries: number;
   bytes: number;
