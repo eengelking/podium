@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_HISTORY_RANGES, ACTIVITY_HISTORY_UNITS } from "../../../../server/src/fleet/activityHistoryTypes";
 import { AdminError, type ActivityHistoryPolicy, type ActivityHistoryPreview, type ActivityHistorySettings, type ActivityHistoryState, type ActivityHistoryUnit, type AdminApi, type StoredDeleteResult } from "./adminApi";
-import { activityErrorText, fmtBytes, fmtCount, sessionsText } from "./activityFormat";
+import { ACTIVITY_REFRESH_MS, aboutBytes, activityErrorText, fmtBytes, fmtCount, sessionsText, unitText } from "./activityFormat";
 import { Panel, Section } from "./Page";
 import { keptText } from "./ReportPages";
 import { WarnIcon } from "./ReporterMessaging";
@@ -46,15 +46,15 @@ const sameSettings = (a: ActivityHistorySettings, b: ActivityHistorySettings) =>
 
 /** The Detail rows table's line for Activity history. */
 export function policyText(s: ActivityHistorySettings): string {
-  const base = { default: "Not stored (default)", after: `Purge after ${s.n} ${s.unit}`, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[s.policy];
+  const base = { default: "Not stored (default)", after: `Purge after ${unitText(s.n, s.unit)}`, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[s.policy];
   return s.policy !== "default" && s.capGb !== null ? `${base}, capped at ${s.capGb} GB` : base;
 }
 
 const when = (t: number) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export function DataPage({ api, onLocked, onGo, onCountStored }: { api: AdminApi; onLocked: () => void; onGo: (tab: "stored") => void; onCountStored: (n: number) => void }) {
-  const list = useList<RetentionReply>(api, "/reports/retention", onLocked);
-  const settings = useList<{ activityHistory?: ActivityHistoryState }>(api, "/settings", onLocked);
+  const list = useList<RetentionReply>(api, "/reports/retention", onLocked, ACTIVITY_REFRESH_MS);
+  const settings = useList<{ activityHistory?: ActivityHistoryState }>(api, "/settings", onLocked, ACTIVITY_REFRESH_MS);
   const data = list.data;
   const history = settings.data?.activityHistory;
   const failure = list.error ? reportErrorText(new Error(list.error), "what Podium keeps") : null;
@@ -129,7 +129,7 @@ export function DataPage({ api, onLocked, onGo, onCountStored }: { api: AdminApi
                 </table>
               </div>
               <div className="note-line">
-                The first three periods are set with environment variables on the server (<span className="mono">RETAIN_SAMPLES_MS</span>, <span className="mono">RETAIN_EVENTS_MS</span>, <span className="mono">RETAIN_ADMIN_LOG_MS</span>) and cannot be changed here. Activity history is set below.
+                The first four periods are set with environment variables on the server (<span className="mono">RETAIN_SAMPLES_MS</span>, <span className="mono">RETAIN_EVENTS_MS</span>, <span className="mono">RETAIN_SESSIONS_MS</span>, <span className="mono">RETAIN_ADMIN_LOG_MS</span>) and cannot be changed here. Activity history is set below.
               </div>
             </>
           )}
@@ -166,6 +166,18 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
   useEffect(() => {
     if (ask) first.current?.focus();
   }, [ask]);
+  // When the confirmation closes, focus goes back to Save (once any save in flight has finished) rather than to the page.
+  const saveBtn = useRef<HTMLButtonElement>(null);
+  const back = useRef(false);
+  const closeAsk = () => {
+    setAsk(null);
+    back.current = true;
+  };
+  useEffect(() => {
+    if (ask || busy || !back.current) return;
+    back.current = false;
+    saveBtn.current?.focus();
+  }, [ask, busy]);
 
   const set = (patch: Partial<Draft>) => {
     setAsk(null);
@@ -186,6 +198,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
     try {
       const text = await job();
       setAsk(null);
+      back.current = true;
       setDone(`${text} Written to the Admin log.`);
       onSaved();
     } catch (e) {
@@ -215,7 +228,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
     }
   };
 
-  const removed = (n: number, bytes: number) => `${fmtCount(n)} entries (${fmtBytes(bytes)})`;
+  const removed = (n: number, bytes: number) => `${fmtCount(n)} entries (${aboutBytes(bytes)})`;
   const confirmBox = (a: Ask) => {
     const stop = a.pv.stopsCapturing;
     const title = stop ? "Stop keeping Activity history?" : "Saving removes entries that are already stored";
@@ -229,7 +242,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
       </>
     );
     return (
-      <div className="callout" role="alert">
+      <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && closeAsk()}>
         <WarnIcon />
         <h3>{title}</h3>
         <p>{lead} The file is compacted afterward, so the space comes back. This is written to the Admin log.</p>
@@ -260,7 +273,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
               Save and remove {fmtCount(a.pv.entries)} entries
             </button>
           )}
-          <button type="button" className="btn" onClick={() => setAsk(null)}>
+          <button type="button" className="btn" onClick={closeAsk}>
             Cancel
           </button>
         </p>
@@ -348,7 +361,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
           <button type="reset" className="btn">
             Cancel
           </button>
-          <button type="submit" className="btn pri" disabled={busy}>
+          <button type="submit" className="btn pri" ref={saveBtn} disabled={busy}>
             Save
           </button>
         </span>

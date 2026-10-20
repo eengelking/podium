@@ -151,6 +151,7 @@ export function makeApi(base = "/api/admin"): AdminApi {
     const res = await fetch(`${base}${path}`, {
       method,
       credentials: "same-origin",
+      cache: "no-store",
       headers: { "X-Podium-Admin": "1", ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });

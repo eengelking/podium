@@ -4,7 +4,7 @@
 // confirmation follow Reporters (ReportersTab.tsx).
 import { useEffect, useRef, useState } from "react";
 import { AdminError, query, type AdminApi, type StoredActivityList, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter, type StoredSessionRow } from "./adminApi";
-import { activityErrorText, dayOf, fmtBytes, fmtCount, sessionsText } from "./activityFormat";
+import { ACTIVITY_REFRESH_MS, aboutBytes, activityErrorText, dayOf, fmtBytes, fmtCount, sessionsText, unitText } from "./activityFormat";
 import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { WarnIcon } from "./ReporterMessaging";
@@ -46,8 +46,10 @@ export function filterOf(f: Filters): { filter: StoredFilter; problem: string } 
   if (f.loop !== "all") filter.loop = f.loop;
   if (f.project) filter.project = f.project;
   if (f.owner) filter.owner = f.owner;
-  const days = f.age === "custom" ? Number.parseInt(f.days, 10) : f.age ? Number.parseInt(f.age, 10) : Number.NaN;
-  if (days > 0) filter.olderThanDays = days;
+  const custom = f.age === "custom";
+  const days = custom ? Number.parseInt(f.days, 10) : f.age ? Number.parseInt(f.age, 10) : Number.NaN;
+  if (custom && f.days.trim() && !(/^\d+$/.test(f.days.trim()) && days > 0)) problem = "Write the days as a whole number, like 14.";
+  else if (days > 0) filter.olderThanDays = days;
   const from = dayStart(f.from);
   // "to" is a day, and that whole day counts, so the range ends at the start of the next one.
   const to = dayStart(f.to) + 86_400_000;
@@ -95,8 +97,8 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
   const { filter, problem } = filterOf(f);
-  const list = useList<StoredActivityList>(api, `/stored-activity${query({ page: paging.page, pageSize: paging.pageSize, ...filter })}`, props.onLocked);
-  const policyList = useList<{ activityHistory?: { settings: { policy: string; n: number; unit: string } } }>(api, "/settings", props.onLocked);
+  const list = useList<StoredActivityList>(api, `/stored-activity${query({ page: paging.page, pageSize: paging.pageSize, ...filter })}`, props.onLocked, ACTIVITY_REFRESH_MS);
+  const policyList = useList<{ activityHistory?: { settings: { policy: string; n: number; unit: string } } }>(api, "/settings", props.onLocked, ACTIVITY_REFRESH_MS);
   const policy = policyList.data?.activityHistory?.settings;
   const data = list.data;
   // Keyboard path: the confirmation's destructive answer takes focus when it opens, the button that opened it gets focus back
@@ -145,6 +147,10 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
       return next;
     });
   };
+  const closeAsk = () => {
+    setPending(null);
+    opener.current?.focus();
+  };
   const sum = (list: StoredSessionRow[]) => list.reduce((a, r) => ({ entries: a.entries + r.entries, bytes: a.bytes + r.bytes }), { entries: 0, bytes: 0 });
   const removePending = async () => {
     if (!pending) return;
@@ -155,7 +161,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
       setPending(null);
       setErr("");
       setPaging((p) => ({ ...p, page: 1 }));
-      setResult(`Deleted ${fmtCount(r.entries)} entries (${fmtBytes(r.bytes)}) from ${sessionsText(r.sessions)}. ${fmtBytes(r.freed)} freed and the file compacted. Written to the Admin log.`);
+      setResult(`Deleted ${fmtCount(r.entries)} entries (${aboutBytes(r.bytes)}). ${fmtBytes(r.freed)} freed on disk and the file compacted. Written to the Admin log.`);
       refocus.current = true;
       list.reload();
     } catch (e) {
@@ -275,7 +281,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
               <span className="cap">entries stored</span>
             </div>
             <div>
-              <span className="big mono">{data ? fmtBytes(data.totals.bytes) : "–"}</span>
+              <span className="big mono">{data ? fmtBytes(data.totals.fileBytes) : "–"}</span>
               <span className="cap">on disk</span>
             </div>
             <div>
@@ -299,12 +305,12 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
           </div>
         )}
         {pending && (
-          <div className="callout" role="alert">
+          <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && closeAsk()}>
             <WarnIcon />
             <h3>Delete {pending.what}?</h3>
             <p>
               <b>
-                {fmtCount(pending.entries)} entries, {fmtBytes(pending.bytes)}
+                {fmtCount(pending.entries)} entries, {aboutBytes(pending.bytes)}
               </b>{" "}
               will be removed for good and the space freed. The sessions, History and the live feed are not touched. This is written to the Admin log.
               {pending.live && " A session that is still running keeps being captured while the policy keeps history."}
@@ -313,7 +319,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
               <button type="button" className="btn dng" ref={first} disabled={busy} onClick={() => void removePending()}>
                 Delete {fmtCount(pending.entries)} entries
               </button>
-              <button type="button" className="btn" onClick={() => (setPending(null), opener.current?.focus())}>
+              <button type="button" className="btn" onClick={closeAsk}>
                 Keep them
               </button>
             </p>
@@ -341,7 +347,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
           <button
             type="button"
             className="btn sm dng"
-            disabled={!data || data.match.sessions === 0 || Object.keys(filter).length === 0}
+            disabled={!data || data.match.sessions === 0 || Object.keys(filter).length === 0 || problem !== ""}
             onClick={(e) =>
               data &&
               askFor(e.currentTarget, {
@@ -386,7 +392,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
           </div>
         )}
         {!data && !list.error && <div className="empty">Loading…</div>}
-        {data && rows.length === 0 && <div className="empty">{data.totals.sessions ? "No stored session matches. Clear a filter or widen the dates." : "Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity."}</div>}
+        {data && rows.length === 0 && <div className="empty">{data.totals.sessions ? "No stored session matches. Clear a filter or widen the dates." : policy && policy.policy !== "default" ? "Nothing has been captured yet. Activity appears here once a session runs under this policy." : "Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity."}</div>}
         {data && rows.length > 0 && (
           <div className="tw2">
             <table className="ptab" aria-label="Stored activity by session">
@@ -464,7 +470,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
 
 /** "not stored", "purge after 30 days": the policy in a phrase for the line under the heading. */
 function policyWords(s: { policy: string; n: number; unit: string }): string {
-  if (s.policy === "after") return `purge after ${s.n} ${s.unit}`;
+  if (s.policy === "after") return `purge after ${unitText(s.n, s.unit)}`;
   if (s.policy === "end") return "purge when the session ends";
   if (s.policy === "all") return "keep everything";
   return "not stored";
