@@ -682,11 +682,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // ---- Activity history (#432) ----------------------------------------------------------------
 
+  // The store's heavy calls are async (they work in chunks). Express 4 does not catch a rejected promise, so a failure answers here.
+  const storeFailed = (res: Response) => () => void res.status(500).json({ ok: false, error: 'could not reach the stored activity' });
+
   router.post('/activity-history/preview', (req, res) => {
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     const s = parseSettings((req.body as { settings?: unknown } | undefined)?.settings, opts.secret !== null);
     if (!s.ok) return void res.status(400).json({ ok: false, error: s.error });
-    res.json(history.history.preview(s.value));
+    history.history.preview(s.value).then((out) => void res.json(out), storeFailed(res));
   });
 
   router.get('/stored-activity', (req, res) => {
@@ -696,7 +699,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!paging.ok) return void res.status(400).json({ ok: false, error: paging.error });
     const filter = parseFilter(q);
     if (!filter.ok) return void res.status(400).json({ ok: false, error: filter.error });
-    res.json(history.history.list(filter.value, paging.value.page, paging.value.pageSize));
+    history.history.list(filter.value, paging.value.page, paging.value.pageSize).then((out) => void res.json(out), storeFailed(res));
   });
 
   const how = (b: StoredDeleteBody) => ('ids' in b ? 'ticked sessions' : 'match' in b ? 'a filter' : 'everything');
@@ -706,9 +709,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
-    const out = history.history.deleteBy(body.value);
-    audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
-    res.json(out);
+    history.history.deleteBy(body.value).then((out) => {
+      audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
+      res.json(out);
+    }).catch(storeFailed(res));
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
