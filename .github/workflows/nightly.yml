@@ -1,0 +1,133 @@
+name: Nightly
+
+# A daily snapshot of `development` for testers (#528). It publishes the tag `nightly-YYYY-MM-DD` and a GitHub prerelease that
+# carries a source tarball of the tested commit, then removes every earlier nightly, so one exists at a time. There is no registry.
+# A `schedule:` trigger only runs from the workflow file on the default branch, so this file takes effect when it reaches `main`;
+# it checks out `development` by name. Run it by hand from the Actions tab with `workflow_dispatch`.
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 06:00 UTC every day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  test:
+    # No fork path applies: a schedule only runs on this repo (see ci.yml).
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      sha: ${{ steps.tip.outputs.sha }}
+      skip: ${{ steps.tip.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: development
+          fetch-depth: 0
+
+      - name: Record the commit and check whether it already has a nightly
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Building development at $sha"
+          current="$(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("nightly-")) | .tagName' | head -n 1)"
+          if [ -n "$current" ] && [ "$(git ls-remote origin "refs/tags/${current}^{}" "refs/tags/${current}" | tail -n 1 | cut -f1)" = "$sha" ]; then
+            echo "$current already points at $sha; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v7
+        if: steps.tip.outputs.skip != 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        if: steps.tip.outputs.skip != 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Test (server, frontend, simulator, podiumctl)
+        if: steps.tip.outputs.skip != 'true'
+        run: npm test
+
+      - name: Build (UI, server, scripts type-check)
+        if: steps.tip.outputs.skip != 'true'
+        run: npm run build
+
+  publish:
+    needs: test
+    if: needs.test.outputs.skip != 'true'
+    runs-on: [self-hosted, Linux, X64]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.test.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.test.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Publish the new nightly
+        run: |
+          set -euo pipefail
+          day="$(date -u +%F)"
+          tag="nightly-${day}"
+          echo "NIGHTLY_TAG=${tag}" >> "$GITHUB_ENV"
+          previous="$(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("nightly-")) | .tagName' | head -n 1)"
+
+          if [ -n "$previous" ]; then
+            since="$(git rev-list -n 1 "refs/tags/${previous}" 2>/dev/null || true)"
+            range="${since:+${since}..}${SHA}"
+            commits="$(git log --format='- %h %s' "$range" | head -n 50)"
+            changes="Commits since \`${previous}\`:"
+          else
+            commits="$(git log --format='- %h %s' -n 20 "$SHA")"
+            changes="Most recent commits:"
+          fi
+
+          {
+            echo "Nightly snapshot of \`development\` for ${day} (UTC), built from \`${SHA}\`."
+            echo
+            echo "**This is unreleased and may be broken.** It passed \`npm test\` and \`npm run build\`, nothing more. Install a \`vX.Y.Z\` release if you want a supported version."
+            echo
+            echo "$changes"
+            echo
+            echo "$commits"
+          } > notes.md
+
+          git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
+
+          # A same-day rerun after a new commit moves the tag, so the old release of that day goes first. It is replaced, never left empty.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --cleanup-tag --yes
+          fi
+
+          gh release create "$tag" "podium-${tag}.tar.gz" \
+            --target "$SHA" \
+            --title "Nightly ${day}" \
+            --notes-file notes.md \
+            --prerelease
+
+      - name: Remove earlier nightlies
+        run: |
+          set -euo pipefail
+          keep="$NIGHTLY_TAG" # set by the publish step, so a run that crosses midnight UTC still keeps the tag it made
+          # Only after the new release exists, and only the nightly- prefix, so a vX.Y.Z release or tag is never matched.
+          gh release view "$keep" >/dev/null
+          gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("nightly-")) | .tagName' | while read -r old; do
+            if [ "$old" != "$keep" ]; then
+              gh release delete "$old" --cleanup-tag --yes
+            fi
+          done

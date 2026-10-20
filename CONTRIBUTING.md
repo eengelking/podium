@@ -72,6 +72,19 @@ SonarCloud cannot see the mod's own tests, because they run only inside Claude C
 nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
 and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `mod/podium-reporter/hooks/*.ts` for this.
 
+### The nightly
+
+`.github/workflows/nightly.yml` publishes a snapshot of `development` every day at 06:00 UTC (and on demand, from the Actions
+tab, with Run workflow). It checks out `development`, runs `npm test` and `npm run build`, and only if both pass creates the tag
+`nightly-YYYY-MM-DD` and a GitHub **prerelease** with a source tarball of that commit. Then it deletes every earlier `nightly-*`
+release and tag, so one nightly exists at a time. A day with no new commit on `development`, or a red `development`, publishes
+and deletes nothing. A nightly is unreleased and may be broken. It is never marked latest, so `releases/latest` and the in-app
+update notice still point at the newest `vX.Y.Z` release.
+
+To try it, download the tarball from the [Releases page](https://github.com/eengelking/podium/releases) (the one marked
+Pre-release), unpack it, and run `npm ci --ignore-scripts && npm run build`, or `podiumctl build` for the container. The
+`schedule:` trigger only runs from the default branch, so the workflow starts running when it reaches `main` with a release.
+
 When you fix a bug in code, add a test that fails for the right reason first, then fix it.
 
 ## Proposing a change

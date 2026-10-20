@@ -79,6 +79,15 @@ describe('UpdateCheck.check', () => {
     }
   });
 
+  it('ignores a nightly snapshot (#528), marked pre-release or not', async () => {
+    for (const prerelease of [true, false]) {
+      const { check, changed } = make({ fetch: vi.fn(async () => release({ tag_name: 'nightly-2026-10-20', prerelease })) });
+      await check.check();
+      expect(check.latest()).toBeNull();
+      expect(changed).not.toHaveBeenCalled();
+    }
+  });
+
   it('makes no request at all when the Admin turned the check off', async () => {
     const { check, fetchFn, changed } = make({ on: false });
     await check.check();
