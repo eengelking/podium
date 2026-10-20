@@ -26,7 +26,7 @@ These are not vulnerabilities on their own. [Running the server](../docs/SERVER.
 | **Fleet reads are open on localhost.** `GET /api/fleet/state`, `/stream`, `/sessions/...`, `/events` and `/history` need no token; only reports, hooks and deletes do. | They show how the wall looks. A waiting session's question, plan or tool input (under `/api/fleet/respond`) is the exception: it is shown only to its owner or an Admin who has signed in. |
 | **Tokens travel in a header over plain HTTP.** | A server reachable over a network needs a trusted network or a TLS proxy. |
 | **A person who holds a valid token can delete any session.** | Any valid credential may `DELETE` a session. |
-| **Anyone with access to your user account or to `~/.podium` can read the token and the data.** `podman inspect podium` also shows the token, because it is part of the container's environment. | The token has to live somewhere the server can read it. |
+| **Anyone with access to your user account or to `~/.podium` can read the token and the data.** `podman inspect podium` (or `docker inspect podium`) also shows the token, because it is part of the container's environment. | The token has to live somewhere the server can read it. |
 | **`--bind` or `HOST` set to something other than `127.0.0.1` lets other machines read the dashboard,** including every person's name and machine name. | That is what binding to another address asks for. |
 | **A reporter sends a name and its machine's host name only when its user set `userName`.** Who a session belongs to comes from the token, so a name sent with the shared admin secret, or with auth turned off, is not shown as a person at all. | The setting is the user's consent. |
 

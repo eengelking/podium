@@ -46,8 +46,9 @@ Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERV
 
 - Claude Code, to run the sessions you want to watch.
 - Node 24 and npm, to get the server and `podiumctl`.
-- Podman, if you want the server in a container (recommended). Without it, `podiumctl` runs the server as a plain Node
-  process.
+- Podman or Docker, if you want the server in a container (recommended). `podiumctl` uses Podman when both are installed;
+  `--engine docker` picks Docker instead, and the choice is saved. Without either, `podiumctl` runs the server as a plain
+  Node process.
 
 ## Set it up
 
@@ -1084,9 +1085,9 @@ podiumctl restart
 
 If the server cannot reach the address, its log says `log shipping to ... failed` once, with the reason.
 
-- **The address.** In container mode the server runs inside Podman, so `127.0.0.1` is the container itself. Use
-  `host.containers.internal` for a VictoriaLogs on the same machine, or its address on your network. In standalone mode
-  `http://127.0.0.1:9428` works.
+- **The address.** In container mode the server runs inside a container, so `127.0.0.1` is the container itself. Use
+  `host.containers.internal` (Podman) or `host.docker.internal` (Docker) for a VictoriaLogs on the same machine, or its
+  address on your network. In standalone mode `http://127.0.0.1:9428` works.
 - **The path.** Podium adds `/insert/jsonline` and the arguments that map its fields (`_time_field=timestamp`,
   `_msg_field=message`, `_stream_fields=service,host`). Give a full URL to change them.
 - **Authentication or a tenant.** Set headers:
@@ -1174,7 +1175,7 @@ It updates the plugin on disk some minutes after you send a first message, and t
 A build of any other commit, such as one from the `development` branch, adds a row above the version that reads
 `Dev: a1b2c3d4`, the commit it was built from, with `-dirty` after it when the tree had local edits. The row comes
 from `podiumctl build`, which records the commit, so a server built another way (`npm run build`, or an image built
-with plain `podman build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
+with plain `podman build` or `docker build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
 this repository: its status line reads `podium v1.1.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
 page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release.
 

@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **`podiumctl` runs the container with Docker as well as Podman.** Container mode uses Podman when it is installed and Docker otherwise, for building, running and every other container command, and it is the default mode when either is installed. `--engine podman|docker` chooses, and the choice is saved as `PODIUMCTL_ENGINE` so `stop`, `status` and the boot unit keep using the engine that started the container. `status` shows the engine. Under Docker the container can reach this machine as `host.docker.internal`, and a new `.dockerignore` keeps a Docker build to the same files as a Podman one.
+
 ### Fixed
 
 - The three SonarCloud issues that held Security and Reliability at C on `main` are fixed in code (#515). The machine id no longer falls back to `Math.random()` when the sandbox has no `crypto`; `/podium name` uses a pattern whose parts cannot overlap; and the wall button's fullscreen request no longer sits in a `try` that Sonar flagged. The id is still 12 hex characters, and a refused or missing fullscreen still leaves wall mode on and fullscreen off.

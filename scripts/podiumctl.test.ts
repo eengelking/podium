@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  bootUnitStale, buildId, containerRunArgs, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, stableNodePath, systemdUnit,
+  bootUnitStale, buildId, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, stableNodePath, systemdUnit,
 // @ts-expect-error bin/podiumctl has no extension, so tsc cannot find it; vitest loads it as ESM
 } from "../bin/podiumctl";
 
@@ -31,20 +31,134 @@ describe("podiumctl parsing", () => {
 
 describe("podiumctl config", () => {
   it("applies defaults, then file values, then flags", () => {
-    expect(resolveConfig({}, {}, true)).toMatchObject({ mode: "container", port: 4317, bind: "127.0.0.1" });
-    expect(resolveConfig({}, {}, false).mode).toBe("standalone");
+    expect(resolveConfig({}, {}, ["podman"])).toMatchObject({ mode: "container", port: 4317, bind: "127.0.0.1" });
+    expect(resolveConfig({}, {}, []).mode).toBe("standalone");
     expect(resolveConfig({ PODIUMCTL_PORT: "5000" }, {}).port).toBe(5000);
     expect(resolveConfig({ PODIUMCTL_PORT: "5000" }, { port: "6000" }).port).toBe(6000);
   });
 
-  it("rejects bad mode and port", () => {
+  it("rejects bad mode, engine and port", () => {
     expect(() => resolveConfig({}, { mode: "docker" })).toThrow(/mode/);
+    expect(() => resolveConfig({}, { engine: "nerdctl" })).toThrow(/engine must be podman or docker/);
+    expect(() => resolveConfig({ PODIUMCTL_ENGINE: "lxc" })).toThrow(/engine/);
     expect(() => resolveConfig({}, { port: "99999" })).toThrow(/port/);
   });
 
   it("keeps an empty token (auth off) distinct from no token", () => {
     expect(resolveConfig({ PODIUM_TOKEN: "" }).token).toBe("");
     expect(resolveConfig({}).token).toBeUndefined();
+  });
+});
+
+describe("podiumctl container engine", () => {
+  it("prefers podman, then docker, among the installed engines", () => {
+    expect(ENGINES).toEqual(["podman", "docker"]);
+    expect(resolveConfig({}, {}, ["podman", "docker"]).engine).toBe("podman");
+    expect(resolveConfig({}, {}, ["docker"])).toMatchObject({ mode: "container", engine: "docker" });
+    expect(resolveConfig({}, {}, []).engine).toBeUndefined();
+  });
+
+  it("uses a saved engine over the detected one, and a flag over both", () => {
+    expect(resolveConfig({ PODIUMCTL_ENGINE: "docker" }, {}, ["podman", "docker"]).engine).toBe("docker");
+    expect(resolveConfig({ PODIUMCTL_ENGINE: "docker" }, { engine: "podman" }, ["podman", "docker"]).engine).toBe("podman");
+    expect(resolveConfig({ PODIUMCTL_ENGINE: "" }, {}, ["docker"]).engine).toBe("docker");
+  });
+
+  it("maps host.docker.internal to this machine under docker only", () => {
+    const docker = resolveConfig({}, {}, ["docker"]);
+    const args = containerRunArgs(docker, []);
+    expect(args.slice(args.indexOf("--add-host"), args.indexOf("--add-host") + 2)).toEqual(["--add-host", "host.docker.internal:host-gateway"]);
+    expect(containerRunArgs(resolveConfig({}, {}, ["podman"]), [])).not.toContain("--add-host");
+  });
+
+  it("keeps .dockerignore the same as .containerignore, so a docker build leaves out the same files", () => {
+    const rules = (f: string) => fs.readFileSync(path.join(__dirname, "..", f), "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#"));
+    expect(rules(".dockerignore")).toEqual(rules(".containerignore"));
+  });
+
+  it("can be set with `config set` and refuses an unknown one", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      expect(ctl(home, "config", "set", "PODIUMCTL_ENGINE=docker").status).toBe(0);
+      expect(ctl(home, "config", "--mode", "container").stdout).toContain("engine=docker");
+      const r = ctl(home, "config", "set", "PODIUMCTL_ENGINE=nerdctl");
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/engine must be/);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("fails clearly in container mode when neither engine is installed", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      // An empty PATH hides both engines.
+      const r = spawnSync(process.execPath, [BIN, "logs", "--mode", "container"], { encoding: "utf8", env: { ...process.env, PODIUMCTL_HOME: home, PATH: home } });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("neither podman nor docker is installed");
+      const st = spawnSync(process.execPath, [BIN, "status", "--mode", "container"], { encoding: "utf8", env: { ...process.env, PODIUMCTL_HOME: home, PATH: home } });
+      expect(st.status).toBe(3);
+      expect(st.stdout).toContain("engine:   none");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("podiumctl with both engines installed", () => {
+  // Stand-in engines on an otherwise empty PATH: `inspect` says whether each one runs a podium container.
+  function fakeEngines(home: string, engines: Record<string, { running?: boolean; info?: string }>) {
+    for (const [name, { running, info }] of Object.entries(engines)) {
+      const file = path.join(home, name);
+      fs.writeFileSync(file, `#!/bin/sh
+case "$1" in
+  --version) exit 0 ;;
+  info) ${info ? `echo "${info}" >&2; exit 1` : "exit 0"} ;;
+  container) ${running ? 'echo "running healthy"; exit 0' : "exit 1"} ;;
+  *) exit 1 ;;
+esac
+`);
+      fs.chmodSync(file, 0o755);
+    }
+  }
+  const run = (home: string, ...args: string[]) =>
+    spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", env: { ...process.env, PODIUMCTL_HOME: home, PATH: home } });
+
+  it("refuses a start under one engine while the other runs the container, and names it", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      fakeEngines(home, { podman: { running: true }, docker: {} });
+      const r = run(home, "start", "--mode", "container", "--engine", "docker");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("already running under podman");
+      expect(r.stderr).toContain("podiumctl stop --engine podman");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("points a stop at the engine that runs the container", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      fakeEngines(home, { podman: { running: true }, docker: {} });
+      const r = run(home, "stop", "--mode", "container", "--engine", "docker");
+      expect(r.stdout).toContain("Not running under docker");
+      expect(r.stdout).toContain("podiumctl stop --engine podman");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("shows why `docker info` failed, such as a socket the user cannot open", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      fakeEngines(home, { docker: { info: "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock" } });
+      const r = run(home, "logs", "--mode", "container");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("permission denied while trying to connect");
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 
@@ -140,7 +254,7 @@ describe("podiumctl with a retired ANTHROPIC_ADMIN_API_KEY left in the config", 
 describe("podiumctl command construction", () => {
   const cfg = resolveConfig({ PODIUM_TOKEN: "s3cret", STALE_AFTER_MS: "9000" }, { port: "4400" });
 
-  it("never puts the token on the podman command line", () => {
+  it("never puts the token on the container engine's command line", () => {
     const env = serverEnv(cfg, true);
     const args = containerRunArgs(cfg, Object.keys(env));
     expect(args.join(" ")).not.toContain("s3cret");

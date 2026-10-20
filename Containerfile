@@ -1,4 +1,4 @@
-# Podium server + UI. Build: podiumctl build   (or: podman build -t localhost/podium:latest -f Containerfile .)
+# Podium server + UI. Build: podiumctl build   (or: podman build -t localhost/podium:latest -f Containerfile ., or docker build the same)
 FROM docker.io/library/node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

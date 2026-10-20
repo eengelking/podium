@@ -233,8 +233,8 @@ a reload and a clear is not decided.
 How `start` behaves:
 
 - In standalone mode `start` checks before it spawns anything, so nothing is left running and no pid file is written.
-- Container mode needs no check. `podman run` fails with `address already in use` and `start` exits non-zero (tested
-  with Podman 6.1.2).
+- Container mode needs no check. `podman run` or `docker run` fails with `address already in use` and `start` exits
+  non-zero (tested with Podman 6.1.2 and Docker 29.8.1).
 - If the server exits right after `start` spawns it (a bind error, a bad setting), `start` says so, prints the tail of
   `~/.podium/podium.log` and removes the pid file, instead of reporting success.
 
@@ -244,7 +244,7 @@ How `start` behaves:
 
 **Why:** `podiumctl config set` only edits `~/.podium/config.env`.
 
-**Do:** Run `podiumctl restart`. The `--mode`, `--port` and `--bind` flags are saved by `start`, `restart`, `build` and
+**Do:** Run `podiumctl restart`. The `--mode`, `--engine`, `--port` and `--bind` flags are saved by `start`, `restart`, `build` and
 `enable`.
 
 ### On macOS the first `podiumctl start` takes a while
@@ -254,7 +254,18 @@ How `start` behaves:
 **Why:** Podman runs in a VM. If it is not running, `podiumctl` starts it, and the first start also builds the image
 (about 20 seconds on a warm cache).
 
-**Do:** Wait. Later starts are quick.
+**Do:** Wait. Later starts are quick. Docker Desktop is not started for you: if it is not running, `podiumctl` says so
+and stops. Start it, then run the command again.
+
+### `podiumctl` uses Podman, but I want Docker (or the other way round)
+
+**You see:** Both are installed, and the container runs under the one you did not want.
+
+**Why:** Container mode prefers Podman when it is installed. The engine that first ran `build`, `start`, `restart` or
+`enable` is saved as `PODIUMCTL_ENGINE`, so later commands keep using it.
+
+**Do:** `podiumctl rm`, then `podiumctl start --engine docker` (or `podman`). The data volume belongs to one engine, so
+the other one starts with an empty database.
 
 ### `podiumctl disable` stopped my standalone server
 
@@ -276,12 +287,12 @@ A session whose reporter never comes back is dropped about a minute after the se
 
 ### `podman inspect podium` shows the token
 
-**You see:** `podman inspect podium` prints the token.
+**You see:** `podman inspect podium` (or `docker inspect podium`) prints the token.
 
 **Why:** `podiumctl` keeps the token out of the command line, but it is part of the container's environment, and
-`podman inspect` prints that. Anyone who can run Podman as you can read it.
+`inspect` prints that. Anyone who can run Podman or Docker as you can read it.
 
-**Do:** Treat the account that runs Podman as trusted. See `.github/SECURITY.md`.
+**Do:** Treat the account that runs the container engine as trusted. See `.github/SECURITY.md`.
 
 ### Anyone on localhost can read the dashboard
 

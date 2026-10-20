@@ -23,7 +23,7 @@ labels: bug
 ## Environment
 
 <!-- Podium version (`CHANGELOG.md` or `mod/podium-reporter/.claude-plugin/plugin.json`), how you run the
-     server (`podiumctl` container or standalone, or `npm run dev`), `podman --version` if it is the
+     server (`podiumctl` container or standalone, or `npm run dev`), `podman --version` or `docker --version` if it is the
      container, your OS, `node --version`, and how the mod is installed (marketplace or `--plugin-dir`).
      `podiumctl status` is a good start.
 

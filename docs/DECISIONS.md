@@ -170,12 +170,17 @@ single image is enough. It runs as a non-root user (2026-10-11, PR #3).
 **Cost.** Podman's default OCI image format drops a `HEALTHCHECK` instruction, so `podiumctl` passes
 `--health-cmd` when it runs the container.
 
+**Amended (2026-10-20).** Docker is supported as well. Podman stays the default when both are installed;
+otherwise `podiumctl` uses Docker, and `--engine` chooses. Many people have Docker and not Podman, and the two take
+the same arguments for everything `podiumctl` runs, so supporting both costs a few lines (see ARCHITECTURE,
+Container mode).
+
 ## 9. `podiumctl` has two modes and no dependencies
 
 **Decision.** `bin/podiumctl` is a plain ES module with no dependencies. It manages the server either in a
-Podman container or as a standalone Node process, and saves the mode.
+container (Podman or Docker) or as a standalone Node process, and saves the mode.
 
-**Why.** Some people will not have Podman, and developers want a plain process. A script with no
+**Why.** Some people will have neither Podman nor Docker, and developers want a plain process. A script with no
 dependencies installs with `npm link` and nothing else, and `npm link` is how an npm binary is normally
 installed (PR #3).
 

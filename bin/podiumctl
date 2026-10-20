@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// podiumctl: manage the Podium server from the command line, either in a Podman container or as a
+// podiumctl: manage the Podium server from the command line, either in a container (Podman or Docker) or as a
 // plain Node process on the host. No dependencies; run `podiumctl --help`.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -15,6 +15,8 @@ export const CONTAINER = 'podium';
 export const VOLUME = 'podium-data';
 export const SERVICE_LABEL = 'dev.podium.server';
 const INNER_PORT = 4317;
+/** Container engines podiumctl drives, in the order it prefers them when more than one is installed. */
+export const ENGINES = ['podman', 'docker'];
 
 /** Server settings podiumctl passes through to the server unchanged when they are set in the config. */
 export const PASSTHROUGH = [
@@ -23,8 +25,8 @@ export const PASSTHROUGH = [
   'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY',
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
-/** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. */
-export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB'];
+/** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. Container-only: PODIUMCTL_ENGINE. */
+export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB'];
 const ALL_KEYS = [...OWN_KEYS, ...PASSTHROUGH];
 /** Keys an older config may still hold. Ignored by the server; `config unset` removes them, `config set` refuses. */
 export const RETIRED_KEYS = ['ANTHROPIC_ADMIN_API_KEY'];
@@ -51,7 +53,8 @@ Commands:
   run                 Run the server in the foreground (what the boot service calls)
 
 Options:
-  --mode container|standalone   How to run it (saved; default: container if Podman is installed)
+  --mode container|standalone   How to run it (saved; default: container if Podman or Docker is installed)
+  --engine podman|docker        Container engine (saved; default: podman if installed, else docker)
   --port N                      Port on this machine (saved; default 4317)
   --bind ADDR                   Address to listen on (saved; default 127.0.0.1)
   -f, --follow                  logs: follow
@@ -62,7 +65,7 @@ Options:
 
 Files (set PODIUMCTL_HOME to move them; default ~/.podium):
   config.env     Settings, one KEY=VALUE per line, mode 0600. Holds the generated token.
-  data/          SQLite database (standalone mode); container mode uses the Podman volume "${VOLUME}".
+  data/          SQLite database (standalone mode); container mode uses the volume "${VOLUME}".
   podium.log     Server log (standalone mode); container mode: \`podiumctl logs\`.
 
 Auth: the first \`start\` generates the admin secret and saves it as PODIUM_TOKEN in config.env. Open the
@@ -92,7 +95,8 @@ Logging (server output; \`podiumctl logs\` shows it):
   PODIUM_LOG_SHIP_HEADERS  Headers for that endpoint, Name=Value;Name2=Value2 (auth, AccountID)
   PODIUM_LOG_SHIP_BUFFER   Lines kept while the endpoint is down (default 2000; the oldest go first)
   Example: podiumctl config set PODIUM_LOG_SHIP_URL=http://host.containers.internal:9428
-  (in container mode that name reaches this machine; standalone, use 127.0.0.1), then podiumctl restart
+  (in container mode that name reaches this machine under Podman, host.docker.internal under Docker; standalone,
+  use 127.0.0.1), then podiumctl restart
 
 Config keys: ${ALL_KEYS.join(', ')}.
 `;
@@ -102,7 +106,7 @@ Config keys: ${ALL_KEYS.join(', ')}.
 export function parseArgs(argv) {
   const flags = {};
   const rest = [];
-  const valued = new Set(['mode', 'port', 'bind', 'tail']);
+  const valued = new Set(['mode', 'engine', 'port', 'bind', 'tail']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') flags.help = true;
@@ -134,14 +138,19 @@ export function serializeEnv(obj) {
   return lines.join('\n') + '\n';
 }
 
-/** Settings after defaults and flags are applied. `hasPodman` picks the default mode. */
-export function resolveConfig(file, flags = {}, hasPodman = true) {
-  const mode = flags.mode ?? file.PODIUMCTL_MODE ?? (hasPodman ? 'container' : 'standalone');
+/**
+ * Settings after defaults and flags are applied. `installed` lists the container engines on PATH, in ENGINES order; it
+ * picks the default mode and engine. `engine` stays undefined when none is named or installed.
+ */
+export function resolveConfig(file, flags = {}, installed = ['podman']) {
+  const mode = flags.mode ?? file.PODIUMCTL_MODE ?? (installed.length ? 'container' : 'standalone');
   if (mode !== 'container' && mode !== 'standalone') throw new Error(`mode must be container or standalone, not "${mode}"`);
+  const engine = flags.engine ?? (file.PODIUMCTL_ENGINE || undefined) ?? installed[0];
+  if (engine !== undefined && !ENGINES.includes(engine)) throw new Error(`engine must be ${ENGINES.join(' or ')}, not "${engine}"`);
   const port = Number(flags.port ?? file.PODIUMCTL_PORT ?? INNER_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`invalid port "${flags.port ?? file.PODIUMCTL_PORT}"`);
   const bind = flags.bind ?? file.PODIUMCTL_BIND ?? '127.0.0.1';
-  return { mode, port, bind, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
+  return { mode, engine, port, bind, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
 }
 
 /** Environment the server process gets (the token and other settings live here, never on a command line). */
@@ -160,6 +169,8 @@ export function containerRunArgs(cfg, envNames) {
   return [
     'run', '-d', '--name', CONTAINER, '--restart', 'unless-stopped',
     '-p', `${cfg.bind}:${cfg.port}:${INNER_PORT}`,
+    // Podman always maps host.containers.internal to this machine; Docker maps host.docker.internal only on Desktop.
+    ...(cfg.engine === 'docker' ? ['--add-host', 'host.docker.internal:host-gateway'] : []),
     '-v', `${VOLUME}:/data`,
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--health-cmd', `node -e "fetch('http://127.0.0.1:${INNER_PORT}/api/fleet/state').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"`,
@@ -254,13 +265,15 @@ function writeConfigFile(obj) {
   fs.writeFileSync(configPath(), serializeEnv(obj), { mode: 0o600 });
   fs.chmodSync(configPath(), 0o600);
 }
-const hasPodman = () => spawnSync('podman', ['--version'], { stdio: 'ignore' }).status === 0;
+const installedEngines = () => ENGINES.filter((e) => spawnSync(e, ['--version'], { stdio: 'ignore' }).status === 0);
 
 function loadCfg(flags, { persist }) {
   const file = readConfigFile();
-  const cfg = resolveConfig(file, flags, hasPodman());
+  const cfg = resolveConfig(file, flags, installedEngines());
   if (persist) {
     const next = { ...file, PODIUMCTL_MODE: cfg.mode, PODIUMCTL_PORT: String(cfg.port), PODIUMCTL_BIND: cfg.bind };
+    // Saved so stop, status and the boot unit keep using the engine that started the container, whatever is installed later.
+    if (cfg.mode === 'container' && cfg.engine) next.PODIUMCTL_ENGINE = cfg.engine;
     if (JSON.stringify(next) !== JSON.stringify(file)) writeConfigFile(next);
   }
   return cfg;
@@ -311,24 +324,33 @@ function logTail(from = 0, lines = 15) {
   try { return fs.readFileSync(logPath()).subarray(from).toString('utf8').trimEnd().split('\n').slice(-lines).join('\n'); } catch { return ''; }
 }
 
-// ---------- podman ----------
+// ---------- container engine (podman or docker) ----------
 
-function pm(args, opts = {}) {
-  return spawnSync('podman', args, { encoding: 'utf8', ...opts });
+/** Runs the container engine. Podman and Docker take the same arguments for everything podiumctl does. */
+function ce(engine, args, opts = {}) {
+  return spawnSync(engine, args, { encoding: 'utf8', ...opts });
 }
-function ensurePodman() {
-  if (!hasPodman()) fail('podman is not installed (or not on PATH). Install it, or use --mode standalone.');
-  if (pm(['info'], { stdio: 'ignore' }).status === 0) return;
-  if (process.platform === 'darwin' || process.platform === 'win32') {
+const engineInstalled = (engine) => !!engine && spawnSync(engine, ['--version'], { stdio: 'ignore' }).status === 0;
+function ensureEngine(cfg) {
+  const { engine } = cfg;
+  if (!engine) fail('neither podman nor docker is installed (or on PATH). Install one, or use --mode standalone.');
+  if (!engineInstalled(engine)) fail(`${engine} is not installed (or not on PATH). Install it, choose another --engine, or use --mode standalone.`);
+  let info = ce(engine, ['info']);
+  if (info.status === 0) return;
+  if (engine === 'podman' && (process.platform === 'darwin' || process.platform === 'win32')) {
     say('Podman machine is not running; starting it...');
-    if (pm(['machine', 'start'], { stdio: 'inherit' }).status === 0 && pm(['info'], { stdio: 'ignore' }).status === 0) return;
+    if (ce(engine, ['machine', 'start'], { stdio: 'inherit' }).status === 0 && (info = ce(engine, ['info'])).status === 0) return;
   }
-  fail('podman is not usable (`podman info` fails).');
+  // Show the engine's own reason: a stopped daemon and a socket this user may not open (not in the docker group) need different fixes.
+  const why = (info.stderr ?? '').trim().split('\n').slice(-3).join('\n');
+  fail(`${engine} is not usable (\`${engine} info\` fails)${engine === 'docker' ? '. Is Docker Desktop or the Docker daemon running, and may you use it?' : '.'}${why ? `\n${why}` : ''}`);
 }
-const containerState = () => {
-  const r = pm(['container', 'inspect', CONTAINER, '--format', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}']);
+const containerState = (engine) => {
+  const r = ce(engine, ['container', 'inspect', CONTAINER, '--format', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}']);
   return r.status === 0 ? r.stdout.trim() : null;
 };
+/** Another installed engine that runs the podium container, e.g. Podman's while cfg.engine is now docker. */
+const otherEngineRunning = (cfg) => installedEngines().find((e) => e !== cfg.engine && /^running/.test(containerState(e) ?? ''));
 
 // ---------- standalone ----------
 
@@ -381,10 +403,10 @@ export function gitBuild(cwd) {
 async function cmdBuild(cfg) {
   const build = gitBuild(REPO_ROOT);
   if (cfg.mode === 'container') {
-    ensurePodman();
-    const r = pm(['build', '--build-arg', `PODIUM_BUILD=${build}`, '-t', IMAGE, '-f', path.join(REPO_ROOT, 'Containerfile'), REPO_ROOT], { stdio: 'inherit' });
+    ensureEngine(cfg);
+    const r = ce(cfg.engine, ['build', '--build-arg', `PODIUM_BUILD=${build}`, '-t', IMAGE, '-f', path.join(REPO_ROOT, 'Containerfile'), REPO_ROOT], { stdio: 'inherit' });
     if (r.status !== 0) fail('image build failed');
-    say(`Built ${IMAGE}${build ? ` (dev build ${build})` : ''}`);
+    say(`Built ${IMAGE} with ${cfg.engine}${build ? ` (dev build ${build})` : ''}`);
   } else {
     const run = (args) => { if (spawnSync('npm', args, { cwd: REPO_ROOT, stdio: 'inherit' }).status !== 0) fail(`npm ${args.join(' ')} failed`); };
     if (!fs.existsSync(path.join(REPO_ROOT, 'node_modules'))) run(['install']);
@@ -398,7 +420,8 @@ async function cmdBuild(cfg) {
 
 function otherModeRunning(cfg) {
   if (cfg.mode === 'container') return readPid() ? 'standalone' : null;
-  return hasPodman() && pm(['container', 'inspect', CONTAINER], { stdio: 'ignore' }).status === 0 && /^running/.test(containerState() ?? '') ? 'container' : null;
+  // Check every engine, not only the saved one: a container either of them runs holds the port.
+  return installedEngines().some((e) => /^running/.test(containerState(e) ?? '')) ? 'container' : null;
 }
 
 async function cmdStart(cfg) {
@@ -408,13 +431,16 @@ async function cmdStart(cfg) {
   let exited = false; // set when the standalone server we spawned exits
   let logFrom = 0;    // size of podium.log before this start, so a failure shows only this run's output
   if (cfg.mode === 'container') {
-    ensurePodman();
-    if ((containerState() ?? '').startsWith('running')) { say(`Already running at ${dashUrl(cfg)} (use restart to apply config changes)`); return; }
-    if (pm(['image', 'exists', IMAGE]).status !== 0) { say('No image yet; building it...'); await cmdBuild(cfg); }
-    pm(['rm', '-f', CONTAINER], { stdio: 'ignore' });
+    ensureEngine(cfg);
+    if ((containerState(cfg.engine) ?? '').startsWith('running')) { say(`Already running at ${dashUrl(cfg)} (use restart to apply config changes)`); return; }
+    const elsewhere = otherEngineRunning(cfg);
+    if (elsewhere) fail(`Podium is already running under ${elsewhere}. Stop it first (podiumctl stop --engine ${elsewhere}).`);
+    // `image inspect`, not `image exists`: Docker has no `image exists`.
+    if (ce(cfg.engine, ['image', 'inspect', IMAGE], { stdio: 'ignore' }).status !== 0) { say('No image yet; building it...'); await cmdBuild(cfg); }
+    ce(cfg.engine, ['rm', '-f', CONTAINER], { stdio: 'ignore' });
     const env = serverEnv(cfg, true);
-    const r = pm(containerRunArgs(cfg, Object.keys(env)), { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'inherit'] });
-    if (r.status !== 0) fail('podman run failed');
+    const r = ce(cfg.engine, containerRunArgs(cfg, Object.keys(env)), { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'inherit'] });
+    if (r.status !== 0) fail(`${cfg.engine} run failed`);
   } else {
     if (readPid()) { say(`Already running at ${dashUrl(cfg)}`); return; }
     if (await portInUse(cfg)) {
@@ -437,14 +463,18 @@ async function cmdStart(cfg) {
     fail(`the server exited right after starting.${tail ? `\nLast lines of ${logPath()}:\n${tail}` : ''}`);
   }
   if (!up) fail(`started, but the server did not answer at ${dashUrl(cfg)}. See: podiumctl logs`);
-  say(`Podium is up at ${dashUrl(cfg)}  (${cfg.mode} mode)`);
+  say(`Podium is up at ${dashUrl(cfg)}  (${cfg.mode} mode${cfg.mode === 'container' ? `, ${cfg.engine}` : ''})`);
 }
 
 async function cmdStop(cfg) {
   if (cfg.mode === 'container') {
-    ensurePodman();
-    if (containerState() === null) { say('Not running'); return; }
-    if (pm(['stop', '-t', '10', CONTAINER], { stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) fail('podman stop failed');
+    ensureEngine(cfg);
+    if (containerState(cfg.engine) === null) {
+      const elsewhere = otherEngineRunning(cfg);
+      say(elsewhere ? `Not running under ${cfg.engine}, but it is under ${elsewhere}: podiumctl stop --engine ${elsewhere}` : 'Not running');
+      return;
+    }
+    if (ce(cfg.engine, ['stop', '-t', '10', CONTAINER], { stdio: ['ignore', 'ignore', 'inherit'] }).status !== 0) fail(`${cfg.engine} stop failed`);
     say('Stopped');
     return;
   }
@@ -464,10 +494,11 @@ async function cmdStatus(cfg) {
   const lines = [`mode:     ${cfg.mode}`];
   let running = false;
   if (cfg.mode === 'container') {
-    if (!hasPodman()) lines.push('state:    podman not installed');
-    else if (pm(['info'], { stdio: 'ignore' }).status !== 0) lines.push('state:    podman machine not running');
+    lines.push(`engine:   ${cfg.engine ?? 'none (install podman or docker)'}`);
+    if (!engineInstalled(cfg.engine)) lines.push(`state:    ${cfg.engine ?? 'container engine'} not installed`);
+    else if (ce(cfg.engine, ['info'], { stdio: 'ignore' }).status !== 0) lines.push(`state:    ${cfg.engine === 'podman' ? 'podman machine not running' : 'docker not usable (see `docker info`)'}`);
     else {
-      const st = containerState();
+      const st = containerState(cfg.engine);
       running = !!st?.startsWith('running');
       lines.push(`state:    ${st ? `container ${st.trim()}` : 'no container'}`);
     }
@@ -490,8 +521,8 @@ function cmdLogs(cfg, flags) {
   const tail = String(flags.tail ?? 100);
   let r;
   if (cfg.mode === 'container') {
-    ensurePodman();
-    r = pm(['logs', '--tail', tail, ...(flags.follow ? ['--follow'] : []), CONTAINER], { stdio: 'inherit' });
+    ensureEngine(cfg);
+    r = ce(cfg.engine, ['logs', '--tail', tail, ...(flags.follow ? ['--follow'] : []), CONTAINER], { stdio: 'inherit' });
   } else {
     if (!fs.existsSync(logPath())) fail(`no log yet (${logPath()})`);
     r = spawnSync('tail', ['-n', tail, ...(flags.follow ? ['-f'] : []), logPath()], { stdio: 'inherit' });
@@ -531,13 +562,13 @@ function cmdConfig(cfg, args, flags) {
       else delete next[key];
       if (!keys.includes(key)) keys.push(key);
     }
-    if (set) resolveConfig(next); // validate mode/port
+    if (set) resolveConfig(next); // validate mode/engine/port
     writeConfigFile(next);
     say(`${set ? 'Set' : 'Unset'} ${keys.join(', ')}. Run \`podiumctl restart\` to apply.`);
     return;
   }
   const shown = flags['show-token'] ? { ...file } : maskConfig(file);
-  say(`# ${configPath()}\n# resolved: mode=${cfg.mode} port=${cfg.port} bind=${cfg.bind}`);
+  say(`# ${configPath()}\n# resolved: mode=${cfg.mode}${cfg.mode === 'container' ? ` engine=${cfg.engine ?? 'none'}` : ''} port=${cfg.port} bind=${cfg.bind}`);
   say(Object.entries(shown).map(([k, v]) => `${k}=${v}`).join('\n') || '(no settings saved yet)');
 }
 
@@ -568,7 +599,8 @@ function cmdEnable(cfg) {
   const stable = stableNodePath(process.execPath);
   // only trust the rewrite when it still leads to this node
   const node = stable !== process.execPath && fs.existsSync(stable) && fs.realpathSync(stable) === fs.realpathSync(process.execPath) ? stable : process.execPath;
-  const args = [node, script, standalone ? 'run' : 'start', '--mode', cfg.mode];
+  const modeArgs = ['--mode', cfg.mode, ...(standalone || !cfg.engine ? [] : ['--engine', cfg.engine])];
+  const args = [node, script, standalone ? 'run' : 'start', ...modeArgs];
   const env = { PATH: process.env.PATH ?? '', ...(process.env.PODIUMCTL_HOME ? { PODIUMCTL_HOME: process.env.PODIUMCTL_HOME } : {}) };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.mkdirSync(homeDir(), { recursive: true });
@@ -579,7 +611,7 @@ function cmdEnable(cfg) {
     if (spawnSync('launchctl', ['bootstrap', domain, file], { stdio: 'inherit' }).status !== 0) fail('launchctl bootstrap failed');
     say(`Enabled: ${file}`);
   } else {
-    fs.writeFileSync(file, systemdUnit({ args, stopArgs: [node, script, 'stop', '--mode', cfg.mode], standalone, env }));
+    fs.writeFileSync(file, systemdUnit({ args, stopArgs: [node, script, 'stop', ...modeArgs], standalone, env }));
     const sc = (a) => spawnSync('systemctl', ['--user', ...a], { stdio: 'inherit' }).status === 0;
     if (!sc(['daemon-reload']) || !sc(['enable', '--now', 'podium.service'])) fail('systemctl failed');
     say(`Enabled: ${file}\nTo start before you log in: loginctl enable-linger $USER`);
@@ -618,13 +650,13 @@ async function cmdRun(cfg) {
 }
 
 function cmdRm(cfg, flags) {
-  ensurePodman();
-  pm(['rm', '-f', CONTAINER], { stdio: 'ignore' });
+  ensureEngine(cfg);
+  ce(cfg.engine, ['rm', '-f', CONTAINER], { stdio: 'ignore' });
   say('Container removed (the data volume is kept).');
   if (flags.purge) {
     if (!flags.yes) fail('--purge deletes the database and the image. Re-run with --purge --yes to confirm.');
-    pm(['volume', 'rm', '-f', VOLUME], { stdio: 'ignore' });
-    pm(['rmi', '-f', IMAGE], { stdio: 'ignore' });
+    ce(cfg.engine, ['volume', 'rm', '-f', VOLUME], { stdio: 'ignore' });
+    ce(cfg.engine, ['rmi', '-f', IMAGE], { stdio: 'ignore' });
     say('Volume and image removed.');
   }
 }
@@ -650,7 +682,7 @@ export async function main(argv) {
     case 'enable': cmdEnable(cfg); return 0;
     case 'disable': cmdDisable(); return 0;
     case 'run': await cmdRun(cfg); return null;
-    case 'shell': ensurePodman(); return pm(['exec', '-it', CONTAINER, '/bin/sh'], { stdio: 'inherit' }).status ?? 1;
+    case 'shell': ensureEngine(cfg); return ce(cfg.engine, ['exec', '-it', CONTAINER, '/bin/sh'], { stdio: 'inherit' }).status ?? 1;
     case 'rm': cmdRm(cfg, flags); return 0;
     default: console.error(`unknown command "${cmd}" (see --help)`); return 2;
   }

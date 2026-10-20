@@ -1273,12 +1273,19 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 - `Containerfile` is a two-stage Node 24 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
   has production deps for `server`, the two `dist` trees, user `node`, and the `/data` volume.
+- The engine is Podman or Docker (`--engine`, saved as `PODIUMCTL_ENGINE`; default Podman if it is installed, else
+  Docker). Every command takes the same arguments on both, so `podiumctl` only swaps the binary. Three differences
+  are handled: it checks for the image with `image inspect` (Docker has no `image exists`), it starts a stopped
+  Podman machine on macOS and Windows but only reports a stopped Docker daemon, and under Docker it adds
+  `--add-host host.docker.internal:host-gateway` so the container can reach the host on Linux as it can on Docker
+  Desktop. Docker does not read `.containerignore`, so `.dockerignore` holds the same rules and a test keeps them equal.
 - `podiumctl` runs it as `podium` with `--restart unless-stopped`, the port published on the chosen bind address,
   the named volume `podium-data`, and a `--health-cmd` (the `HEALTHCHECK` instruction is dropped by Podman's
   default OCI image format).
 - It also passes the host's time zone as `TZ`, so the day for "Est. cost today" is the host's.
 - Inside, the server binds `0.0.0.0:4317`. The host-side bind is where access is limited.
-- Container mode relies on `podman run` failing when the port is taken.
+- Container mode relies on `podman run` or `docker run` failing when the port is taken.
+- A standalone `start` refuses while a `podium` container runs under either engine, not only the saved one.
 
 ### Standalone mode
 
@@ -1293,7 +1300,7 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 ### Secrets, boot and the mod
 
-- Secrets reach the server through the process environment (`podman run -e NAME` with no value), never the
+- Secrets reach the server through the process environment (`podman run -e NAME` or `docker run -e NAME` with no value), never the
   command line. The token is generated on first start. An empty `PODIUM_TOKEN` is the deliberate "auth off"
   setting.
 - `enable` writes a launchd plist (macOS) or systemd user unit (Linux). The unit calls `podiumctl start`
@@ -1309,3 +1316,10 @@ On macOS with Podman 6.1.2: build, start, token enforcement (401 without, accept
 stop, standalone start/stop, `run` plus SIGTERM, launchd enable/disable in both modes, purge, and
 `claude plugin install podium-reporter@eengelking-marketplace` against the live marketplace with a clean config
 directory. The systemd path is covered by a unit test of the generated text only (known issue 12).
+
+On Linux with Docker 29.8.1 and no Podman (2026-10-20): the engine is picked and saved, `build` (and `start` with no
+image), start, status, health, token enforcement, non-root user, dropped capabilities, `host.docker.internal`,
+`logs`, restart, stop, the standalone guard against a running container, `docker run` failing on a taken port, and
+purge. Boot units were not tried with Docker. A systemd user unit cannot wait for the system `docker.service`, so at boot
+`podiumctl start` can run before the daemon is up and fail; the container itself still comes back through
+`--restart unless-stopped` once the daemon starts.

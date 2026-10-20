@@ -1,0 +1,14 @@
+# Docker reads this file and Podman reads .containerignore. Keep the two the same; scripts/podiumctl.test.ts checks it.
+node_modules
+**/node_modules
+dist
+**/dist
+data
+.env
+.git
+.claude
+docs
+mockup
+mod
+*.sqlite*
+*.tsbuildinfo

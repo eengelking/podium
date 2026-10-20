@@ -304,7 +304,8 @@ scripts/podium-peers-e2e.sh          starts a throwaway server from the checkout
 scripts/podium-peers-e2e.test.ts     tests its help, argument checks and --dry-run
 scripts/podiumctl.test.ts            tests for podiumctl (4.4)
 bin/podiumctl                        command-line manager for the server (4.4; has --help)
-Containerfile, .containerignore      the server and UI as a Podman image (4.4)
+Containerfile, .containerignore      the server and UI as a container image (4.4)
+.dockerignore                        the same rules as .containerignore, for a Docker build (4.4)
 ```
 
 `server/src/index.ts` mounts the fleet router and starts the sweeper. `frontend/src/main.tsx` renders:
@@ -346,12 +347,13 @@ Nothing else is needed. There is no second service.
 #### `podiumctl`
 
 `bin/podiumctl` has no dependencies and a `bin` entry in the root `package.json`. It manages the server in one
-of two modes: `container` (the default when Podman is installed) or `standalone` (a Node process on the host).
+of two modes: `container` (the default when Podman or Docker is installed) or `standalone` (a Node process on the host).
+Container mode uses Podman when it is installed and Docker otherwise; `--engine podman|docker` chooses.
 
 - Commands: `build`, `start`, `stop`, `restart`, `status`, `logs`, `health`, `url`, `token`, `config`,
   `enable`, `disable`, `shell`, `rm` and `run`, and a `--help`.
 - `status` exits 3 when the server is stopped.
-- `--mode`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
+- `--mode`, `--engine`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
   `PODIUMCTL_HOME`).
 
 #### Network
