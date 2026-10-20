@@ -304,3 +304,20 @@ describe('POST /stored-activity/delete', () => {
     expect((await agent.post('/api/admin/stored-activity/delete').send({ all: true })).status).toBe(403);
   });
 });
+
+describe('the store fails (the calls are async)', () => {
+  it('answers 500 with a plain message for a preview, a list and a delete, and writes no Admin log row for the delete', async () => {
+    const { agent, history, people } = await unlocked();
+    vi.spyOn(history, 'preview').mockRejectedValue(new Error('disk'));
+    vi.spyOn(history, 'list').mockRejectedValue(new Error('disk'));
+    vi.spyOn(history, 'deleteBy').mockRejectedValue(new Error('disk'));
+    const want = { ok: false, error: 'could not reach the stored activity' };
+    const prev = await agent.post('/api/admin/activity-history/preview').set(H).send({ settings: { policy: 'all', n: 30, unit: 'days', capGb: null } });
+    expect([prev.status, prev.body]).toEqual([500, want]);
+    const list = await agent.get('/api/admin/stored-activity').set(H);
+    expect([list.status, list.body]).toEqual([500, want]);
+    const del = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
+    expect([del.status, del.body]).toEqual([500, want]);
+    expect(logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)).toHaveLength(0);
+  });
+});

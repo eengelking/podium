@@ -534,7 +534,8 @@ export class Fleet {
     const wasLive = this.live.delete(id);
     this.clockSkew.delete(id);
     this.activity.dropSession(id);
-    this.activityHistory.deleteSession(id);
+    // The rows go in chunks, after this returns; a failure is logged, and the session is gone from the main database regardless.
+    this.activityHistory.deleteSession(id).catch((err: Error) => this.logger.error('activity.delete_failed', `podium: could not remove the activity history of session ${id}: ${err.message}`, { session_id: id, reason: err.message }));
     this.diffs.drop(id);
     this.respond.dropSession(id);
     this.peers.deleted([id]);
@@ -683,12 +684,11 @@ export class Fleet {
       this.logger.error('retention.rollups_failed', `podium: could not write the daily rollups: ${(err as Error).message}`, { reason: (err as Error).message });
     }
     const out = this.db.retain(this.now(), this.cfg.retention);
-    // A session's retention ends its activity history too, whatever the policy: the shorter wins (#432).
-    try {
-      this.activityHistory.dropMissingSessions((id) => this.db.getSession(id) !== undefined);
-    } catch (err) {
-      this.logger.error('retention.activity_failed', `podium: could not remove the activity history of expired sessions: ${(err as Error).message}`, { reason: (err as Error).message });
-    }
+    // A session's retention ends its activity history too, whatever the policy: the shorter wins (#432). The rows go in
+    // chunks in the background, so the hourly retention never waits for them; a failure is logged.
+    this.activityHistory.dropMissingSessions((id) => this.db.getSession(id) !== undefined).catch((err: Error) => {
+      this.logger.error('retention.activity_failed', `podium: could not remove the activity history of expired sessions: ${err.message}`, { reason: err.message });
+    });
     const peers = this.peers.retain();
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }

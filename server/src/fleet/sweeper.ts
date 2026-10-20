@@ -25,16 +25,26 @@ function sizeText(bytes: number): string {
   return `${bytes} B`;
 }
 
+/** The stores whose purge is running now, so a tick that fires before it finishes skips instead of stacking. */
+const purging = new WeakSet<ActivityHistory>();
+
 /**
  * One run of the Activity history's purge (#432). A run that removed something writes one Admin log row and one log line;
- * a run that removed nothing is silent.
+ * a run that removed nothing is silent. The purge works in chunks, so this returns when it is done; a run that starts while
+ * the last one is still going is skipped.
  */
-export function purgeActivityHistory(history: ActivityHistory, people: PeopleStore, logger: Logger, now: number): void {
-  const r = history.purge(now);
-  if (r.entries === 0) return;
-  const policy = history.current().policy;
-  people.log(ACTIVITY_LOG_KINDS.purged, `${r.entries} entries (${sizeText(r.bytes)}) removed under ${policy}`, 'sweeper', now);
-  logger.info('activity.purged', `podium: activity history purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed, policy });
+export async function purgeActivityHistory(history: ActivityHistory, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+  if (purging.has(history)) return;
+  purging.add(history);
+  try {
+    const r = await history.purge(now);
+    if (r.entries === 0) return;
+    const policy = history.current().policy;
+    people.log(ACTIVITY_LOG_KINDS.purged, `${r.entries} entries (${sizeText(r.bytes)}) removed under ${policy}`, 'sweeper', now);
+    logger.info('activity.purged', `podium: activity history purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed, policy });
+  } finally {
+    purging.delete(history);
+  }
 }
 
 /**
@@ -51,7 +61,7 @@ export function forgetReporters(reporters: ReporterStore, people: PeopleStore, l
 }
 
 /** `log` is the server's logger, or a plain line sink as before the logger existed (#140). */
-export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void, onActivityPurge?: () => void): () => void {
+export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void, onActivityPurge?: () => void | Promise<void>): () => void {
   const logger = typeof log === 'function' ? loggerFromLine(log) : log;
   const guard = (name: string, fn: () => void) => () => {
     try {
@@ -65,7 +75,12 @@ export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT
     guard('retention', () => void fleet.retain())();
     guard('forget-reporters', () => onRetention?.())();
   };
-  const activityPurge = guard('activity-purge', () => onActivityPurge?.());
+  // The purge is async: a failure after its first chunk arrives as a rejection, which is logged the same way.
+  const activityPurge = guard('activity-purge', () => {
+    void Promise.resolve(onActivityPurge?.()).catch((err: Error) => {
+      logger.error('sweeper.failed', `podium sweeper: activity-purge failed: ${err.message}`, { timer: 'activity-purge', reason: err.message });
+    });
+  });
   const timers = [
     setInterval(guard('sweep', () => fleet.sweep()), intervals.sweepMs),
     setInterval(guard('tick', () => fleet.tick()), intervals.tickMs),
