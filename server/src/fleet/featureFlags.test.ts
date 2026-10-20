@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openDb } from './db.js';
-import { ACTIVITY_FEED, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND } from './featureFlags.js';
+import { ACTIVITY_FEED, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
 
 describe('FeatureFlags', () => {
   it('lists the activity feed first, on by default, and Respond from Podium after it, off by default (#206)', () => {
@@ -14,7 +14,18 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false });
+    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false, 'update-check': true });
+  });
+
+  it('lists the Release check last, on by default, named as the mockup says (#499)', () => {
+    expect(UPDATE_CHECK).toBe('update-check');
+    expect(FEATURES[FEATURES.length - 1]).toEqual({
+      id: UPDATE_CHECK,
+      name: 'Release check',
+      description: 'Asks GitHub once a day for the latest Podium release and says at the bottom of the wall when a newer one is out. Off, this server makes no request to GitHub.',
+      defaultOn: true,
+    });
+    expect(new FeatureFlags(openDb(':memory:')).featureOn(UPDATE_CHECK)).toBe(true);
   });
 
   it('lists Orchestrator messaging, off by default (#347)', () => {

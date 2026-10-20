@@ -1,0 +1,187 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Release Check Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #499, the Admin side. Admin > Settings gets one more switch in Feature flags: Release check, on by default. Everything
+   on the page is the app's own Admin markup and classes (the side menu, .page-h, .asec, .panel, .srow, .sw); the other rows are the
+   ones Settings already has. Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Only the demo
+   chrome (.demo, .note, .review, and the dashed outline on the new row) is the mockup's own. The narrow rules below copy the app's
+   max-width: 760px rules, because a mockup frame cannot trigger the app's media query. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .frame button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.review { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+h1.t { font-size: 18px; margin: 0 0 4px; }
+h2.t { font-size: 13px; font-weight: 600; margin: 24px 0 8px; }
+.review p { margin: 0 0 8px; color: var(--ink2); max-width: 74ch; }
+.note { margin: 8px 0 0; font-size: 12px; color: var(--muted); max-width: 74ch; }
+.legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink2); margin: 0 0 8px; }
+.legend i { width: 22px; height: 12px; border: 2px dashed var(--sonnet); border-radius: 4px; display: inline-block; }
+.frame.podium { height: 760px; width: var(--w, 100%); max-width: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.frame .top .pill { color: var(--admin-text); }
+.srow.isnew { outline: 2px dashed var(--sonnet); outline-offset: -2px; }
+.srow.isoption { outline: 2px dashed var(--haiku); outline-offset: -2px; }
+.legend i.o { border-color: var(--haiku); }
+
+/* the app's max-width: 760px rules for the Admin shell, applied by a class so the frame can show them at 380 px */
+.frame.nar .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.frame.nar .nav { border-right: 0; border-bottom: 1px solid var(--border); flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+.frame.nar .navin { flex-direction: row; gap: 8px; padding: 8px 12px; }
+.frame.nar .ngroup { display: flex; align-items: center; gap: 2px; }
+.frame.nar .ngroup .gh { padding: 0 4px 0 6px; margin: 0; border-bottom: 0; }
+.frame.nar .ngroup .gt { display: none; }
+.frame.nar .ngroup .gi { width: 16px; height: 16px; color: var(--muted); }
+.frame.nar .ngroup + .ngroup { padding-left: 8px; border-left: 1px solid var(--border); }
+.frame.nar .navfoot .hint { display: none; }
+.frame.nar .navbtn { width: auto; white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; }
+.frame.nar .navbtn[aria-current="page"] { border-left-color: transparent; border-bottom-color: var(--ink); border-radius: 6px 6px 0 0; }
+.frame.nar .navfoot { margin-top: 0; display: flex; margin-left: auto; }
+.frame.nar .apage { padding: 16px 16px 0; }
+.frame.nar .apage-in { gap: 16px; }
+</style>
+
+<div class="demo">
+  <b>Podium Release Check, Admin (#499)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="100%" aria-pressed="true">Wide</button>
+    <button type="button" data-w="380px" aria-pressed="false">Narrow, 380 px</button>
+  </span>
+  <span class="grp" role="group" aria-label="Wall notices switch">Wall notices
+    <button type="button" data-opt="0" aria-pressed="true">Feature flag only</button>
+    <button type="button" data-opt="1" aria-pressed="false">Also its own switch</button>
+  </span>
+  <button type="button" id="reset">Reset</button>
+</div>
+
+<main class="review">
+  <h1 class="t">The release check in Admin &gt; Settings</h1>
+  <p>Admin &gt; Settings is the page that already holds every server-wide switch. The release check is one more row in Feature flags, below Orchestrator messaging, named <b>Release check</b> with the id <span class="hint" style="font-family:var(--font-mono)">update-check</span>. It is on by default. Click any switch in the page below.</p>
+  <p class="legend"><i></i>New in #499</p>
+  <p class="legend" id="legend-o" hidden><i class="o"></i>The option: a second switch that hides the notice without stopping the check</p>
+
+  <div class="frame podium" id="frame">
+    <header class="top">
+      <span class="logo">Podium</span><span class="pill">Admin</span><span class="spacer"></span>
+      <a class="btn" href="#" onclick="return false">Back to fleet</a>
+    </header>
+    <div class="adminv">
+      <div class="shell">
+        <nav class="nav" aria-label="Admin sections">
+          <div class="navin">
+            <div class="ngroup" role="group" aria-label="People and access">
+              <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8"/><path d="M11 3.4a2.4 2.4 0 0 1 0 4.4M12.6 10c1.2.5 1.9 1.6 2.1 3.2"/></svg><span class="gt">People and access</span></span>
+              <button type="button" class="navbtn">People<span class="n">12</span></button>
+              <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+              <button type="button" class="navbtn">Reporters<span class="n">14</span></button>
+            </div>
+            <div class="ngroup" role="group" aria-label="Server">
+              <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><path d="M4.5 4.75h.01M4.5 11.25h.01"/></svg><span class="gt">Server</span></span>
+              <button type="button" class="navbtn" aria-current="page">Settings</button>
+              <button type="button" class="navbtn">Model prices</button>
+              <button type="button" class="navbtn">Reporting and security</button>
+            </div>
+            <div class="ngroup" role="group" aria-label="Activity">
+              <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+              <button type="button" class="navbtn">Spend</button>
+              <button type="button" class="navbtn">Admin log<span class="n">86</span></button>
+            </div>
+            <div class="navfoot">
+              <button type="button" class="btn">Lock Admin</button>
+              <span class="hint">Locks after 10 minutes without activity.</span>
+            </div>
+          </div>
+        </nav>
+        <div class="apage">
+          <div class="apage-in">
+            <div class="page-h"><div><h1>Settings</h1><p class="lead">Server-wide choices. A change applies to everyone on this server.</p></div></div>
+            <section class="asec" aria-labelledby="h-flags">
+              <div class="asec-h"><div><h2 id="h-flags">Feature flags</h2><p class="hint">Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.</p></div></div>
+              <div class="panel" id="flags"></div>
+            </section>
+            <section class="asec" aria-labelledby="h-notices">
+              <div class="asec-h"><div><h2 id="h-notices">Wall notices</h2><p class="hint">Notices sit at the bottom of the wall. Closing one there turns it off here, for everyone.</p></div></div>
+              <div class="panel" id="notices"></div>
+            </section>
+            <section class="asec" aria-labelledby="h-wall">
+              <div class="asec-h"><div><h2 id="h-wall">The wall</h2></div></div>
+              <div class="panel" id="wall"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" id="state-note"></p>
+
+  <h2 class="t">Why it is a feature flag, and the one rule it bends</h2>
+  <p>Release check turns off a behavior of the server (a request to GitHub once a day), which is what Feature flags are for: "Turn a feature off for everyone on this server". Off, the server makes no request at all, and a notice already showing leaves the wall.</p>
+  <p>The wall-notice rules say every notice has its switch in Wall notices. This notice's X does not turn it off for good: it hides the release it names, and a newer release shows it again. So the switch that stops the notice for good is the flag. If you would rather every notice be listed under Wall notices, the demo bar's "Also its own switch" shows the option: a second row there that hides the notice but keeps checking.</p>
+</main>
+
+<script>
+var DEF = {
+  flags: [
+    { id: "activity-feed", name: "Agent activity feed", on: true, d: "Shows an agent's recent tool calls and text in its panel while someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after the panel closes." },
+    { id: "respond", name: "Respond from Podium", on: false, d: "Lets people answer and message the sessions they own. Each answer is written to the admin log with who sent it." },
+    { id: "file-diff", name: "File diff", on: false, d: "Lets the owner of a session, and only the owner, open a changed file's diff in the console. The diff is source code, read from the machine only when asked, with secrets hidden, and never stored. Needs the reporter's fileDiff option on the machine as well." },
+    { id: "peer-messaging", name: "Orchestrator messaging", on: false, d: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server. Only between one person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the right on My reporters." },
+    { id: "update-check", name: "Release check", on: true, isnew: true, d: "Asks GitHub once a day for the latest Podium release and says at the bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." }
+  ],
+  notices: [
+    { id: "background-sessions", name: "Background sessions", on: true, d: "Says how many sessions nobody is attached to are set aside, with a link to show them." },
+    { id: "update-notice", name: "Update available", on: true, option: true, d: "Says a newer Podium release is out, with a link to its release notes. The X on the wall hides it for the release it names. This switch hides it for good and does not stop the check: Release check, above, does that." }
+  ],
+  wall: [
+    { id: "background", name: "Show background sessions on the wall", on: false, d: "Sessions nobody is attached to are set aside after a minute. Turn this on to keep them in view. Off by default." },
+    { id: "card-title-machine", name: "Title cards with the machine", on: false, d: "Titles each card with the machine and the session, such as Silverbolt | Foobar, so cards from several machines are told apart. A session whose machine is not known keeps its own name. Off by default." }
+  ]
+};
+var state, $ = function (id) { return document.getElementById(id); };
+function fresh() { state = JSON.parse(JSON.stringify(DEF)); state.opt = false; }
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+function rows(list, group) {
+  return list.filter(function (r) { return !r.option || state.opt; }).map(function (r) {
+    var cls = "srow" + (r.isnew ? " isnew" : "") + (r.option ? " isoption" : "");
+    var id = "set-" + group + "-" + r.id;
+    return '<div class="' + cls + '"><div class="setname"><b id="' + id + '-n">' + esc(r.name) + '</b>' + (group === "flags" ? '<span class="fid">' + r.id + '</span>' : "") + '<p class="hint ink2">' + esc(r.d) + '</p></div>' +
+      '<div class="sw"><button type="button" role="switch" aria-checked="' + r.on + '" aria-labelledby="' + id + '-n ' + id + '-s" data-g="' + group + '" data-id="' + r.id + '"></button><span id="' + id + '-s">' + (r.on ? "On" : "Off") + '</span></div></div>';
+  }).join("");
+}
+function render() {
+  $("flags").innerHTML = rows(state.flags, "flags");
+  $("notices").innerHTML = rows(state.notices, "notices");
+  $("wall").innerHTML = rows(state.wall, "wall");
+  $("legend-o").hidden = !state.opt;
+  var rc = state.flags.filter(function (f) { return f.id === "update-check"; })[0];
+  var un = state.notices[1];
+  $("state-note").textContent = !rc.on ? "Release check is off: the server makes no request to GitHub, and a notice that was showing leaves the wall."
+    : state.opt && !un.on ? "Update available is off under Wall notices: the server still checks once a day, but the wall shows no notice."
+    : "Release check is on: the server asks GitHub once a day, and the wall shows a notice when a newer release exists.";
+}
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-g]"); if (!b) return;
+  var r = state[b.dataset.g].filter(function (x) { return x.id === b.dataset.id; })[0]; r.on = !r.on; render();
+});
+function pick(attr, fn) { document.querySelectorAll("[" + attr + "]").forEach(function (b) { b.onclick = function () {
+  fn(b); document.querySelectorAll("[" + attr + "]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; }); }
+pick("data-mode", function (b) { document.documentElement.dataset.theme = b.dataset.mode; });
+pick("data-w", function (b) { var f = $("frame"); f.style.setProperty("--w", b.dataset.w); f.classList.toggle("nar", b.dataset.w !== "100%"); });
+pick("data-opt", function (b) { state.opt = b.dataset.opt === "1"; render(); });
+$("reset").onclick = function () { fresh(); render(); document.querySelectorAll("[data-opt]").forEach(function (o) { o.setAttribute("aria-pressed", o.dataset.opt === "0"); }); };
+fresh(); render();
+</script>

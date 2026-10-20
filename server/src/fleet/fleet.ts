@@ -9,12 +9,13 @@ import { REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { ingestReport, type IngestResult } from './ingest.js';
 import { hookToReport } from './hookIngest.js';
 import { validateReport } from './protocol.js';
-import type { ActivityView, HistoryRow, Kpis, RemovedReason, Report, ReporterSupport, SessionStatusView, SessionView, StateBody } from './protocol.js';
+import type { ActivityView, HistoryRow, Kpis, RemovedReason, Report, ReporterSupport, SessionStatusView, SessionView, StateBody, WallSettingsView } from './protocol.js';
 import { formatSse, SseHub } from './sse.js';
 import { ModelPriceStore } from './modelPrices.js';
 import { WallSettings } from './wallSettings.js';
 import { ActivityStore } from './activity.js';
-import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND } from './featureFlags.js';
+import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
+import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { PeerService } from './peers.js';
@@ -114,6 +115,8 @@ export class Fleet {
   readonly respond: RespondStore;
   /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
   readonly peers: PeerService;
+  /** The daily check for a newer Podium release (#499); the wall's update notice reads its answer. */
+  readonly updates: UpdateCheck;
   private readonly live = new Map<string, LiveEntry>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly startedAt: number;
@@ -137,6 +140,8 @@ export class Fleet {
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       // Messaging going off drops every message still waiting; the rights stay.
       if (id === PEER_MESSAGING && !on) this.peers.dropAll();
+      // The release check going on looks straight away instead of waiting for the next daily run.
+      if (id === UPDATE_CHECK && on) void this.updates.check();
       this.hub.broadcast('snapshot', this.state());
     });
     this.activity = new ActivityStore(now, () => this.features.featureOn(ACTIVITY_FEED));
@@ -152,7 +157,13 @@ export class Fleet {
       },
     );
     this.peers = new PeerService(db.db, new ReporterStore(db.db, this.startedAt).peerLookup(), now, () => this.features.featureOn(PEER_MESSAGING));
-    this.wall = new WallSettings(db.db, () => this.hub.broadcast('wall', this.wall.view()));
+    this.wall = new WallSettings(db.db, () => this.hub.broadcast('wall', this.wallView()));
+    this.updates = new UpdateCheck({
+      current: serverVersion(),
+      enabled: () => this.features.featureOn(UPDATE_CHECK),
+      onChange: () => this.hub.broadcast('wall', this.wallView()),
+      logger,
+    });
     // A price change moves every cost on the wall, so open browsers get a fresh snapshot.
     this.prices = new ModelPriceStore(db.db, () => {
       this.costMinuteCache = null; // the sparkline follows the prices too (#270)
@@ -423,6 +434,14 @@ export class Fleet {
     };
   }
 
+  /** The wall's settings plus the update notice: a release newer than this server that nobody has closed the notice for (#499). */
+  private wallView(): WallSettingsView {
+    const found = this.updates.latest();
+    const dismissed = this.wall.updateDismissed();
+    const update = found && (dismissed === null || isNewer(found.latest, dismissed)) ? found : null;
+    return { ...this.wall.view(), update };
+  }
+
   state(): StateBody {
     const sessions = this.liveViews();
     return {
@@ -433,7 +452,7 @@ export class Fleet {
       clearedToday: this.clearedToday(),
       events: this.events({ limit: STATE_EVENTS }),
       server: { version: serverVersion(), build: serverBuild(), reporterSupport: REPORTER_SUPPORT },
-      wall: this.wall.view(),
+      wall: this.wallView(),
       features: this.features.view(),
     };
   }

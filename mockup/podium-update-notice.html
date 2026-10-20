@@ -1,0 +1,155 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Update Notice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #499. When a newer Podium release exists on GitHub, one more notice joins the stack at the bottom of the wall:
+   the version available, the version running, a link to the release notes, and an X. The X dismisses it for everyone until a
+   newer release than that one appears. Admin > Settings > Feature flags has a Release check switch, on by default; off, the
+   server makes no request to GitHub. A failed check shows nothing. Colors and fonts come from tokens.css through fleet.css;
+   this file has no :root block. The notice, the X, the toast, the pill and the switch row are the app's own classes, except the green pill variant. Only the demo
+   chrome below (.demo, .stage, .frame, .note) is the mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .stage button:focus-visible, .stage a:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 18px; margin: 0 0 4px; }
+h2 { font-size: 13px; font-weight: 600; margin: 28px 0 8px; }
+p { margin: 0 0 8px; color: var(--ink2); max-width: 70ch; }
+.note { margin: 6px 0 0; font-size: 12px; color: var(--muted); max-width: 64ch; }
+.frame { border: 1px solid var(--border); border-radius: 8px; background: var(--bg); width: var(--w, 100%); max-width: 100%; display: flex; flex-direction: column; min-height: 330px; position: relative; overflow: hidden; }
+.frame .bar { display: flex; gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--raised); font-size: 12px; color: var(--ink2); }
+.frame .bar b { color: var(--ink); }
+.frame .body { padding: 12px 14px 14px; display: flex; flex-direction: column; flex: 1; gap: 12px; }
+.frame .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.frame .c { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
+.frame .c b { font-size: 13px; }
+.frame .c span { color: var(--muted); font-size: 12px; font-family: var(--font-mono); }
+.frame .c i { display: block; height: 8px; border-radius: 4px; background: var(--grid); }
+.frame .notices { margin-top: auto; }
+.frame .toast { position: absolute; }
+/* The one new thing here: a green variant of the existing .pill (it has default, .warn and .bad). Green text and border from the
+   status tokens, the same recipe as .warn and .bad. It would be added to the standards if the maintainer approves it. */
+.podium .pill.good { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 55%, transparent); background: color-mix(in srgb, var(--good) 12%, transparent); font-weight: 600; }
+/* In a notice the pill shares its row with plain text and is middle-aligned with it (and with the X). Its padding is trimmed so
+   the row is no taller than a notice without a pill. */
+.podium .fold .txt:has(.pill) { align-items: center; }
+.podium .fold .pill { padding: 1px 9px; font-size: 12.5px; line-height: 1.4; }
+.podium .fold .txt > span:not(.pill), .podium .fold .txt > a { line-height: 1.4; }
+.stage { display: grid; gap: 4px; }
+.adm { max-width: 720px; }
+</style>
+
+<div class="demo">
+  <b>Podium Update Notice (#499)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="100%" aria-pressed="true">Wide</button>
+    <button type="button" data-w="380px" aria-pressed="false">Narrow, 380 px</button>
+  </span>
+  <span class="grp" role="group" aria-label="What GitHub says">GitHub says
+    <button type="button" data-rel="0.15.0" aria-pressed="true">0.15.0</button>
+    <button type="button" data-rel="0.15.1" aria-pressed="false">0.15.1</button>
+    <button type="button" data-rel="0.14.3" aria-pressed="false">0.14.3 (same)</button>
+    <button type="button" data-rel="fail" aria-pressed="false">No answer</button>
+  </span>
+  <button type="button" id="reset">Reset</button>
+</div>
+
+<main class="podium" id="root">
+  <h1>Telling you a newer release exists</h1>
+  <p>This server runs 0.14.3. Once a day it asks GitHub for the latest release. When that release is newer, the wall gets one more notice at the bottom, in the same stack as the background-sessions note. Pick what GitHub says in the bar above and watch the notice follow.</p>
+
+  <h2>1. The wall</h2>
+  <div class="stage">
+    <div class="frame" id="wallframe">
+      <div class="bar"><b>Podium</b><span>2 orchestrators live</span></div>
+      <div class="body">
+        <div class="grid">
+          <div class="c"><b>claude-dashboard</b><span>~/dev/claude-dashboard</span><i></i></div>
+          <div class="c"><b>resume-builder</b><span>~/dev/resume-builder</span><i></i></div>
+        </div>
+        <div class="notices" id="notices" aria-label="Notices"></div>
+      </div>
+      <div class="toast" id="toast" role="status" hidden style="right:14px;bottom:14px">
+        <div class="t"><b>Notice dismissed</b><span id="toast-b"></span><br><a class="go" href="#admin">Open Admin &gt; Settings</a></div>
+        <button type="button" class="x" id="toast-x" aria-label="Close this message"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>
+      </div>
+    </div>
+    <p class="note" id="state-note"></p>
+  </div>
+
+  <h2>2. Admin &gt; Settings &gt; Feature flags</h2>
+  <div class="adm adminv" id="admin">
+    <div class="sec">
+      <p class="hint">Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.</p>
+      <div class="srow">
+        <div class="setname"><b id="n-rel">Release check</b> <span class="tag">update-check</span>
+          <p class="hint">Asks GitHub once a day for the latest Podium release and says at the bottom of the wall when a newer one is out. Off, this server makes no request to GitHub.</p></div>
+        <div class="sw"><button type="button" id="flag" role="switch" aria-checked="true" aria-labelledby="n-rel s-rel"></button><span id="s-rel">On</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>What the rules say</h2>
+  <p>It follows the wall-notice rules: bottom of the wall, an X, a confirmation that points to Admin &gt; Settings, and an on/off switch there. It differs in one way: the X does not turn the check off. It hides this release for everyone, and the notice comes back when a newer release is published. The switch is what stops the check.</p>
+  <p>A failed check (offline, rate limited, no answer) shows nothing at all, not even an error, and the next daily check tries again. The notice never shows when the versions match or this server is the newer one.</p>
+</main>
+
+<script>
+var RUNNING = "0.14.3";
+var state = { rel: "0.15.0", dismissed: null, on: true };
+var $ = function (id) { return document.getElementById(id); };
+var X = '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8"/></svg>';
+function parts(v) { return v.split(".").map(Number); }
+function newer(a, b) { var x = parts(a), y = parts(b); for (var i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] > y[i]; } return false; }
+function shown() { return state.on && state.rel !== "fail" && newer(state.rel, RUNNING) && !(state.dismissed && !newer(state.rel, state.dismissed)); }
+function render() {
+  var n = $("notices");
+  n.innerHTML = shown()
+    ? '<div class="fold"><div class="txt"><span class="pill good">Podium ' + state.rel + ' is available</span><span>You are running ' + RUNNING + '.</span>' +
+      '<a class="link" href="#release-notes" style="margin-left:0">Release notes</a></div>' +
+      '<button type="button" class="x" aria-label="Close notice: Update available">' + X + '</button></div>'
+    : "";
+  var note = !state.on ? "The release check is off: the server makes no request to GitHub, so there is no notice."
+    : state.rel === "fail" ? "GitHub did not answer. The wall shows nothing and no error. The server log carries at most one short line, and tomorrow's check tries again."
+    : !newer(state.rel, RUNNING) ? "GitHub's latest is " + state.rel + ", which is not newer than " + RUNNING + ". No notice."
+    : state.dismissed && !newer(state.rel, state.dismissed) ? "Dismissed for " + state.dismissed + ". It stays hidden across reloads, for everyone. Choose 0.15.1 above to see it return."
+    : "";
+  $("state-note").textContent = note;
+  $("flag").setAttribute("aria-checked", state.on); $("s-rel").textContent = state.on ? "On" : "Off";
+}
+$("notices").addEventListener("click", function (e) {
+  if (!e.target.closest(".x")) return;
+  state.dismissed = state.rel; render();
+  $("toast-b").textContent = "“Update available” will show again when a release newer than " + state.rel + " comes out. You can turn the release check off in Admin > Settings.";
+  $("toast").hidden = false; clearTimeout(window.tt); window.tt = setTimeout(function () { $("toast").hidden = true; }, 9000);
+});
+$("toast-x").onclick = function () { $("toast").hidden = true; };
+$("flag").onclick = function () { state.on = !state.on; render(); };
+document.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = function () {
+  document.documentElement.dataset.theme = b.dataset.mode;
+  document.querySelectorAll("[data-mode]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+document.querySelectorAll("[data-w]").forEach(function (b) { b.onclick = function () {
+  $("wallframe").style.setProperty("--w", b.dataset.w);
+  document.querySelectorAll("[data-w]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+document.querySelectorAll("[data-rel]").forEach(function (b) { b.onclick = function () {
+  state.rel = b.dataset.rel; $("toast").hidden = true;
+  document.querySelectorAll("[data-rel]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); render(); }; });
+$("reset").onclick = function () { state = { rel: "0.15.0", dismissed: null, on: true }; $("toast").hidden = true;
+  document.querySelectorAll("[data-rel]").forEach(function (o) { o.setAttribute("aria-pressed", o.dataset.rel === "0.15.0"); }); render(); };
+render();
+</script>

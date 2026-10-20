@@ -28,6 +28,7 @@ import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
 import { RESPOND } from "./fleet/featureFlags.js";
+import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
@@ -48,6 +49,8 @@ const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger);
 const people = new PeopleStore(fleetDb.db);
 const reporters = new ReporterStore(fleetDb.db, Date.now());
 const stopSweeper = startSweeper(fleet, undefined, logger, () => forgetReporters(reporters, people, logger, Date.now()));
+// The release check (#499): once a day, and only while the Admin's Release check switch is on.
+const stopUpdateCheck = startUpdateCheck(fleet.updates);
 
 const app = express();
 app.disable("x-powered-by");
@@ -121,6 +124,7 @@ function shutdown(signal: string) {
   closing = true;
   logger.info("server.stop", `Received ${signal}, shutting down`, { signal });
   stopSweeper();
+  stopUpdateCheck();
   fleet.close();
   server.close(() => {
     fleetDb.close();

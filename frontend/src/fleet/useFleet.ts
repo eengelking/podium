@@ -135,6 +135,16 @@ export async function closeNotice(id: string, base = "/api/fleet"): Promise<void
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
+/** Closing the update notice hides the release it names for everyone; a still newer release shows it again (#499). */
+export async function closeUpdateNotice(version: string, base = "/api/fleet"): Promise<void> {
+  const res = await fetch(`${base}/update-notice/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 /** The Show them / Hide them link on the background-sessions note changes the same setting as Admin > Settings. */
 export async function setShowBackgroundSessions(show: boolean, base = "/api/fleet"): Promise<void> {
   const res = await fetch(`${base}/wall/background-sessions`, {

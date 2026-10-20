@@ -1,6 +1,6 @@
 import { fmtTok, fmtUsd } from "../format";
 import { SORTS, STATUS_FILTERS, type SortKey, type StatusFilter } from "../logic";
-import type { Kpis, LifecycleConfig, SessionView } from "../types";
+import type { Kpis, LifecycleConfig, SessionView, UpdateNotice } from "../types";
 import { NO_PRICE_TITLE } from "./Chips";
 import { splitText, type Split } from "./Rail";
 import { SessionCard } from "./SessionCard";
@@ -10,7 +10,7 @@ import type { ComponentProps, CSSProperties } from "react";
 import { useWallColumns } from "../useWallColumns";
 import { Sparkline } from "./Sparkline";
 import { placePinned, type Pin } from "../pins";
-import { NoticeStack, type NoticeItem } from "./NoticeStack";
+import { NoticeStack, UPDATE_NOTICE_ID, type NoticeItem } from "./NoticeStack";
 
 const COST_TODAY_TITLE = "What the fleet has spent since midnight on the server, counting only the part of a session that came after midnight.";
 
@@ -160,6 +160,9 @@ export function Wall(props: {
   /** Whether a notice is switched on in Admin > Settings (on unless turned off), and what closing one does. */
   noticeOn?: (id: string) => boolean;
   onCloseNotice?: (item: NoticeItem) => void;
+  /** A release newer than this server that nobody has closed the notice for, and the version running (#499). */
+  update?: UpdateNotice | null;
+  runningVersion?: string | null;
   people?: WallPeople;
   /** The pinned cards (#496) and what the pin button does; the card goes to `slot` in its wall or band. */
   pins?: { list: readonly Pin[]; onToggle: (id: string, slot: number) => void };
@@ -199,6 +202,21 @@ export function Wall(props: {
           <button type="button" className="link" onClick={props.detached.onToggle}>
             {props.detached.show ? "Hide them" : "Show them"}
           </button>
+        </>
+      ),
+    });
+  }
+  if (props.update) {
+    notices.push({
+      id: UPDATE_NOTICE_ID,
+      name: "Update available",
+      body: (
+        <>
+          <span className="pill good">Podium {props.update.latest} is available</span>
+          {props.runningVersion && <span>You are running {props.runningVersion}.</span>}
+          <a className="link" href={props.update.url} target="_blank" rel="noopener noreferrer">
+            Release notes
+          </a>
         </>
       ),
     });

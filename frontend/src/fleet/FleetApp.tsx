@@ -16,8 +16,8 @@ import { TopBarTab } from "./components/TopBarTab";
 import { Legend } from "./components/Legend";
 import { Wall } from "./components/Wall";
 import { Board } from "./components/Board";
-import { NoticeClosed, type NoticeItem } from "./components/NoticeStack";
-import { closeNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
+import { NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
+import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
 import { useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
 import { isUrgentChange, readUpdateEvery, writeUpdateEvery } from "./updateInterval";
@@ -172,7 +172,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const live = all.filter((s) => !state.leaving[s.id]);
   const sorted = useMemo(() => sortSessions(all, sort), [all, sort]);
   const showDetached = state.wall.showBackgroundSessions;
-  const [closed, setClosed] = useState<string | null>(null);
+  /** The notice just closed, for the confirmation; `until` is the release an update notice was closed for. */
+  const [closed, setClosed] = useState<{ name: string; until?: string } | null>(null);
   const sets = splitDetached(sorted, now, showDetached);
   // The people view (#34) switches on once any live session belongs to a named person.
   const people = usePeoplePrefs();
@@ -288,8 +289,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     setNotice(null);
   };
   const onCloseNotice = (n: NoticeItem) => {
-    closeNotice(n.id)
-      .then(() => setClosed(n.name))
+    const version = n.id === UPDATE_NOTICE_ID ? state.wall.update?.latest : undefined;
+    (version ? closeUpdateNotice(version) : closeNotice(n.id))
+      .then(() => setClosed({ name: n.name, until: version }))
       .catch((err: Error) => setNotice(`Could not close the notice: ${err.message}. Try again.`));
   };
   // The confirmation clears itself after about 9 seconds.
@@ -528,10 +530,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     }}
                     noticeOn={(id) => state.wall.notices[id] !== false}
                     onCloseNotice={onCloseNotice}
+                    update={state.wall.update}
+                    runningVersion={state.server?.version ?? null}
                     people={wallPeople}
                   />
                 )}
-                {closed !== null && <NoticeClosed name={closed} onDismiss={() => setClosed(null)} />}
+                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => setClosed(null)} />}
               </main>
             )}
             {/* My reporters shows no legend (#446). */}

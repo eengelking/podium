@@ -30,6 +30,7 @@ body { margin: 0; }
 .podium .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .podium .dot.warn { background: var(--warn); }
 .podium .pill.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit) 55%, transparent); }
+.podium .pill.good { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 55%, transparent); background: color-mix(in srgb, var(--good) 12%, transparent); font-weight: 600; }
 .podium .spacer { flex: 1; }
 .podium .btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); font-size: 12px; font-weight: 500; text-decoration: none; }
 .podium .btn:hover { background: var(--sel); }
@@ -565,6 +566,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .notices { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .podium .notices .fold { margin-top: 0; padding: 7px 8px 7px 14px; flex-wrap: nowrap; }
 .podium .fold .txt { flex: 1; min-width: 0; display: flex; gap: 6px 12px; flex-wrap: wrap; align-items: center; }
+/* A pill in a notice (the update notice, #499) is middle-aligned with the text beside it, trimmed so the row is no taller than one without it, and its link sits next to the text. */
+.podium .fold .pill { padding: 1px 9px; font-size: 12.5px; line-height: 1.4; }
+.podium .fold .txt:has(.pill) > :not(.pill) { line-height: 1.4; }
+.podium .fold .txt:has(.pill) .link { margin-left: 0; }
 .podium .x { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center; color: var(--ink2); flex: none; }
 .podium .x:hover { background: var(--sel, var(--border)); color: var(--ink); }
 .podium .x svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.6; fill: none; stroke-linecap: round; }

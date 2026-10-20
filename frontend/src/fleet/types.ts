@@ -26,6 +26,7 @@ export type {
   SessionStatusView,
   SessionView,
   StateBody,
+  UpdateNotice,
   WallSettingsView,
   Ask,
   AskDetail,

@@ -664,6 +664,11 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
 - **Wall notices.** `wallSettings.ts` defines the notices (today, `background-sessions`) and the setting behind
   them. `POST /api/fleet/notices/:id/close` and `PUT /api/fleet/wall/background-sessions` change only how the
   wall looks, so they take no token. `components/NoticeStack.tsx` draws them (DECISIONS 22).
+- **Release check.** `updateCheck.ts` asks GitHub for the latest release once a day (`startUpdateCheck`, started in
+  `index.ts`) and keeps the answer in memory. `Fleet.wallView()` adds it to `StateBody.wall.update` unless it is not
+  newer than the server, the `update-check` flag is off, or the notice was closed for that release
+  (`wall_update_dismissed`, set by `POST /api/fleet/update-notice/close`). The notice is built in `Wall.tsx` and is
+  not an entry in `NOTICES`, because closing it hides one release, not the notice (SPEC 6.8).
 - **Compatibility.** `compat.ts` holds `REPORTER_SUPPORT`, the reporter versions this server reads. Only
   `major.minor` is compared. A mod outside the range gets a version note on its card and a toast in the mod
   (DECISIONS 18). `build.ts` names the server's own build (`PODIUM_BUILD`, else `server/build.json`) for the footers

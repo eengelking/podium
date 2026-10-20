@@ -1,3 +1,4 @@
+import { isNewer } from './updateCheck.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { WallSettingsView } from './protocol.js';
 
@@ -23,6 +24,7 @@ export function isNoticeId(id: string): boolean {
 const NOTICE_PREFIX = 'wall_notice.';
 const SHOW_BACKGROUND = 'wall_show_background_sessions';
 const CARD_TITLE_MACHINE = 'wall_card_title_machine';
+const UPDATE_DISMISSED = 'wall_update_dismissed';
 
 /**
  * The wall's server-wide display settings: one on/off switch per notice (default on) and whether background
@@ -73,6 +75,20 @@ export class WallSettings {
 
   setCardTitleMachine(on: boolean): void {
     if (this.set(CARD_TITLE_MACHINE, on ? '1' : '0')) this.onChange();
+  }
+
+  /** The newest release whose update notice someone closed (#499), or null. A stored value that is not MAJOR.MINOR.PATCH counts as none. */
+  updateDismissed(): string | null {
+    const v = this.get(UPDATE_DISMISSED);
+    return v !== undefined && /^\d+\.\d+\.\d+$/.test(v) ? v : null;
+  }
+
+  /** Hides the update notice for this release, for everyone. A still newer release shows it again. */
+  dismissUpdate(version: string): void {
+    // Only ever moves forward: a stale tab closing an older release must not bring back a newer one already closed.
+    const had = this.updateDismissed();
+    if (had !== null && !isNewer(version, had)) return;
+    if (this.set(UPDATE_DISMISSED, version)) this.onChange();
   }
 
   view(): WallSettingsView {
