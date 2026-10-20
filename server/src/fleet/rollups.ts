@@ -317,7 +317,9 @@ export function writeRollups(db: FleetDb, now: number, cost: CostOf, p: RollupPo
         for (const r of db.db.prepare(`SELECT DISTINCT day FROM ${table} WHERE day < ?`).all(fromDay) as unknown as { day: string }[]) written.add(r.day);
       const cutoffDay = localDay(sessionCutoff);
       const wanted = (day: string): boolean => day >= fromDay || (day === cutoffDay && !written.has(day));
-      const built = buildRollups(db, cost, dayStart(firstDay));
+      // Build only from the earliest day that will be written, so an ordinary run does not read the whole retained history.
+      const buildFrom = cutoffDay < fromDay && !written.has(cutoffDay) ? (cutoffDay > firstDay ? cutoffDay : firstDay) : fromDay;
+      const built = buildRollups(db, cost, dayStart(buildFrom));
       const peaks = peakLiveByDay(db);
       for (const table of ['usage_daily', 'sessions_daily', 'failures_daily']) db.db.prepare(`DELETE FROM ${table} WHERE day >= ?`).run(fromDay);
       const putUsage = db.db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
