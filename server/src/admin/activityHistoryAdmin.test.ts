@@ -203,6 +203,8 @@ describe('POST /stored-activity/delete', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 2, sessions: 1 });
     expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toContain('chosen by a filter');
+    const withSource = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { source: 'activity', owner: 'Alex' } });
+    expect(withSource.body).toMatchObject({ entries: 2, sessions: 1 });
   });
 
   it('deletes everything, and says so; one entry reads in the singular', async () => {
