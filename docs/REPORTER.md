@@ -122,7 +122,7 @@ nothing the server sends is taken.
 | Tool | What it does |
 |---|---|
 | `podium_peers` | Lists the orchestrators it can reach on your other machines: name, machine, OS, project, status, and whether it can send there (with or without your approval). Says which of your machines are left out and why |
-| `podium_send(to, text)` | Sends a message to `name@machine`. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
+| `podium_send(to, text)` | Sends a message to `name@machine`, or `name@machine#id` when several share the name. It answers sent, waiting for the receiver's turn to end, waiting for your approval, or not sent with Podium's reason |
 | `podium_request_access(to, right, reason)` | Asks you for a right to see or to send to one of your machines. The answer arrives later as a message |
 
 - **Only the orchestrator.** Claude Code lists a mod's tools for subagents too, so each tool refuses any call

@@ -31,6 +31,9 @@ export interface Refusal {
   status: 400 | 403 | 404 | 409 | 410 | 422 | 429;
   error: string;
 }
+/** The first eight characters of a session id: enough to tell same-named orchestrators apart in `name@machine#id`. */
+export const peerShortId = (sessionId: string): string => sessionId.slice(0, 8);
+
 export const refuse = (status: Refusal['status'], error: string): Refusal => ({ ok: false, status, error });
 
 /** Who did something, for the logs: a person's name, or `Admin` for the admin secret, and whether they acted as an Admin. */
@@ -267,6 +270,10 @@ export interface SendOutcome {
 /** One orchestrator in podium_peers' answer. */
 export interface PeerListing {
   address: string;
+  /** The session's short id (`peerShortId`), which `address#id` accepts when other orchestrators share the name (#500). */
+  id: string;
+  /** More than one orchestrator the asker can reach has this name on this machine, so a plain `address` is refused. */
+  duplicate: boolean;
   name: string;
   machine: string;
   os: string | null;
