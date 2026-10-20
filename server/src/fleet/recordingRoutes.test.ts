@@ -514,6 +514,40 @@ describe('what the server does on its own is logged', () => {
     expect(rows[0]).toMatchObject({ kind: 'prompt', by: 'Boss', loop: MAIN_LOOP });
   });
 
+  it('only a message is remembered for marking: a command, and a message taken back before the mod got it, leave no mark behind', async () => {
+    const { fleet, app, ed } = await chosen();
+    fleet.features.setFeature('respond', true);
+    await send(app, ed.token, report(true, { respond: { level: 'everything', accepts: ['message', 'command'], limits: [] } as unknown as Report['session']['respond'] }));
+    expect(fleet.respond.message(SID, 'Boss', { text: '/clear' }).ok).toBe(true);
+    const taken = fleet.respond.message(SID, 'Boss', { text: 'never mind this one' });
+    expect(taken.ok && fleet.respond.discard(taken.delivery.id, 'Boss', false)).toBe('ok');
+    // a person typed prompts that hold the same words
+    await post(app, ed.token, batch(entry(MAIN_LOOP, 1, `${BODY} how do I /clear the cache`, { kind: 'prompt', at: T0 + 1 }), entry(MAIN_LOOP, 2, 'never mind this one', { kind: 'prompt', at: T0 + 2 })));
+    expect(fleet.recordings.page(SID, null, 10, null).entries.map((r) => [r.kind, r.by])).toEqual([
+      ['prompt', undefined],
+      ['prompt', undefined],
+    ]);
+  });
+
+  it('keeps a decision the mod recorded, with who decided it from Podium, and a compact it marked', async () => {
+    const { fleet, app, ed } = await chosen();
+    const res = await post(
+      app,
+      ed.token,
+      batch(
+        entry(MAIN_LOOP, 1, '{"command":"git push"}', { name: 'Bash' }),
+        entry(MAIN_LOOP, 2, 'Denied: not on main', { kind: 'decision', name: 'permission', callSeq: 1, failed: true, by: 'Boss' }),
+        entry(MAIN_LOOP, 3, '', { kind: 'compact', by: 'Boss' }),
+      ),
+    );
+    expect(res.body.stored).toBe(3);
+    expect(fleet.recordings.page(SID, null, 10, null).entries.map((r) => [r.kind, r.name, r.callSeq, r.failed, r.by])).toEqual([
+      ['tool', 'Bash', undefined, undefined, undefined],
+      ['decision', 'permission', 1, true, 'Boss'],
+      ['compact', undefined, undefined, undefined, 'Boss'],
+    ]);
+  });
+
   it('a failing write of such a prompt is logged and does not refuse the message', async () => {
     const { fleet, lines, app, ed } = await chosen();
     fleet.features.setFeature('respond', true);

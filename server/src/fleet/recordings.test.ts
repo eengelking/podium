@@ -425,6 +425,19 @@ describe('a prompt delivered from Podium', () => {
     expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual(['Boss', undefined]);
   });
 
+  it('forgets a message taken back, and takes no sender from the mod for a prompt', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.forgetPodiumPrompt('nobody', 'dlv_x'); // a session it knows nothing about
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'taken back', by: 'Ed' }, 'dlv_1');
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'kept', by: 'Boss' }, 'dlv_2');
+    m.rec.forgetPodiumPrompt('s1', 'dlv_1');
+    m.rec.ingest('s1', batch({ ...prompt(MAIN_LOOP, 1, 'taken back', T0 + 1), by: 'Mallory' }, prompt(MAIN_LOOP, 2, 'kept', T0 + 2)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => [r.text, r.by])).toEqual([
+      ['taken back', undefined],
+      ['kept', 'Boss'],
+    ]);
+  });
+
   it('stores nothing for a delivery no mod entry ever matches', () => {
     const m = running({}, [MAIN_LOOP]);
     m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'never recorded by the mod', by: 'Ed' });

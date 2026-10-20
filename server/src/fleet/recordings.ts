@@ -49,6 +49,8 @@ interface PodiumDelivery {
   at: number;
   by: string;
   text: string;
+  /** The delivery's id, so it can be forgotten. */
+  ref?: string;
 }
 
 /** Gives the event loop a turn: queued requests, timers and reports run before the next chunk. */
@@ -504,22 +506,44 @@ export class SessionRecordings {
 
   /** The mod's entry as stored: Podium's own credentials replaced, the rest as the mod redacted it (SPEC 6.4). */
   private clean(e: RecordingEntry, secrets: readonly string[]): Stored {
-    return { loop: e.loop, seq: e.seq, at: e.at, kind: e.kind, text: scrubStored(e.text, secrets, false), name: e.name, callSeq: e.callSeq, failed: e.failed, cut: e.cut, lost: e.lost };
+    return {
+      loop: e.loop,
+      seq: e.seq,
+      at: e.at,
+      kind: e.kind,
+      text: scrubStored(e.text, secrets, false),
+      name: e.name,
+      callSeq: e.callSeq,
+      failed: e.failed,
+      cut: e.cut,
+      lost: e.lost,
+      // The mod names the sender of what it took from Podium (a decision, a /clear, a /compact); a prompt's is added by `takeDelivery`.
+      by: e.kind === 'decision' || e.kind === 'clear' || e.kind === 'compact' ? (e.by ?? null) : null,
+    };
   }
 
   /**
-   * A message or answer delivered from Podium to a recorded loop is remembered (loop, time, sender, text as redacted here), not
-   * stored. The mod records every prompt of the loop and cannot tell where one came from, so when its matching `prompt` entry
-   * arrives in `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing. PROVISIONAL (#353).
+   * A message delivered from Podium to a recorded loop is remembered (loop, time, sender, text as redacted here), not stored. The
+   * mod records every prompt of the loop and cannot tell where one came from, so when its matching `prompt` entry arrives in
+   * `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing. PROVISIONAL (#353).
+   * Only a message becomes a prompt: an answer, an approval, a permission decision and /clear and /compact are recorded by the
+   * mod where it takes them (`decision`, `clear`, `compact`), so none of them is remembered here. `ref` names the delivery, so
+   * one taken back before the mod got it can be forgotten.
    */
-  notePodiumPrompt(sessionId: string, loop: string, e: { at: number; text: string; by: string }): void {
+  notePodiumPrompt(sessionId: string, loop: string, e: { at: number; text: string; by: string }, ref?: string): void {
     if (!this.capturing(sessionId)) return;
     const r = this.row(sessionId);
     if (!r?.loops.includes(loop)) return;
     const now = this.opts.now();
     const kept = (this.deliveries.get(sessionId) ?? []).filter((d) => now - d.at <= PODIUM_PROMPT_MATCH_MS);
-    kept.push({ loop, at: e.at, by: e.by, text: squash(scrubStored(e.text.slice(0, RECORDING_LIMITS.text), this.opts.secrets?.() ?? [], true)) });
+    kept.push({ loop, at: e.at, by: e.by, ref, text: squash(scrubStored(e.text.slice(0, RECORDING_LIMITS.text), this.opts.secrets?.() ?? [], true)) });
     this.deliveries.set(sessionId, kept);
+  }
+
+  /** A message that will never reach the mod (discarded, refused, closed) is no longer waiting for its prompt entry. */
+  forgetPodiumPrompt(sessionId: string, ref: string): void {
+    const list = this.deliveries.get(sessionId);
+    if (list) this.deliveries.set(sessionId, list.filter((d) => d.ref !== ref));
   }
 
   /** Takes the oldest remembered delivery that this mod `prompt` entry is: same loop, close in time, its text the delivered one (or holding it). */

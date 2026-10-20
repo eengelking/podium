@@ -974,7 +974,10 @@ and what it writes in the owner's terminal.
   either.
 - **What it hooks.** `turn.start` and `agent.spawn` (the prompts), `turn.step` (the text a model request wrote and
   the places it thought), `tool.call` (the call and its whole input, and its result), `session.compact` and
-  `session.end` with `reason: "clear"` (the marks). **Assumption:** a call's whole result is read from what
+  `session.end` with `reason: "clear"` (the marks), and the places it takes an answer or approval from Podium
+  (the question, plan and permission races of [Responding from Podium](#responding-from-podium)), where it records a
+  `decision` once Claude Code took it. A `/clear` or `/compact` it runs for Podium marks the sender while the command
+  runs. **Assumption:** a call's whole result is read from what
   `next(e)` returns for `tool.call`; confirm with a real session and report any tool whose result the mod cannot see.
 - **Thinking.** `turn.step` delivers `thinking` chunks with empty text (#353 research, below). The mod records one
   `thinking` entry for each thinking block, with no text, so the replay can show where the model thought.
@@ -1684,20 +1687,44 @@ the console ("This session's reporter does not allow recording"), and the owner 
 Admin turning the flag off also stops every recording, and what was recorded is kept until it expires.
 
 **What is captured.** For each chosen loop (the orchestrator, a subagent, a fork), in the order things happened:
-- `prompt`: the task prompt an agent starts with, the person's prompt, and a message or answer sent from Podium.
-  The mod records every prompt of a loop and cannot tell where one came from, so a prompt from Podium arrives as
-  an ordinary `prompt` entry. The server remembers what it delivered (loop, time, sender, text) and, when the mod's
+- `prompt`: the task prompt an agent starts with, the person's prompt, and a message sent from Podium.
+  The mod records every prompt of a loop and cannot tell where one came from, so a message from Podium arrives as
+  an ordinary `prompt` entry. The server remembers each message it delivered (loop, time, sender, text) and, when the mod's
   entry for it arrives (same loop, within 10 minutes, the text the delivered one or holding it), adds the sender as
   the entry's marker (`by`), as the Activity history marks them. The server writes no prompt of its own: a delivery
   the mod never records leaves nothing in the recording. Redaction differs between mod and server, so a prompt whose
-  redacted text no longer matches stays unmarked.
+  redacted text no longer matches stays unmarked. Only a message is remembered this way: an answer, an approval and
+  `/clear` and `/compact` do not arrive as a prompt, and the mod records them itself (`decision`, `clear`, `compact`).
 - `text`: what the model wrote in each request, whole.
 - `tool`: each call, with its **whole** input (a Bash command in full, the content of a Write, the old and new text
   of an Edit), not the short summary the Activity feed carries.
 - `result`: that call's **whole** output (a file's contents for Read, command output for Bash, a Grep's matches),
   with `failed` when it failed, and `callSeq` pointing at its call.
 - `thinking`: a mark where the model thought, with no text (below).
-- `clear` and `compact`: marks for a `/clear` and for a compaction, with the loop it happened in.
+- `clear` and `compact`: marks for a `/clear` and for a compaction, with the loop it happened in. When the command came
+  from Podium, the mark carries who sent it (`by`).
+- `decision`: an answer or approval sent from Podium that Claude Code took ([5.3](#responding-from-podium)), so a replay
+  shows that a question was asked, who answered it from Podium and with what, and that a plan or a tool's permission
+  prompt was approved or denied and by whom, in order after the call it answers. `name` is the kind of ask it settled
+  (`question`, `plan` or `permission`), `callSeq` points at the call (`AskUserQuestion`, `ExitPlanMode` or the tool),
+  `by` is who sent it, `failed` is set when it refused (a deny, a plan sent back), and `text` is what was chosen, in the
+  words Claude Code received it in, redacted like any other text:
+
+  | Sent from Podium | `name` | `text` |
+  |---|---|---|
+  | A question's answer | `question` | one `<question>: <answer>` line per answered question; the labels or typed text |
+  | A message in place of an answer | `question` | `Replied in place of an answer: <message>` |
+  | A plan's approval | `plan` | `Approved the plan (<and use auto mode \| auto-accept edits \| manually approve edits>)` |
+  | "No, keep planning" | `plan` | `Sent the plan back: <feedback, or "No, keep planning">`, `failed` |
+  | A message in place of approving | `plan` | `Replied in place of approving the plan: <message>`, `failed` |
+  | A tool allowed once | `permission` | `Allowed once` |
+  | A tool denied (or a message in place of the answer) | `permission` | `Denied: <reason>`, `failed` |
+
+  The mod records a `decision` where it takes the answer, never the server, and only once Claude Code took it: a plan's
+  approval after the call resolved approved, a tool's decision after the call ended the way the decision said. A Podium
+  answer the terminal beat, an approval Claude Code did not take and an answer nobody collected leave no entry. The
+  mod names the sender (`by`) itself, since only it knows what it took; the server keeps `by` for `decision`, `clear` and
+  `compact` from the mod and ignores it on any other kind.
 - `gap`: a mark, with `lost`, where entries of a loop were dropped on the machine (below).
 - `stopped` and `limit`: marks the server writes where capture ended (below).
 
@@ -1748,6 +1775,11 @@ does not need the `activityFeed` option or a keep policy.
   session's process.
 - An entry the mod cannot read (a tool whose result it cannot see) is recorded without its result, and the replay
   says so.
+- **Answers and approvals.** A question's answer or a permission decision made in the terminal is not marked as an entry of
+  its own: the mod cannot see a permission prompt that nobody from Podium answered, and a question's result is recorded
+  only when the engine hands it over as text (an `AskUserQuestion` result is an object, so the call shows with no
+  `result`). What ran, and whether it was refused, is still in the tool's `result`. A `/compact` or `/clear` a person types
+  while one sent from Podium is running can be marked as Podium's.
 - Capture begins when the first reply that allows it arrives, so a short delay after **Start** is normal.
 - A loop that starts under a recorded session after **Start** is not recorded unless it was chosen; the page's layer
   names the recorded and the unrecorded loops.
@@ -4222,7 +4254,12 @@ becomes a standard in the release-prep PR, not in the feature PR.
   page. Read-only: a replay never runs anything or sends anything to the session.
 - It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under
   each tool call. A loop filter, a position slider (`.scrub`) and **Jump to next failure** move through it. A failed
-  call uses the failure box. A compaction, a clear, a gap, a stop and a limit are marked rows (`.feed li.mark`).
+  call uses the failure box. A compaction, a clear, a gap, a stop and a limit are marked rows (`.feed li.mark`). A
+  prompt, a clear or a compact that came from Podium, and a `decision`, show who sent it as the Activity history marks
+  a Podium entry ("You, from Podium" for the signed-in viewer's own, else the name). A `decision` is a row of its own
+  right after the call it answers (`callSeq`), reading `Answered a question`, `Approved a plan`, `Sent a plan back`,
+  `Allowed a tool once` or `Denied a tool` by `name` and `failed`, with its text; one with `failed` uses the failure
+  styling, because it refused something.
 - **It loads the newest 200 rows** (`RECORDING_LIMITS.page`) and **Show older** pages back through a long run
   (`GET …/recording?before=`, [7.1](#71-endpoints)). The whole result is stored; it is not all loaded at once.
 - **Thinking.** The replay says in its header that thinking text is not available, and each place the model thought has

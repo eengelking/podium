@@ -244,12 +244,22 @@ export class Recorder {
     if (this.want(loop)) this.add(loop, 'thinking', '', at);
   }
 
-  clear(loop: string, at: number): void {
-    if (this.want(loop)) this.add(loop, 'clear', '', at);
+  /** `by` names who ran it from Podium, when it was. */
+  clear(loop: string, at: number, by?: string): void {
+    if (this.want(loop)) this.add(loop, 'clear', '', at, by ? { by } : {});
   }
 
-  compact(loop: string, at: number): void {
-    if (this.want(loop)) this.add(loop, 'compact', '', at);
+  compact(loop: string, at: number, by?: string): void {
+    if (this.want(loop)) this.add(loop, 'compact', '', at, by ? { by } : {});
+  }
+
+  /**
+   * An answer or approval from Podium that Claude Code took (#353): `name` the kind of ask it settled, `callSeq` the call it answers
+   * (null when that call was not recorded), `by` who sent it, `failed` when it refused. Recorded where the mod takes it, once.
+   */
+  decided(loop: string, callSeq: number | null, d: { name: string; text: string; failed?: true; by: string }, at: number): void {
+    if (!this.want(loop)) return;
+    this.add(loop, 'decision', d.text, at, { name: d.name, by: d.by, ...(callSeq === null ? {} : { callSeq }), ...(d.failed ? { failed: true } : {}) });
   }
 
   /** A tool call and its whole input; the `seq` its result points back to, or null when nothing is captured. */

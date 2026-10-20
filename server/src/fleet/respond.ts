@@ -33,7 +33,8 @@ const MAX_WAITERS = 200;
 
 /** Where a feed entry for something sent from Podium goes: the activity feed of the loop it is about (8.1). */
 export interface PodiumFeed {
-  add(sessionId: string, loop: string | null, ref: string, entry: { at: number; text: string; by: string; note: string | null }): void;
+  /** `delivery` is what the entry is about: a recording remembers a message only, since the mod records an answer or approval itself (SPEC 6.4). */
+  add(sessionId: string, loop: string | null, ref: string, entry: { at: number; text: string; by: string; note: string | null }, delivery: Delivery): void;
   update(sessionId: string, ref: string, note: string | null): void;
   remove(sessionId: string, ref: string): void;
 }
@@ -473,7 +474,7 @@ export class RespondStore {
     if (!parsed.ok) return { ok: false, err: parsed.err };
     const delivery: Delivery = { id: newId(), askId, by, at: this.now(), ...parsed.fields };
     e.delivery = { d: delivery, byKey: nameKey(by), result: null, handedOver: false };
-    this.feed?.add(sessionId, e.ask.agentId, delivery.id, { at: delivery.at, text: feedText(delivery, e.ask), by, note: noteFor(delivery, e.ask, null) });
+    this.feed?.add(sessionId, e.ask.agentId, delivery.id, { at: delivery.at, text: feedText(delivery, e.ask), by, note: noteFor(delivery, e.ask, null) }, delivery);
     this.wake(sessionId, askId, () => ({ kind: 'delivery', delivery: this.handOver(sessionId, e) ?? delivery }));
     this.onChange(sessionId);
     return { ok: true, delivery };
@@ -490,7 +491,7 @@ export class RespondStore {
     }
     const delivery: Delivery = { id: newId(), askId: null, by, at: this.now(), ...parsed.fields };
     s.messages.push({ d: delivery, byKey: nameKey(by), result: null, handedOver: false });
-    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null });
+    this.feed?.add(sessionId, null, delivery.id, { at: delivery.at, text: feedText(delivery, null), by, note: null }, delivery);
     return { ok: true, delivery };
   }
 

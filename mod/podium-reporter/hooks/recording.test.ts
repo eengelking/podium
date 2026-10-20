@@ -172,6 +172,37 @@ describe('Recorder capture', () => {
     expect(batch.entries[2]!.text).toBe('')
   })
 
+  test('a clear and a compact carry who ran them from Podium, and a decision points at its call', () => {
+    const r = on()
+    r.clear(MAIN_LOOP, 1, 'Boss')
+    r.compact('a1', 2, 'Ed')
+    r.clear(MAIN_LOOP, 3)
+    const call = r.call(MAIN_LOOP, 'Bash', { command: 'ls' }, 4)
+    r.decided(MAIN_LOOP, call, { name: 'permission', text: `Denied: use ${SECRET}`, failed: true, by: 'Boss' }, 5)
+    r.decided(MAIN_LOOP, null, { name: 'question', text: 'Fixed 50', by: 'Ed' }, 6)
+    const e = r.nextBatch(0)!.batch.entries
+    expect(e.map((x) => [x.kind, x.by, x.name, x.callSeq, x.failed])).toEqual([
+      ['clear', 'Boss', undefined, undefined, undefined],
+      ['compact', 'Ed', undefined, undefined, undefined],
+      ['clear', undefined, undefined, undefined, undefined],
+      ['tool', undefined, 'Bash', undefined, undefined],
+      ['decision', 'Boss', 'permission', 3, true],
+      ['decision', 'Ed', 'question', undefined, undefined],
+    ])
+    expect(e[4]!.text).toBe('Denied: use [redacted]')
+    expect(JSON.stringify(e)).not.toContain(SECRET)
+  })
+
+  test('a decision of a loop that is not chosen, or while off, is not captured', () => {
+    const r = on()
+    r.decided('a9', null, { name: 'plan', text: 'x', by: 'Ed' }, 1)
+    expect(r.nextBatch(0)).toBeNull()
+    const off = new Recorder()
+    off.begin('s1')
+    off.decided(MAIN_LOOP, null, { name: 'plan', text: 'x', by: 'Ed' }, 1)
+    expect(off.nextBatch(0)).toBeNull()
+  })
+
   test('captures nothing for a loop that is not chosen, or while off', () => {
     const r = on()
     r.prompt('a9', 'x', 1)

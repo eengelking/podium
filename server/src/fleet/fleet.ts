@@ -200,14 +200,15 @@ export class Fleet {
       {
         // The live feed is updated first and cannot fail. The history write is best effort: a full disk or a locked file is
         // logged and never reaches the answer, ask or message that caused it.
-        add: (sid, loop, ref, e) => {
+        add: (sid, loop, ref, e, delivery) => {
           this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
           this.historySafely('add', sid, () => {
             const meta = this.historyMeta(sid);
             if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
-          // A recorded loop's own prompt entry gets the sender as its marker when it arrives from the mod (#353, provisional).
-          this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e));
+          // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353, provisional). An answer, an
+          // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them.
+          if (delivery.kind === 'message') this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
         },
         update: (sid, ref, note) => {
           this.activity.updatePodium(sid, ref, note);
@@ -216,6 +217,7 @@ export class Fleet {
         remove: (sid, ref) => {
           this.activity.removePodium(sid, ref);
           this.historySafely('remove', sid, () => this.activityHistory.removePodium(sid, ref));
+          this.historySafely('remove', sid, () => this.recordings.forgetPodiumPrompt(sid, ref));
         },
       },
     );
