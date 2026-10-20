@@ -2103,6 +2103,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       `=`, `+`, `-` or `@` prefixed with `'`), `Content-Disposition: attachment`. The page's JSON export is the
       reply itself, so an export always matches the screen.
     - Today is read from the live tables, and every earlier day from the rollups.
+    - `GET reports/spend/today/:owner` (#482) returns `{ owner, total, bySession, byModel, bySource, unpriced }` for
+      the breakdown, and `GET reports/spend/projection` (#483) the projection; both are described under *Spend*.
     - A report with names in it (person, group, model, project) returns them as text.
   - Groups: `GET/POST groups`, `DELETE groups/:id`.
   - Reporters (the Reporters page, [7.7](#77-hardening), [8.1](#81-what-the-ui-must-do)): `GET reporters`,
@@ -3436,7 +3438,40 @@ menu and the page scroll on their own.
     content of the old Admin > Activity > Spend page: *Spend today, by person* and *by group* as Chart or Table,
     now the first section of this page with its `podium.adminSpend` choices unchanged, above the report. Figures
     are estimated from tokens, not a bill, and a model without a price shows a dash. A session counts on the day it
-    was last seen, so a session that runs past midnight is not split. This is the home for #482 and #483.
+    was last seen, so a session that runs past midnight is not split. The page has three sections, in this order:
+    *Spend today* (with the breakdown below), *Projection* and *Spend over time*.
+    - **Breakdown (#482).** A row in *Spend today, by person* is a button (Enter and Space work). It opens the
+      person's breakdown under the list, with a **Close** button, and focus moves to its heading. The breakdown
+      is of the same "since midnight" figure as the row, cut three ways, each adding up to the row:
+      - *By session*: each session that spent something today, with its name, model, the share it spent today and
+        a link to it in History.
+      - *By model*: each model's share of today's spend.
+      - *Orchestrator and agents*: the session's own loop against the agents it launched. A session's today share is
+        split in the same proportion as its whole cost (the agents' `cost_usd_est` against the rest).
+      - The amounts use the same estimate and prices as the table. A part on a model with no price shows a dash
+        and is left out of the sum, and a line under the breakdown counts those sessions ("plus 2 sessions on
+        models without a price"), so the priced parts still add up to what the row shows.
+      - On *by group*, a group row opens the same panel with a **By person** cut first (its members and their
+        shares), and a click on a member opens that person's breakdown. A row for sessions with no owner opens the
+        panel with only the by-session and by-model cuts.
+      - It reads `GET reports/spend/today/:owner` (the live sessions, as the table does; `owner` is the name,
+        `Admin`, or `-` for no owner). The people in it are drawn as text.
+    - **Projection (#483).** A forecast of spend over a horizon ahead, from the rollups.
+      - **Horizon**: *Rest of this month* (default) or *Next 30 days*. **Window**: the trailing 7, 14 (default)
+        or 30 complete days the run rate is taken over. Today is not in the window.
+      - Method: the **run rate** is the window's priced spend divided by its days. *Rest of this month* is the
+        month's spend so far, today included, plus the run rate for each day left after today. *Next 30 days* is
+        30 times the run rate. It does not allow for weekdays, a trend or a price change.
+      - Shown: the projected total, and beside it the window ("14 days, 2026-10-06 to 2026-10-19"), the run rate
+        per day, and the assumptions in one line ("Straight run rate. Models without a price are left out.
+        Not a budget."). Per person or group when **Group by** says so, each with its own run rate.
+      - With fewer than 7 complete days of history in the window (the server has less, or a person has been
+        active on fewer than 3 of them), it shows "Not enough history to project. Podium has N days so far" in
+        place of the number, never a guess. A person under that rule is listed with a dash.
+      - Models without a price are left out and the projection says how many sessions that was in the window.
+      - It reads `GET reports/spend/projection?horizon=&window=&by=person|group`, which returns the same
+        `columns` and `rows` as any report, so CSV and JSON export work. Because the rollups hold the history,
+        no extra history is recorded for it.
   - **People and groups**: how many people, groups and reporters there are; who reported in the period; who has
     not reported (quiet for the period, or never); the reporter versions and engine versions in use.
   - **Sessions**: counts by outcome, model, effort and plan; median and longest duration; agents launched per
@@ -3450,7 +3485,9 @@ menu and the page scroll on their own.
 - Names are untrusted text, drawn as text nodes. A CSV cell is neutralized as in [7.7](#77-hardening).
 
 **Spend (#239, `mockup/podium-admin-spend.html`)**
-- Since #484 this page is Reporting > Spend, not Activity > Spend. Its content below is unchanged.
+- Since #484 this page is Reporting > Spend, not Activity > Spend. Its content below is unchanged except that a
+  row is now a button that opens a breakdown (#482), and the projection (#483) and the over-time report sit
+  below it (see *Reporting*).
 - One section, **Spend today, by person** (or **by group**), whose lead says it is estimated from tokens, not a
   bill.
 - Its panel has a toolbar with **Group by** (People, Groups) and **Show as** (Chart, Table) and, at the right

@@ -42,6 +42,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .exp { display: inline-flex; gap: 6px; align-items: flex-end; }
 .partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
 .hb .shr { min-width: 3.5em; }
+.rowbtn { display: inline-flex; align-items: center; gap: 8px; text-align: left; border-radius: 4px; min-height: 28px; }
+.rowbtn:hover { background: var(--hover); }
+.rowbtn[aria-expanded="true"] { background: var(--sel); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .klink { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 @media print { .demo, .nav, .notes, .banner, .exp { display: none; } .frame { height: auto; border: 0; } }
 </style>
@@ -161,14 +165,56 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <div class="f"><span class="lab" aria-hidden="true">Show as</span><span class="seg" role="group" aria-label="Show as"><button type="button" aria-pressed="true">Chart</button><button type="button" aria-pressed="false">Table</button></span></div>
           <div class="sum"><div><span class="big mono">$42.18</span><span class="cap">spent today, all 6 people</span></div><div><span class="big mono">7</span><span class="cap">live sessions</span></div></div></div>
         <ul class="hb" aria-label="Spend today, by person">
-          <li><span class="lbl"><span>Maya Okafor<span class="gp"> Platform</span></span></span><span class="trk"><i style="width:100%"></i></span><span class="val mono">$16.40</span><span class="shr mono">39%</span></li>
-          <li><span class="lbl"><span>Jonas Weber<span class="gp"> Research</span></span></span><span class="trk"><i style="width:63%"></i></span><span class="val mono">$10.31</span><span class="shr mono">24%</span></li>
-          <li><span class="lbl"><span>Admin</span></span><span class="trk"><i style="width:34%"></i></span><span class="val mono">$5.60</span><span class="shr mono">13%</span></li>
+          <li><button type="button" class="lbl rowbtn" aria-expanded="true" aria-controls="bd">Maya Okafor<span class="gp"> Platform</span></button><span class="trk"><i style="width:100%"></i></span><span class="val mono">$16.40</span><span class="shr mono">39%</span></li>
+          <li><button type="button" class="lbl rowbtn" aria-expanded="false">Jonas Weber<span class="gp"> Research</span></button><span class="trk"><i style="width:63%"></i></span><span class="val mono">$10.31</span><span class="shr mono">24%</span></li>
+          <li><button type="button" class="lbl rowbtn" aria-expanded="false">Admin</button><span class="trk"><i style="width:34%"></i></span><span class="val mono">$5.60</span><span class="shr mono">13%</span></li>
         </ul>
         <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 6</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 2</span><button type="button" class="btn sm">Next</button></span></div>
       </div>
     </section>
-    <section class="asec" aria-labelledby="s-r"><div class="asec-h"><div><h2 id="s-r">Spend by month</h2><p class="hint">A session counts on the day it was last seen. A model without a price shows a dash.</p></div></div>
+    <section class="asec" aria-labelledby="bd-h" id="bd"><div class="asec-h"><div><h2 id="bd-h" tabindex="-1">Maya Okafor, spend today</h2><p class="hint">$16.40 since midnight, cut three ways. Each cut adds up to the row.</p></div><button type="button" class="btn sm">Close</button></div>
+      <div class="panel">
+        <div class="tw2"><table class="ptab" aria-label="By session">
+          <thead><tr><th scope="col">Session</th><th scope="col">Model</th><th scope="col" class="n">Spent today</th><th scope="col" class="n">Share</th><th scope="col"><span class="sr">History</span></th></tr></thead>
+          <tbody>
+            <tr><td class="who">api-refactor</td><td>Opus 5.5</td><td class="n mono">$9.12</td><td class="n mono">56%</td><td><a class="klink" href="#">Open</a></td></tr>
+            <tr><td class="who">docs-sweep</td><td>Sonnet 5.5</td><td class="n mono">$4.28</td><td class="n mono">26%</td><td><a class="klink" href="#">Open</a></td></tr>
+            <tr><td class="who">flaky-tests</td><td>Sonnet 5.5</td><td class="n mono">$3.00</td><td class="n mono">18%</td><td><a class="klink" href="#">Open</a></td></tr>
+            <tr><td class="who">scratch-local</td><td>mystery-model</td><td class="n mono muted">–</td><td class="n mono muted">–</td><td><a class="klink" href="#">Open</a></td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Total</th><td></td><td class="n mono">$16.40</td><td class="n mono">100%</td><td></td></tr></tfoot>
+        </table></div>
+        <div class="tool alone" style="border-top:1px solid var(--border);align-items:flex-start;gap:24px 40px">
+          <div class="f" style="min-width:220px"><span class="lab">By model</span>
+            <div class="mono">Opus 5.5 <b>$9.12</b> (56%)<br>Sonnet 5.5 <b>$7.28</b> (44%)<br><span class="muted">mystery-model –</span></div></div>
+          <div class="f" style="min-width:220px"><span class="lab">Orchestrator and agents</span>
+            <div class="mono">Orchestrator <b>$11.90</b> (73%)<br>Agents <b>$4.50</b> (27%)</div></div>
+        </div>
+        <div class="note-line">Plus 1 session on a model without a price. It is left out of the sums, so the priced parts add up to $16.40.</div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="p-h"><div class="asec-h"><div><h2 id="p-h">Projection</h2><p class="hint">A straight run rate from past spend. Not a budget and not a bill.</p></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><span class="lab" aria-hidden="true">Horizon</span><span class="seg" role="group" aria-label="Horizon"><button type="button" aria-pressed="true">Rest of this month</button><button type="button" aria-pressed="false">Next 30 days</button></span></div>
+          <div class="f"><span class="lab" aria-hidden="true">Window</span><span class="seg" role="group" aria-label="Window"><button type="button" aria-pressed="false">7 days</button><button type="button" aria-pressed="true">14 days</button><button type="button" aria-pressed="false">30 days</button></span></div>
+          <div class="f"><span class="lab" aria-hidden="true">Group by</span><span class="seg" role="group" aria-label="Group by"><button type="button" aria-pressed="true">People</button><button type="button" aria-pressed="false">Groups</button></span></div>
+          <div class="sum"><div><span class="big mono">$1,134.80</span><span class="cap">projected to 2026-10-31</span></div><div><span class="big mono">$38.40</span><span class="cap">run rate per day</span></div></div>
+        </div>
+        <div class="note-line"><b>Based on the 14 days 2026-10-06 to 2026-10-19.</b> Spend so far this month ($712.40, today included) plus the run rate for 11 days. No weekdays, trend or price changes allowed for. 3 sessions on models without a price are left out.</div>
+        <div class="tw2"><table class="ptab" aria-label="Projection by person">
+          <thead><tr><th scope="col">Person</th><th scope="col" class="n">Run rate per day</th><th scope="col" class="n">So far this month</th><th scope="col" class="n">Projected to 2026-10-31</th></tr></thead>
+          <tbody>
+            <tr><td class="who">Maya Okafor</td><td class="n mono">$14.80</td><td class="n mono">$290.10</td><td class="n mono">$452.90</td></tr>
+            <tr><td class="who">Jonas Weber</td><td class="n mono">$9.20</td><td class="n mono">$188.30</td><td class="n mono">$289.50</td></tr>
+            <tr><td class="who">Cai Lindqvist</td><td class="n mono muted">–</td><td class="n mono">$11.75</td><td class="n mono muted" title="Active on 2 of the 14 days">Not enough history</td></tr>
+          </tbody>
+          <tfoot><tr><th scope="row">Total</th><td class="n mono">$38.40</td><td class="n mono">$712.40</td><td class="n mono">$1,134.80</td></tr></tfoot>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 6</span><span class="row2"><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 2</span><button type="button" class="btn sm">Next</button></span></div>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="s-r"><div class="asec-h"><div><h2 id="s-r">Spend over time</h2><p class="hint">A session counts on the day it was last seen. A model without a price shows a dash.</p></div></div>
       <div class="panel">
         <div class="tool">
           <div class="f"><label class="lab" for="s-per">Period</label><select class="field" id="s-per"><option>Last 90 days</option></select></div>
@@ -255,7 +301,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li>The old <b>Reporting and security</b> page is renamed <b>Security</b> (content unchanged), so there is one "Reporting".</li>
     <li>Every report has the same shape: Period and filters, then the report with totals, a neutral-ink chart, the table, the pager, and CSV / JSON / Print.</li>
     <li>A line under the filters states the time zone, what the figures are based on, and how far back the data goes. A period before the first rollup says so instead of drawing zeros.</li>
-    <li>Spend keeps its "Spend today" section unchanged at the top, then the new period report. A session counts on the day it was last seen.</li>
+    <li>Spend has three sections. <b>Spend today</b> keeps its content, but a person's row is now a button that opens a <b>breakdown</b> (#482): by session, by model, and orchestrator against agents, each adding up to the row. A model without a price shows a dash and is counted in a line under the breakdown. On "by group", a group row opens its people first.</li>
+    <li><b>Projection</b> (#483): a straight run rate over a trailing window (7, 14 or 30 days) projected to month end or 30 days ahead, with the window, the method and the assumptions beside the number. With too little history it says "Not enough history" instead of a number.</li>
+    <li><b>Spend over time</b> is the period report from before. A session counts on the day it was last seen.</li>
     <li>The Failures page links each class to History only for sessions still within the 30 days History keeps.</li>
     <li>Data kept shows each rollup table, its oldest day and its retention (395 days), next to the shorter detail retention. Consistent with #432.</li>
   </ul>
