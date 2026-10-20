@@ -55,7 +55,9 @@ import { isDelivery, Transport, type FetchLike } from './transport.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
-import type { Ask, Delivery, DeliveryResult, MachineInfo, PeerDelivery, PeerRequest, PeerResult, RespondInfo, RespondKind, RespondLevel } from './protocol.ts';
+import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from './protocol.ts';
+import { isRecordingGrant } from './transport.ts';
+import { limitLine, Recorder, refusedLine, startLine, stoppedLine } from './recording.ts';
 import { redactText } from './diffRedact.ts';
 import {
   accessAnswer,
@@ -128,6 +130,8 @@ interface Options {
   respond: RespondLevel;
   /** Message the owner's other orchestrators through Podium (#347, #414). */
   peers: boolean;
+  /** The owner's consent to a recording of this machine's sessions (#353): off by default, enforced here and never by the server. */
+  sessionRecording: boolean;
 }
 
 interface HookStat {
@@ -195,6 +199,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     fileDiff: o.fileDiff === true,
     respond: respondLevel(o.respond),
     peers: o.peers === true,
+    sessionRecording: o.sessionRecording === true,
   };
 }
 
@@ -389,6 +394,7 @@ function metaOf(r: Runtime, now: number) {
     fullText: opts.fullPrompts,
     activity: opts.activityFeed,
     fileDiff: opts.fileDiff,
+    sessionRecording: opts.sessionRecording,
     respond: respondNow(r),
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,
     clearedFrom: r.clearedFrom,
@@ -496,6 +502,7 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     handleDiffs($, r);
     handlePeers($, r);
     messagesLine($, r);
+    takeRecording($, r.transport.recording);
   }
   else if (outcome === 'busy') r.state = { ...r.state, dirty: true };
   toastVersionOnce($, r);
@@ -601,10 +608,15 @@ async function switchSession($: Engine, r: Runtime, newId: string, now: number):
   const cleared = !r.state.ended || r.state.endReason === 'clear';
   for (const a of asks.values()) if (a.sessionId === oldId) a.done = true;
   if (!r.state.ended) {
+    recorder.clear(MAIN_LOOP, nowMs());
     r.state = sessionEnd(r.state, 'clear', r.state.id, now);
     await r.transport.idle();
     await flushOnce($, r, now, true);
   }
+  // What the old id recorded goes under the old id, then the new one starts over: it is recorded only if its own replies say so.
+  recorder.close();
+  await sendRecording($, now);
+  recorder.begin(newId);
   r.transport.queue = [];
   let startedAt = now;
   try {
@@ -649,6 +661,7 @@ async function flush($: Engine, peersOnly = false): Promise<void> {
     await readAgents($, r, now);
     if (opts.explainFailures) requestExplanations($, r);
     await flushOnce($, r, now, false);
+    await sendRecording($, now);
   } catch (err) {
     record($, 'flush', err);
   } finally {
@@ -1561,6 +1574,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   state = setIdentity(state, { cwd: e.cwd, projectRoot, repoName: repo?.name ?? repoFromRemote(repo?.remote) ?? lastSegment(projectRoot), model });
   if (usage) state = measure(state, { context: usage.context, cost: usage.cost ?? null, rateLimits: usage.rateLimits, startedAt: usage.startedAt });
   if (!same) state = addEvent(state, 'start', null, `session.start · ${shortName(model)}`, now, { surface: e.surface });
+  if (recorder.sessionId !== id) recorder.begin(id);
   const fetch: FetchLike = (url, init) => $.http.fetch(url, init);
   // Looked up once per load: the folder does not move, and a reload starts over.
   const build = rt ? rt.build : await findBuild($);
@@ -1639,6 +1653,8 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   for (const a of [...asks.values()]) if (a.sessionId === (e.sessionId || r.state.id)) finish(a);
   const now = await engineNow($);
   if (e.sessionId === r.state.id || !e.sessionId) {
+    if (e.reason === 'clear') recorder.clear(MAIN_LOOP, nowMs());
+    recorder.close();
     r.state = sessionEnd(r.state, e.reason, e.resume?.id ?? e.sessionId ?? r.state.id, now);
     // The hooks sandbox has no setTimeout: the deadline is the engine's clock. A sleep the dispatch
     // abandons rejects; either way the race is over.
@@ -1647,6 +1663,7 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
       (async () => {
         await r.transport.idle();
         await flushOnce($, r, now, true);
+        await sendRecording($, now);
       })(),
       deadline,
     ]);
@@ -1699,6 +1716,79 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     .join('\n');
 }
 
+// ---- session recording (#353, SPEC 5.3 "Session recording from the reporter") ----------------------
+// Off unless the `sessionRecording` option is on AND the last reply's grant says this session is chosen and consented. With it off
+// the recorder is never fed a thing: nothing is captured, queued or sent, and the owner is told when someone chose the session.
+
+/** Batches one last send may take: a backlog after an outage, bounded so the session's end is not held. */
+const RECORDING_FINAL_BATCHES = 20;
+/** Step text read per request: one entry holds RECORDING_LIMITS.text, one more character shows it was cut. */
+const RECORDING_STEP_TEXT_MAX = RECORDING_LIMITS.text + 1;
+
+let recorder = new Recorder();
+
+/** The loop a hook's `agentId` names; the orchestrator when it names none. */
+function recLoop(agentId: string | undefined): string {
+  return agentId ?? MAIN_LOOP;
+}
+
+/** The grant a batch's reply carries, or null. */
+function grantOf(text: string): RecordingGrant | null {
+  try {
+    const g = (JSON.parse(text) as { recording?: unknown }).recording;
+    return isRecordingGrant(g) ? g : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Takes the server's grant and tells the owner, in the terminal, what changed. */
+function takeRecording($: Engine, grant: RecordingGrant | null): void {
+  const out = recorder.apply(grant, opts.sessionRecording);
+  if (!grant) return;
+  const now = nowMs();
+  if (out.started) transcriptLine($, startLine(grant, now));
+  if (out.ended === 'stopped') transcriptLine($, stoppedLine(grant, now));
+  else if (out.ended === 'limit') transcriptLine($, limitLine(grant));
+  if (out.refused) transcriptLine($, refusedLine(grant));
+}
+
+/**
+ * Posts the recording's next batch from the flush timer (never from a hook). A closing recorder sends what it has, up to
+ * RECORDING_FINAL_BATCHES requests, and then lets go of the queue.
+ */
+async function sendRecording($: Engine, now: number): Promise<void> {
+  const rec = recorder;
+  const sid = rec.sessionId;
+  const rounds = rec.closing ? RECORDING_FINAL_BATCHES : 1;
+  for (let i = 0; sid && i < rounds && rec.due(now); i++) {
+    const out = rec.nextBatch(now);
+    if (!out) break;
+    const res = await podiumCall($, 'POST', `${sessionPath(sid)}/recording`, out.batch);
+    if (recorder !== rec || rec.sessionId !== sid) return; // the session moved on while the request was out
+    if (res?.status === 200) {
+      rec.done(out.count, now);
+      try {
+        $.ui.log(`podium-reporter: recording: sent ${out.count} entries, ${rec.redactions} redactions`, { to: 'debug' });
+      } catch {
+        // logging is best effort
+      }
+      rec.redactions = 0;
+      takeRecording($, grantOf(res.text));
+    } else if (res?.status === 403) {
+      rec.stop(); // the three yes answers are not all true any more: nothing is stored, nothing is captured
+      return;
+    } else if (res?.status === 400 || res?.status === 413) {
+      rec.drop(out.count, now); // it would never be accepted
+      break;
+    } else {
+      rec.failed(now);
+      break;
+    }
+  }
+  if (rec.closing) rec.finish();
+}
+
 // ---- registration -------------------------------------------------------------------------------
 
 export const register: Register = (on, rawOptions) => {
@@ -1709,6 +1799,7 @@ export const register: Register = (on, rawOptions) => {
   errors = [];
   stats = {};
   explained = new Set();
+  recorder = new Recorder();
   asks = new Map();
   outbox = [];
   acted = [];
@@ -1747,6 +1838,7 @@ export const register: Register = (on, rawOptions) => {
   on('turn.start', async ($, e, next) => {
     safe('turn.start', (r) => {
       r.state = turnStart(r.state);
+      recorder.prompt(recLoop(e.agentId), e.text, nowMs());
     });
     return next(e);
   }).catch(($, e, next) => next(e));
@@ -1756,18 +1848,36 @@ export const register: Register = (on, rawOptions) => {
     // the step's text as one entry. Every chunk is yielded on as it came, the same object, in order. Any other step
     // takes the plain path. `for await` drops a stream's return value, so the result is `stream.result`.
     let watching = false;
+    // A loop being recorded (#353): the same chunks are read for the text the model wrote and the places it thought.
+    let recording = false;
     safe('turn.step.watch', (r) => {
       watching = opts.activityFeed && isWatched(r.state, e.agentId);
+      recording = recorder.want(recLoop(e.agentId));
     });
     let res: Awaited<ReturnType<typeof next>['result']>;
     let text = '';
-    if (!watching) res = yield* next(e);
+    let wrote = '';
+    const thought = new Set<number>();
+    if (!watching && !recording) res = yield* next(e);
     else {
       const stream = next(e);
       for await (const chunk of stream) {
-        if (text.length < STEP_TEXT_MAX) {
+        if (watching && text.length < STEP_TEXT_MAX) {
           safe('turn.step.chunk', () => {
             if (chunk.kind === 'text' && typeof chunk.text === 'string') text += chunk.text;
+          });
+        }
+        if (recording) {
+          safe('turn.step.record', () => {
+            if (chunk.kind === 'text' && typeof chunk.text === 'string') {
+              if (wrote.length < RECORDING_STEP_TEXT_MAX) wrote += chunk.text;
+            } else if (chunk.kind === 'thinking' && !thought.has(chunk.index)) {
+              // One mark for each thinking block, in order with the text around it. Its text is not recorded (SPEC 6.4).
+              thought.add(chunk.index);
+              recorder.said(recLoop(e.agentId), wrote, nowMs());
+              wrote = '';
+              recorder.thinking(recLoop(e.agentId), nowMs());
+            }
           });
         }
         yield chunk;
@@ -1778,6 +1888,7 @@ export const register: Register = (on, rawOptions) => {
       r.state = step(r.state, { agentId: e.agentId, model: e.model, effort: e.effort, usage: res?.usage ?? null, stopReason: res?.stopReason ?? null }, nowMs());
       const said = text ? activityText(text) : '';
       if (said) r.state = addActivity(r.state, e.agentId, { at: nowMs(), kind: 'text', text: said });
+      recorder.said(recLoop(e.agentId), wrote, nowMs());
     });
     return res;
   }).catch(async function* ($, e, next) {
@@ -1797,7 +1908,10 @@ export const register: Register = (on, rawOptions) => {
     safe('session.compact', (r) => {
       if (e.trigger === 'precompute' || !res || res.skip !== undefined || !res.messages) return;
       r.state = compaction(r.state, { agentId: e.agentId, trigger: e.trigger, tokensBefore: res.tokensBefore, tokensAfter: res.tokensAfter }, nowMs());
+      recorder.compact(recLoop(e.agentId), nowMs());
     });
+    // The transcript was emptied: the owner is told again that this session is being recorded.
+    if (recorder.capturing && recorder.grant && e.trigger !== 'precompute' && res && res.skip === undefined && res.messages) transcriptLine($, startLine(recorder.grant, nowMs()));
     return res;
   }).catch(($, e, next) => next(e));
 
@@ -1841,6 +1955,7 @@ export const register: Register = (on, rawOptions) => {
         },
         nowMs(),
       );
+      recorder.prompt(res.agentId, e.prompt, nowMs());
     });
     return res;
   }).catch(($, e, next) => next(e));
@@ -1859,6 +1974,11 @@ export const register: Register = (on, rawOptions) => {
         lastCalls.set(loopKey(e.agentId), { tool, input: inputKey(args), id: e.tool_use_id });
       }
     });
+    // What a recording keeps of the call: its whole input now, its whole result when it ends (#353).
+    let callSeq: number | null = null;
+    safe('tool.call.record', () => {
+      callSeq = recorder.call(recLoop(e.agentId), tool, input, nowMs());
+    });
     let res: Awaited<ReturnType<typeof next>>;
     try {
       // While the mod responds, a question or a plan races the terminal's dialog against an answer from Podium (#206).
@@ -1874,6 +1994,7 @@ export const register: Register = (on, rawOptions) => {
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
+      recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
     });
     return res;
   }).catch(($, e, next) => next(e));

@@ -3,7 +3,7 @@
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { withBuild } from './build.ts';
 import { trimTrailingSlashes } from './machine.ts';
-import { PEER_LIMITS, type ActivityEvent, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
+import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
@@ -34,6 +34,23 @@ export function isPeerRequest(v: unknown): v is PeerRequest {
   const r = v as Partial<PeerRequest> | null;
   const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
   return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
+}
+
+/** A grant as the server sends it: only its shape is checked here. */
+export function isRecordingGrant(v: unknown): v is RecordingGrant {
+  const g = v as Partial<RecordingGrant> | null;
+  if (!g || typeof g !== 'object') return false;
+  const c = g.consent as Partial<RecordingGrant['consent']> | null | undefined;
+  return (
+    (RECORDING_STATES as readonly unknown[]).includes(g.state) &&
+    !!c &&
+    typeof c === 'object' &&
+    typeof c.admin === 'boolean' &&
+    typeof c.chosen === 'boolean' &&
+    typeof c.owner === 'boolean' &&
+    Array.isArray(g.loops) &&
+    g.loops.every((l) => typeof l === 'string')
+  );
 }
 
 /** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
@@ -120,6 +137,8 @@ export class Transport {
   peerDeliveries: PeerDelivery[] = [];
   /** The owner's open requests about this reporter, from the last reply (#347); empty while `peers` is false. */
   peerRequests: PeerRequest[] = [];
+  /** Session recording's state from the last accepted report's reply (#353); null from a server that predates it, which a mod reads as off. */
+  recording: RecordingGrant | null = null;
   inFlight = false;
   private current: Promise<SendOutcome> | null = null;
   private loggedReject = false;
@@ -190,7 +209,7 @@ export class Transport {
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; recording?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -205,6 +224,7 @@ export class Transport {
           this.peers = body.peers === true;
           this.peerDeliveries = this.peers && Array.isArray(body.peerDeliveries) ? body.peerDeliveries.filter(isPeerDelivery).slice(0, PEER_LIMITS.deliveries) : [];
           this.peerRequests = this.peers && Array.isArray(body.peerRequests) ? body.peerRequests.filter(isPeerRequest).slice(0, PEER_LIMITS.requests) : [];
+          this.recording = isRecordingGrant(body.recording) ? body.recording : null;
         } catch {
           // a 200 without a JSON body still acks what was sent
         }

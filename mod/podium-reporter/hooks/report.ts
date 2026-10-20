@@ -38,6 +38,8 @@ export interface ReportMeta {
   activity?: boolean;
   /** The `fileDiff` option: answer requests for one file's diff (#319). */
   fileDiff?: boolean;
+  /** The `sessionRecording` option: the owner's consent to be recorded (#353). */
+  sessionRecording?: boolean;
   /** Whether and how far the session can be answered from Podium (#206); omitted by nothing that responds. */
   respond?: RespondInfo | null;
   /** The asks open now, sent only while the server takes answers (#206). */
@@ -209,6 +211,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       files: { ...s.files, files: s.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) },
       activityFeed: activity,
       fileDiff: meta.fileDiff === true,
+      sessionRecording: meta.sessionRecording === true,
       ...(activity && s.main.activity.length ? { activity: feed(s.main.activity) } : {}),
       ...(meta.respond ? { respond: meta.respond } : {}),
       ...(meta.asks ? { asks: meta.asks.slice(0, 8) } : {}),
