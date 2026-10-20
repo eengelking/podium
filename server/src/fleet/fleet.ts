@@ -206,8 +206,8 @@ export class Fleet {
             const meta = this.historyMeta(sid);
             if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
-          // A recorded loop keeps what Podium delivered to it, with who sent it (#353, provisional: the mod cannot tell the source).
-          this.historySafely('add', sid, () => this.recordings.addPodiumPrompt(sid, loop ?? MAIN_LOOP, e));
+          // A recorded loop's own prompt entry gets the sender as its marker when it arrives from the mod (#353, provisional).
+          this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e));
         },
         update: (sid, ref, note) => {
           this.activity.updatePodium(sid, ref, note);

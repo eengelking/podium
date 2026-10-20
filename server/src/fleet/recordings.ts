@@ -34,6 +34,23 @@ const DAY_MS = 86_400_000;
 const CHUNK_ROWS = 5000;
 const ROW_OVERHEAD = 48;
 
+/**
+ * How far apart (ms) a prompt Podium delivered and the mod's `prompt` entry for it may be and still count as the same prompt. A
+ * message sent while the session runs waits in Claude Code's queue, so the entry can come well after the delivery.
+ */
+export const PODIUM_PROMPT_MATCH_MS = 10 * 60_000;
+
+/** Whitespace folded, so a prompt matches however the line breaks and spaces came through. */
+const squash = (s: string): string => s.replaceAll(/\s+/g, ' ').trim();
+
+/** A prompt Podium delivered, waiting for the mod's entry that carries it. */
+interface PodiumDelivery {
+  loop: string;
+  at: number;
+  by: string;
+  text: string;
+}
+
 /** Gives the event loop a turn: queued requests, timers and reports run before the next chunk. */
 const yieldNow = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
@@ -130,7 +147,7 @@ function rowOf(raw: unknown): RecRow {
   return { ...r, loops };
 }
 
-/** An entry as stored: the mod's, or one the server wrote (a mark, or a prompt Podium delivered). */
+/** An entry as stored: the mod's (a prompt Podium delivered carries its sender in `by`), or a mark the server wrote. */
 interface Stored {
   loop: string;
   seq: number;
@@ -154,6 +171,8 @@ export class SessionRecordings {
   trail: ((t: RecordingTrail) => void) | null = null;
   /** Per session: whether the last report said the reporter's `sessionRecording` option is on. In memory; a report restores it. */
   private readonly options = new Map<string, boolean>();
+  /** Per session: prompts Podium delivered that the mod's matching entry has not yet claimed. In memory only; nothing is stored for them. */
+  private readonly deliveries = new Map<string, PodiumDelivery[]>();
   /** Sessions whose recording was deleted and whose rows are still going, so a new recording waits for them. */
   private readonly deleting = new Set<string>();
   private readonly stmts = new Map<string, StatementSync>();
@@ -214,6 +233,7 @@ export class SessionRecordings {
   /** The session left the server's live set: what is remembered about its option goes. */
   forgetSession(sessionId: string): void {
     this.options.delete(sessionId);
+    this.deliveries.delete(sessionId);
   }
 
   private row(sessionId: string): RecRow | undefined {
@@ -235,6 +255,17 @@ export class SessionRecordings {
   capturing(sessionId: string): boolean {
     const r = this.enabled() ? this.row(sessionId) : undefined;
     return !!r && this.stateOf(r) === 'recording' && this.optionOn(sessionId);
+  }
+
+  /**
+   * Up to which `at` the mod's route takes entries: no end while capturing, the stop's time for a recording a person (or the
+   * session's /clear) stopped, so the last interval before the stop is not lost; null for everything else (a limit, nothing chosen,
+   * deleted, the flag or the owner's option off).
+   */
+  acceptsUntil(sessionId: string): number | null {
+    if (this.capturing(sessionId)) return Number.POSITIVE_INFINITY;
+    const r = this.enabled() && this.optionOn(sessionId) ? this.row(sessionId) : undefined;
+    return r?.state === 'stopped' ? r.stoppedAt! : null;
   }
 
   private keptUntil(r: RecRow): number {
@@ -404,7 +435,7 @@ export class SessionRecordings {
     return r.s;
   }
 
-  /** An entry the server writes (a mark, or a prompt it delivered), in the orchestrator's loop unless told otherwise. */
+  /** An entry the server writes (a mark), in the orchestrator's loop unless told otherwise. */
   private mark(sessionId: string, kind: RecordingKind, text: string, by: string | null, loop: string = MAIN_LOOP, at: number = this.opts.now()): void {
     const now = this.opts.now();
     const b = this.insert(sessionId, { loop, seq: this.serverSeq(sessionId, loop), at, kind, text, by }, now);
@@ -424,6 +455,8 @@ export class SessionRecordings {
   ingest(sessionId: string, batch: RecordingBatch, meta?: RecordingMeta): number {
     const r = this.row(sessionId);
     if (!r) return 0;
+    // A stopped recording takes the entries captured before the stop (the mod's last interval) and none after it.
+    const until = r.state === 'stopped' ? r.stoppedAt! : Number.POSITIVE_INFINITY;
     const s = this.opts.settings();
     const cap = s.sessionMb * MB;
     const budget = s.budgetMb * MB;
@@ -437,11 +470,14 @@ export class SessionRecordings {
     const hit: { sessionId: string; which: RecordingLimit; bytes: number }[] = [];
     this.tx(() => {
       for (const e of batch.entries) {
-        if (!chosen.has(e.loop)) continue;
+        if (!chosen.has(e.loop) || e.at > until) continue;
         if (this.st('SELECT 1 AS x FROM rec_entries WHERE session_id = ? AND loop = ? AND seq = ?').get(sessionId, e.loop, e.seq)) continue;
         const entry = this.clean(e, secrets);
+        const by = this.takeDelivery(sessionId, e);
+        if (by !== null) entry.by = by;
         const b = sizeOf(entry);
         const which: RecordingLimit | null = size + b > cap ? 'session' : total + b > budget ? 'budget' : null;
+        if (which && r.state === 'stopped') break; // a late entry never turns a stop into a limit
         if (which) {
           this.setLimit(sessionId, which);
           hit.push({ sessionId, which, bytes: size });
@@ -472,15 +508,28 @@ export class SessionRecordings {
   }
 
   /**
-   * A message or answer delivered from Podium to a recorded loop, as a `prompt` entry with who sent it. The mod cannot tell where a
-   * prompt came from, so the server, which knows, writes it. The server wrote this text, so it is redacted here. PROVISIONAL (#353).
+   * A message or answer delivered from Podium to a recorded loop is remembered (loop, time, sender, text as redacted here), not
+   * stored. The mod records every prompt of the loop and cannot tell where one came from, so when its matching `prompt` entry
+   * arrives in `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing. PROVISIONAL (#353).
    */
-  addPodiumPrompt(sessionId: string, loop: string, e: { at: number; text: string; by: string }): void {
+  notePodiumPrompt(sessionId: string, loop: string, e: { at: number; text: string; by: string }): void {
     if (!this.capturing(sessionId)) return;
     const r = this.row(sessionId);
     if (!r?.loops.includes(loop)) return;
-    const text = scrubStored(e.text.slice(0, RECORDING_LIMITS.text), this.opts.secrets?.() ?? [], true);
-    this.tx(() => this.mark(sessionId, 'prompt', text, e.by, loop, e.at));
+    const now = this.opts.now();
+    const kept = (this.deliveries.get(sessionId) ?? []).filter((d) => now - d.at <= PODIUM_PROMPT_MATCH_MS);
+    kept.push({ loop, at: e.at, by: e.by, text: squash(scrubStored(e.text.slice(0, RECORDING_LIMITS.text), this.opts.secrets?.() ?? [], true)) });
+    this.deliveries.set(sessionId, kept);
+  }
+
+  /** Takes the oldest remembered delivery that this mod `prompt` entry is: same loop, close in time, its text the delivered one (or holding it). */
+  private takeDelivery(sessionId: string, e: RecordingEntry): string | null {
+    const list = this.deliveries.get(sessionId);
+    if (e.kind !== 'prompt' || !list) return null;
+    const text = squash(e.text); // the mod redacted it already; a second pass is not idempotent
+    if (text === '') return null;
+    const i = list.findIndex((d) => d.loop === e.loop && Math.abs(e.at - d.at) <= PODIUM_PROMPT_MATCH_MS && d.text !== '' && (text.includes(d.text) || d.text.includes(text)));
+    return i < 0 ? null : list.splice(i, 1)[0]!.by;
   }
 
   // ---- reads ----------------------------------------------------------------------------------

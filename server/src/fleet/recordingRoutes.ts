@@ -74,7 +74,8 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     if (!credentialOwns(d.identityOf(res), row)) return refuse(409, 'that session belongs to someone else', '$.session.id');
     // A session that has ended is not accepted again: its recording is kept as it is.
     if (!fleet.isLive(row.id)) return fleet.recordings.has(row.id) ? refuse(409, 'the session has ended', '$.id') : refuse(404, 'unknown session', '$.id');
-    if (!fleet.recordings.capturing(row.id)) return off();
+    // A recording a person stopped still takes the entries captured before the stop (the mod's last interval); ingest drops later ones.
+    if (fleet.recordings.acceptsUntil(row.id) === null) return off();
     const before = fleet.recordings.grant(row.id).state;
     const stored = fleet.recordings.ingest(row.id, v.batch, metaOf(fleet, row));
     const recording = fleet.recordings.grant(row.id);

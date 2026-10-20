@@ -155,8 +155,33 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     await send(s.app, s.ed.token, report(true));
     expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(200);
     await a.post(`${BASE}/stop`).set(H);
-    expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 2)))).status).toBe(403);
-    expect(s.fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
+    expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 2, 'at the stop', { at: T0 })))).status).toBe(200);
+    expect(s.fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped', 'tool']);
+  });
+
+  it('takes the last interval after a stop: late entries are stored, later ones are not, and the reply says stopped', async () => {
+    const { app, ed, a, fleet } = await chosen();
+    expect((await post(app, ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(200);
+    expect((await a.post(`${BASE}/stop`).set(H)).status).toBe(200);
+    const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 2, 'late', { at: T0 }), entry(MAIN_LOOP, 3, 'too late', { at: T0 + 1 })));
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, stored: 1, recording: { state: 'stopped' } });
+    expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.text)).toEqual([`${BODY} 1`, '', 'late']);
+  });
+
+  it('still refuses a late batch for a recording stopped by a limit, a deleted one, and one whose flag is off', async () => {
+    const lim = await chosen();
+    vi.spyOn(lim.fleet.recordingSettings, 'get').mockReturnValue({ keepHours: 6, budgetMb: 2048, sessionMb: 100 / (1024 * 1024) });
+    await post(lim.app, lim.ed.token, batch(entry(MAIN_LOOP, 1, 'x'.repeat(200))));
+    expect((await post(lim.app, lim.ed.token, batch(entry(MAIN_LOOP, 2, 'late', { at: T0 })))).status).toBe(403);
+    const del = await chosen();
+    await del.a.post(`${BASE}/stop`).set(H);
+    expect((await del.a.delete(BASE).set(H)).status).toBe(200);
+    expect((await post(del.app, del.ed.token, batch(entry(MAIN_LOOP, 1, 'late', { at: T0 })))).status).toBe(403);
+    const off = await chosen();
+    await off.a.post(`${BASE}/stop`).set(H);
+    off.fleet.features.setFeature('session-recording', false);
+    expect((await post(off.app, off.ed.token, batch(entry(MAIN_LOOP, 1, 'late', { at: T0 })))).status).toBe(403);
   });
 
   it('is 404 for a session it does not know, and 409 for one that belongs to someone else', async () => {
@@ -476,23 +501,24 @@ describe('what the server does on its own is logged', () => {
     expect(lines.join('\n')).toContain('could not carry a recording over');
   });
 
-  it('a message or answer Podium delivers to a recorded loop is kept as a prompt with its sender', async () => {
+  it('a message Podium delivers to a recorded loop is marked on the mod entry that carries it, and not stored twice', async () => {
     const { fleet, app, ed } = await chosen();
     fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: ACCEPTS }));
     expect(fleet.respond.message(SID, 'Boss', { text: `${BODY} please also update the guide` }).ok).toBe(true);
+    expect(fleet.recordings.page(SID, null, 10, null).entries).toEqual([]);
+    const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 1, `${BODY} please also update the guide`, { kind: 'prompt', at: T0 + 1 })));
+    expect(res.body.stored).toBe(1);
     const rows = fleet.recordings.page(SID, null, 10, null).entries;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: 'prompt', by: 'Boss', loop: MAIN_LOOP });
-    void app;
-    void ed;
   });
 
   it('a failing write of such a prompt is logged and does not refuse the message', async () => {
     const { fleet, lines, app, ed } = await chosen();
     fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: ACCEPTS }));
-    vi.spyOn(fleet.recordings, 'addPodiumPrompt').mockImplementation(() => {
+    vi.spyOn(fleet.recordings, 'notePodiumPrompt').mockImplementation(() => {
       throw new Error('file is locked');
     });
     expect(fleet.respond.message(SID, 'Boss', { text: 'hello' }).ok).toBe(true);
