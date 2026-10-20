@@ -96,8 +96,16 @@ const like = (q: string) => `%${q.toLowerCase().replaceAll('\\', '\\\\').replace
 interface VictimRow {
   id: number;
   sid: string;
+  loop: string;
   b: number;
 }
+
+/** What a removal touched, so its aggregates can be settled at the end: the sessions, and the (session, loop) pairs. */
+interface Touched {
+  sessions: Set<string>;
+  loops: Map<string, { sid: string; loop: string }>;
+}
+const newTouched = (): Touched => ({ sessions: new Set(), loops: new Map() });
 
 /** A stored session as the list works with it. `lastT` is the newest time ever stored for it, an upper bound. */
 type CandidateRow = Omit<StoredSessionRow, 'live'> & { lastT: number };
@@ -194,15 +202,22 @@ export class ActivityHistory {
     let lastT = -Infinity;
     this.tx(sid, () => {
       for (const [loop, list] of lists) {
+        let n = 0;
+        let firstAt = 0;
+        let newestT = 0;
         for (const e of list ?? []) {
           const b = this.take(sid, loop, e, skewMs);
           if (b === null) continue;
           const t = e.at - skewMs;
           firstT = Math.min(firstT, t);
           lastT = Math.max(lastT, t);
+          if (!n) firstAt = e.at;
+          newestT = t;
           bytes += b;
           stored++;
+          n++;
         }
+        if (n) this.touchLoop(sid, loop, n, firstAt, newestT);
       }
       if (stored) this.touchSession(sid, meta, firstT, lastT, stored, bytes);
     });
@@ -212,7 +227,8 @@ export class ActivityHistory {
   /** Stores one reporter entry unless it repeats one already stored. Returns its size, or null when it was skipped. */
   private take(sid: string, loop: string, e: ActivityEntry, skewMs: number): number | null {
     const tail = this.tail(sid, loop);
-    const key = `${e.kind} ${e.text}`;
+    const text = e.text.slice(0, LIMITS.activityText);
+    const key = `${e.kind} ${text}`;
     if (tail.lastAt !== null) {
       if (e.at < tail.lastAt) return null;
       if (e.at === tail.lastAt && tail.same.has(key)) return null;
@@ -222,7 +238,7 @@ export class ActivityHistory {
       tail.same = new Set();
     }
     tail.same.add(key);
-    return this.insert(sid, loop, ++tail.seq, e.at, e.at - skewMs, e.kind, e.text.slice(0, LIMITS.activityText), null, null, null);
+    return this.insert(sid, loop, ++tail.seq, e.at, e.at - skewMs, e.kind, text, null, null, null);
   }
 
   /**
@@ -235,6 +251,7 @@ export class ActivityHistory {
       const tail = this.tail(sessionId, loop);
       const b = this.insert(sessionId, loop, ++tail.seq, e.at, e.at, 'podium', e.text.slice(0, LIMITS.activityText), e.by, e.note, ref);
       this.touchSession(sessionId, meta, e.at, e.at, 1, b);
+      this.touchLoop(sessionId, loop, 1, e.at, e.at);
     });
   }
 
@@ -258,10 +275,16 @@ export class ActivityHistory {
   removePodium(sessionId: string, ref: string): void {
     this.db.exec('BEGIN');
     try {
-      const gone = this.st(`DELETE FROM entries WHERE session_id = ? AND ref = ? RETURNING ${entryBytesSql()} AS b`).all(sessionId, ref) as { b: number }[];
+      const gone = this.st(`DELETE FROM entries WHERE session_id = ? AND ref = ? RETURNING loop, ${entryBytesSql()} AS b`).all(sessionId, ref) as { loop: string; b: number }[];
       if (gone.length) {
+        const touched = newTouched();
         this.st('UPDATE stored_sessions SET entries = entries - ?, bytes = bytes - ? WHERE session_id = ?').run(gone.length, gone.reduce((a, r) => a + r.b, 0), sessionId);
-        this.finishSessions([sessionId]);
+        for (const r of gone) {
+          this.st('UPDATE loops SET entries = entries - 1 WHERE session_id = ? AND loop = ?').run(sessionId, r.loop);
+          touched.loops.set(`${sessionId}\u0000${r.loop}`, { sid: sessionId, loop: r.loop });
+        }
+        touched.sessions.add(sessionId);
+        this.finish(touched);
       }
       this.db.exec('COMMIT');
     } catch (err) {
@@ -291,6 +314,15 @@ export class ActivityHistory {
     ).run(sid, meta.name, meta.project, meta.owner, firstT, lastT, entries, bytes, firstT);
   }
 
+  /** Adds `n` entries to a loop's aggregates: its count, the `at` of its first entry (kept once set) and the `t` of its newest. */
+  private touchLoop(sid: string, loop: string, n: number, firstAt: number, newestT: number): void {
+    this.st(
+      `INSERT INTO loops (session_id, loop, entries, first_at, last_t) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(session_id, loop) DO UPDATE SET entries = entries + excluded.entries, last_t = excluded.last_t,
+         first_at = COALESCE(first_at, excluded.first_at)`,
+    ).run(sid, loop, n, firstAt, newestT);
+  }
+
   /** Runs `fn` in one transaction. On a failure the session's loop positions are dropped, since they may be ahead of the file. */
   private tx(sid: string, fn: () => void): void {
     this.db.exec('BEGIN');
@@ -309,14 +341,21 @@ export class ActivityHistory {
     const key = `${sid}\u0000${loop}`;
     let tail = this.tails.get(key);
     if (tail) return tail;
-    const top = this.db.prepare('SELECT MAX(seq) AS seq FROM entries WHERE session_id = ? AND loop = ?').get(sid, loop) as { seq: number | null };
-    const newest = this.db.prepare("SELECT MAX(at) AS at FROM entries WHERE session_id = ? AND loop = ? AND kind != 'podium'").get(sid, loop) as { at: number | null };
+    const top = this.st('SELECT MAX(seq) AS seq FROM entries WHERE session_id = ? AND loop = ?').get(sid, loop) as { seq: number | null };
+    // Reporter entries are stored in time order, so the newest is the last one by sequence, and the ones stored at that same
+    // time are the run just before it: walked back from the end a few at a time, never scanning the loop.
+    const back = this.st("SELECT seq, at, kind, text FROM entries WHERE session_id = ? AND loop = ? AND kind != 'podium' AND seq < ? ORDER BY seq DESC LIMIT 50");
     const same = new Set<string>();
-    if (newest.at !== null) {
-      const rows = this.db.prepare("SELECT kind, text FROM entries WHERE session_id = ? AND loop = ? AND kind != 'podium' AND at = ?").all(sid, loop, newest.at) as { kind: string; text: string }[];
-      for (const r of rows) same.add(`${r.kind} ${r.text}`);
+    let newest: number | null = null;
+    for (let cursor = Number.MAX_SAFE_INTEGER; ; ) {
+      const rows = back.all(sid, loop, cursor) as { seq: number; at: number; kind: string; text: string }[];
+      newest ??= rows[0]?.at ?? null;
+      const run = rows.filter((r) => r.at === newest);
+      for (const r of run) same.add(`${r.kind} ${r.text}`);
+      if (run.length < 50 || rows.length < 50) break;
+      cursor = rows[rows.length - 1]!.seq;
     }
-    tail = { seq: top.seq ?? 0, lastAt: newest.at, same };
+    tail = { seq: top.seq ?? 0, lastAt: newest, same };
     this.tails.set(key, tail);
     return tail;
   }
@@ -350,8 +389,9 @@ export class ActivityHistory {
   note(sessionId: string, loop: string): Pick<ActivityHistoryNote, 'policy' | 'total' | 'since' | 'keptUntil'> | null {
     const s = this.opts.settings();
     if (s.policy === 'default') return null;
-    const r = this.db.prepare('SELECT COUNT(*) AS n, MIN(at) AS since, MAX(t) AS newest FROM entries WHERE session_id = ? AND loop = ?').get(sessionId, loop) as { n: number; since: number | null; newest: number | null };
-    if (!r.n) return null;
+    // One row of the per-loop aggregates, kept in step with every insert and removal: no counting, however long the loop.
+    const r = this.st('SELECT entries AS n, first_at AS since, last_t AS newest FROM loops WHERE session_id = ? AND loop = ?').get(sessionId, loop) as { n: number; since: number | null; newest: number | null } | undefined;
+    if (!r || r.n <= 0) return null;
     return { policy: s.policy, total: r.n, since: r.since, keptUntil: s.policy === 'after' && r.newest !== null ? r.newest + activityPeriodMs(s) : null };
   }
 
@@ -394,9 +434,11 @@ export class ActivityHistory {
   }
 
   /** The part of a filter that changes which entries count: loop, older than n days, from, to. Over `entries`, one session at a time. */
-  private windowWhere(f: StoredFilter): { sql: string; params: Param[] } {
+  private windowWhere(f: StoredFilter): { sql: string; params: Param[]; lo: number; hi: number } {
     const parts: string[] = [];
     const params: Param[] = [];
+    let lo = -Infinity;
+    let hi = Infinity;
     if (f.loop === 'main') {
       parts.push('loop = ?');
       params.push(MAIN_LOOP);
@@ -407,16 +449,19 @@ export class ActivityHistory {
     if (typeof f.olderThanDays === 'number') {
       parts.push('t < ?');
       params.push(this.opts.now() - f.olderThanDays * DAY_MS);
+      hi = Math.min(hi, this.opts.now() - f.olderThanDays * DAY_MS);
     }
     if (typeof f.from === 'number') {
       parts.push('t >= ?');
       params.push(f.from);
+      lo = Math.max(lo, f.from);
     }
     if (typeof f.to === 'number') {
       parts.push('t < ?');
       params.push(f.to);
+      hi = Math.min(hi, f.to);
     }
-    return { sql: parts.join(' AND '), params };
+    return { sql: parts.join(' AND '), params, lo, hi };
   }
 
   /**
@@ -448,23 +493,27 @@ export class ActivityHistory {
 
   /**
    * Counts a session's entries that match `where` (on `entries`, may be empty) and finds the oldest, through the (session,
-   * time) index. The session's time span is cut into slices of about `sliceRows` entries and the event loop gets a turn
-   * between slices, so a session with millions of entries is never counted in one stretch.
+   * time) index, inside the time range [lo, hi). Each statement is bounded by rows, not by time: a boundary query finds the
+   * time `sliceRows` index entries ahead, the count covers only up to it, and the event loop gets a turn between statements.
+   * Entries that all share one instant are counted in one statement, however many (a time cannot be cut), which a reporter's
+   * clock in milliseconds makes rare.
    */
-  private async countIn(c: { sessionId: string; entries: number; oldestAt: number; lastT: number }, where: string, params: Param[]): Promise<{ n: number; oldest: number | null }> {
-    const slices = Math.max(1, Math.ceil(c.entries / this.sliceRows));
-    const lo = c.oldestAt;
-    const span = c.lastT + 1 - lo;
-    const sql = this.st(`SELECT COUNT(*) AS n, MIN(t) AS oldest FROM entries WHERE session_id = ? AND t >= ? AND t < ?${where ? ` AND ${where}` : ''}`);
+  private async countIn(c: { sessionId: string; entries: number; oldestAt: number; lastT: number }, where: string, params: Param[], lo = -Infinity, hi = Infinity): Promise<{ n: number; oldest: number | null }> {
+    const boundary = this.st('SELECT t FROM entries WHERE session_id = ? AND t >= ? ORDER BY t LIMIT 1 OFFSET ?');
+    const count = this.st(`SELECT COUNT(*) AS n, MIN(t) AS oldest FROM entries WHERE session_id = ? AND t >= ? AND t < ?${where ? ` AND ${where}` : ''}`);
+    const end = Math.min(c.lastT + 1, hi);
+    let from = Math.max(c.oldestAt, lo);
     let n = 0;
     let oldest: number | null = null;
-    for (let k = 0; k < slices; k++) {
-      const from = lo + Math.floor((span * k) / slices);
-      const to = k === slices - 1 ? c.lastT + 1 : lo + Math.floor((span * (k + 1)) / slices);
-      const r = sql.get(c.sessionId, from, to, ...params) as { n: number; oldest: number | null };
+    while (from < end) {
+      const edge = boundary.get(c.sessionId, from, this.sliceRows) as { t: number } | undefined;
+      let to = edge ? Math.min(edge.t, end) : end;
+      if (to <= from) to = from + 1;
+      const r = count.get(c.sessionId, from, to, ...params) as { n: number; oldest: number | null };
       n += r.n;
       if (oldest === null && r.oldest !== null) oldest = r.oldest;
-      if (k < slices - 1) await yieldNow();
+      from = to;
+      if (from < end) await yieldNow();
     }
     return { n, oldest };
   }
@@ -483,7 +532,7 @@ export class ActivityHistory {
     if (ww.sql) {
       const counted: CandidateRow[] = [];
       for (const c of all) {
-        const r = await this.countIn(c, ww.sql, ww.params);
+        const r = await this.countIn(c, ww.sql, ww.params, ww.lo, ww.hi);
         if (r.n > 0) counted.push({ ...c, entries: r.n, bytes: Math.round((r.n * c.bytes) / Math.max(c.entries, 1)), oldestAt: r.oldest ?? c.oldestAt });
         await yieldNow();
       }
@@ -560,7 +609,7 @@ export class ActivityHistory {
       if (settings.policy === 'after') {
         const cutoff = this.opts.now() - activityPeriodMs(settings);
         for (const r of rows) {
-          const { n } = await this.countIn(r, 't < ?', [cutoff]);
+          const { n } = await this.countIn(r, 't < ?', [cutoff], -Infinity, cutoff);
           entries += n;
           bytes += Math.round((n * r.bytes) / r.entries);
           if (n >= r.entries) sessions++;
@@ -595,7 +644,7 @@ export class ActivityHistory {
     return this.heavy(async () => {
       const s = this.opts.settings();
       if (s.policy === 'default' || this.closed) return { entries: 0, bytes: 0, sessions: 0, freed: 0 };
-      const touched = new Set<string>();
+      const touched = newTouched();
       let entries = 0;
       let bytes = 0;
       const add = (r: { entries: number; bytes: number }) => {
@@ -616,7 +665,7 @@ export class ActivityHistory {
       }
       // Closed while a chunk waited its turn: the file is gone, so there is nothing left to tidy or compact.
       if (this.closed) return { entries, bytes, sessions: 0, freed: 0 };
-      const sessions = this.finishSessions(touched);
+      const sessions = this.finish(touched);
       if (!entries && !sessions) return { entries, bytes, sessions, freed: 0 };
       const freed = await this.compact();
       this.last = { at: now, entries, bytes };
@@ -625,13 +674,13 @@ export class ActivityHistory {
   }
 
   /** Deletes the rows `where` matches (on `entries`), `chunkRows` at a time, giving the event loop a turn between chunks. */
-  private async removeWhere(where: string, params: Param[], touched: Set<string>): Promise<{ entries: number; bytes: number }> {
+  private async removeWhere(where: string, params: Param[], touched: Touched): Promise<{ entries: number; bytes: number }> {
     let entries = 0;
     let bytes = 0;
     let limit = Math.min(this.chunk, FIRST_CHUNK);
     while (!this.closed) {
       const started = performance.now();
-      const rows = this.st(`SELECT id, session_id AS sid, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`).all(...params, limit) as unknown as VictimRow[];
+      const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`).all(...params, limit) as unknown as VictimRow[];
       if (!rows.length) break;
       this.dropRows(rows, touched);
       entries += rows.length;
@@ -644,13 +693,13 @@ export class ActivityHistory {
   }
 
   /** Deletes the oldest entries (by server time) until `excess` bytes are gone. */
-  private async removeOldest(excess: number, touched: Set<string>): Promise<{ entries: number; bytes: number }> {
+  private async removeOldest(excess: number, touched: Touched): Promise<{ entries: number; bytes: number }> {
     let entries = 0;
     let bytes = 0;
     let limit = Math.min(this.chunk, FIRST_CHUNK);
     while (excess > 0 && !this.closed) {
       const started = performance.now();
-      const rows = this.st(`SELECT id, session_id AS sid, ${entryBytesSql()} AS b FROM entries ORDER BY t, id LIMIT ?`).all(limit) as unknown as VictimRow[];
+      const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries ORDER BY t, id LIMIT ?`).all(limit) as unknown as VictimRow[];
       if (!rows.length) break;
       const take: VictimRow[] = [];
       for (const r of rows) {
@@ -678,20 +727,29 @@ export class ActivityHistory {
   }
 
   /** One chunk: deletes the rows and takes them off their sessions' aggregates in one transaction. */
-  private dropRows(rows: VictimRow[], touched: Set<string>): void {
-    const per = new Map<string, { n: number; b: number }>();
+  private dropRows(rows: VictimRow[], touched: Touched): void {
+    const perSession = new Map<string, { n: number; b: number }>();
+    const perLoop = new Map<string, { sid: string; loop: string; n: number }>();
     for (const r of rows) {
-      const p = per.get(r.sid) ?? { n: 0, b: 0 };
+      const p = perSession.get(r.sid) ?? { n: 0, b: 0 };
       p.n++;
       p.b += r.b;
-      per.set(r.sid, p);
+      perSession.set(r.sid, p);
+      const key = `${r.sid}\u0000${r.loop}`;
+      const l = perLoop.get(key) ?? { sid: r.sid, loop: r.loop, n: 0 };
+      l.n++;
+      perLoop.set(key, l);
     }
     this.db.exec('BEGIN');
     try {
       this.st('DELETE FROM entries WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(rows.map((r) => r.id)));
-      for (const [sid, p] of per) {
+      for (const [sid, p] of perSession) {
         this.st('UPDATE stored_sessions SET entries = entries - ?, bytes = bytes - ? WHERE session_id = ?').run(p.n, p.b, sid);
-        touched.add(sid);
+        touched.sessions.add(sid);
+      }
+      for (const [key, l] of perLoop) {
+        this.st('UPDATE loops SET entries = entries - ? WHERE session_id = ? AND loop = ?').run(l.n, l.sid, l.loop);
+        touched.loops.set(key, { sid: l.sid, loop: l.loop });
       }
       this.db.exec('COMMIT');
     } catch (err) {
@@ -700,10 +758,24 @@ export class ActivityHistory {
     }
   }
 
-  /** After a removal: drops the sessions left with no entry, and refreshes the oldest time of the rest. Returns how many were dropped. */
-  private finishSessions(sids: Iterable<string>): number {
+  /**
+   * After a removal: settles the loops and sessions it touched. A loop or session left with no entry is dropped; for the rest
+   * the first and last times are read again from the ends of their indexes. Returns how many sessions were dropped.
+   */
+  private finish(touched: Touched): number {
+    for (const { sid, loop } of touched.loops.values()) {
+      const row = this.st('SELECT entries FROM loops WHERE session_id = ? AND loop = ?').get(sid, loop) as { entries: number } | undefined;
+      if (!row) continue;
+      if (row.entries <= 0) this.st('DELETE FROM loops WHERE session_id = ? AND loop = ?').run(sid, loop);
+      else {
+        this.st(
+          `UPDATE loops SET first_at = (SELECT at FROM entries WHERE session_id = ? AND loop = ? ORDER BY seq LIMIT 1),
+             last_t = (SELECT t FROM entries WHERE session_id = ? AND loop = ? ORDER BY seq DESC LIMIT 1) WHERE session_id = ? AND loop = ?`,
+        ).run(sid, loop, sid, loop, sid, loop);
+      }
+    }
     let dropped = 0;
-    for (const sid of sids) {
+    for (const sid of touched.sessions) {
       const row = this.st('SELECT entries FROM stored_sessions WHERE session_id = ?').get(sid) as { entries: number } | undefined;
       if (!row) continue;
       if (row.entries <= 0) {
@@ -722,7 +794,8 @@ export class ActivityHistory {
    */
   deleteBy(body: StoredDeleteBody): Promise<StoredDeleteResult> {
     return this.heavy(async () => {
-      const touched = new Set<string>();
+      if (this.closed) return { entries: 0, sessions: 0, bytes: 0, freed: 0 };
+      const touched = newTouched();
       let entries = 0;
       let bytes = 0;
       const each = async (ids: string[], extra = '', params: Param[] = []) => {
@@ -739,7 +812,9 @@ export class ActivityHistory {
         const ww = this.windowWhere(body.match);
         await each(this.candidates(body.match).map((c) => c.sessionId), ww.sql ? ` AND ${ww.sql}` : '', ww.params);
       }
-      const sessions = this.finishSessions(touched);
+      // Closed while it ran: the file is gone, so there is nothing to settle or compact.
+      if (this.closed) return { entries, sessions: 0, bytes, freed: 0 };
+      const sessions = this.finish(touched);
       return { entries, sessions, bytes, freed: entries ? await this.compact() : 0 };
     });
   }

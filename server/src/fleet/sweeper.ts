@@ -1,6 +1,7 @@
 // Lifecycle timers (SPEC 7.5): the sweep every second, the KPI tick every 2 s, retention hourly.
 // Each timer body is guarded so a failing sweep is logged and the next one still runs.
 import type { ActivityHistory } from './activityHistory.js';
+import { sizeText } from './sizeText.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import type { Fleet } from './fleet.js';
 import type { PeopleStore } from './people.js';
@@ -16,14 +17,6 @@ export interface SweeperIntervals {
 }
 
 export const DEFAULT_INTERVALS: SweeperIntervals & { activityPurgeMs: number } = { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000, activityPurgeMs: 300_000 };
-
-/** A size for the Admin log: 1.5 MB, 320 KB, 12 B. */
-function sizeText(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${bytes} B`;
-}
 
 /** The stores whose purge is running now, so a tick that fires before it finishes skips instead of stacking. */
 const purging = new WeakSet<ActivityHistory>();

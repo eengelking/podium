@@ -8,11 +8,24 @@ import type { DatabaseSync } from 'node:sqlite';
 const sqlite = process.getBuiltinModule('node:sqlite');
 
 /** The schema version, kept in `PRAGMA user_version`. Raise it and add a step to `STEPS` to change the schema. */
-export const ACTIVITY_SCHEMA_VERSION = 2;
+export const ACTIVITY_SCHEMA_VERSION = 3;
 
 /** The size of one stored entry as the Stored activity table counts it: its text and labels, plus 48 bytes of row overhead. `a` is a table alias with its dot, or ''. */
 export const entryBytesSql = (a = ''): string =>
   `(length(${a}text) + length(${a}kind) + length(${a}loop) + COALESCE(length(${a}"by"), 0) + COALESCE(length(${a}note), 0) + COALESCE(length(${a}ref), 0) + 48)`;
+
+/**
+ * Sets each loop's entry count, the `at` of its first entry and the `t` of its last (by sequence) from its rows, so the live
+ * feed's note and the history page never count a loop. Used by the v3 migration and the seeder.
+ */
+export function recomputeLoops(db: DatabaseSync): void {
+  db.exec('DELETE FROM loops');
+  db.exec(`INSERT INTO loops (session_id, loop, entries, first_at, last_t)
+    SELECT g.session_id, g.loop, g.n,
+      (SELECT at FROM entries e WHERE e.session_id = g.session_id AND e.loop = g.loop ORDER BY seq LIMIT 1),
+      (SELECT t FROM entries e WHERE e.session_id = g.session_id AND e.loop = g.loop ORDER BY seq DESC LIMIT 1)
+    FROM (SELECT session_id, loop, COUNT(*) AS n FROM entries GROUP BY session_id, loop) g`);
+}
 
 /** Sets each stored session's entries, bytes and oldest_t from its rows. One pass over `entries`; used by the v2 migration and the seeder. */
 export function recomputeAggregates(db: DatabaseSync): void {
@@ -60,6 +73,15 @@ export const ACTIVITY_SCHEMA_STEPS: readonly string[] = [
    DROP INDEX entries_ref;
    CREATE INDEX entries_ref ON entries (session_id, ref) WHERE ref IS NOT NULL;
    CREATE INDEX entries_session_t ON entries (session_id, t, loop);`,
+  // v3 (#432): per-loop aggregates, so the note on the live feed and the history page read one row instead of counting a loop.
+  `CREATE TABLE loops (
+     session_id TEXT NOT NULL,
+     loop TEXT NOT NULL,
+     entries INTEGER NOT NULL,
+     first_at INTEGER,
+     last_t INTEGER,
+     PRIMARY KEY (session_id, loop)
+   ) WITHOUT ROWID;`,
 ];
 
 /** Where the activity file lives: beside the main database, or in memory when the main one is. */
@@ -81,6 +103,7 @@ export function openActivityDb(file: string): DatabaseSync {
     try {
       db.exec(ACTIVITY_SCHEMA_STEPS[v]!);
       if (v === 1) recomputeAggregates(db);
+      if (v === 2) recomputeLoops(db);
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec('COMMIT');
     } catch (err) {
