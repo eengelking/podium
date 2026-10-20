@@ -1,0 +1,33 @@
+name: Sonar bisect (temporary, #501)
+on:
+  pull_request:
+    branches: [development]
+    paths: ['.github/workflows/sonar-bisect.yml']
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - { n: fleet-top, inc: 'frontend/src/fleet/*.ts,frontend/src/fleet/*.tsx' }
+          - { n: admin, inc: 'frontend/src/fleet/admin/**' }
+          - { n: components, inc: 'frontend/src/fleet/components/**' }
+          - { n: fe-rest, inc: 'frontend/src/*.ts,frontend/src/*.tsx,frontend/src/fleet/standards/**,frontend/*.ts' }
+          - { n: server-fleet, inc: 'server/src/fleet/**' }
+          - { n: server-rest, inc: 'server/src/*.ts,server/src/admin/**,server/src/logging/**,server/*.ts' }
+          - { n: mod-scripts, inc: 'mod/**,scripts/**' }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.scanner.dumpToFile=/tmp/sonar-dump-${{ matrix.group.n }}.json
+            -Dsonar.inclusions=${{ matrix.group.inc }}
+            -Dsonar.verbose=true
