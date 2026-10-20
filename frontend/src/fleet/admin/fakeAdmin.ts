@@ -202,7 +202,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       detail: [{ name: "Per-second samples", keptDays: 1 }, { name: "Admin log", keptDays: 90 }],
     } as unknown,
     /** Activity history (#432): the Data page's state, the preview a save gets, and the stored sessions the second page lists. */
-    activity: { settings: { policy: "default", n: 30, unit: "days", capGb: null }, totals: { entries: 0, bytes: 0, sessions: 0 }, lastPurge: null, authOn: true } as ActivityHistoryState,
+    activity: { settings: { policy: "default", n: 30, unit: "days", capGb: null }, totals: { entries: 0, bytes: 0, sessions: 0, fileBytes: 0 }, lastPurge: null, authOn: true } as ActivityHistoryState,
     activityError: "",
     /** While set, reading the settings fails with this message. */
     settingsError: "",
@@ -400,7 +400,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const sum = (rows: StoredSessionRow[]) => ({ entries: rows.reduce((n, r) => n + r.entries, 0), bytes: rows.reduce((n, r) => n + r.bytes, 0), sessions: rows.length });
       const size = Number(url.searchParams.get("pageSize") ?? 25);
       const page = Number(url.searchParams.get("page") ?? 1);
-      return json(200, { total: hit.length, page, pageSize: size, rows: hit.slice((page - 1) * size, page * size), totals: sum(state.stored), match: sum(hit), projects: [...new Set(state.stored.map((r) => r.project).filter(Boolean))], owners: [...new Set(state.stored.map((r) => r.owner).filter(Boolean))] });
+      return json(200, { total: hit.length, page, pageSize: size, rows: hit.slice((page - 1) * size, page * size), totals: { ...sum(state.stored), fileBytes: sum(state.stored).bytes + 1_048_576 }, match: sum(hit), projects: [...new Set(state.stored.map((r) => r.project).filter(Boolean))], owners: [...new Set(state.stored.map((r) => r.owner).filter(Boolean))] });
     }
     if (path === "/stored-activity/delete" && method === "POST") {
       const b = JSON.parse(String(init?.body)) as { ids?: string[]; all?: true; match?: { q?: string; project?: string; owner?: string } };

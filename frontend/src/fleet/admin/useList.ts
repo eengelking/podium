@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminError, type AdminApi } from "./adminApi";
 
-/** Loads one server-paged list again whenever `path` changes, and on `reload()`. A 401 reports back so Admin can lock. */
-export function useList<T>(api: AdminApi, path: string, onLocked: () => void) {
+/** Loads one server-paged list again whenever `path` changes, on `reload()`, and every `refreshMs` while mounted (the old data stays on screen). A 401 reports back so Admin can lock. */
+export function useList<T>(api: AdminApi, path: string, onLocked: () => void, refreshMs?: number) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -26,6 +26,13 @@ export function useList<T>(api: AdminApi, path: string, onLocked: () => void) {
     };
   }, [api, path, tick]);
   const reload = useCallback(() => setTick((n) => n + 1), []);
+  useEffect(() => {
+    if (!refreshMs) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== "hidden") reload();
+    }, refreshMs);
+    return () => clearInterval(id);
+  }, [refreshMs, reload]);
   return { data, error, reload };
 }
 

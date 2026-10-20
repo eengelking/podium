@@ -25,9 +25,9 @@ afterEach(() => {
 
 type Server = ReturnType<typeof fakeServer>;
 const ROWS = [
-  { sessionId: "s1", name: "api-refactor", project: "podium", owner: "Maya Okafor", live: true, entries: 2310, bytes: 1_258_291, oldestAt: Date.UTC(2026, 9, 9) },
-  { sessionId: "s2", name: "docs-sweep", project: "docs-site", owner: "Jonas Weber", live: false, entries: 1186, bytes: 629_145, oldestAt: Date.UTC(2026, 9, 12) },
-  { sessionId: "s3", name: "flaky-tests", project: "podium", owner: null, live: false, entries: 842, bytes: 419_430, oldestAt: Date.UTC(2026, 9, 14) },
+  { sessionId: "s1", name: "api-refactor", project: "podium", owner: "Maya Okafor", live: true, entries: 2310, bytes: 1_258_291, oldestAt: Date.UTC(2026, 9, 9, 12) },
+  { sessionId: "s2", name: "docs-sweep", project: "docs-site", owner: "Jonas Weber", live: false, entries: 1186, bytes: 629_145, oldestAt: Date.UTC(2026, 9, 12, 12) },
+  { sessionId: "s3", name: "flaky-tests", project: "podium", owner: null, live: false, entries: 842, bytes: 419_430, oldestAt: Date.UTC(2026, 9, 14, 12) },
 ];
 const POLICY_AFTER = { policy: "after", n: 30, unit: "days", capGb: null } as const;
 
@@ -106,7 +106,7 @@ describe("Data, the Activity history section", () => {
     await openData();
     expect(screen.getByText("18,402 entries, 7.9 MB")).toBeInTheDocument();
     expect(screen.getByText(/stored now, in 52 sessions\./)).toBeInTheDocument();
-    expect(screen.getByText(/removed 214 entries \(96 KB\)\./)).toBeInTheDocument();
+    expect(screen.getByText(/removed 214 entries \(about 96 KB\)\./)).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("form", { name: "Activity history retention" })).getByRole("button", { name: "Stored activity" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Stored activity" })).toBeInTheDocument();
   });
@@ -238,12 +238,12 @@ describe("Data, the Activity history section", () => {
       save();
       const box = await screen.findByRole("alert");
       expect(box).toHaveTextContent("Saving removes entries that are already stored");
-      expect(box).toHaveTextContent("400 entries (2 KB)");
+      expect(box).toHaveTextContent("400 entries (about 2 KB)");
       expect(box).toHaveTextContent("3 sessions");
       expect(s.previewBodies).toEqual([{ settings: { policy: "after", n: 7, unit: "days", capGb: null } }]);
       expect(putBodies(s)).toEqual([]);
       fireEvent.click(within(box).getByRole("button", { name: "Save and remove 400 entries" }));
-      expect(await screen.findByText("Saved. Removed 400 entries (2 KB). Written to the Admin log.")).toBeInTheDocument();
+      expect(await screen.findByText("Saved. Removed 400 entries (about 2 KB). Written to the Admin log.")).toBeInTheDocument();
       expect(putBodies(s)).toEqual([{ activityHistory: { policy: "after", n: 7, unit: "days", capGb: null } }]);
       expect(screen.queryByRole("alert")).toBeNull();
     });
@@ -280,10 +280,10 @@ describe("Data, the Activity history section", () => {
       save();
       const box = await screen.findByRole("alert");
       expect(box).toHaveTextContent("Stop keeping Activity history?");
-      expect(box).toHaveTextContent("Podium stops capturing now. 1,000 entries (420 KB) are still stored.");
+      expect(box).toHaveTextContent("Podium stops capturing now. 1,000 entries (about 420 KB) are still stored.");
       expect(s.previewBodies).toEqual([{ settings: { policy: "default", n: 30, unit: "days", capGb: null } }]);
       fireEvent.click(within(box).getByRole("button", { name: "Stop and delete 1,000 entries" }));
-      expect(await screen.findByText("Saved. Stopped capturing and removed 1,000 entries (420 KB). Written to the Admin log.")).toBeInTheDocument();
+      expect(await screen.findByText("Saved. Stopped capturing and removed 1,000 entries (about 420 KB). Written to the Admin log.")).toBeInTheDocument();
       expect(putBodies(s)).toEqual([{ activityHistory: { policy: "default", n: 30, unit: "days", capGb: null } }]);
       expect(s.storedDeleteBodies).toEqual([{ all: true }]);
       expect(s.calls.findIndex((c) => c.startsWith("PUT /settings"))).toBeLessThan(s.calls.findIndex((c) => c.startsWith("POST /stored-activity/delete")));
@@ -365,7 +365,7 @@ describe("Stored activity", () => {
     expect(within(table).getByText("docs-sweep").closest("tr")).toHaveTextContent("Ended");
     expect(within(table).getByText("flaky-tests").closest("tr")).toHaveTextContent("–");
     expect(screen.getByText("entries stored").previousElementSibling).toHaveTextContent("4,338");
-    expect(screen.getByText("on disk").previousElementSibling).toHaveTextContent("2.2 MB");
+    expect(screen.getByText("on disk").previousElementSibling).toHaveTextContent("3.2 MB");
     expect(screen.getByText("sessions").previousElementSibling).toHaveTextContent("3");
     expect(screen.getByText("match the filter").previousElementSibling).toHaveTextContent("3");
     expect(screen.getByText("Showing 1 to 3 of 3")).toBeInTheDocument();
@@ -399,11 +399,11 @@ describe("Stored activity", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 2…" }));
     const box = screen.getByRole("alert");
     expect(box).toHaveTextContent("Delete the stored activity of 2 sessions?");
-    expect(box).toHaveTextContent("3,496 entries, 1.8 MB");
+    expect(box).toHaveTextContent("3,496 entries, about 1.8 MB");
     expect(box).toHaveTextContent("A session that is still running keeps being captured while the policy keeps history.");
     expect(s.storedDeleteBodies).toEqual([]);
     fireEvent.click(within(box).getByRole("button", { name: "Delete 3,496 entries" }));
-    expect(await screen.findByText("Deleted 3,496 entries (1.8 MB) from 2 sessions. 1.0 MB freed and the file compacted. Written to the Admin log.")).toBeInTheDocument();
+    expect(await screen.findByText("Deleted 3,496 entries (about 1.8 MB). 1.0 MB freed on disk and the file compacted. Written to the Admin log.")).toBeInTheDocument();
     expect(s.storedDeleteBodies).toEqual([{ ids: ["s1", "s2"] }]);
     await waitFor(() => expect(screen.queryByText("api-refactor")).toBeNull());
     expect(screen.getByText("None selected")).toBeInTheDocument();
@@ -457,9 +457,9 @@ describe("Stored activity", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete all 1 that match…" }));
     const box = screen.getByRole("alert");
     expect(box).toHaveTextContent('Delete the stored activity of the 1 session that matches: session matches "ap"?');
-    expect(box).toHaveTextContent("2,310 entries, 1.2 MB");
+    expect(box).toHaveTextContent("2,310 entries, about 1.2 MB");
     fireEvent.click(within(box).getByRole("button", { name: "Delete 2,310 entries" }));
-    expect(await screen.findByText(/^Deleted 2,310 entries \(1\.2 MB\) from 1 session\./)).toBeInTheDocument();
+    expect(await screen.findByText(/^Deleted 2,310 entries \(about 1\.2 MB\)\./)).toBeInTheDocument();
     expect(s.storedDeleteBodies).toEqual([{ match: { q: "ap" } }]);
   });
 
@@ -530,11 +530,11 @@ describe("Stored activity", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete everything…" }));
     const box = screen.getByRole("alert");
     expect(box).toHaveTextContent("Delete all stored activity, for all 3 sessions?");
-    expect(box).toHaveTextContent("4,338 entries, 2.2 MB");
+    expect(box).toHaveTextContent("4,338 entries, about 2.2 MB");
     fireEvent.click(within(box).getByRole("button", { name: "Delete 4,338 entries" }));
-    expect(await screen.findByText(/^Deleted 4,338 entries \(2\.2 MB\) from 3 sessions\. 1\.0 MB freed/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Deleted 4,338 entries \(about 2\.2 MB\)\. 1\.0 MB freed on disk/)).toBeInTheDocument();
     expect(s.storedDeleteBodies).toEqual([{ all: true }]);
-    expect(await screen.findByText("Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing has been captured yet. Activity appears here once a session runs under this policy.")).toBeInTheDocument();
   });
 
   it("pages through the sessions and changes the page size", async () => {
@@ -663,7 +663,7 @@ describe("Stored activity, keyboard and loading (#432)", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Select all 2 on this page")));
     fireEvent.click(screen.getByRole("button", { name: "Delete everything…" }));
     fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Delete [\d,]+ entries$/ }));
-    await screen.findByText("Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity.");
+    await screen.findByText("Nothing has been captured yet. Activity appears here once a session runs under this policy.");
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Session")));
   });
 });
