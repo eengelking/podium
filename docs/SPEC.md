@@ -178,7 +178,10 @@ it as an estimate. Never present it as an invoice.
   characters each, [6.4](#64-failure-and-excerpt-rules)), never the conversation around them.
 - With the `activityFeed` option on (#118), while someone watches an agent's panel, that loop's recent tool
   calls and the text it writes between them go out as short entries (300 characters each, the last 20,
-  [6.4](#64-failure-and-excerpt-rules)), and only for as long as someone watches.
+  [6.4](#64-failure-and-excerpt-rules)), and only for as long as someone watches. If the Admin has chosen to
+  keep the Activity history (#432, off by default), they go out for every running loop of the session whether
+  or not anyone watches, and the server stores them until the Admin's period ends; only the session's owner
+  and an Admin can read what is stored ([7.7](#77-hardening)).
 - With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
   server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
   Admin can read it ([7.7](#orchestrator-messaging-347)).
@@ -340,7 +343,8 @@ Added after the first build. `docs/ARCHITECTURE.md` ("Running as a service") rec
 
 - a build stage that runs `npm ci --ignore-scripts` and both builds;
 - a runtime stage with the server's production dependencies, the two `dist` trees, a non-root user and a
-  `/data` volume for the SQLite file.
+  `/data` volume for the SQLite files (`podium.sqlite`, and `activity.sqlite` beside it when the Admin keeps the
+  Activity history).
 
 Nothing else is needed. There is no second service.
 
@@ -1142,6 +1146,10 @@ Read the options via the `options` argument of `register`. A config change reloa
   the server's reply lists as watched: its tool calls and the text it writes, the last 20, each redacted and
   cut to 300 characters. It also sends `session.activityFeed`.
 - Off by default: nothing is captured and `watch` is ignored.
+- Turning it on is also consent to the Activity history: if the Admin has chosen to keep it (#432), the server
+  lists every running loop of the session as watched, so these entries are captured and stored on the server
+  whether or not anyone watches, until the Admin's period ends. The option description in the mod's
+  `plugin.json` says so.
 
 **`fileDiff`** (#319)
 - When true, the mod answers a request in the reply's `diffs` ([6.1](#61-endpoint)) by sending the diff of that
@@ -1226,7 +1234,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   | Field | Meaning |
   |---|---|
   | `serverVersion`, `serverBuild`, `reporterSupport`, `reporterCompat` | Explained in [6.8](#68-version-compatibility). |
-  | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](#64-failure-and-excerpt-rules)). Always empty while the Admin has the activity feed turned off. |
+  | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](#64-failure-and-excerpt-rules)). While the Admin keeps the Activity history (#432) and the session's reporter has the `activityFeed` option on, it also lists the orchestrator and every running agent, watched or not. Always empty while the Admin has the activity feed turned off. |
   | `respond` | Whether the server takes answers for this session now ([7.7](#77-hardening): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
   | `diffs` | The file diffs the session's signed-in owner is waiting for now (`{ id, path }`, #319, [6.4](#64-failure-and-excerpt-rules)), at most 4. Always empty while the Admin's `file-diff` flag is off or the session has no owner. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](#62-the-report), [7.1](#71-endpoints)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |
@@ -1523,25 +1531,68 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
 - The orchestrator, subagents and forks are all treated alike.
 
 **When it is sent**
-- Nothing is captured, sent or stored unless someone is watching that loop. The console's panel for an agent
-  or the orchestrator takes a short lease on it (`GET /api/fleet/sessions/:id/agents/:agentId/activity`), and
-  the reply to each report lists the loops under a live lease (`watch`, [6.1](#61-endpoint)).
-- The mod captures and sends entries only for those, from the moment it sees them listed, and forgets a
-  loop's entries once it is no longer listed.
+- Under the default policy, nothing is captured, sent or stored unless someone is watching that loop. The
+  console's panel for an agent or the orchestrator takes a short lease on it
+  (`GET /api/fleet/sessions/:id/agents/:agentId/activity`), and the reply to each report lists the loops under
+  a live lease (`watch`, [6.1](#61-endpoint)).
+- Under a keep policy (see *Activity history* below) the reply also lists the orchestrator and every running
+  agent of a session whose reporter has the option on, whether or not anyone watches. The mod needs no change
+  for this: it captures and sends whatever `watch` lists.
+- The mod captures and sends entries only for the loops listed, from the moment it sees them listed, and
+  forgets a loop's entries once it is no longer listed.
 
 **What the server does**
-- It keeps the last 20 entries of a watched loop in memory only, never in the database.
+- For the live window it keeps the last 20 entries of a watched loop in memory only.
 - It drops them when the lease lapses, when the session leaves the live set or is deleted, and on restart.
-- It never keeps an entry older than the lease, so a viewer who comes back starts empty. Nothing is
-  backfilled.
+- It never keeps an entry older than the lease in memory, so a viewer who comes back starts empty. Nothing is
+  backfilled there.
+- Under a keep policy it also writes every entry a report carries to the Activity history, described next.
+  The live window is unchanged.
 
 **Switches**
 - With the option off, the mod captures nothing, ignores `watch`, and sends `activityFeed: false`.
 - The feed needs two switches: this reporter option on the machine, and the server's `activity-feed` feature
   flag (Admin > Settings > Feature flags, [8.1](#81-what-the-ui-must-do)), which is on by default.
 - With the flag off the server grants no lease, every reply's `watch` is empty, it drops every lease and entry
-  it held at the moment the flag goes off, and it keeps nothing a mod sends. Turning it back on needs nothing
+  it held at the moment the flag goes off, it keeps nothing a mod sends, and it captures nothing for the
+  Activity history. Entries already stored are still purged by the policy. Turning it back on needs nothing
   else, since the next fetch takes a lease as usual.
+
+**Activity history (the Admin keeps the feed, #432)**
+- The Admin chooses how long the feed is kept in Admin > Server > Data. The choices are: *Not stored* (the
+  default, and exactly the behavior above), *purge after* n hours, days, weeks or months, *purge when the
+  session ends*, and *keep everything*. An optional size cap in gigabytes removes the oldest entries first.
+  The choice is one JSON row, `activity_history`, in the `settings` table
+  ([7.2](#72-database-sqlite)) and is global.
+- A keep policy needs authentication ([7.7](#77-hardening)). With no token the server treats the policy as
+  *Not stored* and refuses to save another, because nobody could be told apart as the one who may read it.
+- Entries go to a second SQLite file, `activity.sqlite`, in the same folder as `PODIUM_DB`, so the main
+  database's backups, vacuum and retention are not slowed by it. The file has its own schema version
+  (`PRAGMA user_version`), WAL, and incremental auto-vacuum. `entries` holds one row per entry (session, loop,
+  a sequence number per session and loop, the entry's own time `at`, the server-clock time `t` that the purge
+  and the filters use, kind, text, and for an entry sent from Podium who sent it and its note);
+  `stored_sessions` holds the name, project and owner so the Admin pages need no join into the main database.
+- Every entry is stored: tool calls, text, and the answers and messages sent from Podium, each keeping its
+  marker. Each was already redacted and cut to 300 characters before it left the machine, and the server adds
+  no second pass. The overlapping 20-entry snapshots the mod resends are stored once.
+- It is not a complete record. The mod keeps 20 entries per loop and one report carries 60,000 characters, so
+  a busy session can lose entries or a whole loop's feed between two reports, and nothing is replayed after
+  an outage. Capture starts when the server first lists the loop.
+- A purge runs every 5 minutes. Under *purge after* it removes entries older than the period; under *purge
+  when the session ends* it removes the entries of sessions that are not live; the size cap removes the
+  oldest entries until the total is under it. Every run that removes something writes one `admin_log` entry,
+  `activity_purged`, with the count, the size and the policy. A run that removes nothing writes nothing.
+- A session's own retention ([7.5](#75-lifecycle-timers), Retention) still applies: the entries of a session
+  that is deleted, or whose retention has run out, are removed with it, so the shorter of the two wins.
+- Each removal compacts the file (incremental vacuum, then a WAL checkpoint) so the space comes back.
+- Reading it needs a signed-in browser that is the session's owner or an Admin (the same sign-in as the file
+  diff, [7.7](#77-hardening)): `GET /api/fleet/respond/sessions/:id/activity-history?loop=&before=&limit=`
+  answers 401 without one and 403 for anyone else. The live route's reply carries only counts about the loop's
+  stored history (`history`: total, since, keptUntil, whether this viewer may read it, the owner's name), so
+  the window can say what is kept without showing text.
+- The Activity window shows the newest stored page and the live entries after it, and can page back
+  ([8.1](#81-what-the-ui-must-do)). Under the default policy no reply carries `history` and the window is as it
+  was.
 
 #### File diff (opt-in, on request, #319)
 
@@ -1872,7 +1923,20 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - `enabled` is false while the Admin has the activity feed turned off ([8.1](#81-what-the-ui-must-do)). The
   reply then has no entries and `since: null`, `live` as usual, and no lease is taken.
 - 404 for an unknown session or agent.
-- In memory only, never in the state or the stream. No token, like the other reads.
+- The entries are in memory only, never in the state or the stream. No token, like the other reads.
+- Under a keep policy (#432) the reply may also carry `history`: counts about this loop's stored history,
+  with no text (`policy`, `total`, `since`, `keptUntil`, `canRead`, `owner`). `canRead` is true when the
+  request carries a respond sign-in for the session's owner or an Admin. The reply has no `history` key
+  under the default policy or when the loop has nothing stored, so it is exactly as it was.
+
+**`GET /api/fleet/respond/sessions/:id/activity-history?loop=&before=&limit=`** (#432)
+- One page of a loop's stored Activity history, oldest first: `{ entries, olderBefore, total, since,
+  keptUntil }`. `loop` is `@orchestrator` or an agent id of the session, `before` is the `seq` of the oldest
+  entry already shown (omit it for the newest page), and `limit` is 1 to 100 (the console asks for 20).
+  `olderBefore` is the `seq` to pass for the next older page, or null.
+- It needs a signed-in respond session that is the session's owner or an Admin: 401 without a sign-in, 403
+  (with `owner`) for anyone else, 404 for an unknown session or loop, and 404 while the policy is *Not
+  stored*. `Cache-Control: no-store`. The text is never logged.
 
 **`GET /api/fleet/respond/sessions/:id/files/diff?path=`** (#319)
 - The console's request for one file's diff. It needs a respond session ([7.7](#77-hardening), *File diff*),
@@ -2123,7 +2187,7 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
   - Reports (#484, [8.1](#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
-    `failures` and `activity`, and `GET reports/retention` for the Data kept panel.
+    `failures` and `activity`, and `GET reports/retention` for the Data page's tables.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
       (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them.
       A bad value is a `400`.
@@ -2181,7 +2245,24 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       change;
     - orchestrator messaging (#347): `peerMessaging` `{ roundTrips, perMinute, maxChars, retainDays }`, whole numbers
       from 1 to 100, 1 to 60, 1 to 20,000 and 1 to 365 (defaults 10, 6, 20,000 and 30), any of them in one change,
-      written to the Admin log as `peer_limits_changed`.
+      written to the Admin log as `peer_limits_changed`;
+    - the Activity history (#432): the reply's `activityHistory` is `{ settings: { policy, n, unit, capGb },
+      totals: { entries, bytes, sessions }, lastPurge: { at, entries, bytes } | null, authOn }`, and a change sends
+      `{ activityHistory: { policy, n, unit, capGb } }`. `policy` is `default`, `after`, `end` or `all`; `unit` is
+      `hours`, `days`, `weeks` or `months`; `n` is 1 to 3650 and `capGb` is null or 1 to 1000. A keep policy is a 400
+      while the server runs without a token. A change is written to the Admin log as `activity_history_changed`.
+  - The Activity history (#432, [6.4](#64-failure-and-excerpt-rules)):
+    - `POST activity-history/preview` (`{ settings }`): what saving those settings would do now without doing it.
+      For a keep policy, `{ entries, bytes, sessions, stopsCapturing: false }` is what the purge would remove. For
+      `default`, it is what is stored now, with `stopsCapturing` true when anything is stored.
+    - `GET stored-activity?page=&pageSize=&q=&loop=&project=&owner=&olderThanDays=&from=&to=`: the stored sessions
+      (`{ total, page, pageSize, rows, totals, match, projects, owners }`; a row is `{ sessionId, name, project, owner,
+      live, entries, bytes, oldestAt }`). `loop` is `all`, `main` or `agents`; `from` and `to` are epoch
+      milliseconds. `match` is what the filter matches, for "Delete all N that match". A bad value is a `400`.
+    - `POST stored-activity/delete` (`{ ids }` of at most 200 sessions, or `{ match: <filter> }`, or `{ all: true }`;
+      an empty filter is a `400`): removes the entries, compacts the file, and answers `{ entries, sessions,
+      bytes, freed }`. It writes one `activity_deleted` entry to the Admin log with the count, the size and how
+      the entries were chosen, and never the entries' text.
   - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (`{ reporter, peers, trust, rights,
     effective, requests }`: its reporter, the owner's reporters, the owner's Trust my own reporters, and the stored and
     effective rights and open requests of every pair of the owner's reporters, each request as the owner's read lists
@@ -2199,6 +2280,22 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
 ### 7.2 Database (SQLite)
 
 Path: `PODIUM_DB` env, default `<repo>/data/podium.sqlite` (add `data/` to `.gitignore`). Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`. Migrations are a numbered list applied in order and recorded in `schema_migrations`.
+
+The Activity history (#432) is a second file, `activity.sqlite`, in the same folder (`:memory:` when the main
+database is). It has its own schema version in `PRAGMA user_version`, WAL, `synchronous=NORMAL` and incremental
+auto-vacuum, and holds only these tables, which nothing in the main database references:
+
+```sql
+CREATE TABLE entries (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, loop TEXT NOT NULL, seq INTEGER NOT NULL,
+  at INTEGER NOT NULL, t INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, "by" TEXT, note TEXT, ref TEXT);
+  -- unique (session_id, loop, seq); indexes on t and on (session_id, ref); `at` is the entry's own time, `t` the same
+  -- instant on the server's clock; "by", note and ref are set only for an entry sent from Podium
+CREATE TABLE stored_sessions (session_id TEXT PRIMARY KEY, name TEXT NOT NULL, project TEXT, owner TEXT,
+  first_t INTEGER NOT NULL, last_t INTEGER NOT NULL);  -- what the Admin pages show, with no join into the main database
+```
+
+A session's rows are removed by code (a deleted session, a purge, an Admin delete, or the hourly run that drops the
+entries of sessions the main database no longer holds), since no foreign key crosses files.
 
 ```sql
 CREATE TABLE sessions (
@@ -2278,7 +2375,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff` and `peer-messaging`, which are off, #206, #319, #347); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347)
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff` and `peer-messaging`, which are off, #206, #319, #347); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432)
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -2412,8 +2509,12 @@ The sweeper runs this hourly:
   same rows. A day whose raw rows are already gone is left as it is. Rollup rows older than 395 days are deleted.
   `peak_live_sessions` is the highest count of sessions live at one second, read from the day's samples while
   they last and never lowered once written (a day's figure only grows).
-- A rollup holds no session content (see the schema). Admin > Reporting > Data kept lists each table, its row
+- A rollup holds no session content (see the schema). Admin > Server > Data lists each table, its row
   count, its oldest day and how long it is kept.
+- The Activity history (#432) is purged by its own run every 5 minutes, not by this hourly one, because the
+  Admin may keep it for hours. It lives in `activity.sqlite` and follows the Admin's policy
+  ([6.4](#64-failure-and-excerpt-rules)). The hourly run also removes the entries of any session the main
+  database no longer holds, so a session's own retention ends its history too (the shorter wins).
 
 The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `RETAIN_SESSIONS_MS`,
 `RETAIN_ADMIN_LOG_MS` and `RETAIN_ROLLUP_MS` (395 days). `GET /api/admin/log` also returns the period as `retainMs`, and Admin > Admin log says
@@ -2576,6 +2677,25 @@ The registry removes a client on `close`/`error`, and a write that throws never 
 - A session id that already belongs to another owner is refused with `409`.
 - Any valid credential may `DELETE` a session.
 
+#### Activity history (#432)
+
+Stored activity is reported text and can hold anything an agent read or ran, so it is the second read that is not open.
+
+- Keeping it needs authentication on. Without a token the server runs the *Not stored* policy and refuses to save
+  another.
+- Reading it needs a respond session (the same sign-in as the file diff, *Responding* in
+  [8.1](#81-what-the-ui-must-do)). The session's owner (the signed-in person whose name equals the session's
+  `owner`, compared case-insensitively) and an Admin can read it. An Admin can read it because the Admin runs the
+  server and can already delete it; unlike the file diff, this is not limited to the owner. A session owned by
+  `Admin` is read with the admin secret. A session with no owner can be read only by an Admin. Everyone else gets
+  `403`, and the live route's `history.canRead` is false for them.
+- Only the Admin changes the policy, previews it, lists what is stored and deletes it, through the Admin API
+  ([7.1](#71-endpoints)), which needs the unlocked Admin session. Each change and each delete is written to the
+  admin log (`activity_history_changed`, `activity_deleted`), and each purge run that removes something is
+  (`activity_purged`), with counts and sizes and never entry text.
+- The text is never logged, and a backup of the database folder holds it until a purge or a delete removes it. A
+  delete removes it from the database and compacts the file; it does not change copies made earlier.
+
 #### File diff (#319)
 
 A file's diff is source code. Reads are open by design, so this is the one read that is not.
@@ -2647,8 +2767,11 @@ A file's diff is source code. Reads are open by design, so this is the one read 
 **The admin log**
 - It records unlocks, failed unlocks, lockouts, people, rotations, revocations, group changes, the reporting
   switch, the feature flags (a flag turned on or off, kind `feature_changed`), the wall settings (a notice
-  turned on or off, background sessions shown or hidden), the model prices (a price set, a price reset) and a
-  reporter taken off the list (`reporter_removed`), each with the source address.
+  turned on or off, background sessions shown or hidden), the model prices (a price set, a price reset), a
+  reporter taken off the list (`reporter_removed`) and the Activity history (#432: a policy saved,
+  `activity_history_changed`; entries deleted by the Admin, `activity_deleted`; a purge run that removed
+  something, `activity_purged`, one entry per run, with counts and sizes and never text), each with the source
+  address.
 
 **Names**
 - A name is 1 to 48 characters and a group name 1 to 24, with no control characters, both unique
@@ -3458,8 +3581,8 @@ menu and the page scroll on their own.
 - It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in three
   groups:
   - People and access: People, Groups, Reporters.
-  - Server: Settings, Model prices, Security.
-  - Reporting (#484): Usage, Spend, People and groups, Sessions, Failures, Admin activity, Data kept.
+  - Server: Settings, Model prices, Security, Data, Stored activity (#432).
+  - Reporting (#484): Usage, Spend, People and groups, Sessions, Failures, Admin activity.
   - Activity: Admin log.
 - The page that was "Reporting and security" is now **Security** (#484), so two entries do not both say
   "Reporting". Its content is unchanged.
@@ -3553,10 +3676,34 @@ menu and the page scroll on their own.
   - **Failures**: counts by failure class and tool, over time and by person, each class row linking to History
     filtered to those sessions while they are within the 30 days History keeps. It is the root-cause report.
   - **Admin activity**: the Admin log filtered by kind and period, read from `admin_log` (90 days).
-  - **Data kept**: each rollup table, its rows, its oldest day, and how long it is kept; the retention of
-    samples, events, sessions and the Admin log beside them. The text says a rollup holds counts, tokens, cost
-    and names, and no prompts or tool input.
 - Names are untrusted text, drawn as text nodes. A CSV cell is neutralized as in [7.7](#77-hardening).
+
+**Data and Stored activity (#432, `mockup/podium-activity-history.html`)**
+- **Data** (it was Data kept under Reporting, #484, and moved to the Server group because it now holds a setting
+  and deletes, while a report only reads). Sections: *Daily rollups* (each table, its rows, its oldest day, how long
+  it is kept; the text says a rollup holds counts, tokens, cost and names, and no prompts or tool input), *Detail
+  rows* (samples, events and ended sessions, the Admin log, and Activity history, each with how long it is kept,
+  and a line saying the first three are set with `RETAIN_*` environment variables and cannot be changed here),
+  and *Activity history*.
+- *Activity history* is one form of Settings-style rows, each the full width of its panel. A select picks the
+  policy (Not stored, Purge after a set time, Purge when the session ends, Keep everything). *Purge after* adds a
+  row for the number and unit, and any keep policy adds a row for the optional size cap and a warning bar (the
+  warning color, `role="note"`) that says every reporter will send more, the server will store more, and that only
+  the session's owner and the Admin can read it. A line under the form shows the last purge, and the stored total.
+  Without a server token the keep choices are disabled with a line saying a token is needed.
+- **Save** is the page's one primary button. A save that would remove stored entries (a shorter time, purge when
+  the session ends) or stop capturing first asks, in the warning-bordered confirmation box: it names how many
+  entries and how much space will go, and offers a button for each answer. Returning to Not stored offers *Stop
+  and delete N entries*, *Stop, keep what is stored* and *Cancel*. The count comes from the preview route.
+  Saving is written to the Admin log.
+- **Stored activity** shows the totals (entries, size on disk, sessions, how many match), the filters (session,
+  loop, project, owner, older than, entries from and to, source), a table of sessions with a tick box (name and
+  project, owner, state as shape plus word, entries, size, oldest entry) and the pager. A selection bar offers
+  *Delete N…* for the ticked sessions, *Delete all N that match…* (only with a filter set) and *Delete
+  everything…*. Each opens the confirmation box naming the entries and size that will go, and for a running
+  session says it keeps being captured while the policy keeps history. After a delete a line says how many entries
+  went, how much space was freed, and that the Admin log has it. Source has one choice today, Activity.
+- Nothing here shows entry text. Reading stored text is in the Activity window ([8.1](#81-what-the-ui-must-do)).
 
 **Spend (#239, `mockup/podium-admin-spend.html`)**
 - Since #484 this page is Reporting > Spend, not Activity > Spend. Its content below is unchanged except that a
@@ -3600,7 +3747,8 @@ features that can be switched off appear here."
 - The flags are:
   - **Agent activity feed** (`activity-feed`): "Shows an agent's recent tool calls and text in its panel while
     someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after
-    the panel closes."
+    the panel closes unless the Admin chooses to keep activity in Admin > Server > Data. Off, nothing is captured
+    or kept."
   - **Respond from Podium** (`respond`, #206, [7.7](#77-hardening)).
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
     the console. The diff is source code, read from the machine only when asked and never stored. Needs the
@@ -4376,6 +4524,25 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
   the session."
 - *Finished.* A finished agent (or an ended session) is fetched once more for its last entries, offers no
   dropdown, and says "Agent finished, no more updates".
+- *Stored history (#432).* When the Admin keeps the Activity history and a reply carries `history`, the window
+  changes as follows. Under the default policy none of it applies and the window is as described above.
+  - A viewer who may read it (`canRead`) gets the newest stored page from
+    `GET /api/fleet/respond/sessions/:id/activity-history` ([7.1](#71-endpoints)), and the live entries after it
+    without repeating one the page already holds. The 20-entry cap no longer applies. An ended loop still loads
+    its stored page.
+  - Under the list, while older entries are stored, a row says "Showing the newest N" with a **Show older**
+    button (a small button; the row is as tall as the button). Older entries are prepended without moving what
+    the viewer was reading.
+  - The footer count reads "412 stored entries since 2026-10-12" (one entry: "1 stored entry"), and the time
+    reads as above. The line under it says how long entries stay and who can read them: "Kept until 2026-11-11,
+    then purged." (when the policy is a period), "Kept until the session ends, then removed." or "Kept until the
+    session is removed from Podium.", each followed by "Only the owner and the Admin can open it. Secrets are
+    removed before they leave the session." The modal shows the same line.
+  - A viewer who may not read it sees no entries. The list says "History is kept for this session. Only Ed and
+    the Admin can open it." (or, when not signed in, "Sign in as Ed or an Admin to open it."), the count says
+    "Nothing to show", and the line under says stored activity can hold anything an agent read or ran, so it is
+    not shown to other viewers. A refusal from the history route (401 or 403) shows the same.
+  - A failure to load stored history does not stop the live entries; the next fetch asks again.
 - *Expand* opens the same feed, larger, in the console's modal, with the same blur, Esc, X, click-outside,
   focus trap and focus return as the Report modal (one shared `Modal` component), and the dropdown in its
   header. It shares the panel's fetching.

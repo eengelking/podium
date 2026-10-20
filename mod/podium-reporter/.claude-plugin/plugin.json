@@ -65,7 +65,7 @@
     "activityFeed": {
       "type": "boolean",
       "title": "Send an agent's recent activity",
-      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). Nothing is sent for an agent nobody is watching, and the server keeps it in memory only. Off by default.",
+      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep activity history: then every running agent's activity is sent and stored on the server until the Admin's period ends, and only you and the Admin can read it. Off by default.",
       "default": false
     },
     "fileDiff": {

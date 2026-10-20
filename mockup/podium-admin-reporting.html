@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
 <link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
 <style>
-/* Mockup for #484. Admin gets a Reporting menu group of seven pages; Spend moves into it from Activity, and the old
+/* Mockup for #484. Admin gets a Reporting menu group (seven pages here; since #432 Data kept is Admin > Server > Data, so six); Spend moves into it from Activity, and the old
    "Reporting and security" page is renamed Security so two entries do not both say "Reporting". Colors and fonts come
    from tokens.css through fleet.css; this file has no :root block. Only the demo chrome (.demo, .stage, .notes) and the
    few report-only pieces (.rbar, .note-line, .chart, .exp) are the mockup's own. */
@@ -297,7 +297,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="notes">
   <h2>What this mockup proposes</h2>
   <ul>
-    <li>A new menu group, <b>Reporting</b>, with seven pages: Usage, Spend, People and groups, Sessions, Failures, Admin activity, Data kept. Spend moves here from Activity, which keeps only the Admin log.</li>
+    <li>A new menu group, <b>Reporting</b>, with six pages: Usage, Spend, People and groups, Sessions, Failures, Admin activity. (This mockup also drew a seventh, Data kept; #432 moved it to Admin > Server > Data, see mockup/podium-activity-history.html.) Spend moves here from Activity, which keeps only the Admin log.</li>
     <li>The old <b>Reporting and security</b> page is renamed <b>Security</b> (content unchanged), so there is one "Reporting".</li>
     <li>Every report has the same shape: Period and filters, then the report with totals, a neutral-ink chart, the table, the pager, and CSV / JSON / Print.</li>
     <li>A line under the filters states the time zone, what the figures are based on, and how far back the data goes. A period before the first rollup says so instead of drawing zeros.</li>
@@ -305,7 +305,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li><b>Projection</b> (#483): a straight run rate over a trailing window (7, 14 or 30 days) projected to month end or 30 days ahead, with the window, the method and the assumptions beside the number. With too little history it says "Not enough history" instead of a number.</li>
     <li><b>Spend over time</b> is the period report from before. A session counts on the day it was last seen.</li>
     <li>The Failures page links each class to History only for sessions still within the 30 days History keeps.</li>
-    <li>Data kept shows each rollup table, its oldest day and its retention (395 days), next to the shorter detail retention. Consistent with #432.</li>
+    <li>Data kept shows each rollup table, its oldest day and its retention (395 days), next to the shorter detail retention. Consistent with #432. Since #432 it is the Data page in the Server group, with an Activity history setting.</li>
   </ul>
   <h2>Pages not drawn</h2>
   <ul><li>People and groups, Sessions and Admin activity use the same stack and the same table and filter pieces. Their columns are in docs/SPEC.md.</li></ul>

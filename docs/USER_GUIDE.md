@@ -509,13 +509,29 @@ orchestrator's Activity section works the same way, for its own calls and text.
   that (10, 20, 30 or 60 seconds), and your browser remembers the choice.
 - Scroll up to read earlier entries and the list stops following. **Jump to latest** brings it back.
 - **Expand** opens the same list in a larger window, which closes like the Report one.
-- Nothing is fetched while the panel is closed or the tab is hidden. Podium keeps only the last 20 entries, only while
-  someone is watching. Close the panel and it is gone, and opening it again starts empty.
+- Nothing is fetched while the panel is closed or the tab is hidden. By default Podium keeps only the last 20 entries,
+  only while someone is watching. Close the panel and it is gone, and opening it again starts empty. The Admin can
+  choose to keep more: see [Stored history](#stored-history) below.
 
 It needs podium-reporter 0.13.0 or later with the mod's `activityFeed` option on, and the server's **Agent activity
 feed** flag on in Admin > Settings > Feature flags. Everyone who can open the console can watch, which is why the option
 is off by default. The option is per machine, like the rest of the mod's options, so each person who wants the feed for
 their own sessions turns it on for themselves.
+
+##### Stored history
+
+The Admin can have Podium keep the feed for longer (Admin > Server > Data, [Data](#data)). It is off by default, so
+nothing changes unless they turn it on. When it is on, Podium stores what every running agent and the orchestrator does,
+whether or not anyone is watching, until the Admin's period ends.
+
+- The window then shows the newest stored entries with your live ones after them, and **Show older** pages back. The
+  footer says how many entries are stored and since when, and the line under it says how long they stay.
+- It also works for a session that has ended, until its entries are purged.
+- Only the session's owner and the Admin can read stored history. Anyone else sees a line saying so, and no entries. You
+  need to be signed in (the same sign-in as responding and file diffs).
+- It is a record of what the reporter sent, not a complete one: the mod keeps 20 entries per loop between reports, so a
+  busy session can miss some. Secrets are removed on your machine before anything is sent, and the Admin can delete
+  stored history at any time ([Stored activity](#stored-activity)).
 
 ##### Turn on the feed
 
@@ -527,7 +543,7 @@ their own sessions turns it on for themselves.
 3. A changed setting reloads the mod, so a session that is already running should pick it up. If the panel still says the
    option is off, run `/reload-plugins` in that session.
 4. Open the agent's panel. The feed starts empty and fills from that moment, because nothing is sent for an agent nobody
-   is watching.
+   is watching (unless the Admin keeps stored history, which also stores what happened before you opened the panel).
 5. If the section says "The activity feed is turned off by the Admin.", the person who runs the server has switched it
    off for everyone in Admin > Settings > Feature flags. It is on by default. An open panel keeps checking and starts
    the feed again, empty, once the flag is back on. You do not need to reload.
@@ -800,8 +816,8 @@ Admin has fourteen pages, listed in a menu down the left side:
 | Menu group | Pages |
 |---|---|
 | People and access | [People](#people-page), [Groups](#groups), [Reporters](#reporters) |
-| Server | [Settings](#settings), [Model prices](#model-prices), [Security](#security) |
-| Reporting | [Usage](#usage), [Spend](#spend), [People and groups](#people-and-groups), [Sessions](#reporting-sessions), [Failures](#failures), [Admin activity](#admin-activity), [Data kept](#data-kept) |
+| Server | [Settings](#settings), [Model prices](#model-prices), [Security](#security), [Data](#data), [Stored activity](#stored-activity) |
+| Reporting | [Usage](#usage), [Spend](#spend), [People and groups](#people-and-groups), [Sessions](#reporting-sessions), [Failures](#failures), [Admin activity](#admin-activity) |
 | Activity | [Admin log](#admin-log) |
 
 - **Lock Admin** is at the bottom of the menu. After you use it, reloading the page asks for your name and token again,
@@ -925,7 +941,8 @@ These settings apply to every browser and stay after a restart.
     Podium cannot tell whether Claude Code read it.
 - **Agent activity feed** (`activity-feed`) is on by default. Turned off, every agent and orchestrator panel says the
   Admin turned the feed off, the server asks no mod for activity and forgets what it held, whatever each machine's
-  `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload.
+  `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload. Turned off, nothing
+  new is stored either, even if the Admin keeps stored history.
 - **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
   the Files list to read its diff in a window. The diff is source code: the mod reads it from the machine only when
   someone opens the file, and only if that machine's `fileDiff` option is on. The server passes it to the one browser
@@ -993,6 +1010,51 @@ and cache write for 1 hour. They start as the prices on Anthropic's pricing shee
 One switch, **Allow reporters to use the admin secret**. When it is off, a reporter that still sends the secret is
 refused. Sessions that report with the secret show under the owner **Admin**.
 
+### Data
+
+What Podium stores, for how long, and what you can remove. It has three sections.
+
+**Daily rollups.** The daily summaries (usage, sessions, failures and the fleet) are kept for 395 days (set
+`RETAIN_ROLLUP_MS` to change that). They hold counts, tokens, cost and names, never prompts, answers, tool input or paths.
+
+**Detail rows.** How long the detailed rows last: samples 24 hours, events and ended sessions 30 days, the Admin log 90
+days. These are set with environment variables on the server (`RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`,
+`RETAIN_ADMIN_LOG_MS`) and cannot be changed on this page.
+
+**Activity history.** How long the agent activity feed is kept after a viewer leaves. The default is **Not stored**,
+which is how Podium has always worked. Pick a policy from the list:
+
+- **Purge after a set time**: hours, days, weeks or months. Entries older than that are removed.
+- **Purge when the session ends**: history is kept while the session runs and removed when it ends.
+- **Keep everything**: nothing is removed automatically. Use [Stored activity](#stored-activity) to delete.
+- An optional **size cap** in gigabytes removes the oldest entries first.
+
+Choosing a keep policy makes every reporter send more, and makes the server store more, so a warning says so before
+you save. It needs a token on the server: without one, nobody could be told apart as the person who may read it, so
+the keep choices are turned off. Podium checks each save: a choice that would remove entries that are already stored,
+or stop keeping history, asks first and says how many entries and how much space will go. When you stop keeping
+history you can delete what is stored or leave it for later. A purge runs every few minutes, and each run that
+removes something is written to the Admin log once. Under the line, the page shows the last purge and how much is
+stored.
+
+Stored text can hold anything an agent read or ran. Reporters remove secrets before they send it, but that is not a
+guarantee, so deleting has to be quick and complete (below).
+
+### Stored activity
+
+The Activity history Podium holds, by session. At the top are the totals (entries, size on disk and sessions). Filter
+by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**), tick sessions and delete:
+
+- **Delete N…** removes the ticked sessions' history.
+- **Delete all N that match…** removes everything the filter matches (it needs a filter).
+- **Delete everything…** empties it.
+
+Each asks first and says how many entries and how much space will go. A running session keeps being captured while the
+policy keeps history. After a delete, the file is compacted so the space comes back, and a line says how much was
+freed. Each delete is written to the Admin log with who did it and how much went, and never the text. A delete changes
+the database only; copies of the database you made earlier are not changed. To remove something private that leaked,
+delete the session's history, or use the date range to remove just the minutes concerned across sessions.
+
 ### Reporting
 
 The Reporting pages answer "who used this, what did it cost, and what went wrong" for a period you pick, and let you
@@ -1057,16 +1119,6 @@ days), a row links to one in History; older failures show counts only.
 The Admin log, filtered by kind and period: token rotations, revocations, settings changes and so on. Entries go back 90
 days.
 
-#### Data kept
-
-What Podium stores for reporting and for how long. The daily summaries (usage, sessions, failures and the fleet) are kept
-for 395 days (set `RETAIN_ROLLUP_MS` to change that). They hold counts, tokens, cost and names, never prompts, answers,
-tool input or paths. The page also lists how long the detailed rows last: samples 24 hours, events and ended sessions 30
-days, the Admin log 90 days.
-
-To see the reports with realistic history on a test server, run the simulator and fill a throwaway database with past
-days: `npx tsx scripts/podium-seed-history.ts --db /path/to/throwaway.db`. It never touches your real database.
-
 ### Admin log
 
 Who made each change (a person, or the admin secret), with the address each came from. It records:
@@ -1075,7 +1127,9 @@ Who made each change (a person, or the admin secret), with the address each came
 - new people, rotations and revocations,
 - group changes,
 - reporters removed,
-- changes to the feature flags, the wall settings and model prices.
+- changes to the feature flags, the wall settings and model prices,
+- changes to the Activity history policy, history the Admin deleted, and each purge that removed something (counts and
+  sizes only).
 
 It never holds a token or the secret. Entries are kept for 90 days (set `RETAIN_ADMIN_LOG_MS` to change that), and the
 newest 100 are kept however old they are. The page says how long entries are kept.
@@ -1258,7 +1312,7 @@ secret is replaced with `[redacted]` before it is sent. Podium never reads trans
 | What | When it leaves the session |
 |---|---|
 | An agent's whole task prompt and final answer | Only if you turn on the mod's `fullPrompts` option (off by default) |
-| What an agent is doing (recent tool calls and the text it writes, each cut to 300 characters) | Only if you turn on the mod's `activityFeed` option (off by default), and even then only while someone has that agent's panel open in the console |
+| What an agent is doing (recent tool calls and the text it writes, each cut to 300 characters) | Only if you turn on the mod's `activityFeed` option (off by default), and even then only while someone has that agent's panel open in the console, unless the server's Admin chooses to keep activity history, which stores it for every running agent until the Admin's period ends |
 | The diff of one changed file | Only if you turn on the mod's `fileDiff` option (off by default) and the Admin turns on the File diff switch, and only when the session's owner opens that file in the console. It is source code with anything that looks like a secret replaced by `[redacted]` on your machine (best effort, not a guarantee; files such as `.env` and keys are never sent), shown to that one person and not kept by the server |
 | What a session waits on you for (a question with its options, a plan, or a tool's arguments) | Only if you set the mod's `respond` option (`off` by default) and the server takes answers. Only the session's owner and an Admin can see it, and the server keeps it in memory only |
 | Your name and your machine | Only once you set the mod's `userName` option (empty by default) |

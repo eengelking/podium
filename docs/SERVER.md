@@ -45,8 +45,9 @@ podiumctl rm --purge --yes          # remove the container, its data volume and 
 
 `--mode`, `--port` and `--bind` are saved, so later commands reuse them. Where the data lives:
 
-- Container mode keeps the database in the Podman volume `podium-data`.
-- Standalone mode keeps it in `~/.podium/data/`.
+- Container mode keeps the database in the Podman volume `podium-data`. If the Admin keeps Activity history it adds a
+  second file, `activity.sqlite`, in the same folder.
+- Standalone mode keeps it in `~/.podium/data/`, with `activity.sqlite` beside it when Activity history is kept.
 
 By default, container mode publishes the port on `127.0.0.1` only. `--bind` sets the address it publishes on.
 
@@ -201,7 +202,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | SQLite database file (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone) |
+| `PODIUM_DB` | `data/podium.sqlite` | SQLite database file (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |

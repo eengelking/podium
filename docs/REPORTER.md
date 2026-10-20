@@ -95,7 +95,7 @@ instead. Everything except `token` also has a row in the `/config` menu.
 | `sessionName` | empty | Display name override (below `/podium name` and the name set in Claude Code) |
 | `showStatus` | `true` | Show the status line entry |
 | `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Everyone who can open the console can read them |
-| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
+| `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
 | `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. Nothing is sent for a file nobody opens. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
 | `peers` | `false` | Message my other orchestrators: this machine's orchestrators can message your other orchestrators through Podium, within the rights you set on My reporters. See [Messaging your other orchestrators](#messaging-your-other-orchestrators). It needs a per-person token and `userName`, and the server's Orchestrator messaging switch in Admin > Settings > Feature flags (off by default). Set it on each machine that takes part |
@@ -183,12 +183,15 @@ Data goes only to the server URL above, and only the items below. Podium never r
 - Whether `activityFeed` is on, and whether `peers` is on (always off in a `claude -p` run).
 
 **Only with `activityFeed`**, only when the server's Admin has not turned the feed off, and only while
-someone is watching an agent's (or the orchestrator's) panel right now:
+someone is watching an agent's (or the orchestrator's) panel right now, or, when the server's Admin has chosen
+to keep Activity history, for every running agent and the orchestrator:
 
 - That loop's last 20 tool calls, each the tool's name and a short summary of its arguments (a Bash command,
   a file path, a search pattern), and the text the model wrote between them, each cut to 300 characters.
-- The model's thinking is never sent. When nobody is watching, nothing of it is read or sent, and the server
-  forgets it soon after the panel closes.
+- The model's thinking is never sent. When nobody is watching and the Admin keeps no history, nothing of it is
+  read or sent, and the server forgets it soon after the panel closes. When the Admin keeps history, the server
+  stores these entries until the Admin's period ends (the Admin sees how long under Admin > Server > Data). The
+  mod itself changes nothing: it sends what the server's reply lists.
 
 **Only with `respond` (and `activityFeed`)**, when the server takes answers:
 
@@ -222,7 +225,7 @@ someone is watching an agent's (or the orchestrator's) panel right now:
 replaced with `[redacted]`: `sk-ant-...` keys, `ghp_...` tokens, `AKIA...` keys, `Bearer ...` values, and
 the values after `password=`, `token=`, `secret=`, `apikey=` and `api_key=`. A whole prompt or answer goes
 out only for `fullPrompts`, and what an agent is doing goes out only for `activityFeed`, while someone
-watches.
+watches or, if the Admin keeps Activity history, whenever the agent runs.
 
 ## Sessions without the mod
 

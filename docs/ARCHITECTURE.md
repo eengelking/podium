@@ -313,11 +313,12 @@ Files: `components/ReportDocs.tsx`, `components/Markdown.tsx`, `components/Modal
 ### Activity feed
 
 Files: `server/src/fleet/activity.ts`, `featureFlags.ts`, `frontend/src/fleet/useActivityFeed.ts`. Issue #118.
-The reasoning is in DECISIONS 24 and 25; mod option `activityFeed` arrived in mod 0.13.0.
+The reasoning is in DECISIONS 24 and 25; mod option `activityFeed` arrived in mod 0.13.0. Since #432 the Admin can
+also keep the feed durably; that is the *Activity history* below and DECISIONS 39.
 
-The feed is observed only. Nothing about an agent's activity is captured, sent or kept unless a viewer is watching
-that loop. There is no table for the feed, no migration, and no entries in the state or the stream. `ingest.ts`
-never sees the entries, because it copies named fields only.
+The live window is observed only. Under the default policy nothing about an agent's activity is captured, sent or
+kept unless a viewer is watching that loop. There is no table for the live feed, no migration, and no entries in
+the state or the stream. `ingest.ts` never sees the entries, because it copies named fields only.
 
 **Server**
 
@@ -366,6 +367,47 @@ never sees the entries, because it copies named fields only.
 
 `scripts/podium-sim.ts` reads `watch` from each reply too and sends a scripted entry a second for each watched
 loop that is still working, so the panel can be seen filling without a real session.
+
+### Activity history
+
+Files: `server/src/fleet/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
+`activityHistorySettings.ts` (the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
+the Admin pages), `sweeper.ts` (`purgeActivityHistory`), `frontend/src/fleet/admin/DataPage.tsx` and
+`StoredActivityTab.tsx`, and the window changes in `useActivityFeed.ts` and `ActivityFeed.tsx`. Issue #432; the
+reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `scripts/podium-seed-activity.ts`.
+
+- **A second SQLite file.** `activity.sqlite` sits beside `podium.sqlite` (`activityDbPath`), with its own schema
+  version in `PRAGMA user_version`, WAL, and incremental auto-vacuum (set before the first table exists). Nothing in
+  the main database references it and no foreign key crosses files, so code removes a session's rows. It lives in
+  the same `/data` volume, so the container and `podiumctl` need no change. Nothing is written to it under the
+  default policy.
+- **The policy** is one JSON row in the main `settings` table (`activity_history`), read through
+  `ActivityHistorySettingsStore`. A server without a token reads it as `default` and refuses to save another.
+- **Capture needs no lease.** `Fleet` passes `ActivityStore` a function that lists the orchestrator and every
+  running agent of a session, and `watched()` appends them for a session whose reporter has the option on. The mod
+  already sends whatever `watch` lists, so it is unchanged. `Fleet.ingest` hands each report to
+  `ActivityHistory.ingest`, which stores what is new. The mod resends its last 20 entries every report with no
+  ids, so a loop keeps a small tail in memory (the newest stored time and the entries at it), reloaded from the
+  file after a restart, and skips an entry it already has or one older than that. Each entry gets the next `seq` for
+  its session and loop, and two times: `at` as the feed shows it, and `t` on the server's clock (`at` minus the
+  report's clock skew), which the purge and the filters use. Entries sent from Podium are written through the
+  respond bridge with their ref, sender and note.
+- **Purge and removal.** `startSweeper` runs `purgeActivityHistory` every 5 minutes and once at start. A run
+  applies the policy in one transaction (`after`: older than the period; `end`: sessions that are not live; the cap:
+  oldest first), compacts the file with bounded `incremental_vacuum` steps and a WAL checkpoint, and writes one
+  `activity_purged` admin log row when it removed something. `Fleet.retain()` (hourly) removes the rows of sessions
+  the main database no longer holds, and `deleteSession` removes a session's rows at once. The Admin's deletes and the
+  preview run the same code (`deleteBy`, `preview`, which rolls its transaction back).
+- **Reads.** The live route's reply may carry a `history` note (counts only). The entries come from
+  `GET /api/fleet/respond/sessions/:id/activity-history`, which needs a respond sign-in for the session's owner
+  or an Admin. The Admin API (`/api/admin/settings`, `activity-history/preview`, `stored-activity`,
+  `stored-activity/delete`) writes the admin log itself.
+- **UI.** The Data page and Stored activity use the Admin's own rows, warning bar, confirmation box and selection
+  bar. In the window `useActivityFeed` loads the newest stored page when `history.canRead`, merges the live entries
+  after it by (time, kind, text) so none shows twice, and `loadOlder` prepends pages by `seq`.
+- **Limits.** It is not a complete record: the mod keeps 20 entries per loop and one report carries 60,000
+  characters, so a busy session can lose entries, and nothing is replayed after an outage. The size cap compares an
+  estimate of the entries' bytes, not the file's size, because freed pages stay in the file until vacuum.
 
 ### Responding
 
@@ -698,10 +740,11 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   and the report reply; the mod finds its own with `hooks/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every
   2 s) and `wall`, and accepts at most 100 clients.
-- **Admin pages.** `AdminView` lists fourteen pages in four groups: People, Groups and Reporters (People and
-  access); Settings, Model prices and Security (Server); Usage, Spend, People and groups, Sessions, Failures, Admin
-  activity and Data kept (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
-  `frontend/src/fleet/admin/`, and the Reporting pages share `ReportPages.tsx`.
+- **Admin pages.** `AdminView` lists fifteen pages in four groups: People, Groups and Reporters (People and
+  access); Settings, Model prices, Security, Data and Stored activity (Server); Usage, Spend, People and groups,
+  Sessions, Failures and Admin activity (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
+  `frontend/src/fleet/admin/`, the Reporting pages share `ReportPages.tsx`, and Data and Stored activity are
+  `DataPage.tsx` and `StoredActivityTab.tsx` (#432).
 - **Mounts.** The server mounts `/api/fleet` and `/api/admin`, then `/api/health` and a 404 for any other `/api`
   path, then serves the built frontend with `*` falling back to `index.html`.
 
