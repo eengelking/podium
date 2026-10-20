@@ -9,6 +9,7 @@ import { isFlat, type GroupBy, type Unit } from "../people";
 import type { ComponentProps, CSSProperties } from "react";
 import { useWallColumns } from "../useWallColumns";
 import { Sparkline } from "./Sparkline";
+import { placePinned, type Pin } from "../pins";
 import { NoticeStack, type NoticeItem } from "./NoticeStack";
 
 const COST_TODAY_TITLE = "What the fleet has spent since midnight on the server, counting only the part of a session that came after midnight.";
@@ -160,13 +161,15 @@ export function Wall(props: {
   noticeOn?: (id: string) => boolean;
   onCloseNotice?: (item: NoticeItem) => void;
   people?: WallPeople;
+  /** The pinned cards (#496) and what the pin button does; the card goes to `slot` in its wall or band. */
+  pins?: { list: readonly Pin[]; onToggle: (id: string, slot: number) => void };
   /** Title each card `machine | session` (Admin > Settings, #480). */
   machineTitle?: boolean;
 }) {
   const pv = props.people;
   // One set of columns for the whole wall, from the total shown, so every band lines up (#145).
   const wall = useWallColumns(props.sessions.length);
-  const card = (s: SessionView, showName: boolean) => (
+  const card = (s: SessionView, showName: boolean, slot: number) => (
     <SessionCard
       key={s.id}
       s={s}
@@ -178,6 +181,7 @@ export function Wall(props: {
       onOpen={() => props.onOpen(s.id)}
       onRemove={props.onRemove ? () => props.onRemove?.(s.id) : undefined}
       owner={pv ? { machine: pv.machines.get(s.id) ?? null, showName } : undefined}
+      pin={props.pins ? { on: props.pins.list.some((p) => p.id === s.id), onToggle: () => props.pins?.onToggle(s.id, slot) } : undefined}
     />
   );
   const banded = pv && !isFlat(pv.groupBy);
@@ -206,9 +210,9 @@ export function Wall(props: {
       <div ref={wall.ref} className={wall.cols ? "wall-area has-cols" : "wall-area"} style={wall.cols ? ({ "--wall-cols": wall.cols } as CSSProperties) : undefined}>
         {props.sessions.length ? (
           banded ? (
-            <Bands sessions={props.sessions} people={pv} card={card} />
+            <Bands sessions={props.sessions} people={pv} card={card} pins={props.pins?.list} />
           ) : (
-            <div className="wall">{props.sessions.map((s) => card(s, !!pv && pv.groupBy !== "me"))}</div>
+            <div className="wall">{placePinned(props.sessions, props.pins?.list ?? []).map((s, i) => card(s, !!pv && pv.groupBy !== "me", i))}</div>
           )
         ) : null}
       </div>
@@ -228,7 +232,7 @@ export function Wall(props: {
 }
 
 /** The wall as bands: each band holds its shown sessions in the wall's sort order; a band with none shown is left out. */
-function Bands({ sessions, people, card }: { sessions: SessionView[]; people: WallPeople; card: (s: SessionView, showName: boolean) => JSX.Element }) {
+function Bands({ sessions, people, card, pins }: { sessions: SessionView[]; people: WallPeople; card: (s: SessionView, showName: boolean, slot: number) => JSX.Element; pins?: readonly Pin[] }) {
   const unitOf = new Map<string, string>();
   for (const u of people.units) for (const s of u.sessions) unitOf.set(s.id, u.key);
   const shownBy = new Map<string, SessionView[]>();
@@ -250,7 +254,7 @@ function Bands({ sessions, people, card }: { sessions: SessionView[]; people: Wa
         const showName = u.kind !== "person" && u.kind !== "admin" && u.kind !== "unassigned";
         return (
           <Band key={u.key} unit={u} total={people.total} machines={machines} open={!people.collapsed.has(key)} onToggle={() => people.onToggleBand(key)} shown={shown.length}>
-            {shown.map((s) => card(s, showName))}
+            {placePinned(shown, pins ?? []).map((s, i) => card(s, showName, i))}
           </Band>
         );
       })}

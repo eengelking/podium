@@ -1,0 +1,187 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Pin Cards</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #496, for approval. The wall, toolbar and cards below are the app's own markup and classes (copied from the
+   session-card, toolbar and wall samples in docs/standards/components.html), so they look as they do in production.
+   The only new thing is the pin button (.pin), built from tokens. Colors and fonts come from tokens.css through
+   fleet.css; this file has no :root block. The page chrome (.mk-*) is the mockup's own. */
+body { height: auto; overflow: auto; }
+.mk-bar { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-bar b { color: var(--ink); }
+.mk-page { max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+.mk-page h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.mk-page h2 { font-size: 15px; margin: 0 0 6px; }
+.mk-page p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-sec { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mk-cap { color: var(--muted); font-size: 12px; }
+.mk-cap b { color: var(--ink); }
+.mk-narrow { max-width: 400px; }
+.mk-spec { display: flex; flex-wrap: wrap; gap: 14px; }
+.mk-spec > div { width: 340px; max-width: 100%; }
+.mk-log { min-height: 1.4em; font: 12px var(--font-mono); color: var(--muted); }
+.mk-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mk-decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mk-decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.mk-decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+/* The pin: a 24px square icon button in the card's first row, just before the model chip. The row holds an empty 24px .pinslot there so nothing is covered;
+   the button is a sibling of the card button (a button cannot nest in a button, as with Remove and Respond) and is laid over that slot. */
+.podium .card .h .pinslot { flex: none; width: 24px; height: 24px; }
+.podium .card-slot .pin { position: absolute; left: 0; top: 0; z-index: 2; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.podium .card-slot .pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.podium .card-slot:hover .pin, .podium .card-slot .pin:focus-visible, .podium .card-slot .pin[aria-pressed="true"], .podium .card-slot .pin.show { opacity: 1; }
+.podium .card-slot .pin:hover { background: var(--raised); border-color: var(--border); color: var(--ink); }
+.podium .card-slot .pin[aria-pressed="true"] { background: var(--raised); border-color: var(--axis); color: var(--ink); }
+.podium .card-slot .pin[aria-pressed="true"] svg { fill: currentColor; }
+.podium .card-slot .pin:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .card-slot.pinned > .card { border-color: var(--axis); }
+@media (hover: none) { .podium .card-slot .pin { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .podium .card-slot .pin { transition: none; } }
+</style>
+
+<div class="podium">
+<div class="mk-bar">
+  <b>Mockup #496 - Pin cards</b>
+  <span>Theme</span>
+  <span class="seg" role="group" aria-label="Theme"><button type="button" data-theme-set="light" aria-pressed="false">Light</button><button type="button" data-theme-set="dark" aria-pressed="false">Dark</button><button type="button" data-theme-set="" aria-pressed="true">System</button></span>
+</div>
+
+<main class="mk-page">
+  <section>
+    <h1>Pin cards on the Fleet wall</h1>
+    <p>This is the real wall: the toolbar and cards below use the app's own markup and styles. The one new piece is a small pin button in each card's first row, just before the model, in a space the row now keeps free so no existing information is covered. A pinned card keeps its place while statuses, costs, the sort and new sessions change around it, until you unpin it.</p>
+  </section>
+
+  <section class="mk-sec">
+    <h2>The pin button, on a real card</h2>
+    <div class="mk-spec">
+      <div><div class="wall" id="spec-a"></div><p class="mk-cap">Not pinned. The pin appears when you hover or tab to the card (always on touch screens), in the gap before the model. Shown here as hovered. The name has 32 px less room before it is cut off with an ellipsis.</p></div>
+      <div><div class="wall" id="spec-b"></div><p class="mk-cap">Pinned. Always visible: filled pin and a stronger card border, so it does not rely on color alone.</p></div>
+    </div>
+  </section>
+
+  <section class="mk-sec">
+    <h2>Try it: pin the second card, then change things</h2>
+    <div class="mk-acts">
+      <span class="mk-cap">Make things change:</span>
+      <span class="seg" role="group" aria-label="Simulate">
+        <button type="button" id="a-status">Statuses change</button>
+        <button type="button" id="a-new">A session joins</button>
+        <button type="button" id="a-reset">Reset</button>
+      </span>
+    </div>
+    <div class="mk-log" id="log" role="status" aria-live="polite">Start: sorted by status. Pin a card with its pin button.</div>
+    <div class="toolbar"><div class="tools"><div class="fgrp"><div class="seg" role="group" aria-label="Filter by status"><button type="button" aria-pressed="true">All</button><button type="button" aria-pressed="false">Running</button><button type="button" aria-pressed="false">Waiting</button><button type="button" aria-pressed="false">Stale</button><button type="button" aria-pressed="false">Blowouts</button></div><label class="sortlab" for="podium-sort" title="Orders the cards inside each band">Sort by</label><select class="sel" id="podium-sort"><option value="status">Status</option><option value="model">Model</option><option value="blow">Context blowouts</option><option value="ctx">Context used</option><option value="cost">Cost</option><option value="newest">Newest</option></select><input class="search" type="search" placeholder="Filter by name, project or branch" aria-label="Filter orchestrators" value=""></div><span class="spacer"></span><span class="kpi-cap counts">7 shown · 0 cleared today</span></div></div>
+    <div class="wall-area"><div class="wall" id="wall-wide"></div></div>
+    <p class="mk-cap">Use <b>Sort by</b> above too: pinned cards stay where they are and the rest re-sort around them. The slot numbers are not shown on the real wall.</p>
+  </section>
+
+  <section class="mk-sec">
+    <h2>Narrow width (400 px)</h2>
+    <div class="mk-narrow"><div class="wall-area"><div class="wall" id="wall-narrow"></div></div></div>
+    <p class="mk-cap">One column, the same cards. The pin stays 24 px and reachable.</p>
+  </section>
+
+  <section class="mk-sec">
+    <h2>Decisions this mockup proposes (to be written into SPEC 8.1)</h2>
+    <div class="mk-decisions">
+      <div><b>Stored per browser</b>In <code>localStorage</code> under <code>podium.pins</code>, with try/catch, like the other wall choices. Not per person: no server change.</div>
+      <div><b>A pin is a slot</b>It holds the card's place in reading order (1st, 2nd, 3rd...) within its wall or band, taken when pinned. Two pins never share a slot.</div>
+      <div><b>Columns</b>The slot is a place in the flow, so with more or fewer columns it still reads left to right, top to bottom. It is not a row and column.</div>
+      <div><b>Filter, Group by, Only me</b>A filtered-out pinned card is hidden and the others close up, with no gap; it returns to its slot when it matches again. Under Group by a pin holds its slot inside its band. A pin hidden by Only me is kept.</div>
+      <div><b>Departed sessions</b>A pin for a session that ended or was removed is dropped. A session that is only hidden keeps its pin.</div>
+      <div><b>Slot past the end</b>With fewer cards than the slot number, the card goes last and returns to its slot when more cards arrive.</div>
+    </div>
+  </section>
+</main>
+</div>
+
+<template data-id="a" data-status="running" data-cost="3.1"><div class="card-slot"><button type="button" class="card sc" data-session="s1"><div class="z1"><div class="h"><span class="sd"><svg class="si si-running" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="none"></path></svg></span><span class="nm">api-refactor</span><span class="mdl"><span class="chip" style="--c: var(--opus);" title="claude-opus-5-5"><i></i>Opus 5.5</span><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class=""></b></span></span></div><div class="pathrow"><div class="path mono" title="~/dev/billing-service"><bdi>~/dev/billing-service</bdi></div><span role="button" tabindex="0" class="sid" title="Copy session id s1" aria-label="Copy session id s1"><span aria-live="polite">s1</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="z2"><div class="plan"><div class="t"><span>Migrate invoices to v2 schema · Port invoice endpoints</span><span class="mono">1/4</span></div><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><div class="crew" aria-label="1 running, 0 done of 1 agents, the orchestrator included"><span class="mono cnt">1 running · 0 done</span><svg class="sp" viewBox="0 0 72 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="area" points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0 72,20 0,20"></polyline><polyline points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0"></polyline></svg></div></div><div class="z3"><div class="c" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><span class="k">Cost</span><span class="v mono">$12.84</span></div><div class="c" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel."><span class="k">Tokens</span><span class="v mono">410k</span></div><div class="c"><span class="k">Time</span><span class="v mono">16:40</span></div><div class="c ctx"><span class="k">Context</span><span class="v mono">41%</span><div class="bar ctx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div></div></div><div class="band running"><span class="bi"><svg class="si si-running" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="none"></path></svg></span><span class="bl">Running</span></div></button></div></template><template data-id="b" data-status="waiting" data-cost="1.45"><div class="card-slot"><button type="button" class="card sc" data-session="s2"><div class="z1"><div class="h"><span class="sd"><svg class="si si-waiting" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8v3.8M8 11v.1" stroke-width="1.9"></path></svg></span><span class="nm">docs-rewrite</span><span class="mdl"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b class=""></b><b class=""></b><b class=""></b></span></span></div><div class="pathrow"><div class="path mono" title="~/dev/billing-service"><bdi>~/dev/billing-service</bdi></div><span role="button" tabindex="0" class="sid" title="Copy session id s2" aria-label="Copy session id s2"><span aria-live="polite">s2</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="z2"><div class="plan"><div class="t"><span>Migrate invoices to v2 schema · Port invoice endpoints</span><span class="mono">1/4</span></div><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><div class="crew" aria-label="1 running, 0 done of 1 agents, the orchestrator included"><span class="mono cnt">1 running · 0 done</span><svg class="sp" viewBox="0 0 72 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="area" points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0 72,20 0,20"></polyline><polyline points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0"></polyline></svg></div></div><div class="z3"><div class="c" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><span class="k">Cost</span><span class="v mono">$3.20</span></div><div class="c" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel."><span class="k">Tokens</span><span class="v mono">120k</span></div><div class="c"><span class="k">Time</span><span class="v mono">16:40</span></div><div class="c ctx"><span class="k">Context</span><span class="v mono">12%</span><div class="bar ctx" role="img" aria-label="Context 12%"><i style="width: 12%;"></i></div></div></div><div class="band waiting hot"><span class="bi"><svg class="si si-waiting" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8v3.8M8 11v.1" stroke-width="1.9"></path></svg></span><span class="bl">Waiting for your input.</span></div></button></div></template><template data-id="c" data-status="done" data-cost="6.2"><div class="card-slot"><button type="button" class="card sc" data-session="s3"><div class="z1"><div class="h"><span class="sd"><svg class="si si-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M5.2 8.2l2 2 3.6-4"></path></svg></span><span class="nm">release-prep</span><span class="mdl"><span class="chip" style="--c: var(--haiku);" title="claude-haiku-5-5"><i></i>Haiku 5.5</span><span class="eff eff-low" role="img" aria-label="Effort: low" title="Effort: low"><b class="on"></b><b class=""></b><b class=""></b><b class=""></b><b class=""></b></span></span></div><div class="pathrow"><div class="path mono" title="~/dev/billing-service"><bdi>~/dev/billing-service</bdi></div><span role="button" tabindex="0" class="sid" title="Copy session id s3" aria-label="Copy session id s3"><span aria-live="polite">s3</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="z2"><div class="plan"><div class="t"><span>Migrate invoices to v2 schema · Port invoice endpoints</span><span class="mono">1/4</span></div><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><div class="crew" aria-label="0 running, 2 done of 2 agents, the orchestrator included"><span class="a done" style="--c: var(--sonnet);" title="Map call sites · done"></span><span class="mono cnt">0 running · 2 done</span><svg class="sp" viewBox="0 0 72 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="area" points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0 72,20 0,20"></polyline><polyline points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0"></polyline></svg></div></div><div class="z3"><div class="c" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><span class="k">Cost</span><span class="v mono">$0.40</span></div><div class="c" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel."><span class="k">Tokens</span><span class="v mono">510k</span></div><div class="c"><span class="k">Time</span><span class="v mono">16:40</span></div><div class="c ctx"><span class="k">Context</span><span class="v mono">41%</span><div class="bar ctx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div></div></div><div class="band done"><span class="bi"><svg class="si si-done" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M5.2 8.2l2 2 3.6-4"></path></svg></span><span class="bl">Done</span></div></button></div></template><template data-id="d" data-status="waiting" data-cost="0.9"><div class="card-slot"><button type="button" class="card sc" data-session="s5"><div class="z1"><div class="h"><span class="sd"><svg class="si si-waiting" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8v3.8M8 11v.1" stroke-width="1.9"></path></svg></span><span class="nm">permission-prompt</span><span class="mdl"><span class="chip" style="--c: var(--opus);" title="claude-opus-5-5"><i></i>Opus 5.5</span><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class=""></b></span></span></div><div class="pathrow"><div class="path mono" title="~/dev/billing-service"><bdi>~/dev/billing-service</bdi></div><span role="button" tabindex="0" class="sid" title="Copy session id s5" aria-label="Copy session id s5"><span aria-live="polite">s5</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="z2"><div class="plan"><div class="t"><span>Migrate invoices to v2 schema · Port invoice endpoints</span><span class="mono">1/4</span></div><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><div class="crew" aria-label="1 running, 0 done of 1 agents, the orchestrator included"><span class="mono cnt">1 running · 0 done</span><svg class="sp" viewBox="0 0 72 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="area" points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0 72,20 0,20"></polyline><polyline points="0.0,18.0 1.2,18.0 2.4,18.0 3.7,18.0 4.9,18.0 6.1,18.0 7.3,18.0 8.5,18.0 9.8,18.0 11.0,18.0 12.2,18.0 13.4,18.0 14.6,18.0 15.9,18.0 17.1,18.0 18.3,18.0 19.5,18.0 20.7,18.0 22.0,18.0 23.2,18.0 24.4,18.0 25.6,18.0 26.8,18.0 28.1,18.0 29.3,18.0 30.5,18.0 31.7,18.0 32.9,18.0 34.2,18.0 35.4,18.0 36.6,18.0 37.8,18.0 39.1,18.0 40.3,18.0 41.5,18.0 42.7,18.0 43.9,18.0 45.2,18.0 46.4,18.0 47.6,18.0 48.8,18.0 50.0,18.0 51.3,18.0 52.5,18.0 53.7,18.0 54.9,18.0 56.1,18.0 57.4,18.0 58.6,18.0 59.8,18.0 61.0,18.0 62.2,18.0 63.5,18.0 64.7,18.0 65.9,18.0 67.1,18.0 68.3,18.0 69.6,18.0 70.8,18.0 72.0,18.0"></polyline></svg></div></div><div class="z3"><div class="c" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><span class="k">Cost</span><span class="v mono">$12.84</span></div><div class="c" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel."><span class="k">Tokens</span><span class="v mono">410k</span></div><div class="c"><span class="k">Time</span><span class="v mono">16:40</span></div><div class="c ctx"><span class="k">Context<span class="blow" title="Context window exceeded 1 time"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.5l6 10.5H2z"></path><path d="M8 7v2.8M8 11.6v.1"></path></svg>1×<span class="vh"> context blowouts</span></span></span><span class="v mono">41%</span><div class="bar ctx bx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div></div></div><div class="band waiting hot"><span class="bi"><svg class="si si-waiting" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.8v3.8M8 11v.1" stroke-width="1.9"></path></svg></span><span class="bl">Waiting for your approval.</span></div></button></div></template>
+<script>
+(() => {
+  const root = document.documentElement;
+  document.querySelectorAll("[data-theme-set]").forEach((b) => b.addEventListener("click", () => {
+    const v = b.getAttribute("data-theme-set");
+    if (v) root.setAttribute("data-theme", v); else root.removeAttribute("data-theme");
+    document.querySelectorAll("[data-theme-set]").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+  }));
+
+  const tpl = {};
+  document.querySelectorAll("template[data-id]").forEach((t) => { tpl[t.dataset.id] = { html: t.innerHTML, status: t.dataset.status, cost: +t.dataset.cost, name: t.content.querySelector(".nm").textContent.trim() }; });
+  const START = () => [{ id: "a", status: "running" }, { id: "b", status: "waiting" }, { id: "c", status: "done" }];
+  let live = START();
+  let pins = []; // [{ id, slot }]
+  const sortSel = document.querySelector(".toolbar select");
+  const rank = { waiting: 0, running: 1, done: 2 };
+  const sorted = () => {
+    const by = sortSel ? sortSel.value : "status";
+    return live.slice().sort((x, y) => by === "cost" ? tpl[y.id].cost - tpl[x.id].cost : rank[x.status] - rank[y.status] || tpl[x.id].name.localeCompare(tpl[y.id].name));
+  };
+  // Pinned cards take their slot (the next free one on a clash, last when past the end); the others fill in sort order.
+  function place(list) {
+    const n = list.length, out = new Array(n).fill(null), pinned = new Set();
+    for (const p of pins.slice().sort((a, b) => a.slot - b.slot)) {
+      const s = list.find((x) => x.id === p.id); if (!s) continue;
+      let i = Math.min(p.slot, n - 1); while (out[i]) i = (i + 1) % n;
+      out[i] = s; pinned.add(s.id);
+    }
+    const rest = list.filter((s) => !pinned.has(s.id)); let k = 0;
+    return out.map((s) => s || rest[k++]);
+  }
+  const PIN = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 1.8l4.7 4.7-2 .8-2.4 2.4.2 3-1 1-2.7-2.7-3.8 3.8-.7-.7 3.8-3.8L3 7.6l1-1 3 .2 2.4-2.4z"/></svg>';
+  function pinButton(name, on, onClick, show) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "pin" + (show ? " show" : "");
+    b.title = on ? "Unpin" : "Pin to this place"; b.setAttribute("aria-pressed", String(on));
+    b.setAttribute("aria-label", on ? "Unpin " + name : "Pin " + name + " to its place on the wall"); b.innerHTML = PIN;
+    if (onClick) b.addEventListener("click", onClick); return b;
+  }
+  function slotEl(id, status, on) {
+    const d = document.createElement("div"); d.innerHTML = tpl[id].html.replace('<span class="mdl">', '<span class="pinslot" aria-hidden="true"></span><span class="mdl">'); const el = d.firstElementChild;
+    if (on) el.classList.add("pinned"); return el;
+  }
+  function draw() {
+    const placed = place(sorted());
+    for (const id of ["wall-wide", "wall-narrow"]) {
+      const wall = document.getElementById(id); wall.textContent = "";
+      placed.forEach((s, i) => {
+        const on = pins.some((p) => p.id === s.id), el = slotEl(s.id, s.status, on);
+        el.appendChild(pinButton(tpl[s.id].name, on, () => {
+          pins = on ? pins.filter((p) => p.id !== s.id) : pins.concat({ id: s.id, slot: i });
+          say(on ? tpl[s.id].name + " unpinned. It sorts normally again." : tpl[s.id].name + " pinned to place " + (i + 1) + ".");
+          draw(); layoutPins();
+        }));
+        wall.appendChild(el);
+      });
+    }
+  }
+  // The button sits over its card's .pinslot. In the app this is measured in the card (a layout effect) so it follows the model chip's width.
+  function layoutPins() {
+    document.querySelectorAll(".card-slot").forEach((el) => {
+      const slot = el.querySelector(".pinslot"), pin = el.querySelector(".pin"); if (!slot || !pin) return;
+      const a = el.getBoundingClientRect(), b = slot.getBoundingClientRect();
+      pin.style.left = (b.left - a.left) + "px"; pin.style.top = (b.top - a.top) + "px";
+    });
+  }
+  window.addEventListener("resize", layoutPins);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutPins);
+  const say = (t) => { document.getElementById("log").textContent = t; };
+  const specA = slotEl("a", "running", false); specA.appendChild(pinButton(tpl.a.name, false, null, true)); document.getElementById("spec-a").appendChild(specA);
+  const specB = slotEl("a", "running", true); specB.appendChild(pinButton(tpl.a.name, true, null)); document.getElementById("spec-b").appendChild(specB);
+  document.getElementById("a-status").addEventListener("click", () => {
+    live = live.map((s) => ({ ...s, status: s.status === "running" ? "waiting" : s.status === "waiting" ? "done" : "running" }));
+    say("Every session's status changed; the unpinned cards re-sorted."); draw(); layoutPins();
+  });
+  document.getElementById("a-new").addEventListener("click", () => {
+    if (!live.some((s) => s.id === "d")) live = live.concat({ id: "d", status: "waiting" });
+    say("permission-prompt joined. Unpinned cards re-sorted around the pins."); draw(); layoutPins();
+  });
+  document.getElementById("a-reset").addEventListener("click", () => { live = START(); pins = []; if (sortSel) sortSel.value = "status"; say("Reset."); draw(); layoutPins(); });
+  if (sortSel) sortSel.addEventListener("change", () => { say("Sort by " + sortSel.selectedOptions[0].textContent + "."); draw(); layoutPins(); });
+  draw(); layoutPins();
+})();
+</script>

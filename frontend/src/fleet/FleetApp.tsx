@@ -30,6 +30,7 @@ import { usePageVisible } from "./usePageVisible";
 import { useHeartbeat } from "./useHeartbeat";
 import { usePanes } from "./usePanes";
 import { usePeoplePrefs } from "./usePeoplePrefs";
+import { usePins } from "./usePins";
 import { ADMIN, buildUnits, filterByPeople, machineLabels, meKey, NO_FILTER, orderUnits, peopleActive, type GroupBy, type PeopleFilter, type Unit } from "./people";
 import type { WallPeople } from "./components/Wall";
 import type { RailPeople } from "./components/Rail";
@@ -175,6 +176,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const sets = splitDetached(sorted, now, showDetached);
   // The people view (#34) switches on once any live session belongs to a named person.
   const people = usePeoplePrefs();
+  const pins = usePins();
   const [pf, setPf] = useState<PeopleFilter>(NO_FILTER);
   const active = peopleActive(live);
   // Who "me" is comes from the browser's sign-in (#245): a signed-in person, never Admin. Signed out there is no "me".
@@ -200,6 +202,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const outdated = live.filter((s) => s.compat === "outdated").length;
   const newer = live.filter((s) => s.compat === "newer").length;
   const ready = state.phase !== "loading";
+  // A pin for a session that ended or was removed is dropped, so no stale pin is left for a session that never returns (#496).
+  const { prune: prunePins } = pins;
+  useEffect(() => {
+    if (ready) prunePins(new Set(Object.keys(state.sessions)));
+  }, [ready, state.sessions, prunePins]);
   const enteringSession = useEntering(all.map((s) => s.id), ready);
   const newEvent = useEntering(state.events.map((e) => e.id), ready);
   // The board and My reporters stand in for an orchestrator's page and show none of it; both clear the selection, below.
@@ -511,6 +518,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     onOpen={selectSession}
                     onRemove={onRemove}
                     machineTitle={state.wall.cardTitleMachine === true}
+                    pins={{ list: pins.pins, onToggle: pins.toggle }}
                     detached={{
                       count: sets.hidden.length,
                       costUsd: sets.hidden.reduce((n, s) => n + (s.costUsd ?? 0), 0),

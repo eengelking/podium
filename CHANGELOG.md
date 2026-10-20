@@ -18,6 +18,9 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **`podiumctl` runs the container with Docker as well as Podman.** Container mode uses Podman when it is installed and Docker otherwise, for building, running and every other container command, and it is the default mode when either is installed. `--engine podman|docker` chooses, and the choice is saved as `PODIUMCTL_ENGINE` so `stop`, `status` and the boot unit keep using the engine that started the container. `status` shows the engine. Under Docker the container can reach this machine as `host.docker.internal`, and a new `.dockerignore` keeps a Docker build to the same files as a Podman one.
 
+- **Pin cards on the Fleet wall (#496).** A pin button in each card's first row, just before the model, holds that card's place on the wall while statuses, costs, the sort order and new sessions change around it, until it is unpinned. Several cards can be pinned. Pins are kept in this browser, hold their slot inside a band under Group by, and are dropped when their session ends.
+  Standards: new `.pin` button and `.pinslot` space on the session card, approved with the mockup on #496 (`mockup/podium-pin-cards.html`).
+
 ### Changed
 
 - Added SonarCloud quality and CodeQL status badges to the README (#517).

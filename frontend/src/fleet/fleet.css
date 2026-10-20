@@ -727,6 +727,18 @@ body.modal-open #root { filter: blur(5px); }
 .podium .card-slot.has-remove > .remove-bar { position: absolute; right: 12px; bottom: 1px; height: 52px; display: flex; align-items: center; }
 .podium .card-slot.has-remove .band { padding-right: 92px; }
 .podium .card-slot .remove { padding: 2px 8px; }
+/* Pin (#496): a button in the card's first row, just before the model. The row keeps an empty .pinslot there, and the button, a sibling of the card button, is laid over it. */
+.podium .card .h .pinslot { flex: none; width: 24px; height: 24px; }
+.podium .card-slot .pin { position: absolute; left: 0; top: 0; z-index: 2; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 0.12s; }
+.podium .card-slot .pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.podium .card-slot:hover .pin, .podium .card-slot .pin:focus-visible, .podium .card-slot .pin[aria-pressed="true"] { opacity: 1; }
+.podium .card-slot .pin:hover { background: var(--raised); border-color: var(--border); color: var(--ink); }
+.podium .card-slot .pin[aria-pressed="true"] { background: var(--raised); border-color: var(--axis); color: var(--ink); }
+.podium .card-slot .pin[aria-pressed="true"] svg { fill: currentColor; }
+.podium .card-slot .pin:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .card-slot.pinned > .card:not(.risk) { border-color: var(--axis); }
+@media (hover: none) { .podium .card-slot .pin { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .podium .card-slot .pin { transition: none; } }
 .podium .ritem-slot { position: relative; min-width: 0; flex-shrink: 0; }
 .podium .ritem-slot .rx { position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border); border-radius: 5px; background: var(--raised); color: var(--ink2); font-size: 14px; line-height: 1; }
 .podium .ritem-slot .rx:hover, .podium .ritem-slot .rx:focus-visible { background: var(--sel); color: var(--ink); }

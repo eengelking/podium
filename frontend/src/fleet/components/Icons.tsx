@@ -44,3 +44,4 @@ export function Logo() {
     </svg>
   );
 }
+export const IconPin = svg(<path d="M9.5 1.8l4.7 4.7-2 .8-2.4 2.4.2 3-1 1-2.7-2.7-3.8 3.8-.7-.7 3.8-3.8L3 7.6l1-1 3 .2 2.4-2.4z" />, "pin-i");

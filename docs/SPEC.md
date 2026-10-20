@@ -3592,6 +3592,33 @@ and the right panel are exactly as above.
 - #245 retired the "You are" picker, "Only me" and the `podium.me` key. A stale `podium.me` is ignored.
 - Names and machine names are untrusted text and drawn as text nodes.
 
+#### Pinned cards (#496, `mockup/podium-pin-cards.html`)
+
+A person can pin a wall card so it keeps its place until they unpin it. Pinning is on the Fleet wall only: not the
+Board, History, Admin or the rail, and there is no dragging a card to a new place.
+
+- Each wall card has a pin button in its first row, just before the model chip. The row keeps an empty 24 px space
+  there, so no card text is covered; the button is a sibling of the card's own button, laid over that space. Its name
+  is "Pin <session> to its place on the wall" and, once pinned, "Unpin <session>", with `aria-pressed`. It shows on
+  hover and keyboard focus (always on touch screens). A pinned card always shows it, filled, and has a stronger
+  border, so pinned is not shown by color alone. Any number of cards can be pinned.
+- A pin holds a slot: the card's place in reading order (first, second, third...) in its wall, or in its band
+  while Group by makes bands. The slot is the card's position when it was pinned. The card holds that slot while
+  statuses, costs, activity and the sort order change and while other cards appear, leave or re-order; the unpinned
+  cards fill the other slots in the usual order. Unpinning returns the card to the usual order.
+- Two pinned cards never share a slot: a later pin that would take a taken slot goes to the next free one. A slot
+  past the last card means last, and the card returns to its slot as more cards arrive.
+- A slot is a place in the flow, not a row and column, so a change in the number of columns (a window resize, a pane
+  moving) leaves it reading in the same order, left to right and top to bottom.
+- A pinned card the filter hides, or that Group by "Me" leaves out, is not drawn and leaves no gap: the other cards
+  close up, and it returns to its slot when it is shown again. Its pin is kept. Changing Group by changes the
+  band, so the card keeps the slot number it was pinned at in whatever band it falls in.
+- A pin for a session that ended or was removed is dropped once the fleet is loaded, so no stale pin remains and
+  a session that comes back is not pinned.
+- Pins are remembered per browser in `localStorage` under `podium.pins` as a list of `{ id, slot }` (at most 200),
+  read and written with try/catch. They are not per person and the server does not know about them. Anything
+  unreadable is ignored.
+
 #### Reporters page (#142, `mockup/podium-reporters.html`)
 
 Admin > Reporters, under People and access after Groups, with the number of reporters as its badge. Admin only,

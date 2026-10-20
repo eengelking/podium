@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { fmtCountdown, fmtDur, fmtPct, fmtTok } from "../format";
 import { useRespond } from "../useRespond";
 import { respondGate } from "../respond";
@@ -9,6 +10,7 @@ import { backgroundLead, backgroundTitle, toolOfNote, waitLead } from "../waitin
 import { Sparkline } from "./Sparkline";
 import { OwnerLine } from "./People";
 import { SessionId } from "./SessionId";
+import { IconPin } from "./Icons";
 
 export const HOOKS_NOTE = "Reported by Claude Code settings hooks, not the reporter mod: context, cost, tokens, the plan and which agent launched which are unavailable, so every agent shows under the orchestrator.";
 
@@ -38,6 +40,53 @@ export function waitSummary(s: Pick<SessionView, "waitReason" | "waitNote">): { 
 export function riskText(s: SessionView): string {
   const b = s.blowouts;
   return `Context exceeded ${b.total}× (${b.loopsHit} of ${b.loopsTotal} loops). Likely losing context; check for invented details.`;
+}
+
+/** A card's pin (#496): whether it is pinned to its place on the wall, and what the button does. */
+export interface CardPin {
+  on: boolean;
+  onToggle: () => void;
+}
+
+/**
+ * The pin button sits in the card's first row, just before the model, over the empty `.pinslot` the row keeps there.
+ * A button cannot nest in the card's own button, so it is a sibling of it, placed from the slot's measured position.
+ */
+function PinButton({ name, pin }: { name: string; pin: CardPin }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    // The card slot is this button's parent. (Its own ref is not set yet when a child's layout effect runs.)
+    const host = btn.current?.parentElement ?? null;
+    const place = () => {
+      const gap = host?.querySelector<HTMLElement>(".pinslot");
+      if (!host || !gap || !btn.current) return;
+      // Offsets, not bounding boxes: a card that is entering is mid-transform, and its box would be scaled.
+      let left = 0;
+      let top = 0;
+      for (let el: HTMLElement | null = gap; el && el !== host; el = el.offsetParent as HTMLElement | null) {
+        left += el.offsetLeft;
+        top += el.offsetTop;
+      }
+      btn.current.style.left = `${left}px`;
+      btn.current.style.top = `${top}px`;
+    };
+    place();
+    if (!host || typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", place);
+      return () => window.removeEventListener("resize", place);
+    }
+    // The gap moves when the model chip's width does, so watch that as well as the card.
+    const ro = new ResizeObserver(place);
+    ro.observe(host);
+    const chip = host.querySelector(".mdl");
+    if (chip) ro.observe(chip);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <button ref={btn} type="button" className="pin" aria-pressed={pin.on} aria-label={pin.on ? `Unpin ${name}` : `Pin ${name} to its place on the wall`} title={pin.on ? "Unpin" : "Pin to this place"} onClick={pin.onToggle}>
+      <IconPin />
+    </button>
+  );
 }
 
 /** In the people view: the machine label, and whether the card names its owner (not in that owner's own band). */
@@ -90,7 +139,7 @@ export function bandLine(s: SessionView, kind: StateKind, sinceSeen: number, now
   return <span className="bl">{kind === "running" ? "Running" : "Done"}</span>;
 }
 
-export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner }) {
+export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now: number; config: LifecycleConfig; entering: boolean; leaving: boolean; onOpen: () => void; onRemove?: () => void; owner?: CardOwner; pin?: CardPin }) {
   const { s, now, config } = props;
   const respond = useRespond();
   // Respond (#206) sits at the right end of the band. The card is one big button, so it is laid over the band from the slot.
@@ -114,7 +163,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   const hasNotes = detached || hooks || vNote !== null;
   // The card is one big button, so Remove sits beside it in a slot rather than inside it.
   return (
-    <div className={`card-slot${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
+    <div className={`card-slot${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
     <button type="button" className={cls} onClick={props.onOpen} disabled={props.leaving} data-session={s.id}>
       {/* Four layers, always in this order (#144): who, what it is doing, cost and health, then the status band. */}
       <div className="z1">
@@ -123,6 +172,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="nm">
             <CardTitle s={s} withMachine={props.machineTitle === true} />
           </span>
+          {props.pin && <span className="pinslot" aria-hidden="true" />}
           <span className="mdl">
             <ModelChip family={s.modelFamily} model={s.model} />
             <EffortMeter effort={s.effort} />
@@ -228,6 +278,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
         <RespondButton s={s} />
       </div>
     )}
+    {props.pin && <PinButton name={s.name} pin={props.pin} />}
     {s.status === "stale" && props.onRemove && (
       <div className="remove-bar">
       <button type="button" className="btn remove" onClick={props.onRemove} disabled={props.leaving} aria-label={`Remove ${s.name} from the fleet`}>
