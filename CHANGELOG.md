@@ -34,6 +34,9 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - **Pin cards on the Fleet wall (#496).** A pin button in each card's first row, just before the model, holds that card's place on the wall while statuses, costs, the sort order and new sessions change around it, until it is unpinned. Several cards can be pinned. Pins are kept in this browser, hold their slot inside a band under Group by, and are dropped when their session ends.
   Standards: new `.pin` button and `.pinslot` space on the session card, approved with the mockup on #496 (`mockup/podium-pin-cards.html`).
 
+- **Kanban page: collapse the KPI rows (#538).** The eight KPI tiles fold into one thin bar and open again from a chevron control, so the cards get the space back. The choice is remembered on its own, apart from the header's and the Fleet page's.
+  - Standards: a new `.kpi-tab` control (a pill on the KPI block's edge when open, a full-width bar when collapsed), built on `.tbar-tab`. Approved by the maintainer on #538, with the mockup `mockup/podium-board-kpi-collapse.html`.
+
 ### Changed
 
 - The simulator (`scripts/podium-sim.ts`) sends an OS with each machine of a `--person`: macOS, Fedora Linux or Windows on the laptop, none for some (an older reporter), and Ubuntu on the build box, so the Machine and System cells show every state (#427).

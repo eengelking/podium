@@ -8,6 +8,8 @@ import { cssVar, FAMILY_COLOR } from "./Chips";
 import { PageNav } from "./PageNav";
 
 const PREFS_KEY = "podium.board";
+/** Whether the KPI rows are collapsed (#538): its own key, apart from the header's flags in podium.collapsed.board and the fleet page's. */
+const KPIS_COLLAPSED_KEY = "podium.collapsed.board.kpis";
 interface BoardPrefs {
   /** Cards grouped under a lane per orchestrator, instead of mixed in each column. */
   group: boolean;
@@ -84,7 +86,7 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
 }
 
 /** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
-export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
+export function RunningCounts({ id, kpis, filtered, plans }: { id?: string; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
   const tiles: { label: string; value: number | undefined; cap: string }[] = [
     { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
     { label: "Orchestrators running", value: kpis?.running, cap: "" },
@@ -96,7 +98,7 @@ export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; fi
     { label: "Total cards", value: plans.steps, cap: `${plans.done} done` },
   ];
   return (
-    <div className="kpis" role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
+    <div className="kpis" id={id} role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
       {tiles.map((t) => (
         <div className="kpi" key={t.label}>
           <div className="k">{t.label}</div>
@@ -105,6 +107,18 @@ export function RunningCounts({ kpis, filtered, plans }: { kpis: Kpis | null; fi
         </div>
       ))}
     </div>
+  );
+}
+
+/** The control that hides the KPI rows and brings them back (#538): a pill on the block's bottom edge when open, the whole bar when collapsed. Built on .tbar-tab's look. */
+function KpiTab(props: { collapsed: boolean; controls: string; onToggle: () => void }) {
+  const name = props.collapsed ? "Show KPI rows" : "Hide KPI rows";
+  return (
+    <button type="button" className="kpi-tab" aria-expanded={!props.collapsed} aria-controls={props.controls} aria-label={name} data-tip={name} onClick={props.onToggle}>
+      <svg viewBox="0 0 10 10" aria-hidden="true">
+        <path d={props.collapsed ? "M1.5 3.5 5 7l3.5-3.5" : "M1.5 6.5 5 3l3.5 3.5"} />
+      </svg>
+    </button>
   );
 }
 
@@ -126,6 +140,13 @@ export function Board(props: {
   onOpen: (sessionId: string) => void;
 }) {
   const [prefs, setPrefs] = useState(loadPrefs);
+  const [kpisShut, setKpisShut] = useState(() => readJson<unknown>(KPIS_COLLAPSED_KEY, false) === true);
+  const kpisId = useId();
+  const toggleKpis = () =>
+    setKpisShut((cur) => {
+      writeJson(KPIS_COLLAPSED_KEY, !cur);
+      return !cur;
+    });
   const [group, setGroup] = useState<string | null>(null);
   const [pages, setPages] = useState<Partial<Record<BoardColumn, number>>>({});
   const setPref = (p: Partial<BoardPrefs>) =>
@@ -272,7 +293,10 @@ export function Board(props: {
           </span>
         )}
       </div>
-      <RunningCounts kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />
+      <div className={`kpi-block${kpisShut ? " shut" : ""}`}>
+        {!kpisShut && <RunningCounts id={kpisId} kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />}
+        <KpiTab collapsed={kpisShut} controls={kpisId} onToggle={toggleKpis} />
+      </div>
       <div className="vh" role="status" aria-label="Board updates">
         {note}
       </div>

@@ -3321,6 +3321,11 @@ activity panel and legend as the wall, with the board in the middle.
 - The board keeps its own collapsed flags under `podium.collapsed.board` and opens with the left and right
   panels collapsed to their edge tabs, so the columns get the width. The top bar starts open. The fleet page's
   flags are separate.
+- The eight KPI tiles collapse and reopen as one element (#538). Open, a small chevron pill sits on the block's bottom
+  edge ("Hide KPI rows"); collapsed, the block is a thin bar the width of the tiles with the open chevron centered
+  ("Show KPI rows"). The choice is saved under its own key, `podium.collapsed.board.kpis`, apart from the top bar's
+  flags and the fleet page's, and the tiles start open. The control is a button with `aria-expanded` and
+  `aria-controls`. Wall mode neither reads nor changes it. There is no shortcut for it.
 - Opening the board clears the selected orchestrator. Selecting a session or "All orchestrators" in the rail,
   or a click on an activity event, leaves the board.
 

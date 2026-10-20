@@ -1071,8 +1071,20 @@ body.modal-open #root { filter: blur(5px); }
 /* The kanban board (#346): five columns, one card per plan step. Looks follow mockup/podium-kanban.html. */
 .podium .kb { container-type: inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .podium .kb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
-.podium .kb > .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@container (max-width: 640px) { .podium .kb > .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.podium .kb .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container (max-width: 640px) { .podium .kb .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* The KPI rows' collapse control (#538). It borrows .tbar-tab's size, border, hover, focus ring and tip. Open, the pill straddles the block's bottom edge; collapsed, it is the whole bar. */
+.podium .kpi-block { position: relative; margin-bottom: 14px; }
+.podium .kpi-block .kpis { margin-bottom: 0; }
+.podium .kpi-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .kpi-block:not(.shut) .kpi-tab { top: calc(100% - 8px); }
+.podium .kpi-block.shut .kpi-tab { position: static; transform: none; display: flex; width: 100%; }
+.podium .kpi-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .kpi-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .kpi-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .kpi-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .kpi-tab:hover::after, .podium .kpi-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .kpi-tab::after { transition: none; } }
 .podium .kb-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
 .podium .kb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .podium .kb-seg button { padding: 4px 10px; font-size: 12px; color: var(--ink2); }

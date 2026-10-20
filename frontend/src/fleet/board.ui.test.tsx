@@ -87,6 +87,38 @@ describe("kanban board", () => {
     expect(localStorage.getItem("podium.collapsed")).toBeNull();
   });
 
+  it("collapses the KPI rows to one bar and opens them again, and remembers the choice apart from the header's (#538)", () => {
+    const { unmount } = board([makeSession()]);
+    const hide = screen.getByRole("button", { name: "Hide KPI rows" });
+    expect(hide).toHaveAttribute("aria-expanded", "true");
+    expect(hide).toHaveAttribute("aria-controls", screen.getByRole("group", { name: /Orchestrators and subagents/ }).id);
+    fireEvent.click(hide);
+    expect(screen.queryByRole("group", { name: /Orchestrators and subagents/ })).toBeNull();
+    const show = screen.getByRole("button", { name: "Show KPI rows" });
+    expect(show).toHaveAttribute("aria-expanded", "false");
+    expect(show).toHaveClass("kpi-tab");
+    expect(JSON.parse(localStorage.getItem("podium.collapsed.board.kpis")!)).toBe(true);
+    // The header's flags and the fleet page's are not touched.
+    expect(localStorage.getItem("podium.collapsed.board")).toBeNull();
+    expect(localStorage.getItem("podium.collapsed")).toBeNull();
+    unmount();
+    board([makeSession()]);
+    expect(screen.queryByRole("group", { name: /Orchestrators and subagents/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show KPI rows" }));
+    expect(screen.getByRole("group", { name: /Orchestrators and subagents/ })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("podium.collapsed.board.kpis")!)).toBe(false);
+  });
+
+  it("collapses the header and the KPI rows independently (#538)", () => {
+    board([makeSession()]);
+    fireEvent.click(screen.getByRole("button", { name: "Hide KPI rows" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hide top bar" }));
+    expect(screen.getByRole("button", { name: "Show KPI rows" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show top bar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show top bar" }));
+    expect(screen.getByRole("button", { name: "Show KPI rows" })).toBeInTheDocument();
+  });
+
   it("pages a column at 25 cards with the standard pager", () => {
     const many = Array.from({ length: 30 }, (_, i) => step(String(i + 1), "pending", `task ${i + 1}`));
     board([planned({}, ...many)]);
