@@ -432,6 +432,10 @@ export interface SessionSpend {
   usd: number;
   priced: boolean;
   usageJson: string | null;
+  /** When the session was last heard from. */
+  lastSeenAt: number;
+  /** What the whole session cost with the given prices (not just its share since `since`); null when it has no price. */
+  whole: number | null;
 }
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -571,7 +575,7 @@ export class FleetDb {
    */
   private spendSince(since: number, cost: CostOf): SessionSpend[] {
     const rows = this.stmt(
-      `SELECT s.id AS id, s.name AS name, s.model AS model, s.owner AS owner, g.name AS grp, s.cost_usd AS cost_usd, s.usage_json AS usage_json, s.started_at AS started_at,
+      `SELECT s.id AS id, s.name AS name, s.model AS model, s.owner AS owner, g.name AS grp, s.cost_usd AS cost_usd, s.usage_json AS usage_json, s.started_at AS started_at, s.last_seen_at AS last_seen_at,
          COALESCE(
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.t < :sec AND m.cost_usd IS NOT NULL ORDER BY m.t DESC LIMIT 1),
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
@@ -585,12 +589,13 @@ export class FleetDb {
       owner: string | null;
       grp: string | null;
       started_at: number;
+      last_seen_at: number;
       base: number | null;
     })[];
     return rows.map((r) => {
       const whole = cost(r);
       const total = whole ?? 0;
-      const id = { id: r.id, name: r.name, model: r.model, owner: r.owner, grp: r.grp, priced: whole !== null, usageJson: r.usage_json };
+      const id = { id: r.id, name: r.name, model: r.model, owner: r.owner, grp: r.grp, priced: whole !== null, usageJson: r.usage_json, lastSeenAt: r.last_seen_at, whole };
       if (r.started_at >= since) return { ...id, usd: total };
       // No ledger figure now (the mod sends none on a local model): split by the priced usage on the sample before
       // `since` instead, so the Claude spend of an earlier part of the day is not lost (#286).
@@ -637,10 +642,18 @@ export class FleetDb {
     return this.spendSince(since, cost);
   }
 
-  /** Σ cost_usd_est of the agents of a session, repriced with `cost`; agents with no figure add nothing. */
-  agentCostOf(sessionId: string, cost: CostOf): number {
-    const rows = this.stmt('SELECT cost_usd_est AS cost_usd, usage_json FROM agents WHERE session_id = ?').all(sessionId) as unknown as CostRow[];
-    return rows.reduce((n, r) => n + (cost(r) ?? 0), 0);
+  /**
+   * Σ cost_usd_est of the agents of each session `spendSince(since)` looks at, repriced with `cost`, in one query; agents
+   * with no figure add nothing, and a session with no agents is not in the map.
+   */
+  agentCostsSince(since: number, cost: CostOf): Map<string, number> {
+    const rows = this.stmt(
+      `SELECT a.session_id AS id, a.cost_usd_est AS cost_usd, a.usage_json AS usage_json FROM agents a JOIN sessions s ON s.id = a.session_id
+       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
+    ).all({ since }) as unknown as (CostRow & { id: string })[];
+    const out = new Map<string, number>();
+    for (const r of rows) out.set(r.id, (out.get(r.id) ?? 0) + (cost(r) ?? 0));
+    return out;
   }
 
   /** Σ spend at or after `since` (see `spendSince`). */

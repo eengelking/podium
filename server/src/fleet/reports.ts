@@ -552,7 +552,8 @@ export function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): S
   const total = mine.reduce((n, r) => n + r.usd, 0);
   const share = (n: number) => (total > 0 ? n / total : 0);
   const spent = mine.filter((r) => r.priced && r.usd > 0);
-  const unpriced = mine.filter((r) => !r.priced && deps.db.getSession(r.id)!.last_seen_at >= since).length;
+  const unpriced = mine.filter((r) => !r.priced && r.lastSeenAt >= since).length;
+  const agentCosts = deps.db.agentCostsSince(since, cost);
 
   const bySession = spent.map((r) => ({ id: r.id, name: r.name, model: r.model, costUsd: r.usd, share: share(r.usd) })).sort((a, b) => b.costUsd - a.costUsd || a.name.localeCompare(b.name));
 
@@ -574,9 +575,8 @@ export function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): S
     if (weighed > 0) for (const [m, w] of weights) models.set(m, (models.get(m) ?? 0) + (r.usd * w) / weighed);
     else models.set(r.model ?? '-', (models.get(r.model ?? '-') ?? 0) + r.usd);
     for (const m of dash) if (!models.has(m)) models.set(m, null);
-    const row = deps.db.getSession(r.id)!;
-    const whole = cost(row) ?? 0;
-    agents += whole > 0 ? r.usd * Math.min(1, deps.db.agentCostOf(r.id, cost) / whole) : 0;
+    const whole = r.whole ?? 0;
+    agents += whole > 0 ? r.usd * Math.min(1, (agentCosts.get(r.id) ?? 0) / whole) : 0;
   }
   const byModel = [...models].map(([model, usd]) => ({ model, costUsd: usd, share: usd === null ? null : share(usd) })).sort((a, b) => (b.costUsd ?? -1) - (a.costUsd ?? -1) || a.model.localeCompare(b.model));
 

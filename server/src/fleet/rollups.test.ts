@@ -1,9 +1,9 @@
 // The daily rollups (#484, SPEC 7.2 Migration 22 and Retention).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { openDb } from './db.js';
 import { Fleet, DEFAULT_CONFIG, configFromEnv } from './fleet.js';
 import { addDays, buildRollups, costFn, dayStart, daysBetween, localDay, parseDay, peakLiveByDay, serverZone, writeRollups } from './rollups.js';
-import { DAY_MS, NOW, TODAY, at, populate, session, world } from './rollupFixtures.js';
+import { DAY_MS, NOW, TODAY, agent, at, failure, populate, session, world } from './rollupFixtures.js';
 import { Pricing } from './pricing.js';
 
 const policy = { sessionsMs: 30 * DAY_MS };
@@ -83,6 +83,37 @@ describe('buildRollups', () => {
   });
 });
 
+describe('buildRollups reads only what it needs (#529)', () => {
+  it('reads the same number of rows for today however many old sessions are stored', () => {
+    const rowsRead = (olds: number): number => {
+      const w = world();
+      w.fdb.upsertSession(session({ id: 'today', owner: 'Dana', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10) }));
+      w.fdb.upsertAgent(agent('today', 'a0', { cost_usd_est: 1, failure_json: failure('timeout', 'Bash') }));
+      w.fdb.db.prepare("INSERT INTO reporters (key, kind, machine_id, owner, reporter_version, engine_version, first_seen_at, last_seen_at) VALUES ('m', 'mod', 'm', 'Dana', '1.2.2', '2.1.301', 1, 2)").run();
+      for (let i = 0; i < olds; i++) {
+        w.fdb.upsertSession(session({ id: `old${i}`, owner: 'Dana', started_at: at(20, 9), last_seen_at: at(20, 10), ended_at: at(20, 10) }));
+        w.fdb.upsertAgent(agent(`old${i}`, `a${i}`, { cost_usd_est: 1, failure_json: failure('timeout', 'Bash') }));
+        w.fdb.db.prepare("INSERT INTO reporter_sessions (reporter_key, session_id) VALUES ('m', ?)").run(`old${i}`);
+      }
+      let read = 0;
+      const prepare = w.fdb.db.prepare.bind(w.fdb.db);
+      vi.spyOn(w.fdb.db, 'prepare').mockImplementation((sql: string) => {
+        const st = prepare(sql);
+        const all = st.all.bind(st);
+        st.all = ((...args: unknown[]) => {
+          const rows = (all as (...a: unknown[]) => unknown[])(...args);
+          read += rows.length;
+          return rows;
+        }) as typeof st.all;
+        return st;
+      });
+      buildRollups(w.fdb, costFn(w.deps.pricing()), dayStart(TODAY));
+      return read;
+    };
+    expect(rowsRead(40)).toBe(rowsRead(0));
+  });
+});
+
 describe('peakLiveByDay', () => {
   it('counts the sessions live at one second, across midnight too', () => {
     const w = world();
@@ -140,6 +171,22 @@ describe('writeRollups', () => {
     w.fdb.db.prepare('DELETE FROM sessions WHERE id = ?').run('old');
     writeRollups(w.fdb, NOW, cost, policy);
     expect(w.fdb.db.prepare('SELECT sessions FROM usage_daily WHERE day = ?').all(addDays(TODAY, -40))).toEqual([{ sessions: 5 }]);
+  });
+
+  it('writes the day at the retention cutoff when no run has written it yet, and leaves it alone once one has (#529)', () => {
+    const w = world();
+    const cost = costFn(w.deps.pricing());
+    // The cutoff is 30 days back at 15:00: this session is kept, but the midnight that starts its day is before the cutoff.
+    w.fdb.upsertSession(session({ id: 'edge', owner: 'Dana', started_at: at(30, 16), last_seen_at: at(30, 17), ended_at: at(30, 17), cost_usd: 2 }));
+    const day = addDays(TODAY, -30);
+    writeRollups(w.fdb, NOW, cost, policy);
+    expect(w.fdb.db.prepare('SELECT sessions FROM usage_daily WHERE day = ?').all(day)).toEqual([{ sessions: 1 }]);
+    expect(w.fdb.db.prepare('SELECT sessions_started FROM fleet_daily WHERE day = ?').all(day)).toEqual([{ sessions_started: 1 }]);
+    // A second session of that day was swept since; the written day is the fuller one and stays.
+    w.fdb.db.prepare('DELETE FROM sessions WHERE id = ?').run('edge');
+    w.fdb.upsertSession(session({ id: 'edge2', owner: 'Dana', started_at: at(30, 18), last_seen_at: at(30, 19), ended_at: at(30, 19), cost_usd: 3 }));
+    writeRollups(w.fdb, NOW, cost, policy);
+    expect(w.fdb.db.prepare('SELECT sessions, cost_usd FROM usage_daily WHERE day = ?').all(day)).toEqual([{ sessions: 1, cost_usd: 2 }]);
   });
 
   it('rebuilds a day from what is stored when a session is gone from it', () => {

@@ -1,10 +1,10 @@
 // Admin > Reporting's reads (#484), the Spend breakdown (#482) and the Spend projection (#483), through the Admin API.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { csvCell, bucketOf, toCsv, type ReportReply } from './reports.js';
+import { csvCell, bucketOf, spendToday, toCsv, type ReportReply } from './reports.js';
 import { addDays, costFn, writeRollups } from './rollups.js';
 import { DAY_MS, NOW, TODAY, agent, at, populate, session, world, type World } from './rollupFixtures.js';
 import { reportDepsOf } from './reportDeps.js';
@@ -369,5 +369,22 @@ describe('Spend breakdown (#482)', () => {
     expect(deps.now()).toBe(NOW);
     expect(deps.retention).toBe(fleet.cfg.retention);
     expect(deps.pricing()).toBeDefined();
+  });
+});
+
+describe('spendToday reads each session once (#529)', () => {
+  it('asks for no session or agent cost one by one, and counts the sessions on a model without a price', () => {
+    const w = world();
+    populate(w);
+    const sessionOf = vi.spyOn(w.fdb, 'getSession');
+    const agentsOf = vi.spyOn(w.fdb, 'agentCostsSince');
+    const reply = spendToday(w.deps, 'Priya', false);
+    expect(reply.total).toBeGreaterThan(0);
+    expect(reply.bySource.agents).toBeGreaterThan(0);
+    expect(sessionOf).not.toHaveBeenCalled();
+    expect(agentsOf).toHaveBeenCalledTimes(1);
+    expect(reply.unpriced).toBe(0);
+    w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: null, model: 'llama-local' }));
+    expect(spendToday(w.deps, 'Priya', false).unpriced).toBe(1);
   });
 });
