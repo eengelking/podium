@@ -91,6 +91,12 @@
       "title": "Message my other orchestrators",
       "description": "Let this machine's orchestrators message your other orchestrators through Podium, within the rights you set in Podium > My reporters. Gives the main loop three tools (podium_peers, podium_send, podium_request_access); a subagent's call is refused. A message is sent with secrets replaced by [redacted], and one that arrives starts a new turn once this session is idle, marked as another agent's text that cannot approve anything. Needs the Podium server's Orchestrator messaging switch. Off by default.",
       "default": false
+    },
+    "sessionRecording": {
+      "type": "boolean",
+      "title": "Allow session recording",
+      "description": "Let this machine's sessions be recorded whole when the Podium Admin has turned recording on and someone with the right (you or an Admin) chooses to record a session. A recording keeps every prompt, what the model wrote, each tool call with its whole input, and each tool's whole result (file contents, command output), for the orchestrator and every agent under it, until the Admin's retention period ends. Anything that looks like a secret is replaced with [redacted] before it leaves this machine, and .env, key and credentials files are never sent, but this is best effort and not a guarantee: a secret of a shape the rules do not know, or personal data, is kept. The model's thinking text is never sent. Turning this off ends any recording of this machine at once. Off by default.",
+      "default": false
     }
   }
 }

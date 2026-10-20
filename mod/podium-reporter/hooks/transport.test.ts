@@ -81,6 +81,18 @@ describe('transport', () => {
     expect(await run({ ok: true })).toEqual([])
   })
 
+  test('reads the session recording grant from the reply, and nothing from a server that does not send one (#353)', async () => {
+    const run = async (body: unknown) => {
+      const t = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify(body) }]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.3.0' })
+      await t.send(build, 0)
+      return t.recording
+    }
+    const g = { state: 'recording', consent: { admin: true, chosen: true, owner: true }, loops: ['@orchestrator'], limit: null, startedBy: 'Ed', startedAt: 1, stoppedBy: null, stoppedAt: null, keptUntil: 2, bytes: 0 }
+    expect(await run({ ok: true, recording: g })).toEqual(g)
+    expect(await run({ ok: true, recording: { ...g, state: 'bogus' } })).toBeNull()
+    expect(await run({ ok: true })).toBeNull()
+  })
+
   test('reads whether the session takes part in messaging, its messages and notices, and its requests, and nothing from an older server (#414)', async () => {
     const run = async (body: unknown) => {
       const t = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify(body) }]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.2.0' })
