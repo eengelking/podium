@@ -83,14 +83,14 @@ function readCookie(req: Request, name: string): string | null {
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 /** Whether a mod's credential owns the session: a person's token their own sessions, the admin secret those owned by Admin. */
-function credentialOwns(id: Identity, row: SessionRow): boolean {
+export function credentialOwns(id: Identity, row: SessionRow): boolean {
   if (row.owner === null) return false;
   if (id.kind === 'person') return nameKey(id.person.name) === nameKey(row.owner);
   return id.kind === 'admin' && row.owner === ADMIN_OWNER;
 }
 
 /** Whether a signed-in viewer may respond to a session: its owner, or an Admin. A session owned by Admin needs an Admin. */
-function viewerOwns(v: Viewer, row: SessionRow): boolean {
+export function viewerOwns(v: { name: string; admin: boolean }, row: SessionRow): boolean {
   if (v.admin) return true;
   return row.owner !== null && row.owner !== ADMIN_OWNER && nameKey(row.owner) === nameKey(v.name);
 }

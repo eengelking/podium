@@ -14,7 +14,7 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false, 'update-check': true });
+    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true });
   });
 
   it('lists the Release check last, on by default, named as the mockup says (#499)', () => {

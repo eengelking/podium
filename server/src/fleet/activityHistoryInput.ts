@@ -48,8 +48,8 @@ export function parseFilter(raw: Record<string, unknown>, strict = false): Parse
     out.loop = raw.loop as StoredFilter['loop'];
   }
   if (given('source')) {
-    if (raw.source !== 'activity') return { ok: false, error: 'source must be activity' };
-    out.source = 'activity';
+    if (raw.source !== 'activity' && raw.source !== 'recordings') return { ok: false, error: 'source must be activity or recordings' };
+    out.source = raw.source;
   }
   for (const k of ['olderThanDays', 'from', 'to'] as const) {
     if (!given(k)) continue;
@@ -84,15 +84,21 @@ export function parsePaging(query: Record<string, unknown>): Parsed<{ page: numb
 export function parseDeleteBody(body: unknown): Parsed<StoredDeleteBody> {
   const shape = 'give ids (a list of session ids), match (a filter) or all (true)';
   if (!isObject(body)) return { ok: false, error: shape };
-  const keys = Object.keys(body).filter((k) => body[k] !== undefined);
+  // `source` (#353) says which store ids or everything belong to; it is not the one choice a delete makes.
+  const keys = Object.keys(body).filter((k) => body[k] !== undefined && k !== 'source');
   if (keys.length !== 1) return { ok: false, error: shape };
-  if (keys[0] === 'all') return body.all === true ? { ok: true, value: { all: true } } : { ok: false, error: 'all must be true' };
+  let source: 'activity' | 'recordings' | undefined;
+  if (body.source !== undefined) {
+    if (body.source !== 'activity' && body.source !== 'recordings') return { ok: false, error: 'source must be activity or recordings' };
+    source = body.source;
+  }
+  if (keys[0] === 'all') return body.all === true ? { ok: true, value: { all: true, ...(source ? { source } : {}) } } : { ok: false, error: 'all must be true' };
   if (keys[0] === 'ids') {
     const ids = body.ids;
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > STORED_DELETE_MAX_IDS || ids.some((i) => typeof i !== 'string' || i.length < 1 || i.length > STORED_ID_MAX)) {
       return { ok: false, error: `ids must be 1 to ${STORED_DELETE_MAX_IDS} session ids` };
     }
-    return { ok: true, value: { ids: ids as string[] } };
+    return { ok: true, value: { ids: ids as string[], ...(source ? { source } : {}) } };
   }
   if (keys[0] === 'match') {
     if (!isObject(body.match)) return { ok: false, error: 'match must be a filter' };

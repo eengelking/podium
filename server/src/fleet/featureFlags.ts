@@ -19,6 +19,9 @@ export const PEER_MESSAGING = 'peer-messaging';
 /** The release check (#499): on until the Admin turns it off. Off, the server makes no request to GitHub. */
 export const UPDATE_CHECK = 'update-check';
 
+/** Session recording (#353): a session's owner, or an Admin, records what an orchestrator and its agents do. Off until the Admin turns it on, and never on without a token. */
+export const SESSION_RECORDING = 'session-recording';
+
 export const FEATURES: readonly FeatureDef[] = [
   {
     id: ACTIVITY_FEED,
@@ -45,6 +48,13 @@ export const FEATURES: readonly FeatureDef[] = [
     name: 'Orchestrator messaging',
     description:
       "Lets a person's orchestrators find and message each other, on the machines they choose, through this server. Only between one person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the right on My reporters.",
+    defaultOn: false,
+  },
+  {
+    id: SESSION_RECORDING,
+    name: 'Session recording',
+    description:
+      "Lets a session's owner, or an Admin, record everything an orchestrator and its agents do, so a run can be replayed to see what happened and why. Needs sign-in on the server. Off by default.",
     defaultOn: false,
   },
   {

@@ -13,6 +13,7 @@ import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js'
 import { GuessThrottle, Lockout } from './lockout.js';
 import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
+import { mountRecordingBrowserRoutes, mountRecordingRoutes, recordingEnabled, wireRecordingLogs } from './recordingRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
 
@@ -249,7 +250,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
@@ -507,6 +508,10 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   const peerDeps: PeerDeps = { fleet, token: opts.token ?? null, people: opts.people ?? null, logger, requireToken, identityOf };
   mountPeerRoutes(router, peerDeps);
 
+  // Session recording (#353): the mod's batch route here, the owner's and the Admin's on responding's browser router below.
+  wireRecordingLogs(fleet, opts.people ?? null, logger);
+  mountRecordingRoutes(router, peerDeps);
+
   // Responding from Podium (#206): the mod's ask routes and the browser's /respond routes.
   respondAccess = mountRespondRoutes(router, {
     fleet,
@@ -518,8 +523,11 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     onSignIn: opts.onSignIn,
     requireToken,
     identityOf,
-    alsoSignIn: () => peersEnabled(fleet, opts.token ?? null),
-    extendBrowser: (browser, h) => mountPeerBrowserRoutes(browser, peerDeps, h),
+    alsoSignIn: () => peersEnabled(fleet, opts.token ?? null) || recordingEnabled(fleet, opts.token ?? null),
+    extendBrowser: (browser, h) => {
+      mountPeerBrowserRoutes(browser, peerDeps, h);
+      mountRecordingBrowserRoutes(browser, peerDeps, h);
+    },
   });
 
   router.use((_req, res) => {

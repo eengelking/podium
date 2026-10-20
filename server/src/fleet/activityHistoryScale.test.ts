@@ -69,8 +69,8 @@ const entryBytes = () => '(length(text) + length(kind) + length(loop) + COALESCE
 
 describe('schema v2', () => {
   it('is the current version', () => {
-    expect(ACTIVITY_SCHEMA_VERSION).toBe(3);
-    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(3);
+    expect(ACTIVITY_SCHEMA_VERSION).toBe(4);
+    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(4);
   });
 
   it('migrates a file made with the v1 schema: the aggregates are filled from its rows and the indexes change', () => {
@@ -90,7 +90,7 @@ describe('schema v2', () => {
     raw.close();
 
     const db = openActivityDb(file);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(4);
     aggregatesMatch(db);
     expect(db.prepare('SELECT session_id AS sid, loop, entries AS n, first_at AS f, last_t AS l FROM loops ORDER BY session_id, loop').all()).toEqual([
       { sid: 's1', loop: '@orchestrator', n: 2, f: T0 + 5, l: T0 + 8 },
