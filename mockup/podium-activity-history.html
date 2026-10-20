@@ -1,0 +1,395 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Activity History</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #432 (H1 of #530). Three screens: the retention setting on Admin > Reporting > Data kept, a new Stored
+   activity page beside it, and the Activity window showing stored history. Colors and fonts come from tokens.css
+   through fleet.css; this file defines no tokens of its own. Everything drawn is an existing piece: .ignform (the form box),
+   .callout (the warning-bordered confirmation), .selbar, .ptab with .chk, .apager, .tool, .sum, .feed and .modal.
+   Only the demo chrome (.demo, .stage, .notes, .decisions) is this mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo .grp[hidden] { display: none; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+/* The transform makes the frame the containing block of the window's fixed scrim, so it stays inside the frame. */
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 820px; max-width: 100%; background: var(--bg); transform: translateZ(0); }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame .podium { height: 100%; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.decisions { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 12.5px; }
+.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pgv[hidden], .winv[hidden] { display: none; }
+.note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
+.note-line b { color: var(--ink); font-weight: 600; }
+.note-line:last-child { border-bottom: 0; }
+.result { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
+.opt .row2 { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.facts { display: grid; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--grid); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.winv { height: 100%; background: var(--bg); }
+.winv .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media print { .demo, .nav, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Activity history (#432)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-pg="kept" aria-pressed="true">Setting</button>
+    <button type="button" data-pg="stored" aria-pressed="false">Stored activity</button>
+    <button type="button" data-pg="window" aria-pressed="false">Activity window</button>
+  </span>
+  <span class="grp" role="group" aria-label="Window state" id="winstates" hidden>Window
+    <button type="button" data-ws="ended" aria-pressed="true">Ended, kept</button>
+    <button type="button" data-ws="live" aria-pressed="false">Live, kept</button>
+    <button type="button" data-ws="default" aria-pressed="false">Default policy</button>
+    <button type="button" data-ws="other" aria-pressed="false">Another viewer</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+<div class="podium">
+<main class="adminv" aria-label="Admin" id="adminmain">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+        <button type="button" class="navbtn" data-nav="kept" aria-current="page">Data kept</button>
+        <button type="button" class="navbtn" data-nav="stored">Stored activity<span class="n">52</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Setting: Data kept -->
+  <div class="pgv" id="pg-kept">
+    <div class="page-h"><div><h1>Data kept</h1><p class="lead">What Podium stores, and for how long. Reports read this, never the live stream alone.</p></div></div>
+    <section class="asec" aria-labelledby="k-l"><div class="asec-h"><div><h2 id="k-l">Detail rows</h2><p class="hint">The rows the rollups are built from, and how long each lasts.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Detail rows">
+        <thead><tr><th scope="col">Data</th><th scope="col">Kept</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Per-second samples</td><td>24 hours</td></tr>
+          <tr><td class="who">Events and ended sessions</td><td>30 days</td></tr>
+          <tr><td class="who">Admin log</td><td>90 days</td></tr>
+          <tr><td class="who">Activity history</td><td id="k-row">Not stored (default)</td></tr>
+        </tbody></table></div></div>
+    </section>
+    <section class="asec" aria-labelledby="k-a"><div class="asec-h"><div><h2 id="k-a">Activity history</h2><p class="hint">How long an Activity window's entries are kept after a viewer leaves. Off by default.</p></div></div>
+      <div class="panel">
+        <form class="ignform" id="polform" role="group" aria-label="Activity history retention" style="margin-top:14px">
+          <b>How long is Activity history kept?</b>
+          <label class="opt"><input type="radio" name="pol" value="default" checked><span>Not stored (default)<span class="hint" style="display:block">A window shows the last 20 entries while someone watches, and drops them when they leave.</span></span></label>
+          <label class="opt"><input type="radio" name="pol" value="after"><span class="row2">Purge after <input class="field daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number" disabled>
+            <select class="field sm" id="pol-u" aria-label="Unit" disabled><option>hours</option><option>days</option><option selected>weeks</option><option>months</option></select></span></label>
+          <label class="opt"><input type="radio" name="pol" value="end"><span>Purge when the session ends<span class="hint" style="display:block">History is kept while the session runs and removed when it ends.</span></span></label>
+          <label class="opt"><input type="radio" name="pol" value="all"><span>Keep everything<span class="hint" style="display:block">Nothing is purged automatically. Use Stored activity to delete.</span></span></label>
+          <label class="opt"><input type="checkbox" id="cap-on" disabled><span class="row2">Also stop at a total size of <input class="field daysbox" id="cap-n" inputmode="numeric" value="2" aria-label="Size in gigabytes" disabled> GB, removing the oldest first</span></label>
+          <div class="warnline" id="polwarn" role="note" hidden><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span>Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
+          <div class="formacts"><button type="submit" class="btn pri" id="polsave">Save</button><button type="reset" class="btn">Cancel</button><span class="hint" id="polhint">Saving is written to the Admin log.</span></div>
+        </form>
+        <div class="facts"><span><b class="mono" id="k-sum">0 entries</b> <span class="hint" id="k-sum2">Nothing is stored under the default.</span></span><span class="hint">Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Stored activity -->
+  <div class="pgv" id="pg-stored" hidden>
+    <div class="page-h"><div><h1>Stored activity</h1><p class="lead">The Activity history Podium has kept, by session. Delete what you no longer need, in bulk.</p></div></div>
+    <section class="asec" aria-labelledby="s-t"><div class="asec-h"><div><h2 id="s-t">What is stored</h2><p class="hint">Policy: purge after 30 days. <a class="klink" href="#" data-go="kept">Change it</a></p></div></div>
+      <div class="panel">
+        <div class="tool">
+          <div class="f"><label class="lab" for="s-q">Session</label><input class="field" id="s-q" placeholder="Name or id"></div>
+          <div class="f"><label class="lab" for="s-agent">Loop</label><select class="field" id="s-agent"><option>Orchestrator and agents</option><option>Orchestrator only</option><option>Agents only</option></select></div>
+          <div class="f"><label class="lab" for="s-proj">Project</label><select class="field" id="s-proj"><option>All projects</option><option>podium</option><option>docs-site</option></select></div>
+          <div class="f"><label class="lab" for="s-own">Owner</label><select class="field" id="s-own"><option>Everyone</option><option>Maya Okafor</option><option>Jonas Weber</option><option>Ed</option></select></div>
+          <div class="f"><label class="lab" for="s-age">Older than</label><select class="field" id="s-age"><option>Any age</option><option>7 days</option><option selected>30 days</option><option>90 days</option><option>Custom…</option></select></div>
+          <div class="f"><label class="lab" for="s-src">Source</label><select class="field" id="s-src"><option>Activity</option></select></div>
+        </div>
+        <div class="tool alone">
+          <div class="sum" style="margin-left:0;text-align:left">
+            <div><span class="big mono">18,402</span><span class="cap">entries stored</span></div>
+            <div><span class="big mono">7.9 MB</span><span class="cap">on disk</span></div>
+            <div><span class="big mono">52</span><span class="cap">sessions</span></div>
+            <div><span class="big mono">9</span><span class="cap">match the filter</span></div>
+          </div>
+        </div>
+        <div id="s-result" class="result" role="status" hidden></div>
+        <div id="s-confirm" hidden></div>
+        <div class="selbar" id="s-bar" role="group" aria-label="Delete stored activity">
+          <span class="count" id="s-count">None selected</span>
+          <span class="grow"></span>
+          <button type="button" class="btn sm dng" id="s-del-sel" disabled>Delete selected…</button>
+          <button type="button" class="btn sm dng" id="s-del-match">Delete all 9 that match…</button>
+          <button type="button" class="btn sm dng" id="s-del-all">Delete everything…</button>
+        </div>
+        <div class="tw2"><table class="ptab" aria-label="Stored activity by session">
+          <thead><tr><th scope="col" class="chk"><span class="sr">Select</span></th><th scope="col">Session</th><th scope="col">Owner</th><th scope="col">State</th><th scope="col" class="n">Entries</th><th scope="col" class="n">Size</th><th scope="col">Oldest entry</th></tr></thead>
+          <tbody id="s-rows">
+            <tr class="rw" data-e="2310" data-kb="1229"><td class="chk"><input type="checkbox" aria-label="Select api-refactor"></td><td class="who">api-refactor<span class="hint" style="display:block">podium</span></td><td>Maya Okafor</td><td><span class="badge ok"><span aria-hidden="true">●</span> Live</span></td><td class="n mono">2,310</td><td class="n mono">1.2 MB</td><td class="mono">2026-10-09</td></tr>
+            <tr class="rw" data-e="1186" data-kb="614"><td class="chk"><input type="checkbox" aria-label="Select docs-sweep"></td><td class="who">docs-sweep<span class="hint" style="display:block">docs-site</span></td><td>Jonas Weber</td><td><span class="badge off"><span aria-hidden="true">○</span> Ended</span></td><td class="n mono">1,186</td><td class="n mono">0.6 MB</td><td class="mono">2026-10-12</td></tr>
+            <tr class="rw" data-e="842" data-kb="410"><td class="chk"><input type="checkbox" aria-label="Select flaky-tests"></td><td class="who">flaky-tests<span class="hint" style="display:block">podium</span></td><td>Maya Okafor</td><td><span class="badge off"><span aria-hidden="true">○</span> Ended</span></td><td class="n mono">842</td><td class="n mono">0.4 MB</td><td class="mono">2026-10-14</td></tr>
+            <tr class="rw" data-e="3904" data-kb="2048"><td class="chk"><input type="checkbox" aria-label="Select issue-484-reporting"></td><td class="who">issue-484-reporting<span class="hint" style="display:block">podium</span></td><td>Ed</td><td><span class="badge ok"><span aria-hidden="true">●</span> Live</span></td><td class="n mono">3,904</td><td class="n mono">2.0 MB</td><td class="mono">2026-10-02</td></tr>
+            <tr class="rw" data-e="1677" data-kb="819"><td class="chk"><input type="checkbox" aria-label="Select migrate-sqlite"></td><td class="who">migrate-sqlite<span class="hint" style="display:block">podium</span></td><td>Cai Lindqvist</td><td><span class="badge off"><span aria-hidden="true">○</span> Ended</span></td><td class="n mono">1,677</td><td class="n mono">0.8 MB</td><td class="mono">2026-09-18</td></tr>
+            <tr class="rw" data-e="905" data-kb="410"><td class="chk"><input type="checkbox" aria-label="Select sonar-gate"></td><td class="who">sonar-gate<span class="hint" style="display:block">podium</span></td><td>Ed</td><td><span class="badge off"><span aria-hidden="true">○</span> Ended</span></td><td class="n mono">905</td><td class="n mono">0.4 MB</td><td class="mono">2026-09-21</td></tr>
+            <tr class="rw" data-e="2262" data-kb="1126"><td class="chk"><input type="checkbox" aria-label="Select ui-audit"></td><td class="who">ui-audit<span class="hint" style="display:block">docs-site</span></td><td>Jonas Weber</td><td><span class="badge off"><span aria-hidden="true">○</span> Ended</span></td><td class="n mono">2,262</td><td class="n mono">1.1 MB</td><td class="mono">2026-09-30</td></tr>
+          </tbody>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 7 of 52</span><span class="row2"><label class="hint" for="s-size">Rows per page</label><select class="field sm" id="s-size"><option>25</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 3</span><button type="button" class="btn sm">Next</button></span></div>
+        <div class="note-line">Deleting removes stored entries only. Sessions, History and the live feed are not touched, and each delete is written to the Admin log with who did it and how much went.</div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+
+<!-- The Activity window: the existing modal, showing stored history -->
+<div class="winv" id="pg-window" hidden>
+  <div class="scrim">
+    <div class="modal modal-feed" role="dialog" aria-modal="true" aria-labelledby="w-t">
+      <div class="mh">
+        <div class="ttl"><h2 id="w-t">Activity</h2><div class="sub2" id="w-sub">Silverbolt, orchestrator, issue/484-admin-reporting</div></div>
+        <span class="acts" id="w-every"><span class="live"><label for="w-ev" class="sub">Refresh every</label><select id="w-ev" aria-label="Refresh interval"><option>5s</option><option>10s</option><option>20s</option></select></span></span>
+        <button type="button" class="x" aria-label="Close (Esc)">✕</button>
+      </div>
+      <div class="mb feedmb">
+        <div class="feedwrap">
+          <ol class="feed" aria-label="Activity, newest last" tabindex="0" id="w-feed"></ol>
+        </div>
+        <div class="feedfoot stat" id="w-older" hidden><span class="count">Showing the newest 8</span><button type="button" class="btn sm">Show older</button></div>
+        <div class="feedfoot stat"><span class="count" id="w-count"></span><span class="when" id="w-when"></span></div>
+        <div class="feedfoot"><span id="w-note"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>Where it lives.</b> The issue says "Admin > Data". Since #484 the Admin menu has a Reporting group with a Data kept page, so the setting goes there, as a new <b>Activity history</b> section under the existing detail rows, which gain one row for it. A new page, <b>Stored activity</b>, sits beside it for totals, filters and deleting.</li>
+    <li><b>The setting</b> is one form with one primary button. The default, "Not stored", is the current behavior, so nobody who leaves it alone sees a change. The other choices are purge after n hours, days, weeks or months; purge when the session ends; keep everything. An optional size cap removes the oldest first. The warning line appears only once a keeping choice is picked, before Save, and says reporters will send more and the server will store more. It also states who can read the history.</li>
+    <li><b>Stored activity</b> shows the totals first (entries, size on disk, sessions, and how many match the filter), then the filters (session, loop, project, owner, age, source), then the sessions with a tick box. Deleting works three ways: the ticked sessions, everything that matches the filter, or everything. Each one asks first in a warning-bordered box that says how many entries and how much space will go, and offers a button for each answer. After it runs, a line says what was removed and that the Admin log has it.</li>
+    <li>The <b>Source</b> filter has one choice today, Activity. Opt-in recordings (#353, H2) add a second source here without a new screen.</li>
+    <li><b>The Activity window</b> keeps its place and look. With history kept it shows the newest page of stored entries and a "Show older" row, so a long history pages instead of loading at once. The footer says what is stored ("412 stored entries since 2026-10-12") and when it will go ("Kept until 2026-11-11"). A session that has ended shows its history with no refresh control. Under the default policy the window reads exactly as it does today.</li>
+    <li><b>Who can read it.</b> Stored history opens for the session's owner and the Admin, the same people who can open a file's diff. Anyone else sees a plain line saying so, never the entries.</li>
+    <li><b>Nothing new is invented.</b> Every piece is one that exists: the form box, the warning-bordered box, the selection bar, the table with tick boxes, the pager, the modal and the feed list. Status is a shape, a word and a color. Buttons say what they do.</li>
+    <li><b>A live session.</b> Deleting the history of a session that is still running removes what is stored so far. It keeps capturing afterward while a keeping policy is on, and the confirmation says so when a live session is among those picked.</li>
+  </ul>
+  <h2>Open decisions, with a recommendation</h2>
+  <table class="decisions" aria-label="Open decisions">
+    <thead><tr><th scope="col">Decision</th><th scope="col">Recommendation</th><th scope="col">Why</th></tr></thead>
+    <tbody>
+      <tr><td>1. Where the data lives</td><td>A second SQLite file just for activity (and later recordings).</td><td>A table in podium.sqlite makes backups, vacuum and the hourly sweeper slower as it grows. A second file has its own size, purge cost and backup, with the same dependency. Settle it together with #353, which needs the same store.</td></tr>
+      <tr><td>2. Scope of the policy</td><td>One global setting for now.</td><td>Per project or per owner can come later without changing this screen. The form would gain a scope row.</td></tr>
+      <tr><td>3. Which entries</td><td>Everything the feed shows, including answers and messages sent from Podium, each keeping its marker.</td><td>A person looking back needs the answers they gave. Storing only what the agent did loses half the story.</td></tr>
+      <tr><td>4. Redaction</td><td>Keep the redaction done before sending. Add no second pass now, and say so on the setting.</td><td>The text is already cut to 300 characters and scrubbed. The warning line and the owner-and-Admin read rule carry the rest. A second pass can follow if a gap shows.</td></tr>
+      <tr><td>5. Size cap</td><td>Offer it, optional, off by default, removing the oldest first.</td><td>A retention in time can still grow without limit on a busy fleet. The Stored activity totals show whether it is needed.</td></tr>
+      <tr><td>6. "Purge when the session ends" against the 30-day session retention</td><td>The shorter of the two wins.</td><td>A history never outlives the session it describes, and the Admin can see the rule stated on the setting.</td></tr>
+    </tbody>
+  </table>
+  <h2>Shared with #353 (recording and replay)</h2>
+  <ul>
+    <li>The same store, the same purge job (run every few minutes, since both issues allow a retention of hours), the same Stored activity page with a second source, and the same read rule.</li>
+    <li>Not shared: #353's per-session consent, the owner's reporter option, the always-visible recording notice and the replay view. They stay in #353.</li>
+  </ul>
+  <h2>Not drawn</h2>
+  <ul>
+    <li>The capture itself (reporters sending every running loop), the purge job and the load test. They have no screen. The setting's warning line is the only place Admin sees the cost.</li>
+    <li>The wall and the orchestrator page are unchanged. Opening the window works as it does today.</li>
+    <li>The empty, loading and error states of Stored activity (nothing stored, still counting, the server unreachable) follow the rules on patterns.html under empty, loading and error states.</li>
+    <li>The 400 px frame only narrows the content. The Admin menu collapses by the browser window's width, not the frame's, so check the collapsed menu by narrowing the browser window itself.</li>
+  </ul>
+  <p class="hint">Entries, sessions and numbers are example data. This mockup is static: nothing is read from or written to a server.</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function $(id) { return document.getElementById(id); }
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function fmtKb(kb) { return kb >= 1024 ? (kb / 1024).toFixed(1) + " MB" : kb + " KB"; }
+  function fmtN(n) { return n.toLocaleString("en-US"); }
+
+  /* Screens */
+  function page(id) {
+    var isWin = id === "window";
+    $("adminmain").hidden = isWin;
+    $("pg-window").hidden = !isWin;
+    $("winstates").hidden = !isWin;
+    document.querySelectorAll(".pgv").forEach(function (p) { p.hidden = p.id !== "pg-" + id; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { if (b.getAttribute("data-nav") === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    press("[data-pg]", "data-pg", id);
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav],[data-go]").forEach(function (b) { b.addEventListener("click", function (e) { e.preventDefault(); page(b.getAttribute("data-nav") || b.getAttribute("data-go")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+
+  /* Setting */
+  var form = $("polform");
+  function pol() { return form.elements.pol.value; }
+  function syncPolicy() {
+    var p = pol(), keep = p !== "default";
+    $("pol-n").disabled = p !== "after"; $("pol-u").disabled = p !== "after";
+    $("cap-on").disabled = !keep; $("cap-n").disabled = !keep || !$("cap-on").checked;
+    $("polwarn").hidden = !keep;
+    var label = { default: "Not stored (default)", after: "Purge after " + $("pol-n").value + " " + $("pol-u").value, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[p];
+    $("k-row").textContent = label;
+    if (keep && $("cap-on").checked) $("k-row").textContent += ", capped at " + $("cap-n").value + " GB";
+    $("k-sum").textContent = keep ? "18,402 entries, 7.9 MB" : "0 entries";
+    $("k-sum2").textContent = keep ? "stored now, in 52 sessions." : "Nothing is stored under the default.";
+  }
+  form.addEventListener("change", syncPolicy); form.addEventListener("input", syncPolicy);
+  form.addEventListener("reset", function () { setTimeout(syncPolicy, 0); });
+  form.addEventListener("submit", function (e) { e.preventDefault(); $("polhint").textContent = "Saved. Written to the Admin log."; });
+
+  /* Stored activity */
+  var rows = Array.prototype.slice.call(document.querySelectorAll("#s-rows tr"));
+  function picked() { return rows.filter(function (r) { return r.querySelector("input").checked; }); }
+  function totals(list) { return list.reduce(function (a, r) { a.e += +r.dataset.e; a.kb += +r.dataset.kb; a.n += 1; return a; }, { e: 0, kb: 0, n: 0 }); }
+  function bar() {
+    var p = picked(), t = totals(p);
+    $("s-count").textContent = p.length ? p.length + " selected, " + fmtN(t.e) + " entries, " + fmtKb(t.kb) : "None selected";
+    $("s-del-sel").disabled = !p.length;
+    $("s-del-sel").textContent = p.length ? "Delete " + p.length + "…" : "Delete selected…";
+    rows.forEach(function (r) { r.classList.toggle("sel", r.querySelector("input").checked); });
+  }
+  rows.forEach(function (r) { r.querySelector("input").addEventListener("change", bar); });
+  var warn = '<svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg>';
+  function ask(kind) {
+    var what, n, e, size;
+    if (kind === "sel") { var t = totals(picked()); n = t.n; e = fmtN(t.e); size = fmtKb(t.kb); what = "the stored activity of " + n + (n === 1 ? " session" : " sessions"); }
+    else if (kind === "match") { n = 9; e = "3,100"; size = "1.2 MB"; what = "the stored activity of the 9 sessions that match: older than 30 days"; }
+    else { n = 52; e = "18,402"; size = "7.9 MB"; what = "all stored activity, for all 52 sessions"; }
+    var live = kind !== "sel" || picked().some(function (r) { return r.querySelector(".badge.ok"); });
+    $("s-result").hidden = true;
+    $("s-confirm").hidden = false;
+    $("s-confirm").innerHTML = '<div class="callout" role="alert">' + warn + '<h3>Delete ' + what + '?</h3>' +
+      '<p><b>' + e + ' entries, ' + size + '</b> will be removed for good. The sessions, History and the live feed are not touched. This is written to the Admin log.' + (live ? ' A session that is still running keeps being captured while the policy keeps history.' : '') + '</p>' +
+      '<p class="formacts"><button type="button" class="btn dng" data-do="' + kind + '">Delete ' + e + ' entries</button><button type="button" class="btn" data-do="no">Keep them</button></p></div>';
+    $("s-confirm").querySelectorAll("[data-do]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        $("s-confirm").hidden = true;
+        if (b.getAttribute("data-do") === "no") return;
+        $("s-result").hidden = false;
+        $("s-result").textContent = "Deleted " + e + " entries (" + size + ") from " + n + (n === 1 ? " session" : " sessions") + ". Written to the Admin log.";
+        if (kind === "sel") picked().forEach(function (r) { r.remove(); rows.splice(rows.indexOf(r), 1); });
+        bar();
+      });
+    });
+    $("s-confirm").querySelector(".btn.dng").focus();
+  }
+  $("s-del-sel").addEventListener("click", function () { ask("sel"); });
+  $("s-del-match").addEventListener("click", function () { ask("match"); });
+  $("s-del-all").addEventListener("click", function () { ask("all"); });
+
+  /* Activity window */
+  var E = [
+    ["12:41", "tool", "Bash", "npm test -w server -- retention"],
+    ["12:44", "txt", "", "The sweeper test passes. Next I will read how the settings table stores a policy."],
+    ["12:46", "tool", "Read", "server/src/fleet/settings.ts"],
+    ["12:51", "you", "", "Use the second SQLite file, as decided."],
+    ["12:52", "txt", "", "Understood. I will keep the activity store separate from podium.sqlite."],
+    ["12:58", "tool", "Bash", 'curl -s -H "Authorization: [redacted]" http://localhost:4317/api/fleet/state'],
+    ["13:03", "tool", "Edit", "server/src/fleet/activityStore.ts"],
+    ["13:09", "txt", "", "Capture works without a viewer. Running the purge test again."]
+  ];
+  var ICON = {
+    tool: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4 4 4-4 4M8.5 12.5H13"/></svg>',
+    txt: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
+    you: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"/></svg>'
+  };
+  var LAB = { tool: "Tool call", txt: "Text", you: "Sent from Podium" };
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+  function rd(s) { return esc(s).replace("[redacted]", '<span class="rd">[redacted]</span>'); }
+  function feed() {
+    $("w-feed").innerHTML = E.map(function (e) {
+      var body = e[1] === "tool" ? '<span class="name">' + e[2] + '</span> <span class="arg">' + rd(e[3]) + "</span>" : e[1] === "you" ? '<span class="who">You, from Podium:</span> ' + esc(e[3]) : esc(e[3]);
+      return '<li class="' + (e[1] === "txt" ? "txt" : e[1]) + '"><span class="at">' + e[0] + '</span><span class="k" role="img" aria-label="' + LAB[e[1]] + '" title="' + LAB[e[1]] + '">' + ICON[e[1]] + '</span><span class="body">' + body + "</span></li>";
+    }).join("");
+  }
+  var WS = {
+    ended: { sub: "Silverbolt, orchestrator, issue/484-admin-reporting", every: false, older: true, count: "412 stored entries since 2026-10-12", when: "Session ended, no more updates", note: "Kept until 2026-11-11, then purged. Only the owner and the Admin can open it. Secrets are removed before they leave the session." },
+    live: { sub: "Silverbolt, orchestrator, issue/484-admin-reporting", every: true, older: true, count: "412 stored entries since 2026-10-12", when: "Updated 4s ago", note: "Kept for 30 days, then purged. Only the owner and the Admin can open it. Secrets are removed before they leave the session." },
+    default: { sub: "Silverbolt, orchestrator, issue/484-admin-reporting", every: true, older: false, count: "Last 9 of 9 since you started watching", when: "Updated 2s ago", note: "Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session." },
+    other: { sub: "Silverbolt, orchestrator, issue/484-admin-reporting", every: false, older: false, other: true }
+  };
+  function win(id) {
+    var s = WS[id];
+    press("[data-ws]", "data-ws", id);
+    $("w-sub").textContent = s.sub;
+    $("w-every").hidden = !s.every;
+    $("w-older").hidden = !s.older;
+    if (s.other) {
+      $("w-feed").innerHTML = '<li class="empty">History is kept for this session. Only Ed and the Admin can open it.</li>';
+      $("w-count").textContent = "Nothing to show"; $("w-when").textContent = ""; $("w-note").textContent = "Stored activity can hold anything an agent read or ran, so it is not shown to other viewers.";
+      return;
+    }
+    feed();
+    $("w-count").textContent = s.count; $("w-when").textContent = s.when; $("w-note").textContent = s.note;
+  }
+  document.querySelectorAll("[data-ws]").forEach(function (b) { b.addEventListener("click", function () { win(b.getAttribute("data-ws")); }); });
+
+  root.setAttribute("data-theme", "dark");
+  syncPolicy(); bar(); win("ended"); page("kept");
+})();
+</script>
