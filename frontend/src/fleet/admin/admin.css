@@ -347,3 +347,12 @@
   .adminv .apage { padding: 0; }
   .adminv .panel { break-inside: avoid; }
 }
+
+/* Activity history (#432, mockup/podium-activity-history.html): the Data and Stored activity pages. Colors are tokens from tokens.css. */
+.adminv .result { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
+.adminv .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.adminv .srow select.field { width: auto; min-width: 200px; }
+.adminv .srow .row2 { display: inline-flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+.adminv .srow .row2 select.field { min-width: 0; }
+.adminv .klink { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
+.adminv .ptab td.who .hint { display: block; }

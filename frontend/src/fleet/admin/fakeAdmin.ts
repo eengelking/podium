@@ -1,5 +1,6 @@
 // A small in-memory stand-in for /api/admin, shared by the Admin tests and the standards pages' Admin screens (#354).
 import { vi } from "vitest";
+import type { ActivityHistoryPreview, ActivityHistoryState, StoredDeleteResult, StoredSessionRow } from "./adminApi";
 
 interface PriceSet {
   input: number;
@@ -200,6 +201,18 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       tables: [{ name: "Usage", rows: 2418, oldestDay: "2026-03-02", keptDays: 395 }],
       detail: [{ name: "Per-second samples", keptDays: 1 }, { name: "Admin log", keptDays: 90 }],
     } as unknown,
+    /** Activity history (#432): the Data page's state, the preview a save gets, and the stored sessions the second page lists. */
+    activity: { settings: { policy: "default", n: 30, unit: "days", capGb: null }, totals: { entries: 0, bytes: 0, sessions: 0 }, lastPurge: null, authOn: true } as ActivityHistoryState,
+    activityError: "",
+    /** While set, reading the settings fails with this message. */
+    settingsError: "",
+    previewBodies: [] as unknown[],
+    preview: { entries: 0, bytes: 0, sessions: 0, stopsCapturing: false } as ActivityHistoryPreview,
+    previewError: "",
+    stored: [] as StoredSessionRow[],
+    storedDeleteBodies: [] as unknown[],
+    storedDeleteResult: null as StoredDeleteResult | null,
+    storedError: "",
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -358,6 +371,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         if (state.peerLimitError) return json(400, { ok: false, error: state.peerLimitError });
         state.peerLimits = { ...state.peerLimits, ...b.peerMessaging };
       }
+      if (b.activityHistory) {
+        if (state.activityError) return json(400, { ok: false, error: state.activityError });
+        state.activity = { ...state.activity, settings: b.activityHistory };
+      }
       if (b.modelPrice) {
         if (state.priceError) return json(400, { ok: false, error: state.priceError });
         state.prices[b.modelPrice.key] = { std: b.modelPrice.std, ...(b.modelPrice.long ? { long: b.modelPrice.long } : {}) };
@@ -368,6 +385,32 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       }
       return json(200, { ok: true });
     }
+    if (path === "/activity-history/preview" && method === "POST") {
+      state.previewBodies.push(JSON.parse(String(init?.body)));
+      return state.previewError ? json(400, { ok: false, error: state.previewError }) : json(200, state.preview);
+    }
+    if (path === "/stored-activity" && method === "GET") {
+      if (state.storedError) return json(500, { ok: false, error: state.storedError });
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      const project = url.searchParams.get("project");
+      const owner = url.searchParams.get("owner");
+      const hit = state.stored.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!project || r.project === project) && (!owner || r.owner === owner));
+      const sum = (rows: StoredSessionRow[]) => ({ entries: rows.reduce((n, r) => n + r.entries, 0), bytes: rows.reduce((n, r) => n + r.bytes, 0), sessions: rows.length });
+      const size = Number(url.searchParams.get("pageSize") ?? 25);
+      const page = Number(url.searchParams.get("page") ?? 1);
+      return json(200, { total: hit.length, page, pageSize: size, rows: hit.slice((page - 1) * size, page * size), totals: sum(state.stored), match: sum(hit), projects: [...new Set(state.stored.map((r) => r.project).filter(Boolean))], owners: [...new Set(state.stored.map((r) => r.owner).filter(Boolean))] });
+    }
+    if (path === "/stored-activity/delete" && method === "POST") {
+      const b = JSON.parse(String(init?.body)) as { ids?: string[]; all?: true; match?: { q?: string; project?: string; owner?: string } };
+      state.storedDeleteBodies.push(b);
+      if (state.storedError) return json(500, { ok: false, error: state.storedError });
+      const m = b.match;
+      const gone = state.stored.filter((r) => b.all || b.ids?.includes(r.sessionId) || (m && (!m.q || r.name.toLowerCase().includes(m.q.toLowerCase())) && (!m.project || r.project === m.project) && (!m.owner || r.owner === m.owner)));
+      state.stored = state.stored.filter((r) => !gone.includes(r));
+      const result = state.storedDeleteResult ?? { entries: gone.reduce((n, r) => n + r.entries, 0), sessions: gone.length, bytes: gone.reduce((n, r) => n + r.bytes, 0), freed: 1_048_576 };
+      return json(200, result);
+    }
+    if (path === "/settings" && state.settingsError) return json(500, { ok: false, error: state.settingsError });
     if (path === "/settings") {
       const notices = Object.entries(state.notices).map(([id, on]) => ({ id, name: "Background sessions", description: "Says how many are set aside.", on }));
       const models = Object.entries(state.prices).map(([key, p]) => {
@@ -388,7 +431,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
           ? { id, name: "Orchestrator messaging", description: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server.", on }
           : { id, name: "Agent activity feed", description: "Shows an agent's recent tool calls and text in its panel while someone watches.", on },
       );
-      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, cardTitleMachine: state.cardTitleMachine, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
+      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, cardTitleMachine: state.cardTitleMachine, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, activityHistory: state.activity, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
     }
     return json(404, { ok: false, error: "nope" });
   });

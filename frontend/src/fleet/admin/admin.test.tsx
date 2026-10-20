@@ -318,19 +318,20 @@ describe("side menu", () => {
       "Settings",
       "Model prices",
       "Security",
+      "Data",
+      "Stored activity",
       "Usage",
       expect.stringMatching(/^Spend/),
       "People and groups",
       "Sessions",
       "Failures",
       "Admin activity",
-      "Data kept",
       expect.stringMatching(/^Admin log/),
       "Lock Admin",
     ]);
     expect(within(nav).getByRole("group", { name: "Server" })).toBeInTheDocument();
     // Reporting is its own group (#484); Activity keeps only the Admin log.
-    expect(within(within(nav).getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(7);
+    expect(within(within(nav).getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(6);
     expect(within(within(nav).getByRole("group", { name: "Activity" })).getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("People");
     fireEvent.click(within(nav).getByRole("button", { name: /Groups/ }));

@@ -1,12 +1,9 @@
-// Admin > Reporting (#484): the shared report page, the five reports that are one table each, and Data kept.
+// Admin > Reporting (#484): the shared report page, and the five reports that are one table each. Data (DataPage.tsx) shares keptText.
 // Spend has its own page (SpendPage.tsx) because it adds Spend today and the projection to the same report.
 import { PageHeader, Panel, Section } from "./Page";
 import { ReportBody, ReportExport, ReportFilters } from "./ReportParts";
-import type { RetentionReply, ReportId, ReportsClient } from "./reportsApi";
-import { reportErrorText } from "./reportsApi";
+import type { ReportId, ReportsClient } from "./reportsApi";
 import { useReport, type ReportConfig, type ReportState } from "./useReport";
-import { useList } from "./useList";
-import type { AdminApi } from "./adminApi";
 
 export const SPEND_CONFIG: ReportConfig = {
   report: "spend",
@@ -136,78 +133,4 @@ export function keptText(days: number): string {
     return `${h} ${h === 1 ? "hour" : "hours"}`;
   }
   return `${days} days`;
-}
-
-/** Data kept: each rollup table with its rows, oldest day and retention, and how long the detail rows last. */
-export function RetentionPage({ api, onLocked }: { api: AdminApi; onLocked: () => void }) {
-  const list = useList<RetentionReply>(api, "/reports/retention", onLocked);
-  const data = list.data;
-  const failure = list.error ? reportErrorText(new Error(list.error), "what Podium keeps") : null;
-  return (
-    <>
-      <PageHeader title="Data kept" lead="What Podium stores, and for how long. Reports read this, never the live stream alone." />
-      <Section id="rep-kept-r" title="Daily rollups" help="A rollup holds counts, tokens, cost and names. It holds no prompts, answers, tool input or paths.">
-        <Panel>
-          {failure && (
-            <div className="err" role="alert">
-              {failure}
-            </div>
-          )}
-          {!data && !failure && <div className="empty">Loading…</div>}
-          {data && data.tables.length === 0 && <div className="empty">No daily rollups have been written yet.</div>}
-          {data && data.tables.length > 0 && (
-            <div className="tw2">
-              <table className="ptab" aria-label="Daily rollups">
-                <thead>
-                  <tr>
-                    <th scope="col">Table</th>
-                    <th scope="col" className="n">
-                      Rows
-                    </th>
-                    <th scope="col">Oldest day</th>
-                    <th scope="col">Kept</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.tables.map((t) => (
-                    <tr key={t.name}>
-                      <td className="who">{t.name}</td>
-                      <td className="n mono">{t.rows.toLocaleString("en-US")}</td>
-                      <td className={t.oldestDay ? "mono" : "mono muted"}>{t.oldestDay ?? "–"}</td>
-                      <td>{keptText(t.keptDays)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-      </Section>
-      <Section id="rep-kept-d" title="Detail rows" help="The rows the rollups are built from, and how long each lasts.">
-        <Panel>
-          {!data && !failure && <div className="empty">Loading…</div>}
-          {data && (
-            <div className="tw2">
-              <table className="ptab" aria-label="Detail rows">
-                <thead>
-                  <tr>
-                    <th scope="col">Data</th>
-                    <th scope="col">Kept</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.detail.map((d) => (
-                    <tr key={d.name}>
-                      <td className="who">{d.name}</td>
-                      <td>{keptText(d.keptDays)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-      </Section>
-    </>
-  );
 }

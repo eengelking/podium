@@ -1,4 +1,4 @@
-// Admin > Reporting (#484): the menu group, the shared report page, each report, Data kept, and Security's new name.
+// Admin > Reporting (#484): the menu group, the shared report page, each report, and Security's new name.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AdminView } from "./AdminView";
@@ -408,9 +408,9 @@ describe("Admin activity", () => {
   });
 });
 
-describe("Data kept", () => {
+describe("Data, rollups and detail rows", () => {
   it("lists each rollup table with its oldest day and how long it is kept, then the detail rows", async () => {
-    await openPage("Data kept");
+    await openPage("Data");
     const rollups = await screen.findByRole("table", { name: "Daily rollups" });
     expect(within(rollups).getByText("Usage").closest("tr")).toHaveTextContent("2,418");
     expect(within(rollups).getByText("2026-03-02")).toBeInTheDocument();
@@ -425,7 +425,7 @@ describe("Data kept", () => {
   it("says when nothing has been rolled up, and what failed", async () => {
     const s = fakeServer({ unlocked: true });
     s.retention = { tables: [], detail: [{ name: "Events", keptDays: 1 }, { name: "Odd", keptDays: 0.01 }, { name: "Short", keptDays: 0.5 }] };
-    await openPage("Data kept", s);
+    await openPage("Data", s);
     expect(await screen.findByText("No daily rollups have been written yet.")).toBeInTheDocument();
     expect(screen.getByText("24 hours")).toBeInTheDocument();
     expect(screen.getByText("1 hour")).toBeInTheDocument();
@@ -433,14 +433,14 @@ describe("Data kept", () => {
     cleanup();
     const bad = fakeServer({ unlocked: true });
     bad.reportStatus = 500;
-    await openPage("Data kept", bad);
+    await openPage("Data", bad);
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load what Podium keeps.");
   });
 
   it("shows a rollup table with no rows yet as a dash", async () => {
     const s = fakeServer({ unlocked: true });
     s.retention = { tables: [{ name: "Fleet", rows: 0, oldestDay: null, keptDays: 1 }], detail: [] };
-    await openPage("Data kept", s);
+    await openPage("Data", s);
     expect(await screen.findByText("24 hours")).toBeInTheDocument();
     expect(screen.getAllByText("–").length).toBeGreaterThan(0);
   });

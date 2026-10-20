@@ -117,6 +117,23 @@ export interface ModelPricesView {
   models: ModelPriceRow[];
 }
 
+/** Activity history (#432): the shapes the Data and Stored activity pages share with the server's routes. */
+export type {
+  ActivityHistoryPolicy,
+  ActivityHistoryPreview,
+  ActivityHistoryPreviewBody,
+  ActivityHistorySettings,
+  ActivityHistoryState,
+  ActivityHistoryUnit,
+  LastPurge,
+  StoredActivityList,
+  StoredDeleteBody,
+  StoredDeleteResult,
+  StoredFilter,
+  StoredSessionRow,
+  StoredTotals,
+} from "../../../../server/src/fleet/activityHistoryTypes";
+
 export class AdminError extends Error {
   constructor(
     readonly status: number,
