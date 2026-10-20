@@ -368,9 +368,16 @@ export class ActivityHistory {
 
   // ---- removal --------------------------------------------------------------------------------
 
-  /** What saving these settings would remove now, without removing it. */
+  /**
+   * What saving these settings would do now, without doing it. For a keep policy: the entries, bytes and sessions the purge
+   * would remove, and `stopsCapturing` false. For the default policy nothing is removed, so it returns what is stored now
+   * (the totals), with `stopsCapturing` true when anything is stored.
+   */
   preview(settings: ActivityHistorySettings): ActivityHistoryPreview {
-    if (settings.policy === 'default') return { entries: 0, bytes: 0, sessions: 0, stopsCapturing: this.totals().entries > 0 };
+    if (settings.policy === 'default') {
+      const t = this.totals();
+      return { entries: t.entries, bytes: t.bytes, sessions: t.sessions, stopsCapturing: t.entries > 0 };
+    }
     const r = this.apply(settings, this.opts.now(), false);
     return { entries: r.entries, bytes: r.bytes, sessions: r.sessions, stopsCapturing: false };
   }

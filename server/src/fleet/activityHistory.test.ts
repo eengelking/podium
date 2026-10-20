@@ -376,9 +376,12 @@ describe('preview', () => {
 
   it('says when saving the default policy would stop capturing what is stored', () => {
     const s = setup({ policy: 'all' });
-    expect(s.h.preview(ACTIVITY_HISTORY_DEFAULTS)).toEqual({ entries: 0, bytes: 0, sessions: 0, stopsCapturing: false });
-    s.h.ingest(report([tool(T0)]), 0, META);
-    expect(s.h.preview(ACTIVITY_HISTORY_DEFAULTS)).toEqual({ entries: 0, bytes: 0, sessions: 0, stopsCapturing: true });
+    const empty = s.h.preview(ACTIVITY_HISTORY_DEFAULTS);
+    expect(empty).toMatchObject({ entries: 0, sessions: 0, stopsCapturing: false });
+    s.h.ingest(report([tool(T0), tool(T0 + 1)]), 0, META);
+    const t = s.h.totals();
+    expect(s.h.preview(ACTIVITY_HISTORY_DEFAULTS)).toEqual({ entries: 2, bytes: t.bytes, sessions: 1, stopsCapturing: true });
+    expect(s.h.totals().entries).toBe(2);
   });
 });
 
