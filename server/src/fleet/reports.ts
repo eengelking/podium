@@ -399,17 +399,23 @@ function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
   return envelope(p, 'failures', p.by, f, [col('period', 'Period', 'date'), col('key', heading, 'text'), col('count', 'Failures', 'count'), col('people', 'People', 'count'), col('sessionIds', 'Sessions', 'text')], rows, { count: total, people: everyone.size });
 }
 
+/** The most entries the Admin activity report returns; a longer log is cut and says so (`truncated`). */
+const ACTIVITY_MAX = 1000;
+
 function activityReport(deps: ReportDeps, q: Query): ReportReply {
   const today = localDay(deps.now());
   const p = parseParams({ ...q, by: undefined }, today);
   const kind = one(q, 'kind');
   if (kind !== undefined && kind !== '' && !/^[A-Za-z0-9_.-]{1,64}$/.test(kind)) throw new ReportError('kind is not a kind of Admin log entry');
-  const sql = `SELECT t, kind, detail, source FROM admin_log WHERE t >= ? AND t < ?${kind ? ' AND kind = ?' : ''} ORDER BY id DESC LIMIT 1000`;
+  const sql = `SELECT t, kind, detail, source FROM admin_log WHERE t >= ? AND t < ?${kind ? ' AND kind = ?' : ''} ORDER BY id DESC LIMIT ${ACTIVITY_MAX + 1}`;
   const args = [dayStart(p.from), dayStart(addDays(p.to, 1)), ...(kind ? [kind] : [])];
-  const rows = deps.db.db.prepare(sql).all(...args) as unknown as Row[];
+  const found = deps.db.db.prepare(sql).all(...args) as unknown as Row[];
+  const truncated = found.length > ACTIVITY_MAX;
+  const rows = truncated ? found.slice(0, ACTIVITY_MAX) : found;
   const facts = { oldestDay: oldestRollupDay(deps.db, today) } as Facts;
   const out = envelope(p, 'activity', null, facts, [col('t', 'Time', 'time'), col('kind', 'Kind', 'text'), col('detail', 'Detail', 'text'), col('source', 'Source', 'text')], rows, { count: rows.length });
   out.partial = false;
+  out.truncated = truncated;
   out.basedOn = 'admin log';
   return out;
 }

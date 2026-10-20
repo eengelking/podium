@@ -226,6 +226,11 @@ export function ReportFilters({ client, r }: { client: ReportsClient; r: ReportS
           {partial}
         </div>
       )}
+      {reply?.truncated && (
+        <div className="partial" role="status">
+          Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest.
+        </div>
+      )}
       {basis && (
         <div className="note-line">
           <b>{basis.zone}</b> {basis.basis}

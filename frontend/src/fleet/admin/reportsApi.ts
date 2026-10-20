@@ -30,6 +30,8 @@ export interface ReportReply {
   total: ReportRow | null;
   /** True when the period reaches before `oldestDay`: the rows cover only what Podium has. */
   partial?: boolean;
+  /** The Admin activity report only: the log held more entries than the report returns, so these are the newest. */
+  truncated?: boolean;
   /** The People and groups report only. */
   summary?: { people: number; groups: number; reporters: number; reporterVersions: Record<string, number>; engineVersions: Record<string, number> };
 }

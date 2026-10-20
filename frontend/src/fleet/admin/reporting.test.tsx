@@ -137,6 +137,13 @@ describe("Usage, the shared report page", () => {
     expect(await screen.findByText("Podium has no history before 2026-03-02. The figures below cover 2026-03-02 to 2026-03-31.")).toBeInTheDocument();
   });
 
+  it("says when the Admin activity report was cut off at 1,000 entries", async () => {
+    const s = fakeServer({ unlocked: true });
+    s.reports.activity = { report: "activity", from: FROM, to: TO, by: null, tz: "UTC", basedOn: "admin log", oldestDay: "2026-03-02", partial: false, truncated: true, columns: [{ key: "kind", label: "Kind" }], rows: [{ kind: "unlock" }], total: { count: 1000 } };
+    await openPage("Admin activity", s);
+    expect(await screen.findByText("Showing the newest 1,000 entries. Narrow the period or filter by kind to see the rest.")).toBeInTheDocument();
+  });
+
   it("says so when the whole period is before the first day, and when the server has no history at all", async () => {
     const s = fakeServer({ unlocked: true });
     const empty = { report: "usage", by: "day", tz: "UTC", basedOn: "daily rollups", columns: [], rows: [], total: null, partial: true };

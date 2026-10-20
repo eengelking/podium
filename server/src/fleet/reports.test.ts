@@ -203,6 +203,20 @@ describe('activity and Data kept', () => {
     expect(((await get('activity?kind=person_created&from=' + addDays(TODAY, -2))).body as ReportReply).rows).toHaveLength(1);
   });
 
+  it('says when the log is longer than the 1,000 rows it returns (#529)', async () => {
+    const w = filled();
+    for (let i = 0; i < 1001; i++) w.people.log('unlock', `entry ${i}`, '10.0.0.1', at(0, 9) + i);
+    const { get } = await api(w);
+    const r = (await get(`activity?from=${addDays(TODAY, -1)}`)).body as ReportReply;
+    expect(r.rows).toHaveLength(1000);
+    expect(r.truncated).toBe(true);
+    expect(r.total).toEqual({ count: 1000 });
+    expect(r.rows.some((x) => x.detail === 'entry 0')).toBe(false);
+    expect(r.rows.some((x) => x.detail === 'entry 1000')).toBe(true);
+    const some = (await get('activity?kind=person_created')).body as ReportReply;
+    expect(some.truncated).toBe(false);
+  });
+
   it('lists the rollup tables and how long everything is kept', async () => {
     const { get } = await api(filled());
     const r = (await get('retention')).body as { tables: { name: string; rows: number; oldestDay: string | null; keptDays: number }[]; detail: { name: string; keptDays: number }[]; tz: string };
