@@ -83,10 +83,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .podium .rec-bar .tx b { font-weight: 650; }
 .podium .rec-bar .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .podium .rec-bar .confirm { flex: 1 1 100%; }
-/* PROPOSED .fact.rec: the Recording cell, a thirteenth fact on a row of its own. Not recorded, it is the same kind of
-   cell button as Resume and Fork and says Record this session. Otherwise it states the recording's state. */
-.podium .osum .facts .fact.rec { grid-column: 1 / -1; }
-.podium .osum .facts .fact.rec .v.recording { color: var(--crit-text); }
+/* PROPOSED .fact.rec: the Recording cell, last in the facts. Not recorded, it is the same kind of cell button as Resume
+   and Fork: the word Record and a record mark after it. Otherwise it states the recording's state in shape, word and
+   color. */
+.podium .osum .facts .fact.rec .v.recording, .podium .osum .facts .fact.rec .rec-i { color: var(--crit-text); }
+.podium .osum .facts .fact.rec .rec-i { display: inline-flex; }
+.podium .fact .v .sep { color: var(--axis); }
 /* PROPOSED .rec-bar.kept: the same layer once capture has ended and the recording is only kept. A ring instead of a
    filled dot, the neutral color instead of the critical one, and Open replay and Delete recording. */
 .podium .rec-bar.kept { background: var(--raised); box-shadow: inset 4px 0 0 var(--muted); }
@@ -254,7 +256,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <h2>What this mockup proposes</h2>
   <ul>
     <li><b>Admin.</b> <b>Session recording</b> is a feature flag in Admin > Settings, beside the others, off by default, and unavailable when the server has no <span class="mono">PODIUM_TOKEN</span>. A section under it sets how long recordings are kept (hours or days, 6 hours by default, at most 7 days), a disk budget, and a limit for one session. A table lists every recording with its owner, who started it, its state, size and when it is deleted. An Admin can stop or delete any of them, each after a confirmation. Recordings also appear on #432's Stored activity page through its Source filter.</li>
-    <li><b>Choosing what to record.</b> Record this session is in the orchestrator page's facts panel, in a new Recording cell, for its owner and for an Admin. The cell is a button like Resume and Fork while the session is not recorded; once it is recorded, the cell states the recording's state and when it goes, and the buttons for Stop, Open replay and Delete stay in the layer above the band. The button opens the app's modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each with a box. Recording is per loop, starts when Start is pressed, and keeps nothing from before. The picker has five states: the owner allows it, after Start, the owner has not allowed it (nothing to press, and it names the <span class="mono">sessionRecording</span> option), the feature is off, and a viewer who is not the owner.</li>
+    <li><b>Choosing what to record.</b> Record this session is in the orchestrator page's facts panel, in a new Recording cell, for its owner and for an Admin. The cell is last, after Fork, and is a button like Resume and Fork while the session is not recorded: the word Record with a record mark after it; once it is recorded, the cell states the recording's state and when it goes, and the buttons for Stop, Open replay and Delete stay in the layer above the band. The button opens the app's modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each with a box. Recording is per loop, starts when Start is pressed, and keeps nothing from before. The picker has five states: the owner allows it, after Start, the owner has not allowed it (nothing to press, and it names the <span class="mono">sessionRecording</span> option), the feature is off, and a viewer who is not the owner.</li>
     <li><b>The notice cannot be hidden.</b> Two always-on signs. On the wall, a recorded card gets a second band in the critical color with a filled dot and who started it (<span class="mono">.band.recording</span>). On the orchestrator page, a layer inside the page's surface above its band (<span class="mono">.rec-bar</span>) says what is kept, who started it, which loops are recorded and when it is deleted. Neither has an X or a switch. This is not a wall notice: those are for informational notes that someone may close, and consent is not one. The owner's terminal shows the same text (see the Owner's terminal screen).</li>
     <li><b>Replay.</b> A page of its own, reached from Open replay and from Admin's table, with a back link to the orchestrator page. It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under each tool call. A loop filter, a position slider and Jump to next failure move through it. A failed call uses the failure box. A compaction or a stop is a marked row. Show older pages back through a long run. It is read-only.</li>
     <li><b>Getting into a replay after the recording has ended.</b> Stopping a recording does not remove it: the page goes to a third state, "Recording stopped", with the same layer in the neutral color and a ring instead of the filled dot, and it keeps Open replay and Delete recording. The same layer shows on an ended session. An ended session is found in History: its row has a line under the name, "recording kept until 17:42", and opening the session shows its read-only page with that layer. Admin's Recordings table opens it too. Nothing is shown once the recording is deleted or has expired.</li>
@@ -264,7 +266,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   </ul>
   <h2>Source of truth</h2>
   <ul>
-    <li>The markup is taken from the components on <span class="mono">development</span>, not from the standards pages, which follow <span class="mono">main</span>. That is why the facts panel has Machine and System, the card has the pin button (#496), and the replay's feed shows elapsed time as h:mm:ss, as the Activity feed does.</li>
+    <li>The markup is taken from the components on <span class="mono">development</span>, not from the standards pages, which follow <span class="mono">main</span>. That is why the facts panel starts from Machine and System as two cells (joined here), the card has the pin button (#496), and the replay's feed shows elapsed time as h:mm:ss, as the Activity feed does.</li>
   </ul>
   <h2>Reused as they are</h2>
   <ul>
@@ -275,7 +277,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <ul>
     <li><span class="mono">.band.recording</span>, <span class="mono">.rec-bar</span> (and its kept variant, <span class="mono">.rec-bar.kept</span>) and <span class="mono">.badge.recording</span>: nothing existing is a state that cannot be closed or switched off.</li>
     <li><span class="mono">.feed li.mark</span> and <span class="mono">.feed li.cur</span>: a marked row and the row the slider is on. Plus the loop's name (<span class="mono">.who</span>) and a collapsed result (<span class="mono">.res</span>) around the existing code block.</li>
-    <li><span class="mono">.fact.rec</span>: the Recording cell, a thirteenth fact. The facts are twelve cells in two rows of six on <span class="mono">development</span>, so it takes a row of its own, full width. The alternative is to put it in the header or the band, which changes more of the page.</li>
+    <li><span class="mono">.fact.rec</span>: the Recording cell, last in the facts. The facts stay twelve cells in two rows of six: Machine and System, two cells on <span class="mono">development</span>, become one (Silverbolt | macOS 26.0), which frees the place for Recording. That changes an existing component (the facts bar), so it needs your approval as a <span class="mono">Standards:</span> change.</li>
     <li><span class="mono">.scrub</span>: a labelled range input. The standards have no slider.</li>
     <li>The standards change only after you approve, through <span class="mono">Standards:</span> lines in the CHANGELOG, and the implementation adds each piece to the standards in its own PR.</li>
   </ul>
@@ -366,10 +368,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     if (withActs) { var a = node("div", "acts"); a.appendChild(btn("Stop recording", "", function () { op("stop"); })); a.appendChild(btn("Open replay", "", function () { screen("replay"); })); b.appendChild(a); }
     return b;
   }
-  /* The facts panel as FactsBar.tsx on development builds it: twelve cells, six to a row. Row one: Agents, Est. cost,
-     Tokens, Running for, Agent time, Blowouts. Row two: Machine, System, Reporter, Session, Resume, Fork. The copied
-     sample came from the standards pages, which follow main, so it lacked Machine and System. Recording is the
-     proposed thirteenth cell, on a row of its own. */
+  /* The facts panel, twelve cells in two rows of six. Row one is as FactsBar.tsx on development has it: Agents, Est.
+     cost, Tokens, Running for, Agent time, Blowouts. Row two, proposed: Machine and System joined in one cell
+     (Silverbolt | macOS 26.0), then Reporter, Session, Resume, Fork and the new Recording cell last. The copied sample
+     came from the standards pages, which follow main, so it lacked Machine and System. */
   var MAC_ICON = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="3" width="12" height="8" rx="1"></rect><path d="M1 13h14"></path></svg>';
   function popCell(label, valueHtml, valueClass, tipHtml) {
     var c = node("div", "fact start"); c.setAttribute("role", "group"); c.setAttribute("aria-label", label); c.tabIndex = 0;
@@ -383,8 +385,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     f.classList.add("six");
     function cell(label) { return Array.prototype.find.call(f.querySelectorAll(".fact"), function (c) { var k = c.querySelector(".k"); return k && k.textContent.trim().indexOf(label) === 0; }); }
     var order = [cell("Agents"), cell("Est. cost"), cell("Tokens"), cell("Running for"), cell("Agent time"), cell("Blowouts"),
-      popCell("Machine", "Silverbolt", "mono", "The machine this session runs on. As its reporter named it."),
-      popCell("System", '<span class="sysi">' + MAC_ICON + '</span><span class="sys-t">macOS 26.0</span>', "", "The system on this machine. macOS 26.0"),
+      popCell("Machine", 'Silverbolt<span class="sep" aria-hidden="true">|</span><span class="sysi">' + MAC_ICON + '</span><span class="sys-t">macOS 26.0</span>', "mono", "The machine this session runs on, as its reporter named it, and its system. Silverbolt, macOS 26.0"),
       cell("Reporter"), cell("Session"), cell("Resume"), cell("Fork")];
     order.forEach(function (c) { f.appendChild(c); });
     var rc = node("div", "fact copy rec"); rc.id = "rec-cell"; f.appendChild(rc);
@@ -397,12 +398,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     c.className = "fact rec" + (id === "not" ? " copy" : "");
     if (id === "not") {
       var b = node("button", "cellbtn"); b.type = "button"; b.setAttribute("aria-label", "Record this session"); b.addEventListener("click", function () { screen("pick"); });
-      b.appendChild(node("span", "k", "Recording")); b.appendChild(node("span", "v", "Record this session")); c.appendChild(b); return;
+      b.appendChild(node("span", "k", "Recording"));
+      var rv = node("span", "v"); rv.appendChild(node("span", "", "Record"));
+      var mark = node("span", "rec-i"); mark.setAttribute("aria-hidden", "true");
+      mark.innerHTML = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.5" fill="currentColor" stroke="none"></circle></svg>';
+      rv.appendChild(mark); b.appendChild(rv); c.appendChild(b); return;
     }
     var live = id !== "stopped" && id !== "ended";
     c.appendChild(node("div", "k", "Recording"));
     var v = node("div", "v" + (live ? " recording" : "")), shape = node("span", "", live ? "●" : "○"); shape.setAttribute("aria-hidden", "true");
-    v.appendChild(shape); v.appendChild(document.createTextNode(live ? " Recording, deleted at 17:42" : " Kept until 17:42")); c.appendChild(v);
+    v.appendChild(shape); v.appendChild(document.createTextNode(live ? " Recording" : " Kept until 17:42")); c.appendChild(v);
+    c.title = live ? "Recording. Deleted at 17:42 today." : "Capture has ended. The recording is kept until 17:42 today, then deleted.";
   }
   var backTo = "rec";
   /* An ended session shows its final state, as the app's own Done band, Agents fact and agent rows do. The live
