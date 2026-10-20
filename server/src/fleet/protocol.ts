@@ -5,7 +5,7 @@
 // mod/podium-reporter/hooks/protocol.ts. A test compares the two after whitespace normalization,
 // so edit both together.
 
-import { parseBuild } from './build.js';
+import { parseBuild } from './parseBuild.js';
 
 // <protocol:begin>
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';

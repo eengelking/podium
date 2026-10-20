@@ -4,31 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDb, FleetDb } from "./db.js";
 import { DEFAULT_CONFIG, Fleet } from "./fleet.js";
-import { parseBuild, readBuild, serverBuild } from "./build.js";
-
-describe("parseBuild", () => {
-  it("accepts a short commit hash", () => {
-    expect(parseBuild("a1b2c3d4")).toBe("a1b2c3d4");
-  });
-
-  it("keeps the -dirty mark and trims whitespace", () => {
-    expect(parseBuild(" a1b2c3d4-dirty\n")).toBe("a1b2c3d4-dirty");
-  });
-
-  it("is null for a release, which has no build, and for anything that is not a hash", () => {
-    expect(parseBuild("")).toBeNull();
-    expect(parseBuild(undefined)).toBeNull();
-    expect(parseBuild(null)).toBeNull();
-    expect(parseBuild("v1.1.0")).toBeNull();
-    expect(parseBuild("a1b2c3d4; rm -rf /")).toBeNull();
-    expect(parseBuild("zzzzzzzz")).toBeNull();
-    expect(parseBuild(42)).toBeNull();
-  });
-
-  it("rejects a hash that is too short to name a commit", () => {
-    expect(parseBuild("a1b2c3")).toBeNull();
-  });
-});
+import { readBuild, serverBuild } from "./build.js";
 
 describe("readBuild", () => {
   const dirs: string[] = [];

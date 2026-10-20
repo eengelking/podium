@@ -1,16 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-/**
- * The commit a dev build was made from: the 8-character short hash, with `-dirty` after it when the tree had local edits.
- * A release build has none, and neither has a build made without git, so null means "show the version alone" (#400).
- */
-export function parseBuild(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  return /^[0-9a-f]{7,40}(-dirty)?$/.test(v) ? v : null;
-}
+import { parseBuild } from "./parseBuild.js";
 
 /** The build from PODIUM_BUILD (a container build passes it), else build.json in `dir` (a standalone build writes it). */
 export function readBuild(env: NodeJS.ProcessEnv, dir: string): string | null {

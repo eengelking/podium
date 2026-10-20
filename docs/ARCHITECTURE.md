@@ -675,7 +675,7 @@ without a logger is silent.
 ### Shared contract
 
 The Report types live in `server/src/fleet/protocol.ts` and, byte for byte between markers, in
-`mod/podium-reporter/hooks/protocol.ts`. A test compares them (DECISIONS 6). The UI imports the view types from the
+`mod/podium-reporter/hooks/protocol.ts`. A test compares them (DECISIONS 6). `protocol.ts` must also stay free of Node imports, directly or through what it imports, because the UI imports it and the Vite dev server does not tree-shake (#551); a test walks its imports. The UI imports the view types from the
 server's file. `docs/fixtures/report.sample.json` is the shared fixture.
 
 ### Other server parts
