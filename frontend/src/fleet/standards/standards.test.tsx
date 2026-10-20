@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { atWall } from "../testState";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -115,6 +116,7 @@ describe("the screens", () => {
     const rendered: string[] = [];
     for (const [id, screen] of Object.entries(SCREENS)) {
       localStorage.clear();
+      atWall();
       const { container } = render(screen.make());
       expect(container.firstElementChild, `screen ${id} rendered nothing`).not.toBeNull();
       rendered.push(id);

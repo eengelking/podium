@@ -1,6 +1,7 @@
 // Renders the standards pages from the app (#354). `buildPages` returns every file under docs/standards that is generated,
 // keyed by file name. The sync script writes them, and the parity test compares them with what is on disk.
 import { readFileSync } from "node:fs";
+import { atWall } from "../testState";
 import { join } from "node:path";
 import { render, cleanup } from "@testing-library/react";
 import { vi } from "vitest";
@@ -26,6 +27,7 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
     localStorage.clear();
     sessionStorage.clear();
     for (const k of Object.keys(document.documentElement.dataset)) delete document.documentElement.dataset[k];
+    atWall();
     try {
       const { container } = render(screen.make());
       const body = container.ownerDocument.body;

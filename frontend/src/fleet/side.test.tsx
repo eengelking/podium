@@ -4,7 +4,7 @@ import { FleetView } from "./FleetApp";
 import { FailureBox } from "./components/FailureBox";
 import { fleetReducer } from "./store";
 import { makeAgent, makeEvent, makeSession } from "./fixtures";
-import { stateFrom } from "./testState";
+import { atWall, stateFrom } from "./testState";
 import type { Failure } from "./types";
 
 afterEach(cleanup);
@@ -150,6 +150,7 @@ describe("nested agents in the panel, the activity feed, the card strip and the 
   ];
   const openAgent = (id: string, over = {}) => {
     const s = makeSession({ agents: nested, ...over });
+    atWall();
     const utils = render(<FleetView state={stateFrom({ sessions: [s] })} />);
     fireEvent.click(utils.container.querySelector(".wall .card")!);
     fireEvent.click(utils.container.querySelector(`button.trow[data-agent="${id}"]`)!);

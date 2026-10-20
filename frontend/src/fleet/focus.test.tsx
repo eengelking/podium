@@ -7,7 +7,7 @@ import { FocusHeader } from "./components/FocusHeader";
 import { ContextBar } from "./components/Chips";
 import { fleetReducer } from "./store";
 import { makeAgent, makeSession } from "./fixtures";
-import { stateFrom } from "./testState";
+import { atWall, stateFrom } from "./testState";
 
 afterEach(() => {
   cleanup();
@@ -22,6 +22,7 @@ const agents = [
 
 function openFocus(sessionOver = {}) {
   const st = stateFrom({ sessions: [makeSession({ agents, ...sessionOver })] });
+  atWall();
   const utils = render(<FleetView state={st} />);
   fireEvent.click(utils.container.querySelector(".wall .card")!);
   return { ...utils, st };
@@ -662,6 +663,7 @@ describe("delegating (#98)", () => {
     const waiting = openFocus({ status: "waiting", waitReason: "permission", agents: nested });
     expect(chip(waiting.container, ".trow.root").textContent).toBe("waiting on you");
     cleanup();
+    atWall();
     const st = stateFrom({ sessions: [makeSession({ agents: nested })] });
     const { container } = render(<FleetView state={st} />);
     const card = container.querySelector(".wall .card")!;
