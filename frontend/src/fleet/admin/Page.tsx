@@ -2,13 +2,33 @@
 import type { ReactNode } from "react";
 import { RailFoot } from "../components/Rail";
 
-export function PageHeader({ title, lead }: { title: string; lead: string }) {
+/** `actions` sit at the right of the header, such as a report's Export buttons (#484). */
+export function PageHeader({ title, lead, actions }: { title: string; lead: string; actions?: ReactNode }) {
   return (
     <div className="page-h">
       <div>
         <h1>{title}</h1>
         <p className="lead">{lead}</p>
       </div>
+      {actions}
+    </div>
+  );
+}
+
+/** A labelled group of buttons where exactly one is pressed (the toolbar's "Group by", "Show as", "By"). */
+export function Choice<T extends string | number>(props: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="f">
+      <span className="lab" aria-hidden="true">
+        {props.label}
+      </span>
+      <span className="seg" role="group" aria-label={props.label}>
+        {props.options.map(([k, name]) => (
+          <button type="button" key={k} aria-pressed={props.value === k} onClick={() => props.onChange(k)}>
+            {name}
+          </button>
+        ))}
+      </span>
     </div>
   );
 }

@@ -20,30 +20,41 @@ import { ModelPricesTab } from "./ModelPricesTab";
 import { AdminFoot, PageHeader } from "./Page";
 import { PeopleTab, type Created } from "./PeopleTab";
 import { ReportersTab, type ReporterPaging } from "./ReportersTab";
+import { REPORT_CONFIGS, ReportPage, RetentionPage, SPEND_CONFIG } from "./ReportPages";
 import { ReportingTab } from "./ReportingTab";
+import { makeReportsClient } from "./reportsApi";
 import { SettingsTab } from "./SettingsTab";
-import { SpendTab } from "./SpendTab";
+import { SpendPage } from "./SpendPage";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "prices" | "spend" | "log";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
   reporters: { name: "Reporters", lead: "Every reporter this server has heard from, and whether it is still reporting." },
-  reporting: { name: "Reporting and security", lead: "Control how reporters prove who they are, and what protects the tokens." },
+  reporting: { name: "Security", lead: "Control how reporters prove who they are, and what protects the tokens." },
   settings: { name: "Settings", lead: "Server-wide choices. A change applies to everyone on this server." },
   prices: { name: "Model prices", lead: "What Podium charges each model per million tokens, in dollars. It uses these to work out what a session cost." },
-  spend: { name: "Spend", lead: "What each person or group has spent since midnight today, live or ended sessions. Estimated from tokens, not a bill." },
+  spend: { name: SPEND_CONFIG.title, lead: SPEND_CONFIG.lead },
   log: { name: "Admin log", lead: "What happened in Admin, newest first." },
+  usage: { name: REPORT_CONFIGS.usage.title, lead: REPORT_CONFIGS.usage.lead },
+  rpeople: { name: REPORT_CONFIGS.people.title, lead: REPORT_CONFIGS.people.lead },
+  sessions: { name: REPORT_CONFIGS.sessions.title, lead: REPORT_CONFIGS.sessions.lead },
+  failures: { name: REPORT_CONFIGS.failures.title, lead: REPORT_CONFIGS.failures.lead },
+  activity: { name: REPORT_CONFIGS.activity.title, lead: REPORT_CONFIGS.activity.lead },
+  kept: { name: "Data kept", lead: "What Podium stores, and for how long. Reports read this, never the live stream alone." },
 };
 /** The side menu: pages in groups, in the order they are listed. */
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
   { name: "Server", icon: "server", ids: ["settings", "prices", "reporting"] },
-  { name: "Activity", icon: "activity", ids: ["spend", "log"] },
+  { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity", "kept"] },
+  { name: "Activity", icon: "activity", ids: ["log"] },
 ];
+/** Reporting pages draw their own header, which carries Export (#484). */
+const REPORT_TABS: ReadonlySet<TabId> = new Set(["usage", "spend", "rpeople", "sessions", "failures", "activity", "kept"]);
 
-type GroupIconName = "access" | "server" | "activity";
+type GroupIconName = "access" | "server" | "reporting" | "activity";
 /** Outline glyphs that lead a menu group's heading; on the narrow strip they stand in for the heading. */
 const GROUP_ICON: Record<GroupIconName, ReactNode> = {
   access: (
@@ -60,6 +71,7 @@ const GROUP_ICON: Record<GroupIconName, ReactNode> = {
       <path d="M4.5 4.75h.01M4.5 11.25h.01" />
     </>
   ),
+  reporting: <path d="M3 13V8M7 13V4M11 13V6M2 13.5h12" />,
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
 };
 
@@ -69,6 +81,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const root = useRef<HTMLDivElement>(null);
   useHeartbeat(root, usePageVisible());
   const api = useMemo(() => makeApi(base), [base]);
+  const client = useMemo(() => makeReportsClient(base, api), [base, api]);
   const [status, setStatus] = useState<Status>("checking");
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
@@ -219,14 +232,20 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
               <div className="apage" ref={pageRef}>
                 <div className="apage-in">
                   {created && <OnceSettings c={created} onDone={() => setCreated(null)} />}
-                  <PageHeader title={page.name} lead={page.lead} />
+                  {!REPORT_TABS.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
                   {tab === "people" && <PeopleTab api={api} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
                   {tab === "groups" && <GroupsTab api={api} {...paging.groups} onPaging={onGroupPaging} onCount={onCountGroups} onLocked={onLocked} />}
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} />}
                   {tab === "reporting" && <ReportingTab api={api} onLocked={onLocked} />}
                   {tab === "settings" && <SettingsTab api={api} onLocked={onLocked} />}
                   {tab === "prices" && <ModelPricesTab api={api} onLocked={onLocked} />}
-                  {tab === "spend" && <SpendTab fleetOptions={fleetOptions} onCount={onCountSpend} />}
+                  {tab === "spend" && <SpendPage client={client} fleetOptions={fleetOptions} onCount={onCountSpend} onLocked={onLocked} />}
+                  {tab === "usage" && <ReportPage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
+                  {tab === "rpeople" && <ReportPage cfg={REPORT_CONFIGS.people} client={client} onLocked={onLocked} />}
+                  {tab === "sessions" && <ReportPage cfg={REPORT_CONFIGS.sessions} client={client} onLocked={onLocked} />}
+                  {tab === "failures" && <ReportPage cfg={REPORT_CONFIGS.failures} client={client} onLocked={onLocked} />}
+                  {tab === "activity" && <ReportPage cfg={REPORT_CONFIGS.activity} client={client} onLocked={onLocked} />}
+                  {tab === "kept" && <RetentionPage api={api} onLocked={onLocked} />}
                   {tab === "log" && <LogTab api={api} {...paging.log} onPaging={onLogPaging} onCount={onCountLog} onLocked={onLocked} />}
                 </div>
                 <AdminFoot version={version} build={build} className="afoot-narrow" />

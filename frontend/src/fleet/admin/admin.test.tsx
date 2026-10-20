@@ -41,7 +41,7 @@ describe("Admin lock screen", () => {
     expect(screen.queryByRole("navigation", { name: "Admin sections" })).toBeNull();
     expect((screen.getByLabelText("Token") as HTMLInputElement).value).toBe("");
     await unlock();
-    expect(screen.getByRole("button", { name: /People/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /^People(?! and)/ })).toHaveAttribute("aria-current", "page");
   });
 
   it("puts the cursor in the Name field when the lock screen opens", async () => {
@@ -125,7 +125,7 @@ describe("tokens", () => {
     fireEvent.click(screen.getByRole("button", { name: "I have saved it" }));
     expect(screen.queryByText(/pdm_aaaaaaaaaaaa_/)).toBeNull();
     // After it, the list names the token by its key id, `pdm_<key id>`, with none of the secret.
-    fireEvent.click(screen.getByRole("button", { name: /People/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^People(?! and)/ }));
     expect(await screen.findByText("pdm_0123456789ab")).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("pdm_aaaaaaaaaaaa_");
   });
@@ -204,7 +204,7 @@ describe("deleting people (#243)", () => {
     expect(screen.getByText("person-001")).toBeInTheDocument();
     expect(screen.getByText("person-003")).toBeInTheDocument();
     expect(screen.queryByText(/selected/)).toBeNull();
-    expect(within(screen.getByRole("button", { name: /People/ })).getByText("2")).toBeInTheDocument();
+    expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument();
   });
 
   it("selects every row on the page with the header box, and Clear drops the selection", async () => {
@@ -317,17 +317,26 @@ describe("side menu", () => {
       expect.stringMatching(/^Reporters/),
       "Settings",
       "Model prices",
-      "Reporting and security",
+      "Security",
+      "Usage",
       expect.stringMatching(/^Spend/),
+      "People and groups",
+      "Sessions",
+      "Failures",
+      "Admin activity",
+      "Data kept",
       expect.stringMatching(/^Admin log/),
       "Lock Admin",
     ]);
     expect(within(nav).getByRole("group", { name: "Server" })).toBeInTheDocument();
+    // Reporting is its own group (#484); Activity keeps only the Admin log.
+    expect(within(within(nav).getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(7);
+    expect(within(within(nav).getByRole("group", { name: "Activity" })).getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("People");
     fireEvent.click(within(nav).getByRole("button", { name: /Groups/ }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Groups");
     expect(within(nav).getByRole("button", { name: /Groups/ })).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByRole("button", { name: /People/ })).not.toHaveAttribute("aria-current");
+    expect(within(nav).getByRole("button", { name: /^People(?! and)/ })).not.toHaveAttribute("aria-current");
     fireEvent.click(within(nav).getByRole("button", { name: /Admin log/ }));
     expect(within(nav).getByRole("button", { name: /Admin log/ })).toHaveAttribute("aria-current", "page");
     await waitFor(() => expect(screen.getByText("Wrong secret (1)")).toBeInTheDocument());

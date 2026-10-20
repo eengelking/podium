@@ -70,6 +70,77 @@ function pauseAll(P: FakePeers, key: string, paused: boolean) {
   if (!paused) P.rights = P.rights.filter((r) => r.level !== "none");
 }
 
+const USAGE_COLS = [
+  { key: "period", label: "Day", unit: "date" },
+  { key: "people", label: "People", unit: "count" },
+  { key: "reporters", label: "Reporters", unit: "count" },
+  { key: "sessions", label: "Sessions", unit: "count" },
+  { key: "peakLive", label: "Most live", unit: "count" },
+];
+const SPEND_COLS = [
+  { key: "period", label: "Day", unit: "date" },
+  { key: "key", label: "Model", unit: "text" },
+  { key: "sessions", label: "Sessions", unit: "count" },
+  { key: "tokIn", label: "Tokens in", unit: "tokens" },
+  { key: "tokOut", label: "Tokens out", unit: "tokens" },
+  { key: "costUsd", label: "Spend", unit: "usd" },
+  { key: "unpricedSessions", label: "Unpriced sessions", unit: "count" },
+];
+
+/** A report as the server would answer it (docs/SPEC.md "Reports (#484)"), with the query echoed back. */
+function fakeReport(report: string, url: URL) {
+  const from = url.searchParams.get("from") ?? "2026-10-01";
+  const to = url.searchParams.get("to") ?? "2026-10-20";
+  const base = { report, from, to, tz: "Europe/Berlin", basedOn: "rollups and live", oldestDay: "2026-03-02" };
+  const by = url.searchParams.get("by") ?? "day";
+  if (report === "usage") {
+    return {
+      ...base,
+      by,
+      columns: USAGE_COLS,
+      rows: [
+        { period: "2026-10-19", people: 9, reporters: 13, sessions: 69, peakLive: 8 },
+        { period: "2026-10-12", people: 10, reporters: 15, sessions: 88, peakLive: 9 },
+      ],
+      total: { period: null, people: 11, reporters: 16, sessions: 157, peakLive: 9 },
+    };
+  }
+  if (report === "spend") {
+    const rows: Record<string, unknown>[] = url.searchParams.get("breakdown") === "model" ? [{ period: "2026-10", key: "Sonnet 5.5", sessions: 181, tokIn: 88_600_000, tokOut: 5_400_000, costUsd: 301.15, unpricedSessions: 0 }, { period: "2026-10", key: "mystery-model", sessions: 3, tokIn: 400_000, tokOut: 100_000, costUsd: null, unpricedSessions: 3 }] : [{ period: "2026-10", sessions: 184, tokIn: 89_000_000, tokOut: 5_500_000, costUsd: 301.15, unpricedSessions: 3 }];
+    return { ...base, by, columns: SPEND_COLS.filter((c) => c.key !== "key" || rows[0]!.key !== undefined), rows, total: { sessions: 184, tokIn: 89_000_000, tokOut: 5_500_000, costUsd: 301.15, unpricedSessions: 3 } };
+  }
+  if (report === "people") {
+    return {
+      ...base,
+      columns: [{ key: "person", label: "Person", unit: "text" }, { key: "group", label: "Group", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "lastReportAt", label: "Last report", unit: "time" }, { key: "state", label: "State", unit: "text" }],
+      rows: [
+        { person: "Maya Okafor", group: "Platform", sessions: 40, lastReportAt: 1_760_000_000_000, state: "active" },
+        { person: "Jonas Weber", group: null, sessions: 0, lastReportAt: null, state: "never" },
+      ],
+      total: null,
+      summary: { people: 2, groups: 1, reporters: 3, reporterVersions: { "1.2.2": 3 }, engineVersions: { "2.1.299": 2 } },
+    };
+  }
+  if (report === "sessions") {
+    return { ...base, by, columns: [{ key: "period", label: "Day", unit: "date" }, { key: "key", label: "Outcome", unit: "text" }, { key: "sessions", label: "Sessions", unit: "count" }, { key: "avgDurationS", label: "Average duration", unit: "seconds" }, { key: "maxContextPct", label: "Fullest window", unit: "percent" }], rows: [{ period: "2026-10-19", key: "ended", sessions: 12, avgDurationS: 754, maxContextPct: 91 }], total: { sessions: 12, blowouts: 1 } };
+  }
+  if (report === "failures") {
+    return {
+      ...base,
+      by,
+      columns: [{ key: "period", label: "Day", unit: "date" }, { key: "key", label: "Class", unit: "text" }, { key: "count", label: "Count", unit: "count" }, { key: "people", label: "People", unit: "count" }],
+      rows: [
+        { period: "2026-10-19", key: "Command failed", count: 38, people: 7, sessionIds: ["s1", "s2"] },
+        { period: "2026-03-05", key: "Timeout", count: 6, people: 3 },
+      ],
+      total: { count: 44, people: 8 },
+    };
+  }
+  const kind = url.searchParams.get("kind");
+  const entries = [{ t: 1_760_000_000_000, kind: "unlock_failed", detail: "Wrong secret (1)", source: "10.0.0.1" }, { t: 1_759_000_000_000, kind: "person_created", detail: "Created Priya", source: "10.0.0.2" }]; // NOSONAR S1313: made-up private addresses in a fake server, never connected to
+  return { ...base, columns: [{ key: "t", label: "When", unit: "time" }, { key: "kind", label: "Kind", unit: "text" }, { key: "detail", label: "What happened", unit: "text" }, { key: "source", label: "From", unit: "text" }], rows: entries.filter((e) => !kind || e.kind === kind), total: null };
+}
+
 /** A small in-memory stand-in for /api/admin. */
 export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean; build?: string | null } = {}) {
   const state = {
@@ -108,6 +179,27 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     /** While true, a read of a reporter's messaging waits in `held` until a test calls it: a read slower than the interval. */
     holdPeers: false,
     held: [] as (() => void)[],
+    /** Reporting (#484): a test replaces a report's reply by name, or makes the next reads fail with this status. */
+    reports: {} as Record<string, unknown>,
+    reportStatus: 0,
+    /** `GET reports/spend/today/:owner` replies by owner (#482), and the projection (#483). */
+    breakdowns: {} as Record<string, unknown>,
+    projection: {
+      columns: [{ key: "key", label: "Person", unit: "text" }],
+      rows: [
+        { key: "Maya Okafor", runRatePerDay: 14.8, spentThisMonth: 290.1, projected: 452.9 },
+        { key: "Cai Lindqvist", runRatePerDay: null, spentThisMonth: 11.75, projected: null, reason: "history" },
+      ],
+      total: { runRatePerDay: 38.4, spentThisMonth: 712.4, projected: 1134.8 },
+      window: { from: "2026-10-06", to: "2026-10-19", days: 14 },
+      horizon: "month",
+      unpricedSessions: 3,
+      historyDays: 40,
+    } as unknown,
+    retention: {
+      tables: [{ name: "Usage", rows: 2418, oldestDay: "2026-03-02", keptDays: 395 }],
+      detail: [{ name: "Per-second samples", keptDays: 1 }, { name: "Admin log", keptDays: 90 }],
+    } as unknown,
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -238,6 +330,19 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         return json(200, { ok: true });
       }
       return json(200, { ...r, kind: "mod", machineId: key.includes(":") ? null : key, source: "192.168.1.24", credential: "pdm_3f9a1c07b2e4", engineVersion: "2.1.299", recent: recentPage(r.sessions, url), recentTotal: r.sessions, recentPage: Number(url.searchParams.get("page") ?? 1), recentPageSize: Number(url.searchParams.get("pageSize") ?? 50), rejected: [{ t: 50_000, reason: "wrong token" }], serverTime: 100_000, serverStartedAt: 50_000 }); // NOSONAR S1313: a made-up private address in a fake server, never connected to
+    }
+    if (path.startsWith("/reports/")) {
+      if (state.reportStatus) return json(state.reportStatus, { ok: false, error: "nope" });
+      const name = path.slice("/reports/".length);
+      if (name === "retention") return json(200, state.retention);
+      if (name === "spend/projection") return json(200, state.projection);
+      const today = /^spend\/today\/(.+)$/.exec(name);
+      if (today) {
+        const b = state.breakdowns[decodeURIComponent(today[1]!)];
+        return b ? json(200, b) : json(404, { ok: false, error: "unknown owner" });
+      }
+      if (url.searchParams.get("format") === "csv") return Promise.resolve(new Response(`period,sessions\n2026-10-19,69\n`, { status: 200, headers: { "Content-Type": "text/csv" } }));
+      return json(200, state.reports[name] ?? fakeReport(name, url));
     }
     if (path === "/groups") return json(200, { total: 0, page: 1, pageSize: 50, rows: [] });
     if (path === "/log") return json(200, { retainMs: 90 * 86_400_000, total: 1, page: 1, pageSize: 50, rows: [{ id: 1, t: 1, kind: "unlock_failed", detail: "Wrong secret (1)", source: "10.0.0.1" }] }); // NOSONAR S1313: a made-up private address in a fake server, never connected to
