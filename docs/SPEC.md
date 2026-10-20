@@ -1908,7 +1908,10 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 **`GET /api/fleet/state`**
 - Body: `{ serverTime, config, sessions: SessionView[], kpis, clearedToday, events: ActivityView[], server: { version, reporterSupport }, wall, features }`.
 - `wall` is the wall's notice and background-sessions settings ([8.1](#81-what-the-ui-must-do)).
-- `features` maps each Admin feature flag's id to whether it is on ([8.1](#81-what-the-ui-must-do)).
+- `features` maps each Admin feature flag's id to whether it is on ([8.1](#81-what-the-ui-must-do)). It also carries one
+  derived entry, `activity-history` (#432), true when the Admin keeps the Activity history, a token is set and the
+  `activity-feed` flag is on. It is not an Admin flag and is not in the flag list. The console reads it to offer the
+  sign-in that stored history needs, and a policy change reaches open consoles as a fresh snapshot.
 
 **`GET /api/fleet/sessions/:id/agents/:agentId/text`**
 - Body: `{ prompt: string | null, answer: string | null }`.
@@ -1934,9 +1937,11 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   keptUntil }`. `loop` is `@orchestrator` or an agent id of the session, `before` is the `seq` of the oldest
   entry already shown (omit it for the newest page), and `limit` is 1 to 100 (the console asks for 20).
   `olderBefore` is the `seq` to pass for the next older page, or null.
-- It needs a signed-in respond session that is the session's owner or an Admin: 401 without a sign-in, 403
-  (with `owner`) for anyone else, 404 for an unknown session or loop, and 404 while the policy is *Not
-  stored*. `Cache-Control: no-store`. The text is never logged.
+- It needs a signed-in respond session that is the session's owner or an Admin: 401 without a sign-in, 404 for a
+  session the database does not hold, 404 while the policy is *Not stored*, 403 (with `owner`) for anyone else, then
+  404 for an unknown loop and 400 for a bad `before` or `limit`. It works for a session that has ended and does not
+  need the `respond` flag: sign-in is open to the owner and an Admin whenever a keep policy is on and a token is
+  set. `Cache-Control: no-store`. The text is never logged.
 
 **`GET /api/fleet/respond/sessions/:id/files/diff?path=`** (#319)
 - The console's request for one file's diff. It needs a respond session ([7.7](#77-hardening), *File diff*),
