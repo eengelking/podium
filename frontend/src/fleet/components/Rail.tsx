@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { planProgress, sessionCounts } from "../logic";
 import type { SessionView } from "../types";
 import { backgroundOf, BlowBadge, ModelChip, PlanBar, sessionDot, stateKind } from "./Chips";
@@ -38,6 +38,24 @@ const BAND_H = 38;
 const PAGER_H = 40;
 const NOTE_H = 22;
 
+/** The width at and below which the panes stack and the page scrolls as a whole; the same breakpoint as the stacked layout in fleet.css. */
+const STACKED = "(max-width: 1040px)";
+
+/** Whether the panes are stacked now. A stacked rail's height follows its rows, so it has no room to page into (#474). */
+function useStacked(): boolean {
+  const query = () => (typeof globalThis.matchMedia === "function" ? globalThis.matchMedia(STACKED) : null);
+  const [stacked, setStacked] = useState(() => !!query()?.matches);
+  useEffect(() => {
+    const q = query();
+    if (!q) return;
+    const on = () => setStacked(q.matches);
+    on();
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  return stacked;
+}
+
 interface Measure {
   room: number;
   rowH: number;
@@ -50,8 +68,7 @@ function measure(nav: HTMLElement): Measure | null {
   if (!height) return null;
   const used = [".rail-head", ".ritem.all", ".rail-foot"].reduce((n, sel) => n + (nav.querySelector<HTMLElement>(sel)?.offsetHeight ?? 0), 0);
   // The tallest row and header on show, not the first (rows are one height today, so this is a guard): a row with a Remove button or a wrapped line is taller, and a page
-  // sized by a short one would overflow. In the stacked layout the rail's height follows its content, and sizing by the
-  // tallest keeps the list from ever looking too long for itself there.
+  // sized by a short one would overflow.
   const tallest = (sel: string) => Math.max(0, ...[...nav.querySelectorAll<HTMLElement>(sel)].map((e) => e.offsetHeight));
   const band = tallest(".rgh");
   return {
@@ -149,14 +166,16 @@ export function Rail(props: {
     blocks.push({ key: null, rows: visible.map((s) => s.id) });
   }
   const nav = useRef<HTMLElement>(null);
+  const stacked = useStacked();
   const [size, setSize] = useState<Measure | null>(null);
   const [page, setPage] = useState(0);
   const [said, setSaid] = useState("");
   const firstRow = useRef<string | null>(null);
   const total = blocks.reduce((n, b) => n + b.rows.length, 0);
   const need = size ? blocks.reduce((n, b) => n + b.rows.length * size.rowH + (b.key === null ? 0 : size.bandH), 0) : 0;
-  // Page only when every row would not fit; the pager (and the line below it) take their room out of the rows'.
-  const fit = size ? (need > size.room ? size.room - PAGER_H - NOTE_H : Infinity) : Infinity;
+  // Page only when every row would not fit; the pager (and the line below it) take their room out of the rows'. Never while
+  // the panes are stacked: the page scrolls as a whole and the rail's height follows its rows, so it would settle on one row a page (#474).
+  const fit = size && !stacked ? (need > size.room ? size.room - PAGER_H - NOTE_H : Infinity) : Infinity;
   const pages: RailPage[] = paginateRail(blocks, { rowH: size?.rowH ?? ROW_H, bandH: size?.bandH ?? BAND_H, room: fit });
   // An empty list has no pages: stay on the first, so the page never goes negative and hides rows that arrive later (#420).
   const at = Math.max(0, Math.min(page, pages.length - 1));
@@ -171,11 +190,24 @@ export function Rail(props: {
     if (page > at) setPage(at);
   });
   const sig = size ? `${size.room}|${size.rowH}|${size.bandH}` : "";
+  // The row to land on once the rail is re-measured after widening: the first render past the breakpoint still holds the stacked measure.
+  const landOn = useRef<string | null>(null);
   useLayoutEffect(() => {
-    const p = firstRow.current ? pageOf(blocks, pages, firstRow.current) : -1;
+    const row = landOn.current ?? firstRow.current;
+    landOn.current = null;
+    const p = row ? pageOf(blocks, pages, row) : -1;
     if (p >= 0) setPage(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
+  // Widening past the breakpoint lands on the page that holds the selection, as the reader was looking at it while the list was whole.
+  const wasStacked = useRef(stacked);
+  useLayoutEffect(() => {
+    const p = wasStacked.current && !stacked && props.selected ? pageOf(blocks, pages, props.selected) : -1;
+    if (p >= 0) setPage(p);
+    if (wasStacked.current && !stacked && props.selected) landOn.current = props.selected;
+    wasStacked.current = stacked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stacked]);
   useLayoutEffect(() => {
     const s = shown[0];
     firstRow.current = s ? blocks[s.block]!.rows[s.start]! : null;

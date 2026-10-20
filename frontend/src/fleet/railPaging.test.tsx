@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, within, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, within, fireEvent, cleanup, act } from "@testing-library/react";
 import { Rail } from "./components/Rail";
 import { makeSession } from "./fixtures";
 import { buildUnits } from "./people";
@@ -170,5 +170,61 @@ describe("rail paging (#242)", () => {
     expect(heads()[0]).toContain("Ed E.");
     expect(heads()[0]).toContain("continued");
     expect(heads()[0]).toContain("10");
+  });
+});
+
+describe("rail paging when the panes are stacked (#474)", () => {
+  // Below 1040 px the page scrolls as a whole and the rail's height follows its rows, so the room it measures is only what the rows
+  // already take. Faked here as the same 600px panel, with the stacked query matching or not.
+  let stacked = true;
+  const listeners = new Set<() => void>();
+  beforeEach(() => {
+    stacked = true;
+    listeners.clear();
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      get matches() {
+        return q === "(max-width: 1040px)" && stacked;
+      },
+      media: q,
+      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+    }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  const cross = (to: boolean) =>
+    act(() => {
+      stacked = to;
+      listeners.forEach((fn) => fn());
+    });
+
+  it("lists every row and no pager, however many there are", () => {
+    render(view(fleet(24)));
+    expect(names()).toHaveLength(24);
+    expect(pager()).toBeNull();
+  });
+
+  it("does not shrink to one row a page when the rail's height follows its content", () => {
+    // the height a stacked rail reports is what its rows take, which is never more than a page's worth
+    height = 134 + 50;
+    render(view(fleet(5)));
+    expect(names()).toHaveLength(5);
+    expect(pager()).toBeNull();
+  });
+
+  it("pages again when the window widens, on the page that holds the selection", () => {
+    render(view(fleet(24), "s20"));
+    expect(names()).toHaveLength(24);
+    cross(false);
+    expect(pager()).not.toBeNull();
+    expect(names()).toContain("proj-20");
+  });
+
+  it("stops paging when the window narrows", () => {
+    stacked = false;
+    render(view(fleet(24)));
+    expect(names()).toHaveLength(8);
+    cross(true);
+    expect(names()).toHaveLength(24);
+    expect(pager()).toBeNull();
   });
 });
