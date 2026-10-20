@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { fmtDay } from "../format";
+import { fmtCount, fmtDay } from "../format";
 import { reporterBelow } from "../logic";
 import type { ActivityEntryView, SessionView } from "../types";
 import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
@@ -243,7 +243,7 @@ export function feedEmpty(feed: FeedState, signedIn: boolean | null, fallback: s
 export function footer(feed: FeedState, active: boolean, isMain: boolean, now: number): [string, string] {
   const st = feed.stored;
   let count: string;
-  if (st) count = !st.canRead ? "Nothing to show" : `${st.total} stored ${st.total === 1 ? "entry" : "entries"}${st.since === null ? "" : ` since ${fmtDay(st.since)}`}`;
+  if (st) count = !st.canRead ? "Nothing to show" : `${fmtCount(st.total)} stored ${st.total === 1 ? "entry" : "entries"}${st.since === null ? "" : ` since ${fmtDay(st.since)}`}`;
   else count = feed.seen === 0 ? "Nothing yet" : `Last ${feed.entries.length} of ${feed.seen} since you started watching`;
   let when: string;
   if (!feed.live) when = "No more updates";

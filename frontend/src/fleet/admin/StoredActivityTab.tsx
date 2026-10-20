@@ -2,13 +2,13 @@
 // Totals first, then filters, then the sessions with a tick box. Deleting works three ways (the ticked sessions, everything the
 // filter matches, everything), each asks first in a warning-bordered box, and a result line says what went. The selection and the
 // confirmation follow Reporters (ReportersTab.tsx).
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AdminError, query, type AdminApi, type StoredActivityList, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter, type StoredSessionRow } from "./adminApi";
-import { dayOf, fmtBytes, fmtCount, sessionsText } from "./activityFormat";
+import { activityErrorText, dayOf, fmtBytes, fmtCount, sessionsText } from "./activityFormat";
 import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { WarnIcon } from "./ReporterMessaging";
-import { failText, useList } from "./useList";
+import { useList } from "./useList";
 
 interface Filters {
   q: string;
@@ -96,8 +96,22 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
   const [busy, setBusy] = useState(false);
   const { filter, problem } = filterOf(f);
   const list = useList<StoredActivityList>(api, `/stored-activity${query({ page: paging.page, pageSize: paging.pageSize, ...filter })}`, props.onLocked);
-  const policy = useList<{ activityHistory?: { settings: { policy: string; n: number; unit: string } } }>(api, "/settings", props.onLocked).data?.activityHistory?.settings;
+  const policyList = useList<{ activityHistory?: { settings: { policy: string; n: number; unit: string } } }>(api, "/settings", props.onLocked);
+  const policy = policyList.data?.activityHistory?.settings;
   const data = list.data;
+  // Keyboard path: the confirmation's destructive answer takes focus when it opens, the button that opened it gets focus back
+  // when it is kept, and after a delete focus lands on the table's first control (the Session filter when no table is left).
+  const first = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const refocus = useRef(false);
+  useEffect(() => {
+    if (pending) first.current?.focus();
+  }, [pending]);
+  useEffect(() => {
+    if (!refocus.current || !data) return;
+    refocus.current = false;
+    (document.querySelector<HTMLElement>('table[aria-label="Stored activity by session"] input') ?? document.getElementById("stored-q"))?.focus();
+  }, [data]);
   const total = data?.totals.sessions;
   useEffect(() => {
     if (total !== undefined) onCount(total);
@@ -116,7 +130,8 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
   const rows = data?.rows ?? [];
   const picked = Object.values(sel);
   const pageAllSelected = rows.length > 0 && rows.every((r) => sel[r.sessionId]);
-  const askFor = (p: Pending) => {
+  const askFor = (from: HTMLElement, p: Pending) => {
+    opener.current = from;
     setResult("");
     setErr("");
     setPending(p);
@@ -141,10 +156,11 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
       setErr("");
       setPaging((p) => ({ ...p, page: 1 }));
       setResult(`Deleted ${fmtCount(r.entries)} entries (${fmtBytes(r.bytes)}) from ${sessionsText(r.sessions)}. ${fmtBytes(r.freed)} freed and the file compacted. Written to the Admin log.`);
+      refocus.current = true;
       list.reload();
     } catch (e) {
       if (e instanceof AdminError && e.status === 401) props.onLocked();
-      else setErr(failText(e));
+      else setErr(activityErrorText(e, "delete the stored activity"));
     } finally {
       setBusy(false);
     }
@@ -158,7 +174,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
       title="What is stored"
       help={
         <>
-          Policy: {policy ? policyWords(policy) : "not loaded"}.{" "}
+          Policy: {policy ? policyWords(policy) : policyList.error ? "could not be read" : "Loading…"}.{" "}
           <button type="button" className="klink" onClick={() => props.onGo("kept")}>
             Change it
           </button>
@@ -294,10 +310,10 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
               {pending.live && " A session that is still running keeps being captured while the policy keeps history."}
             </p>
             <p className="formacts">
-              <button type="button" className="btn dng" disabled={busy} onClick={() => void removePending()}>
+              <button type="button" className="btn dng" ref={first} disabled={busy} onClick={() => void removePending()}>
                 Delete {fmtCount(pending.entries)} entries
               </button>
-              <button type="button" className="btn" onClick={() => setPending(null)}>
+              <button type="button" className="btn" onClick={() => (setPending(null), opener.current?.focus())}>
                 Keep them
               </button>
             </p>
@@ -310,8 +326,8 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             type="button"
             className="btn sm dng"
             disabled={!nSel}
-            onClick={() =>
-              askFor({
+            onClick={(e) =>
+              askFor(e.currentTarget, {
                 what: `the stored activity of ${sessionsText(nSel)}`,
                 sessions: nSel,
                 ...t,
@@ -326,9 +342,9 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             type="button"
             className="btn sm dng"
             disabled={!data || data.match.sessions === 0 || Object.keys(filter).length === 0}
-            onClick={() =>
+            onClick={(e) =>
               data &&
-              askFor({
+              askFor(e.currentTarget, {
                 what: `the stored activity of the ${sessionsText(data.match.sessions)} that ${data.match.sessions === 1 ? "matches" : "match"}: ${describe(filter)}`,
                 sessions: data.match.sessions,
                 entries: data.match.entries,
@@ -344,9 +360,9 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             type="button"
             className="btn sm dng"
             disabled={!data || data.totals.sessions === 0}
-            onClick={() =>
+            onClick={(e) =>
               data &&
-              askFor({
+              askFor(e.currentTarget, {
                 what: `all stored activity, for all ${sessionsText(data.totals.sessions)}`,
                 sessions: data.totals.sessions,
                 entries: data.totals.entries,
@@ -366,9 +382,10 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
         )}
         {list.error && (
           <div className="err" role="alert">
-            Could not load the stored activity ({list.error}).
+            {activityErrorText(null, "load the stored activity")}
           </div>
         )}
+        {!data && !list.error && <div className="empty">Loading…</div>}
         {data && rows.length === 0 && <div className="empty">{data.totals.sessions ? "No stored session matches. Clear a filter or widen the dates." : "Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity."}</div>}
         {data && rows.length > 0 && (
           <div className="tw2">

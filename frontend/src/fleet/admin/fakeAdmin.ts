@@ -213,6 +213,8 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     storedDeleteBodies: [] as unknown[],
     storedDeleteResult: null as StoredDeleteResult | null,
     storedError: "",
+    /** While set, a delete is refused with this message and a 400. */
+    storedBadRequest: "",
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -404,6 +406,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const b = JSON.parse(String(init?.body)) as { ids?: string[]; all?: true; match?: { q?: string; project?: string; owner?: string } };
       state.storedDeleteBodies.push(b);
       if (state.storedError) return json(500, { ok: false, error: state.storedError });
+      if (state.storedBadRequest) return json(400, { ok: false, error: state.storedBadRequest });
       const m = b.match;
       const gone = state.stored.filter((r) => b.all || b.ids?.includes(r.sessionId) || (m && (!m.q || r.name.toLowerCase().includes(m.q.toLowerCase())) && (!m.project || r.project === m.project) && (!m.owner || r.owner === m.owner)));
       state.stored = state.stored.filter((r) => !gone.includes(r));

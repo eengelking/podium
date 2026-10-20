@@ -46,6 +46,9 @@ export function fmtDay(t: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** A count with its digits grouped: 18,402. */
+export const fmtCount = (n: number): string => n.toLocaleString("en-US");
+
 /** A whole percentage, or "–" when unknown. */
 export function fmtPct(p: number | null | undefined): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "–";
