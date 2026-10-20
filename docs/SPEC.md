@@ -172,7 +172,7 @@ view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
 it as an estimate. Never present it as an invoice.
 
 **Conversation content.** No reading of conversation transcripts. Podium sends short excerpts only
-([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are three opt-in exceptions:
+([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are four opt-in exceptions:
 
 - With the `fullPrompts` option on, an agent's own task prompt and final answer go out whole (up to 20,000
   characters each, [6.4](#64-failure-and-excerpt-rules)), never the conversation around them.
@@ -185,8 +185,16 @@ it as an estimate. Never present it as an invoice.
 - With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
   server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
   Admin can read it ([7.7](#orchestrator-messaging-347)).
+- With session recording on (#353, `mockup/podium-recording.html`), everything one session's orchestrator and its
+  chosen agents do goes to the server whole: prompts, the model's text, tool inputs and their results, file contents
+  and command output, with secrets replaced on the machine. It needs three yes answers (the Admin's `session-recording`
+  flag, a choice by the session's owner or an Admin, and the reporter's `sessionRecording` option, off by default),
+  it is kept for 6 hours unless the Admin sets longer (7 days at most), and only the session's owner and an Admin can
+  read it. The session is marked as recorded on its card and its page for as long as it is, and the owner's terminal
+  says so ([6.4](#session-recording-opt-in-353), [7.7](#session-recording-353)).
 
-The model's thinking is never sent.
+The model's thinking text is never sent. A recording marks where the model thought and says that the text is not
+available ([6.4](#session-recording-opt-in-353)).
 
 **Other exclusions.**
 
@@ -955,6 +963,45 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
   for macOS through the mod. The Linux file was read on Debian 12 in a container, not through the mod. Windows
   is **unverified**.
 
+#### Session recording from the reporter (#353)
+
+What is recorded and what the server does are in [6.4](#session-recording-opt-in-353). This is what the mod does,
+and what it writes in the owner's terminal.
+
+- **When it captures.** Only while the last reply's `recording` ([6.1](#61-endpoint)) has `state: "recording"` and
+  all three `consent` answers true, and only for the loops it lists. It begins at the first reply that says so and
+  keeps nothing from before. The `activityFeed` option and the `watch` list play no part: a recording does not need
+  either.
+- **What it hooks.** `turn.start` and `agent.spawn` (the prompts), `turn.step` (the text a model request wrote and
+  the places it thought), `tool.call` (the call and its whole input, and its result), `session.compact` and
+  `session.end` with `reason: "clear"` (the marks). **Assumption:** a call's whole result is read from what
+  `next(e)` returns for `tool.call`; confirm with a real session and report any tool whose result the mod cannot see.
+- **Thinking.** `turn.step` delivers `thinking` chunks with empty text (#353 research, below). The mod records one
+  `thinking` entry for each thinking block, with no text, so the replay can show where the model thought.
+- **Batching.** Entries queue in memory and go out in `POST /api/fleet/sessions/:id/recording` ([7.1](#71-endpoints))
+  at most once a second, up to 200 entries and 480,000 bytes a request. A failed request is retried with the same
+  entries; the server drops a repeat by `(loop, seq)`. While the server cannot be reached the queue is bounded; past
+  its bound the oldest entries go and one `gap` entry records how many ([6.4](#session-recording-opt-in-353)).
+- **Stopping.** The mod stops capturing, and drops its queue after one last send, when a reply says `state` is
+  `stopped` or `limit`, when `consent.owner` or `consent.admin` turns false, when the option goes off, and when the
+  session ends. A reload of the module while the reply still says `recording` picks it up again at the next reply.
+- **Terminal text.** The mod writes a line to the owner's terminal in the same words the console uses, in these
+  cases (`mockup/podium-recording.html`, *Owner's terminal*):
+  - *Recording starts*, once, when it begins capturing: "podium: This session is being recorded by <name>, from
+    <time>. The whole history of this orchestrator and every agent and fork under it is kept in Podium for
+    troubleshooting, and is deleted at <time>. Either of you can stop it from Podium. To refuse recording on this
+    machine, set sessionRecording to off in /plugin configure." It is written again after `/clear` and after a
+    compaction (the transcript was emptied) and on the first idle prompt after the module reloads.
+  - *Recording stops*: "podium: Recording stopped by <name> at <time>. What was recorded until then is kept until
+    <time>."
+  - *Chosen but not allowed*, when `consent.chosen` is true and the option is off: "podium: <name> chose to record
+    this session, but sessionRecording is off here, so nothing is recorded." Nothing about the session leaves the
+    machine.
+  - *Limit reached*: "podium: Recording stopped: this session reached its <n> MB limit. Nothing after this point is
+    kept." (for the disk budget, "the server's disk budget" in place of the session's limit).
+  - A time is the server's `keptUntil` or `startedAt` shown in the machine's local time, and "today" is left out
+    when it is not today.
+
 ### 5.4 Engine calls the reporter uses (Verified)
 
 All calls are async unless noted. Read each one's doc comment in the types file before first use.
@@ -1129,6 +1176,7 @@ supported.
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
 | `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. The server takes it in the report (`session.peers`, #412). Read from `register`'s options (#414); the report sends `session.peers` true only with the option on and an interactive session. |
+| `sessionRecording` | boolean | `false` | When true, this machine's sessions may be recorded whole when someone with the right chooses to ([6.4](#session-recording-opt-in-353)). Title "Allow session recording". Set once per machine; the server cannot change it. The report sends `session.sessionRecording`. |
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
@@ -1169,6 +1217,18 @@ Read the options via the `options` argument of `register`. A config change reloa
 - It needs `activityFeed` on as well. With that off, the mod accepts nothing.
 - Set it with `/plugin configure podium-reporter@eengelking-marketplace`.
 - The mod enforces its own level and never relies on the server for it.
+
+**`sessionRecording`** (#353, [6.4](#session-recording-opt-in-353))
+- It is the session owner's consent, the third of three yes answers. With it off the mod captures nothing for a
+  recording, whoever chose the session and whatever the Admin has switched on, and it says so in the terminal when a
+  recording was chosen anyway (see *Session recording from the reporter* in [5.3](#53-events-the-reporter-hooks)).
+- Off by default and separate from `activityFeed`, `fullPrompts` and `respond`: none of them implies it, and it
+  implies none of them.
+- A recording holds whole prompts, file contents, command output and tool results. The mod redacts what looks like
+  a secret before it leaves the machine, but that is best effort and not a guarantee. The option's description in
+  `plugin.json` says so.
+- Set it with `/plugin configure podium-reporter@eengelking-marketplace`. The mod reads it at `register` and enforces
+  it itself; it never relies on the server for it.
 
 #### Identity (#226)
 
@@ -1228,7 +1288,8 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
     "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" },
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
     "watch": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
-    "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[] }
+    "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],
+    "recording": RecordingGrant }
   ```
 
   | Field | Meaning |
@@ -1241,6 +1302,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   | `peers` | Whether this session's orchestrator takes part in orchestrator messaging now (#347, [7.7](#orchestrator-messaging-347)): authentication on, the Admin's `peer-messaging` flag on, the report made with a person's token (not the admin secret), and the report's `session.peers` true. The mod offers its tools only while it is true. |
   | `peerDeliveries` | Another orchestrator's messages for this one (`kind: "message"`) and Podium's own notices about this orchestrator's messages and requests (`kind: "notice"`), oldest first, at most 20. A message comes only while the session reports itself idle (`status: "waiting"`, `waitReason` not `permission`); a notice comes in any reply. Each takes a result through the peer result route ([7.1](#71-endpoints)), never responding's. Always empty while `peers` is false. |
   | `peerRequests` | The owner's open requests about this session's reporter (an Admin's proposal, an orchestrator's request for access, a message waiting for approval), at most 20, for the toast and `/podium allow\|decline\|deliver` ([5.3](#orchestrator-messaging-from-the-reporter-347)). Always empty while `peers` is false. |
+  | `recording` | The session's recording state (#353, [6.4](#session-recording-opt-in-353)): `{ state: "off" \| "recording" \| "stopped" \| "limit", consent: { admin, chosen, owner }, loops, limit: "session" \| "budget" \| null, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes }`. The mod captures only while `state` is `recording` and all three `consent` answers are true. `state` is `off` and `loops` empty whenever nothing is chosen or kept for this session, which is every reply while the Admin's `session-recording` flag is off or the server has no token. An older server sends no field, which a mod reads as `off`. |
 
 - `400 { "ok": false, "error": "…", "path": "…" }` for a body that fails validation. The mod drops that report
   and logs once to debug. It never retries a 400.
@@ -1304,6 +1366,7 @@ interface Report {
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise
     peers?: boolean;                    // whether the reporter's `peers` option is on (#347, 5.9); absent from an older reporter, whose sessions are never listed as peers and never get a message
+    sessionRecording?: boolean;         // whether the reporter's `sessionRecording` option is on (#353, 5.9); absent from an older reporter, which is never recorded
   };
   agents: AgentReport[];                // every agent seen this session, running or finished
   events: ActivityEvent[];              // not yet acknowledged
@@ -1597,6 +1660,127 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   ([8.1](#81-what-the-ui-must-do)). Under the default policy no reply carries `history` and the window is as it
   was.
 
+#### Session recording (opt-in, #353)
+
+A recording keeps everything the orchestrator and the agents under it do, whole, so a run can be replayed to see
+what happened and why. It is the most that Podium ever keeps of a conversation, which is why it needs three yes
+answers and says so wherever it is on (`mockup/podium-recording.html`). Reading it back is under *Session recording*
+in [7.7](#session-recording-353) and the notice and the replay are in [8.1](#session-recording-353-mockuppodium-recordinghtml).
+
+**The three yes answers**
+1. The Admin turns on the `session-recording` feature flag (Admin > Settings > Feature flags,
+   [8.1](#81-what-the-ui-must-do)). It is off by default, and it cannot be on while the server runs without a token
+   ([7.7](#77-hardening)): with no token, nobody could be told apart as the one who may read a recording.
+2. The session's owner, or an Admin, chooses to record the session and which of its loops, with **Record** on the
+   orchestrator page. Nothing before that moment is kept.
+3. The owner allows it in the reporter: the `sessionRecording` option, off by default
+   ([5.9](#59-mod-configuration-userconfig)). It is the one the owner controls on the machine, so it is the one that
+   cannot be overruled from the browser.
+
+All three are carried in `recording.consent` of every reply ([6.1](#61-endpoint)). If any is false the mod captures
+nothing and the server stores nothing. A person who chose a session whose owner has not allowed it is told so in
+the console ("This session's reporter does not allow recording"), and the owner is told in the terminal
+([5.3](#session-recording-from-the-reporter-353)). Turning the flag off, or the option off, ends capture at once; an
+Admin turning the flag off also stops every recording, and what was recorded is kept until it expires.
+
+**What is captured.** For each chosen loop (the orchestrator, a subagent, a fork), in the order things happened:
+- `prompt`: the task prompt an agent starts with, the person's prompt, and a message or answer sent from Podium
+  (each with its marker, as in the Activity history).
+- `text`: what the model wrote in each request, whole.
+- `tool`: each call, with its **whole** input (a Bash command in full, the content of a Write, the old and new text
+  of an Edit), not the short summary the Activity feed carries.
+- `result`: that call's **whole** output (a file's contents for Read, command output for Bash, a Grep's matches),
+  with `failed` when it failed, and `callSeq` pointing at its call.
+- `thinking`: a mark where the model thought, with no text (below).
+- `clear` and `compact`: marks for a `/clear` and for a compaction, with the loop it happened in.
+- `gap`: a mark, with `lost`, where entries of a loop were dropped on the machine (below).
+- `stopped` and `limit`: marks the server writes where capture ended (below).
+
+Nothing else is captured: not the system prompt, not a request's whole message list, not an image or a file that is
+not a tool's result, not the settings or the environment. Cost, tokens and the plan are already in the state.
+
+**Limits of one entry.** A text is redacted, then cut at 100,000 characters with a visible
+`[cut off at 100,000 characters]` marker and `cut: true`. The type and limits are `RecordingEntry` and
+`RECORDING_LIMITS` in `server/src/fleet/protocol.ts`, copied into the mod.
+
+**Redaction (best effort).** Before anything leaves the machine, the mod redacts every string it records, tool
+inputs and results included, with the whole rule set of the file diff ([6.4](#file-diff-opt-in-on-request-319): the
+secret shapes, provider tokens, JSON Web Tokens, private key blocks, credentials in URLs, authorization headers,
+values of keys whose name says they are secret, and long random-looking values). A value is replaced with
+`[redacted]` and the rest of the text stays. The server and the console never see the original, and the server adds no
+second pass. In addition:
+- A `Read`, `Edit` or `Write` of a path on the file diff's never-send list (`.env`, `.env.*`, `*.pem`, `*.key`,
+  `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`, `.npmrc`, `.netrc`, `credentials*`) records the call with its path and
+  a result of `[withheld: this file is on the never-send list]`, and an `Edit` or `Write` records neither its old nor
+  its new text. A Bash command that reads one of them cannot be recognized in general; its output is only redacted.
+- Each redaction counts toward `redactions` in the log line the mod writes, never in the text.
+
+**What redaction does not cover.** A secret of a shape the rules do not know, a secret split across two entries or by
+the 100,000 character cut, a secret the model wrote in its own words ("the password is hunter2"), a secret inside
+base64 or another encoding, a secret in a file whose name is not on the never-send list, and personal data of any
+kind. A recording therefore holds whatever the session saw. The Admin's switch, the owner's option and the
+owner-and-Admin read rule are the control, and the User Guide says that redaction is not a guarantee.
+
+**Thinking.** The mod receives the model's thinking as `thinking` chunks of `turn.step`. On `claude-sonnet-5-5` at
+medium effort, in the main loop and in a subagent, those chunks arrive with **empty text**: a thinking block exists
+(its chunks are counted) and no readable text comes with it (#353, research comment). Other models, other efforts
+and forks have **not** been tested. Until they are, a recording keeps a `thinking` entry for each block and no text,
+and the replay says "Thinking: text is not available" in its header and on each such row, so it never reads as if
+the agent did not think. If a later mod version receives text, a recording does not start keeping it without a
+change to this section.
+
+**Where it goes.** The mod sends entries in batches of at most 200 entries and 480,000 bytes
+(`POST /api/fleet/sessions/:id/recording`, [7.1](#71-endpoints)), inside the 512 KB body limit. Each entry has a
+`seq` per session and loop, so a retry or a resend is dropped on the server and an entry is stored once. The server
+keeps recordings in the Activity history's second file, `activity.sqlite` ([6.4](#activity-feed-opt-in-observed-only-118),
+*Activity history*), in their own table, so the main database's backups, vacuum and retention are not slowed by
+them, and they appear on *Stored activity* with the Source set to Recordings. Capture does not wait for a viewer and
+does not need the `activityFeed` option or a keep policy.
+
+**Gaps.** A recording is not guaranteed complete.
+- While the server cannot be reached the mod queues entries in memory, up to 8 MB (provisional). Past that the
+  oldest entries go and one `gap` entry per loop says how many (`lost`). Nothing is kept across a restart of the
+  session's process.
+- An entry the mod cannot read (a tool whose result it cannot see) is recorded without its result, and the replay
+  says so.
+- Capture begins when the first reply that allows it arrives, so a short delay after **Start** is normal.
+- A loop that starts under a recorded session after **Start** is not recorded unless it was chosen; the page's layer
+  names the recorded and the unrecorded loops.
+
+**Retention and size.** All three numbers are the Admin's, in Admin > Settings > Session recording, kept as one
+JSON row, `recording_settings`, in the `settings` table ([7.2](#72-database-sqlite)):
+- *Keep a recording for*: 6 hours by default, at least 1 hour and at most 7 days. It is counted per part, from when
+  that part was recorded, and a purge every 5 minutes removes what is older, so a short time is honored within a few
+  minutes. The time shown to a person as "kept until" is when the oldest part still held goes. A session's own
+  retention ([7.5](#75-lifecycle-timers), Retention) also applies, and the shorter of the two wins. A shorter time
+  removes parts that are already older.
+- *Disk budget*: 2 GB by default, for all recordings together. When the stored total reaches it, every running
+  recording stops, with a `limit` mark (`limit: "budget"`) at the point where it stopped. Nothing already stored is cut
+  short, and a new recording cannot start while the total is at the budget.
+- *Limit for one session*: 256 MB by default. A recording stops when its session reaches it, with a `limit` mark
+  (`limit: "session"`), and the owner is told in the terminal.
+- **The 2 GB, the 256 MB and the 8 MB queue are provisional.** They are the numbers of the mockup. They are set from
+  a measurement of the write load and of what real sessions record (the checklist of #353), and may change before
+  release. The server enforces them from the Admin's row, so changing them needs no code change.
+- Sizes are the stored text's bytes. The budget and the cap are checked as a batch is stored, so a recording can
+  pass its limit by at most one batch (about 480 KB).
+
+**Stopping, keeping and deleting.**
+- **Stop** ends capture for the whole session (the orchestrator and every agent and fork). The server writes a
+  `stopped` mark with who stopped it and when. What was recorded is **kept** until it expires, can still be
+  replayed, and can be deleted. Stopping is for the session's owner and an Admin.
+- **Delete** removes the whole recording for good, and stops capture if it is still running. It does not touch the
+  session, History or the live feed. Deleting is for the session's owner and an Admin.
+- A session that ends keeps its recording as it is (capture ended with it) until it expires. Deleting the
+  session, or its own retention running out, removes the recording with it.
+- The owner can also stop capture on the machine at any time by turning the `sessionRecording` option off. It ends
+  capture; it does not delete what was kept.
+
+**Access.** Only the session's owner and an Admin can read, stop, delete or open the replay of a recording, with the
+same sign-in and the same owner test as the Activity history ([7.7](#session-recording-353)). The wall and the
+orchestrator page show to **everyone** that a session is recorded, who started it, which loops and when it goes (the
+notice, [8.1](#session-recording-353-mockuppodium-recordinghtml)), and show nothing of its content.
+
 #### File diff (opt-in, on request, #319)
 
 With the `fileDiff` option on, the mod can send the diff of one file in the Files list
@@ -1847,6 +2031,17 @@ Reporter 0.14.0 adds `session.respond`, `session.asks`, `session.clearedFrom`, t
   `reporter.engineVersion`, and because the mod checks that each approval took
   ([5.3](#responding-from-podium)), a different version degrades to "approve it in the terminal" rather than
   failing quietly.
+
+#### Session recording and the range (#353)
+
+Session recording adds `session.sessionRecording`, the reply's `recording`, the recording routes ([7.1](#71-endpoints))
+and the `sessionRecording` option ([5.9](#59-mod-configuration-userconfig)), all of them ignorable by the other side.
+
+- An older mod sends no `session.sessionRecording`, so the server reads its owner as not allowing it and never
+  lists a loop to record. The console says "an older podium-reporter" in the picker's note.
+- An older server sends no `recording`, which a newer mod reads as `off`, so it captures nothing.
+- Which release carries it is decided in its `release-prep/<version>` PR, which then moves `plugin.json`, `VERSION`
+  and, on a new minor, `max` in `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
 
 #### The release check (#499, `mockup/podium-update-notice.html`, `mockup/podium-update-check-admin.html`)
 
@@ -2176,6 +2371,53 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
   stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
 
+#### Mod route for session recording (#353)
+
+Needs `X-Podium-Token` from the session's owner ([7.7](#77-hardening)), like the responding routes.
+
+**`POST /api/fleet/sessions/:id/recording`**: the mod's batch of recorded entries ([6.4](#session-recording-opt-in-353)).
+- Body: one `RecordingBatch`, `{ v: 1, sentAt, entries }`, at most 200 entries. Each entry is `{ loop, seq, at, kind,
+  text, name?, callSeq?, failed?, cut?, lost? }` with `kind` one of `prompt`, `text`, `tool`, `result`, `thinking`,
+  `clear`, `compact`, `gap` (`stopped` and `limit` are written by the server and refused). `text` keeps its line
+  breaks and is clipped to 100,000 characters plus the cut-off marker.
+- `200 { ok: true, stored, recording }`: `stored` is how many entries were new (an entry held already, by
+  `(loop, seq)`, is dropped and not an error) and `recording` is the `RecordingGrant` after the batch, so a limit
+  reached by this batch stops the mod at once. The entries that fit are stored, and the one that would pass the limit
+  and everything after it are not; the batch is then answered with `recording.state: "limit"`.
+- `403 { ok: false, error: "recording is off" }` while the three yes answers are not all true for this session
+  (nothing is stored, and the mod stops capturing). `404` for a session that is not live and has no recording, `400`
+  for a body that fails validation, `401` for a missing or wrong credential, `409` as for a report, `413` above
+  512 KB.
+- A session that has ended is not accepted again: its recording is kept as it is.
+
+#### Browser routes for session recording (#353)
+
+On responding's `/respond` router: they need its sign-in, `X-Podium-Respond: 1` on a change, and send
+`Cache-Control: no-store`. Every one needs the signed-in person to be the session's owner or an Admin (the same test
+as the Activity history, [7.7](#activity-history-432)): `401` without a sign-in, `403` for anyone else, `404` while the
+`session-recording` flag is off or the session is unknown. A recording's text is never logged.
+
+- **`GET /api/fleet/respond/sessions/:id/recording?before=&limit=&loop=`**: one page of a replay, oldest first, as a
+  `RecordingPage`: `{ entries, olderBefore, total, grant, loops, owner }`. Without `before` it answers the newest
+  `limit` rows (default and most 200, `RECORDING_LIMITS.page`); `before` is the `n` of the oldest row already shown
+  and `olderBefore` is the `n` for the next older page, or null. `loop` limits the page to one loop (`@orchestrator`
+  or an agent id). `loops` lists every loop of the session with its name and whether it is recorded. `404` when the
+  session has no recording (never chosen, deleted or expired), `400` for a bad `before`, `limit` or `loop`. It works for
+  a session that has ended and when capture has stopped.
+- **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
+  `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added
+  later are recorded from that moment on; nothing before it is kept. `409` when the Admin's budget is reached or the
+  recording has stopped for its limit (`DELETE` it first to start again), `400` for a loop the session does not have.
+  It does not need the reporter's option: it records the choice, and the reply's `grant.consent.owner` says whether
+  the owner has allowed it, so the picker can tell the person.
+- **`POST /api/fleet/respond/sessions/:id/recording/stop`**: stop capture, keep what was recorded. `200 { ok: true,
+  grant }`, also for a recording already stopped. The server writes a `stopped` mark.
+- **`DELETE /api/fleet/respond/sessions/:id/recording`**: delete the whole recording and stop capture. `200 { ok: true,
+  entries, bytes }`; compacting the file runs in chunks as for a stored-activity delete. `404` when there is none.
+- Each of the three changes is written to the Admin log with who did it ([7.7](#session-recording-353)). The
+  `grant` of a person who may not read it is never sent: the state shown on a card is the session view's
+  `recording` ([7.4](#74-view-types)), which carries no text.
+
 #### Admin API
 
 The `/api/admin/*` routes ([7.7](#77-hardening)):
@@ -2277,6 +2519,21 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       bytes, freed }`, where `sessions` is the number of sessions that lost at least one entry, `bytes` the estimate of
       the entries' size and `freed` what the file gave back on disk. It writes one `activity_deleted` entry to the Admin log with the count, the size and how
       the entries were chosen, and never the entries' text.
+  - Session recording (#353, [6.4](#session-recording-opt-in-353)):
+    - the settings reply carries `recording`: `{ settings: { keepHours, budgetMb, sessionMb }, totals: { recordings,
+      bytes, running }, authOn }`, and a change sends `{ recording: { keepHours?, budgetMb?, sessionMb? } }`:
+      `keepHours` 1 to 168 (default 6), `budgetMb` 64 to 102,400 (default 2,048), `sessionMb` 8 to 4,096 (default 256,
+      and not above `budgetMb`). A value outside its range is a `400`. A change is written to the Admin log as
+      `recording_settings_changed`. These ranges and defaults are provisional until measured.
+    - the flag itself is `session-recording` in `features`, like any other, and turning it on is a `400` while the server
+      runs without a token.
+    - `GET recordings?page=&pageSize=&state=&q=`: the recordings, running or kept, as `{ total, page, pageSize, rows,
+      totals }`; a row is a `RecordingAdminRow`: `{ sessionId, name, owner, startedBy, state, limit, loops, label,
+      bytes, keptUntil }`. `state` is `recording`, `stopped` or `limit`. The Stored activity page lists the same
+      recordings through its Source filter, and its delete works on them as on any stored activity.
+    - `POST recordings/:sessionId/stop` and `DELETE recordings/:sessionId`: as the browser routes, for any session.
+      Each is written to the Admin log (`recording_stopped`, `recording_deleted`) with the Admin as the one who did it.
+      The Admin's table asks first, in the warning-bordered confirmation box.
   - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (`{ reporter, peers, trust, rights,
     effective, requests }`: its reporter, the owner's reporters, the owner's Trust my own reporters, and the stored and
     effective rights and open requests of every pair of the owner's reporters, each request as the owner's read lists
@@ -2394,7 +2651,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff` and `peer-messaging`, which are off, #206, #319, #347); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432)
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off, #206, #319, #347, #353); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 2048, 256 }` (#353); the recordings themselves are in `activity.sqlite`, not here
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -2534,6 +2791,10 @@ The sweeper runs this hourly:
   Admin may keep it for hours. It lives in `activity.sqlite` and follows the Admin's policy
   ([6.4](#64-failure-and-excerpt-rules)). The hourly run also removes the entries of any session the main
   database no longer holds, so a session's own retention ends its history too (the shorter wins).
+- Session recordings (#353) are purged by the same 5-minute run. Each part older than the Admin's *Keep a recording
+  for* (6 hours by default, at most 7 days) is removed, and so are the parts of a session the main database no
+  longer holds. The run compacts the file as for the Activity history, and writes one `recording_purged` entry to the
+  Admin log per run that removes something, with counts and sizes and never text.
 
 The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `RETAIN_SESSIONS_MS`,
 `RETAIN_ADMIN_LOG_MS` and `RETAIN_ROLLUP_MS` (395 days). `GET /api/admin/log` also returns the period as `retainMs`, and Admin > Admin log says
@@ -2616,6 +2877,7 @@ interface SessionView {
     state: 'open' | 'pending' | 'not-taken' | 'closed';
   }[];
   clearedFrom: string | null;           // the session this one continues after a /clear (5.8)
+  recording?: RecordingView | null;     // #353: { state: 'recording' | 'stopped' | 'limit', limit, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes, loops: { loop, name, recorded }[], ownerAllows }; everything the wall and the page show about a recording and no text; null or absent when nothing is chosen or kept
   agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst
   series: { tokensPerSec: number[]; peakContext: number[]; running: number[]; blowoutSecondsAgo: number[] };  // 60 points, oldest first; peakContext in 0..1; missing seconds zero-filled
 }
@@ -2715,6 +2977,40 @@ Stored activity is reported text and can hold anything an agent read or ran, so 
 - The text is never logged, and a backup of the database folder holds it until a purge or a delete removes it. A
   delete removes it from the database and compacts the file; it does not change copies made earlier.
 
+#### Session recording (#353)
+
+A recording is the most Podium keeps of a conversation: whole prompts, file contents, command output and tool results
+([6.4](#session-recording-opt-in-353)). It is the third read that is not open, and the only one whose content is written
+as it happens.
+
+- **It needs all three yes answers** to capture or store anything: the Admin's `session-recording` flag, a choice by
+  the session's owner or an Admin, and the reporter's `sessionRecording` option. With the flag off the server lists
+  no loop to record, refuses the mod's route (`403`) and the browser routes (`404`), stops every recording, and keeps
+  what is stored until it expires.
+- **It needs authentication on.** Without a token the flag cannot be turned on and the server reads it as off, for the
+  reason the Activity history gives: nobody could be told apart as the one who may read.
+- **Who may read, choose, stop, delete or open it:** the session's owner and an Admin, by the Activity history's
+  rule (a respond session; the signed-in person whose name equals the session's `owner`, compared
+  case-insensitively; a session owned by `Admin` is read with the admin secret; a session with no owner by an Admin
+  only). Everyone else gets `403`. The owner and an Admin are equals here: either can start, stop and delete, and an
+  Admin can do it without the owner's knowing, which is why the notice cannot be hidden and the owner's terminal is
+  told, by the mod, every time.
+- **Everyone** who can open the console sees that a session is recorded: the state, who started it, which loops are and
+  are not recorded and when it goes (`SessionView.recording`, [7.4](#74-view-types)), and never any content. This is
+  not a wall notice and has no way to be closed ([8.1](#session-recording-353-mockuppodium-recordinghtml)).
+- **Only the Admin** changes the retention and the two sizes, lists every recording with its owner, who started it,
+  state and size, and stops or deletes any of them, through the Admin API ([7.1](#71-endpoints)).
+- **The admin log.** Each of these is written with who did it and the session, never any text:
+  `recording_started` (loops, by whom), `recording_stopped`, `recording_deleted` (entries, bytes),
+  `recording_limit` (the session or the budget stopped one), `recording_read` (a replay was opened: a read without
+  `before`, so paging back does not repeat it), `recording_settings_changed` (the three values before and after) and
+  `recording_purged` (a purge run that removed something, with counts and sizes). The flag is `feature_changed`, as for
+  every flag.
+- The text is never logged, in a line, an error or the admin log. A backup of the database folder holds it until a
+  purge or a delete removes it; a delete removes it and compacts the file, and does not change copies made earlier.
+- A recording is redacted on the machine before it is sent and the server adds no second pass. Redaction is best
+  effort ([6.4](#session-recording-opt-in-353)), so the User Guide says that a recording can hold a secret.
+
 #### File diff (#319)
 
 A file's diff is source code. Reads are open by design, so this is the one read that is not.
@@ -2789,7 +3085,9 @@ A file's diff is source code. Reads are open by design, so this is the one read 
   turned on or off, background sessions shown or hidden), the model prices (a price set, a price reset), a
   reporter taken off the list (`reporter_removed`) and the Activity history (#432: a policy saved,
   `activity_history_changed`; entries deleted by the Admin, `activity_deleted`; a purge run that removed
-  something, `activity_purged`, one entry per run, with counts and sizes and never text), each with the source
+  something, `activity_purged`, one entry per run, with counts and sizes and never text) and session recording
+  (#353: `recording_started`, `recording_stopped`, `recording_deleted`, `recording_limit`, `recording_read`,
+  `recording_settings_changed` and `recording_purged`, never text; [7.7](#session-recording-353)), each with the source
   address.
 
 **Names**
@@ -3728,7 +4026,8 @@ menu and the page scroll on their own.
   *Delete N…* for the ticked sessions, *Delete all N that match…* (only with a filter set) and *Delete
   everything…*. Each opens the confirmation box naming the entries and size that will go, and for a running
   session says it keeps being captured while the policy keeps history. After a delete a line says how many entries
-  went, how much space was freed, and that the Admin log has it. Source has one choice today, Activity.
+  went, how much space was freed, and that the Admin log has it. Source has two choices: Activity and, since #353, Recordings (its rows are sessions with a recording, sized in bytes of
+  text, and *Delete* on them is the recording's delete).
 - Nothing here shows entry text. Reading stored text is in the Activity window ([8.1](#81-what-the-ui-must-do)).
 
 **Spend (#239, `mockup/podium-admin-spend.html`)**
@@ -3783,10 +4082,18 @@ features that can be switched off appear here."
     orchestrators find and message each other, on the machines they choose, through this server. Only between one
     person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
     right on My reporters."
+  - **Session recording** (`session-recording`, #353, [7.7](#session-recording-353),
+    `mockup/podium-recording.html`): "Lets a session's owner, or an Admin, record everything an orchestrator and its
+    agents do, so a run can be replayed to see what happened and why. Needs sign-in on the server. Off by default."
+    With a warning bar (`role="note"`) under it: "A recording holds whole prompts, file contents, command output and
+    tool results. Secrets are removed on the machine before it is sent, but that is best effort. A session is
+    recorded only when its owner has allowed it in the reporter and someone has chosen it. Only the owner and an
+    Admin can read a recording." The row is unavailable, with a line saying a token is needed, when the server has no
+    `PODIUM_TOKEN`.
   - **Release check** (`update-check`, #499, [6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
     `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
     bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
-- Flags default to on, except `respond`, `file-diff` and `peer-messaging`, which are off by default.
+- Flags default to on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
@@ -3844,6 +4151,75 @@ a map of it.
 
 **Settings**
 - Admin > Settings > Feature flags has the **Respond from Podium** row ([7.7](#77-hardening)), off by default.
+
+#### Session recording (#353, `mockup/podium-recording.html`)
+
+The mockup is the specification: every string, frame and placement in it is literal, and this section is only a map
+of it. It is built from the components on `development` (the mockup's notes say which are new), and a new component
+becomes a standard in the release-prep PR, not in the feature PR.
+
+**Admin**
+- **Settings > Feature flags > Session recording** (`session-recording`) with its warning bar ([8.1](#feature-flags-118-mockuppodium-feature-flagshtml)
+  lists the others). Unavailable, with a line saying a token is needed, when the server has none.
+- **Settings > Session recording** holds the form of the three limits: *Keep a recording for* (a number and hours or
+  days, 6 hours by default, at most 7 days), *Disk budget* (GB) and *Limit for one session* (MB). Saving is the
+  page's primary button and is written to the Admin log; a shorter time removes recordings that are already older,
+  and the form says so. A line under it says how many recordings and how much is stored, of the budget. The numbers
+  are provisional ([6.4](#session-recording-opt-in-353)).
+- **Recordings** (a section on the same page) lists every recording, running or kept: the session, who owns it, who
+  started it, its state as shape plus word (Recording, Stopped, Limit reached), size, when it goes, and **Stop** or
+  **Open replay**, and **Delete**. Stop and Delete ask first in the warning-bordered confirmation box. The state word is
+  `.badge.recording` (a filled dot, in the critical color) while it records.
+- *Stored activity* lists the same recordings with its Source filter set to Recordings.
+
+**Choosing what to record**
+- **Recording** is the last cell of the orchestrator page's facts panel, after Fork, shown to the session's owner and an
+  Admin (to everyone else it states the state and has no button). The facts stay twelve cells in two rows of six:
+  Machine and System become one cell (`Silverbolt | macOS 26.0`). Not recorded, the cell is a button like Resume and
+  Fork: the word **Record** and the record mark. Recorded, it states the state and when it goes.
+- The record mark is a ring with a disc inside. The ring is always neutral; the disc is neutral when idle, absent
+  when the recording is only kept, and critical and pulsing on the app's shared beat (`data-beat`, still under
+  reduced motion) only while it records.
+- **Record** opens the modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each
+  with a box. Recording is per loop, starts when **Start recording** is pressed, and keeps nothing from before. The
+  modal has five states: the owner allows it; just after Start; the owner has not allowed it (nothing to press, and
+  the text names the `sessionRecording` option); the feature is off; and a viewer who is not the owner or an Admin.
+
+**The notice cannot be hidden**
+- It is not a wall notice. Wall notices are for informational notes that someone may close, and consent is not one:
+  there is **no X and no switch**, on the wall or in Admin, and nothing a viewer can do hides it.
+- On the wall, a recorded card gets a second band in the critical color with a filled dot, the words "Recording
+  everything" or "Recording N of M loops", and who started it and when it goes (`.band.recording`).
+- On the orchestrator page, a layer inside the page's surface above its band (`.rec-bar`) says what is kept, who
+  started it, which loops are recorded and which are not (in words, not on the agent table), and when it is deleted,
+  with **Stop recording**, **Open replay** and **Delete recording** for the owner and an Admin.
+- The terminal shows the same text ([5.3](#session-recording-from-the-reporter-353)).
+
+**Stopped, ended and limit**
+- Stopping keeps what was recorded. The page goes to a third state, "Recording stopped", with the same layer in the
+  neutral color and a ring in place of the filled dot, and it keeps **Open replay** and **Delete recording**.
+  A recording that hit a limit reads the same way with the limit named.
+- An ended session shows its final state (the Done band, all agents done) plus that layer. It is reached from
+  History, whose row has a line under the name, "recording kept until <time>", and from Admin's Recordings table.
+  Nothing is shown once the recording is deleted or has expired.
+
+**Replay**
+- A page of its own, at `#/?open=<id>&replay` (built on #542's address, so it survives a reload; a viewer who may not
+  read it sees the refusal at the same address), reached from **Open replay**, with a back link to the orchestrator
+  page. Read-only: a replay never runs anything or sends anything to the session.
+- It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under
+  each tool call. A loop filter, a position slider (`.scrub`) and **Jump to next failure** move through it. A failed
+  call uses the failure box. A compaction, a clear, a gap, a stop and a limit are marked rows (`.feed li.mark`).
+- **It loads the newest 200 rows** (`RECORDING_LIMITS.page`) and **Show older** pages back through a long run
+  (`GET …/recording?before=`, [7.1](#71-endpoints)). The whole result is stored; it is not all loaded at once.
+- **Thinking.** The replay says in its header that thinking text is not available, and each place the model thought has
+  a Reasoning row that reads "Thinking: text is not available" ([6.4](#session-recording-opt-in-353)).
+- States: loading ("Loading…"), a failed load (the error box with Try again), nothing recorded yet, a delete asking
+  first, a stopped recording, a recording that reached its limit, and a viewer who is not the owner (the empty-state
+  box with a plain refusal). A loop name too long for its row is cut with its full name as a title.
+- Confirmations: in Admin, the warning-bordered box with a button for each answer. Everywhere else, the Respond
+  modal's confirmation box: a bold question, Cancel, and the critical-colored action button. Stop, Delete and Delete
+  this recording all ask first and say what stays and what goes.
 
 #### Wall notices (#114, `mockup/podium-wall-notices.html`)
 
