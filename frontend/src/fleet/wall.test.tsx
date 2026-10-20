@@ -518,6 +518,101 @@ describe("wall notices (#114)", () => {
   });
 });
 
+describe("the update notice (#499)", () => {
+  const RELEASE = "https://github.com/eengelking/podium/releases/tag/v0.15.0";
+  const server = { version: "0.14.3", build: null, reporterSupport: { min: "0.2.0", max: "0.4.0" } };
+  const wall = (update: { latest: string; url: string } | null | undefined) => ({
+    notices: { "background-sessions": true },
+    showBackgroundSessions: false,
+    cardTitleMachine: false,
+    ...(update === undefined ? {} : { update }),
+  });
+  const newer = () => stateFrom({ server, wall: wall({ latest: "0.15.0", url: RELEASE }) });
+
+  it("says which version is available and which is running, with the release notes link, in a green pill", () => {
+    const { container } = render(<FleetView state={newer()} />);
+    const note = container.querySelector(".notices .fold") as HTMLElement;
+    const pill = within(note).getByText("Podium 0.15.0 is available");
+    expect(pill).toHaveClass("pill", "good");
+    expect(note).toHaveTextContent("You are running 0.14.3.");
+    const link = within(note).getByRole("link", { name: "Release notes" });
+    expect(link).toHaveAttribute("href", RELEASE);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("shows nothing when there is no newer release, or the server sends no update field", () => {
+    for (const w of [wall(null), wall(undefined)]) {
+      const { container, unmount } = render(<FleetView state={stateFrom({ server, wall: w })} />);
+      expect(container.querySelector(".notices")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("joins the stack with the other notices, at the bottom of the wall", () => {
+    const st = stateFrom({ server, sessions: [makeSession({ id: "gone", name: "long-gone", attached: false, hideAt: Date.now() - 1_000 })], wall: wall({ latest: "0.15.0", url: RELEASE }) });
+    const { container } = render(<FleetView state={st} />);
+    expect(container.querySelectorAll(".notices .fold")).toHaveLength(2);
+    const above = container.querySelector(".wall") ?? container.querySelector(".kpis")!;
+    expect(above.compareDocumentPosition(container.querySelector(".notices")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("closes with its X for the release it names, and the confirmation says it comes back for a newer one and links to Admin > Settings", async () => {
+    const fetchFn = vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 })));
+    vi.stubGlobal("fetch", fetchFn);
+    try {
+      render(<FleetView state={newer()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Update available" }));
+      expect(fetchFn).toHaveBeenCalledWith("/api/fleet/update-notice/close", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: "0.15.0" }),
+      });
+      const toast = (await screen.findByText("Notice dismissed")).closest(".toast") as HTMLElement;
+      expect(toast).toHaveTextContent("“Update available” will show again when a release newer than 0.15.0 comes out.");
+      expect(toast).toHaveTextContent("turn the release check off in Admin > Settings");
+      expect(within(toast).getByRole("link", { name: /Open Admin > Settings/ })).toHaveAttribute("href", "#/admin/settings");
+      fireEvent.click(within(toast).getByRole("button", { name: "Close this message" }));
+      expect(screen.queryByText("Notice dismissed")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("says so when the close did not reach the server, and keeps the notice", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("{}", { status: 500 }))));
+    try {
+      const { container } = render(<FleetView state={newer()} />);
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Update available" }));
+      expect(await screen.findByText(/Could not close the notice: HTTP 500\. Try again\./)).toBeInTheDocument();
+      expect(screen.queryByText("Notice dismissed")).toBeNull();
+      expect(container.querySelector(".notices .fold")).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the notice across a wall event and drops it when the server stops sending it", () => {
+    const st = newer();
+    const kept = fleetReducer(st, { type: "wall", wall: { ...st.wall, showBackgroundSessions: true } });
+    expect(kept.wall.update).toEqual({ latest: "0.15.0", url: RELEASE });
+    const gone = fleetReducer(st, { type: "wall", wall: { ...st.wall, update: null } });
+    const { container } = render(<FleetView state={gone} />);
+    expect(container.querySelector(".notices")).toBeNull();
+  });
+
+  it("closing the background-sessions note still says it was turned off, not dismissed", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))));
+    try {
+      render(<FleetView state={stateFrom({ server, sessions: [makeSession({ id: "gone", name: "long-gone", attached: false, hideAt: Date.now() - 1_000 })], wall: wall({ latest: "0.15.0", url: RELEASE }) })} />);
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Background sessions" }));
+      expect(await screen.findByText("Notice turned off")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("more on sessions nobody is attached to (#45)", () => {
   it("looks the same as before for a session whose reporter does not say", () => {
     const st = stateFrom({ sessions: [makeSession({ attached: null, hideAt: null })] });

@@ -51,7 +51,8 @@ decisions when appropriate.
 ## Scope
 
 This Code of Conduct applies within all project spaces (issues, pull
-requests, discussions, and any other repo-hosted communication), and also
+requests, discussions, and any other repo-hosted communication), in the
+Podium Discord server (see [docs/COMMUNITY.md](../docs/COMMUNITY.md)), and also
 applies when an individual is officially representing the project in public
 spaces.
 
@@ -61,6 +62,7 @@ Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the maintainer privately, either via a
 [GitHub Security Advisory](https://github.com/eengelking/podium/security/advisories/new)
 on this repo or by direct contact with [@eengelking](https://github.com/eengelking).
+In the Discord server, a direct message to the maintainer is also a report.
 All reports will be reviewed and investigated promptly and fairly, and the
 maintainer is obligated to respect the privacy and security of the reporter
 of any incident.

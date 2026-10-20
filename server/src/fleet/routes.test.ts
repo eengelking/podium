@@ -344,7 +344,7 @@ describe('the activity feed (#118)', () => {
     const r = live();
     await request(app).post('/api/fleet/report').send(r);
     expect((await request(app).get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false, 'update-check': true });
   });
 
   it('with the Admin flag off: no lease, enabled: false, nothing watched, nothing kept; back on resumes', async () => {
@@ -361,7 +361,7 @@ describe('the activity feed (#118)', () => {
     // Turning it off drops every lease and entry at once.
     fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.size).toBe(0);
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, respond: false, 'file-diff': false, 'peer-messaging': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'update-check': true });
 
     const off = await request(app).get(url(r, aid));
     expect(off.status).toBe(200);
@@ -391,7 +391,7 @@ describe('the activity feed (#118)', () => {
     fleet.features.setFeature('activity-feed', false);
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
-    expect(all).toContain('"features":{"activity-feed":false,"respond":false,"file-diff":false,"peer-messaging":false}');
+    expect(all).toContain('"features":{"activity-feed":false,"respond":false,"file-diff":false,"peer-messaging":false,"update-check":true}');
   });
 
   it('a session that is deleted takes its feed with it', async () => {
@@ -477,10 +477,117 @@ describe('GET /stream', () => {
   });
 });
 
+describe('the update notice (#499)', () => {
+  const stubRelease = (tag: string) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ tag_name: tag, html_url: 'x', prerelease: false, draft: false }), { status: 200 })));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('carries a newer release in the state body, with the release link', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
+    await fleet.updates.check();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toEqual({
+      latest: '99.0.0',
+      url: 'https://github.com/eengelking/podium/releases/tag/v99.0.0',
+    });
+  });
+
+  it('shows nothing when the release is not newer than the running server', async () => {
+    stubRelease('v0.0.1');
+    const { app, fleet } = setup();
+    await fleet.updates.check();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
+  });
+
+  it('dismisses the release it names for everyone, without a token, and shows a still newer release again', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup('t');
+    await fleet.updates.check();
+    const res = await request(app).post('/api/fleet/update-notice/close').send({ version: '99.0.0' });
+    expect(res.status).toBe(200);
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
+    expect(fleet.wall.updateDismissed()).toBe('99.0.0');
+    stubRelease('v99.0.1');
+    await fleet.updates.check();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update?.latest).toBe('99.0.1');
+  });
+
+  it('keeps a dismissal across a restart and tells open streams', async () => {
+    const { fleet } = setup();
+    const sent: string[] = [];
+    fleet.hub.add({ write: (c: string) => (sent.push(c), true), end() {} } as never);
+    fleet.wall.dismissUpdate('99.0.0');
+    expect(sent.join('')).toContain('event: wall');
+    expect(sent.join('')).toContain('"update":null');
+    fleet.wall.dismissUpdate('99.0.0');
+    expect(sent.join('').match(/event: wall/g)).toHaveLength(1);
+  });
+
+  it('never moves a dismissal back to an older release', () => {
+    const { fleet } = setup();
+    fleet.wall.dismissUpdate('99.0.1');
+    fleet.wall.dismissUpdate('99.0.0');
+    expect(fleet.wall.updateDismissed()).toBe('99.0.1');
+  });
+
+  it('refuses to close a release newer than the one on offer, or when none is on offer, so a made-up version cannot silence every later release', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup();
+    const close = (version: string) => request(app).post('/api/fleet/update-notice/close').send({ version });
+    const none = await close('99.0.0');
+    expect(none.status).toBe(400);
+    expect(none.body).toMatchObject({ ok: false, path: '$.version' });
+    await fleet.updates.check();
+    expect((await close('999.0.0')).status).toBe(400);
+    expect(fleet.wall.updateDismissed()).toBeNull();
+    expect((await close('99.0.0')).status).toBe(200);
+    expect(fleet.wall.updateDismissed()).toBe('99.0.0');
+  });
+
+  it('rejects a version that is not MAJOR.MINOR.PATCH', async () => {
+    const { app } = setup();
+    for (const body of [{}, { version: 5 }, { version: 'latest' }, { version: '1.2' }, { version: '1.2.3-rc.1' }, { version: 'v1.2.3' }]) {
+      const res = await request(app).post('/api/fleet/update-notice/close').send(body);
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ ok: false, path: '$.version' });
+    }
+  });
+
+  it('makes no request to GitHub and shows no notice while the Release check is off, and checks as soon as it is turned on', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup();
+    fleet.features.setFeature('update-check', false);
+    await fleet.updates.check();
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
+    fleet.features.setFeature('update-check', true);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    await vi.waitFor(async () => expect((await request(app).get('/api/fleet/state')).body.wall.update?.latest).toBe('99.0.0'));
+  });
+
+  it('removes a notice that was showing when the Release check is turned off', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup();
+    await fleet.updates.check();
+    fleet.features.setFeature('update-check', false);
+    expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
+  });
+
+  it('ignores a dismissal that is not a version it can read, so a bad stored value never hides a release', async () => {
+    stubRelease('v99.0.0');
+    const { app, fleet } = setup();
+    await fleet.updates.check();
+    fleet.db.db.prepare("INSERT INTO settings (key, value) VALUES ('wall_update_dismissed', 'junk')").run();
+    expect(fleet.wall.updateDismissed()).toBeNull();
+    expect((await request(app).get('/api/fleet/state')).body.wall.update?.latest).toBe('99.0.0');
+  });
+});
+
 describe('wall notices', () => {
   it('closes a known notice without a token, rejects an unknown one, and carries the switches in the state body', async () => {
     const { app, fleet } = setup('t');
-    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false });
+    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false, update: null });
     expect((await request(app).post('/api/fleet/notices/nope/close')).status).toBe(400);
     expect((await request(app).post('/api/fleet/notices/background-sessions/close')).status).toBe(200);
     expect((await request(app).get('/api/fleet/state')).body.wall.notices['background-sessions']).toBe(false);

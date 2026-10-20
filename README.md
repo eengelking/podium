@@ -96,6 +96,15 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Contributing](CONTRIBUTING.md) | How to propose and land a change, and the tests and checks to run (PRs go to `development`, not `main`) |
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |
 | [Code of conduct](.github/CODE_OF_CONDUCT.md) | Community expectations |
+| [Community](docs/COMMUNITY.md) | Join the Discord, and how the server is set up and kept safe |
 | [Third-party notices](docs/THIRD_PARTY_NOTICES.md) | Credits and licenses for the color theme palettes |
+
+## Community
+
+Questions, show-and-tell and release news live in the [Podium Discord server](https://discord.gg/JQhPDdEBk). The
+[Code of conduct](.github/CODE_OF_CONDUCT.md) applies there. Bugs and feature requests go in
+[GitHub Issues](https://github.com/eengelking/podium/issues), and a security problem never goes in Discord: report it
+privately as [described in the security policy](.github/SECURITY.md#reporting-a-vulnerability). How to join and
+how the server is run is in [Community](docs/COMMUNITY.md).
 
 Podium is released under the [MIT License](LICENSE).

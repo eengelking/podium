@@ -14,6 +14,7 @@ import { GuessThrottle, Lockout } from './lockout.js';
 import { mountRespondRoutes, replyFor } from './respondRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
+import { isNewer } from './updateCheck.js';
 
 export interface FleetRouterOptions {
   /** The admin secret (PODIUM_TOKEN). When set, POST /report, DELETE and POST /hook need a credential in X-Podium-Token: this, or a person's token. */
@@ -414,6 +415,25 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     }
     opts.people?.log('wall_notice_changed', `Wall notice ${req.params.id} turned off from the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_notice_changed', `podium: wall notice ${req.params.id} turned off from the wall`, { action: 'wall_notice_changed', setting: req.params.id, on: false, source: machineOf(req) });
+    res.json({ ok: true });
+  });
+
+  // Closing the update notice hides the release it names for everyone; a still newer release shows it again (#499, SPEC 8.1).
+  router.post('/update-notice/close', json, (req, res) => {
+    const v = req.body?.version;
+    if (typeof v !== 'string' || !/^\d+\.\d+\.\d+$/.test(v)) {
+      res.status(400).json({ ok: false, error: 'version must be MAJOR.MINOR.PATCH', path: '$.version' });
+      return;
+    }
+    // Only a release the server is offering can be closed; a made-up newer version would hide every later release.
+    const offered = fleet.updates.latest();
+    if (!offered || isNewer(v, offered.latest)) {
+      res.status(400).json({ ok: false, error: 'that release is not the one on offer', path: '$.version' });
+      return;
+    }
+    fleet.wall.dismissUpdate(v);
+    opts.people?.log('wall_update_dismissed', `Update notice for ${v} closed on the wall`, machineOf(req) ?? '', fleet.now());
+    logger.info('admin.wall_update_dismissed', `podium: update notice for ${v} closed on the wall`, { action: 'wall_update_dismissed', version: v, source: machineOf(req) });
     res.json({ ok: true });
   });
 

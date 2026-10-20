@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+/** The id of the update notice (#499). Closing it hides one release, not the notice, so it is closed through its own route. */
+export const UPDATE_NOTICE_ID = "update-available";
+
 /** One informational wall notice. A later notice adds an entry where the stack is built, and gets its X for free. */
 export interface NoticeItem {
   id: string;
@@ -30,13 +33,20 @@ export function NoticeStack({ items, onClose }: { items: NoticeItem[]; onClose: 
   );
 }
 
-/** The confirmation after a notice is closed: which notice, and the link to Admin > Settings. It has its own X. */
-export function NoticeClosed({ name, onDismiss }: { name: string; onDismiss: () => void }) {
+/**
+ * The confirmation after a notice is closed: which notice, and the link to Admin > Settings. It has its own X. A notice that
+ * only hides one release (the update notice) passes `until`, the release it hid, and says it comes back for a newer one.
+ */
+export function NoticeClosed({ name, until, onDismiss }: { name: string; until?: string; onDismiss: () => void }) {
   return (
     <div className="toast" role="status">
       <div className="t">
-        <b>Notice turned off</b>
-        <span>“{name}” will not show again. You can turn it back on or off in Admin &gt; Settings.</span>
+        <b>{until ? "Notice dismissed" : "Notice turned off"}</b>
+        <span>
+          {until
+            ? `“${name}” will show again when a release newer than ${until} comes out. You can turn the release check off in Admin > Settings.`
+            : `“${name}” will not show again. You can turn it back on or off in Admin > Settings.`}
+        </span>
         <br />
         <a className="go" href="#/admin/settings">
           Open Admin &gt; Settings

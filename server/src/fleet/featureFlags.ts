@@ -16,6 +16,8 @@ export const RESPOND = 'respond';
 export const FILE_DIFF = 'file-diff';
 /** Orchestrator messaging between one person's own reporters (#347, #412): off until the Admin turns it on. */
 export const PEER_MESSAGING = 'peer-messaging';
+/** The release check (#499): on until the Admin turns it off. Off, the server makes no request to GitHub. */
+export const UPDATE_CHECK = 'update-check';
 
 export const FEATURES: readonly FeatureDef[] = [
   {
@@ -44,6 +46,12 @@ export const FEATURES: readonly FeatureDef[] = [
     description:
       "Lets a person's orchestrators find and message each other, on the machines they choose, through this server. Only between one person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the right on My reporters.",
     defaultOn: false,
+  },
+  {
+    id: UPDATE_CHECK,
+    name: 'Release check',
+    description: 'Asks GitHub once a day for the latest Podium release and says at the bottom of the wall when a newer one is out. Off, this server makes no request to GitHub.',
+    defaultOn: true,
   },
 ];
 

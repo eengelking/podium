@@ -11,6 +11,7 @@ Contents:
   - [Admin and per-person tokens](#admin-and-per-person-tokens)
   - [Several people on one Podium](#several-people-on-one-podium)
   - [Orchestrator messaging](#orchestrator-messaging)
+  - [The release check](#the-release-check)
   - [A page on another site](#a-page-on-another-site)
   - [Behind a reverse proxy](#behind-a-reverse-proxy)
   - [More settings](#more-settings)
@@ -127,6 +128,14 @@ on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
 
 [MESSAGING.md](MESSAGING.md) walks through the whole setup, with the ranges in [Limits](MESSAGING.md#limits); the
 Admin's screens are under "Admin" in [USER_GUIDE.md](USER_GUIDE.md#settings).
+
+### The release check
+
+Once a day the server asks `api.github.com` for the latest Podium release, and the wall shows a notice when it is newer
+than the version running ([SPEC.md](SPEC.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
+It is one HTTPS request with no body and nothing about your install in it. It is on by default. For a server that must
+not make outbound calls, turn **Release check** off in Admin > Settings > Feature flags and the server makes no request.
+A firewall that blocks the request needs no change: the check fails quietly and shows nothing.
 
 ### A page on another site
 

@@ -1794,6 +1794,36 @@ Reporter 0.14.0 adds `session.respond`, `session.asks`, `session.clearedFrom`, t
   ([5.3](#responding-from-podium)), a different version degrades to "approve it in the terminal" rather than
   failing quietly.
 
+#### The release check (#499, `mockup/podium-update-notice.html`, `mockup/podium-update-check-admin.html`)
+
+Podium has no registry, so people update by pulling the new release and running `podiumctl build`. The server tells
+them when one exists. The mod and the server share one version, so an out-of-date server also means an out-of-date
+reporter, and the reporter's own check above still covers the mod.
+
+- **Where it runs.** On the server, once per server, never in a browser, so it is one request a day however many tabs
+  are open and the page's `connect-src 'self'` ([7.7](#response-headers-and-the-container-249)) is unchanged.
+- **When.** About 30 seconds after the server starts, then every 24 hours. It does not run on a request.
+- **What it asks.** `GET https://api.github.com/repos/eengelking/podium/releases/latest`, with a 10 second
+  timeout. GitHub's `latest` is never a draft or a pre-release, and a tag that is not `vMAJOR.MINOR.PATCH` is
+  ignored as well. Nothing about the install, the sessions or the people is sent.
+- **The comparison.** The tag's `MAJOR.MINOR.PATCH` against the server's own version (`StateBody.server.version`), all
+  three numbers. A version that is not `MAJOR.MINOR.PATCH` (a dev build's `unknown`, the simulator's `0.1.0-sim`)
+  never shows a notice. The release link is built from the tag (`https://github.com/eengelking/podium/releases/tag/vX.Y.Z`); the
+  `html_url` in the reply is not used.
+- **Who sees it.** Every viewer of the wall, in the notice stack ([8.1](#wall-notices-114-mockuppodium-wall-noticeshtml)).
+- **Dismissing it** hides the release it names, for everyone, until a newer release than that one is published. The
+  version is kept in the `settings` table (`wall_update_dismissed`), so it survives reloads and a restart. It only ever
+  moves forward: a tab closing an older release does not bring back a newer one already closed.
+- **A failed check is silent.** Offline, rate limited, a bad status, a reply it cannot read, no answer: the wall shows
+  no notice and no error, the last good answer is kept, and the next daily check tries again. The server writes one
+  short `update.check_failed` warning per failed check.
+- **The switch.** Admin > Settings > Feature flags > **Release check** (`update-check`). It is **on by default**. Off, the
+  server makes no request to GitHub at all and holds no notice, for installs that must not make outbound calls.
+  Turning it on checks at once instead of waiting for the next daily run.
+- **What reaches the wall.** `StateBody.wall.update` is `{ latest, url }` while there is a newer release that
+  nobody has closed the notice for, and `null` otherwise (an older server sends no field, which reads as `null`). A
+  change reaches open tabs through the `wall` stream event.
+
 ---
 
 ## 7. The server
@@ -1816,6 +1846,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 | `GET /api/fleet/events?sessionId=&before=&limit=` | Page through stored events newest first (`limit` ≤ 200, default 50, `before` = event time). |
 | `GET /api/fleet/history?day=YYYY-MM-DD&page=N&pageSize=N` | Ended or dropped sessions that day. Phase 4. Details below. |
 | `POST /api/fleet/notices/:id/close` | Turn a wall notice off for everyone ([8.1](#81-what-the-ui-must-do)). No token, like Remove. 400 for an id that is not a known notice. |
+| `POST /api/fleet/update-notice/close` | Body `{ version }`: the X on the update notice hides the release it names for everyone ([6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)). No token. 400 unless `version` is `MAJOR.MINOR.PATCH` and is not newer than the release on offer (or none is on offer), so a made-up version cannot hide every later release. |
 | `PUT /api/fleet/wall/background-sessions` | Body `{ show: boolean }`: the Show them / Hide them link on the background-sessions note changes this setting. No token. 400 unless `show` is a boolean. |
 | `POST /api/fleet/sessions/:id/drop` | Remove a heartbeat-lost session from the live view now: the same exit as the automatic drop ([7.5](#75-lifecycle-timers)). No token. 404 if the session is not live, 409 if it is not `stale`. |
 | `DELETE /api/fleet/sessions/:id` | Remove a session and its rows (for stuck test data). Requires the token if one is configured. |
@@ -3018,6 +3049,18 @@ Other places the warning shows:
   (the UI uses React text nodes only).
 - CORS: none needed (same origin). Do not enable `*`.
 
+#### The release check's request (#499)
+
+The release check ([6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)) is the only request the
+server makes to a site of its own choosing, and the only one that does not answer a reporter or a browser.
+
+- It is one HTTPS `GET` to `api.github.com` a day, with `User-Agent: podium-release-check` and no body, no token and no
+  identifying field. The reply is read as JSON and only `tag_name`, `prerelease` and `draft` are used.
+- It runs only while the Release check flag is on. Off, the server makes no outbound request.
+- A server that cannot reach GitHub works as before: nothing waits on the check and nothing shows its failure.
+- The container needs no new capability or port for it. A firewall that blocks outbound HTTPS makes every check fail
+  quietly, which looks the same as no newer release.
+
 #### Server logging (issue #140)
 
 - Each log line is an event with a stable dotted name (`report.rejected`, `session.started`,
@@ -3034,6 +3077,7 @@ Other places the warning shows:
   request the client drops before the response is one `http.aborted` line at `debug` with the same fields but
   no status.
 - `sweep.removed` names at most the first 10 session ids and counts the rest in `session_ids_omitted`.
+- `update.check_failed` (warn) is one short line when the daily release check ([6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)) gets no usable answer.
 - **Shipping.** When `PODIUM_LOG_SHIP_URL` is set the server also pushes the JSON lines, gzipped NDJSON, to
   VictoriaLogs' `/insert/jsonline` with `_time_field=timestamp&_msg_field=message&_stream_fields=service,host`
   and the headers in `PODIUM_LOG_SHIP_HEADERS` (`Name=Value;Name2=Value2`).
@@ -3562,6 +3606,9 @@ features that can be switched off appear here."
     orchestrators find and message each other, on the machines they choose, through this server. Only between one
     person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
     right on My reporters."
+  - **Release check** (`update-check`, #499, [6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
+    `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
+    bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
 - Flags default to on, except `respond`, `file-diff` and `peer-messaging`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
@@ -3635,8 +3682,18 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
   On/Off). They are stored in the server's `settings` table and sent to the wall in `StateBody.wall`, so they
   apply to every browser and survive a restart. A change reaches open tabs through the `wall` stream event.
 - All notices default to on.
-- The only notice today is the background-sessions note. A later notice adds one entry to `NOTICES` in
+- The notices are the background-sessions note and the update notice. A later notice adds one entry to `NOTICES` in
   `server/src/fleet/wallSettings.ts` and one to the stack in `Wall.tsx`.
+- **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
+  `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
+  link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set
+  ([6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
+  - Its X is "Close notice: Update available". It hides the release the notice names, for everyone
+    (`POST /api/fleet/update-notice/close`), not the notice: a newer release shows it again. The confirmation is titled
+    **Notice dismissed**, says `“Update available” will show again when a release newer than 0.15.0 comes out`, and
+    links to Admin > Settings as the others do.
+  - Its switch is the **Release check** flag under Feature flags, because turning the notice off for good means
+    stopping the check. It has no row under Wall notices.
 - Whether background sessions are shown is a separate server setting (`StateBody.wall.showBackgroundSessions`,
   off by default), switched in Admin > Settings > The wall or by the note's Show them / Hide them link, so
   turning the note off never removes the way to show them.

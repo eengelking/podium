@@ -932,6 +932,11 @@ These settings apply to every browser and stay after a restart.
   that asked and keeps no copy. The mod hides what looks like a secret (tokens, passwords, keys, credentials in URLs) as `[redacted]` before
   the diff leaves the machine, and never sends `.env` files, keys or credentials files at all. Hiding is best
   effort, not a guarantee. Off, the Files rows show their counts and no link.
+- **Release check** (`update-check`) is on by default. About once a day the server asks GitHub for the latest Podium
+  release, and when it is newer than the one running, the wall shows a notice with both versions and a link to the
+  release notes. To update, pull the new release and run `podiumctl build`. Turned off, the server makes no request to
+  GitHub at all, which is the setting for an install that must not make outbound calls. A check that fails (offline,
+  rate limited) shows nothing and tries again the next day.
 - **Orchestrator messaging** (`peer-messaging`) is off by default. It lets a person's orchestrators message each
   other, only between that person's own machines, once each machine's podium-reporter has its `peers` option on and the
   owner has given the pair a right on [My reporters](#my-reporters). It needs authentication on. Turned on, it adds an
@@ -952,7 +957,9 @@ A value is saved when you leave its box or press Enter. One out of range is refu
 was saved and which value still applies.
 
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
-switch off for everyone. After you close one, Podium says so and links to this page.
+switch off for everyone. After you close one, Podium says so and links to this page. The update notice is the exception:
+its X hides the release it names for everyone and the notice comes back when a newer release is published, so its switch
+is **Release check** under Feature flags.
 
 **Background sessions.** **Show background sessions on the wall** keeps sessions nobody is attached to in view. It is off
 by default.

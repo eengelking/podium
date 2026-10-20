@@ -829,6 +829,17 @@ export interface WallSettingsView {
   showBackgroundSessions: boolean;
   /** Title each card `machine | session` instead of the session's name alone (#480). */
   cardTitleMachine: boolean;
+  /**
+   * A Podium release newer than this server that nobody has closed the notice for (#499), with the link to its notes. Null when
+   * there is none, the Release check is off or the last check failed. An older server sends no field, which reads as null.
+   */
+  update?: UpdateNotice | null;
+}
+
+/** A release newer than the running server: its MAJOR.MINOR.PATCH (no leading v) and the link to its release notes. */
+export interface UpdateNotice {
+  latest: string;
+  url: string;
 }
 
 export interface StateBody {
