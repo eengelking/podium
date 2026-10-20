@@ -88,7 +88,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
 | [Gotchas](docs/GOTCHAS.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/GOTCHAS.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |
-| [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing the dashboard to other people |
+| [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing Podium to other people |
 | [Spec](docs/SPEC.md) | The build spec: intended behavior and requirements |
 | [Architecture](docs/ARCHITECTURE.md) | How it was built, departures from the spec, verification, known issues |
 | [Decisions](docs/DECISIONS.md) | Why a significant choice was made |
