@@ -129,7 +129,7 @@ interface FleetViewProps {
 export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
-    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
+    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
       <FleetViewBody
         state={props.state}
         updateEvery={props.updateEvery}

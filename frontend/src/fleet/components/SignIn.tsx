@@ -15,9 +15,10 @@ const ERRORS: Record<Exclude<SignInResult, "ok">, string> = {
 };
 
 function SignInLead() {
+  const historyOnly = useRespond()?.historyOnly === true;
   return (
     <p className="signlead">
-      Use your name and token, the same ones as your podium-reporter's <code>userName</code> and <code>token</code> options. Only the session's owner, or an Admin, can respond.
+      Use your name and token, the same ones as your podium-reporter's <code>userName</code> and <code>token</code> options. Only the session's owner, or an Admin, can {historyOnly ? "open stored activity" : "respond"}.
     </p>
   );
 }
@@ -131,8 +132,9 @@ export function SignInPanel() {
 /** The top bar's dialog: the same form, closing once signed in and leaving the page as it was. */
 function SignInDialog(props: { onClose: () => void }) {
   const f = useSignInForm(props.onClose);
+  const historyOnly = useRespond()?.historyOnly === true;
   return (
-    <Modal titleId="signInTitle" title="Sign in" sub="To answer and message your own sessions" onClose={props.onClose} className="sm">
+    <Modal titleId="signInTitle" title="Sign in" sub={historyOnly ? "To read the stored activity of your own sessions" : "To answer and message your own sessions"} onClose={props.onClose} className="sm">
       <div className="sbody">
         <SignInLead />
         {f.fields}
