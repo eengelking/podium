@@ -12,6 +12,7 @@ import {
   canSend,
   isIdle,
   linkKey,
+  peerShortId,
   refuse,
   type Actor,
   type ConversationSummary,
@@ -28,6 +29,9 @@ import {
   type ReporterLookup,
   type SendOutcome,
 } from './peerTypes.js';
+
+/** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
+const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;
 
 /** Notices kept for one orchestrator; the oldest goes first. */
 export const MAX_NOTICES = 20;
@@ -221,11 +225,15 @@ export class PeerMessages implements PeerMessagesApi {
     const sender = this.sender(sessionId);
     if (!sender) return { peers: [], leftOut: [] };
     const others = this.reachable(sender).filter((o) => o.sessionId !== sender.sessionId);
+    const copies = new Map<string, number>();
+    for (const o of others) copies.set(addressKey(o), (copies.get(addressKey(o)) ?? 0) + 1);
     const peers: PeerListing[] = others
       .map((o) => {
         const right = this.rights.effective(sender.reporterKey, o.reporterKey);
         return {
           address: `${o.name}@${o.machine}`,
+          id: peerShortId(o.sessionId),
+          duplicate: (copies.get(addressKey(o)) ?? 0) > 1,
           name: o.name,
           machine: o.machine,
           os: o.os,
@@ -235,7 +243,7 @@ export class PeerMessages implements PeerMessagesApi {
           paused: right.paused,
         };
       })
-      .sort((a, b) => a.address.localeCompare(b.address));
+      .sort((a, b) => a.address.localeCompare(b.address) || a.id.localeCompare(b.id));
     const listed = new Set(others.map((o) => o.reporterKey));
     const leftOut: LeftOut[] = [];
     for (const r of this.reporters.ofOwner(sender.owner)) {
@@ -252,19 +260,34 @@ export class PeerMessages implements PeerMessagesApi {
 
   // ---- Sending -----------------------------------------------------------------------------------------------------
 
-  /** `name@machine`, split at the last `@`, among the orchestrators the sender can reach. */
+  /** `name@machine`, split at the last `@`, among the orchestrators the sender can reach. `name@machine#id` picks one of several that share the name (#500). */
   private resolve(sender: LiveOrchestrator, to: string): LiveOrchestrator | Refusal {
     const address = to.trim();
     const unseen = refuse(404, `You cannot see an orchestrator called ${address}. Run podium_peers for the list.`);
     const at = address.lastIndexOf('@');
     if (at < 0) return unseen;
     const name = nameKey(address.slice(0, at));
-    const machine = nameKey(address.slice(at + 1));
-    const matches = this.reachable(sender).filter((o) => nameKey(o.name) === name && nameKey(o.machine) === machine);
+    const rest = address.slice(at + 1);
+    const hash = rest.lastIndexOf('#');
+    const reachable = this.reachable(sender);
+    const onMachine = (m: string): LiveOrchestrator[] => reachable.filter((o) => nameKey(o.name) === name && nameKey(o.machine) === nameKey(m));
+    let matches = onMachine(hash < 0 ? rest : rest.slice(0, hash));
+    // A machine whose own name holds a `#` is still addressable by the whole text (#500).
+    const wholeName = hash >= 0 && matches.length === 0 ? onMachine(rest) : [];
+    if (wholeName.length) matches = wholeName;
+    const wantId = hash < 0 || wholeName.length ? '' : rest.slice(hash + 1).trim().toLowerCase();
     const others = matches.filter((o) => o.sessionId !== sender.sessionId);
-    if (others.length > 1) {
-      return refuse(409, `There are ${others.length} orchestrators called ${address}, so Podium cannot tell which one you mean. Ask ${sender.owner} to rename one of them, then run podium_peers.`);
+    const plain = `${address.slice(0, at)}@${hash < 0 || wholeName.length ? rest : rest.slice(0, hash)}`;
+    const ids = (list: LiveOrchestrator[]): string => list.map((o) => `${plain}#${peerShortId(o.sessionId)}`).join(', ');
+    const tooMany = (list: LiveOrchestrator[]): Refusal =>
+      refuse(409, `There are ${list.length} orchestrators called ${plain}, so Podium cannot tell which one you mean. Send to one by its id: ${ids(list)}. podium_peers lists the ids.`);
+    if (wantId) {
+      const byId = others.filter((o) => o.sessionId.toLowerCase().startsWith(wantId));
+      if (byId.length > 1) return tooMany(byId);
+      if (byId.length === 1) return byId[0];
+      return matches.some((o) => o.sessionId === sender.sessionId && o.sessionId.toLowerCase().startsWith(wantId)) ? refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`) : unseen;
     }
+    if (others.length > 1) return tooMany(others);
     if (others.length === 1) return others[0];
     if (matches.length) return refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`);
     return unseen;
@@ -342,7 +365,7 @@ export class PeerMessages implements PeerMessagesApi {
         )
       : [];
     for (const m of messages) {
-      out.push({ id: m.id, kind: 'message', at: m.sentAt, from: { name: m.fromName, machine: m.fromMachine, owner: m.owner }, text: m.text });
+      out.push({ id: m.id, kind: 'message', at: m.sentAt, from: { name: m.fromName, machine: m.fromMachine, owner: m.owner, ...(m.fromSession ? { id: peerShortId(m.fromSession) } : {}) }, text: m.text });
     }
     const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
     const now = this.now();

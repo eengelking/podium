@@ -16,6 +16,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **`podium_send` can reply when several orchestrators share a name (#500).** `podium_peers` now shows a short session id for orchestrators that share a name and machine, and says only `name@machine#id` reaches them. `podium_send` accepts that form and delivers to exactly that session; a bare duplicated `name@machine` is still refused, now with the ids to use instead of asking the person to rename one. An inbound message carries the sender's id, so the mod's reply line names `name@machine#id`. An older server sends no id, and the mod then falls back to the plain address.
 - **The history paging test no longer counts a timer's reads (#494).** "builds rows for the requested page only" spied on every `getAgents` call, so a session broadcast timer that fired during a slow request (under coverage in CI) added to the count. The test now holds the throttle open for its fixture, so only the request's own calls are counted. It still fails if the route builds every row. Test only; no change to the product.
 
 ## [1.2.0] - 2026-10-19

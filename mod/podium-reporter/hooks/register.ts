@@ -1350,7 +1350,7 @@ async function registerPeerTools($: Engine): Promise<void> {
       description: TOOL_DESCRIPTIONS.send,
       inputSchema: {
         type: 'object',
-        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine"' }, text: { type: 'string', description: 'The message' } },
+        properties: { to: { type: 'string', description: 'The orchestrator, as "name@machine", or "name@machine#id" when podium_peers shows an id' }, text: { type: 'string', description: 'The message' } },
         required: ['to', 'text'],
       },
     });

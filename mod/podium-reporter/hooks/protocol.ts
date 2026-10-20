@@ -471,6 +471,8 @@ export interface PeerParty {
   name: string;
   machine: string;
   owner: string;
+  /** The sender's short session id, for `name@machine#id`; absent from a server older than #500. */
+  id?: string;
 }
 
 /**

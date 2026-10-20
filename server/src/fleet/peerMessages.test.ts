@@ -188,9 +188,55 @@ describe('PeerMessages: sending', () => {
     const two = s.send('s-mbp', 'Tester@ci-runner-01', 'hi') as Refusal;
     expect(two.status).toBe(409);
     expect(two.error).toContain('There are 2 orchestrators called Tester@ci-runner-01');
-    expect(two.error).toContain('Ask Ed to rename one');
+    expect(two.error).toContain('Tester@ci-runner-01#s-ci');
     expect(s.send('s-mbp', 'claude-dashboard@ed-mbp', 'hi')).toMatchObject({ ok: false, status: 422 });
     expect(count()).toBe(0);
+  });
+
+  it('tells same-named orchestrators apart by id: lists each id, flags the duplicates, and sends to exactly the one named (#500)', () => {
+    const { s, count } = setup();
+    s.note(orch('abcd1234-0000', 'r-ci', 'Tester', 'ci-runner-01'));
+    s.note(orch('ef567890-0000', 'r-ci', 'Tester', 'ci-runner-01'));
+    const twins = s.list('s-mbp').peers.filter((p) => p.name === 'Tester');
+    expect(twins.map((p) => [p.id, p.duplicate])).toEqual([
+      ['abcd1234', true],
+      ['ef567890', true],
+      ['s-ci', true],
+    ]);
+    const sent = ok(s.send('s-mbp', 'Tester@ci-runner-01#ef567890', 'hi'));
+    expect(s.deliveriesFor('abcd1234-0000', true)).toEqual([]);
+    expect(s.deliveriesFor('s-ci', true)).toEqual([]);
+    expect(s.deliveriesFor('ef567890-0000', true).map((d) => d.id)).toEqual([sent.id]);
+    expect(count()).toBe(1);
+  });
+
+  it('refuses a bare duplicated address with the ids to use, and an id that matches nobody, or two, with the same 404/409 (#500)', () => {
+    const { s, count } = setup();
+    s.note(orch('abcd1234-0000', 'r-ci', 'Tester', 'ci-runner-01'));
+    s.note(orch('abcd9999-0000', 'r-ci', 'Tester', 'ci-runner-01'));
+    const bare = s.send('s-mbp', 'Tester@ci-runner-01', 'hi') as Refusal;
+    expect(bare.status).toBe(409);
+    expect(bare.error).toContain('Tester@ci-runner-01#abcd1234');
+    expect(bare.error).toContain('Tester@ci-runner-01#abcd9999');
+    expect(bare.error).toContain('Tester@ci-runner-01#s-ci');
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#ffff', 'hi')).toMatchObject({ ok: false, status: 404 });
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#abcd', 'hi')).toMatchObject({ ok: false, status: 409 });
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#', 'hi')).toMatchObject({ ok: false, status: 409 });
+    expect(s.send('s-mbp', 'claude-dashboard@ed-mbp#s-mbp', 'hi')).toMatchObject({ ok: false, status: 422 });
+    expect(count()).toBe(0);
+  });
+
+  it('still finds a machine whose own name holds a # (#500)', () => {
+    const { s } = setup();
+    s.note(orch('s-hash', 'r-ci', 'Odd', 'lab#2'));
+    expect(ok(s.send('s-mbp', 'Odd@lab#2', 'hi')).to).toEqual({ name: 'Odd', machine: 'lab#2' });
+  });
+
+  it('carries the sender\'s id in a delivery, so the receiver can answer the right session (#500)', () => {
+    const { s } = setup();
+    s.note(orch('abcd1234-0000', 'r-mbp', 'claude-dashboard', 'ed-mbp'));
+    ok(s.send('abcd1234-0000', 'Tester@ci-runner-01', 'hi'));
+    expect(s.deliveriesFor('s-ci', true)[0]?.from).toEqual({ name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: 'abcd1234' });
   });
 
   it('refuses a sender that is not live, has messaging off, is too old, or is on the admin secret', () => {
@@ -288,7 +334,7 @@ describe('PeerMessages: delivery and results', () => {
     expect(stateOf(a.id).state).toBe('ready');
     const d = s.deliveriesFor('s-ci', true);
     expect(d.map((x) => x.kind)).toEqual(['message', 'notice', 'message']);
-    expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed' }, text: 'first' });
+    expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: 's-mbp' }, text: 'first' });
     expect(stateOf(a.id)).toMatchObject({ state: 'handed', handed: 1 });
     expect(stateOf(b.id)).toMatchObject({ state: 'handed', handed: 1 });
     // No result yet: handed again.
@@ -476,9 +522,9 @@ describe('PeerMessages: podium_peers', () => {
     pause('r-mbp', 'r-pi');
     const { peers, leftOut } = s.list('s-mbp');
     expect(peers).toEqual([
-      { address: 'arm64-check@build-pi', name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
-      { address: 'second@ed-mbp', name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
-      { address: 'Tester@ci-runner-01', name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
+      { address: 'arm64-check@build-pi', id: 's-pi', duplicate: false, name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
+      { address: 'second@ed-mbp', id: 's-mbp2', duplicate: false, name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
+      { address: 'Tester@ci-runner-01', id: 's-ci', duplicate: false, name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
     ]);
     expect(leftOut).toEqual([
       { machine: 'win-lab', why: 'messaging off on the machine' },

@@ -246,7 +246,9 @@ written for the model and for the person reading the transcript.
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
 
 - `to` is `name@machine`, as `podium_peers` lists it, not case-sensitive. The name is the session's display name, so
-  `/rename` or `/podium name` changes it.
+  `/rename` or `/podium name` changes it. When several orchestrators on one machine share a name, `podium_peers`
+  shows each one's short id and `to` is `name@machine#id`; a plain `name@machine` is refused with the ids to use.
+  A message you receive names the sender the same way, so the reply reaches that session (#500).
 - Only the orchestrator can call them. Claude Code offers a mod's tools to subagents too, so each tool refuses a
   subagent's call: "Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator
   to send it."
@@ -357,7 +359,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | The answer says "The link is paused" | The owner paused the link on Traffic, or an Admin used Pause all links | **Resume link** on Traffic, or **Resume all links** on Admin > Reporters > that reporter |
 | "There have been N messages between … in the last minute" | The messages-per-minute limit | Wait a minute and send again. Nothing was stored |
 | "The message is N characters, over the limit" | The longest-message limit | Send a shorter message, or a file path instead of the file |
-| "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Rename one with `/podium name <text>` or `/rename`, then run `podium_peers` |
+| "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
 | "can see … but has no right to send there" | The right is **Can see** | Give **Can send** on My reporters, or have the orchestrator ask with `podium_request_access` |
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
 | My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | Run `/plugin configure podium-reporter@eengelking-marketplace` there and set `peers` on |
