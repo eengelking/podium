@@ -105,7 +105,9 @@ Open a private GitHub Security Advisory on this repo:
 to the maintainer until it is resolved.
 
 Please don't file a public issue for a suspected vulnerability. This repo is public, so a public issue
-discloses it before there is a fix.
+discloses it before there is a fix. Don't report one in the Podium Discord server or any other chat either:
+a message in a channel is visible to everyone there. If a report does land in Discord, the maintainer will ask
+you to resend it as a Security Advisory and will remove the message.
 
 ## Supported versions
 

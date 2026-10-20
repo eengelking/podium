@@ -16,6 +16,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
+- **A Discord server for Podium (#457).** The README has a Community section with the invite link, and `docs/COMMUNITY.md` says how to join, what belongs in Discord and what does not (security problems go to a private GitHub Security Advisory), how the maintainer sets the server up securely and renews the invite, which expires until Discord offers a permanent one. `SECURITY.md` and the Code of conduct now name the Discord server.
+
 - **The wall tells you when a newer Podium release is out (#499).** Once a day the server asks GitHub for the latest release, and when it is newer than the running server the wall shows a notice at the bottom: `Podium 0.15.0 is available`, in a green pill, with the version running and a link to the release notes. The X hides that release for everyone, and a still newer release shows the notice again. A check that fails (offline, rate limited, no answer) shows nothing. Admin > Settings > Feature flags has a **Release check** switch, on by default; off, the server makes no request to GitHub. Pre-releases and drafts are ignored.
 
 - **`podiumctl` runs the container with Docker as well as Podman.** Container mode uses Podman when it is installed and Docker otherwise, for building, running and every other container command, and it is the default mode when either is installed. `--engine podman|docker` chooses, and the choice is saved as `PODIUMCTL_ENGINE` so `stop`, `status` and the boot unit keep using the engine that started the container. `status` shows the engine. Under Docker the container can reach this machine as `host.docker.internal`, and a new `.dockerignore` keeps a Docker build to the same files as a Podman one.
