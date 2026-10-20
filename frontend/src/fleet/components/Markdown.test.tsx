@@ -158,6 +158,8 @@ describe("Markdown", () => {
         const t0 = performance.now();
         dom(src);
         min = Math.min(min, performance.now() - t0);
+        // Cleanup is outside the timed interval so samples measure rendering, not teardown.
+        cleanup();
       }
       return min;
     };
@@ -197,6 +199,7 @@ describe("Markdown", () => {
     for (const [name, build] of Object.entries(pathological)) {
       it(name, () => {
         dom(build(N)); // warm-up
+        cleanup();
         const first = ratio(build);
         // Shared CI runners can pause every sample of one size. Re-measure only when the
         // first ratio crosses the limit; a quadratic renderer stays near 16 on both attempts.
