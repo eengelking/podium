@@ -129,6 +129,8 @@ export function FeedList(props: { feed: FeedState; startedAt: number; empty: str
   const [following, setFollowing] = useState(true);
   const lastSeq = useRef(0);
   const entries = props.feed.entries;
+  // Any entry an hour or more into the loop shows h:mm:ss, which needs a wider time column for every row.
+  const needsHours = entries.some((e) => e.at - props.startedAt >= 3_600_000);
   const newest = entries.length ? entries[entries.length - 1]! : null;
   // Stored entries count apart from the live ones (#432), so the newest is told by its key, not its seq alone.
   const newestKey = newest ? (newest.key ?? String(newest.seq)) : "";
@@ -163,7 +165,7 @@ export function FeedList(props: { feed: FeedState; startedAt: number; empty: str
 
   return (
     <div className="feedwrap">
-      <ol className="feed" ref={list} aria-label="Recent activity, newest last" tabIndex={0} onScroll={onScroll}>
+      <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recent activity, newest last" tabIndex={0} onScroll={onScroll}>
         {entries.length ? entries.map((e) => <Entry key={e.key ?? e.seq} e={e} startedAt={props.startedAt} fresh={!e.key && e.seq > lastSeq.current && lastSeq.current > 0} />) : <li className="empty">{props.empty}</li>}
       </ol>
       {!following && (
@@ -235,9 +237,11 @@ export function feedNote(feed: FeedState): string {
 export function feedEmpty(feed: FeedState, signedIn: boolean | null, fallback: string): string {
   const st = feed.stored;
   if (!st || st.canRead) return fallback;
+  // A session reported with the admin secret is owned by "Admin": naming it twice reads wrongly.
+  const adminOwned = st.owner === "Admin";
   const owner = st.owner ?? "its owner";
-  if (signedIn === false) return `History is kept for this session. Sign in as ${owner} or an Admin to open it.`;
-  return `History is kept for this session. Only ${owner} and the Admin can open it.`;
+  if (signedIn === false) return adminOwned ? "History is kept for this session. Sign in as an Admin to open it." : `History is kept for this session. Sign in as ${owner} or an Admin to open it.`;
+  return adminOwned ? "History is kept for this session. Only an Admin can open it." : `History is kept for this session. Only ${owner} and the Admin can open it.`;
 }
 
 export function footer(feed: FeedState, active: boolean, isMain: boolean, now: number): [string, string] {

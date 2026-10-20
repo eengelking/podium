@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { ActivityFeed } from "./ActivityFeed";
@@ -573,6 +575,39 @@ describe("stored history (#432)", () => {
       delete (proto as unknown as Record<string, unknown>).scrollHeight;
       delete (proto as unknown as Record<string, unknown>).scrollTop;
     }
+  });
+
+  it("says an Admin, not 'Admin and the Admin', when the session is owned by Admin", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ canRead: false, owner: "Admin" }) })), history: history(page([1], null)) });
+    await flush();
+    expect(rows()).toEqual(["History is kept for this session. Only an Admin can open it."]);
+    cleanup();
+    const api = { me: vi.fn(async () => ({ enabled: true, signedIn: false, name: "", admin: false })) } as unknown as RespondApi;
+    const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true });
+    render(
+      <RespondProvider api={api} flagsOn>
+        <ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn fetchActivity={fetcher(reply([], { history: note({ canRead: false, owner: "Admin" }) }))} fetchHistory={history(page([1], null))} />
+      </RespondProvider>,
+    );
+    await flush();
+    expect(rows()).toEqual(["History is kept for this session. Sign in as an Admin to open it."]);
+  });
+
+  it("widens the time column for the whole list only when an entry is an hour or more into the session", async () => {
+    const at = (ms: number, seq: number) => ({ ...stored(seq), at: T0 + ms });
+    const list = () => screen.getByRole("list", { name: "Recent activity, newest last" });
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: history({ ...page([], null), entries: [at(5000, 1), at(3_719_000, 2)] }) });
+    await flush();
+    expect(list().className).toBe("feed hours");
+    cleanup();
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: history({ ...page([], null), entries: [at(5000, 1), at(3_599_000, 2)] }) });
+    await flush();
+    expect(list().className).toBe("feed");
+  });
+
+  it("keeps the scroll anchoring of the browser off the list, so Show older is the only thing that moves it", () => {
+    const css = readFileSync(resolve(__dirname, "../fleet.css"), "utf8");
+    expect(css).toMatch(/\.podium \.feed \{[^}]*overflow-anchor: none/);
   });
 
   it("caps the live part at the last 500 entries once history is loaded, and leaves the stored pages alone", async () => {
