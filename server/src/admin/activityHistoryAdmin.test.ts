@@ -275,7 +275,8 @@ describe('POST /stored-activity/delete', () => {
     ['match that is not an object', { match: 'a' }],
     ['a bad filter value', { match: { loop: 'x' } }],
     ['an unknown filter field', { match: { colour: 'red' } }],
-    ['a bad source', { match: { source: 'recordings', owner: 'Ed' } }],
+    ['a bad source', { match: { source: 'elsewhere', owner: 'Ed' } }],
+    ['a bad source beside ids', { ids: ['s1'], source: 'elsewhere' }],
     ['an unknown key', { nope: 1 }],
   ])('refuses %s with 400', async (_name, body) => {
     const { agent } = await unlocked();

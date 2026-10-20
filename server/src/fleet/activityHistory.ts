@@ -593,6 +593,16 @@ export class ActivityHistory {
     });
   }
 
+  /** Runs `fn` as a heavy operation, one at a time with the purge and the deletes. Session recordings (#353) share this file and this turn-taking. */
+  runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.heavy(fn);
+  }
+
+  /** Gives removed rows' space back to the system. Call it inside `runExclusive`; it is not itself serialized. */
+  compactNow(): Promise<number> {
+    return this.compact();
+  }
+
   /**
    * An estimate of what saving these settings would do now, without doing it. For a keep policy: the entries and bytes the
    * purge would remove and the sessions that would lose at least one entry, counted by index range one session at a time (bytes are the session's average entry

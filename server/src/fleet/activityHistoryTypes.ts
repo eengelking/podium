@@ -100,8 +100,8 @@ export interface StoredFilter {
   /** Entries at or after `from` and before `to`. */
   from?: number;
   to?: number;
-  /** Only `activity` exists. #353 adds `recordings`. */
-  source?: 'activity';
+  /** Which store the rows come from: the Activity history (the default) or session recordings (#353). */
+  source?: 'activity' | 'recordings';
 }
 
 /** One row of the Stored activity table: a session and what is stored for it (after the filter's entry window, if any). */
@@ -133,8 +133,11 @@ export interface StoredActivityList {
   owners: string[];
 }
 
-/** `POST /api/admin/stored-activity/delete`: by ticked sessions, by the filter, or everything. */
-export type StoredDeleteBody = { ids: string[] } | { match: StoredFilter } | { all: true };
+/**
+ * `POST /api/admin/stored-activity/delete`: by ticked sessions, by the filter, or everything. `source` says which store the ids,
+ * or everything, belong to (the Activity history when absent); a filter carries its own `source`.
+ */
+export type StoredDeleteBody = { ids: string[]; source?: 'activity' | 'recordings' } | { match: StoredFilter } | { all: true; source?: 'activity' | 'recordings' };
 
 export interface StoredDeleteResult {
   entries: number;

@@ -93,6 +93,19 @@ export function scrub(value: string, secrets: readonly string[]): string {
   return out.length > MAX_VALUE ? `${out.slice(0, MAX_VALUE - 1)}…` : out;
 }
 
+/**
+ * Text the server stores whole (a session recording, #353): Podium's own credentials are replaced, with line breaks and length
+ * kept. `patterns` also replaces the common secret shapes; it is for text the server wrote itself, which the mod never saw to
+ * redact. The patterns backtrack, so the caller bounds the text it passes with `patterns` on.
+ */
+export function scrubStored(value: string, secrets: readonly string[], patterns: boolean): string {
+  let out = value.replace(PERSON_TOKEN, REDACTED);
+  for (const s of secrets) {
+    if (s && s.length >= MIN_SECRET) out = out.split(s).join(REDACTED);
+  }
+  return patterns ? scrubPatterns(out) : out;
+}
+
 /** True for a field name the logger refuses whatever its value. */
 export function deniedField(name: string): boolean {
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/);

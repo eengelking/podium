@@ -21,6 +21,7 @@ import type {
   OwnerSpend,
   Plan,
   PlanView,
+  RecordingView,
   RespondInfo,
   SessionStatusView,
   SessionView,
@@ -212,6 +213,8 @@ export interface SessionInput {
   respond?: RespondInfo | null;
   /** The session's asks without their content, from the respond store. */
   asks?: AskSummary[];
+  /** What everyone sees of the session's recording (#353): no text. Null or absent when nothing is chosen or kept. */
+  recording?: RecordingView | null;
 }
 
 export function sessionStatus(row: SessionRow, heard: boolean, now: number, staleAfterMs: number): SessionStatusView {
@@ -280,6 +283,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     fileDiff: input.fileDiff ?? null,
     respond: input.respond ?? null,
     asks: input.asks ?? [],
+    ...(input.recording ? { recording: input.recording } : {}),
     clearedFrom: row.cleared_from ?? null,
     agents,
     series: buildSeries(input.samples, input.blowouts, now),
