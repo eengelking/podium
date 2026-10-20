@@ -584,7 +584,7 @@ describe("stored Activity in the Respond modal (#432)", () => {
     expect(activityHistory).toHaveBeenCalledWith("sess-ed", "@orchestrator", null, 20);
     expect(screen.getByText("s6")).toBeInTheDocument();
     expect(screen.getByText(`412 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
-    expect(screen.getByText(/^Kept for 30 days, then purged\. Only the owner and the Admin can open it\./)).toBeInTheDocument();
+    expect(screen.getByText(/^Kept until the session is removed from Podium\. Only the owner and the Admin can open it\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show older" }));
     await flush();
     expect(screen.getByText("s1")).toBeInTheDocument();

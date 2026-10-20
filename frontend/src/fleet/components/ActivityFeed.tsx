@@ -141,6 +141,16 @@ export function FeedList(props: { feed: FeedState; startedAt: number; empty: str
   useEffect(() => {
     lastSeq.current = newestSeq;
   }, [newestSeq]);
+  // Older entries prepended by Show older (#432) push the viewer's place down: add the growth back to scrollTop.
+  const firstKey = entries.length ? (entries[0]!.key ?? String(entries[0]!.seq)) : "";
+  const prev = useRef<{ first: string | null; newest: string; height: number }>({ first: null, newest: "", height: 0 });
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    const p = prev.current;
+    if (p.first !== null && firstKey !== p.first && newestKey === p.newest) el.scrollTop += el.scrollHeight - p.height;
+    prev.current = { first: firstKey, newest: newestKey, height: el.scrollHeight };
+  });
 
   const onScroll = () => {
     const el = list.current;
@@ -215,7 +225,7 @@ export function feedNote(feed: FeedState): string {
   if (!st.canRead) return "Stored activity can hold anything an agent read or ran, so it is not shown to other viewers.";
   if (st.keptUntil !== null) return `Kept until ${fmtDay(st.keptUntil)}, then purged. ${WHO_CAN}`;
   if (st.policy === "end") return `Kept until the session ends, then removed. ${WHO_CAN}`;
-  return `Kept for 30 days, then purged. ${WHO_CAN}`;
+  return `Kept until the session is removed from Podium. ${WHO_CAN}`;
 }
 
 /**

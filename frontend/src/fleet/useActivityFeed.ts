@@ -184,8 +184,8 @@ export function useActivityFeed(opts: {
           setStore({ note: h, entries: [], olderBefore: null, denied: true });
           return;
         }
+        // The live feed must not wait on it, and its footer stays as the live answer says: the next poll asks again.
         loaded.current = "none";
-        throw err;
       }
     };
     const tick = async () => {

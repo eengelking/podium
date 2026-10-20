@@ -369,11 +369,10 @@ describe("stored history (#432)", () => {
     expect(h).toHaveBeenCalledTimes(1);
   });
 
-  it("live and kept: says 30 days when nothing sets the end, and keeps the refresh control", async () => {
+  it("live and kept: keeps the refresh control and counts one entry in the singular", async () => {
     showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "all", total: 1 }) })), history: history(page([1], null)) });
     await flush();
     expect(screen.getByText(`1 stored entry since ${fmtDay(SINCE)}`)).toBeInTheDocument();
-    expect(screen.getByText(`Kept for 30 days, then purged. ${NOTE_TAIL}`)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Refresh interval" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
   });
@@ -469,13 +468,105 @@ describe("stored history (#432)", () => {
     });
     showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
     await flush();
-    expect(screen.getByText("Could not reach the server, retrying")).toBeInTheDocument();
+    expect(screen.queryByText("Could not reach the server, retrying")).toBeNull();
     await wait(5000);
     expect(rows()).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Show older" }));
     await flush();
     expect(screen.getByText("Could not reach the server, retrying")).toBeInTheDocument();
     expect(rows()).toHaveLength(2);
+  });
+
+  it("a 500 from the history route does not hold back the live entries", async () => {
+    const h = vi.fn<FetchHistory>(async () => {
+      throw new Error("HTTP 500");
+    });
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([entry(1)], { history: note() })), history: h });
+    await flush();
+    await wait(5000);
+    expect(rows()).toEqual([expect.stringContaining("Read f1")]);
+    expect(h).toHaveBeenCalledTimes(2);
+  });
+
+  it("under keep-everything says the history stays until the session is removed, with no day count", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "all" }) })), history: history(page([1], null)) });
+    await flush();
+    expect(screen.getByText(`Kept until the session is removed from Podium. ${NOTE_TAIL}`)).toBeInTheDocument();
+    expect(screen.queryByText(/30 days/)).toBeNull();
+  });
+
+  describe("a loop change while a page is pending", () => {
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+      return { promise, resolve, reject };
+    };
+    const el = (loop: string, fetch: ReturnType<typeof fetcher>, h: ReturnType<typeof history>) => {
+      const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true, agents: [makeAgent({ id: "a1", startedAt: T0 })] });
+      return <ActivityFeed s={s} loop={loop} title="t" startedAt={T0} active now={T0} adminOn fetchActivity={fetch} fetchHistory={h} />;
+    };
+
+    it("drops the newest page that arrives late", async () => {
+      const late = deferred<ActivityHistoryPage>();
+      const h = vi.fn<FetchHistory>((_s, l) => (l === "a1" ? late.promise : Promise.resolve(page([50, 51], null))));
+      const f = fetcher(reply([], { history: note() }));
+      const r = render(el("a1", f, h));
+      await flush();
+      r.rerender(el("a2", f, h));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+      await act(async () => late.resolve(page([30, 31], null)));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+    });
+
+    it.each(["resolves", "fails"])("drops an older page that %s late, and Show older works again on the new loop", async (how) => {
+      const late = deferred<ActivityHistoryPage>();
+      const h = vi.fn<FetchHistory>(async (_s, l, before) => {
+        if (l === "a1") return before ? late.promise : page([30, 31], 30);
+        return before ? page([40, 41], null) : page([50, 51], 50);
+      });
+      const f = fetcher(reply([], { history: note() }));
+      const r = render(el("a1", f, h));
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      r.rerender(el("a2", f, h));
+      await flush();
+      await act(async () => (how === "resolves" ? late.resolve(page([20, 21], null)) : late.reject(new RespondError(403, {}))));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+      expect(screen.queryByText("Nothing to show")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      expect(h).toHaveBeenLastCalledWith("s1", "a2", 50, 20);
+      expect(rows()).toHaveLength(4);
+    });
+  });
+
+  it("keeps the viewer's place when older entries are prepended", async () => {
+    let height = 100;
+    let top = 0;
+    const proto = HTMLElement.prototype;
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(proto, "scrollTop", { configurable: true, get: () => top, set: (v: number) => void (top = v) });
+    try {
+      const h = vi.fn<FetchHistory>(async (_s, _l, before) => {
+        if (before) height = 160;
+        return before ? page([28, 29], null) : page([30, 31], 30);
+      });
+      showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+      await flush();
+      expect(top).toBe(100);
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      expect(rows()).toHaveLength(4);
+      expect(top).toBe(160);
+    } finally {
+      delete (proto as unknown as Record<string, unknown>).scrollHeight;
+      delete (proto as unknown as Record<string, unknown>).scrollTop;
+    }
   });
 
   it("drops what it showed when a reply says the history is gone or the feed is off", async () => {
