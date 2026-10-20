@@ -12,14 +12,9 @@ jobs:
       fail-fast: false
       matrix:
         group:
-          - { n: fleet-top, inc: 'frontend/src/fleet/*.ts,frontend/src/fleet/*.tsx' }
-          - { n: admin, inc: 'frontend/src/fleet/admin/**' }
-          - { n: components, inc: 'frontend/src/fleet/components/**' }
-          - { n: fe-rest, inc: 'frontend/src/*.ts,frontend/src/*.tsx,frontend/src/fleet/standards/**,frontend/*.ts' }
-          - { n: none, inc: 'nothing-excluded/**' }
-          - { n: server-fleet, inc: 'server/src/fleet/**' }
-          - { n: server-rest, inc: 'server/src/*.ts,server/src/admin/**,server/src/logging/**,server/*.ts' }
-          - { n: mod-scripts, inc: 'mod/**,scripts/**' }
+          - { n: standards, inc: 'frontend/src/fleet/standards/**' }
+          - { n: samples-only, inc: 'frontend/src/fleet/standards/samples.ts' }
+          - { n: top, inc: 'frontend/src/*.ts,frontend/src/*.tsx,frontend/*.ts' }
     steps:
       - uses: actions/checkout@v7
         with:
