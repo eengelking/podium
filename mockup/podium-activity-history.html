@@ -8,9 +8,9 @@
 <link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
 <link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
 <style>
-/* Mockup for #432 (H1 of #530). Three screens: the retention setting on Admin > Reporting > Data kept, a new Stored
+/* Mockup for #432 (H1 of #530). Three screens: the retention setting on Admin > Server > Data, a new Stored
    activity page beside it, and the Activity window showing stored history. Colors and fonts come from tokens.css
-   through fleet.css; this file defines no tokens of its own. Everything drawn is an existing piece: .ignform (the form box),
+   through fleet.css; this file defines no tokens of its own. The page is laid out as the Admin page is: the header and each section are direct children of the page grid, 24 px apart. Everything drawn is an existing piece: .ignform (the form box),
    .callout (the warning-bordered confirmation), .selbar, .ptab with .chk, .apager, .tool, .sum, .feed and .modal.
    Only the demo chrome (.demo, .stage, .notes, .decisions) is this mockup's own. */
 html, body { height: auto; }
@@ -36,12 +36,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
 .decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.pgv[hidden], .winv[hidden] { display: none; }
+.pgv { display: contents; }
+.pgv[hidden], .winv[hidden], .srow[hidden], .warnbar[hidden] { display: none; }
 .note-line { padding: 8px 16px; border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
 .note-line b { color: var(--ink); font-weight: 600; }
 .note-line:last-child { border-bottom: 0; }
 .result { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
-.opt .row2 { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.srow .row2 { display: inline-flex; gap: 8px; align-items: center; flex-wrap: nowrap; }
+.srow select.field { width: auto; min-width: 200px; }
+.srow .row2 select.field { min-width: 0; }
 .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .facts { display: grid; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--grid); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -53,7 +56,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="demo">
   <b>Activity history (#432)</b>
   <span class="grp" role="group" aria-label="Screen">Screen
-    <button type="button" data-pg="kept" aria-pressed="true">Setting</button>
+    <button type="button" data-pg="kept" aria-pressed="true">Data</button>
     <button type="button" data-pg="stored" aria-pressed="false">Stored activity</button>
     <button type="button" data-pg="window" aria-pressed="false">Activity window</button>
   </span>
@@ -91,6 +94,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <button type="button" class="navbtn">Settings</button>
         <button type="button" class="navbtn">Model prices</button>
         <button type="button" class="navbtn">Security</button>
+        <button type="button" class="navbtn" data-nav="kept" aria-current="page">Data</button>
+        <button type="button" class="navbtn" data-nav="stored">Stored activity<span class="n">52</span></button>
       </div>
       <div class="ngroup" role="group" aria-label="Reporting">
         <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
@@ -100,8 +105,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <button type="button" class="navbtn">Sessions</button>
         <button type="button" class="navbtn">Failures</button>
         <button type="button" class="navbtn">Admin activity</button>
-        <button type="button" class="navbtn" data-nav="kept" aria-current="page">Data kept</button>
-        <button type="button" class="navbtn" data-nav="stored">Stored activity<span class="n">52</span></button>
       </div>
       <div class="ngroup" role="group" aria-label="Activity">
         <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
@@ -115,9 +118,19 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   </nav>
   <div class="apage"><div class="apage-in">
 
-  <!-- Setting: Data kept -->
+  <!-- Data -->
   <div class="pgv" id="pg-kept">
-    <div class="page-h"><div><h1>Data kept</h1><p class="lead">What Podium stores, and for how long. Reports read this, never the live stream alone.</p></div></div>
+    <div class="page-h"><div><h1>Data</h1><p class="lead">What Podium stores, for how long, and what you can remove. Reports read this, never the live stream alone.</p></div></div>
+    <section class="asec" aria-labelledby="k-r"><div class="asec-h"><div><h2 id="k-r">Daily rollups</h2><p class="hint">A rollup holds counts, tokens, cost and names. It holds no prompts, answers, tool input or paths.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Daily rollups">
+        <thead><tr><th scope="col">Table</th><th scope="col" class="n">Rows</th><th scope="col">Oldest day</th><th scope="col">Kept</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Usage (person, model, project)</td><td class="n mono">2,418</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Sessions (outcome, effort, plan)</td><td class="n mono">702</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Failures (person, class, tool)</td><td class="n mono">388</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+          <tr><td class="who">Fleet (people, reporters, versions)</td><td class="n mono">232</td><td class="mono">2026-03-02</td><td>395 days</td></tr>
+        </tbody></table></div></div>
+    </section>
     <section class="asec" aria-labelledby="k-l"><div class="asec-h"><div><h2 id="k-l">Detail rows</h2><p class="hint">The rows the rollups are built from, and how long each lasts.</p></div></div>
       <div class="panel"><div class="tw2"><table class="ptab" aria-label="Detail rows">
         <thead><tr><th scope="col">Data</th><th scope="col">Kept</th></tr></thead>
@@ -129,20 +142,17 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         </tbody></table></div></div>
     </section>
     <section class="asec" aria-labelledby="k-a"><div class="asec-h"><div><h2 id="k-a">Activity history</h2><p class="hint">How long an Activity window's entries are kept after a viewer leaves. Off by default.</p></div></div>
-      <div class="panel">
-        <form class="ignform" id="polform" role="group" aria-label="Activity history retention" style="margin-top:14px">
-          <b>How long is Activity history kept?</b>
-          <label class="opt"><input type="radio" name="pol" value="default" checked><span>Not stored (default)<span class="hint" style="display:block">A window shows the last 20 entries while someone watches, and drops them when they leave.</span></span></label>
-          <label class="opt"><input type="radio" name="pol" value="after"><span class="row2">Purge after <input class="field daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number" disabled>
-            <select class="field sm" id="pol-u" aria-label="Unit" disabled><option>hours</option><option>days</option><option selected>weeks</option><option>months</option></select></span></label>
-          <label class="opt"><input type="radio" name="pol" value="end"><span>Purge when the session ends<span class="hint" style="display:block">History is kept while the session runs and removed when it ends.</span></span></label>
-          <label class="opt"><input type="radio" name="pol" value="all"><span>Keep everything<span class="hint" style="display:block">Nothing is purged automatically. Use Stored activity to delete.</span></span></label>
-          <label class="opt"><input type="checkbox" id="cap-on" disabled><span class="row2">Also stop at a total size of <input class="field daysbox" id="cap-n" inputmode="numeric" value="2" aria-label="Size in gigabytes" disabled> GB, removing the oldest first</span></label>
-          <div class="warnline" id="polwarn" role="note" hidden><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span>Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
-          <div class="formacts"><button type="submit" class="btn pri" id="polsave">Save</button><button type="reset" class="btn">Cancel</button><span class="hint" id="polhint">Saving is written to the Admin log.</span></div>
-        </form>
-        <div class="facts"><span><b class="mono" id="k-sum">0 entries</b> <span class="hint" id="k-sum2">Nothing is stored under the default.</span></span><span class="hint">Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</span></div>
-      </div>
+      <form class="panel" id="polform" aria-label="Activity history retention">
+        <div class="srow"><div class="setname"><b>Keep activity history</b><p class="hint ink2">Not stored: a window shows the last 20 entries while someone watches, and drops them when they leave.</p></div>
+          <select class="field" id="pol" aria-label="Keep activity history"><option value="default">Not stored (default)</option><option value="after">Purge after a set time</option><option value="end">Purge when the session ends</option><option value="all">Keep everything</option></select></div>
+        <div class="srow" id="row-after" hidden><div class="setname"><b>Purge after</b><p class="hint ink2">Entries older than this are removed at the next purge, which runs every few minutes. A shorter time removes older entries that are already stored.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number"><select class="field" id="pol-u" aria-label="Unit"><option>hours</option><option>days</option><option selected>weeks</option><option>months</option></select></span></div>
+        <div class="srow" id="row-cap" hidden><div class="setname"><b>Size cap</b><p class="hint ink2">Stop at a total size and remove the oldest entries first.</p></div>
+          <span class="row2"><input type="checkbox" id="cap-on" aria-label="Use a size cap"><input class="field mono daysbox" id="cap-n" inputmode="numeric" value="2" aria-label="Size in gigabytes" disabled><span class="hint">GB</span></span></div>
+        <div class="warnbar" id="polwarn" role="note" hidden><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
+        <div class="srow"><span class="hint" id="polhint">Saving is written to the Admin log.</span><span class="formacts"><button type="reset" class="btn">Cancel</button><button type="submit" class="btn pri" id="polsave">Save</button></span></div>
+        <div class="note-line"><b class="mono" id="k-sum">0 entries</b> <span id="k-sum2">Nothing is stored under the default.</span> Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</div>
+      </form>
     </section>
   </div>
 
@@ -225,8 +235,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="notes">
   <h2>What this mockup proposes</h2>
   <ul>
-    <li><b>Where it lives.</b> The issue says "Admin > Data". Since #484 the Admin menu has a Reporting group with a Data kept page, so the setting goes there, as a new <b>Activity history</b> section under the existing detail rows, which gain one row for it. A new page, <b>Stored activity</b>, sits beside it for totals, filters and deleting.</li>
-    <li><b>The setting</b> is one form with one primary button. The default, "Not stored", is the current behavior, so nobody who leaves it alone sees a change. The other choices are purge after n hours, days, weeks or months; purge when the session ends; keep everything. An optional size cap removes the oldest first. The warning line appears only once a keeping choice is picked, before Save, and says reporters will send more and the server will store more. It also states who can read the history.</li>
+    <li><b>Where it lives.</b> The issue says "Admin > Data". Reporting pages are read-only reports with an Export row, while this page has a setting and deletes, so it moves out of Reporting. <b>Data kept</b> becomes <b>Data</b> and sits in the <b>Server</b> group beside Settings, Model prices and Security. It keeps its two tables and gains an <b>Activity history</b> section. A second page, <b>Stored activity</b>, sits under it in the same group for totals, filters and deleting. This changes #484's menu (Reporting goes from seven pages to six), so its mockup and the SPEC text are updated in the same pull request.</li>
+    <li><b>The setting</b> uses the same rows as Admin > Settings: a name and a help line on the left, the control on the right, each row the full width of its panel. A select picks the policy (not stored, purge after a set time, purge when the session ends, keep everything). Picking a time adds a row for the number and unit. Picking any keeping policy adds a row for an optional size cap and a warning bar that says reporters will send more, the server will store more, and who can read it. The default, "Not stored", is the current behavior, so nobody who leaves it alone sees a change. Save is the one primary button, and saving is written to the Admin log. A shorter time also removes entries that are already stored, and its help line says so.</li>
     <li><b>Stored activity</b> shows the totals first (entries, size on disk, sessions, and how many match the filter), then the filters (session, loop, project, owner, age, source), then the sessions with a tick box. Deleting works three ways: the ticked sessions, everything that matches the filter, or everything. Each one asks first in a warning-bordered box that says how many entries and how much space will go, and offers a button for each answer. After it runs, a line says what was removed and that the Admin log has it.</li>
     <li>The <b>Source</b> filter has one choice today, Activity. Opt-in recordings (#353, H2) add a second source here without a new screen.</li>
     <li><b>The Activity window</b> keeps its place and look. With history kept it shows the newest page of stored entries and a "Show older" row, so a long history pages instead of loading at once. The footer says what is stored ("412 stored entries since 2026-10-12") and when it will go ("Kept until 2026-11-11"). A session that has ended shows its history with no refresh control. Under the default policy the window reads exactly as it does today.</li>
@@ -286,15 +296,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   /* Setting */
   var form = $("polform");
-  function pol() { return form.elements.pol.value; }
+  function pol() { return $("pol").value; }
   function syncPolicy() {
     var p = pol(), keep = p !== "default";
-    $("pol-n").disabled = p !== "after"; $("pol-u").disabled = p !== "after";
-    $("cap-on").disabled = !keep; $("cap-n").disabled = !keep || !$("cap-on").checked;
+    $("row-after").hidden = p !== "after"; $("row-cap").hidden = !keep;
+    $("cap-n").disabled = !$("cap-on").checked;
     $("polwarn").hidden = !keep;
     var label = { default: "Not stored (default)", after: "Purge after " + $("pol-n").value + " " + $("pol-u").value, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[p];
+    if (keep && $("cap-on").checked) label += ", capped at " + $("cap-n").value + " GB";
     $("k-row").textContent = label;
-    if (keep && $("cap-on").checked) $("k-row").textContent += ", capped at " + $("cap-n").value + " GB";
     $("k-sum").textContent = keep ? "18,402 entries, 7.9 MB" : "0 entries";
     $("k-sum2").textContent = keep ? "stored now, in 52 sessions." : "Nothing is stored under the default.";
   }
