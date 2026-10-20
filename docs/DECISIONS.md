@@ -220,7 +220,9 @@ the service.
   is `Type=oneshot` with `RemainAfterExit=yes` and so still counts as active. Use `podiumctl start`, or
   `systemctl --user stop` first.
 - A container is not restarted when it dies. Only the unit's start at login or boot brings it up.
-- Not yet tested: a reboot, with and without `loginctl enable-linger`.
+- Standalone, rebooted (2026-10-20, #268): with `loginctl enable-linger` the server was listening at boot
+  before anyone logged in; without it, it started at login. Both runs were clean, with one start and no restarts.
+- Not yet tested: container mode through a reboot.
 - The unit names Homebrew's `opt/<formula>` link for `node` rather than the `Cellar/<formula>/<version>`
   directory that `brew upgrade` deletes.
 
