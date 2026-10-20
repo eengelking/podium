@@ -1021,7 +1021,7 @@ What Podium stores, for how long, and what you can remove. It has three sections
 
 **Detail rows.** How long the detailed rows last: samples 24 hours, events and ended sessions 30 days, the Admin log 90
 days. These are set with environment variables on the server (`RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`,
-`RETAIN_ADMIN_LOG_MS`) and cannot be changed on this page.
+`RETAIN_SESSIONS_MS`, `RETAIN_ADMIN_LOG_MS`) and cannot be changed on this page.
 
 **Activity history.** How long the agent activity feed is kept after a viewer leaves. The default is **Not stored**,
 which is how Podium has always worked. Pick a policy from the list:

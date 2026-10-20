@@ -2255,15 +2255,17 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       from 1 to 100, 1 to 60, 1 to 20,000 and 1 to 365 (defaults 10, 6, 20,000 and 30), any of them in one change,
       written to the Admin log as `peer_limits_changed`;
     - the Activity history (#432): the reply's `activityHistory` is `{ settings: { policy, n, unit, capGb },
-      totals: { entries, bytes, sessions }, lastPurge: { at, entries, bytes } | null, authOn }`, and a change sends
+      totals: { entries, bytes, sessions, fileBytes }, lastPurge: { at, entries, bytes } | null, authOn }` (`bytes` is
+      the entries' estimated size, `fileBytes` the file's pages in use, for "on disk"), and a change sends
       `{ activityHistory: { policy, n, unit, capGb } }`. `policy` is `default`, `after`, `end` or `all`; `unit` is
       `hours`, `days`, `weeks` or `months`; `n` is 1 to 3650 and `capGb` is null or 1 to 1000. A keep policy is a 400
       while the server runs without a token. A change is written to the Admin log as `activity_history_changed`.
   - The Activity history (#432, [6.4](#64-failure-and-excerpt-rules)):
     - `POST activity-history/preview` (`{ settings }`): what saving those settings would do now without doing it.
       For a keep policy, `{ entries, bytes, sessions, stopsCapturing: false }` is an estimate of what the purge would
-      remove (counts by index, bytes from each session's average entry size). For `default`, it is what is stored
-      now, with `stopsCapturing` true when anything is stored.
+      remove (counts by index, bytes from each session's average entry size), and `sessions` is the number of sessions
+      that would lose at least one entry. For `default`, it is what is stored now, with `stopsCapturing` true when
+      anything is stored. `bytes` is always the estimate of the entries' size, never the file's.
     - `GET stored-activity?page=&pageSize=&q=&loop=&project=&owner=&olderThanDays=&from=&to=`: the stored sessions
       (`{ total, page, pageSize, rows, totals, match, projects, owners }`; a row is `{ sessionId, name, project, owner,
       live, entries, bytes, oldestAt }`). `loop` is `all`, `main` or `agents`; `from` and `to` are epoch
@@ -2272,7 +2274,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       session's average entry size. A bad value is a `400`.
     - `POST stored-activity/delete` (`{ ids }` of at most 200 sessions, or `{ match: <filter> }`, or `{ all: true }`;
       an empty filter is a `400`): removes the entries, compacts the file, and answers `{ entries, sessions,
-      bytes, freed }`. It writes one `activity_deleted` entry to the Admin log with the count, the size and how
+      bytes, freed }`, where `sessions` is the number of sessions that lost at least one entry, `bytes` the estimate of
+      the entries' size and `freed` what the file gave back on disk. It writes one `activity_deleted` entry to the Admin log with the count, the size and how
       the entries were chosen, and never the entries' text.
   - Orchestrator messaging on a reporter (#347): `GET reporters/:key/peers` (`{ reporter, peers, trust, rights,
     effective, requests }`: its reporter, the owner's reporters, the owner's Trust my own reporters, and the stored and
@@ -3705,7 +3708,8 @@ menu and the page scroll on their own.
   and deletes, while a report only reads). Sections: *Daily rollups* (each table, its rows, its oldest day, how long
   it is kept; the text says a rollup holds counts, tokens, cost and names, and no prompts or tool input), *Detail
   rows* (samples, events and ended sessions, the Admin log, and Activity history, each with how long it is kept,
-  and a line saying the first three are set with `RETAIN_*` environment variables and cannot be changed here),
+  and a line saying the first four are set with `RETAIN_*` environment variables (`RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`,
+  `RETAIN_SESSIONS_MS`, `RETAIN_ADMIN_LOG_MS`) and cannot be changed here),
   and *Activity history*.
 - *Activity history* is one form of Settings-style rows, each the full width of its panel. A select picks the
   policy (Not stored, Purge after a set time, Purge when the session ends, Keep everything). *Purge after* adds a
