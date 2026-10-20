@@ -208,7 +208,7 @@ describe("Data, the Activity history section", () => {
     await openData();
     fireEvent.change(screen.getByLabelText("Number"), { target: { value: "5" } });
     save();
-    expect(await screen.findByRole("alert")).toHaveTextContent("capGb must be a whole number");
+    expect(await screen.findByRole("alert")).toHaveTextContent("capGb must be a whole number. Change it and try again.");
     expect(screen.queryByText(/^Saved\./)).toBeNull();
   });
 
@@ -225,7 +225,7 @@ describe("Data, the Activity history section", () => {
     const s = fakeServer({ unlocked: true });
     s.settingsError = "disk full";
     await openPage("Data");
-    expect(await screen.findByText("Could not load the Activity history setting (disk full).")).toBeInTheDocument();
+    expect(await screen.findByText("Could not load the Activity history setting. Check that the server is running, then try again.")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Activity history retention" })).toBeNull();
   });
 
@@ -324,7 +324,7 @@ describe("Data, the Activity history section", () => {
       expect(screen.queryByRole("alert")).toBeNull();
       s.previewError = "no preview";
       save();
-      expect(await screen.findByRole("alert")).toHaveTextContent("no preview");
+      expect(await screen.findByRole("alert")).toHaveTextContent("no preview. Change it and try again.");
     });
 
     it("locks Admin when the session has ended while previewing", async () => {
@@ -558,7 +558,7 @@ describe("Stored activity", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete 1…" }));
     s.storedError = "the file is busy";
     fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Delete 1,186 entries" }));
-    await waitFor(() => expect(screen.getAllByRole("alert").some((a) => a.textContent === "the file is busy")).toBe(true));
+    await waitFor(() => expect(screen.getAllByRole("alert").some((a) => a.textContent === "Could not delete the stored activity. Check that the server is running, then try again.")).toBe(true));
     expect(screen.getByText("1 selected, 1,186 entries, 614 KB")).toBeInTheDocument();
   });
 
@@ -577,7 +577,7 @@ describe("Stored activity", () => {
     const s = kept(4338);
     s.storedError = "database locked";
     await openStored();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load the stored activity (database locked).");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load the stored activity. Check that the server is running, then try again.");
     expect(screen.getByRole("button", { name: "Delete everything…" })).toBeDisabled();
   });
 });
@@ -603,5 +603,67 @@ describe("the helpers", () => {
   it("builds the filter from what is set only", () => {
     expect(filterOf({ q: " a ", loop: "all", project: "", owner: "", age: "", days: "", from: "", to: "" })).toEqual({ filter: { q: "a" }, problem: "" });
     expect(filterOf({ q: "", loop: "all", project: "", owner: "", age: "custom", days: "0", from: "", to: "" }).filter).toEqual({});
+  });
+
+  it("shows a refusal from the server that says what to fix, then a next step", async () => {
+    const s = kept(4338);
+    s.stored = ROWS;
+    await openStored();
+    await screen.findByRole("table", { name: "Stored activity by session" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete everything…" }));
+    s.storedBadRequest = "Pick a filter, or delete everything.";
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Delete [\d,]+ entries$/ }));
+    await waitFor(() => expect(screen.getAllByRole("alert").some((a) => a.textContent === "Pick a filter, or delete everything. Change it and try again.")).toBe(true));
+  });
+});
+
+describe("Stored activity, keyboard and loading (#432)", () => {
+  it("says the policy could not be read, rather than loading forever, when settings fail", async () => {
+    const s = kept(4338);
+    s.stored = ROWS;
+    s.settingsError = "disk full";
+    await openStored();
+    expect(await screen.findByText(/Policy: could not be read\./)).toBeInTheDocument();
+  });
+
+  it("says Loading while the list and the policy load, not that they failed", async () => {
+    const s = kept(4338);
+    s.stored = ROWS;
+    render(<AdminView />);
+    await screen.findByRole("navigation", { name: "Admin sections" });
+    fireEvent.click(navStored());
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.getByText(/Policy: Loading…/)).toBeInTheDocument();
+    expect(screen.queryByText(/not loaded/)).toBeNull();
+    await screen.findByRole("table", { name: "Stored activity by session" });
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
+  it("focuses the destructive answer when the confirmation opens, and the opener when it is kept", async () => {
+    const s = kept(4338);
+    s.stored = ROWS;
+    await openStored();
+    await screen.findByRole("table", { name: "Stored activity by session" });
+    const opener = screen.getByRole("button", { name: "Delete everything…" });
+    fireEvent.click(opener);
+    await waitFor(() => expect(document.activeElement).toBe(within(screen.getByRole("alert")).getByRole("button", { name: "Delete 4,338 entries" })));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Keep them" }));
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it("puts focus on the first table control after a delete that leaves rows, and on the Session filter when none are left", async () => {
+    const s = kept(4338);
+    s.stored = ROWS;
+    await openStored();
+    await screen.findByRole("table", { name: "Stored activity by session" });
+    fireEvent.click(screen.getByLabelText("Select docs-sweep"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete 1…" }));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Delete [\d,]+ entries$/ }));
+    await screen.findByText(/^Deleted /);
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Select all 2 on this page")));
+    fireEvent.click(screen.getByRole("button", { name: "Delete everything…" }));
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: /^Delete [\d,]+ entries$/ }));
+    await screen.findByText("Nothing is stored. Choose a keep policy on Data and Podium starts keeping activity.");
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Session")));
   });
 });

@@ -377,6 +377,12 @@ describe("stored history (#432)", () => {
     expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
   });
 
+  it("groups the digits of a long count the way the Admin pages do", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ total: 18_402 }) })), history: history(page([1], null)) });
+    await flush();
+    expect(screen.getByText(`18,402 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+  });
+
   it("under purge-when-the-session-ends says so, and leaves out a missing date", async () => {
     showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "end", since: null }) })), history: history(page([1], null)) });
     await flush();

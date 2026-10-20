@@ -4,13 +4,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_HISTORY_RANGES, ACTIVITY_HISTORY_UNITS } from "../../../../server/src/fleet/activityHistoryTypes";
 import { AdminError, type ActivityHistoryPolicy, type ActivityHistoryPreview, type ActivityHistorySettings, type ActivityHistoryState, type ActivityHistoryUnit, type AdminApi, type StoredDeleteResult } from "./adminApi";
-import { fmtBytes, fmtCount, sessionsText } from "./activityFormat";
+import { activityErrorText, fmtBytes, fmtCount, sessionsText } from "./activityFormat";
 import { Panel, Section } from "./Page";
 import { keptText } from "./ReportPages";
 import { WarnIcon } from "./ReporterMessaging";
 import type { RetentionReply } from "./reportsApi";
 import { reportErrorText } from "./reportsApi";
-import { failText, useList } from "./useList";
+import { useList } from "./useList";
 
 const POLICIES: { id: ActivityHistoryPolicy; name: string; help: string }[] = [
   { id: "default", name: "Not stored (default)", help: "Not stored: a window shows the last 20 entries while someone watches, and drops them when they leave." },
@@ -139,7 +139,7 @@ export function DataPage({ api, onLocked, onGo, onCountStored }: { api: AdminApi
         {history ? (
           <HistoryForm api={api} state={history} onSaved={settings.reload} onLocked={onLocked} onGo={onGo} />
         ) : (
-          <Panel>{settings.error ? <div className="err" role="alert">Could not load the Activity history setting ({settings.error}).</div> : <div className="empty">Loading…</div>}</Panel>
+          <Panel>{settings.error ? <div className="err" role="alert">{activityErrorText(null, "load the Activity history setting")}</div> : <div className="empty">Loading…</div>}</Panel>
         )}
       </Section>
     </>
@@ -172,9 +172,9 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
     setDone("");
     setDraft((d) => ({ ...d, ...patch }));
   };
-  const fail = (e: unknown) => {
+  const fail = (e: unknown, what: string) => {
     if (e instanceof AdminError && e.status === 401) onLocked();
-    else setErr(failText(e));
+    else setErr(activityErrorText(e, what));
   };
   const keeps = draft.policy !== "default";
   const entries = state.totals.entries;
@@ -189,7 +189,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
       setDone(`${text} Written to the Admin log.`);
       onSaved();
     } catch (e) {
-      fail(e);
+      fail(e, "save the Activity history setting");
     } finally {
       setBusy(false);
     }
@@ -209,7 +209,7 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
       if (pv.stopsCapturing || pv.entries > 0) setAsk({ settings: p.settings, pv });
       else await run(async () => (await save(p.settings), "Saved."));
     } catch (e2) {
-      fail(e2);
+      fail(e2, "check what saving would remove");
     } finally {
       setBusy(false);
     }
