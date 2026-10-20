@@ -1,5 +1,5 @@
 // The Admin routes for the Activity history (#432): the setting, the preview, the Stored activity list and its delete.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openDb } from '../fleet/db.js';
@@ -17,13 +17,13 @@ const H = { 'X-Podium-Admin': '1' };
 const T0 = 1_800_000_000_000;
 const SECRET_TEXT = 'UNIQUE-ENTRY-TEXT-5521';
 
-function setup(over: { withHistory?: boolean } = {}) {
+function setup(over: { withHistory?: boolean; onChanged?: () => void } = {}) {
   const db = openDb(':memory:');
   const people = new PeopleStore(db);
   const settings = new ActivityHistorySettingsStore(db, true);
   const history = new ActivityHistory(openActivityDb(':memory:'), { now: () => T0, settings: () => settings.get(), isLive: () => false, authOn: true });
   const app = express();
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, onActivityHistoryChanged: over.onChanged, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
   return { app, people, settings, history };
 }
 
@@ -93,6 +93,24 @@ describe('GET and PUT /settings carry the Activity history', () => {
     expect(res.status).toBe(400);
     expect(typeof res.body.error).toBe('string');
     expect(logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.changed)).toHaveLength(0);
+  });
+});
+
+describe('telling open consoles', () => {
+  it('runs the callback after a successful save and not after a refused one or a flag list read', async () => {
+    const onChanged = vi.fn();
+    const { agent } = await unlocked({ onChanged });
+    expect((await agent.put('/api/admin/settings').set(H).send({ activityHistory: { policy: 'forever' } })).status).toBe(400);
+    await agent.get('/api/admin/settings').set(H);
+    expect(onChanged).not.toHaveBeenCalled();
+    expect((await agent.put('/api/admin/settings').set(H).send({ activityHistory: { policy: 'all' } })).status).toBe(200);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not list activity-history among the Admin flags', async () => {
+    const { agent } = await unlocked();
+    const ids = ((await agent.get('/api/admin/settings').set(H)).body.features as { id: string }[]).map((f) => f.id);
+    expect(ids).not.toContain('activity-history');
   });
 });
 

@@ -57,6 +57,8 @@ export interface AdminRouterOptions {
   respondBridge?: RespondBridge;
   /** Called when the Admin turns Respond from Podium on, for the plain-HTTP warning (#306). */
   onRespondOn?: () => void;
+  /** Called after a successful save of the Activity history setting, so open consoles get a fresh snapshot. */
+  onActivityHistoryChanged?: () => void;
   /** How long the admin log is kept (#303); `GET /log` reports it so the Admin page can say so. */
   logRetainMs?: number;
   /** The server's logger (#140): each Admin change is an `admin.<action>` event with the source address. */
@@ -602,6 +604,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       const out = history.settings.set(p);
       if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
       audit(req, ACTIVITY_LOG_KINDS.changed, policyWords(out.settings), { ...out.settings });
+      opts.onActivityHistoryChanged?.();
       return void res.json({ ok: true, activityHistory: activityState(history) });
     }
     if ('showBackgroundSessions' in body) {
