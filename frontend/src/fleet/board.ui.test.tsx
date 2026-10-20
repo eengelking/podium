@@ -94,6 +94,8 @@ describe("kanban board", () => {
     expect(hide).toHaveAttribute("aria-controls", screen.getByRole("group", { name: /Orchestrators and subagents/ }).id);
     fireEvent.click(hide);
     expect(screen.queryByRole("group", { name: /Orchestrators and subagents/ })).toBeNull();
+    // The rows stay in the page, hidden, so the control's aria-controls still points at something.
+    expect(document.getElementById(hide.getAttribute("aria-controls")!)).toHaveAttribute("hidden");
     const show = screen.getByRole("button", { name: "Show KPI rows" });
     expect(show).toHaveAttribute("aria-expanded", "false");
     expect(show).toHaveClass("kpi-tab");

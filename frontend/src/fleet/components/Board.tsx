@@ -86,7 +86,7 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
 }
 
 /** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
-export function RunningCounts({ id, kpis, filtered, plans }: { id?: string; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
+export function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: string; hidden?: boolean; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
   const tiles: { label: string; value: number | undefined; cap: string }[] = [
     { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
     { label: "Orchestrators running", value: kpis?.running, cap: "" },
@@ -98,7 +98,7 @@ export function RunningCounts({ id, kpis, filtered, plans }: { id?: string; kpis
     { label: "Total cards", value: plans.steps, cap: `${plans.done} done` },
   ];
   return (
-    <div className="kpis" id={id} role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
+    <div className="kpis" id={id} hidden={hidden} role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">
       {tiles.map((t) => (
         <div className="kpi" key={t.label}>
           <div className="k">{t.label}</div>
@@ -142,11 +142,10 @@ export function Board(props: {
   const [prefs, setPrefs] = useState(loadPrefs);
   const [kpisShut, setKpisShut] = useState(() => readJson<unknown>(KPIS_COLLAPSED_KEY, false) === true);
   const kpisId = useId();
-  const toggleKpis = () =>
-    setKpisShut((cur) => {
-      writeJson(KPIS_COLLAPSED_KEY, !cur);
-      return !cur;
-    });
+  const toggleKpis = () => {
+    setKpisShut(!kpisShut);
+    writeJson(KPIS_COLLAPSED_KEY, !kpisShut);
+  };
   const [group, setGroup] = useState<string | null>(null);
   const [pages, setPages] = useState<Partial<Record<BoardColumn, number>>>({});
   const setPref = (p: Partial<BoardPrefs>) =>
@@ -294,7 +293,7 @@ export function Board(props: {
         )}
       </div>
       <div className={`kpi-block${kpisShut ? " shut" : ""}`}>
-        {!kpisShut && <RunningCounts id={kpisId} kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />}
+        <RunningCounts hidden={kpisShut} id={kpisId} kpis={props.kpis} filtered={meOn || group !== null || !!props.narrowed} plans={fleetPlans} />
         <KpiTab collapsed={kpisShut} controls={kpisId} onToggle={toggleKpis} />
       </div>
       <div className="vh" role="status" aria-label="Board updates">
