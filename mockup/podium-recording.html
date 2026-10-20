@@ -1,0 +1,524 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Session Recording</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #353 (H2 of #530). This file has no :root block and no color of its own: every color is a token from
+   tokens.css, reached through fleet.css. Each screen is built from markup the app renders, copied from
+   docs/standards/components.html: the Admin shell, Settings rows and tables; the session card; the orchestrator
+   page and its agent tree; the Activity feed and its footer; the failure box; the Respond modal's option rows and
+   confirmation box; the empty state; the error box; the modal.
+   Proposed for the standards, each defined below with its name in a comment:
+     .band.recording    a card band for "recording"
+     .rec-bar           the orchestrator page's recording layer, above its band
+     .badge.recording   Admin's state word for a running recording
+     .feed li.mark      a feed row for a compaction or a stop
+     .feed li.cur       the feed row the position slider is on
+     .scrub             the replay's position slider
+   The demo chrome (.demo, .stage, .frame, .notes, .decisions) and .mk-term (a terminal drawn for illustration)
+   belong to this review page only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+[hidden] { display: none !important; }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 860px; max-width: 100%; background: var(--bg); transform: translateZ(0); position: relative; }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame > .podium { height: 100%; overflow: auto; }
+.frame .scrim { position: absolute; }
+.notes { min-width: 0; max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.notes .tw3 { overflow-x: auto; }
+.decisions { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 12.5px; }
+.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mk-term { margin: 0 0 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink); font: 12px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.termscr { padding: 16px; max-width: 780px; display: grid; gap: 4px; align-content: start; }
+.termscr h2 { margin: 14px 0 4px; font-size: 14px; }
+.termscr h2:first-child { margin-top: 0; }
+.termscr .hint { margin: 0 0 6px; }
+.pickmb { padding: 0 16px 16px; display: grid; gap: 12px; }
+.pickmb p { margin: 0; color: var(--ink2); }
+.pickmb p b { color: var(--ink); }
+.opt[aria-disabled="true"] { opacity: .6; cursor: default; }
+.opt[aria-disabled="true"]:hover { background: none; }
+.opv .op { padding: 12px; }
+/* The app opens a tip on hover or focus with its own script; the copied markup has it open, so it is hidden here. */
+.opv .tip[role="tooltip"] { display: none; }
+.replay { display: grid; gap: 12px; padding: 12px; align-content: start; }
+.replay .osum .fh { padding: 12px 16px; }
+.replay .osum p { margin: 0; }
+.replay .tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.replay .loading { color: var(--muted); padding: 16px; }
+.replay .feed { margin: 0; padding: 0; list-style: none; }
+.replay .feedfoot { margin: 0; padding: 8px 12px; border-top: 1px solid var(--border); }
+.replay .feedfoot.stat { height: auto; }
+.replay .feed li .who { overflow-wrap: anywhere; }
+
+/* PROPOSED .band.recording: the card's existing band in the critical color, with a filled dot, the words and who
+   started it. It cannot be closed. */
+.podium .band.recording { --c: var(--crit); --c-text: var(--crit-text); }
+.podium .band.recording .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); flex: none; }
+.podium .band.recording .bl small { display: block; font-weight: 400; color: var(--ink2); font-size: 12px; }
+/* PROPOSED .rec-bar: a layer of the orchestrator page's surface, above the status band. No X and no switch. */
+.podium .rec-bar { display: flex; gap: 10px 14px; align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--crit) 12%, var(--surface)); box-shadow: inset 4px 0 0 var(--crit); }
+.podium .rec-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); margin-top: 4px; flex: none; }
+.podium .rec-bar .tx { flex: 1 1 240px; min-width: 0; color: var(--ink); }
+.podium .rec-bar .tx b { font-weight: 650; }
+.podium .rec-bar .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .rec-bar .confirm { flex: 1 1 100%; }
+/* PROPOSED .badge.recording: Admin's state word for a running recording: a filled dot, the word, the critical color. */
+.adminv .badge.recording { color: var(--crit-text); }
+/* PROPOSED .feed li.mark and .feed li.cur. Also the loop name (.who), and a collapsed result (.res) around the
+   existing .code block. */
+.podium .feed li.mark { box-shadow: inset 3px 0 0 var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.podium .feed li.cur { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.podium .feed li .who { font-weight: 600; margin-right: 4px; }
+.podium .feed li .res { margin-top: 6px; }
+.podium .feed li .res summary { cursor: pointer; color: var(--ink2); width: fit-content; }
+.podium .feed li .res summary:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .res .code { max-height: 6.5em; overflow: hidden; margin: 6px 0 0; }
+.podium .feed li .res[open] .code { max-height: none; }
+.podium .feed li .failbox { margin: 6px 0 0; }
+/* PROPOSED .scrub: the replay's position slider, a labelled range input in the ink color. */
+.podium .scrub { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
+.podium .scrub input[type="range"]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .scrub .hint { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Session recording (#353)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-s="admin" aria-pressed="true">Admin</button>
+    <button type="button" data-s="pick" aria-pressed="false">Choose what to record</button>
+    <button type="button" data-s="wall" aria-pressed="false">Wall card</button>
+    <button type="button" data-s="op" aria-pressed="false">Orchestrator page</button>
+    <button type="button" data-s="term" aria-pressed="false">Owner's terminal</button>
+    <button type="button" data-s="replay" aria-pressed="false">Replay</button>
+  </span>
+  <span class="grp" role="group" aria-label="Orchestrator page state" id="opstates" hidden>Page
+    <button type="button" data-op="not" aria-pressed="false">Not recorded</button>
+    <button type="button" data-op="rec" aria-pressed="true">Recording</button>
+    <button type="button" data-op="started" aria-pressed="false">Just started</button>
+    <button type="button" data-op="stop" aria-pressed="false">Confirm stop</button>
+    <button type="button" data-op="del" aria-pressed="false">Confirm delete</button>
+    <button type="button" data-op="viewer" aria-pressed="false">Not the owner</button>
+  </span>
+  <span class="grp" role="group" aria-label="Picker state" id="pkstates" hidden>Picker
+    <button type="button" data-pk="ok" aria-pressed="true">Owner allows</button>
+    <button type="button" data-pk="started" aria-pressed="false">After Start</button>
+    <button type="button" data-pk="noown" aria-pressed="false">Owner has not allowed</button>
+    <button type="button" data-pk="adminoff" aria-pressed="false">Feature off</button>
+    <button type="button" data-pk="other" aria-pressed="false">Not the owner</button>
+  </span>
+  <span class="grp" role="group" aria-label="Replay state" id="rpstates" hidden>Replay
+    <button type="button" data-rp="ended" aria-pressed="true">Ended, kept</button>
+    <button type="button" data-rp="stopped" aria-pressed="false">Stopped early</button>
+    <button type="button" data-rp="cap" aria-pressed="false">Cap reached</button>
+    <button type="button" data-rp="other" aria-pressed="false">Another viewer</button>
+    <button type="button" data-rp="loading" aria-pressed="false">Loading</button>
+    <button type="button" data-rp="error" aria-pressed="false">Load failed</button>
+    <button type="button" data-rp="empty" aria-pressed="false">Nothing yet</button>
+    <button type="button" data-rp="del" aria-pressed="false">Confirm delete</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+
+<!-- 1. Admin > Settings -->
+<div class="podium scr" id="s-admin">
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+  <nav class="nav" aria-label="Admin sections"><div class="navin"><div class="ngroup" role="group" aria-label="People and access"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5.5" r="2.5"></circle><path d="M1.5 13.5c.4-2.4 2.2-3.8 4.5-3.8s4.1 1.4 4.5 3.8"></path><path d="M11 3.4a2.4 2.4 0 0 1 0 4.4M12.6 10c1.2.5 1.9 1.6 2.1 3.2"></path></svg><span class="gt">People and access</span></span><button type="button" class="navbtn">People<span class="n">6</span></button><button type="button" class="navbtn">Groups</button><button type="button" class="navbtn">Reporters</button></div><div class="ngroup" role="group" aria-label="Server"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2.5" width="12" height="4.5" rx="1"></rect><rect x="2" y="9" width="12" height="4.5" rx="1"></rect><path d="M4.5 4.75h.01M4.5 11.25h.01"></path></svg><span class="gt">Server</span></span><button type="button" class="navbtn" aria-current="page">Settings</button><button type="button" class="navbtn">Model prices</button><button type="button" class="navbtn">Reporting and security</button></div><div class="ngroup" role="group" aria-label="Activity"><span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"></path></svg><span class="gt">Activity</span></span><button type="button" class="navbtn">Spend</button><button type="button" class="navbtn">Admin log</button></div><div class="navfoot"><button type="button" class="btn">Lock Admin</button><span class="hint">Locks after 10 minutes without activity.</span></div></div><footer class="rail-foot"><span><a href="https://github.com/eengelking/podium/blob/main/docs/THIRD_PARTY_NOTICES.md" target="_blank" rel="noreferrer">Theme credits</a> · <a href="https://github.com/eengelking/podium/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a></span><span>Podium v1.1.0</span><span>© 2026 Ed Engelking</span></footer></nav>
+  <div class="apage"><div class="apage-in">
+    <div class="page-h"><div><h1>Settings</h1><p class="lead">Server-wide choices. A change applies to everyone on this server.</p></div></div>
+
+    <section class="asec" aria-labelledby="a-ff"><div class="asec-h"><div><h2 id="a-ff">Feature flags</h2><p class="hint">Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.</p></div></div>
+      <div class="panel">
+        <div class="srow"><div class="setname"><b id="set-feature-session-recording-n">Session recording</b><span class="fid">session-recording</span><p class="hint ink2">Lets a session's owner, or an Admin, record everything an orchestrator and its agents do, so a run can be replayed to see what happened and why. Needs sign-in on the server. Off by default.</p></div><div class="sw"><button type="button" id="recsw" role="switch" aria-checked="true" aria-labelledby="set-feature-session-recording-n set-feature-session-recording-s"></button><span id="set-feature-session-recording-s">On</span></div></div>
+        <div class="warnbar" id="recwarn" role="note"><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">A recording holds whole prompts, file contents, command output and tool results. Secrets are removed on the machine before it is sent, but that is best effort. A session is recorded only when its owner has allowed it in the reporter and someone has chosen it. Only the owner and an Admin can read a recording.</span></div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="a-rs"><div class="asec-h"><div><h2 id="a-rs">Session recording</h2><p class="hint">How long recordings are kept and how much disk they may use.</p></div></div>
+      <form class="panel" id="recform" aria-label="Session recording limits">
+        <div class="srow"><div class="setname"><b>Keep a recording for</b><p class="hint ink2">Counted from when each part was recorded. Expiry runs every few minutes, so a short time is honored. The most you can set is 7 days.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="r-n" inputmode="numeric" value="6" aria-label="Number"><select class="field" id="r-u" aria-label="Unit"><option selected>hours</option><option>days</option></select></span></div>
+        <div class="srow"><div class="setname"><b>Disk budget</b><p class="hint ink2">At this total size every recording stops, with a note at the point where it stopped. Nothing is cut short.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="r-b" inputmode="numeric" value="2" aria-label="Size in gigabytes"><span class="hint">GB</span></span></div>
+        <div class="srow"><div class="setname"><b>Limit for one session</b><p class="hint ink2">A recording stops when one session reaches this size.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="r-c" inputmode="numeric" value="256" aria-label="Size in megabytes"><span class="hint">MB</span></span></div>
+        <div class="srow"><span class="hint">Saving is written to the Admin log. A shorter time removes recordings that are already older.</span><span class="formacts"><button type="reset" class="btn">Cancel</button><button type="submit" class="btn pri">Save</button></span></div>
+        <div class="note-line"><b class="mono">3 recordings, 41 MB</b> stored now, of a 2 GB budget. Stored activity lists them with its Source filter set to Recordings.</div>
+      </form>
+    </section>
+
+    <section class="asec" aria-labelledby="a-lg"><div class="asec-h"><div><h2 id="a-lg">Recordings</h2><p class="hint">Every recording that is running or kept. An Admin can stop or delete any of them.</p></div></div>
+      <div class="panel"><div id="ad-confirm" hidden></div><div class="tw2"><table class="ptab" aria-label="Recordings">
+        <thead><tr><th scope="col">Session</th><th scope="col">Owner</th><th scope="col">Started by</th><th scope="col">State</th><th scope="col" class="n">Size</th><th scope="col">Deleted at</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          <tr><td class="who">api-refactor<span class="hint">orchestrator and 3 agents</span></td><td>Maya Okafor</td><td>Maya Okafor</td><td><span class="badge recording"><span aria-hidden="true">●</span> Recording</span></td><td class="n mono">18 MB</td><td class="mono">17:42 today</td><td><span class="formacts"><button type="button" class="btn sm" data-ad="stop" data-n="api-refactor">Stop</button><button type="button" class="btn sm dng" data-ad="del" data-n="api-refactor">Delete</button></span></td></tr>
+          <tr><td class="who">flaky-tests<span class="hint">orchestrator and 1 fork</span></td><td>Ed</td><td>Admin</td><td><span class="badge off"><span aria-hidden="true">○</span> Stopped</span></td><td class="n mono">21 MB</td><td class="mono">14:10 today</td><td><span class="formacts"><button type="button" class="btn sm" data-go="replay">Open replay</button><button type="button" class="btn sm dng" data-ad="del" data-n="flaky-tests">Delete</button></span></td></tr>
+          <tr><td class="who">docs-sweep<span class="hint">orchestrator</span></td><td>Jonas Weber</td><td>Jonas Weber</td><td><span class="badge off"><span aria-hidden="true">○</span> Limit reached</span></td><td class="n mono">2 MB</td><td class="mono">13:55 today</td><td><span class="formacts"><button type="button" class="btn sm" data-go="replay">Open replay</button><button type="button" class="btn sm dng" data-ad="del" data-n="docs-sweep">Delete</button></span></td></tr>
+        </tbody></table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 3 of 3</span><span class="row2"><label class="hint" for="rec-size">Rows per page</label><select class="field sm" id="rec-size"><option>25</option><option>50</option><option>100</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div></div>
+    </section>
+  </div></div>
+</div>
+</main>
+</div>
+
+<!-- 2. The picker: the app's modal, with the Respond modal's option rows -->
+<div class="podium scr" id="s-pick" hidden>
+  <div class="scrim">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pk-t">
+      <div class="mh"><div class="ttl"><h2 id="pk-t">Record this session</h2><div class="sub2">Silverbolt, orchestrator, issue/353-session-recording</div></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+      <div class="mb pickmb" id="pk-body"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 3. Wall: the real session card, with the proposed recording band -->
+<template id="card-t"><div class="card-slot"><button type="button" class="card sc" data-session="s1"><div class="z1"><div class="h"><span class="sd"><svg class="si si-running" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="none"></path></svg></span><span class="nm">api-refactor</span><span class="mdl"><span class="chip" style="--c: var(--opus);" title="claude-opus-5-5"><i></i>Opus 5.5</span><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class=""></b></span></span></div><div class="pathrow"><div class="path mono" title="~/dev/billing-service"><bdi>~/dev/billing-service</bdi></div><span role="button" tabindex="0" class="sid" title="Copy session id s1" aria-label="Copy session id s1"><span aria-live="polite">s1</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="z2"><div class="plan"><div class="t"><span>Migrate invoices to v2 schema · Port invoice endpoints</span><span class="mono">1/4</span></div><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><div class="crew" aria-label="1 running, 0 done of 1 agents, the orchestrator included"><span class="mono cnt">1 running · 0 done</span><svg class="sp" viewBox="0 0 72 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><polyline class="area" points=""></polyline><polyline points=""></polyline></svg></div></div><div class="z3"><div class="c" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><span class="k">Cost</span><span class="v mono">$12.84</span></div><div class="c" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel."><span class="k">Tokens</span><span class="v mono">410k</span></div><div class="c"><span class="k">Time</span><span class="v mono">16:40</span></div><div class="c ctx"><span class="k">Context</span><span class="v mono">41%</span><div class="bar ctx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div></div></div><div class="band running"><span class="bi"><svg class="si si-running" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="none"></path></svg></span><span class="bl">Running</span></div></button></div></template>
+<div class="podium scr" id="s-wall" hidden><div class="wall" id="wall-cards"></div></div>
+
+<!-- 4. Orchestrator page: the real page, with the proposed recording layer -->
+<div class="podium scr opv" id="s-op" hidden><div class="op" id="op-root"><div class="osum"><div class="fh"><div class="id"><h1><span class="sd"><svg class="si si-deleg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"></circle></svg></span>api-refactor</h1><div class="goal">Migrate invoices to v2 schema<span> · now: Port invoice endpoints</span></div><div class="sub mono"><span title="Working directory">~/dev/billing-service/.claude/worktrees/invoice-v2</span><span class="sep" aria-hidden="true">|</span><span title="Repository">acme/billing-service</span></div><div class="git"><span class="br" title="Branch: refactor/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg><span class="brn">refactor/invoice-v2</span></span><span class="wt" title="Git worktree at /Users/dev/billing-service/.claude/worktrees/invoice-v2"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg><span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>3 modified</span></div></div><div class="hcs" aria-label="Orchestrator activity, last 60 seconds"><div class="hc"><div class="ht"><span class="hl">Tokens per second</span><span class="hv mono" aria-live="off" title="Average over the last 10 seconds">0/s</span></div><svg viewBox="0 0 120 44" preserveAspectRatio="none" role="img" aria-label="Tokens per second, last 60 seconds: average of the last 10 seconds 0/s, peak 0/s"><line class="gl" x1="0" x2="120" y1="43.5" y2="43.5"></line><line class="gl" x1="0" x2="120" y1="22" y2="22"></line><polyline class="area" points=""></polyline><polyline points=""></polyline></svg><div class="hx"><span>60s ago</span><span>now</span></div></div><div class="hc"><div class="ht"><span class="hl">Peak context, any loop</span><span class="hv mono" aria-live="off">0%</span></div><svg viewBox="0 0 120 44" preserveAspectRatio="none" role="img" aria-label="Peak context, any loop, last 60 seconds: now 0%, peak 0%, 0 blowouts"><line class="gl" x1="0" x2="120" y1="43.5" y2="43.5"></line><line class="gl" x1="0" x2="120" y1="22" y2="22"></line><line class="lim" x1="0" x2="120" y1="2" y2="2"></line><polyline class="area" points=""></polyline><polyline points=""></polyline></svg><div class="hx"><span>60s ago</span><span>now</span></div></div><div class="hc"><div class="ht"><span class="hl">Subagents running</span><span class="hv mono" aria-live="off">0</span></div><svg viewBox="0 0 120 44" preserveAspectRatio="none" role="img" aria-label="Subagents running, last 60 seconds: now 0, peak 0"><line class="gl" x1="0" x2="120" y1="43.5" y2="43.5"></line><line class="gl" x1="0" x2="120" y1="22" y2="22"></line><polyline class="area" points=""></polyline><polyline points=""></polyline></svg><div class="hx"><span>60s ago</span><span>now</span></div></div></div></div><div class="facts"><div class="fact agents" title="Every agent counted once, including those launched by other agents, and the orchestrator itself: running while the session runs, done once it is done."><div class="k">Agents</div><div class="v mono"><span class="n-running">3 running</span><span class="n-done"> / 1 done</span></div></div><div class="fact cost" title="The whole session: the orchestrator and every agent, nested ones included. Claude Code's own figure. The rows in the agent table add up to it, give or take the agents' estimates."><div class="k">Est. cost</div><div class="v mono">$12.84</div></div><div class="fact"><div class="k" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">Tokens</div><div class="v mono" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">710k</div></div><div class="fact"><div class="k">Running for</div><div class="v mono">16:40</div></div><div class="fact" title="The orchestrator's time plus every agent's own. It can be longer than Running for when agents run at the same time."><div class="k">Agent time</div><div class="v mono">1h 05m</div></div><div class="fact" title="Times a context window ran over"><div class="k">Blowouts</div><div class="v soft">none</div></div><div class="fact" title="The podium-reporter mod's version in this session"><div class="k">Reporter</div><div class="v mono">0.4.0</div></div><div class="fact copy"><button type="button" class="cellbtn" title="s1" aria-label="Copy session id s1"><span class="k">Session</span><span class="v mono" aria-live="polite"><span>s1</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></button></div><div role="group" aria-label="Resume" class="fact copy"><button type="button" class="cellbtn" aria-label="Copy resume command" aria-describedby=":s1:"><span class="k">Resume</span><span class="v soft" aria-live="polite"><span>Command</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></button><div class="tip" role="tooltip" id=":s1:"><b>Continues this same session in a new terminal.</b><ul><li>It picks up the whole conversation where it left off.</li><li>Run it once the session has ended. Resuming one that is still running in another terminal writes both into the same conversation.</li><li>It starts in this session's working directory. Flags such as <code>--mcp-config</code> are not restored; pass them again.</li><li>To try something without changing this session, use Fork.</li></ul></div></div><div role="group" aria-label="Fork" class="fact copy"><button type="button" class="cellbtn" aria-label="Copy fork command" aria-describedby=":s2:"><span class="k">Fork</span><span class="v soft" aria-live="polite"><span>Command</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg></span></button><div class="tip" role="tooltip" id=":s2:"><b>Starts a copy of this conversation in a new session.</b><ul><li>This session is not changed.</li><li>Permissions you allowed for the session are not carried over. Approve them again in the fork.</li><li>It works in the same directory, so file edits are real. Start it in a worktree to keep them apart.</li><li>Flags such as <code>--mcp-config</code>, <code>--settings</code>, <code>--plugin-dir</code> and <code>--add-dir</code> are not restored. Pass them again if the session used them.</li><li>It needs the session's transcript, which Claude Code keeps for 30 days by default.</li></ul></div></div></div><div class="band deleg" title="Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you."><span class="bi"><svg class="si si-deleg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"></circle></svg></span><span class="bt"><span class="bl" title="Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you.">Delegating to 2 agents.</span><span class="bd" title="Port the invoice endpoints, Try the second approach">Port the invoice endpoints, Try the second approach</span></span></div></div><div class="two"><section class="sec" aria-label="Plan and files"><div class="tabs" role="tablist" aria-label="Plan and files"><button type="button" role="tab" id=":s3:-plan" aria-selected="true" aria-controls=":s3:-plan-panel" tabindex="0">Plan</button><button type="button" role="tab" id=":s3:-files" aria-selected="false" aria-controls=":s3:-files-panel" tabindex="-1">Files<span class="ct"> 3</span></button><span class="meta mono">1/4</span></div><div role="tabpanel" id=":s3:-plan-panel" aria-labelledby=":s3:-plan"><div class="plan-title">Migrate invoices to v2 schema</div><div class="plan-prog"><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><ol class="steps"><li class="step active"><span class="mk" aria-hidden="true"><svg data-shape="active" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--ink)" stroke-width="1.6"></circle><circle class="pdot" cx="7" cy="7" r="2.6" fill="var(--ink)"></circle></svg></span><div class="tx">Port invoice endpoints<span class="vh"> (in progress)</span><div class="ow">Porting</div></div></li><li class="step blocked"><span class="mk" aria-hidden="true"><svg data-shape="blocked" viewBox="0 0 14 14" fill="none" stroke="var(--serious-text)" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"></circle><path d="M3.2 10.8l7.6-7.6"></path></svg></span><div class="tx">Run staging backfill<span class="vh"> (blocked)</span><div class="ow">blocked by an unfinished step</div></div></li><li class="step pending"><span class="mk" aria-hidden="true"><svg data-shape="pending" viewBox="0 0 14 14" fill="none" stroke="var(--muted)" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"></circle></svg></span><div class="tx">Write rollout notes<span class="vh"> (not started)</span><div class="ow">not started</div></div></li><li class="step done"><span class="mk" aria-hidden="true"><svg data-shape="done" viewBox="0 0 14 14" fill="none" stroke="var(--good-text)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="5.5"></circle><path d="M4.4 7.2l1.8 1.8 3.4-3.7"></path></svg></span><div class="tx">Map invoice call sites<span class="vh"> (done)</span><div class="ow">Explore · Haiku low</div></div></li></ol><span class="vh" role="status" aria-live="polite"></span></div><div role="tabpanel" id=":s3:-files-panel" aria-labelledby=":s3:-files" hidden=""><div class="sumline">3 files · <span class="cnt"><span class="add">+69</span><span class="del">−25</span></span></div><ul class="files"><li class="modified"><span class="st M" aria-hidden="true" title="modified">M</span><span class="fn" title="frontend/src/fleet/components/PlanPanel.tsx"><b>PlanPanel.tsx</b><span class="vh"> (modified)</span><i><bdi>frontend/src/fleet/components/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+17</span><span class="del">−22</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="r"></i><i class="r"></i><i class="r"></i></span></span></li><li class="added"><span class="st A" aria-hidden="true" title="added">A</span><span class="fn" title="mod/podium-reporter/hooks/git.test.ts"><b>git.test.ts</b><span class="vh"> (added)</span><i><bdi>mod/podium-reporter/hooks/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+38</span><span class="del">−0</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></span></li><li class="modified"><span class="st M" aria-hidden="true" title="modified">M</span><span class="fn" title="server/src/fleet/protocol.ts"><b>protocol.ts</b><span class="vh"> (modified)</span><i><bdi>server/src/fleet/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+14</span><span class="del">−3</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="r"></i></span></span></li></ul><div class="pager"><span>Showing 1–3 of 3</span><span>20 per page</span></div></div></section><section class="sec" aria-label="Agents"><div class="sh"><h2>Agents</h2><span class="src">3 launched, 1 by other agents · click a header to sort</span></div><div class="tw" style="--deep: 0;"><div class="trow hd" role="row"><div>Task</div><div><button type="button" aria-pressed="false" title="Sort by model">Model</button></div><div><button type="button" aria-pressed="false" title="Sort by effort">Effort</button></div><div><button type="button" aria-pressed="false" title="Sort by context">Context</button></div><div class="num c-tok"><button type="button" aria-pressed="false" title="Sort by tokens. Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">Tokens</button></div><div class="num"><button type="button" aria-pressed="false" title="Sort by cost. An agent's row is its own estimated cost. The orchestrator's row is its own share, the session's cost less the agents', so the rows add up to the session figure.">Cost</button></div><div class="num"><button type="button" aria-pressed="false" title="Sort by time">Time</button></div><div><button type="button" aria-pressed="false" title="Sort by status">Status</button></div></div><button type="button" class="trow root" aria-current="false" data-agent="@orchestrator"><div class="nm"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="4" r="2"></circle><path d="M8 6v3M3 13v-2.5a1.5 1.5 0 0 1 1.5-1.5h7a1.5 1.5 0 0 1 1.5 1.5V13M8 9v4"></path></svg><span class="tx"><b>api-refactor</b><em>orchestrator</em></span></div><div class="cell"><span class="chip" style="--c: var(--opus);" title="claude-opus-5-5"><i></i>Opus 5.5</span></div><div class="cell"><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div><span>41%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">410k</div><div class="num" title="The orchestrator's own share: the session's cost less each agent's estimate. With the agents' rows it adds up to the session figure, unless the estimates overshoot it (then this is $0) or an agent has no price (it counts as $0, so its cost lands here).">$12.48</div><div class="num">16:40</div><div class="cell"><span class="st deleg" title="Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you."><i class="dot ring" aria-hidden="true"></i>delegating<span class="vh">. Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you.</span></span></div></button><button type="button" class="trow" id="row-p" aria-current="false" data-agent="p"><div class="nm"><span class="indent" aria-hidden="true"><s class="tee"></s></span><span class="a running" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Port the invoice endpoints · general-purpose"><b>Port the invoice endpoints</b><em>general-purpose</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b class=""></b><b class=""></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">16:40</div><div class="cell"><span class="st running"><i class="dot running" aria-hidden="true"></i>running</span></div></button><button type="button" class="trow" id="row-c" aria-current="false" data-agent="c"><div class="nm"><span class="indent" aria-hidden="true"><s class=""></s><s class="last"></s></span><span class="a done" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Update the schema tests · general-purpose"><b>Update the schema tests</b><em>general-purpose</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b class=""></b><b class=""></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">15:00</div><div class="cell"><span class="st done"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"></path></svg>done</span></div></button><button type="button" class="trow" id="row-f" aria-current="false" data-agent="f"><div class="nm"><span class="indent" aria-hidden="true"><s class="last"></s></span><span class="a running fork" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Try the second approach · fork"><b>Try the second approach</b><em>fork</em><em class="rowerr">command failed</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-max" role="img" aria-label="Effort: max" title="Effort: max"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">16:40</div><div class="cell"><span class="st running"><i class="dot running" aria-hidden="true"></i>running</span></div></button></div></section></div></div></div>
+
+<!-- 4b. The owner's terminal -->
+<div class="podium scr" id="s-term" hidden><div class="termscr">
+  <h2>When recording starts</h2>
+  <pre class="mk-term">podium: This session is being recorded by Maya Okafor, from 11:42.
+        The whole history of this orchestrator and every agent and fork under it is kept in Podium for
+        troubleshooting, and is deleted at 17:42 today. Either of you can stop it from Podium.
+        To refuse recording on this machine, set sessionRecording to off in /plugin configure.</pre>
+  <p class="hint">Written once when recording starts, again after /clear and after a compaction (the transcript was emptied), and on the first idle prompt after the session reloads.</p>
+  <h2>When it stops</h2>
+  <pre class="mk-term">podium: Recording stopped by Maya Okafor at 13:02. What was recorded until then is kept until 17:42 today.</pre>
+  <h2>When someone chose this session but the owner has not allowed it</h2>
+  <pre class="mk-term">podium: Admin chose to record this session, but sessionRecording is off here, so nothing is recorded.</pre>
+  <p class="hint">Shown to the owner so a refusal is never silent. Nothing about the session leaves the machine.</p>
+  <h2>When the limit is reached</h2>
+  <pre class="mk-term">podium: Recording stopped: this session reached its 256 MB limit. Nothing after this point is kept.</pre>
+</div></div>
+
+<!-- 5. Replay -->
+<div class="podium scr" id="s-replay" hidden><div class="replay" id="rp"></div></div>
+
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>Admin.</b> <b>Session recording</b> is a feature flag in Admin > Settings, beside the others, off by default, and unavailable when the server has no <span class="mono">PODIUM_TOKEN</span>. A section under it sets how long recordings are kept (hours or days, 6 hours by default, at most 7 days), a disk budget, and a limit for one session. A table lists every recording with its owner, who started it, its state, size and when it is deleted. An Admin can stop or delete any of them, each after a confirmation. Recordings also appear on #432's Stored activity page through its Source filter.</li>
+    <li><b>Choosing what to record.</b> Record this session, on the orchestrator page for its owner and for an Admin, opens the app's modal with the Respond modal's option rows: the orchestrator, its agents and its forks, each with a box. Recording is per loop, starts when Start is pressed, and keeps nothing from before. The picker has five states: the owner allows it, after Start, the owner has not allowed it (nothing to press, and it names the <span class="mono">sessionRecording</span> option), the feature is off, and a viewer who is not the owner.</li>
+    <li><b>The notice cannot be hidden.</b> Two always-on signs. On the wall, a recorded card gets a second band in the critical color with a filled dot and who started it (<span class="mono">.band.recording</span>). On the orchestrator page, a layer inside the page's surface above its band (<span class="mono">.rec-bar</span>) says what is kept, who started it, which loops are recorded and when it is deleted. Neither has an X or a switch. This is not a wall notice: those are for informational notes that someone may close, and consent is not one. The owner's terminal shows the same text (see the Owner's terminal screen).</li>
+    <li><b>Replay.</b> A page of its own, reached from Open replay and from Admin's table, with a back link to the orchestrator page. It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under each tool call. A loop filter, a position slider and Jump to next failure move through it. A failed call uses the failure box. A compaction or a stop is a marked row. Show older pages back through a long run. It is read-only.</li>
+    <li><b>Thinking.</b> The research on #353 found that the mod receives thinking without its text on the model and effort tested. The replay says so in the header, and each place the model thought has a Reasoning row that reads "Thinking: text is not available".</li>
+    <li><b>Confirmations.</b> In Admin, the warning-bordered box with a button for each answer. Everywhere else, the Respond modal's confirmation box: a bold question, Cancel, and the critical-colored action button. Stop, Delete and Delete this recording all ask first and say what stays and what goes.</li>
+    <li><b>States.</b> Replay has loading ("Loading…"), a failed load (the error box, with Try again), nothing recorded yet, a delete asking first, a stopped recording, a recording that reached its limit, and a viewer who is not the owner (the empty-state box with a plain refusal). A loop name too long for its row is cut with its full name as a title.</li>
+  </ul>
+  <h2>Reused as they are</h2>
+  <ul>
+    <li>Admin shell, nav, Settings rows and switch, the form panel, the table and the pager, the warning line and the warning-bordered box.</li>
+    <li>The session card and its bands, the orchestrator page with its facts, plan and agent tree, the modal and the Respond modal's option rows and confirmation box, the Activity feed rows, footer and older row, the failure box and its code block, the empty-state box, the error box and the back link.</li>
+  </ul>
+  <h2>New, proposed for the standards</h2>
+  <ul>
+    <li><span class="mono">.band.recording</span>, <span class="mono">.rec-bar</span> and <span class="mono">.badge.recording</span>: nothing existing is a state that cannot be closed or switched off.</li>
+    <li><span class="mono">.feed li.mark</span> and <span class="mono">.feed li.cur</span>: a marked row and the row the slider is on. Plus the loop's name (<span class="mono">.who</span>) and a collapsed result (<span class="mono">.res</span>) around the existing code block.</li>
+    <li><span class="mono">.scrub</span>: a labelled range input. The standards have no slider.</li>
+    <li>The standards change only after you approve, through <span class="mono">Standards:</span> lines in the CHANGELOG, and the implementation adds each piece to the standards in its own PR.</li>
+  </ul>
+  <h2>Open decisions, with a recommendation</h2>
+  <div class="tw3"><table class="decisions" aria-label="Open decisions">
+    <thead><tr><th scope="col">Decision</th><th scope="col">Recommendation</th><th scope="col">Why</th></tr></thead>
+    <tbody>
+      <tr><td>1. Notice and the wall-notice rules</td><td>Not a wall notice. A band on the card, a layer on the page, no X, no switch.</td><td>Consent cannot be dismissed.</td></tr>
+      <tr><td>2. Who gets Record</td><td>The session's owner and an Admin, on the orchestrator page.</td><td>Matches the read rule and the Respond model.</td></tr>
+      <tr><td>3. Retention</td><td>Default 6 hours, at most 7 days.</td><td>A recording exists to troubleshoot something now. The numbers can change before code.</td></tr>
+      <tr><td>4. Long runs</td><td>The replay loads the newest 200 rows, with Show older.</td><td>The whole result is stored, but it should not all load at once.</td></tr>
+      <tr><td>5. Owner's consent</td><td>A reporter option, <span class="mono">sessionRecording</span>, off by default.</td><td>Same pattern as <span class="mono">respond</span> and <span class="mono">activityFeed</span>.</td></tr>
+      <tr><td>6. Replay address</td><td><span class="mono">#/?open=&lt;id&gt;&amp;replay</span>, built on #542's address.</td><td>Survives a reload, and a viewer who is not allowed sees the refusal at the same address.</td></tr>
+      <tr><td>7. Per-loop marks on the agent tree</td><td>Not drawn. The layer names the recorded and unrecorded loops in words.</td><td>A new column on the agent table is a bigger change to a shared component.</td></tr>
+    </tbody>
+  </table></div>
+  <h2>Not drawn</h2>
+  <ul>
+    <li>The capture, the batching, the load measurement and the disk budget's enforcement have no screen.</li>
+    <li>Modal focus and Escape follow accessibility.html and are not shown in a static page. The Admin menu collapses by the browser window's width, not the frame's.</li>
+  </ul>
+  <p class="hint">Names, sessions, sizes and times are example data. This mockup is static: nothing is read from or written to a server.</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function $(id) { return document.getElementById(id); }
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function node(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+
+  var current = "admin";
+  function screen(id) {
+    current = id;
+    ["admin", "pick", "wall", "op", "term", "replay"].forEach(function (s) { $("s-" + s).hidden = s !== id; });
+    $("pkstates").hidden = id !== "pick";
+    $("opstates").hidden = id !== "op";
+    $("rpstates").hidden = id !== "replay";
+    press("[data-s]", "data-s", id);
+  }
+  document.querySelectorAll("[data-s]").forEach(function (b) { b.addEventListener("click", function () { screen(b.getAttribute("data-s")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+
+  var WARN = '<svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg>';
+  function btn(label, cls, fn) { var b = node("button", "btn sm" + (cls || ""), label); b.type = "button"; if (fn) b.addEventListener("click", fn); return b; }
+  /* Outside Admin: the Respond modal's .confirm, a bold question, then Cancel and the bad-variant button. Text goes in as text nodes. */
+  function confirmBox(title, text, doLabel, onDo, onCancel) {
+    var c = node("div", "confirm"); c.setAttribute("role", "alertdialog"); c.setAttribute("aria-label", title);
+    var sp = node("span"); sp.appendChild(node("b", "", title)); sp.appendChild(document.createTextNode(" " + text)); c.appendChild(sp);
+    var a = node("span", "acts");
+    var no = node("button", "btn", "Cancel"); no.type = "button"; no.addEventListener("click", onCancel);
+    var ok = node("button", "btn bad", doLabel); ok.type = "button"; ok.addEventListener("click", onDo);
+    a.appendChild(no); a.appendChild(ok); c.appendChild(a); return c;
+  }
+  /* In Admin: the warning-bordered .callout, with a button for each answer. */
+  function callout(title, text, acts) {
+    var c = node("div", "callout"); c.setAttribute("role", "alert");
+    var ic = document.createElement("span"); ic.innerHTML = WARN; c.appendChild(ic.firstChild);
+    c.appendChild(node("h3", "", title)); c.appendChild(node("p", "", text));
+    var fa = node("p", "formacts");
+    acts.forEach(function (a) { var b = node("button", "btn" + (a[1] || ""), a[0]); b.type = "button"; b.addEventListener("click", a[2]); fa.appendChild(b); });
+    c.appendChild(fa); return c;
+  }
+
+  /* Admin: Stop and Delete ask first */
+  document.querySelectorAll("[data-ad]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var slot = $("ad-confirm"), kind = b.getAttribute("data-ad"), n = b.getAttribute("data-n");
+      function close() { slot.textContent = ""; slot.hidden = true; }
+      var box = kind === "stop"
+        ? callout("Stop recording " + n + "?", "Capture ends now. What was recorded up to now is kept until it expires, and the owner can still replay it. This is written to the Admin log.", [["Stop recording", " dng", close], ["Keep recording", "", close]])
+        : callout("Delete the recording of " + n + "?", "The whole recording is removed for good, and the space freed. The session, History and the live feed are not touched. This is written to the Admin log.", [["Delete recording", " dng", close], ["Keep it", "", close]]);
+      slot.textContent = ""; slot.hidden = false; slot.appendChild(box);
+    });
+  });
+  document.querySelectorAll("[data-go]").forEach(function (b) { b.addEventListener("click", function (e) { e.preventDefault(); screen(b.getAttribute("data-go")); }); });
+
+  /* Orchestrator page: the real page, with a recording layer added above its band */
+  var OPS = { rec: "Recording", not: "Not recorded", started: "Just started", stop: "Confirm stop", del: "Confirm delete", viewer: "Not the owner" };
+  function recLayer(withActs) {
+    var b = node("div", "rec-bar"); b.setAttribute("role", "status");
+    var dot = node("span", "dot"); dot.setAttribute("aria-hidden", "true"); b.appendChild(dot);
+    var tx = node("div", "tx"); tx.appendChild(node("b", "", "This session is being recorded. "));
+    tx.appendChild(document.createTextNode("The whole history of this orchestrator and every agent and fork under it is kept for troubleshooting: prompts, file contents, command output and results. Recording: api-refactor, schema-writer, endpoint-port and test-fixer. Not recorded: docs-agent. Maya Okafor started it at 11:42. It is deleted at 17:42 today."));
+    b.appendChild(tx);
+    if (withActs) { var a = node("div", "acts"); a.appendChild(btn("Stop recording", "", function () { op("stop"); })); a.appendChild(btn("Open replay", "", function () { screen("replay"); })); b.appendChild(a); }
+    return b;
+  }
+  function op(id) {
+    press("[data-op]", "data-op", id);
+    var osum = document.querySelector("#op-root .osum"), band = osum.querySelector(".band");
+    osum.querySelectorAll(".rec-bar, .rec-row").forEach(function (n) { n.remove(); });
+    function row(n) { var r = node("div", "rec-row"); r.appendChild(n); return r; }
+    if (id === "not") {
+      var rr = node("div", "respond-bar rec-row"); rr.appendChild(btn("Record this session", " pri", function () { screen("pick"); })); osum.appendChild(rr);
+      return;
+    }
+    var layer = recLayer(id !== "viewer");
+    if (id === "started") { var st = node("div", "tx"); st.appendChild(node("b", "", "Recording started at 11:42. ")); st.appendChild(document.createTextNode("Nothing before this point was kept.")); layer.insertBefore(st, layer.children[2] || null); }
+    if (id === "stop") layer.appendChild(confirmBox("Stop recording this session?", "Capture ends now for the orchestrator and every agent and fork. What was recorded until now is kept until 17:42 today, and can be replayed or deleted.", "Stop recording", function () { op("not"); }, function () { op("rec"); }));
+    if (id === "del") layer.appendChild(confirmBox("Delete this recording?", "The whole recording, 18 MB, is removed for good. Capture stops if it is still running. The session, History and the live feed are not touched. This is written to the Admin log.", "Delete recording", function () { op("not"); }, function () { op("rec"); }));
+    osum.insertBefore(layer, band);
+  }
+  document.querySelectorAll("[data-op]").forEach(function (b) { b.addEventListener("click", function () { op(b.getAttribute("data-op")); }); });
+
+  /* Wall: the app's own card, cloned from the template, with the proposed recording band added */
+  function wallCards() {
+    var host = $("wall-cards"); host.textContent = "";
+    [["api-refactor", ["Recording everything", "Maya Okafor started it. Deleted at 17:42."]], ["flaky-tests", ["Recording 2 of 3 loops", "The orchestrator and test-fixer. Ed started it. Deleted at 15:10."]], ["docs-sweep", null]].forEach(function (c) {
+      var t = $("card-t").content.cloneNode(true), slot = t.querySelector(".card-slot");
+      slot.querySelector(".nm").textContent = c[0];
+      if (c[1]) {
+        var b = node("div", "band recording"); b.setAttribute("role", "status");
+        var dot = node("span", "dot"); dot.setAttribute("aria-hidden", "true"); b.appendChild(dot);
+        var bl = node("span", "bl", c[1][0]); bl.appendChild(node("small", "", c[1][1])); b.appendChild(bl);
+        slot.querySelector("button.card").appendChild(b);
+      }
+      host.appendChild(t);
+    });
+  }
+
+  /* Admin switch */
+  var sw = $("recsw");
+  sw.addEventListener("click", function () { var on = sw.getAttribute("aria-checked") !== "true"; sw.setAttribute("aria-checked", String(on)); $("recsw-t").textContent = on ? "On" : "Off"; $("recwarn").hidden = !on; });
+  $("recform").addEventListener("submit", function (e) { e.preventDefault(); });
+
+  /* Picker */
+  function para(text, strong) { var d = node("p"); if (strong) d.appendChild(node("b", "", strong + " ")); d.appendChild(document.createTextNode(text)); return d; }
+  function opts(rows, locked) {
+    var f = node("fieldset", "opts"); f.setAttribute("aria-label", "Loops to record");
+    rows.forEach(function (r) {
+      var l = node("label", "opt"); if (locked) l.setAttribute("aria-disabled", "true");
+      var cb = node("input"); cb.type = "checkbox"; cb.checked = r[2] && !locked; cb.disabled = !!locked; l.appendChild(cb);
+      l.appendChild(node("span", "ol", r[0])); l.appendChild(node("span", "od", r[1])); f.appendChild(l);
+    });
+    return f;
+  }
+  var LOOPROWS = [["api-refactor", "The orchestrator", true], ["schema-writer", "Agent, launched by the orchestrator", true], ["endpoint-port", "Agent, launched by the orchestrator", true], ["test-fixer", "Fork of endpoint-port", true], ["docs-agent", "Agent, launched by the orchestrator", false]];
+  function acts(startDisabled) {
+    var f = node("div", "formacts");
+    var st = btn("Start recording", " pri", function () { picker("started"); }); st.disabled = !!startDisabled;
+    f.appendChild(st); f.appendChild(btn("Cancel", "")); return f;
+  }
+  var P = {
+    ok: function (b) {
+      b.appendChild(para("Recording starts when you press Start. Nothing before it is kept."));
+      b.appendChild(para("Prompts, file contents, command output and tool results are kept for 6 hours, then deleted. Either the owner or an Admin can stop it or delete it at any time.", "What is kept."));
+      b.appendChild(opts(LOOPROWS, false)); b.appendChild(acts(false));
+    },
+    started: function (b) {
+      b.appendChild(para("Recording the orchestrator, schema-writer, endpoint-port and test-fixer. Nothing before now was kept. The notice is on the wall card and the orchestrator page, and Podium has told the owner in their terminal.", "Recording started at 11:42."));
+      var f = node("div", "formacts"); f.appendChild(btn("Close", " pri", function () { op("started"); screen("op"); })); b.appendChild(f);
+    },
+    noown: function (b) {
+      b.appendChild(para("Recording needs two yes answers: the Admin's switch and the session's owner. Ed has not turned on the sessionRecording option in podium-reporter on this machine, so nothing can be recorded. They can turn it on with /plugin configure podium-reporter@eengelking-marketplace.", "This session's reporter does not allow recording."));
+      b.appendChild(opts(LOOPROWS.slice(0, 2), true)); b.appendChild(acts(true));
+    },
+    adminoff: function (b) {
+      b.appendChild(para("An Admin turns it on in Admin > Settings > Feature flags. Until then nothing is captured, stored or sent.", "Session recording is off on this server."));
+      var f = node("div", "formacts"); f.appendChild(btn("Close", "")); b.appendChild(f);
+    },
+    other: function (b) {
+      b.appendChild(para("You can see that this session is recorded and when it will be deleted. You cannot start, stop or open the recording.", "Only the session's owner or an Admin can choose what to record."));
+      var f = node("div", "formacts"); f.appendChild(btn("Close", "")); b.appendChild(f);
+    }
+  };
+  function picker(id) { var b = $("pk-body"); b.textContent = ""; P[id](b); press("[data-pk]", "data-pk", id); }
+  document.querySelectorAll("[data-pk]").forEach(function (b) { b.addEventListener("click", function () { picker(b.getAttribute("data-pk")); }); });
+
+  /* Replay: the app's .sec panel and Activity feed rows, with a few additions (marks, the current row, the slider) */
+  var ICON = {
+    tool: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4 4 4-4 4M8.5 12.5H13"/></svg>',
+    txt: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
+    think: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="7" r="4.5"/><path d="M6 13.5h4"/></svg>',
+    you: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"/></svg>'
+  };
+  var LAB = { tool: "Tool call", txt: "Text", think: "Reasoning", you: "Prompt" };
+  var EV = [
+    ["11:42", "api-refactor", "you", "Asked: Migrate invoices to v2 schema. Keep the old endpoints working until the flag is on."],
+    ["11:43", "api-refactor", "think", "Thinking: text is not available"],
+    ["11:43", "api-refactor", "txt", "I will read the current schema before changing anything, then hand the endpoint port to an agent."],
+    ["11:43", "api-refactor", "tool", ["Read", "server/src/invoices/schema.ts", "export const InvoiceV1 = z.object({\n  id: z.string(),\n  amount: z.number(),\n  currency: z.string(),\n  lines: z.array(LineV1),\n  ...\n}) // 118 lines, the whole file is stored"]],
+    ["11:46", "endpoint-port", "you", "Asked: Port the invoice endpoints to the v2 schema. Do not touch the tests."],
+    ["11:47", "endpoint-port", "tool", ["Bash", "npm test -w server -- invoices", "FAIL server/src/invoices/list.test.ts\n  list invoices returns v2 shape\n    Expected currency USD, received undefined\n\nTests: 1 failed, 41 passed"], "fail"],
+    ["11:49", "endpoint-port", "txt", "The handler drops currency when it maps the row. I will map it in the serializer and run the invoices tests again."],
+    ["11:52", "test-fixer-with-a-very-long-name-that-has-to-be-cut-in-a-row", "you", "Asked: Check why list.test.ts expected a currency before the change."],
+    ["12:05", "api-refactor", "txt", "Context reached 92%. The conversation was compacted, 412k to 88k tokens.", "mark"],
+    ["12:30", "api-refactor", "tool", ["Bash", "git diff --stat", " server/src/invoices/serialize.ts | 12 ++++++++----\n server/src/invoices/list.ts      |  4 ++--\n 2 files changed, 10 insertions(+), 6 deletions(-)"]]
+  ];
+  var LOOPS = ["All loops", "api-refactor", "schema-writer", "endpoint-port", "test-fixer-with-a-very-long-name-that-has-to-be-cut-in-a-row"];
+  var state2 = "ended", filt = "All loops", cur = 0;
+  function setRp(v) { state2 = v; press("[data-rp]", "data-rp", v); rp(); }
+  function svg(html) { var d = document.createElement("span"); d.innerHTML = html; return d.firstChild; }
+  function eventRow(e, i) {
+    var kind = e[2], li = node("li", kind === "tool" ? "tool" : kind === "you" ? "you" : "txt"); li.dataset.i = i;
+    if (e[4] === "mark") li.classList.add("mark");
+    if (filt !== "All loops" && e[1] !== filt) li.hidden = true;
+    var at = node("span", "at", e[0]); at.title = e[0] + ":00"; li.appendChild(at);
+    var k = node("span", "k"); k.setAttribute("role", "img"); k.setAttribute("aria-label", LAB[kind]); k.title = LAB[kind]; k.appendChild(svg(ICON[kind])); li.appendChild(k);
+    var body = node("span", "body"), who = node("span", "who", e[1] + ":"); who.title = e[1]; body.appendChild(who);
+    if (kind === "tool") {
+      body.appendChild(node("span", "name", e[3][0])); body.appendChild(document.createTextNode(" ")); var ar = node("span", "arg"); ar.appendChild(node("span", "", e[3][1])); body.appendChild(ar);
+      var d = node("details", "res"); d.appendChild(node("summary", "", "Result")); d.appendChild(node("pre", "code", e[3][2])); body.appendChild(d);
+    } else body.appendChild(node("span", kind === "think" ? "hint" : "", e[3]));
+    li.appendChild(body);
+    if (e[4] === "fail") {
+      var fb = node("div", "failbox"), fh = node("div", "fh2"); fh.appendChild(svg('<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 4l8 8M12 4l-8 8"></path></svg>')); fh.appendChild(document.createTextNode("command failed"));
+      var fbb = node("div", "fb"), w = node("div"); w.appendChild(node("span", "lab", "Failing call · Bash · exit 1")); w.appendChild(node("pre", "code", "npm test -w server -- invoices")); fbb.appendChild(w);
+      var w2 = node("div"); w2.appendChild(node("span", "lab", "Output")); w2.appendChild(node("pre", "code", "1 test failed: list invoices returns v2 shape")); fbb.appendChild(w2);
+      fb.appendChild(fh); fb.appendChild(fbb); body.appendChild(fb);
+    }
+    return li;
+  }
+  function rp() {
+    var host = $("rp"); host.textContent = "";
+    var back = node("button", "back"); back.type = "button"; back.appendChild(svg('<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10 3L5 8l5 5"></path></svg>')); back.appendChild(document.createTextNode("Back to api-refactor"));
+    back.addEventListener("click", function () { op("rec"); screen("op"); }); host.appendChild(back);
+    if (state2 === "other") {
+      var kb0 = node("div", "kb-blank"); kb0.appendChild(node("b", "", "This session was recorded")); kb0.appendChild(node("p", "hint", "Only its owner or an Admin can open the recording. It is deleted at 17:42 today.")); host.appendChild(kb0); return;
+    }
+    var osum = node("div", "osum"), fh = node("div", "fh"), id = node("div", "id");
+    id.appendChild(node("h1", "", "api-refactor"));
+    var line = { ended: "Recorded 11:42 to 14:18 by Maya Okafor. The session ended. Deleted at 17:42 today.", stopped: "Recorded 11:42 to 13:02. Maya Okafor stopped it, so nothing after 13:02 was kept. Deleted at 17:42 today.", cap: "Recorded 11:42 to 13:40. It stopped at the 256 MB limit for one session, so later work was not kept. Deleted at 17:42 today." }[state2] || "Recorded from 11:42 by Maya Okafor. Deleted at 17:42 today.";
+    id.appendChild(node("div", "goal", "Replay of a recording"));
+    id.appendChild(node("div", "sub", line));
+    id.appendChild(node("p", "", "The model's thinking text is not available. Claude Code gives Podium the thinking without its text on the models tested, so a place where the model thought is marked and shows nothing. An empty place does not mean it did not think."));
+    fh.appendChild(id); osum.appendChild(fh); host.appendChild(osum);
+    if (state2 === "loading") { var ld = node("div", "loading", "Loading…"); ld.setAttribute("role", "status"); host.appendChild(ld); return; }
+    if (state2 === "error") { var er = node("div", "errbox"); er.setAttribute("role", "alert"); er.appendChild(document.createTextNode("Could not load the recording: HTTP 500. Try again.")); host.appendChild(er); var ea = node("div", "formacts"); ea.appendChild(btn("Try again", " pri", function () { setRp("ended"); })); host.appendChild(ea); return; }
+    if (state2 === "empty") { var kb = node("div", "kb-blank"); kb.appendChild(node("b", "", "Nothing has been recorded yet")); kb.appendChild(node("p", "hint", "Recording started at 11:42 and no loop has done anything since. Rows appear here as they happen.")); host.appendChild(kb); return; }
+    if (state2 === "del") host.appendChild(confirmBox("Delete this recording?", "The whole recording, 18 MB, is removed for good, and you go back to the orchestrator page. The session, History and the live feed are not touched. This is written to the Admin log.", "Delete recording", function () { state2 = "ended"; press("[data-rp]", "data-rp", "ended"); op("not"); screen("op"); }, function () { setRp("ended"); }));
+
+    var sec = node("section", "sec"); sec.setAttribute("aria-label", "Recorded activity");
+    var sh = node("div", "sh"); sh.appendChild(node("h2", "", "Recorded activity")); sh.appendChild(node("span", "src", "Oldest first. Read-only: a replay never runs anything or sends anything to the session.")); sec.appendChild(sh);
+    var tools = node("div", "tools"), live = node("span", "live"), lab = node("label", "sub", "Loop"); lab.setAttribute("for", "rp-loop");
+    var sel = node("select"); sel.id = "rp-loop"; LOOPS.forEach(function (l) { var o = node("option", "", l.length > 28 ? l.slice(0, 27) + "…" : l); o.value = l; o.selected = l === filt; sel.appendChild(o); });
+    sel.addEventListener("change", function () { filt = sel.value; rp(); });
+    live.appendChild(lab); live.appendChild(sel); tools.appendChild(live);
+    var jf = btn("Jump to next failure", "", function () { for (var i = 1; i <= EV.length; i++) { var k = (cur + i) % EV.length; if (EV[k][4] === "fail") { cur = k; rg.value = k; pos.textContent = "Row " + (k + 1) + " of " + EV.length; mark(); return; } } });
+    tools.appendChild(jf); sec.appendChild(tools);
+    var sc = node("div", "scrub"), pl = node("label", "hint", "Position"); pl.setAttribute("for", "rp-pos");
+    var rg = node("input"); rg.type = "range"; rg.id = "rp-pos"; rg.min = 0; rg.max = EV.length - 1; rg.value = cur;
+    var pos = node("span", "hint mono", "Row " + (cur + 1) + " of " + EV.length); pos.setAttribute("role", "status");
+    rg.setAttribute("aria-valuetext", "Row " + (cur + 1) + " of " + EV.length);
+    rg.addEventListener("input", function () { cur = +rg.value; mark(); pos.textContent = "Row " + (cur + 1) + " of " + EV.length; rg.setAttribute("aria-valuetext", pos.textContent); });
+    sc.appendChild(pl); sc.appendChild(rg); sc.appendChild(pos); sec.appendChild(sc);
+    var ol = node("ol", "feed"); ol.setAttribute("aria-label", "Recorded activity, oldest first"); ol.tabIndex = 0;
+    EV.forEach(function (e, i) { ol.appendChild(eventRow(e, i)); });
+    if (state2 === "stopped" || state2 === "cap") {
+      var m = node("li", "txt mark"); m.appendChild(node("span", "at", state2 === "cap" ? "13:40" : "13:02")); var mk = node("span", "k"); mk.appendChild(svg(ICON.txt)); m.appendChild(mk);
+      var mb = node("span", "body"); mb.appendChild(node("span", "who", "Podium:")); mb.appendChild(node("span", "", state2 === "cap" ? "Recording stopped: this session reached its 256 MB limit. Nothing after this point was kept." : "Recording stopped by Maya Okafor. Everything up to here was kept.")); m.appendChild(mb); ol.appendChild(m);
+    }
+    sec.appendChild(ol);
+    var older = node("div", "feedfoot stat older"), cnt = node("span", "count", "Showing the newest 10 of 342"); cnt.setAttribute("role", "status"); older.appendChild(cnt); older.appendChild(btn("Show older", "")); sec.appendChild(older);
+    var ft = node("div", "feedfoot"); ft.appendChild(node("span", "", "Kept until 17:42 today, then deleted. Only the owner and an Admin can open it.")); ft.appendChild(btn("Delete recording", " bad", function () { setRp("del"); })); sec.appendChild(ft);
+    host.appendChild(sec);
+    mark();
+  }
+  function mark() { document.querySelectorAll("#rp .feed li").forEach(function (li) { li.classList.toggle("cur", li.dataset.i !== undefined && +li.dataset.i === cur); }); }
+  document.querySelectorAll("[data-rp]").forEach(function (b) { b.addEventListener("click", function () { setRp(b.getAttribute("data-rp")); }); });
+
+  root.setAttribute("data-theme", "dark");
+  picker("ok"); wallCards(); op("rec"); rp(); screen("admin");
+})();
+</script>
