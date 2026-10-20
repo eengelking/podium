@@ -54,7 +54,7 @@ async function unlocked(over: Parameters<typeof setup>[0] = {}) {
 describe('unlocking', () => {
   it('refuses every other endpoint until unlocked, and the right secret unlocks with an HttpOnly SameSite=Strict cookie', async () => {
     const { app } = setup();
-    for (const [m, p] of [['get', '/people'], ['post', '/people'], ['get', '/groups'], ['get', '/log'], ['get', '/settings'], ['get', '/reporters'], ['get', '/reporters/x'], ['delete', '/reporters/x']] as const) {
+    for (const [m, p] of [['get', '/people'], ['post', '/people'], ['get', '/groups'], ['get', '/log'], ['get', '/settings'], ['get', '/reporters'], ['get', '/reporters/x'], ['delete', '/reporters/x'], ['put', '/settings'], ['post', '/activity-history/preview'], ['get', '/stored-activity'], ['post', '/stored-activity/delete']] as const) {
       expect((await request(app)[m](`/api/admin${p}`).set(H)).status).toBe(401);
     }
     const res = await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });

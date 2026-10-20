@@ -21,6 +21,10 @@ import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
+import type { ActivityHistory } from '../fleet/activityHistory.js';
+import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
+import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
+import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
 
 export interface AdminRouterOptions {
@@ -37,6 +41,8 @@ export interface AdminRouterOptions {
   reporters?: ReporterStore;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
   peers?: PeerService;
+  /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
+  activityHistory?: { history: ActivityHistory; settings: ActivityHistorySettingsStore };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -70,6 +76,27 @@ function readCookie(req: Request, name: string): string | null {
     if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }
   return null;
+}
+
+/** A size for the admin log: `1.8 MB`, `512 B`. */
+function bytesWords(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(1)} ${units[i]}`;
+}
+
+const countOf = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** The admin log's sentence for the Activity history choice. */
+function policyWords(s: ActivityHistorySettings): string {
+  const keep = { default: 'not kept (the default)', after: `purge after ${s.n} ${s.unit}`, end: 'purge when the session ends', all: 'keep everything, no automatic purge' }[s.policy];
+  return `Activity history set to ${keep}, ${s.capGb === null ? 'no size cap' : `size cap ${s.capGb} GB`}`;
 }
 
 const idParam = (v: string): number | null => (/^\d{1,12}$/.test(v) ? Number(v) : null);
@@ -158,7 +185,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     next();
   });
 
-  router.use(express.json({ limit: '8kb' }));
+  // The Activity history delete takes up to 200 session ids, so its own parser (below) has a larger limit.
+  const STORED_DELETE = '/stored-activity/delete';
+  const smallJson = express.json({ limit: '8kb' });
+  router.use((req, res, next) => (req.path === STORED_DELETE ? next() : smallJson(req, res, next)));
 
   function sessionValid(req: Request): boolean {
     const sid = readCookie(req, COOKIE);
@@ -513,6 +543,9 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // ---- settings and log -----------------------------------------------------------------------
 
+  const history = opts.activityHistory;
+  const activityState = (h: NonNullable<typeof history>): ActivityHistoryState => ({ settings: h.settings.get(), totals: h.history.totals(), lastPurge: h.history.lastPurge, authOn: opts.secret !== null });
+
   const featureList = () => FEATURES.map(({ defaultOn, ...f }) => ({ ...f, on: features ? features.featureOn(f.id) : defaultOn }));
   const noticeList = () => NOTICES.map((n) => ({ ...n, on: wall ? wall.noticeOn(n.id) : true }));
 
@@ -526,6 +559,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
       forgetReporters: reporters?.forgetSetting() ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: peers.settings.get() } : {}),
+      ...(history ? { activityHistory: activityState(history) } : {}),
     });
   });
 
@@ -561,6 +595,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       const v = out.settings;
       audit(req, 'peer_limits_changed', `Orchestrator messaging limits: ${v.roundTrips} round trips, ${v.perMinute} a minute, ${v.maxChars} characters, kept ${v.retainDays} days`, { ...v });
       return void res.json({ ok: true, peerMessaging: v });
+    }
+    if ('activityHistory' in body) {
+      const p = body.activityHistory;
+      if (!history || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'activityHistory must give policy, n, unit and capGb' });
+      const out = history.settings.set(p);
+      if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
+      audit(req, ACTIVITY_LOG_KINDS.changed, policyWords(out.settings), { ...out.settings });
+      return void res.json({ ok: true, activityHistory: activityState(history) });
     }
     if ('showBackgroundSessions' in body) {
       const v = body.showBackgroundSessions;
@@ -633,6 +675,37 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       return void res.json({ ok: true, modelPrices: prices.view() });
     }
     res.status(400).json({ ok: false, error: 'no known setting in the request' });
+  });
+
+  // ---- Activity history (#432) ----------------------------------------------------------------
+
+  router.post('/activity-history/preview', (req, res) => {
+    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
+    const s = parseSettings((req.body as { settings?: unknown } | undefined)?.settings, opts.secret !== null);
+    if (!s.ok) return void res.status(400).json({ ok: false, error: s.error });
+    res.json(history.history.preview(s.value));
+  });
+
+  router.get('/stored-activity', (req, res) => {
+    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
+    const q = req.query as Record<string, unknown>;
+    const paging = parsePaging(q);
+    if (!paging.ok) return void res.status(400).json({ ok: false, error: paging.error });
+    const filter = parseFilter(q);
+    if (!filter.ok) return void res.status(400).json({ ok: false, error: filter.error });
+    res.json(history.history.list(filter.value, paging.value.page, paging.value.pageSize));
+  });
+
+  const how = (b: StoredDeleteBody) => ('ids' in b ? 'ticked sessions' : 'match' in b ? 'a filter' : 'everything');
+  const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${r.entries} ${r.entries === 1 ? 'entry' : 'entries'} (${bytesWords(r.bytes)}) from ${countOf(r.sessions, 'session')}, chosen by ${how(b)}`;
+
+  router.post(STORED_DELETE, express.json({ limit: '64kb' }), (req, res) => {
+    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
+    const body = parseDeleteBody(req.body);
+    if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
+    const out = history.history.deleteBy(body.value);
+    audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
+    res.json(out);
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
