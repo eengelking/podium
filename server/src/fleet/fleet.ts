@@ -496,8 +496,14 @@ export class Fleet {
       events: this.events({ limit: STATE_EVENTS }),
       server: { version: serverVersion(), build: serverBuild(), reporterSupport: REPORTER_SUPPORT },
       wall: this.wallView(),
-      features: this.features.view(),
+      // `activity-history` is derived, not an Admin flag: the console reads it to offer the sign-in that stored history needs.
+      features: { ...this.features.view(), 'activity-history': this.activityHistory.enabled() },
     };
+  }
+
+  /** The Admin changed the Activity history setting: open consoles learn whether a sign-in is now offered. */
+  activityHistoryChanged(): void {
+    this.hub.broadcast('snapshot', this.state());
   }
 
   /** The first message a new SSE client gets. */

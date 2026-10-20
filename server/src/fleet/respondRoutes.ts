@@ -15,11 +15,13 @@ import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
 import type { Lockout } from './lockout.js';
 import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type DropWhy } from './respond.js';
-import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
+import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, MAIN_LOOP, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import type { BrowserHelpers } from './peerRoutes.js';
 import type { SessionRow } from './db.js';
 import { FILE_DIFF } from './featureFlags.js';
+import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
+import { parseRead } from './activityHistoryInput.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -98,7 +100,16 @@ function answerError(res: Response, err: AnswerError): void {
   res.status(status).json({ ok: false, ...body });
 }
 
-export function mountRespondRoutes(router: Router, d: RespondDeps): void {
+/** What the fleet router asks of the sign-in once the respond routes are mounted. */
+export interface RespondAccess {
+  /**
+   * Whether the request carries a valid sign-in of the session's owner or an Admin. It never refuses or throws, so a route
+   * that has no sign-in of its own can ask without changing who it answers.
+   */
+  canRead: (req: Request, row: SessionRow) => boolean;
+}
+
+export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAccess {
   const { fleet, people, logger, lockout } = d;
   const now = fleet.now;
   const idleMs = d.signInIdleMs ?? SIGN_IN_IDLE_MS;
@@ -111,7 +122,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
   /** Authentication on and the Admin's file-diff flag (#319). The reporter's fileDiff option is the mod's to check. */
   const diffEnabled = (): boolean => d.token !== null && fleet.features.featureOn(FILE_DIFF);
   /** A browser can sign in when any feature that needs the sign-in is on. The respond routes still need `enabled()`. */
-  const signInEnabled = (): boolean => enabled() || diffEnabled() || (d.alsoSignIn?.() ?? false);
+  /** Authentication on and a keep policy for the Activity history (#432): stored entries are read by a signed-in owner or Admin. */
+  const historyEnabled = (): boolean => d.token !== null && fleet.activityHistorySettings.get().policy !== 'default';
+  const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || (d.alsoSignIn?.() ?? false);
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
     logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
@@ -534,8 +547,53 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): void {
     else res.json({ ok: true });
   });
 
+  /**
+   * A loop's stored Activity history, a page at a time (#432). Only the session's owner or an Admin, signed in. It works with
+   * `respond` off: it needs a keep policy, which needs a token. Any session in the main database, live or not. The text is
+   * never logged.
+   */
+  browser.get('/sessions/:id/activity-history', (req, res) => {
+    const v = viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, 'sign in to open the stored activity');
+      return;
+    }
+    const row = fleet.db.getSession(req.params.id!);
+    if (!row) {
+      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (fleet.activityHistorySettings.get().policy === 'default') {
+      res.status(404).json({ ok: false, error: 'no activity is kept' });
+      return;
+    }
+    if (!viewerOwns(v, row)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return;
+    }
+    const loop = req.query.loop === undefined || req.query.loop === '' ? MAIN_LOOP : req.query.loop;
+    if (typeof loop !== 'string' || (loop !== MAIN_LOOP && !fleet.db.getAgents(row.id).some((a) => a.id === loop))) {
+      res.status(404).json({ ok: false, error: 'unknown loop', path: '$.loop' });
+      return;
+    }
+    const read = parseRead(req.query);
+    if (!read.ok) {
+      res.status(400).json({ ok: false, error: read.error, path: '$.query' });
+      return;
+    }
+    const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
+    const page: ActivityHistoryPage = fleet.activityHistory.page(row.id, loop, read.value.before, limit);
+    res.json(page);
+  });
+
   d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
+  return {
+    canRead: (req, row) => {
+      const v = viewerOf(req);
+      return v !== null && viewerOwns(v, row);
+    },
+  };
 }
 
 /** For the report route: whether this session takes answers now, and what waits for it (6.1). */

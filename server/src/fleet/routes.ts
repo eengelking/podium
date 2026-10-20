@@ -11,7 +11,7 @@ import { ReporterStore, type IgnoreRule, type IgnoreTarget, type ReporterSeen } 
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
-import { mountRespondRoutes, replyFor } from './respondRoutes.js';
+import { mountRespondRoutes, replyFor, type RespondAccess } from './respondRoutes.js';
 import { mountPeerBrowserRoutes, mountPeerRoutes, peerReplyFor, peersEnabled, type PeerDeps } from './peerRoutes.js';
 import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
@@ -126,6 +126,8 @@ const routeName = (req: Request): string => `${req.baseUrl}${(req.route as { pat
 export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): Router {
   const logger = opts.logger ?? (opts.log ? loggerFromLine(opts.log) : createLogger({ secrets: opts.token ? [opts.token] : [] }));
   const router = Router();
+  // Set when the respond routes are mounted below; the live activity route reads the viewer through it.
+  let respondAccess: RespondAccess | undefined;
   const json = express.json({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'] });
 
   const guesses = opts.guesses ?? new GuessThrottle(fleet.now);
@@ -380,6 +382,13 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (!fleet.activity.on) body = { entries: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
     else if (!fleet.isLive(id)) body = { entries: [], since: null, live: false, enabled: true, serverTime: fleet.now() };
     else body = { ...fleet.activity.watch(id, agentId, everyOf(req.query.every)), live: true, enabled: true, serverTime: fleet.now() };
+    // What is stored for this loop, as counts. Present only under a keep policy and when the loop has entries, so under the
+    // default policy the reply is exactly what it was. `canRead` is the viewer's own sign-in; it never refuses the request.
+    const note = fleet.activityHistory.note(id, agentId);
+    if (note) {
+      const row = fleet.db.getSession(id);
+      body.history = { ...note, canRead: !!row && (respondAccess?.canRead(req, row) ?? false), owner: row?.owner ?? null };
+    }
     res.set('Cache-Control', 'no-store').json(body);
   });
 
@@ -499,7 +508,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   mountPeerRoutes(router, peerDeps);
 
   // Responding from Podium (#206): the mod's ask routes and the browser's /respond routes.
-  mountRespondRoutes(router, {
+  respondAccess = mountRespondRoutes(router, {
     fleet,
     token: opts.token ?? null,
     people: opts.people ?? null,

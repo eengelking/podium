@@ -296,3 +296,33 @@ describe('the purge in the sweeper', () => {
     stop();
   });
 });
+
+describe('the console state', () => {
+  it('carries a derived activity-history entry that is true only with a keep policy, a token and the feed flag', () => {
+    const fleet = makeFleet();
+    expect(fleet.state().features['activity-history']).toBe(false);
+    fleet.activityHistorySettings.set({ policy: 'all' });
+    expect(fleet.state().features['activity-history']).toBe(true);
+    fleet.features.setFeature('activity-feed', false);
+    expect(fleet.state().features['activity-history']).toBe(false);
+    expect(makeFleet(false).state().features['activity-history']).toBe(false);
+  });
+
+  it('keeps it out of the Admin flags: the flag view, FEATURES and the stored rows', async () => {
+    const { FEATURES } = await import('./featureFlags.js');
+    const fleet = makeFleet();
+    fleet.activityHistorySettings.set({ policy: 'all' });
+    fleet.features.setFeature('activity-feed', true);
+    expect(fleet.features.view()).not.toHaveProperty('activity-history');
+    expect(FEATURES.map((f) => f.id)).not.toContain('activity-history');
+    const rows = db.db.prepare("SELECT key FROM settings WHERE key LIKE 'feature%'").all() as { key: string }[];
+    expect(rows.some((r) => r.key.includes('activity-history'))).toBe(false);
+  });
+
+  it('broadcasts a fresh snapshot when told the setting changed', () => {
+    const fleet = makeFleet();
+    const spy = vi.spyOn(fleet.hub, 'broadcast');
+    fleet.activityHistoryChanged();
+    expect(spy).toHaveBeenCalledWith('snapshot', expect.objectContaining({ features: expect.objectContaining({ 'activity-history': false }) }));
+  });
+});
