@@ -2,6 +2,15 @@
   <img src="docs/images/podium-logo.png" alt="Podium" width="480">
 </p>
 
+<p align="center">
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Quality Gate" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=alert_status"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Coverage" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=coverage"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Reliability" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=reliability_rating"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Security" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=security_rating"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Maintainability" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=sqale_rating"></a>
+  <a href="https://github.com/eengelking/podium/actions/workflows/codeql.yml"><img alt="CodeQL" height="20" src="https://github.com/eengelking/podium/actions/workflows/codeql.yml/badge.svg"></a>
+</p>
+
 **A Claude Code session is waiting on you...**
 
 Run a few sessions at once and it happens fast. One is stopped at a permission prompt. One has filled its
@@ -79,10 +88,10 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
 | [Gotchas](docs/GOTCHAS.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/GOTCHAS.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |
-| [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing Podium to other people |
+| [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing the dashboard to other people |
 | [Spec](docs/SPEC.md) | The build spec: intended behavior and requirements |
-| [Architecture](docs/ARCHITECTURE.md) | How it was built, where it departs from the spec and why, what was verified, known issues |
-| [Decisions](docs/DECISIONS.md) | Why the significant choices were made |
+| [Architecture](docs/ARCHITECTURE.md) | How it was built, departures from the spec, verification, known issues |
+| [Decisions](docs/DECISIONS.md) | Why a significant choice was made |
 | [Changelog](CHANGELOG.md) | What changed in each release |
 | [Contributing](CONTRIBUTING.md) | How to propose and land a change, and the tests and checks to run (PRs go to `development`, not `main`) |
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |
