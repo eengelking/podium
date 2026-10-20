@@ -575,6 +575,34 @@ describe("stored history (#432)", () => {
     }
   });
 
+  it("caps the live part at the last 500 entries once history is loaded, and leaves the stored pages alone", async () => {
+    const live = (n: number) => entry(n, { at: T0 + n * 1000, kind: "text", text: `Live ${n}` });
+    const many = Array.from({ length: 600 }, (_, i) => live(i + 1));
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply(many, { history: note() })), history: history(page([11, 12], null)) });
+    await flush();
+    await wait(5000);
+    const shown = rows();
+    expect(shown).toHaveLength(502);
+    expect(shown[0]).toContain("s11");
+    expect(shown[1]).toContain("s12");
+    expect(shown[2]).toContain("Live 101");
+    expect(shown[501]).toContain("Live 600");
+  });
+
+  it("applies a live reply at once while the history page is still loading, and merges the page when it arrives", async () => {
+    let resolve!: (p: ActivityHistoryPage) => void;
+    const h = vi.fn<FetchHistory>(() => new Promise<ActivityHistoryPage>((res) => (resolve = res)));
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([entry(1)], { history: note() })), history: h });
+    await flush();
+    expect(screen.getByText(/^Updated \d+s ago$/)).toBeInTheDocument();
+    await wait(5000);
+    expect(rows()).toEqual([expect.stringContaining("Read f1")]);
+    expect(h).toHaveBeenCalledTimes(1);
+    await act(async () => resolve(page([11, 12], null)));
+    await flush();
+    expect(rows()).toEqual([expect.stringContaining("s11"), expect.stringContaining("s12"), expect.stringContaining("Read f1")]);
+  });
+
   it("drops what it showed when a reply says the history is gone or the feed is off", async () => {
     showKept({ fetch: fetcher(reply([], { history: note() }), reply([])), history: history(page([1, 2], null)) });
     await flush();
