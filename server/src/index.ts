@@ -20,7 +20,8 @@ import { PeopleStore } from "./fleet/people.js";
 import { ReporterStore } from "./fleet/reporters.js";
 import { Lockout } from "./fleet/lockout.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
-import { forgetReporters, startSweeper } from "./fleet/sweeper.js";
+import { forgetReporters, purgeActivityHistory, startSweeper } from "./fleet/sweeper.js";
+import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
 import { REPORTER_SUPPORT } from "./fleet/compat.js";
 import { createServerLogging } from "./logging/setup.js";
 import { requestLog } from "./logging/requestLog.js";
@@ -46,10 +47,18 @@ if (TOKEN && TOKEN.length < 24) {
 
 const fleetDb = new FleetDb(openDb(DB_PATH));
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
-const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger);
+// The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
+const activityDb = openActivityDb(activityDbPath(DB_PATH));
+const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null });
 const people = new PeopleStore(fleetDb.db);
 const reporters = new ReporterStore(fleetDb.db, Date.now());
-const stopSweeper = startSweeper(fleet, undefined, logger, () => forgetReporters(reporters, people, logger, Date.now()));
+const stopSweeper = startSweeper(
+  fleet,
+  undefined,
+  logger,
+  () => forgetReporters(reporters, people, logger, Date.now()),
+  () => purgeActivityHistory(fleet.activityHistory, people, logger, Date.now()),
+);
 // The release check (#499): once a day, and only while the Admin's Release check switch is on.
 const stopUpdateCheck = startUpdateCheck(fleet.updates);
 
@@ -130,6 +139,7 @@ function shutdown(signal: string) {
   fleet.close();
   server.close(() => {
     fleetDb.close();
+    fleet.activityHistory.close();
     // The last lines (this shutdown among them) go out before the process does, for at most a second.
     void logging.close(1000).finally(() => process.exit(0));
   });
