@@ -2,6 +2,15 @@
   <img src="docs/images/podium-logo.png" alt="Podium" width="480">
 </p>
 
+<p align="center">
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Quality Gate" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=alert_status"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Coverage" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=coverage"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Reliability" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=reliability_rating"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Security" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=security_rating"></a>
+  <a href="https://sonarcloud.io/summary/overall?id=eengelking_podium"><img alt="Maintainability" height="20" src="https://sonarcloud.io/api/project_badges/measure?project=eengelking_podium&amp;metric=sqale_rating"></a>
+  <a href="https://github.com/eengelking/podium/actions/workflows/codeql.yml"><img alt="CodeQL" height="20" src="https://github.com/eengelking/podium/actions/workflows/codeql.yml/badge.svg"></a>
+</p>
+
 **A Claude Code session is waiting on you...**
 
 Run a few sessions at once and it happens fast. One is stopped at a permission prompt. One has filled its

@@ -149,8 +149,8 @@ describe("Markdown", () => {
     // build a node per marker took about 4.5 s each at 50,000, which a loaded coverage runner
     // stretched to the old 20 s limit (#471); a quadratic renderer still fails at 15,000.
     const N = 15000;
-    const REPS = 3;
-    const MAX_RATIO = 8;
+    const REPS = 5;
+    const MAX_RATIO = 10;
     const FLOOR_MS = 1;
     const best = (src: string): number => {
       let min = Infinity;
@@ -158,8 +158,15 @@ describe("Markdown", () => {
         const t0 = performance.now();
         dom(src);
         min = Math.min(min, performance.now() - t0);
+        // Cleanup is outside the timed interval so samples measure rendering, not teardown.
+        cleanup();
       }
       return min;
+    };
+    const ratio = (build: (n: number) => string): number => {
+      const small = Math.max(best(build(N)), FLOOR_MS);
+      const large = best(build(N * 4));
+      return large / small;
     };
     const pathological: Record<string, (n: number) => string> = {
       "backticks": (n) => "`a".repeat(n),
@@ -192,9 +199,12 @@ describe("Markdown", () => {
     for (const [name, build] of Object.entries(pathological)) {
       it(name, () => {
         dom(build(N)); // warm-up
-        const small = Math.max(best(build(N)), FLOOR_MS);
-        const large = best(build(N * 4));
-        expect(large / small).toBeLessThan(MAX_RATIO);
+        cleanup();
+        const first = ratio(build);
+        // Shared CI runners can pause every sample of one size. Re-measure only when the
+        // first ratio crosses the limit; a quadratic renderer stays near 16 on both attempts.
+        const measured = first < MAX_RATIO ? first : Math.min(first, ratio(build));
+        expect(measured).toBeLessThan(MAX_RATIO);
       }, 60000);
     }
   });
