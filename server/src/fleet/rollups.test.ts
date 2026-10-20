@@ -180,6 +180,15 @@ describe('retention', () => {
     expect(w.fdb.getSession('gone2')).toBeUndefined();
   });
 
+  it('Fleet.retain still prunes when the rollups cannot be written', () => {
+    const w = world();
+    const fleet = new Fleet(w.fdb, { ...DEFAULT_CONFIG, home: '/h', dbPath: ':memory:' }, () => NOW);
+    w.fdb.upsertSession(session({ id: 'old', owner: 'Dana', started_at: at(31, 9), last_seen_at: at(31, 10), ended_at: at(31, 10), cost_usd: 3 }));
+    w.fdb.db.exec('DROP TABLE usage_daily');
+    expect(fleet.retain().sessions).toBe(1);
+    expect(w.fdb.getSession('old')).toBeUndefined();
+  });
+
   it('reads RETAIN_ROLLUP_MS from the environment, 395 days by default', () => {
     const base = { home: '/h', dbPath: 'x' };
     expect(configFromEnv({}, base).retention.rollupMs).toBe(395 * DAY_MS);

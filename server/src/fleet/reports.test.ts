@@ -244,6 +244,8 @@ describe('CSV', () => {
     expect(csvCell(undefined)).toBe('');
     expect(csvCell(-3)).toBe('-3');
     expect(csvCell('a,b')).toBe('"a,b"');
+    expect(csvCell('-')).toBe('-');
+    expect(csvCell('-1x')).toBe("'-1x");
     expect(csvCell('say "hi"\nnow')).toBe('"say ""hi""\nnow"');
     for (const s of ['=1', '+1', '-1', '@x', '\tx']) expect(csvCell(s)).toBe(`'${s}`);
     expect(csvCell(['a', 'b'])).toBe('a b');

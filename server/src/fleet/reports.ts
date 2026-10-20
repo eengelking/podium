@@ -170,7 +170,8 @@ function loadFacts(deps: ReportDeps, from: string, to: string, today: string, co
   }
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
-  f.live = buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
+  // A period that ends before today needs nothing live unless the History links want the stored sessions.
+  if (to === today || withSessions) f.live = buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
   if (to === today) {
     const peaks = peakLiveByDay(db);
     const keep = (d: string) => d === today;
@@ -603,7 +604,7 @@ function safeUsage(text: string): ModelUsage[] {
 export function csvCell(v: string | number | null | string[] | undefined): string {
   if (v === null || v === undefined) return '';
   let s = Array.isArray(v) ? v.join(' ') : String(v);
-  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  if (typeof v === 'string' && s !== '-' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 

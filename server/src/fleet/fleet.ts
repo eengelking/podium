@@ -608,7 +608,12 @@ export class Fleet {
   /** Hourly: retention. */
   retain(): { samples: number; events: number; sessions: number; adminLog: number; peerMessages: number; peerRequests: number } {
     // The daily rollups first (#484), so what retention is about to delete is counted before it goes.
-    writeRollups(this.db, this.now(), costFn(this.prices.pricing()), this.cfg.retention);
+    // A failure here must not stop the pruning below, or every table would grow without limit.
+    try {
+      writeRollups(this.db, this.now(), costFn(this.prices.pricing()), this.cfg.retention);
+    } catch (err) {
+      this.logger.error('retention.rollups_failed', `podium: could not write the daily rollups: ${(err as Error).message}`, { reason: (err as Error).message });
+    }
     const out = this.db.retain(this.now(), this.cfg.retention);
     const peers = this.peers.retain();
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
