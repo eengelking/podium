@@ -36,6 +36,8 @@ Options:
   --ticks N         With --print: stop after N ticks
   -h, --help        Show this help
 
+For history to look at in Admin > Reporting, npx tsx scripts/podium-seed-history.ts --db <throwaway.db> adds about 45 days.
+
 On exit (duration reached, Ctrl-C or SIGTERM) every session it started is reported once more with
 status "done", so nothing is left running in the dashboard. Its reports say hostSurface "simulator", so the
 server never lists it in Admin > Reporters: a run leaves no reporter row behind (#168).`;
