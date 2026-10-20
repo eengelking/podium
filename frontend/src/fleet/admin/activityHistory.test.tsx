@@ -34,7 +34,7 @@ const POLICY_AFTER = { policy: "after", n: 30, unit: "days", capGb: null } as co
 /** A server that keeps history after 30 days with `entries` stored. */
 function kept(entries = 1000, extra: Partial<Server["activity"]> = {}) {
   const s = fakeServer({ unlocked: true });
-  s.activity = { settings: { ...POLICY_AFTER }, totals: { entries, bytes: 430_000, sessions: 5 }, lastPurge: null, authOn: true, ...extra };
+  s.activity = { settings: { ...POLICY_AFTER }, totals: { entries, bytes: 430_000, sessions: 5, fileBytes: 430_000 }, lastPurge: null, authOn: true, ...extra };
   return s;
 }
 async function openPage(name: string | RegExp) {
@@ -102,7 +102,7 @@ describe("Data, the Activity history section", () => {
   });
 
   it("says what is stored now, the last purge, and links to Stored activity", async () => {
-    kept(18_402, { totals: { entries: 18_402, bytes: 8_283_750, sessions: 52 }, lastPurge: { at: Date.UTC(2026, 9, 20, 11, 2), entries: 214, bytes: 98_304 } });
+    kept(18_402, { totals: { entries: 18_402, bytes: 8_283_750, sessions: 52, fileBytes: 8_283_750 }, lastPurge: { at: Date.UTC(2026, 9, 20, 11, 2), entries: 214, bytes: 98_304 } });
     await openData();
     expect(screen.getByText("18,402 entries, 7.9 MB")).toBeInTheDocument();
     expect(screen.getByText(/stored now, in 52 sessions\./)).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("Data, the Activity history section", () => {
   });
 
   it("says no purge has run, and one session in the singular", async () => {
-    kept(1, { totals: { entries: 1, bytes: 100, sessions: 1 } });
+    kept(1, { totals: { entries: 1, bytes: 100, sessions: 1, fileBytes: 100 } });
     await openData();
     expect(screen.getByText(/None since the server started\./)).toBeInTheDocument();
     expect(screen.getByText(/stored now, in 1 session\./)).toBeInTheDocument();
