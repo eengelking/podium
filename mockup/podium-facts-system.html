@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Podium facts grid system</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #427, accepted by the maintainer: Machine and System join the orchestrator facts grid, twelve cells, six to a row (option C, Machine before System).
+   The first version of this file drew three ways to place the cell (A: inside the Reporter cell, B: a full-width row, C: Machine beside System); C was chosen.
+   Drawn on the real orchestrator surface (the page's own .op, .osum, .fh, .facts, .fact and .band, from the markup the app renders in docs/standards/components.html),
+   for four sessions as they appear when several people report to one Podium, wide and then at 400 px under it.
+   The two new cells take the popup Resume and Fork already have (.fact.pop > .tip), not the browser's title tooltip: it opens on hover and on keyboard focus, closes on Escape,
+   holds text only, and the cell points to it with aria-describedby. The system's icons are the ones SystemTag draws on My reporters and Admin > Reporters, and the placeholder is its "Not reported".
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Example data only.
+   New for the standards: facts.six (six columns), fact.pop (a cell with a popup, which Resume and Fork now share), sysi and sys-t (the system's icon and its text, cut with an ellipsis).
+   Classes that start with mk- are this review page's own layout and are not part of the proposal. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.5 var(--font-ui); }
+.mk-bar { position: sticky; top: 0; z-index: 20; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-bar button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-bar button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-bar button:focus-visible { outline: 2px solid var(--deleg-text); outline-offset: 1px; }
+.mk-page { max-width: 1180px; margin: 0 auto; padding-block: 24px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 40px; }
+.mk-page > section { min-width: 0; }
+.mk-page h1 { font-size: 24px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+.mk-page h2 { font-size: 17px; line-height: 1.3; margin: 0 0 6px; }
+.mk-page p { margin: 0; max-width: 74ch; color: var(--ink2); }
+.mk-page code { font-family: var(--font-mono); font-size: 0.92em; }
+.mk-list { margin: 8px 0 0; padding-left: 20px; color: var(--ink2); max-width: 78ch; }
+.mk-list li { margin-bottom: 4px; }
+.mk-list b { color: var(--ink); font-weight: 600; }
+.mk-specs { display: flex; flex-direction: column; gap: 32px; margin-top: 12px; }
+.mk-state { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.mk-state h3 { margin: 0; font-size: 13px; color: var(--ink); }
+.mk-cap { color: var(--muted); font-size: 11.5px; margin-bottom: 4px; }
+.podium .op.mk-narrow { width: 400px; max-width: 100%; }
+/* Holds a popup open for the review; in the app it opens on hover and on keyboard focus. */
+.podium .fact.mk-open > .tip { visibility: visible; opacity: 1; }
+.mk-gap { padding-top: 96px; }
+</style>
+</head>
+<body>
+<div class="mk-bar" role="group" aria-label="Preview controls">
+  <b>Theme</b>
+  <button type="button" data-theme-set="dark" aria-pressed="true">Dark</button>
+  <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+  <span>Every theme in Settings reads the same tokens, so these two stand for all of them.</span>
+</div>
+<div class="mk-page">
+
+<section>
+  <h1>Machine and System in the facts grid</h1>
+  <p>#427 puts the machine a session runs on, and its OS and version such as <code>Fedora Linux 44</code> or <code>macOS 15.4</code>, in the orchestrator facts grid. The grid becomes twelve cells in two rows of six, and two columns by six rows at 640 px and narrower. Row one is Agents, Est. cost, Tokens, Running for, Agent time and Blowouts. Row two is Machine, System, Reporter, Session, Resume and Fork. Blowouts moves from the start of row two to the end of row one to make room.</p>
+  <ul class="mk-list">
+    <li><b>Machine</b> is the host name the reporter sends with its session, in the mono face like the Reporter's version.</li>
+    <li><b>System</b> has the family's icon (a laptop for macOS, a terminal for Linux, a window for Windows, as on My reporters) and the text as the reporter sent it. Long text is cut with an ellipsis, and the popup holds the whole text.</li>
+    <li><b>Popup:</b> the one Resume and Fork already have. It opens above the cell on hover and on keyboard focus, closes on Escape, holds text only, and opens below the cell when the page has no room above it. In the two-column layout a popup in the left column opens to the right, so it stays on the page.</li>
+    <li><b>Not reported:</b> the muted words, as My reporters shows them, never blank or "undefined". The popup says why. An older reporter, or a command that failed, points at updating podium-reporter. A session with no user name (settings hooks, a reporter with no <code>userName</code>, and so every session in the Admin and Unassigned bands) sends no machine at all, so both cells read "Not reported" and the popup points at setting a user name instead.</li>
+    <li><b>History's page:</b> the same two cells from the stored session.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>The four sessions</h2>
+  <p>As they appear when several people report to one Podium. The System popup is held open on the wide pages. Hover or tab to any cell on the page to open its own.</p>
+  <div class="mk-specs" id="specs"></div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  // The app's own icons: the copy icon is IconCopy; the three system icons are SystemTag's.
+  var COPY = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"></rect><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"></path></svg>';
+  var SVG = function (d) { return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + d + '</svg>'; };
+  var ICON = {
+    mac: SVG('<rect x="2" y="3" width="12" height="8" rx="1"></rect><path d="M1 13h14"></path>'),
+    linux: SVG('<rect x="2" y="2.5" width="12" height="11" rx="1.5"></rect><path d="M4.5 6l2 2-2 2M8 10h3"></path>'),
+    win: SVG('<path d="M2 3.5l5-.7v4.7H2zM9 2.6l5-.7v5.6H9zM2 8.5h5v4.7l-5-.7zM9 8.5h5v5.6l-5-.7z"></path>')
+  };
+  var SI = '<svg class="si si-deleg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6"></circle><circle cx="8" cy="8" r="2.2" fill="currentColor" stroke="none"></circle></svg>';
+  var GIT = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="4.5" cy="3.5" r="1.6"></circle><circle cx="4.5" cy="12.5" r="1.6"></circle><circle cx="11.5" cy="5.5" r="1.6"></circle><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6"></path></svg>';
+  var WT = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="2" y="2.5" width="7" height="5" rx="1"></rect><rect x="7" y="8.5" width="7" height="5" rx="1"></rect><path d="M4 7.5v3h3"></path></svg>';
+  var UP = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13V3M4 7l4-4 4 4"></path></svg>';
+  var DIRTY = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="2.6"></circle></svg>';
+
+  var NO_MACHINE = '<b>Not reported.</b> This session sends no machine, so its system is unknown. Podium learns the machine only from a reporter that has a user name. Install podium-reporter and set <code>userName</code> in its options to fill it in.';
+  var OLD = '<b>Not reported.</b> This reporter did not send the machine’s system. It is an older podium-reporter, or the command to read it failed on the machine. Updating podium-reporter fills it in.';
+  var SESSIONS = [
+    { who: 'Dana’s session on dana-mbp, macOS 15.4', machine: 'dana-mbp', kind: 'mac', os: 'macOS 15.4' },
+    { who: 'Ed’s session on ci-01, a long system string', machine: 'ci-01', kind: 'linux', os: 'Fedora Linux 44 (Workstation Edition) · kernel 6.17.4-200.fc44.x86_64' },
+    { who: 'Sam’s session on studio-m2, an older reporter that sends no system', machine: 'studio-m2', kind: null, os: null },
+    { who: 'An Unassigned session: no user name, so no machine and no system', machine: null, kind: null, os: null }
+  ];
+  var tipSeq = 0;
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); }
+
+  // The header, as the page renders it (FocusHeader).
+  function chart(label, val, extra) {
+    var pts = []; for (var i = 0; i <= 60; i++) pts.push((i * 2).toFixed(1) + ',42.0');
+    return '<div class="hc"><div class="ht"><span class="hl">' + label + '</span><span class="hv mono">' + val + '</span></div>' +
+      '<svg viewBox="0 0 120 44" preserveAspectRatio="none" role="img" aria-label="' + label + ', last 60 seconds"><line class="gl" x1="0" x2="120" y1="43.5" y2="43.5"></line><line class="gl" x1="0" x2="120" y1="22" y2="22"></line>' + (extra || '') +
+      '<polyline class="area" points="' + pts.join(' ') + ' 120,44 0,44"></polyline><polyline points="' + pts.join(' ') + '"></polyline></svg><div class="hx"><span>60s ago</span><span>now</span></div></div>';
+  }
+  var HEAD = '<div class="fh"><div class="id"><h1><span class="sd">' + SI + '</span>api-refactor</h1><div class="goal">Migrate invoices to v2 schema<span> · now: Port invoice endpoints</span></div>' +
+    '<div class="sub mono"><span title="Working directory">~/dev/billing-service/.claude/worktrees/invoice-v2</span><span class="sep" aria-hidden="true">|</span><span title="Repository">acme/billing-service</span></div>' +
+    '<div class="git"><span class="br" title="Branch: refactor/invoice-v2">' + GIT + '<span class="brn">refactor/invoice-v2</span></span><span class="wt">' + WT + '<span class="wtn">worktree · invoice-v2</span></span><span title="Commits ahead of origin">' + UP + '7<span class="vh"> ahead</span></span><span class="dirty" title="Modified files">' + DIRTY + '3 modified</span></div></div>' +
+    '<div class="hcs" aria-label="Orchestrator activity, last 60 seconds">' + chart('Tokens per second', '0/s') + chart('Peak context, any loop', '0%', '<line class="lim" x1="0" x2="120" y1="2" y2="2"></line>') + chart('Subagents running', '0') + '</div></div>';
+  var BAND = '<div class="band deleg"><span class="bi">' + SI + '</span><span class="bt"><span class="bl">Delegating to 2 agents.</span><span class="bd">Port the invoice endpoints, Try the second approach</span></span></div>';
+
+  function cell(k, v, vcls, cls, title) { return '<div class="fact' + (cls ? ' ' + cls : '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><div class="k">' + k + '</div><div class="v' + (vcls ? ' ' + vcls : '') + '">' + v + '</div></div>'; }
+  // A cell that only reads, with the popup Resume and Fork have.
+  function pop(k, v, vcls, tip, open) {
+    var id = 'mk-tip-' + (++tipSeq);
+    return '<div class="fact pop' + (open ? ' mk-open' : '') + '" role="group" aria-label="' + k + '" tabindex="0" aria-describedby="' + id + '"><div class="k">' + k + '</div><div class="v' + (vcls ? ' ' + vcls : '') + '">' + v + '</div><div class="tip" role="tooltip" id="' + id + '">' + tip + '</div></div>';
+  }
+  function copyCell(k, text, mono) { return '<div class="fact copy pop"><button type="button" class="cellbtn"><span class="k">' + k + '</span><span class="v ' + (mono ? 'mono' : 'soft') + '"><span>' + text + '</span>' + COPY + '</span></button></div>'; }
+
+  function facts(sy, openSystem) {
+    var machine = sy.machine ? pop('Machine', sy.machine, 'mono', '<b>The machine this session runs on.</b> As its reporter named it.') : pop('Machine', 'Not reported', 'soft', NO_MACHINE);
+    var system = sy.kind ? pop('System', '<span class="sysi">' + ICON[sy.kind] + '</span><span class="sys-t">' + esc(sy.os) + '</span>', '', '<b>The system on this machine.</b> ' + esc(sy.os), openSystem)
+      : pop('System', 'Not reported', 'soft', sy.machine ? OLD : NO_MACHINE, openSystem);
+    return '<div class="facts six">' +
+      cell('Agents', '<span class="n-running">3 running</span><span class="n-done"> / 1 done</span>', 'mono', 'agents') + cell('Est. cost', '$12.84', 'mono', 'cost') + cell('Tokens', '710k', 'mono') +
+      cell('Running for', '16:40', 'mono') + cell('Agent time', '1h 05m', 'mono') + cell('Blowouts', 'none', 'soft', '', 'Times a context window ran over') +
+      machine + system + cell('Reporter', '0.15.0', 'mono', '', "The podium-reporter mod's version in this session") +
+      copyCell('Session', '3f9a21c7', true) + copyCell('Resume', 'Command') + copyCell('Fork', 'Command') + '</div>';
+  }
+  function surface(sy, narrow, openSystem) {
+    return '<div class="podium"><div class="op' + (narrow ? ' mk-narrow' : '') + '"><div class="osum">' + HEAD + facts(sy, openSystem) + BAND + '</div></div></div>';
+  }
+  function cap(t) { return '<div class="mk-cap">' + t + '</div>'; }
+
+  document.getElementById('specs').innerHTML = SESSIONS.map(function (sy) {
+    return '<div class="mk-state"><h3>' + sy.who + '</h3><div class="mk-gap">' + cap('Wide, System popup held open') + surface(sy, false, true) + '</div><div>' + cap('400 px') + surface(sy, true, false) + '</div></div>';
+  }).join('');
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-theme-set]'), function (b) {
+    b.addEventListener('click', function () {
+      document.documentElement.setAttribute('data-theme', b.getAttribute('data-theme-set'));
+      Array.prototype.forEach.call(document.querySelectorAll('[data-theme-set]'), function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+    });
+  });
+  document.documentElement.setAttribute('data-theme', 'dark');
+})();
+</script>
+</body>
+</html>

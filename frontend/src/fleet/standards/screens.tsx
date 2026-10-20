@@ -68,7 +68,7 @@ const nested = [
 function focus(over: Partial<SessionView> = {}, agent: string | null = null): ReactElement {
   return (
     <FocusView
-      s={makeSession({ agents: nested, ...over })}
+      s={makeSession({ agents: nested, machine: { name: "studio-m2", id: "m2", os: "macOS 26.1" }, ...over })}
       now={NOW}
       config={CONFIG}
       sort={{ key: null, dir: 1 }}

@@ -252,23 +252,35 @@ export function ReportChart({ rows, valueKey, column, unit, by }: { rows: Report
   const fmt = (v: number) => formatCell(column, v);
   const label = `${unit}${by ? ` per ${by}` : ""}: ${points.length} ${points.length === 1 ? "period" : "periods"} from ${points[0]!.period} to ${points[points.length - 1]!.period}, highest ${fmt(max)} on ${top.period}, ${fmt(sum)} in all.`;
   const W = 600;
-  const left = 30;
-  const slot = (W - left) / points.length;
+  const slot = W / points.length;
   const bar = Math.max(1, slot * 0.7);
+  const first = points[0]!.period;
+  const last = points[points.length - 1]!.period;
   return (
     <div className="chart">
-      <svg viewBox="0 0 600 120" role="img" aria-label={label} preserveAspectRatio="none">
-        <line className="gl" x1={left} x2={W} y1="20" y2="20" />
-        <line className="gl" x1={left} x2={W} y1="70" y2="70" />
-        <line className="ax" x1={left} x2={W} y1="110" y2="110" />
-        {points.map((p, i) =>
-          p.value === null ? null : (
-            <rect key={p.period} className="bar" x={left + i * slot + (slot - bar) / 2} y={110 - (max > 0 ? (p.value / max) * 90 : 0)} width={bar} height={max > 0 ? (p.value / max) * 90 : 0} />
-          ),
-        )}
-      </svg>
+      <div className="plot">
+        <div className="yl" aria-hidden="true">
+          <span style={{ top: 20 }}>{fmt(max)}</span>
+          <span style={{ top: 70 }}>{fmt(max / 2)}</span>
+          <span style={{ top: 110 }}>{fmt(0)}</span>
+        </div>
+        <svg viewBox="0 0 600 120" role="img" aria-label={label} preserveAspectRatio="none">
+          <line className="gl" x1="0" x2={W} y1="20" y2="20" />
+          <line className="gl" x1="0" x2={W} y1="70" y2="70" />
+          <line className="ax" x1="0" x2={W} y1="110" y2="110" />
+          {points.map((p, i) =>
+            p.value === null ? null : (
+              <rect key={p.period} className="rbar" x={i * slot + (slot - bar) / 2} y={110 - (max > 0 ? (p.value / max) * 90 : 0)} width={bar} height={max > 0 ? (p.value / max) * 90 : 0} />
+            ),
+          )}
+        </svg>
+      </div>
+      <div className="xl" aria-hidden="true">
+        <span>{first}</span>
+        {last !== first && <span>{last}</span>}
+      </div>
       <div className="hint" aria-hidden="true">
-        {points[0]!.period} to {points[points.length - 1]!.period}. Highest: {fmt(max)}.
+        {first} to {last}. Highest: {fmt(max)}.
       </div>
     </div>
   );
