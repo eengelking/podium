@@ -40,7 +40,8 @@ import { RespondProvider, useRespond } from "./useRespond";
 import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
 import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
-import { fleetHash, openIn } from "../route";
+import { fleetHash, openIn, replayIn } from "../route";
+import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
 import { RespondModal } from "./components/Respond";
@@ -130,7 +131,7 @@ interface FleetViewProps {
 export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
-    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
+    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
       <FleetViewBody
         state={props.state}
         updateEvery={props.updateEvery}
@@ -153,6 +154,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // The open orchestrator is kept in the address (`#/?open=<id>`), as History's opened session is (#195).
   const [sel, setSel] = useState<string | null>(() => openIn(window.location.hash));
   const selRef = useRef(sel);
+  // A recording opened as a replay (`#/?open=<id>&replay`, #353): the page that stands in for the orchestrator's, even for a session that ended.
+  const [replaying, setReplaying] = useState(() => replayIn(window.location.hash) !== null);
   const [selAgent, setSelAgent] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [filter, setFilter] = useState<{ status: StatusFilter; q: string }>({ status: "all", q: "" });
@@ -254,7 +257,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // A selected session that leaves the live set clears the selection, with a message, and the address goes back to the wall's.
   // An address naming a session the fleet never had lands on the wall the same way.
   useEffect(() => {
-    if (!sel) return;
+    // A replay is reached for a session that ended too, so it is not told the session left.
+    if (!sel || replaying) return;
     if (selGone || (ready && !selSession)) {
       const name = selSession?.name ?? "That session";
       setNotice(
@@ -267,12 +271,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       setSelAgent(null);
       if (openIn(window.location.hash) === sel) window.history.replaceState(null, "", fleetHash(null));
     }
-  }, [sel, selGone, selSession, ready]);
+  }, [sel, selGone, selSession, ready, replaying]);
 
   // Back, Forward and a link to another address (the logo is one) open the orchestrator the address names.
   useEffect(() => {
     const onNav = () => {
       const open = openIn(window.location.hash);
+      setReplaying(replayIn(window.location.hash) !== null);
       if (open === selRef.current) return;
       selRef.current = open;
       setSel(open);
@@ -319,18 +324,21 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
    */
   const open = (id: string | null, agent: string | null = null) => {
     const shown = openIn(window.location.hash);
+    // Opening any session, the one in the replay included, leaves the replay for the orchestrator's page.
+    const wasReplay = replayIn(window.location.hash) !== null;
     selRef.current = id;
     setSel(id);
     setSelAgent(agent);
     setNotice(null);
+    setReplaying(false);
     // Opening a session, or the fleet, from the board, My reporters or Traffic leaves that page; the selection is made before the route changes.
     if (board || consolePage) window.location.hash = fleetHash(id);
-    else if (id === shown) return;
+    else if (id === shown && !wasReplay) return;
     else if (id === null) {
       if (window.history.state?.open) window.history.back();
       else window.history.replaceState(null, "", fleetHash(null));
     } else if (shown === null) window.history.pushState({ open: true }, "", fleetHash(id));
-    else window.history.replaceState(window.history.state, "", fleetHash(id));
+    else window.history.replaceState(wasReplay ? null : window.history.state, "", fleetHash(id));
   };
   const selectSession = (id: string | null) => open(id);
   const onCloseNotice = (n: NoticeItem) => {
@@ -532,6 +540,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                   <div className="none">Connecting to the Podium server…</div>
                 ) : board ? (
                   <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
+                ) : replaying && sel ? (
+                  <ReplayPage key={sel} id={sel} session={selSession} now={now} />
                 ) : selected ? (
                   <FocusView
                     s={selected}

@@ -96,7 +96,14 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
   const [err, setErr] = useState("");
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
-  const { filter, problem } = filterOf(f);
+  // Source = Recordings (#353) lists and deletes whole recordings from the same file; the loop filter does not apply to one.
+  const [source, setSource] = useState<"activity" | "recordings">("activity");
+  const recs = source === "recordings";
+  const { filter: plain, problem } = filterOf(f);
+  const narrowed: StoredFilter = { ...plain };
+  if (recs) delete narrowed.loop;
+  const filter: StoredFilter = recs ? { ...narrowed, source } : plain;
+  const noun = recs ? "recordings" : "stored activity";
   const list = useList<StoredActivityList>(api, `/stored-activity${query({ page: paging.page, pageSize: paging.pageSize, ...filter })}`, props.onLocked, ACTIVITY_REFRESH_MS);
   const policyList = useList<{ activityHistory?: { settings: { policy: string; n: number; unit: string } } }>(api, "/settings", props.onLocked, ACTIVITY_REFRESH_MS);
   const policy = policyList.data?.activityHistory?.settings;
@@ -166,7 +173,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
       list.reload();
     } catch (e) {
       if (e instanceof AdminError && e.status === 401) props.onLocked();
-      else setErr(activityErrorText(e, "delete the stored activity"));
+      else setErr(activityErrorText(e, `delete the ${noun}`));
     } finally {
       setBusy(false);
     }
@@ -199,7 +206,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             <label className="lab" htmlFor="stored-loop">
               Loop
             </label>
-            <select className="field" id="stored-loop" value={f.loop} onChange={(e) => change({ loop: e.target.value as Filters["loop"] })}>
+            <select className="field" id="stored-loop" value={f.loop} disabled={recs} onChange={(e) => change({ loop: e.target.value as Filters["loop"] })}>
               {LOOPS.map(([id, name]) => (
                 <option key={id} value={id}>
                   {name}
@@ -269,8 +276,9 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             <label className="lab" htmlFor="stored-src">
               Source
             </label>
-            <select className="field" id="stored-src" defaultValue="activity">
+            <select className="field" id="stored-src" value={source} onChange={(e) => (setPending(null), setSel({}), setPaging((p) => ({ ...p, page: 1 })), setSource(e.target.value as "activity" | "recordings"))}>
               <option value="activity">Activity</option>
+              <option value="recordings">Recordings</option>
             </select>
           </div>
         </div>
@@ -325,7 +333,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             </p>
           </div>
         )}
-        <div className="selbar" role="group" aria-label="Delete stored activity">
+        <div className="selbar" role="group" aria-label={`Delete ${noun}`}>
           <span className="count">{nSel ? `${nSel} selected, ${fmtCount(t.entries)} entries, ${fmtBytes(t.bytes)}` : "None selected"}</span>
           <span className="grow" />
           <button
@@ -334,10 +342,10 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             disabled={!nSel}
             onClick={(e) =>
               askFor(e.currentTarget, {
-                what: `the stored activity of ${sessionsText(nSel)}`,
+                what: `the ${noun} of ${sessionsText(nSel)}`,
                 sessions: nSel,
                 ...t,
-                body: { ids: Object.keys(sel) },
+                body: { ids: Object.keys(sel), ...(recs ? { source } : {}) },
                 live: picked.some((r) => r.live),
               })
             }
@@ -347,11 +355,11 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
           <button
             type="button"
             className="btn sm dng"
-            disabled={!data || data.match.sessions === 0 || Object.keys(filter).length === 0 || problem !== ""}
+            disabled={!data || data.match.sessions === 0 || Object.keys(narrowed).length === 0 || problem !== ""}
             onClick={(e) =>
               data &&
               askFor(e.currentTarget, {
-                what: `the stored activity of the ${sessionsText(data.match.sessions)} that ${data.match.sessions === 1 ? "matches" : "match"}: ${describe(filter)}`,
+                what: `the ${noun} of the ${sessionsText(data.match.sessions)} that ${data.match.sessions === 1 ? "matches" : "match"}: ${describe(filter)}`,
                 sessions: data.match.sessions,
                 entries: data.match.entries,
                 bytes: data.match.bytes,
@@ -369,11 +377,11 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             onClick={(e) =>
               data &&
               askFor(e.currentTarget, {
-                what: `all stored activity, for all ${sessionsText(data.totals.sessions)}`,
+                what: `all ${noun}, for all ${sessionsText(data.totals.sessions)}`,
                 sessions: data.totals.sessions,
                 entries: data.totals.entries,
                 bytes: data.totals.bytes,
-                body: { all: true },
+                body: { all: true, ...(recs ? { source } : {}) },
                 live: true,
               })
             }
@@ -388,7 +396,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
         )}
         {list.error && (
           <div className="err" role="alert">
-            {activityErrorText(null, "load the stored activity")}
+            {activityErrorText(null, `load the ${noun}`)}
           </div>
         )}
         {!data && !list.error && <div className="empty">Loading…</div>}

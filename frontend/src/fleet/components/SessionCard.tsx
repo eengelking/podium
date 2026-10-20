@@ -11,6 +11,7 @@ import { Sparkline } from "./Sparkline";
 import { OwnerLine } from "./People";
 import { SessionId } from "./SessionId";
 import { IconPin } from "./Icons";
+import { bandWords } from "../recording";
 
 export const HOOKS_NOTE = "Reported by Claude Code settings hooks, not the reporter mod: context, cost, tokens, the plan and which agent launched which are unavailable, so every agent shows under the orchestrator.";
 
@@ -161,6 +162,8 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   const cls = `card sc${props.entering ? " enter" : ""}${props.leaving ? " leave" : ""}${risk ? " risk" : ""}${detached ? " detached" : ""}`;
   const sinceSeen = Math.max(0, (now - s.lastSeenAt) / 1000);
   const hasNotes = detached || hooks || vNote !== null;
+  // A recording that is capturing is announced on the card, and cannot be closed (#353).
+  const recBand = s.recording ? bandWords(s.recording, now) : null;
   // The card is one big button, so Remove sits beside it in a slot rather than inside it.
   return (
     <div className={`card-slot${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
@@ -272,6 +275,15 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
         <span className="bi"><StateIcon kind={kind} /></span>
         {bandLine(s, kind, sinceSeen, now, config, delegates)}
       </div>
+      {recBand && (
+        <div className="band recording">
+          <span className="dot" aria-hidden="true" />
+          <span className="bl">
+            {recBand.head}
+            <small>{recBand.small}</small>
+          </span>
+        </div>
+      )}
     </button>
     {gate.show !== "none" && (
       <div className="respond-bar">

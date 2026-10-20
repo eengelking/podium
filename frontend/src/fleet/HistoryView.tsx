@@ -16,6 +16,8 @@ import type { PeersApi, RespondApi } from "./respondApi";
 import { ThemePicker } from "./components/ThemePicker";
 import { PAGE_SIZES, Pager } from "./admin/Pager";
 import { useTheme } from "./useTheme";
+import { RespondProvider } from "./useRespond";
+import { fmtWhen } from "./recording";
 import { APP_NAME, type HistoryRow, type SessionView } from "./types";
 
 
@@ -53,9 +55,12 @@ function hashFor(w: Where): string {
   return `#/history?${q.toString()}`;
 }
 
+/** A history row. `recording` says a recording of the session is kept and until when; the server adds it once it lists recordings with History (#353). */
+type Row = HistoryRow & { recording?: { keptUntil: number | null } | null };
+
 interface Paged {
   day: string;
-  rows: HistoryRow[];
+  rows: Row[];
   total: number;
   page: number;
   pageSize: number;
@@ -124,7 +129,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
     let live = true;
     // The table of the page being left stays up while the next one loads; another day's table does not.
     setRows((r) => (r.state === "ok" && r.data.day === day ? r : { state: "loading" }));
-    getJson<{ sessions: HistoryRow[]; total: number; page: number; pageSize: number }>(
+    getJson<{ sessions: Row[]; total: number; page: number; pageSize: number }>(
       `${base}/history?day=${encodeURIComponent(day)}&page=${page}&pageSize=${size}`,
     )
       .then((b) => {
@@ -178,7 +183,10 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                 <button type="button" className="back" style={{ padding: "0 0 10px" }} onClick={() => (window.history.state?.open ? window.history.back() : go({ open: null }))}>
                   ← Back to {day}
                 </button>
-                <FocusView s={s} now={s.lastSeenAt} config={CONFIG} sort={sort} onSort={onSort} selectedAgent={agent} flashAgent={null} onAgent={setAgent} />
+                {/* A session with a recording keeps its layer here, with Open replay and Delete recording for the owner and an Admin (#353). */}
+                <RespondProvider flagsOn={false} recordingOn={s.recording != null} api={respondApi}>
+                  <FocusView s={s} now={s.lastSeenAt} config={CONFIG} sort={sort} onSort={onSort} selectedAgent={agent} flashAgent={null} onAgent={setAgent} />
+                </RespondProvider>
               </>
             ) : session?.state === "loading" ? (
               <div className="none">Loading the session…</div>
@@ -223,6 +231,13 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                               <button type="button" className="lk" onClick={() => go({ open: r.id }, "push")}>
                                 {r.name}
                               </button>
+                              {r.recording && (
+                                <div className="clr">
+                                  <button type="button" className="lk" title="Open the recording of this session" onClick={() => go({ open: r.id }, "push")}>
+                                    recording kept{r.recording.keptUntil !== null ? ` until ${fmtWhen(r.recording.keptUntil, Date.now(), false)}` : ""}
+                                  </button>
+                                </div>
+                              )}
                             </td>
                             <td className="mono">{r.project}</td>
                             <td>
