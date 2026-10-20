@@ -2097,8 +2097,9 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them.
       A bad value is a `400`.
     - Reply: `{ report, from, to, by, tz, basedOn, oldestDay, columns: [{ key, label, unit }], rows, total }`.
-      `oldestDay` is the first day the rollups hold, and a period before it comes back with `rows: []` and
-      `partial: true`, so the page says so instead of drawing zeros. A figure that is unknown is `null`, not 0.
+      `oldestDay` is the first day the rollups hold (today when there are none yet). `partial` is `true` whenever `from` is
+      before it: a period wholly before it has `rows: []`, and one that straddles it returns the rows from `oldestDay`
+      on, so the page says so instead of drawing zeros. `basedOn` is `rollups`, `rollups and live` or `admin log`. A figure that is unknown is `null`, not 0.
     - `format=csv` returns the same `columns` and `rows` as text (RFC 4180, a header row, a cell that starts with
       `=`, `+`, `-` or `@` prefixed with `'`), `Content-Disposition: attachment`. The page's JSON export is the
       reply itself, so an export always matches the screen.
@@ -2106,7 +2107,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
     - **Columns.** Every report's `rows` are objects, and `columns` names their keys in order. `period` is the bucket's
       first day (`YYYY-MM-DD`, or `YYYY-MM` for `by=month`). A money field is `null` when no priced model was
       involved. `breakdown` is a query value that adds a `key` column.
-      - `usage`: `period, people, reporters, sessions, peakLive`. `total` has the same keys over the whole period
+      - `usage`: `period, people, reporters, sessions, peakLive`. `reporters` is the most reporters heard from on any one day
+        in the bucket (a rollup holds a count per day, so a distinct count over a week is not possible). `total` has the same keys over the whole period
         (`people` and `reporters` counted once, `peakLive` the highest).
       - `spend`: `breakdown` is `none` (default), `person`, `group`, `model` or `project`. Rows: `period, key, sessions,
         tokIn, tokOut, costUsd, unpricedSessions`. `key` is absent for `none`.
@@ -2120,7 +2122,8 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
         at most 1,000. It has no `by`.
       - `retention`: `{ tables: [{ name, rows, oldestDay, keptDays }], detail: [{ name, keptDays }] }`.
-      - `spend/projection`: rows `key, runRatePerDay, spentThisMonth, projected` (`null` for both `runRatePerDay` and `projected`
+      - An empty person, group, model or project is `-` in every `key` and in the filters.
+      - `spend/projection` (`horizon=month|30d`, `window=7|14|30`, default 14, `by=person|group`): rows `key, runRatePerDay, spentThisMonth, projected` (`null` for both `runRatePerDay` and `projected`
         when there is too little history, with `reason: 'history'`), a `total` row of the same keys, and the reply carries
         `window: { from, to, days }`, `horizon`, `unpricedSessions` and `historyDays`.
       - `spend/today/:owner`: `total` and, each adding up to it, `bySession: [{ id, name, model, costUsd, share }]`,
@@ -2258,7 +2261,7 @@ CREATE TABLE usage_daily (      -- one row per day, person, model and project; a
   PRIMARY KEY (day, owner, model, project)
 );
 CREATE TABLE sessions_daily (   -- one row per day, outcome, model, effort and plan; durations in whole seconds
-  day TEXT NOT NULL, outcome TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, plan TEXT NOT NULL,   -- outcome: the session's end_reason, or 'running' for one still live when the rollup ran
+  day TEXT NOT NULL, outcome TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, plan TEXT NOT NULL,   -- outcome: the session's end_reason, or 'running' for one still live when the rollup ran; plan: where the session's plan came from (TaskCreate, TodoWrite, podium_plan) or 'none'
   sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL, agents INTEGER NOT NULL, blowouts INTEGER NOT NULL, max_context_pct REAL NOT NULL,
   PRIMARY KEY (day, outcome, model, effort, plan)
 );
@@ -2370,7 +2373,8 @@ The sweeper runs this hourly:
   log.
 - Before it deletes anything, the same run writes the daily rollups (#484): for each day from the oldest
   retained session's day to today, it rebuilds that day's rows in `usage_daily`, `sessions_daily`,
-  `failures_daily` and `fleet_daily` from the rows still stored, in one transaction, so a run twice gives the
+  `failures_daily` and `fleet_daily` from the rows still stored (a day that began before the session retention is
+  skipped, since what is left of it would lower its figures), in one transaction, so a run twice gives the
   same rows. A day whose raw rows are already gone is left as it is. Rollup rows older than 395 days are deleted.
   `peak_live_sessions` is the highest count of sessions live at one second, read from the day's samples while
   they last and never lowered once written (a day's figure only grows).

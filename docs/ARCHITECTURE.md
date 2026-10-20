@@ -566,9 +566,32 @@ The server stores nothing new about people. It adds three things:
 
 **Spend**
 
-Spend by person or group is not on the wall. It is Admin > Spend (`admin/SpendTab.tsx`). That page opens its own
-`useFleet` while it is showing, builds its rows with `spendRows` from `people.ts` and pages them in the browser
-with Admin's `Pager`. Its choices are in `podium.adminSpend`.
+Spend by person or group is not on the wall. It is Admin > Reporting > Spend (#484), `admin/SpendPage.tsx`, whose
+first section is `admin/SpendTab.tsx`. That section opens its own `useFleet` while it is showing, builds its rows with
+`spendRows` from `people.ts` and pages them in the browser with Admin's `Pager`. Its choices are in `podium.adminSpend`.
+A person's row opens `SpendBreakdown.tsx` (#482), which reads `reports/spend/today/:owner`; the sections below it are
+`SpendProjection.tsx` (#483) and the shared period report.
+
+**Reporting (#484)**
+
+Files: `server/src/fleet/rollups.ts`, `reports.ts`, `reportRoutes.ts`, `reportDeps.ts`, `frontend/src/fleet/admin/
+reportsApi.ts`, `useReport.ts`, `ReportParts.tsx`, `ReportPages.tsx`, `scripts/podium-seed-history.ts`.
+
+- The reports read daily rollups (`usage_daily`, `sessions_daily`, `failures_daily`, `fleet_daily`, migration 22), not the
+  detail tables, so they reach back past the 30 days sessions and events are kept. `Fleet.retain()` calls
+  `writeRollups` before `db.retain()` deletes anything. A rebuild of a day is one transaction and gives the same rows
+  twice, a day's `peak_live_sessions` only grows, and a day that began before the session retention is not rebuilt,
+  since the sessions left would lower its figures. Rollup rows past `RETAIN_ROLLUP_MS` (395 days) go.
+- Today has no rollup yet. `buildRollups` makes the same rows from the live tables on every request, so a report is
+  rollups for earlier days plus the live day.
+- `reports.ts` holds the queries and the envelope (`from`, `to`, `by`, `tz`, `basedOn`, `oldestDay`, `partial`, `columns`,
+  `rows`, `total`), the projection and the spend breakdown. The breakdown uses `sessionSpendSince` in `db.ts`, the same
+  per-session since-midnight figure that makes `kpis.costTodayByOwner`, so its parts add up to the table row.
+  `reportRoutes.ts` mounts the routes behind the Admin unlock check and turns a reply into CSV.
+- On the page, `useReport` fetches one report for the chosen period and filters, and the export buttons reuse that
+  reply: JSON is the reply, and CSV is the same query with `format=csv`. Choices are in `podium.adminReporting`.
+- `scripts/podium-seed-history.ts` writes about 45 days of seeded rollups into a throwaway database, so the
+  simulator can show a projection and the long-period reports. It refuses the real database path.
 
 **Mod**
 
@@ -670,9 +693,10 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   and the report reply; the mod finds its own with `hooks/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every
   2 s) and `wall`, and accepts at most 100 clients.
-- **Admin pages.** `AdminView` lists eight pages in three groups: People, Groups and Reporters (People and
-  access); Settings, Model prices and Reporting and security (Server); Spend and Admin log (Activity). Each has a
-  `*Tab.tsx` file under `frontend/src/fleet/admin/`.
+- **Admin pages.** `AdminView` lists fourteen pages in four groups: People, Groups and Reporters (People and
+  access); Settings, Model prices and Security (Server); Usage, Spend, People and groups, Sessions, Failures, Admin
+  activity and Data kept (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
+  `frontend/src/fleet/admin/`, and the Reporting pages share `ReportPages.tsx`.
 - **Mounts.** The server mounts `/api/fleet` and `/api/admin`, then `/api/health` and a 404 for any other `/api`
   path, then serves the built frontend with `*` falling back to `index.html`.
 
