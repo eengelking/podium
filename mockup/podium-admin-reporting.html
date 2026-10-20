@@ -37,7 +37,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 .chart svg { display: block; width: 100%; height: 150px; }
 .chart .gl { stroke: var(--grid); stroke-width: 1; }
 .chart .ax { stroke: var(--axis); stroke-width: 1; }
-.chart .bar { fill: var(--ink2); }
+.chart .rbar { fill: var(--ink2); }
 .chart .tx { fill: var(--muted); font: 10px var(--font-mono); }
 .exp { display: inline-flex; gap: 6px; align-items: flex-end; }
 .partial { padding: 10px 16px; border-bottom: 1px solid var(--border); color: var(--ink); background: var(--raised); font-size: 12.5px; }
@@ -136,7 +136,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <div class="chart"><svg viewBox="0 0 600 150" role="img" aria-label="Sessions started per week: 61, 74, 88, 69, 20 so far this week" preserveAspectRatio="none">
           <line class="gl" x1="30" x2="600" y1="20" y2="20"/><line class="gl" x1="30" x2="600" y1="70" y2="70"/><line class="ax" x1="30" x2="600" y1="120" y2="120"/>
           <text class="tx" x="0" y="23">100</text><text class="tx" x="0" y="73">50</text><text class="tx" x="14" y="123">0</text>
-          <rect class="bar" x="60" y="59" width="70" height="61"/><rect class="bar" x="180" y="46" width="70" height="74"/><rect class="bar" x="300" y="32" width="70" height="88"/><rect class="bar" x="420" y="51" width="70" height="69"/><rect class="bar" x="540" y="100" width="50" height="20"/>
+          <rect class="rbar" x="60" y="59" width="70" height="61"/><rect class="rbar" x="180" y="46" width="70" height="74"/><rect class="rbar" x="300" y="32" width="70" height="88"/><rect class="rbar" x="420" y="51" width="70" height="69"/><rect class="rbar" x="540" y="100" width="50" height="20"/>
           <text class="tx" x="75" y="138">09-21</text><text class="tx" x="195" y="138">09-28</text><text class="tx" x="315" y="138">10-05</text><text class="tx" x="435" y="138">10-12</text><text class="tx" x="545" y="138">10-19*</text>
         </svg></div>
         <div class="tw2"><table class="ptab" aria-label="Usage by week">

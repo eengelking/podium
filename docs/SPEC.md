@@ -3498,7 +3498,8 @@ menu and the page scroll on their own.
   Europe/Berlin time") and what the report is based on and how far back it goes ("Based on daily rollups since
   2026-03-02; today is read live"). The choice is remembered in `localStorage` under `podium.adminReporting`, read
   and written with try/catch.
-- **Report**: a summary row of totals, a chart in a neutral ink (never a hue, as on Spend), the table the chart is
+- **Report**: a summary row of totals, a chart in a neutral ink (never a hue, as on Spend) whose gridlines carry
+  value labels and whose axis names the first and last period, the table the chart is
   drawn from, and the pager. **Export** has **CSV** and **JSON**, and **Print** prints the page without the menu.
   An export is exactly the table's `columns` and `rows` for the chosen period and filters ([7.7](#77-hardening),
   `GET reports/:report`).
