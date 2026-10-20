@@ -896,6 +896,33 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
   });
 
+  it('opens Admin from a sign-in made only for the Activity history: respond off, a keep policy on (#432)', async () => {
+    const { app, fleet, people } = setup({ respond: false });
+    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
+    const priya = people.createPerson('Priya', admins.id);
+    // nothing needs a sign-in yet
+    expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Priya', token: priya.token })).status).toBe(403);
+    expect(fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
+    const agent = await signedIn(app, 'Priya', priya.token);
+    expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
+    expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
+    // an ordinary person is still refused
+    const eve = people.createPerson('Eve');
+    const ed = await signedIn(app, 'Eve', eve.token);
+    expect((await ed.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
+  });
+
+  it('refuses it when respond is off and no keep policy is on, even for a sign-in made earlier (#432)', async () => {
+    const { app, fleet, people } = setup({ respond: false });
+    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
+    const priya = people.createPerson('Priya', admins.id);
+    fleet.activityHistorySettings.set({ policy: 'all' });
+    const agent = await signedIn(app, 'Priya', priya.token);
+    fleet.activityHistorySettings.set({ policy: 'default' });
+    expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
+    expect((await agent.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false, signedIn: false });
+  });
+
   it('does not hold another browser signed in as the same Administrator (#272)', async () => {
     const { app, people } = setup();
     const admins = people.allGroups().find((g) => g.name === 'Administrators')!;

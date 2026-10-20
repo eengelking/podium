@@ -64,6 +64,8 @@ describe('GET and PUT /settings carry the Activity history', () => {
 
   it.each([
     [{ policy: 'after', n: 30, unit: 'days', capGb: null }, 'Activity history set to purge after 30 days, no size cap'],
+    [{ policy: 'after', n: 1, unit: 'hours', capGb: null }, 'Activity history set to purge after 1 hour, no size cap'],
+    [{ policy: 'after', n: 2, unit: 'hours', capGb: null }, 'Activity history set to purge after 2 hours, no size cap'],
     [{ policy: 'end', n: 30, unit: 'days', capGb: 5 }, 'Activity history set to purge when the session ends, size cap 5 GB'],
     [{ policy: 'all', n: 30, unit: 'days', capGb: null }, 'Activity history set to keep everything, no automatic purge, no size cap'],
     [{ policy: 'default', n: 30, unit: 'days', capGb: null }, 'Activity history set to not kept (the default), no size cap'],
@@ -209,7 +211,7 @@ describe('POST /stored-activity/delete', () => {
     expect(history.totals().entries).toBe(2);
     const rows = logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted);
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.detail).toMatch(/^Deleted 3 entries \(\d+(\.\d)? (B|KB)\) from 1 session, chosen by ticked sessions$/);
+    expect(rows[0]!.detail).toMatch(/^Deleted 3 entries \(\d+(\.\d)? (B|KB)\) from 1 session, chosen: ticked sessions$/);
     expect(JSON.stringify(logRows(people))).not.toContain(SECRET_TEXT);
   });
 
@@ -220,7 +222,7 @@ describe('POST /stored-activity/delete', () => {
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { owner: 'Ed' } });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 2, sessions: 1 });
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toContain('chosen by a filter');
+    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toContain('chosen: a filter');
     const withSource = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { source: 'activity', owner: 'Alex' } });
     expect(withSource.body).toMatchObject({ entries: 2, sessions: 1 });
   });
@@ -231,7 +233,7 @@ describe('POST /stored-activity/delete', () => {
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(res.body).toMatchObject({ entries: 1, sessions: 1 });
     expect(history.totals().entries).toBe(0);
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/^Deleted 1 entry .* from 1 session, chosen by everything$/);
+    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/^Deleted 1 entry .* from 1 session, chosen: everything$/);
   });
 
   it('formats a large delete in megabytes', async () => {
@@ -239,6 +241,14 @@ describe('POST /stored-activity/delete', () => {
     store(history, settings, 's1', 'Ed', 30);
     await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/\(\d+\.\d KB\)/);
+  });
+
+  it('groups the digits of a big count in the log row and counts the sessions that lost an entry', async () => {
+    const { agent, history, people } = await unlocked();
+    vi.spyOn(history, 'deleteBy').mockResolvedValue({ entries: 72000, sessions: 20, bytes: 5 * 1024 ** 2, freed: 0 });
+    const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
+    expect(res.body).toMatchObject({ entries: 72000, sessions: 20 });
+    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toBe('Deleted 72,000 entries (5.0 MB) from 20 sessions, chosen: everything');
   });
 
   it('refuses an empty filter, and a filter that only says all', async () => {

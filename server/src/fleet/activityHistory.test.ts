@@ -301,7 +301,8 @@ describe('purge', () => {
   it('under `after` removes entries older than the period, entry by entry, and sessions left empty', async () => {
     const { h, advance } = seed({ policy: 'after', n: 3, unit: 'days' });
     const r = (await h.purge(T0));
-    expect(r).toMatchObject({ entries: 3, sessions: 1 });
+    // two sessions lost entries: `old` lost both of its (and is gone), `running` lost its oldest one
+    expect(r).toMatchObject({ entries: 3, sessions: 2 });
     expect(r.bytes).toBeGreaterThan(0);
     expect(h.totals()).toMatchObject({ entries: 3, sessions: 2 });
     expect(h.lastPurge).toEqual({ at: T0, entries: 3, bytes: r.bytes });
@@ -368,7 +369,7 @@ describe('preview', () => {
     s.h.ingest(report([tool(T0 - 20 * DAY)], [], 'b'), 0, META);
     const next: ActivityHistorySettings = { policy: 'after', n: 5, unit: 'days', capGb: null };
     const p = (await s.h.preview(next));
-    expect(p).toMatchObject({ entries: 2, sessions: 1, stopsCapturing: false });
+    expect(p).toMatchObject({ entries: 2, sessions: 2, stopsCapturing: false });
     expect(s.h.totals().entries).toBe(3);
     s.state.settings = next;
     expect((await s.h.purge(T0))).toMatchObject({ entries: p.entries, bytes: p.bytes, sessions: p.sessions });
@@ -447,7 +448,7 @@ describe('list and delete', () => {
 
     const b = seed();
     const r = (await b.h.deleteBy({ match: { olderThanDays: 3.5 } }));
-    expect(r).toMatchObject({ entries: 2, sessions: 0 });
+    expect(r).toMatchObject({ entries: 2, sessions: 1 }); // alpha-1 lost two entries and keeps one
     expect((await b.h.list({})).rows.find((x) => x.sessionId === 'alpha-1')?.entries).toBe(1);
     expect((await b.h.deleteBy({ match: { loop: 'agents' } }))).toMatchObject({ entries: 1, sessions: 1 });
     expect((await b.h.deleteBy({ match: { q: 'beta' } }))).toMatchObject({ entries: 1, sessions: 1 });
@@ -483,7 +484,7 @@ describe('closing during a removal', () => {
     const purge = h.purge();
     await new Promise((resolve) => setImmediate(resolve));
     h.close();
-    await expect(purge).resolves.toMatchObject({ sessions: 0, freed: 0 });
+    await expect(purge).resolves.toMatchObject({ freed: 0 });
   });
 });
 

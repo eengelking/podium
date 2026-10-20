@@ -342,7 +342,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return sid ? signIns.get(sid) : undefined;
     };
     d.bridge.administratorOf = (req) => {
-      const v = enabled() ? viewerOf(req) : null;
+      const v = signInEnabled() ? viewerOf(req) : null;
       return v?.admin && !signInOf(req)?.adminHeld ? { personId: v.personId } : null;
     };
     d.bridge.hold = (req) => {

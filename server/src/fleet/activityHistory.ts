@@ -594,8 +594,8 @@ export class ActivityHistory {
   }
 
   /**
-   * An estimate of what saving these settings would do now, without doing it. For a keep policy: the entries, bytes and
-   * sessions the purge would remove, counted by index range one session at a time (bytes are the session's average entry
+   * An estimate of what saving these settings would do now, without doing it. For a keep policy: the entries and bytes the
+   * purge would remove and the sessions that would lose at least one entry, counted by index range one session at a time (bytes are the session's average entry
    * size times its entries, and the size cap's part is by bytes alone). `stopsCapturing` is false. For the default policy
    * nothing is removed, so it returns what is stored now (the totals), with `stopsCapturing` true when anything is stored.
    */
@@ -607,7 +607,7 @@ export class ActivityHistory {
     return this.heavy(async () => {
       let entries = 0;
       let bytes = 0;
-      let sessions = 0;
+      const losing = new Set<string>();
       const rows = this.st('SELECT session_id AS sessionId, entries, bytes, oldest_t AS oldestAt, last_t AS lastT FROM stored_sessions WHERE entries > 0').all() as { sessionId: string; entries: number; bytes: number; oldestAt: number; lastT: number }[];
       if (settings.policy === 'after') {
         const cutoff = this.opts.now() - activityPeriodMs(settings);
@@ -615,7 +615,7 @@ export class ActivityHistory {
           const { n } = await this.countIn(r, 't < ?', [cutoff], -Infinity, cutoff);
           entries += n;
           bytes += Math.round((n * r.bytes) / r.entries);
-          if (n >= r.entries) sessions++;
+          if (n > 0) losing.add(r.sessionId);
           await yieldNow();
         }
       } else if (settings.policy === 'end') {
@@ -623,7 +623,7 @@ export class ActivityHistory {
           if (this.opts.isLive(r.sessionId)) continue;
           entries += r.entries;
           bytes += r.bytes;
-          sessions++;
+          losing.add(r.sessionId);
         }
       }
       if (settings.capGb !== null) {
@@ -632,9 +632,16 @@ export class ActivityHistory {
         if (excess > 0) {
           entries += Math.min(stored.entries - entries, Math.ceil(excess / Math.max(stored.bytes / Math.max(stored.entries, 1), 1)));
           bytes += excess;
+          // The oldest entries go first, so a session loses some if it has anything older than the time that share of the
+          // bytes reaches (entries assumed spread evenly in time): an estimate.
+          const share = Math.min(1, excess / Math.max(stored.bytes - bytes + excess, 1));
+          const from = Math.min(...rows.map((r) => r.oldestAt));
+          const to = Math.max(...rows.map((r) => r.lastT));
+          const reach = from + share * (to - from);
+          for (const r of rows) if (r.oldestAt <= reach) losing.add(r.sessionId);
         }
       }
-      return { entries, bytes, sessions, stopsCapturing: false };
+      return { entries, bytes, sessions: losing.size, stopsCapturing: false };
     });
   }
 
@@ -667,9 +674,11 @@ export class ActivityHistory {
         add(await this.removeOldest(stored - s.capGb * (this.opts.capBytesPerGb ?? 1024 ** 3), touched));
       }
       // Closed while a chunk waited its turn: the file is gone, so there is nothing left to tidy or compact.
-      if (this.closed) return { entries, bytes, sessions: 0, freed: 0 };
-      const sessions = this.finish(touched);
-      if (!entries && !sessions) return { entries, bytes, sessions, freed: 0 };
+      // `sessions` is the sessions that lost at least one entry; those left with nothing are dropped inside `finish`.
+      const sessions = touched.sessions.size;
+      if (this.closed) return { entries, bytes, sessions, freed: 0 };
+      const dropped = this.finish(touched);
+      if (!entries && !dropped) return { entries, bytes, sessions, freed: 0 };
       const freed = await this.compact();
       this.last = { at: now, entries, bytes };
       return { entries, bytes, sessions, freed };
@@ -793,7 +802,7 @@ export class ActivityHistory {
 
   /**
    * The Admin's delete: the ticked sessions, everything the filter matches, or everything. Works in chunks, session by
-   * session. `sessions` counts the sessions left with nothing, `bytes` the size of what went, `freed` what the file gave back.
+   * session. `sessions` counts the sessions that lost at least one entry, `bytes` the size of what went, `freed` what the file gave back.
    */
   deleteBy(body: StoredDeleteBody): Promise<StoredDeleteResult> {
     return this.heavy(async () => {
@@ -816,8 +825,9 @@ export class ActivityHistory {
         await each(this.candidates(body.match).map((c) => c.sessionId), ww.sql ? ` AND ${ww.sql}` : '', ww.params);
       }
       // Closed while it ran: the file is gone, so there is nothing to settle or compact.
-      if (this.closed) return { entries, sessions: 0, bytes, freed: 0 };
-      const sessions = this.finish(touched);
+      const sessions = touched.sessions.size;
+      if (this.closed) return { entries, sessions, bytes, freed: 0 };
+      this.finish(touched);
       return { entries, sessions, bytes, freed: entries ? await this.compact() : 0 };
     });
   }
