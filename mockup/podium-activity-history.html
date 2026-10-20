@@ -313,6 +313,20 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   }
   form.addEventListener("change", syncPolicy); form.addEventListener("input", syncPolicy);
   form.addEventListener("reset", function () { setTimeout(syncPolicy, 0); });
+  /* Text goes in as text nodes, never as HTML, so what is typed into a field cannot become markup. */
+  function node(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  function fillParts(parent, parts) { parts.forEach(function (x) { parent.appendChild(Array.isArray(x) ? node("b", "", x[0]) : document.createTextNode(x)); }); }
+  /* The warning-bordered confirmation box: the existing .callout with a warning icon, a title, a sentence and a row of answers. */
+  function callout(title, parts, acts) {
+    var co = node("div", "callout"); co.setAttribute("role", "alert");
+    var ic = document.createElement("span"); ic.innerHTML = warn; co.appendChild(ic.firstChild);
+    co.appendChild(node("h3", "", title));
+    var pp = node("p"); fillParts(pp, parts); co.appendChild(pp);
+    var fa = node("p", "formacts");
+    acts.forEach(function (x) { var bt = node("button", "btn" + (x[3] || ""), x[0]); bt.type = "button"; bt.setAttribute(x[1], x[2]); fa.appendChild(bt); });
+    co.appendChild(fa);
+    return co;
+  }
   var saved = { p: "after", days: 30 };
   function rowText() {
     var label = { default: "Not stored (default)", after: "Purge after " + $("pol-n").value + " " + $("pol-u").value, end: "Purge when the session ends", all: "Keep everything, no automatic purge" }[saved.p];
@@ -325,21 +339,21 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     e.preventDefault();
     var p = pol(), d = daysOf(), box = $("polconfirm"), ask = null;
     if (p === "default" && saved.p !== "default") {
-      ask = { t: "Stop keeping Activity history?", b: "Podium stops capturing now. <b>18,402 entries, 7.9 MB</b> are still stored.",
+      ask = { t: "Stop keeping Activity history?", b: ["Podium stops capturing now. ", ["18,402 entries, 7.9 MB"], " are still stored."],
         acts: [["Stop and delete 18,402 entries", "del", " dng"], ["Stop, keep what is stored", "keep", ""], ["Cancel", "no", ""]],
         done: { del: "Saved. Stopped capturing and removed 18,402 entries (7.9 MB).", keep: "Saved. Stopped capturing. 18,402 entries are still stored, and Stored activity can delete them." }, removed: 18402 };
     } else if (p === "after" && d < (saved.p === "after" ? saved.days : 90)) {
       var span = saved.p === "after" ? saved.days : 90, n = Math.round(18402 * (1 - d / span));
-      ask = { t: "Saving removes entries that are already stored", b: "Everything older than " + $("pol-n").value + " " + $("pol-u").value + " goes at the next purge: <b>" + fmtN(n) + " entries, " + fmtKb(kbOf(n)) + "</b>.",
+      ask = { t: "Saving removes entries that are already stored", b: ["Everything older than " + $("pol-n").value + " " + $("pol-u").value + " goes at the next purge: ", [fmtN(n) + " entries, " + fmtKb(kbOf(n))], "."],
         acts: [["Save and remove " + fmtN(n) + " entries", "del", " dng"], ["Cancel", "no", ""]], done: { del: "Saved. Removed " + fmtN(n) + " entries (" + fmtKb(kbOf(n)) + ")." }, removed: n };
     } else if (p === "end" && saved.p !== "end") {
-      ask = { t: "Saving removes the history of sessions that have ended", b: "The history of the <b>38 ended sessions (6.0 MB)</b> goes at the next purge. Running sessions keep theirs until they end.",
+      ask = { t: "Saving removes the history of sessions that have ended", b: ["The history of the ", ["38 ended sessions (6.0 MB)"], " goes at the next purge. Running sessions keep theirs until they end."],
         acts: [["Save and remove 6.0 MB", "del", " dng"], ["Cancel", "no", ""]], done: { del: "Saved. Removed the history of 38 ended sessions (6.0 MB)." }, removed: 14000 };
     }
     if (!ask) { saved = { p: p, days: d }; rowText(); box.hidden = true; $("polhint").textContent = "Saved. Written to the Admin log."; return; }
     box.hidden = false;
-    box.innerHTML = '<div class="callout" role="alert">' + warn + "<h3>" + ask.t + "</h3><p>" + ask.b + " The file is compacted afterward, so the space comes back. This is written to the Admin log.</p>" +
-      '<p class="formacts">' + ask.acts.map(function (a) { return '<button type="button" class="btn' + a[2] + '" data-pc="' + a[1] + '">' + a[0] + "</button>"; }).join("") + "</p></div>";
+    box.textContent = "";
+    box.appendChild(callout(ask.t, ask.b.concat([" The file is compacted afterward, so the space comes back. This is written to the Admin log."]), ask.acts.map(function (x) { return [x[0], "data-pc", x[1], x[2]]; })));
     box.querySelectorAll("[data-pc]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var k = btn.getAttribute("data-pc");
@@ -347,7 +361,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         if (k === "no") return;
         saved = { p: p, days: d }; rowText();
         $("polhint").textContent = ask.done[k] + " Written to the Admin log.";
-        if (k === "del") { $("k-sum").textContent = fmtN(18402 - ask.removed) + " entries, " + (ask.removed >= 18402 ? "0 KB" : fmtKb(8090 - kbOf(ask.removed))); $("k-last").innerHTML = "<b>Last purge</b> just now removed " + fmtN(ask.removed) + " entries (" + fmtKb(kbOf(ask.removed)) + ")."; }
+        if (k === "del") { $("k-sum").textContent = fmtN(18402 - ask.removed) + " entries, " + (ask.removed >= 18402 ? "0 KB" : fmtKb(8090 - kbOf(ask.removed))); var kl = $("k-last"); kl.textContent = ""; kl.appendChild(node("b", "", "Last purge")); kl.appendChild(document.createTextNode(" just now removed " + fmtN(ask.removed) + " entries (" + fmtKb(kbOf(ask.removed)) + ").")); }
       });
     });
     box.querySelector(".btn.dng, .btn").focus();
@@ -374,9 +388,9 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var live = kind !== "sel" || picked().some(function (r) { return r.querySelector(".badge.ok"); });
     $("s-result").hidden = true;
     $("s-confirm").hidden = false;
-    $("s-confirm").innerHTML = '<div class="callout" role="alert">' + warn + '<h3>Delete ' + what + '?</h3>' +
-      '<p><b>' + e + ' entries, ' + size + '</b> will be removed for good and the space freed. The sessions, History and the live feed are not touched. This is written to the Admin log.' + (live ? ' A session that is still running keeps being captured while the policy keeps history.' : '') + '</p>' +
-      '<p class="formacts"><button type="button" class="btn dng" data-do="' + kind + '">Delete ' + e + ' entries</button><button type="button" class="btn" data-do="no">Keep them</button></p></div>';
+    $("s-confirm").textContent = "";
+    $("s-confirm").appendChild(callout("Delete " + what + "?", [[e + " entries, " + size], " will be removed for good and the space freed. The sessions, History and the live feed are not touched. This is written to the Admin log." + (live ? " A session that is still running keeps being captured while the policy keeps history." : "")],
+      [["Delete " + e + " entries", "data-do", kind, " dng"], ["Keep them", "data-do", "no", ""]]));
     $("s-confirm").querySelectorAll("[data-do]").forEach(function (b) {
       b.addEventListener("click", function () {
         $("s-confirm").hidden = true;
