@@ -14,6 +14,7 @@ import { createRouter } from "./routes.js";
 import { FleetDb, openDb } from "./fleet/db.js";
 import { configFromEnv, Fleet } from "./fleet/fleet.js";
 import { createFleetRouter } from "./fleet/routes.js";
+import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { PeopleStore } from "./fleet/people.js";
 import { ReporterStore } from "./fleet/reporters.js";
@@ -76,7 +77,7 @@ const respondBridge = createRespondBridge();
 // Responding over plain HTTP beyond loopback sends the sign-in unencrypted: say so, never block (#306).
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 app.use(createRouter());
 
 app.use(express.static(frontendDist));
@@ -109,6 +110,7 @@ const server = app.listen(PORT, HOST, () => {
     retain_events_ms: fleetConfig.retention.eventsMs,
     retain_sessions_ms: fleetConfig.retention.sessionsMs,
     retain_admin_log_ms: fleetConfig.retention.adminLogMs,
+    retain_rollup_ms: fleetConfig.retention.rollupMs,
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
   logger.info("server.console", `Podium fleet console: http://${HOST}:${PORT}/#/  (database ${DB_PATH})`, { url: `http://${HOST}:${PORT}/#/` });

@@ -17,6 +17,8 @@ import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
 import type { PeerService } from '../fleet/peers.js';
 import { messageView, rangeOf } from '../fleet/peerRoutes.js';
+import { createReportRouter } from '../fleet/reportRoutes.js';
+import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
@@ -35,6 +37,8 @@ export interface AdminRouterOptions {
   reporters?: ReporterStore;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
   peers?: PeerService;
+  /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
+  reports?: ReportDeps;
   now?: () => number;
   /** Idle time before a session ends. */
   idleMs?: number;
@@ -630,6 +634,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }
     res.status(400).json({ ok: false, error: 'no known setting in the request' });
   });
+
+  if (opts.reports) router.use('/reports', createReportRouter(opts.reports));
 
   router.get('/log', (req, res) => {
     res.json({ ...people.listLog(paging(req)), ...(opts.logRetainMs === undefined ? {} : { retainMs: opts.logRetainMs }) });

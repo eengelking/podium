@@ -267,6 +267,33 @@ CREATE INDEX IF NOT EXISTS peer_messages_from ON peer_messages(from_session);`,
     // The last plan a session reported, kept while a report carries none, so the finish order of its steps survives the gap (#465).
     sql: 'ALTER TABLE sessions ADD COLUMN plan_kept_json TEXT;',
   },
+  {
+    version: 22,
+    // The daily rollups Admin > Reporting reads (#484, SPEC 7.2). Counts, tokens, cost and names only: never a prompt, an
+    // answer, a tool's input or a path. A day is a calendar day in the server's time zone; a session counts on the day it
+    // was last seen. Written by the hourly retention (rollups.ts) before it deletes anything.
+    sql: `
+CREATE TABLE IF NOT EXISTS usage_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, group_name TEXT NOT NULL, model TEXT NOT NULL, project TEXT NOT NULL,
+  sessions INTEGER NOT NULL, agents INTEGER NOT NULL, cost_usd REAL NOT NULL,
+  unpriced_sessions INTEGER NOT NULL, tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, model, project)
+);
+CREATE TABLE IF NOT EXISTS sessions_daily (
+  day TEXT NOT NULL, outcome TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, plan TEXT NOT NULL,
+  sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL, agents INTEGER NOT NULL, blowouts INTEGER NOT NULL, max_context_pct REAL NOT NULL,
+  PRIMARY KEY (day, outcome, model, effort, plan)
+);
+CREATE TABLE IF NOT EXISTS failures_daily (
+  day TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, tool TEXT NOT NULL, count INTEGER NOT NULL,
+  PRIMARY KEY (day, owner, class, tool)
+);
+CREATE TABLE IF NOT EXISTS fleet_daily (
+  day TEXT PRIMARY KEY, active_people INTEGER NOT NULL, active_reporters INTEGER NOT NULL,
+  sessions_started INTEGER NOT NULL, peak_live_sessions INTEGER NOT NULL,
+  reporter_versions_json TEXT NOT NULL, engine_versions_json TEXT NOT NULL
+);`,
+  },
 ];
 
 export interface SessionRow {
@@ -394,6 +421,18 @@ export interface CostRow {
   usage_json: string | null;
 }
 export type CostOf = (row: CostRow) => number | null;
+
+/** One session's share of the spend since some moment (`sessionSpendSince`). */
+export interface SessionSpend {
+  id: string;
+  name: string;
+  model: string | null;
+  owner: string | null;
+  grp: string | null;
+  usd: number;
+  priced: boolean;
+  usageJson: string | null;
+}
 const storedCost: CostOf = (r) => r.cost_usd;
 
 export interface RetentionPolicy {
@@ -402,7 +441,12 @@ export interface RetentionPolicy {
   sessionsMs: number;
   /** Admin log rows older than this go, except the newest `ADMIN_LOG_KEEP` (#303). */
   adminLogMs: number;
+  /** Daily rollup rows older than this go (#484); 395 days when absent. */
+  rollupMs?: number;
 }
+
+/** How long a daily rollup row is kept by default: a year and a month, so a year-on-year look still has its month (#484). */
+export const ROLLUP_KEEP_MS = 395 * 86_400_000;
 
 /** The admin log always keeps this many of its newest rows, however old, so a quiet server keeps some history. */
 export const ADMIN_LOG_KEEP = 100;
@@ -525,9 +569,9 @@ export class FleetDb {
    * no sample at all adds nothing. `cost` says what a session costs in all (the Admin's
    * prices repriced from its usage); by default its stored cost_usd. That total is scaled by the ledger's share.
    */
-  private spendSince(since: number, cost: CostOf): { owner: string | null; grp: string | null; usd: number }[] {
+  private spendSince(since: number, cost: CostOf): SessionSpend[] {
     const rows = this.stmt(
-      `SELECT s.id AS id, s.owner AS owner, g.name AS grp, s.cost_usd AS cost_usd, s.usage_json AS usage_json, s.started_at AS started_at,
+      `SELECT s.id AS id, s.name AS name, s.model AS model, s.owner AS owner, g.name AS grp, s.cost_usd AS cost_usd, s.usage_json AS usage_json, s.started_at AS started_at,
          COALESCE(
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.t < :sec AND m.cost_usd IS NOT NULL ORDER BY m.t DESC LIMIT 1),
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
@@ -536,20 +580,24 @@ export class FleetDb {
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
       id: string;
+      name: string;
+      model: string | null;
       owner: string | null;
       grp: string | null;
       started_at: number;
       base: number | null;
     })[];
     return rows.map((r) => {
-      const total = cost(r) ?? 0;
-      if (r.started_at >= since) return { owner: r.owner, grp: r.grp, usd: total };
+      const whole = cost(r);
+      const total = whole ?? 0;
+      const id = { id: r.id, name: r.name, model: r.model, owner: r.owner, grp: r.grp, priced: whole !== null, usageJson: r.usage_json };
+      if (r.started_at >= since) return { ...id, usd: total };
       // No ledger figure now (the mod sends none on a local model): split by the priced usage on the sample before
       // `since` instead, so the Claude spend of an earlier part of the day is not lost (#286).
-      if (r.cost_usd === null) return { owner: r.owner, grp: r.grp, usd: Math.max(0, total - this.pricedUsageAt(r.id, since, cost)) };
+      if (r.cost_usd === null) return { ...id, usd: Math.max(0, total - this.pricedUsageAt(r.id, since, cost)) };
       const ledger = r.cost_usd;
       const share = r.base === null || ledger <= 0 ? 0 : Math.max(0, ledger - r.base) / ledger;
-      return { owner: r.owner, grp: r.grp, usd: total * share };
+      return { ...id, usd: total * share };
     });
   }
 
@@ -579,6 +627,20 @@ export class FleetDb {
       usage = full?.usage_json ?? null;
     }
     return usage === null ? 0 : (cost({ cost_usd: null, usage_json: usage }) ?? 0);
+  }
+
+  /**
+   * Every session's share of the spend at or after `since`, in the order `costTodayByOwner` adds them, so a cut of it adds up
+   * to the same total (#482). `priced` is false when the session has no price (its `usd` is then 0).
+   */
+  sessionSpendSince(since: number, cost: CostOf = storedCost): SessionSpend[] {
+    return this.spendSince(since, cost);
+  }
+
+  /** Σ cost_usd_est of the agents of a session, repriced with `cost`; agents with no figure add nothing. */
+  agentCostOf(sessionId: string, cost: CostOf): number {
+    const rows = this.stmt('SELECT cost_usd_est AS cost_usd, usage_json FROM agents WHERE session_id = ?').all(sessionId) as unknown as CostRow[];
+    return rows.reduce((n, r) => n + (cost(r) ?? 0), 0);
   }
 
   /** Σ spend at or after `since` (see `spendSince`). */
