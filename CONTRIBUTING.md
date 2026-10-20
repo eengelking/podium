@@ -52,7 +52,13 @@ scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open 
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
 scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code sessions in tmux (costs model usage)
+node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
+node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
 ```
+
+`page-shot.mjs` is how to see a UI change at a narrow width in the built app. Start a throwaway server on its own port and database
+(`PORT=4391 PODIUM_DB=/tmp/x.sqlite PODIUM_TOKEN=secret node server/dist/index.js` after `npm run build`), seed it, and run
+`node scripts/page-shot.mjs --url 'http://127.0.0.1:4391/#/me/reporters' --width 400`. It needs Chrome or Chromium and Node 22 or later.
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
 have no Claude Code, so run those yourself when you touch the mod.
