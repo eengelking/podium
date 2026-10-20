@@ -3135,6 +3135,10 @@ activity panel and legend as the wall, with the board in the middle.
   is pinned. In the stacked narrow layout, where the page scrolls as a whole, the strip is pinned to the bottom
   of the viewport instead, above the legend. It keeps its label and its place in the tab order, after the
   columns.
+- In wall mode the columns are as tall as the space between the Board header and the legend, and end at the
+  legend's top edge, so they follow the window as it is resized or goes fullscreen. A column with more cards
+  than fit scrolls inside itself and the page does not scroll. With the strip showing, the columns end above it,
+  which keeps its 16 px of space from the legend (#497).
 - A finished session is one whose steps are all done and whose status is stale or done, so its Done cards
   leave the board. A running or waiting session whose steps are all done keeps them.
 - When no session has steps the board says "No plans on the board" and the pinned strip lists them all.

@@ -386,7 +386,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   });
 
   return (
-    <div ref={root} className={`podium${panes.wall ? " wall-on" : ""}${idle ? " idle" : ""}${visible ? "" : " paused"}`}>
+    <div ref={root} data-wall={panes.wall ? "" : undefined} className={`podium${panes.wall ? " wall-on" : ""}${idle ? " idle" : ""}${visible ? "" : " paused"}`}>
       {panes.collapsed.top && wallButton && (
         <div className="wall-ctl" data-wall-control>
           {wallButton}

@@ -1103,6 +1103,13 @@ body.modal-open #root { filter: blur(5px); }
 .podium .kb-none li a:hover { border-color: var(--axis); color: var(--ink); }
 .podium .kb-none li i { width: 8px; height: 8px; border-radius: 2px; background: var(--c); }
 .podium .kb-why { color: var(--muted); }
+/* Wall mode (#497): the board is as tall as .main, so the columns end at the legend. Each column scrolls its own cards, and .main scrolls only on a window too short for the header and a 160px board; with the strip of sessions with no open steps (#359) the columns end above it, as the strip's own rules leave room for it, and with no strip they reach the legend. */
+.podium[data-wall] .main:has(> .kb) { display: flex; flex-direction: column; overflow: auto; padding-bottom: 0; }
+.podium[data-wall] .kb { flex: 1; min-height: 0; }
+.podium[data-wall] .kb:not(:has(> .kb-none)) { padding-bottom: 0; }
+.podium[data-wall] .kb-board { flex: 1; min-height: 160px; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding-bottom: 0; }
+.podium[data-wall] .kb-col { max-height: none; min-height: 0; }
+.podium[data-wall] .kb-card { scroll-margin-bottom: 8px; }
 @container (max-width: 640px) {
   .podium .kb-board { grid-template-columns: 1fr; }
   .podium .kb-tabs { display: flex; }

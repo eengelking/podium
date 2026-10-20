@@ -192,6 +192,8 @@ describe("the top bar", () => {
     await flush();
     fireEvent.keyDown(document, { key: "w" });
     expect(container.querySelector(".podium")).toHaveClass("wall-on");
+    // The Board's wall-mode layout (#497) keys off this attribute, which tracks the class.
+    expect(container.querySelector(".podium")).toHaveAttribute("data-wall");
     rerender(<FleetView myReporters state={state} respondApi={api} peersApi={server.api} />);
     await flush();
     expect(container.querySelector(".podium")).toHaveClass("wall-on");
