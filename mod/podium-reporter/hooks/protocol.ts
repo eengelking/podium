@@ -553,12 +553,14 @@ export interface ReportReply {
  * troubleshooting. Three yes answers are needed before anything leaves the machine: the Admin's `session-recording` flag,
  * a choice by the session's owner or an Admin, and the reporter's `sessionRecording` option (off by default).
  */
-export const RECORDING_KINDS = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'gap', 'stopped', 'limit'] as const;
+export const RECORDING_KINDS = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'decision', 'gap', 'stopped', 'limit'] as const;
 /**
  * What one recorded entry is. The mod writes `prompt` (a task prompt, a person's prompt or a message from Podium), `text` (what the
  * model wrote), `tool` (a call with its whole input), `result` (that call's whole output, `name` the tool, `failed` when it failed),
  * `thinking` (a mark where the model thought; its text is not available, see SPEC 6.4), `clear` and `compact` (the transcript was
- * emptied or compacted) and `gap` (`lost` entries never reached the server). The server writes `stopped` and `limit` itself.
+ * emptied or compacted; `by` when Podium ran it), `decision` (an answer or approval sent from Podium and taken by Claude Code: `name`
+ * is `question`, `plan` or `permission`, `callSeq` the call it answers, `by` who sent it, `failed` when it refused: a deny, a plan sent
+ * back) and `gap` (`lost` entries never reached the server). The server writes `stopped` and `limit` itself.
  */
 export type RecordingKind = (typeof RECORDING_KINDS)[number];
 
@@ -583,6 +585,8 @@ export interface RecordingEntry {
   cut?: boolean;
   /** For `gap`: how many entries of this loop were dropped on the machine (the queue was full during an outage). */
   lost?: number;
+  /** For `decision`, `clear` and `compact`: who sent it from Podium. Taken from the mod for these kinds only; a `prompt` is marked by the server (SPEC 6.4). */
+  by?: string;
 }
 
 /** What one request to the recording route carries. The mod splits a larger backlog so each request stays within RECORDING_LIMITS.bodyBytes. */

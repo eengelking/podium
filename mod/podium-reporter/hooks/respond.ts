@@ -223,6 +223,38 @@ export function planFeedback(d: Delivery): { deny: string } {
   };
 }
 
+const PLAN_WORDS: Record<PlanMode, string> = { auto: 'and use auto mode', acceptEdits: 'auto-accept edits', default: 'manually approve edits' };
+
+/**
+ * What a recording keeps of an answer or approval from Podium (#353): which kind of ask it settled, and what was chosen, in
+ * the words Claude Code received it in. `failed` when it refused: a deny, a plan sent back. `questions` are the ones as Claude asked
+ * them, so the answers by position read back as labels. The text is redacted by the recorder.
+ */
+export function decisionRecord(
+  d: Delivery,
+  askKind: Ask['kind'],
+  questions?: readonly { question: string; options: readonly { label: string }[] }[],
+): { name: Ask['kind']; text: string; failed?: true; by: string } {
+  const by = d.by;
+  const reply = (d.text ?? '').trim();
+  if (askKind === 'question') {
+    if (d.kind === 'reply') return { name: 'question', text: `Replied in place of an answer: ${reply}`, by };
+    const text = Object.entries(answersMap(questions ?? [], d.answers ?? []))
+      .map(([q, a]) => `${q}: ${a}`)
+      .join('\n');
+    return { name: 'question', text, by };
+  }
+  if (askKind === 'plan') {
+    if (d.kind === 'plan-approve') return { name: 'plan', text: `Approved the plan (${PLAN_WORDS[d.mode ?? 'auto']})`, by };
+    if (d.kind === 'reply') return { name: 'plan', text: `Replied in place of approving the plan: ${reply}`, failed: true, by };
+    return { name: 'plan', text: `Sent the plan back: ${reply || 'No, keep planning'}`, failed: true, by };
+  }
+  if (d.kind === 'allow-once') return { name: 'permission', text: 'Allowed once', by };
+  // A message sent in place of an answer denies the tool with it, as the mod's decision does.
+  const message = (toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d).decision as { message: string }).message;
+  return { name: 'permission', text: `Denied: ${message}`, failed: true, by };
+}
+
 /** How a rejected ExitPlanMode ended in the terminal: feedback from "Tell Claude what to change", or Esc (verified on 2.1.301). */
 export function planRejection(text: string | undefined): 'feedback' | 'closed' {
   return /the user said:/i.test(text ?? '') ? 'feedback' : 'closed';

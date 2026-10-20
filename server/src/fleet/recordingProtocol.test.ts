@@ -29,6 +29,13 @@ describe('validateRecordingBatch (#353)', () => {
       expect(v.ok && v.batch.entries[0].text).toBe('');
     }
   });
+  it('takes a decision, and the sender (`by`) on a decision, a clear and a compact only (#353, answers and approvals)', () => {
+    const d = { loop: '@orchestrator', seq: 2, at: 5, kind: 'decision', name: 'permission', callSeq: 1, failed: true, text: 'Denied: no', by: 'Ed' };
+    const v = validateRecordingBatch(batch([d, { ...d, seq: 3, kind: 'clear', text: '' }, { ...d, seq: 4, kind: 'compact', text: '' }, { ...entry, seq: 5, kind: 'prompt', by: 'Mallory' }]));
+    expect(v.ok && v.batch.entries.map((e) => e.by)).toEqual(['Ed', 'Ed', 'Ed', undefined]);
+    expect(v.ok && v.batch.entries[0]).toMatchObject({ kind: 'decision', name: 'permission', callSeq: 1, failed: true });
+    expect(validateRecordingBatch(batch([{ ...d, by: 5 }])).ok).toBe(false);
+  });
   it('needs the number lost on a gap', () => {
     expect(validateRecordingBatch(batch([{ loop: 'a1', seq: 4, at: 1, kind: 'gap' }])).ok).toBe(false);
     expect(validateRecordingBatch(batch([{ loop: 'a1', seq: 4, at: 1, kind: 'gap', lost: 0 }])).ok).toBe(false);

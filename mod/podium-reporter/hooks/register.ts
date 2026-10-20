@@ -88,6 +88,7 @@ import {
 import {
   answeredLine,
   answersMap,
+  decisionRecord,
   LINE_MESSAGES_ON,
   LINE_OPEN,
   planApproval,
@@ -235,6 +236,8 @@ interface OpenAsk {
   notTaken: boolean;
   /** A tool: the answer the PermissionRequest hook returned. */
   answered: Delivery | null;
+  /** When the PermissionRequest hook returned that answer (the recording keeps the moment it was decided). */
+  answeredAt: number;
   /**
    * Something still waits on the server for this ask's answer. Once the wait gives up (responding turned off, the ask
    * closed there) the ask stops riding in reports, so the server never learns it again and takes an answer nobody collects.
@@ -269,6 +272,10 @@ let lastPermissionAt = 0;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
+let callSeqs = new Map<string, number>();
+/** A /clear or /compact sent from Podium and running now: the first mark of that kind is Podium's, and only while the command runs (#353). */
+let ranFromPodium: { command: 'clear' | 'compact'; by: string } | null = null;
 let messagesLineShown = false;
 const EXPLAIN_MODEL = 'haiku';
 
@@ -608,7 +615,7 @@ async function switchSession($: Engine, r: Runtime, newId: string, now: number):
   const cleared = !r.state.ended || r.state.endReason === 'clear';
   for (const a of asks.values()) if (a.sessionId === oldId) a.done = true;
   if (!r.state.ended) {
-    recorder.clear(MAIN_LOOP, nowMs());
+    recorder.clear(MAIN_LOOP, nowMs(), takePodiumCommand('clear'));
     r.state = sessionEnd(r.state, 'clear', r.state.id, now);
     await r.transport.idle();
     await flushOnce($, r, now, true);
@@ -885,7 +892,7 @@ async function announce($: Engine, a: OpenAsk): Promise<number> {
 }
 
 function openAsk(r: Runtime, ask: Ask, questions?: OpenAsk['questions']): OpenAsk {
-  const a: OpenAsk = { ask, sessionId: r.state.id, questions, done: false, announced: false, approval: null, approvalWaiters: [], notTaken: false, answered: null, listening: true };
+  const a: OpenAsk = { ask, sessionId: r.state.id, questions, done: false, announced: false, approval: null, approvalWaiters: [], notTaken: false, answered: null, answeredAt: 0, listening: true };
   asks.set(ask.id, a);
   r.state = { ...r.state, dirty: true };
   return a;
@@ -1003,6 +1010,7 @@ async function questionRace($: Engine, r: Runtime, e: { tool_use_id: string; age
     finish(a);
     queueResult(a.sessionId, d.id, 'took');
     transcriptLine($, answeredLine(d, nowMs()));
+    recordDecision(e.agentId, e.tool_use_id, d, 'question', a.questions);
     const questions = e.questions;
     return d.kind === 'reply' ? { result: { questions, answers: {}, response: d.text ?? '' } } : { result: { questions, answers: answersMap(a.questions ?? [], d.answers ?? []) } };
   }
@@ -1028,6 +1036,7 @@ async function planRace($: Engine, r: Runtime, e: { tool_use_id: string; agentId
     finish(a);
     queueResult(a.sessionId, first.d.id, 'took');
     transcriptLine($, answeredLine(first.d, nowMs()));
+    recordDecision(e.agentId, e.tool_use_id, first.d, 'plan');
     return planFeedback(first.d);
   }
   const res = first.res as ToolResult;
@@ -1038,6 +1047,7 @@ async function planRace($: Engine, r: Runtime, e: { tool_use_id: string; agentId
     queueResult(a.sessionId, approval.id, 'took');
     // Only now, once Claude Code took it: the terminal never reads "Approved from Podium" for one that didn't.
     transcriptLine($, answeredLine(approval, nowMs()));
+    recordDecision(e.agentId, e.tool_use_id, approval, 'plan');
   } else {
     if (approval) queueResult(a.sessionId, approval.id, 'closed');
     if (approved) queueClose(a, 'terminal', { planApproved: true });
@@ -1153,7 +1163,8 @@ async function permissionAsk($: Engine, r: Runtime, e: { tool_name: string; tool
   const d = await waitForAnswer($, a, (x) => (x.kind === 'allow-once' ? !a.ask.tool?.cut : x.kind === 'deny' || x.kind === 'reply') && responding(rt, 'permission'));
   if (!d || a.done) return null;
   a.answered = d;
-  transcriptLine($, answeredLine(d, nowMs()));
+  a.answeredAt = nowMs();
+  transcriptLine($, answeredLine(d, a.answeredAt));
   return toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d);
 }
 
@@ -1168,8 +1179,11 @@ function settleToolAsk(id: string, res: ToolResult | undefined): void {
   const sent = d && d.kind !== 'allow-once' ? (toolDecision(d.kind === 'reply' ? { ...d, kind: 'deny' } : d).decision as { message?: string }).message : undefined;
   const denied = toolDenied(res, sent);
   finish(a);
-  if (d && (d.kind === 'allow-once') === !denied) queueResult(a.sessionId, d.id, 'took');
-  else {
+  if (d && (d.kind === 'allow-once') === !denied) {
+    queueResult(a.sessionId, d.id, 'took');
+    // Only now, once the call ended the way the decision said: a decision the terminal beat is not recorded as Podium's.
+    recordDecision(a.ask.agentId, id, d, 'permission', undefined, a.answeredAt);
+  } else {
     if (d) queueResult(a.sessionId, d.id, 'closed');
     queueClose(a, 'terminal', { answer: denied ? 'denied' : 'allowed' });
   }
@@ -1239,6 +1253,10 @@ async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void>
 
 /** /clear or /compact, as if the person typed it, once the session is idle. Never any other command. */
 async function runCommand($: Engine, sid: string, d: Delivery, command: 'clear' | 'compact'): Promise<void> {
+  // While it runs, the first mark of its kind in a recording is Podium's, with the sender (#353). It ends with the command, so a
+  // person's own /clear or /compact afterwards is never marked as Podium's.
+  const mine = { command, by: d.by };
+  ranFromPodium = mine;
   try {
     await $.command.run({ command });
     transcriptLine($, answeredLine(d, nowMs()));
@@ -1246,6 +1264,8 @@ async function runCommand($: Engine, sid: string, d: Delivery, command: 'clear' 
   } catch (err) {
     record($, 'command.run', err);
     queueResult(sid, d.id, 'refused');
+  } finally {
+    if (ranFromPodium === mine) ranFromPodium = null;
   }
 }
 
@@ -1653,7 +1673,7 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   for (const a of [...asks.values()]) if (a.sessionId === (e.sessionId || r.state.id)) finish(a);
   const now = await engineNow($);
   if (e.sessionId === r.state.id || !e.sessionId) {
-    if (e.reason === 'clear') recorder.clear(MAIN_LOOP, nowMs());
+    if (e.reason === 'clear') recorder.clear(MAIN_LOOP, nowMs(), takePodiumCommand('clear'));
     recorder.close();
     r.state = sessionEnd(r.state, e.reason, e.resume?.id ?? e.sessionId ?? r.state.id, now);
     // The hooks sandbox has no setTimeout: the deadline is the engine's clock. A sleep the dispatch
@@ -1732,6 +1752,22 @@ function recLoop(agentId: string | undefined): string {
   return agentId ?? MAIN_LOOP;
 }
 
+/**
+ * An answer or approval from Podium that Claude Code took, kept in a recording where the mod takes it (#353): once, marked with who
+ * sent it, in order after the call it answers. The server writes nothing for it.
+ */
+function recordDecision(agentId: string | null | undefined, toolUseId: string, d: Delivery, askKind: Ask['kind'], questions?: OpenAsk['questions'], at: number = nowMs()): void {
+  safe('decision.record', () => recorder.decided(recLoop(agentId ?? undefined), callSeqs.get(toolUseId) ?? null, decisionRecord(d, askKind, questions), at));
+}
+
+/** Who sent the /clear or /compact that is running now from Podium, once: the mark it makes is theirs. Nobody for a person's own. */
+function takePodiumCommand(command: 'clear' | 'compact'): string | undefined {
+  if (ranFromPodium?.command !== command) return undefined;
+  const by = ranFromPodium.by;
+  ranFromPodium = null;
+  return by;
+}
+
 /** The grant a batch's reply carries, or null. */
 function grantOf(text: string): RecordingGrant | null {
   try {
@@ -1808,6 +1844,8 @@ export const register: Register = (on, rawOptions) => {
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  callSeqs = new Map();
+  ranFromPodium = null;
   messagesLineShown = false;
   for (const c of peerCalls) c.resolve(null);
   peerCalls = [];
@@ -1908,7 +1946,7 @@ export const register: Register = (on, rawOptions) => {
     safe('session.compact', (r) => {
       if (e.trigger === 'precompute' || !res || res.skip !== undefined || !res.messages) return;
       r.state = compaction(r.state, { agentId: e.agentId, trigger: e.trigger, tokensBefore: res.tokensBefore, tokensAfter: res.tokensAfter }, nowMs());
-      recorder.compact(recLoop(e.agentId), nowMs());
+      recorder.compact(recLoop(e.agentId), nowMs(), e.agentId ? undefined : takePodiumCommand('compact'));
     });
     // The transcript was emptied: the owner is told again that this session is being recorded.
     if (recorder.capturing && recorder.grant && e.trigger !== 'precompute' && res && res.skip === undefined && res.messages) transcriptLine($, startLine(recorder.grant, nowMs()));
@@ -1978,6 +2016,7 @@ export const register: Register = (on, rawOptions) => {
     let callSeq: number | null = null;
     safe('tool.call.record', () => {
       callSeq = recorder.call(recLoop(e.agentId), tool, input, nowMs());
+      if (callSeq !== null && e.tool_use_id) callSeqs.set(e.tool_use_id, callSeq);
     });
     let res: Awaited<ReturnType<typeof next>>;
     try {
@@ -1986,6 +2025,10 @@ export const register: Register = (on, rawOptions) => {
       if (r && tool === 'AskUserQuestion' && e.tool_use_id && responding(r, 'question')) res = (await questionRace($, r, e as never, next(e) as Promise<ToolResult>)) as typeof res;
       else if (r && tool === 'ExitPlanMode' && e.tool_use_id && (responding(r, 'plan-feedback') || responding(r, 'plan-approve'))) res = (await planRace($, r, e as never, next(e) as Promise<ToolResult>)) as typeof res;
       else res = await next(e);
+    } catch (err) {
+      // A call that ends in an error has no result to settle: its number is not kept for good.
+      if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
+      throw err;
     } finally {
       safe('tool.call.done', (r) => {
         if (tool === 'Skill') r.skillCalls = Math.max(0, r.skillCalls - 1);
@@ -1995,6 +2038,7 @@ export const register: Register = (on, rawOptions) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
+      if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
     });
     return res;
   }).catch(($, e, next) => next(e));
