@@ -35,7 +35,6 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - Admin: Spend moved from Activity into the new Reporting group, and the Server page "Reporting and security" is now called **Security** so there is one "Reporting" (#484).
 - Standards: a green variant of the pill, `pill good`, joins the default, `warn` and `bad`. It is used first by the update notice. Approved by the maintainer on #499, with the mockups `mockup/podium-update-notice.html` and `mockup/podium-update-check-admin.html`.
-
 - Added SonarCloud quality and CodeQL status badges to the README (#517).
 
 ### Fixed
