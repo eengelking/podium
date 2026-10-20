@@ -1,15 +1,18 @@
-// Admin > Spend (#239): today's estimated spend by person or by group, as bars or a table, paged with Admin's pager.
+// Admin > Spend today (#239): today's estimated spend by person or by group, as bars or a table, paged with Admin's pager.
 // The numbers are the fleet stream's (`kpis.costTodayByOwner` and the live sessions), the same rule as "Est. cost today":
 // what was spent since midnight on the server, live or ended sessions. Bars are a neutral ink, never a hue, because hues
 // mean model and status in Podium. The pager only slices rows in the browser; the total and the live count cover everyone.
-import { useEffect, useMemo, useState } from "react";
+// A row is a button that opens what the figure is made of (#482, SpendBreakdown.tsx).
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Monogram } from "../components/People";
 import { fmtUsd } from "../format";
 import { sharePct, spendRows, type SpendRow } from "../people";
 import { readJson, writeJson } from "../storage";
 import { useFleet, type UseFleetOptions } from "../useFleet";
 import { Pager, PAGE_SIZES } from "./Pager";
-import { Panel, Section } from "./Page";
+import { Choice, Panel, Section } from "./Page";
+import type { ReportsClient } from "./reportsApi";
+import { SpendBreakdown, type OpenBreakdown } from "./SpendBreakdown";
 
 export const SPEND_KEY = "podium.adminSpend";
 type By = "people" | "group";
@@ -31,26 +34,54 @@ export function parseSpendPrefs(v: unknown): Prefs {
   };
 }
 
-function Choice<T extends string>(props: { label: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return (
-    <div className="f">
-      <span className="lab" aria-hidden="true">
-        {props.label}
-      </span>
-      <span className="seg" role="group" aria-label={props.label}>
-        {props.options.map(([k, name]) => (
-          <button type="button" key={k} aria-pressed={props.value === k} onClick={() => props.onChange(k)}>
-            {name}
-          </button>
-        ))}
-      </span>
-    </div>
-  );
+/** The breakdown a row opens, or null for a row that has none (the No group row holds people from several groups). */
+export function breakdownFor(r: SpendRow): OpenBreakdown | null {
+  switch (r.kind) {
+    case "person":
+    case "admin":
+      return { key: r.key, owner: r.name, group: false, label: r.name };
+    case "unassigned":
+      return { key: r.key, owner: "-", group: false, label: "Unassigned" };
+    case "group":
+      return { key: r.key, owner: r.name, group: true, label: r.name };
+    default:
+      return null;
+  }
 }
 
-export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: number) => void }) {
+export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: number) => void; client: ReportsClient; onLocked: () => void }) {
   const { onCount } = props;
   const fleet = useFleet(props.fleetOptions);
+  const [open, setOpen] = useState<OpenBreakdown | null>(null);
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const toggle = (r: SpendRow) => {
+    const next = breakdownFor(r);
+    if (next) setOpen(open?.key === r.key ? null : next);
+  };
+  const close = () => {
+    const back = open ? buttons.current.get(open.key) : undefined;
+    setOpen(null);
+    back?.focus();
+  };
+  /** A row's name as a button when it has a breakdown, else plain text. */
+  const rowButton = (r: SpendRow, children: ReactNode) =>
+    breakdownFor(r) ? (
+      <button
+        type="button"
+        className="lbl rowbtn"
+        aria-expanded={open?.key === r.key}
+        aria-controls={open?.key === r.key ? "spend-bd" : undefined}
+        ref={(el) => {
+          if (el) buttons.current.set(r.key, el);
+          else buttons.current.delete(r.key);
+        }}
+        onClick={() => toggle(r)}
+      >
+        {children}
+      </button>
+    ) : (
+      <span className="lbl">{children}</span>
+    );
   const [prefs, setPrefsState] = useState<Prefs>(() => parseSpendPrefs(readJson<unknown>(SPEND_KEY, null)));
   const [page, setPage] = useState(1);
   const setPrefs = (p: Partial<Prefs>) => {
@@ -59,6 +90,8 @@ export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: n
     writeJson(SPEND_KEY, next);
     // Chart or Table shows the same rows, so it keeps the page; a new grouping or page size starts over.
     if (!("view" in p)) setPage(1);
+    // A breakdown belongs to a row of the grouping it was opened in.
+    if ("groupBy" in p) setOpen(null);
   };
   const byGroup = prefs.groupBy === "group";
   const live = useMemo(() => Object.values(fleet.sessions).filter((s) => !fleet.leaving[s.id]), [fleet.sessions, fleet.leaving]);
@@ -75,7 +108,7 @@ export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: n
   const title = `Spend today, by ${unit}`;
   const detail = (r: SpendRow) => `${r.name}: ${fmtUsd(r.spend)}, ${sharePct(r.spend, total)}% of ${fmtUsd(total)}`;
 
-  return (
+  const section = (
     <Section id="admin-spend-h" title={title}>
       <Panel>
         <div className="tool">
@@ -117,7 +150,7 @@ export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: n
               <tbody>
                 {shown.map((r) => (
                   <tr key={r.key}>
-                    <td className="who">{r.name}</td>
+                    <td className="who">{rowButton(r, r.name)}</td>
                     {!byGroup && <td className={r.group ? undefined : "muted"}>{r.group ?? "No group"}</td>}
                     <td className="n mono">{r.sessions}</td>
                     <td className="n mono">{fmtUsd(r.spend)}</td>
@@ -140,13 +173,16 @@ export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: n
           <ul className="hb" aria-label={title}>
             {shown.map((r) => (
               <li key={r.key} aria-label={detail(r)}>
-                <span className="lbl" aria-hidden="true">
-                  <Monogram name={r.name} kind={r.kind} />
-                  <span>
-                    {r.name}
-                    {r.group && <span className="gp"> {r.group}</span>}
-                  </span>
-                </span>
+                {rowButton(
+                  r,
+                  <>
+                    <Monogram name={r.name} kind={r.kind} />
+                    <span>
+                      {r.name}
+                      {r.group && <span className="gp"> {r.group}</span>}
+                    </span>
+                  </>,
+                )}
                 <span className="trk" aria-hidden="true">
                   <i style={{ width: `${max > 0 ? Math.max(1.5, (r.spend / max) * 100) : 0}%` }} />
                 </span>
@@ -163,5 +199,19 @@ export function SpendTab(props: { fleetOptions?: UseFleetOptions; onCount: (n: n
         <Pager id="admin-spend" page={at} pageSize={prefs.pageSize} total={rows.length} onPage={setPage} onSize={(pageSize) => setPrefs({ pageSize })} />
       </Panel>
     </Section>
+  );
+  return (
+    <>
+      {section}
+      {open && (
+        <SpendBreakdown
+          client={props.client}
+          open={open}
+          onClose={close}
+          onOpenPerson={(owner) => setOpen({ key: `p:${owner}`, owner, group: false, label: owner === "-" ? "Unassigned" : owner })}
+          onLocked={props.onLocked}
+        />
+      )}
+    </>
   );
 }

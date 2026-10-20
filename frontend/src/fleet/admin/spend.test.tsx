@@ -20,7 +20,8 @@ function stubAdmin() {
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const path = new URL(String(input), "http://x").pathname.replace("/api/admin", "");
-      const body = path === "/session" ? { enabled: true, unlocked: true } : { total: 0, page: 1, pageSize: 50, rows: [], people: [], groups: [], counts: {} };
+      const empty = { total: 0, page: 1, pageSize: 50, rows: [], people: [], groups: [], counts: {} };
+      const body = path === "/session" ? { enabled: true, unlocked: true } : path === "/reports/spend/projection" ? { ...empty, columns: [], total: null, window: { from: "2026-10-06", to: "2026-10-19", days: 14 }, horizon: "month", unpricedSessions: 0, historyDays: 14 } : empty;
       return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
     }),
   );
@@ -58,12 +59,14 @@ afterEach(() => {
 const names = (panel: HTMLElement) => within(panel).getAllByRole("listitem").map((li) => li.getAttribute("aria-label")?.split(":")[0]);
 
 describe("Admin > Spend", () => {
-  it("is in the Activity group, above Admin log", async () => {
+  it("is in the Reporting group, second after Usage, and Activity keeps only Admin log (#484)", async () => {
     stubAdmin();
     const f = fleetOf(3);
     render(<AdminView fleetOptions={{ open: () => new QuietSource() as unknown as FleetSource, fetchState: async () => f.body }} />);
-    const group = await screen.findByRole("group", { name: "Activity" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Spend", "Admin log"]);
+    const group = await screen.findByRole("group", { name: "Reporting" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Usage", "Spend", "People and groups", "Sessions", "Failures", "Admin activity", "Data kept"]);
+    const activity = screen.getByRole("group", { name: "Activity" });
+    expect(within(activity).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""))).toEqual(["Admin log"]);
   });
 
   it("shows 3 people with the total and live sessions, and a pager that reads 1 to 3 of 3", async () => {

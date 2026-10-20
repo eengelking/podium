@@ -74,7 +74,7 @@ export const ADMIN_SCREENS: Record<string, Screen> = {
   "admin-people": admin(null),
   "admin-groups": admin(/^Groups/),
   "admin-reporters": admin(/^Reporters/),
-  "admin-reporting": admin(/^Reporting/),
+  "admin-reporting": admin(/^Security/),
   "admin-settings": admin(/^Settings/),
   "admin-prices": admin(/^Model prices/),
   "admin-spend": admin(/^Spend/),
