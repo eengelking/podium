@@ -14,7 +14,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
-## [1.2.1] - 2026-10-20
+## [1.2.1] - 2026-10-19
 
 ### Fixed
 
