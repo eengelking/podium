@@ -209,6 +209,62 @@ describe("the replay page", () => {
   });
 });
 
+describe("rows sent from Podium", () => {
+  const sent = (): RecordingRow[] => [
+    row({ kind: "prompt", text: "Also add a test.", by: "Ed" }),
+    row({ kind: "tool", name: "AskUserQuestion", text: "Which page size?" }),
+    row({ kind: "decision", name: "question", by: "Maya Okafor", text: "50" }),
+    row({ kind: "decision", name: "permission", failed: true, by: "Ed", text: "git push --force" }),
+    row({ kind: "clear", by: "Ed" }),
+    row({ kind: "novel" as never, text: "Odd." }),
+  ];
+  const withRows = () => fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: sent() })) as never });
+
+  it("attributes them as the Activity feed does: You, from Podium, for the signed-in viewer, otherwise the sender", async () => {
+    const { container } = await replay(withRows());
+    const who = lis(container).map((l) => l.querySelector(".who")!.textContent);
+    expect(who).toEqual(["You, from Podium:", "api-refactor:", "Maya Okafor, from Podium:", "You, from Podium:", "You, from Podium:", "api-refactor:"]);
+  });
+
+  it("draws a decision right after the call it answers, worded by what it did, in the Podium row's style", async () => {
+    const { container } = await replay(withRows());
+    const d = lis(container)[2]!;
+    expect(d.className).toContain("you");
+    expect(d.querySelector(".k")!.getAttribute("aria-label")).toBe("Sent from Podium");
+    expect(d.querySelector(".name")!.textContent).toBe("Answered a question");
+    expect(d.querySelector(".arg")!.textContent).toBe("50");
+    expect(d.querySelector(".failbox")).toBeNull();
+  });
+
+  it("uses the failure styling when it failed, and counts it for Jump to next failure", async () => {
+    const { container } = await replay(withRows());
+    const d = lis(container)[3]!;
+    expect(d.querySelector(".name")!.textContent).toBe("Denied a tool");
+    expect(d.querySelector(".failbox .fh2")!.textContent).toBe("Denied a tool");
+    expect(d.querySelector(".failbox pre")!.textContent).toBe("git push --force");
+    fireEvent.click(screen.getByRole("button", { name: "Jump to next failure" }));
+    expect(d).toHaveClass("cur");
+  });
+
+  it("names a sender it does not know, and a decision with no text has nothing after its words", async () => {
+    const api = fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: [row({ kind: "decision", name: "plan", failed: true })] })) as never });
+    const { container } = await replay(api);
+    const d = lis(container)[0]!;
+    expect(d.querySelector(".who")!.textContent).toBe("Someone, from Podium:");
+    expect(d.querySelector(".arg")).toBeNull();
+    expect(d.querySelector(".failbox pre")).toBeNull();
+    expect(d.querySelector(".name")!.textContent).toBe("Sent a plan back");
+  });
+
+  it("draws a clear in the app's words and an unknown kind as a marked row", async () => {
+    const { container } = await replay(withRows());
+    expect(lis(container)[4]!.className).toContain("mark");
+    expect(lis(container)[4]!.textContent).toContain("The conversation was cleared.");
+    expect(lis(container)[5]!.className).toContain("mark");
+    expect(lis(container)[5]!.textContent).toContain("Odd.");
+  });
+});
+
 describe("moving through it", () => {
   it("sets the slider to the rows loaded, starts on the first, and moves the current row", async () => {
     const { container } = await replay();

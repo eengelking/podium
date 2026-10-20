@@ -3,15 +3,16 @@ import { RespondError } from "../respondApi";
 import { replayLine, fmtWhen, leaveReplay, sizeWords } from "../recording";
 import { buildItems, COLLAPSE_AT, firstLine, nextFailure, tailLines, type ReplayItem } from "../replayItems";
 import type { RecordingGrant, RecordingLoopInfo, RecordingPage, RecordingRow, SessionView } from "../types";
+import { nameKey } from "../respond";
 import { useRespond } from "../useRespond";
 import { feedTime, ICON_REASONING, ICON_TEXT, ICON_TOOL, ICON_YOU, Redacted } from "./ActivityFeed";
 import { Blank } from "./Blank";
 import { IconBack, IconX } from "./Icons";
 import { ConfirmBox, recordingFail } from "./RecordingLayer";
 
-const LABEL: Record<ReplayItem["kind"], string> = { prompt: "Prompt", text: "Text", thinking: "Reasoning", tool: "Tool call", result: "Tool result", mark: "Note" };
-const ICON: Record<ReplayItem["kind"], ReactNode> = { prompt: ICON_YOU, text: ICON_TEXT, thinking: ICON_REASONING, tool: ICON_TOOL, result: ICON_TOOL, mark: ICON_TEXT };
-const CLASS: Record<ReplayItem["kind"], string> = { prompt: "you", text: "txt", thinking: "txt", tool: "tool", result: "tool", mark: "txt" };
+const LABEL: Record<ReplayItem["kind"], string> = { prompt: "Prompt", text: "Text", thinking: "Reasoning", tool: "Tool call", result: "Tool result", decision: "Sent from Podium", mark: "Note" };
+const ICON: Record<ReplayItem["kind"], ReactNode> = { prompt: ICON_YOU, text: ICON_TEXT, thinking: ICON_REASONING, tool: ICON_TOOL, result: ICON_TOOL, decision: ICON_YOU, mark: ICON_TEXT };
+const CLASS: Record<ReplayItem["kind"], string> = { prompt: "you", text: "txt", thinking: "txt", tool: "tool", result: "tool", decision: "you", mark: "txt" };
 
 /** The longest a loop's name gets in the filter before it is cut; the whole name is the option's title. */
 const NAME_CUT = 28;
@@ -71,7 +72,7 @@ function Failed({ call, result }: { call: string; result: RecordingRow }) {
   );
 }
 
-function Row({ item, i, startedAt, who, cur }: { item: ReplayItem; i: number; startedAt: number; who: string; cur: boolean }) {
+function Row({ item, i, startedAt, who, cur, me }: { item: ReplayItem; i: number; startedAt: number; who: string; cur: boolean; me: string | null }) {
   const { row } = item;
   const text = row.text;
   let body: ReactNode;
@@ -101,6 +102,33 @@ function Row({ item, i, startedAt, who, cur }: { item: ReplayItem; i: number; st
         <Result row={row} />
       </>
     );
+  } else if (item.kind === "decision") {
+    body = (
+      <>
+        <span className="name">{item.label}</span>
+        {text && (
+          <>
+            {" "}
+            <span className="arg">
+              <Redacted text={text} />
+            </span>
+          </>
+        )}
+        {item.failed && (
+          <div className="failbox">
+            <div className="fh2">
+              <IconX />
+              {item.label}
+            </div>
+            {text && (
+              <div className="fb">
+                <pre className="code">{text}</pre>
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
   } else if (item.kind === "thinking") {
     body = <span className="hint">Thinking: text is not available</span>;
   } else if (item.kind === "mark") {
@@ -108,7 +136,9 @@ function Row({ item, i, startedAt, who, cur }: { item: ReplayItem; i: number; st
   } else {
     body = <Long text={text} label="Whole text" />;
   }
-  const speaker = item.podium ? "Podium" : who;
+  // What was sent from Podium is attributed as the Activity feed does: "You, from Podium" for the signed-in viewer.
+  const sender = item.by === undefined ? null : item.by ? (me && nameKey(item.by) === nameKey(me) ? "You" : item.by) : "Someone";
+  const speaker = sender ? `${sender}, from Podium` : item.podium ? "Podium" : who;
   return (
     <li className={`${CLASS[item.kind]}${item.kind === "mark" ? " mark" : ""}${cur ? " cur" : ""}`} data-i={i} aria-current={cur ? "true" : undefined}>
       <span className="at" title={new Date(row.at).toLocaleTimeString()}>
@@ -369,7 +399,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
           <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recorded activity, oldest first" tabIndex={0}>
             {items.length === 0 && <li className="empty">No rows for this loop.</li>}
             {items.map((it, i) => (
-              <Row key={it.key} item={it} i={i} startedAt={startedAt} who={names.get(it.row.loop) ?? it.row.loop} cur={i === cur} />
+              <Row key={it.key} item={it} i={i} startedAt={startedAt} who={names.get(it.row.loop) ?? it.row.loop} cur={i === cur} me={respond?.me?.signedIn ? respond.me.name : null} />
             ))}
           </ol>
           <div className="feedfoot stat older">

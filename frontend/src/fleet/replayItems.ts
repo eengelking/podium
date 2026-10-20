@@ -5,7 +5,7 @@ import type { RecordingRow } from "./types";
 export interface ReplayItem {
   /** The server's order of the row (`n`), unique within a recording. */
   key: number;
-  kind: "prompt" | "text" | "thinking" | "tool" | "result" | "mark";
+  kind: "prompt" | "text" | "thinking" | "tool" | "result" | "decision" | "mark";
   row: RecordingRow;
   /** For a tool call: the result that answered it, when it is loaded. */
   result?: RecordingRow;
@@ -15,6 +15,10 @@ export interface ReplayItem {
   mark?: string;
   /** Who a marked row is from: `Podium` for the server's own, otherwise the row's loop. */
   podium?: boolean;
+  /** Who sent the row from Podium (a decision, a prompt, a /clear or a /compact), when the recording says. */
+  by?: string;
+  /** The words of a decision: what was done with the call it answers. */
+  label?: string;
 }
 
 /** The characters after which a long text is collapsed behind a button. */
@@ -27,13 +31,25 @@ export function markWords(r: RecordingRow): string {
       return "The conversation was cleared. What follows starts from an empty context.";
     case "compact":
       return "The conversation was compacted to fit the context window.";
+    case "decision":
+      return decisionLabel(r);
     case "gap":
       return `${r.lost ?? 0} ${r.lost === 1 ? "entry was" : "entries were"} lost: the machine could not reach the server for a while.`;
     case "limit":
       return r.text ? `${r.text} Nothing after this point was kept.` : "The recording stopped at its limit. Nothing after this point was kept.";
-    default:
+    case "stopped":
       return `Recording stopped${r.by ? ` by ${r.by}` : ""}. Everything up to here was kept.`;
+    default:
+      return r.text || "Something happened here.";
   }
+}
+
+/** What an answer or approval sent from Podium did: "Answered a question", "Sent a plan back", "Denied a tool". */
+export function decisionLabel(r: RecordingRow): string {
+  if (r.name === "question") return "Answered a question";
+  if (r.name === "plan") return r.failed ? "Sent a plan back" : "Approved a plan";
+  if (r.name === "permission") return r.failed ? "Denied a tool" : "Allowed a tool once";
+  return "Answered from Podium";
 }
 
 /**
@@ -57,12 +73,14 @@ export function buildItems(rows: readonly RecordingRow[]): ReplayItem[] {
         call.result = row;
         call.failed = row.failed === true;
       } else items.push({ key: row.n, kind: "result", row, failed: row.failed === true });
+    } else if (row.kind === "decision") {
+      items.push({ key: row.n, kind: "decision", row, failed: row.failed === true, label: decisionLabel(row), by: row.by ?? "" });
     } else if (row.kind === "prompt" || row.kind === "text") {
-      items.push({ key: row.n, kind: row.kind, row, failed: false });
+      items.push({ key: row.n, kind: row.kind, row, failed: false, ...(row.kind === "prompt" && row.by ? { by: row.by } : {}) });
     } else if (row.kind === "thinking") {
       items.push({ key: row.n, kind: "thinking", row, failed: false });
     } else {
-      items.push({ key: row.n, kind: "mark", row, failed: false, mark: markWords(row), podium: row.kind === "stopped" || row.kind === "limit" });
+      items.push({ key: row.n, kind: "mark", row, failed: false, mark: markWords(row), podium: row.kind === "stopped" || row.kind === "limit", ...(row.by && (row.kind === "clear" || row.kind === "compact") ? { by: row.by } : {}) });
     }
   }
   return items;

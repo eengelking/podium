@@ -55,6 +55,34 @@ describe("buildItems", () => {
   });
 });
 
+describe("rows sent from Podium", () => {
+  it("makes a decision a row of its own, in order, worded by what it answers and whether it failed", () => {
+    const cases: [string, boolean, string][] = [
+      ["question", false, "Answered a question"],
+      ["plan", false, "Approved a plan"],
+      ["plan", true, "Sent a plan back"],
+      ["permission", false, "Allowed a tool once"],
+      ["permission", true, "Denied a tool"],
+      ["other", false, "Answered from Podium"],
+    ];
+    for (const [name, failed, label] of cases) {
+      const items = buildItems([row({ kind: "tool", name: "Bash" }), row({ kind: "decision", name, failed, by: "Ed", text: "git push" })]);
+      expect(items.map((i) => i.kind)).toEqual(["tool", "decision"]);
+      expect(items[1]).toMatchObject({ label, by: "Ed", failed });
+    }
+  });
+
+  it("says who sent a decision, a prompt, a /clear and a /compact, and leaves it out of the others", () => {
+    const items = buildItems([row({ kind: "decision", name: "question" }), row({ kind: "prompt", by: "Ed" }), row({ kind: "prompt" }), row({ kind: "clear", by: "Ed" }), row({ kind: "compact" }), row({ kind: "stopped", by: "Ed" })]);
+    expect(items.map((i) => i.by)).toEqual(["", "Ed", undefined, "Ed", undefined, undefined]);
+  });
+
+  it("turns a kind it does not know into a marked row with its text", () => {
+    const items = buildItems([row({ kind: "novel" as never, text: "Something new." }), row({ kind: "novel" as never })]);
+    expect(items.map((i) => [i.kind, i.mark])).toEqual([["mark", "Something new."], ["mark", "Something happened here."]]);
+  });
+});
+
 describe("markWords", () => {
   it("says what each mark means", () => {
     expect(markWords(row({ kind: "clear" }))).toMatch(/cleared/);
