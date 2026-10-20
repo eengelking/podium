@@ -288,7 +288,7 @@ describe("the rail and the Activity panel around the page (#446)", () => {
     await flush();
     fireEvent.click(left());
     fireEvent.click(within(rail()).getByText("api-refactor"));
-    expect(window.location.hash).toBe("#/");
+    expect(window.location.hash).toBe("#/?open=s-mac");
     window.location.hash = "#/me/reporters";
     fireEvent.click(within(rail()).getByText("All orchestrators"));
     expect(window.location.hash).toBe("#/");
@@ -330,7 +330,7 @@ describe("the rail and the Activity panel around the page (#446)", () => {
     await flush();
     fireEvent.click(right());
     fireEvent.click(within(side()).getByText("something"));
-    expect(window.location.hash).toBe("#/");
+    expect(window.location.hash).toBe("#/?open=s1");
   });
 });
 

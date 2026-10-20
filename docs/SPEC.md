@@ -4218,6 +4218,17 @@ The header, the facts and a status band are one bordered surface, in this order:
 the session has context blowouts and its Blowouts cell is open) the blowout detail, then the facts, then the
 status band as the last row.
 
+**Address**
+- The open orchestrator is kept in the address as `#/?open=<id>`, the way History keeps its opened session, so a
+  reload or a shared link opens the same page. The wall is `#/`. The selected agent is not in the address.
+- Opening an orchestrator from the wall adds a browser history entry, so Back returns to the wall and Forward opens
+  it again. Moving to another orchestrator (the rail, an activity event) replaces that entry, so Back still returns
+  to the wall.
+- "All orchestrators" and Fleet return to the wall's entry when the console added one, and otherwise replace the
+  address with `#/`. Opening an orchestrator from the board, My reporters or Traffic goes to its address.
+- When the open session leaves the fleet, the address goes back to `#/` with the usual message. An address naming
+  a session that is not in the fleet lands on the wall with "That session is not in the fleet. Sessions that ended are listed in History."
+
 **Header block** (on the left)
 - The name at 28 px beside the state shape, which is the status band's shape.
 - The goal line: the plan title and current step.
@@ -4803,6 +4814,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Depends on:** T2.2.
 - **Acceptance:**
   1. Selecting a card or rail item shows the page; Back (the "All orchestrators" rail item) returns to the wall; the selection survives `session` updates and clears with a message if the session is removed.
+     The open orchestrator is in the address (`#/?open=<id>`), so a reload, a shared link and the browser's Back button land on the same page (see "Address" under the orchestrator page).
   2. The header, charts, facts grid and status band match the mockup's layout at 1440 px (`mockup/podium-orchestrator.html`, #165; `mockup/podium-facts-reporter.html` for the Reporter cell, #124); the status band is the last row of the summary surface and **Fork** is the last cell of the facts grid, after Session and **Resume** (`mockup/podium-fork.html`, #352).
   3. Charts: three charts of 60 points from `series`; `peakContext` fixed 0..100%; red markers at `blowoutSecondsAgo`; caption counts markers; hover shows a crosshair and the value and time under the pointer and restores the live value on leave. A pure function converts a series to polyline points and is tested (empty, single point, all zeros, max scaling).
   4. The agent tree builds from `parentId`; guides draw correctly for last and non-last children; sorting by Model/Effort/Context/Tokens/Cost/Time/Status orders siblings and keeps the tree (#101) and clicking the same header again reverses it; "Launch order" clears the sort. Unit-tested.

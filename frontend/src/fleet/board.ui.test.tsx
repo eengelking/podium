@@ -65,7 +65,7 @@ describe("kanban board", () => {
   it("opens the orchestrator's page when a card is clicked", () => {
     const { rerender } = board([makeSession()]);
     fireEvent.click(screen.getByRole("link", { name: "Port invoice endpoints, active, api-refactor" }));
-    expect(window.location.hash).toBe("#/");
+    expect(window.location.hash).toBe("#/?open=s1");
     // The route change is the app's; the selection the click made has to survive it.
     rerender(<FleetView state={stateFrom({ sessions: [makeSession()] })} />);
     expect(screen.getByRole("navigation", { name: "Orchestrators" }).querySelector('.ritem[aria-current="true"]')).toHaveTextContent("api-refactor");

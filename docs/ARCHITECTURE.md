@@ -1337,6 +1337,19 @@ Done after Phases 0 to 4 passed.
   - `HistoryView` writes the hash with `pushState` when a session opens and `replaceState` for every other
     change, and re-reads it on `popstate`, so the browser's Back button returns to the same page. `main.tsx`
     listens only to `hashchange`, which neither call fires, so the view is not remounted.
+- **The open orchestrator in the address.** The live console follows History's pattern. `route.ts` reads and
+  writes `#/?open=<id>` (`openIn`, `fleetHash`); `routeFor` already sends that hash to the fleet console.
+  - `FleetViewBody` starts its selection from the address. `open()` is the one place that opens an orchestrator or
+    the wall: from the wall it calls `pushState({ open: true })`, between orchestrators `replaceState`, and closing
+    calls `history.back()` when the entry's state says the console pushed it, else `replaceState` to `#/`. From
+    the board, My reporters or Traffic it sets `location.hash`, since the route changes too.
+  - A `popstate` and `hashchange` listener re-reads the address, which covers Back, Forward and plain links such
+    as the logo. A ref holds the selection the console last wrote, so the listener does not clear the agent an
+    activity event just opened.
+  - A session that leaves the fleet, or an address naming one it never had, clears the selection and replaces
+    the address with `#/`.
+  - Tests start each one at the wall: `setupTests.ts` drops a fleet `open=` after every test, and `atWall()` in
+    `testState.ts` resets it inside a test that renders the console twice.
 
 ### Code review pass (before the PR)
 

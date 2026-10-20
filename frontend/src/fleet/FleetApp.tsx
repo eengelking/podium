@@ -40,6 +40,7 @@ import { RespondProvider, useRespond } from "./useRespond";
 import { peersApi, type PeersApi, type RespondApi } from "./respondApi";
 import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
+import { fleetHash, openIn } from "../route";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
 import { RespondModal } from "./components/Respond";
@@ -149,7 +150,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const consolePage = myReporters || traffic;
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
-  const [sel, setSel] = useState<string | null>(null);
+  // The open orchestrator is kept in the address (`#/?open=<id>`), as History's opened session is (#195).
+  const [sel, setSel] = useState<string | null>(() => openIn(window.location.hash));
+  const selRef = useRef(sel);
   const [selAgent, setSelAgent] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [filter, setFilter] = useState<{ status: StatusFilter; q: string }>({ status: "all", q: "" });
@@ -212,7 +215,10 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const newEvent = useEntering(state.events.map((e) => e.id), ready);
   // The board and My reporters stand in for an orchestrator's page and show none of it; both clear the selection, below.
   const showsOrchestrator = !board && !consolePage;
-  const selected = sel && showsOrchestrator ? state.sessions[sel] ?? null : null;
+  // `sel` can come from the address, so it is looked up as an own key: `#/?open=constructor` must not find Object's.
+  const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
+  const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
+  const selected = showsOrchestrator ? selSession : null;
 
   const { prefs } = people;
   const spendByOwner = state.kpis?.costTodayByOwner ?? [];
@@ -245,16 +251,40 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     ? { groupBy, units, picked: pf.person ?? pf.group, onPick: pickUnit, visible: new Set(filterByPeople(sorted, peopleFilter).map((s) => s.id)) }
     : undefined;
 
-  // A selected session that leaves the live set clears the selection, with a message.
+  // A selected session that leaves the live set clears the selection, with a message, and the address goes back to the wall's.
+  // An address naming a session the fleet never had lands on the wall the same way.
   useEffect(() => {
     if (!sel) return;
-    if (state.gone[sel] || (ready && !state.sessions[sel])) {
-      const name = state.sessions[sel]?.name ?? "That session";
-      setNotice(`${name} ${state.gone[sel] === "dropped" ? "stopped reporting" : "ended"} and left the fleet.`);
+    if (selGone || (ready && !selSession)) {
+      const name = selSession?.name ?? "That session";
+      setNotice(
+        selGone || selSession
+          ? `${name} ${selGone === "dropped" ? "stopped reporting" : "ended"} and left the fleet.`
+          : "That session is not in the fleet. Sessions that ended are listed in History.",
+      );
+      selRef.current = null;
       setSel(null);
       setSelAgent(null);
+      if (openIn(window.location.hash) === sel) window.history.replaceState(null, "", fleetHash(null));
     }
-  }, [sel, state.gone, state.sessions, ready]);
+  }, [sel, selGone, selSession, ready]);
+
+  // Back, Forward and a link to another address (the logo is one) open the orchestrator the address names.
+  useEffect(() => {
+    const onNav = () => {
+      const open = openIn(window.location.hash);
+      if (open === selRef.current) return;
+      selRef.current = open;
+      setSel(open);
+      setSelAgent(null);
+    };
+    window.addEventListener("popstate", onNav);
+    window.addEventListener("hashchange", onNav);
+    return () => {
+      window.removeEventListener("popstate", onNav);
+      window.removeEventListener("hashchange", onNav);
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -277,17 +307,32 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   // Opening the board or My reporters leaves any orchestrator page behind, so a session that ends later does not raise a notice there (#446).
   useEffect(() => {
     if (!board && !myReporters) return;
+    selRef.current = null;
     setSel(null);
     setSelAgent(null);
   }, [board, myReporters]);
 
-  const selectSession = (id: string | null) => {
-    // Opening a session, or the fleet, from the board, My reporters or Traffic leaves that page; the selection is made before the route changes.
-    if (board || consolePage) window.location.hash = "#/";
+  /**
+   * Opens an orchestrator, or the wall for `null`, and writes it to the address. Opening one from the wall pushes an entry so
+   * Back returns to the wall; moving to another replaces it; closing one goes back to the wall's entry when the console
+   * pushed it, and replaces the address otherwise (a reload or a shared link).
+   */
+  const open = (id: string | null, agent: string | null = null) => {
+    const shown = openIn(window.location.hash);
+    selRef.current = id;
     setSel(id);
-    setSelAgent(null);
+    setSelAgent(agent);
     setNotice(null);
+    // Opening a session, or the fleet, from the board, My reporters or Traffic leaves that page; the selection is made before the route changes.
+    if (board || consolePage) window.location.hash = fleetHash(id);
+    else if (id === shown) return;
+    else if (id === null) {
+      if (window.history.state?.open) window.history.back();
+      else window.history.replaceState(null, "", fleetHash(null));
+    } else if (shown === null) window.history.pushState({ open: true }, "", fleetHash(id));
+    else window.history.replaceState(window.history.state, "", fleetHash(id));
   };
+  const selectSession = (id: string | null) => open(id);
   const onCloseNotice = (n: NoticeItem) => {
     const version = n.id === UPDATE_NOTICE_ID ? state.wall.update?.latest : undefined;
     (version ? closeUpdateNotice(version) : closeNotice(n.id))
@@ -312,10 +357,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     const s = state.sessions[e.sessionId];
     if (!s || state.gone[e.sessionId]) return;
     const agent = e.agentId && s.agents.some((a) => a.id === e.agentId) ? e.agentId : null;
-    if (board || consolePage) window.location.hash = "#/";
-    setSel(e.sessionId);
-    setSelAgent(agent);
-    setNotice(null);
+    open(e.sessionId, agent);
     flashRow(agent);
     const side = document.querySelector(".podium .side");
     if (side) side.scrollTop = 0;

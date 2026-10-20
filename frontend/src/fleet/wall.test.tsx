@@ -7,7 +7,7 @@ import { GitLine } from "./components/Chips";
 import { SessionCard, cardTitle } from "./components/SessionCard";
 import { fleetReducer } from "./store";
 import { makeAgent, makeKpis, makeSession } from "./fixtures";
-import { stateFrom } from "./testState";
+import { atWall, stateFrom } from "./testState";
 
 afterEach(cleanup);
 
@@ -273,6 +273,7 @@ describe("session card", () => {
 
 describe("a waiting session", () => {
   function pageFor(over: Parameters<typeof makeSession>[0]) {
+    atWall();
     const { container } = render(<FleetView state={stateFrom({ sessions: [makeSession({ status: "waiting", ...over })] })} />);
     const cardText = container.querySelector(".wall .card")!.textContent;
     fireEvent.click(container.querySelector(".wall .card")!);

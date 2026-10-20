@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { inventory, coverageProblems, type NotRendered } from "../../../../scripts/standards-inventory";
+import { atWall } from "../testState";
 import { buildPages, componentsPage, indexPage, renderSample } from "./build";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES } from "./samples";
@@ -115,6 +116,7 @@ describe("the screens", () => {
     const rendered: string[] = [];
     for (const [id, screen] of Object.entries(SCREENS)) {
       localStorage.clear();
+      atWall();
       const { container } = render(screen.make());
       expect(container.firstElementChild, `screen ${id} rendered nothing`).not.toBeNull();
       rendered.push(id);

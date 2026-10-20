@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { render, cleanup } from "@testing-library/react";
 import { vi } from "vitest";
 import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
+import { atWall } from "../testState";
 import { classesIn, esc, normalizeIds, NAV, pageHtml, sectionHtml } from "./html";
 import { SAMPLES, type Sample } from "./samples";
 import { scalePage, themesPage, tokensPage } from "./pages";
@@ -26,6 +27,7 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
     localStorage.clear();
     sessionStorage.clear();
     for (const k of Object.keys(document.documentElement.dataset)) delete document.documentElement.dataset[k];
+    atWall();
     try {
       const { container } = render(screen.make());
       const body = container.ownerDocument.body;
