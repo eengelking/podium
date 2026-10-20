@@ -54,13 +54,23 @@ function aggregatesMatch(db: ReturnType<typeof openActivityDb>) {
   const fromRows = db.prepare('SELECT session_id AS sid, COUNT(*) AS n, SUM(' + entryBytes() + ') AS b, MIN(t) AS o FROM entries GROUP BY session_id ORDER BY session_id').all();
   const kept = db.prepare('SELECT session_id AS sid, entries AS n, bytes AS b, oldest_t AS o FROM stored_sessions ORDER BY session_id').all();
   expect(kept).toEqual(fromRows);
+  const loopsFromRows = db
+    .prepare(
+      `SELECT g.session_id AS sid, g.loop AS loop, g.n AS n,
+         (SELECT at FROM entries e WHERE e.session_id = g.session_id AND e.loop = g.loop ORDER BY seq LIMIT 1) AS f,
+         (SELECT t FROM entries e WHERE e.session_id = g.session_id AND e.loop = g.loop ORDER BY seq DESC LIMIT 1) AS l
+       FROM (SELECT session_id, loop, COUNT(*) AS n FROM entries GROUP BY session_id, loop) g ORDER BY g.session_id, g.loop`,
+    )
+    .all();
+  const loopsKept = db.prepare('SELECT session_id AS sid, loop, entries AS n, first_at AS f, last_t AS l FROM loops ORDER BY session_id, loop').all();
+  expect(loopsKept).toEqual(loopsFromRows);
 }
 const entryBytes = () => '(length(text) + length(kind) + length(loop) + COALESCE(length("by"), 0) + COALESCE(length(note), 0) + COALESCE(length(ref), 0) + 48)';
 
 describe('schema v2', () => {
   it('is the current version', () => {
-    expect(ACTIVITY_SCHEMA_VERSION).toBe(2);
-    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(2);
+    expect(ACTIVITY_SCHEMA_VERSION).toBe(3);
+    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(3);
   });
 
   it('migrates a file made with the v1 schema: the aggregates are filled from its rows and the indexes change', () => {
@@ -80,8 +90,13 @@ describe('schema v2', () => {
     raw.close();
 
     const db = openActivityDb(file);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
     aggregatesMatch(db);
+    expect(db.prepare('SELECT session_id AS sid, loop, entries AS n, first_at AS f, last_t AS l FROM loops ORDER BY session_id, loop').all()).toEqual([
+      { sid: 's1', loop: '@orchestrator', n: 2, f: T0 + 5, l: T0 + 8 },
+      { sid: 's1', loop: 'a1', n: 1, f: T0 + 2, l: T0 + 1 },
+      { sid: 's2', loop: 'a1', n: 1, f: T0 + 3, l: T0 + 3 },
+    ]);
     expect(db.prepare('SELECT entries AS n, oldest_t AS o FROM stored_sessions ORDER BY session_id').all()).toEqual([
       { n: 3, o: T0 + 1 },
       { n: 1, o: T0 + 3 },

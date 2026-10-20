@@ -274,7 +274,7 @@ describe('the purge in the sweeper', () => {
     const people = new PeopleStore(db.db);
     fleet.activityHistorySettings.set({ policy: 'end' });
     const spy = vi.spyOn(fleet.activityHistory, 'purge');
-    for (const [bytes, text] of [[2048, '2 KB'], [3 * 1024 ** 2, '3.0 MB'], [2 * 1024 ** 3, '2.0 GB']] as const) {
+    for (const [bytes, text] of [[2048, '2.0 KB'], [3 * 1024 ** 2, '3.0 MB'], [2 * 1024 ** 3, '2.0 GB']] as const) {
       spy.mockResolvedValueOnce({ entries: 5, bytes, sessions: 1, freed: 0 });
       await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
       expect(ADMIN_LOG(people)[0]!.detail).toContain(`(${text})`);

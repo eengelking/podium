@@ -177,18 +177,22 @@ export class Fleet {
         if (this.live.has(sid)) this.scheduleSession(sid);
       },
       {
+        // The live feed is updated first and cannot fail. The history write is best effort: a full disk or a locked file is
+        // logged and never reaches the answer, ask or message that caused it.
         add: (sid, loop, ref, e) => {
           this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
-          const meta = this.historyMeta(sid);
-          if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
+          this.historySafely('add', sid, () => {
+            const meta = this.historyMeta(sid);
+            if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
+          });
         },
         update: (sid, ref, note) => {
           this.activity.updatePodium(sid, ref, note);
-          this.activityHistory.updatePodium(sid, ref, note);
+          this.historySafely('update', sid, () => this.activityHistory.updatePodium(sid, ref, note));
         },
         remove: (sid, ref) => {
           this.activity.removePodium(sid, ref);
-          this.activityHistory.removePodium(sid, ref);
+          this.historySafely('remove', sid, () => this.activityHistory.removePodium(sid, ref));
         },
       },
     );
@@ -294,6 +298,15 @@ export class Fleet {
   private historyMeta(sessionId: string): SessionMeta | undefined {
     const row = this.db.getSession(sessionId);
     return row ? { name: row.name, project: row.repo_name ?? row.project_root, owner: row.owner } : undefined;
+  }
+
+  /** Runs a write to the Activity history; a failure is logged as `activity.podium_failed` and never thrown. */
+  private historySafely(what: 'add' | 'update' | 'remove', sessionId: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      this.logger.error('activity.podium_failed', `podium: could not ${what} a Podium entry in the activity history of session ${sessionId}: ${(err as Error).message}`, { session_id: sessionId, op: what, reason: (err as Error).message });
+    }
   }
 
   /** `reporter.connected` the first time a reporter is heard, and again when it comes back after going quiet. */

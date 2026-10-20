@@ -22,6 +22,7 @@ import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
+import { sizeText } from '../fleet/sizeText.js';
 import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
 import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
@@ -78,19 +79,6 @@ function readCookie(req: Request, name: string): string | null {
     if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }
   return null;
-}
-
-/** A size for the admin log: `1.8 MB`, `512 B`. */
-function bytesWords(n: number): string {
-  if (n < 1024) return `${n} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let v = n / 1024;
-  let i = 0;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(1)} ${units[i]}`;
 }
 
 const countOf = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -703,7 +691,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   const how = (b: StoredDeleteBody) => ('ids' in b ? 'ticked sessions' : 'match' in b ? 'a filter' : 'everything');
-  const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${r.entries} ${r.entries === 1 ? 'entry' : 'entries'} (${bytesWords(r.bytes)}) from ${countOf(r.sessions, 'session')}, chosen by ${how(b)}`;
+  const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${r.entries} ${r.entries === 1 ? 'entry' : 'entries'} (${sizeText(r.bytes)}) from ${countOf(r.sessions, 'session')}, chosen by ${how(b)}`;
 
   router.post(STORED_DELETE, express.json({ limit: '64kb' }), (req, res) => {
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });

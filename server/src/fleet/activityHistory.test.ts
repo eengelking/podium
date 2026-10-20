@@ -57,11 +57,11 @@ describe('openActivityDb', () => {
     const db = openActivityDb(file);
     expect((db.prepare('PRAGMA auto_vacuum').get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
     expect((db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal');
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
     db.close();
     // opening again runs no migration and keeps the version
     const again = openActivityDb(file);
-    expect((again.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2);
+    expect((again.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
     again.close();
   });
 

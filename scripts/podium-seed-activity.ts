@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openActivityDb, recomputeAggregates } from '../server/src/fleet/activityDb.ts';
+import { openActivityDb, recomputeAggregates, recomputeLoops } from '../server/src/fleet/activityDb.ts';
 import { protectedFolders } from './podium-seed-history.ts';
 import { Rng } from './podium-sim.ts';
 
@@ -187,6 +187,7 @@ export function seedActivity(out: string, opt: SeedOptions, log: (line: string) 
   db.exec('COMMIT');
   // The per-session entry count, bytes and oldest time the store keeps (schema v2).
   recomputeAggregates(db);
+  recomputeLoops(db);
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   db.close();
   const seconds = (performance.now() - started) / 1000;
