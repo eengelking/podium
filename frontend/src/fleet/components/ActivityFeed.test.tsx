@@ -1,9 +1,13 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { ActivityFeed } from "./ActivityFeed";
+import { fmtDay } from "../format";
+import { RespondError, type RespondApi } from "../respondApi";
+import { RespondProvider } from "../useRespond";
+import type { ActivityHistoryNote, ActivityHistoryPage } from "../types";
 import { SidePanel } from "./SidePanel";
 import { ORCHESTRATOR_ROW as MAIN_LOOP } from "../logic";
-import { EVERY_KEY, type ActivityReply, type FetchActivity } from "../useActivityFeed";
+import { EVERY_KEY, type ActivityReply, type FetchActivity, type FetchHistory } from "../useActivityFeed";
 import { makeAgent, makeSession } from "../fixtures";
 import type { SessionView } from "../types";
 
@@ -329,5 +333,288 @@ describe("Activity modal", () => {
       fireEvent.click(screen.getByRole("button", { name: "Expand" }));
       expect(screen.getByRole("dialog").querySelector(".feedfoot.stat")!.children).toHaveLength(2);
     });
+  });
+});
+
+describe("stored history (#432)", () => {
+  const SINCE = Date.parse("2026-10-12T12:00:00");
+  const UNTIL = Date.parse("2026-11-11T12:00:00");
+  const NOTE_TAIL = "Only the owner and the Admin can open it. Secrets are removed before they leave the session.";
+  const note = (over: Partial<ActivityHistoryNote> = {}): ActivityHistoryNote => ({ policy: "after", total: 412, since: SINCE, keptUntil: UNTIL, canRead: true, owner: "Ed", ...over });
+  const stored = (seq: number, over: Partial<ActivityReply["entries"][number]> = {}) => ({ seq, at: T0 - 100_000 + seq * 1000, kind: "tool" as const, text: `Edit s${seq}`, ...over });
+  const page = (seqs: number[], olderBefore: number | null): ActivityHistoryPage => ({ entries: seqs.map((n) => stored(n)), olderBefore, total: 412, since: SINCE, keptUntil: UNTIL });
+  const history = (...pages: ActivityHistoryPage[]) => {
+    const queue = [...pages];
+    return vi.fn<FetchHistory>(async () => (queue.length > 1 ? queue.shift()! : queue[0]!));
+  };
+  const rows = () => [...screen.getByRole("list", { name: "Recent activity, newest last" }).querySelectorAll("li")].map((li) => li.textContent);
+
+  function showKept(opts: { fetch: ReturnType<typeof fetcher>; history: ReturnType<typeof history>; active?: boolean; isMain?: boolean }) {
+    const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true, agents: [makeAgent({ id: "a1", startedAt: T0 })] });
+    return render(<ActivityFeed s={s} loop="a1" title="Map call sites" startedAt={T0} active={opts.active ?? true} now={T0} isMain={opts.isMain} adminOn fetchActivity={opts.fetch} fetchHistory={opts.history} />);
+  }
+
+  it("ended and kept: shows the newest stored page, the count and the date it goes, no refresh control, and a Show older row", async () => {
+    const h = history(page([10, 11, 12], 10));
+    const { container } = showKept({ fetch: fetcher(reply([], { live: true, history: note() })), history: h, active: false, isMain: true });
+    await flush();
+    expect(h).toHaveBeenCalledWith("s1", "a1", null, 20);
+    expect(rows()).toEqual([expect.stringContaining("Edit s10"), expect.stringContaining("Edit s11"), expect.stringContaining("Edit s12")]);
+    expect(screen.getByText(`412 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+    expect(screen.getByText("Session ended, no more updates")).toBeInTheDocument();
+    expect(screen.getByText(`Kept until ${fmtDay(UNTIL)}, then purged. ${NOTE_TAIL}`)).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Refresh interval" })).toBeNull();
+    expect(container.querySelector(".feedfoot.stat.older")!.textContent).toBe("Showing the newest 3Show older");
+    await wait(60_000);
+    expect(h).toHaveBeenCalledTimes(1);
+  });
+
+  it("live and kept: keeps the refresh control and counts one entry in the singular", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "all", total: 1 }) })), history: history(page([1], null)) });
+    await flush();
+    expect(screen.getByText(`1 stored entry since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Refresh interval" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
+
+  it("under purge-when-the-session-ends says so, and leaves out a missing date", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "end", since: null }) })), history: history(page([1], null)) });
+    await flush();
+    expect(screen.getByText("412 stored entries")).toBeInTheDocument();
+    expect(screen.getByText(`Kept until the session ends, then removed. ${NOTE_TAIL}`)).toBeInTheDocument();
+  });
+
+  it("loads older pages on request and shows each entry once, with no cap", async () => {
+    const h = history(page([30, 31, 32], 30), page([27, 28, 29, 30], 27), page([1, 2], null));
+    const { container } = showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await flush();
+    expect(h).toHaveBeenLastCalledWith("s1", "a1", 30, 20);
+    expect(rows().map((t) => t!.replace(/^.*(Edit s\d+).*$/, "$1"))).toEqual(["Edit s27", "Edit s28", "Edit s29", "Edit s30", "Edit s31", "Edit s32"]);
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await flush();
+    expect(h).toHaveBeenLastCalledWith("s1", "a1", 27, 20);
+    expect(rows()).toHaveLength(8);
+    expect(container.querySelector(".feedfoot.stat.older")).toBeNull();
+  });
+
+  it("shows live entries after the stored page without a copy of one the page holds, and keeps more than 20", async () => {
+    const dup = entry(1, { at: stored(12).at, text: "Edit s12" });
+    const many = Array.from({ length: 25 }, (_, i) => entry(i + 2, { at: T0 + i * 1000, text: `Live ${i + 2}` }));
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([dup], { history: note({ total: 413 }) }), reply([dup, ...many], { history: note({ total: 438 }) })), history: history(page([11, 12], null)) });
+    await flush();
+    await wait(5000);
+    expect(rows()).toHaveLength(2);
+    await wait(5000);
+    expect(rows()).toHaveLength(27);
+    expect(screen.getByText(`438 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+    expect(rows().filter((t) => t!.includes("Edit s12"))).toHaveLength(1);
+  });
+
+  it("another viewer: never asks for the entries, says who can open them, and shows nothing", async () => {
+    const h = history(page([1], null));
+    const { container } = showKept({ fetch: fetcher(reply([], { history: note({ canRead: false }) })), history: h });
+    await flush();
+    expect(h).not.toHaveBeenCalled();
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+    expect(screen.getByText("Nothing to show")).toBeInTheDocument();
+    expect(screen.getByText("Stored activity can hold anything an agent read or ran, so it is not shown to other viewers.")).toBeInTheDocument();
+    expect(container.querySelector(".feedfoot.stat.older")).toBeNull();
+  });
+
+  it("a viewer who is not signed in is told to sign in as the owner or an Admin", async () => {
+    const api = { me: vi.fn(async () => ({ enabled: true, signedIn: false })) } as unknown as RespondApi;
+    const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true });
+    render(
+      <RespondProvider api={api} flagsOn>
+        <ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn fetchActivity={fetcher(reply([], { history: note({ canRead: false, owner: null }) }))} fetchHistory={history(page([1], null))} />
+      </RespondProvider>,
+    );
+    await flush();
+    expect(rows()).toEqual(["History is kept for this session. Sign in as its owner or an Admin to open it."]);
+  });
+
+  it.each([401, 403])("a %i from the history route shows the other-viewer state and is not asked again", async (status) => {
+    const h = vi.fn<FetchHistory>(async () => {
+      throw new RespondError(status, { error: "no" });
+    });
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+    await flush();
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+    expect(screen.getByText("Nothing to show")).toBeInTheDocument();
+    await wait(15_000);
+    expect(h).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 403 on Show older drops to the other-viewer state", async () => {
+    const h = vi.fn<FetchHistory>(async (_s, _l, before) => {
+      if (before) throw new RespondError(403, {});
+      return page([5, 6], 5);
+    });
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await flush();
+    expect(rows()).toEqual(["History is kept for this session. Only Ed and the Admin can open it."]);
+  });
+
+  it("another failure of the history route is retried on the next fetch, and one on Show older is reported", async () => {
+    let calls = 0;
+    const h = vi.fn<FetchHistory>(async (_s, _l, before) => {
+      calls += 1;
+      if (calls === 1 || before) throw new Error("HTTP 500");
+      return page([5, 6], 5);
+    });
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+    await flush();
+    expect(screen.queryByText("Could not reach the server, retrying")).toBeNull();
+    await wait(5000);
+    expect(rows()).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await flush();
+    expect(screen.getByText("Could not reach the server, retrying")).toBeInTheDocument();
+    expect(rows()).toHaveLength(2);
+  });
+
+  it("a 500 from the history route does not hold back the live entries", async () => {
+    const h = vi.fn<FetchHistory>(async () => {
+      throw new Error("HTTP 500");
+    });
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([entry(1)], { history: note() })), history: h });
+    await flush();
+    await wait(5000);
+    expect(rows()).toEqual([expect.stringContaining("Read f1")]);
+    expect(h).toHaveBeenCalledTimes(2);
+  });
+
+  it("under keep-everything says the history stays until the session is removed, with no day count", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note({ keptUntil: null, policy: "all" }) })), history: history(page([1], null)) });
+    await flush();
+    expect(screen.getByText(`Kept until the session is removed from Podium. ${NOTE_TAIL}`)).toBeInTheDocument();
+    expect(screen.queryByText(/30 days/)).toBeNull();
+  });
+
+  describe("a loop change while a page is pending", () => {
+    const deferred = <T,>() => {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => ((resolve = res), (reject = rej)));
+      return { promise, resolve, reject };
+    };
+    const el = (loop: string, fetch: ReturnType<typeof fetcher>, h: ReturnType<typeof history>) => {
+      const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true, agents: [makeAgent({ id: "a1", startedAt: T0 })] });
+      return <ActivityFeed s={s} loop={loop} title="t" startedAt={T0} active now={T0} adminOn fetchActivity={fetch} fetchHistory={h} />;
+    };
+
+    it("drops the newest page that arrives late", async () => {
+      const late = deferred<ActivityHistoryPage>();
+      const h = vi.fn<FetchHistory>((_s, l) => (l === "a1" ? late.promise : Promise.resolve(page([50, 51], null))));
+      const f = fetcher(reply([], { history: note() }));
+      const r = render(el("a1", f, h));
+      await flush();
+      r.rerender(el("a2", f, h));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+      await act(async () => late.resolve(page([30, 31], null)));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+    });
+
+    it.each(["resolves", "fails"])("drops an older page that %s late, and Show older works again on the new loop", async (how) => {
+      const late = deferred<ActivityHistoryPage>();
+      const h = vi.fn<FetchHistory>(async (_s, l, before) => {
+        if (l === "a1") return before ? late.promise : page([30, 31], 30);
+        return before ? page([40, 41], null) : page([50, 51], 50);
+      });
+      const f = fetcher(reply([], { history: note() }));
+      const r = render(el("a1", f, h));
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      r.rerender(el("a2", f, h));
+      await flush();
+      await act(async () => (how === "resolves" ? late.resolve(page([20, 21], null)) : late.reject(new RespondError(403, {}))));
+      await flush();
+      expect(rows()).toEqual([expect.stringContaining("s50"), expect.stringContaining("s51")]);
+      expect(screen.queryByText("Nothing to show")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      expect(h).toHaveBeenLastCalledWith("s1", "a2", 50, 20);
+      expect(rows()).toHaveLength(4);
+    });
+  });
+
+  it("keeps the viewer's place when older entries are prepended", async () => {
+    let height = 100;
+    let top = 0;
+    const proto = HTMLElement.prototype;
+    Object.defineProperty(proto, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(proto, "scrollTop", { configurable: true, get: () => top, set: (v: number) => void (top = v) });
+    try {
+      const h = vi.fn<FetchHistory>(async (_s, _l, before) => {
+        if (before) height = 160;
+        return before ? page([28, 29], null) : page([30, 31], 30);
+      });
+      showKept({ fetch: fetcher(reply([], { history: note() })), history: h });
+      await flush();
+      expect(top).toBe(100);
+      fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+      await flush();
+      expect(rows()).toHaveLength(4);
+      expect(top).toBe(160);
+    } finally {
+      delete (proto as unknown as Record<string, unknown>).scrollHeight;
+      delete (proto as unknown as Record<string, unknown>).scrollTop;
+    }
+  });
+
+  it("drops what it showed when a reply says the history is gone or the feed is off", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([])), history: history(page([1, 2], null)) });
+    await flush();
+    expect(rows()).toHaveLength(2);
+    await wait(5000);
+    expect(screen.getByText(/Watching from now/)).toBeInTheDocument();
+    expect(screen.queryByText(/stored entr/)).toBeNull();
+  });
+
+  it("resets with the admin turning the feed off", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note() }), reply([], { enabled: false })), history: history(page([1, 2], null)) });
+    await flush();
+    await wait(5000);
+    expect(screen.getByText("The activity feed is turned off by the Admin.")).toBeInTheDocument();
+  });
+
+  it("the modal shows the same rows, count and note", async () => {
+    showKept({ fetch: fetcher(reply([], { history: note() })), history: history(page([1, 2], 1)) });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(`412 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Show older" })).toBeInTheDocument();
+    expect(within(dialog).getByText(`Kept until ${fmtDay(UNTIL)}, then purged. ${NOTE_TAIL}`)).toBeInTheDocument();
+  });
+
+  it("a reply without history reads exactly as before and never asks the history route", async () => {
+    const h = history(page([1], null));
+    const { container } = showKept({ fetch: fetcher(reply([entry(1)]), reply([entry(1), entry(2)])), history: h });
+    await flush();
+    expect(screen.getByText(/Watching from now/)).toBeInTheDocument();
+    expect(screen.getByText("Nothing yet")).toBeInTheDocument();
+    expect(screen.getByText("Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.")).toBeInTheDocument();
+    await wait(5000);
+    expect(screen.getByText("Last 1 of 1 since you started watching")).toBeInTheDocument();
+    expect(container.querySelector(".older")).toBeNull();
+    expect(h).not.toHaveBeenCalled();
+  });
+
+  it("a plain session without a history fetcher falls back to the console's route (not asked under the default policy)", async () => {
+    const f = vi.fn(async () => ({ ok: true, json: async () => reply([]) }));
+    vi.stubGlobal("fetch", f);
+    const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true });
+    render(<ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn />);
+    await flush();
+    expect(f).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 });

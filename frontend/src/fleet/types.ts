@@ -49,6 +49,7 @@ export type {
   ReporterCompat,
 } from "../../../server/src/fleet/protocol";
 export type { ActivityEntryView, ActivityReply } from "../../../server/src/fleet/activity";
+export type { ActivityHistoryNote, ActivityHistoryPage, ActivityHistoryPolicy } from "../../../server/src/fleet/activityHistoryTypes";
 
 /** The product name, kept in one place so it can change (SPEC 12.10). */
 export const APP_NAME = "Podium";

@@ -40,6 +40,12 @@ export function fmtClock(t: number): string {
   return [d.getHours(), d.getMinutes(), d.getSeconds()].map((v) => String(v).padStart(2, "0")).join(":");
 }
 
+/** Epoch milliseconds as the local date "YYYY-MM-DD". */
+export function fmtDay(t: number): string {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** A whole percentage, or "–" when unknown. */
 export function fmtPct(p: number | null | undefined): string {
   if (p === null || p === undefined || !Number.isFinite(p)) return "–";

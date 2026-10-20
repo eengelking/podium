@@ -3,6 +3,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
+import { fmtDay } from "./format";
 import { canAnswer, cleanLabel, respondGate } from "./respond";
 import { RespondProvider, useRespond } from "./useRespond";
 import { RespondButton, RespondModal } from "./components/Respond";
@@ -559,5 +560,49 @@ describe("its turn ended", () => {
     fireEvent.keyDown(box, { key: "Enter" });
     await flush();
     expect(api.message).not.toHaveBeenCalled();
+  });
+});
+
+describe("stored Activity in the Respond modal (#432)", () => {
+  const SINCE = Date.parse("2026-10-12T12:00:00");
+  const withHistory = (canRead: boolean) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0, history: { policy: "all", total: 412, since: SINCE, keptUntil: null, canRead, owner: "Ed" } }),
+      })),
+    );
+  const stored = (seq: number) => ({ seq, at: T0 - 1000 * (10 - seq), kind: "tool" as const, text: `Edit s${seq}` });
+
+  it("shows the stored page, the count, Show older and the note, and loads an older page", async () => {
+    withHistory(true);
+    const activityHistory = vi.fn(async (_s: string, _l: string, before?: number | null) =>
+      before ? { entries: [stored(1)], olderBefore: null, total: 412, since: SINCE, keptUntil: null } : { entries: [stored(5), stored(6)], olderBefore: 5, total: 412, since: SINCE, keptUntil: null },
+    );
+    await modal(session(), fakeApi({ activityHistory }));
+    expect(activityHistory).toHaveBeenCalledWith("sess-ed", "@orchestrator", null, 20);
+    expect(screen.getByText("s6")).toBeInTheDocument();
+    expect(screen.getByText(`412 stored entries since ${fmtDay(SINCE)}`)).toBeInTheDocument();
+    expect(screen.getByText(/^Kept until the session is removed from Podium\. Only the owner and the Admin can open it\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    await flush();
+    expect(screen.getByText("s1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
+  });
+
+  it("tells another viewer who can open it, and shows no entries", async () => {
+    withHistory(false);
+    const activityHistory = vi.fn();
+    await modal(session(), fakeApi({ activityHistory }, { ...ME, name: "Alex" }));
+    expect(activityHistory).not.toHaveBeenCalled();
+    expect(screen.getByText("History is kept for this session. Only Ed and the Admin can open it.")).toBeInTheDocument();
+    expect(screen.getByText("Nothing to show")).toBeInTheDocument();
+  });
+
+  it("tells a viewer who is not signed in to sign in", async () => {
+    withHistory(false);
+    await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: "", admin: false }));
+    expect(screen.getByText("History is kept for this session. Sign in as Ed or an Admin to open it.")).toBeInTheDocument();
   });
 });

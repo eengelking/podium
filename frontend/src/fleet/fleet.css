@@ -504,6 +504,8 @@ body.modal-open #root { filter: blur(5px); }
 .podium .feedfoot { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11.5px; color: var(--muted); }
 /* The status row (#146) is one line whatever its text says: the count gives way with an ellipsis, the time never wraps. */
 .podium .feedfoot.stat { align-items: baseline; height: 1.4em; line-height: 1.4; font-variant-numeric: tabular-nums; }
+/* "Show older" (#432) holds a button, which a fixed one-line height would clip. */
+.podium .feedfoot.stat.older { height: auto; align-items: center; }
 .podium .feedfoot.stat .count { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .feedfoot.stat .when { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .feedoff { border: 1px dashed var(--axis); border-radius: 6px; padding: 12px; color: var(--ink2); font-size: 12.5px; }
