@@ -86,8 +86,19 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 /* PROPOSED .fact.rec: the Recording cell, last in the facts. Not recorded, it is the same kind of cell button as Resume
    and Fork: the word Record and a record mark after it. Otherwise it states the recording's state in shape, word and
    color. */
-.podium .osum .facts .fact.rec .v.recording, .podium .osum .facts .fact.rec .rec-i { color: var(--crit-text); }
-.podium .osum .facts .fact.rec .rec-i { display: inline-flex; }
+.podium .osum .facts .fact.rec .v.recording { color: var(--crit-text); }
+/* The record mark: a ring with a disc inside. Neutral when idle, a ring alone when the recording is only kept, and
+   red with the center pulsing, on the app's shared beat (data-beat), only while it is recording. */
+.podium .fact.rec .rec-i { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; border: 1.5px solid currentColor; border-radius: 50%; color: var(--ink2); }
+.podium .fact.rec .rec-i i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; position: relative; }
+.podium .fact.rec .rec-i.kept i { display: none; }
+.podium .fact.rec .rec-i.live { color: var(--crit-text); }
+.podium .fact.rec .rec-i.live i { background: var(--crit); }
+.podium .fact.rec .rec-i.live i::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--crit); opacity: 0; pointer-events: none; }
+.podium[data-beat="0"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: .55; }
+.podium[data-beat="1"] .fact.rec .rec-i.live i::after { transform: scale(1.6); opacity: .35; }
+.podium[data-beat="2"] .fact.rec .rec-i.live i::after { transform: scale(2.3); opacity: .12; }
+.podium[data-beat="3"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: 0; }
 .podium .fact .v .sep { color: var(--axis); }
 /* PROPOSED .rec-bar.kept: the same layer once capture has ended and the recording is only kept. A ring instead of a
    filled dot, the neutral color instead of the critical one, and Open replay and Delete recording. */
@@ -277,7 +288,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   <ul>
     <li><span class="mono">.band.recording</span>, <span class="mono">.rec-bar</span> (and its kept variant, <span class="mono">.rec-bar.kept</span>) and <span class="mono">.badge.recording</span>: nothing existing is a state that cannot be closed or switched off.</li>
     <li><span class="mono">.feed li.mark</span> and <span class="mono">.feed li.cur</span>: a marked row and the row the slider is on. Plus the loop's name (<span class="mono">.who</span>) and a collapsed result (<span class="mono">.res</span>) around the existing code block.</li>
-    <li><span class="mono">.fact.rec</span>: the Recording cell, last in the facts. The facts stay twelve cells in two rows of six: Machine and System, two cells on <span class="mono">development</span>, become one (Silverbolt | macOS 26.0), which frees the place for Recording. That changes an existing component (the facts bar), so it needs your approval as a <span class="mono">Standards:</span> change.</li>
+    <li><span class="mono">.fact.rec</span>: the Recording cell, last in the facts. The facts stay twelve cells in two rows of six: Machine and System, two cells on <span class="mono">development</span>, become one (Silverbolt | macOS 26.0), which frees the place for Recording. The record mark is a ring with a disc inside. It is neutral when the session is not recorded, a ring alone when the recording is only kept, and red with the center pulsing on the app's shared beat only while it is recording (still under reduced motion). It resembles the delegating mark, a ring with a dot; the disc is larger and the color differs, and it appears only in this cell. That changes an existing component (the facts bar), so it needs your approval as a <span class="mono">Standards:</span> change.</li>
     <li><span class="mono">.scrub</span>: a labelled range input. The standards have no slider.</li>
     <li>The standards change only after you approve, through <span class="mono">Standards:</span> lines in the CHANGELOG, and the implementation adds each piece to the standards in its own PR.</li>
   </ul>
@@ -393,6 +404,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   /* The Recording cell. Not recorded: a button that opens the picker, for the owner and an Admin. Recording, kept and
      viewers: the state in shape, word and color, with the time it goes. The buttons for Stop, Open replay and Delete
      stay in the layer above the band. */
+  function recMark(kind) {
+    var m = node("span", "rec-i" + (kind === "live" ? " live" : kind === "kept" ? " kept" : "")); m.setAttribute("aria-hidden", "true");
+    m.appendChild(node("i")); return m;
+  }
   function renderRecCell(id) {
     var c = $("rec-cell"); c.textContent = "";
     c.className = "fact rec" + (id === "not" ? " copy" : "");
@@ -400,14 +415,12 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       var b = node("button", "cellbtn"); b.type = "button"; b.setAttribute("aria-label", "Record this session"); b.addEventListener("click", function () { screen("pick"); });
       b.appendChild(node("span", "k", "Recording"));
       var rv = node("span", "v"); rv.appendChild(node("span", "", "Record"));
-      var mark = node("span", "rec-i"); mark.setAttribute("aria-hidden", "true");
-      mark.innerHTML = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="4.5" fill="currentColor" stroke="none"></circle></svg>';
-      rv.appendChild(mark); b.appendChild(rv); c.appendChild(b); return;
+      rv.appendChild(recMark("idle")); b.appendChild(rv); c.appendChild(b); return;
     }
     var live = id !== "stopped" && id !== "ended";
     c.appendChild(node("div", "k", "Recording"));
-    var v = node("div", "v" + (live ? " recording" : "")), shape = node("span", "", live ? "●" : "○"); shape.setAttribute("aria-hidden", "true");
-    v.appendChild(shape); v.appendChild(document.createTextNode(live ? " Recording" : " Kept until 17:42")); c.appendChild(v);
+    var v = node("div", "v" + (live ? " recording" : ""));
+    v.appendChild(document.createTextNode(live ? "Recording" : "Kept until 17:42")); v.appendChild(recMark(live ? "live" : "kept")); c.appendChild(v);
     c.title = live ? "Recording. Deleted at 17:42 today." : "Capture has ended. The recording is kept until 17:42 today, then deleted.";
   }
   var backTo = "rec";
@@ -646,6 +659,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   document.querySelectorAll("[data-rp]").forEach(function (b) { b.addEventListener("click", function () { setRp(b.getAttribute("data-rp")); }); });
 
   root.setAttribute("data-theme", "dark");
+  /* The app's shared beat (useHeartbeat.ts): data-beat steps 0 to 3 every 450 ms on the page root, and stays still under
+     reduced motion. Each screen here is its own root, so each gets it. */
+  var beat = 0, still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function setBeat(v) { document.querySelectorAll(".frame > .podium").forEach(function (p) { p.dataset.beat = String(v); }); }
+  if (!still) { setBeat(0); setInterval(function () { beat = (beat + 1) % 4; setBeat(beat); }, 450); }
   picker("ok"); wallCards(); buildFacts(); op("rec"); rp(); screen("admin");
 })();
 </script>
