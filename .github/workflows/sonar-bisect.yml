@@ -12,9 +12,10 @@ jobs:
       fail-fast: false
       matrix:
         group:
-          - { n: standards, inc: 'frontend/src/fleet/standards/**' }
-          - { n: samples-only, inc: 'frontend/src/fleet/standards/samples.ts' }
-          - { n: top, inc: 'frontend/src/*.ts,frontend/src/*.tsx,frontend/*.ts' }
+          - { n: main, inc: 'frontend/src/main.tsx' }
+          - { n: setup, inc: 'frontend/src/setupTests.ts,frontend/src/jest-dom.d.ts' }
+          - { n: route, inc: 'frontend/src/route.ts' }
+          - { n: fe-root, inc: 'frontend/*.ts' }
     steps:
       - uses: actions/checkout@v7
         with:
