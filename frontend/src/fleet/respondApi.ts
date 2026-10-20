@@ -1,7 +1,7 @@
 // The browser's side of responding (#206, SPEC 7.1): signing in, reading an ask, answering it, and sending a message.
 // Every change carries X-Podium-Respond: 1; the sign-in lives in an HttpOnly cookie the page never sees, and the token
 // typed into the form is sent once and never kept (SPEC 7.7).
-import type { AskDetail, FileDiffReply, PeerLevel, RespondMe } from "./types";
+import type { ActivityHistoryPage, AskDetail, FileDiffReply, PeerLevel, RespondMe } from "./types";
 import type { PeerDefaults, PeerLimitsView, PeersRead } from "./peers";
 
 const BASE = "/api/fleet/respond";
@@ -50,11 +50,17 @@ export const respondApi = {
     callRespond<{ ok: true; deliveryId: string; queued: boolean }>("POST", `${sessionPath(sessionId)}/messages`, body),
   /** One file's diff (#319): held until the session's machine answers, so it can take up to 15 seconds. */
   fileDiff: (sessionId: string, path: string) => callRespond<FileDiffReply>("GET", `${sessionPath(sessionId)}/files/diff?path=${encodeURIComponent(path)}`),
+  /** One page of a loop's stored Activity (#432), oldest first; the owner and the Admin only. `before` is a page's `olderBefore`. */
+  activityHistory: (sessionId: string, loop: string, before?: number | null, limit?: number) =>
+    callRespond<ActivityHistoryPage>(
+      "GET",
+      `${sessionPath(sessionId)}/activity-history?loop=${encodeURIComponent(loop)}${before != null ? `&before=${before}` : ""}${limit != null ? `&limit=${limit}` : ""}`,
+    ),
   discard: (deliveryId: string) => callRespond<{ ok: true }>("DELETE", `/deliveries/${encodeURIComponent(deliveryId)}`),
 };
 
-/** The browser's side of responding. `fileDiff` is optional so a test's fake can leave it out; the real one has it. */
-export type RespondApi = Omit<typeof respondApi, "fileDiff"> & Partial<Pick<typeof respondApi, "fileDiff">>;
+/** The browser's side of responding. `fileDiff` and `activityHistory` are optional so a test's fake can leave them out; the real one has them. */
+export type RespondApi = Omit<typeof respondApi, "fileDiff" | "activityHistory"> & Partial<Pick<typeof respondApi, "fileDiff" | "activityHistory">>;
 
 /**
  * My reporters (#347, #415, SPEC 7.1 "Browser routes for orchestrator messaging"): on the same router and sign-in as

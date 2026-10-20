@@ -5,7 +5,7 @@ import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, isM
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
 import { useRespond } from "../useRespond";
-import { ACTIVITY_REPORTER_MINOR, AdminOffNote, EverySelect, FeedList, FeedStatus, footer } from "./ActivityFeed";
+import { ACTIVITY_REPORTER_MINOR, AdminOffNote, EverySelect, FeedList, FeedStatus, feedEmpty, feedNote, footer, OlderRow } from "./ActivityFeed";
 import { Compose, OffNote } from "./Compose";
 import { Modal } from "./Modal";
 import { draftToAnswer, ICONS, Outcome, PermissionForm, PlanForm, Q, QuestionForm, type Draft, type PlanChoice } from "./RespondForms";
@@ -105,7 +105,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   const [nudge, setNudge] = useState(0);
   const feedOn = s.reporter === "mod" && !reporterBelow(s, ACTIVITY_REPORTER_MINOR) && s.activityFeed !== false;
   const active = s.status !== "done";
-  const feed = useActivityFeed({ sessionId: s.id, loop: MAIN_LOOP, enabled: feedOn, active, every, adminOn: props.adminFeedOn, nudge });
+  const feed = useActivityFeed({ sessionId: s.id, loop: MAIN_LOOP, enabled: feedOn, active, every, adminOn: props.adminFeedOn, nudge, fetchHistory: ctx.api.activityHistory });
   const [count, when] = footer(feed, active, true, Date.now());
 
   // The whole ask, for its owner or an Admin; read again whenever its state changes.
@@ -356,11 +356,12 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
 
   // As the Activity modal this replaces (#118): the Admin's switch wins, and the empty text follows the feed's state.
   const adminOff = !props.adminFeedOn || feed.adminOff;
-  const empty = !feed.live
+  const emptyBase = !feed.live
     ? "This session is no longer live. Activity is kept only while someone watches a running session."
     : active
       ? "Watching from now. Earlier activity is not kept, and nothing is kept after you close this."
       : "The session has ended. Activity is kept only while someone watches it run.";
+  const empty = feedEmpty(feed, signedIn, emptyBase);
   const model = familyName(s.modelFamily, s.model);
   return (
     <Modal
@@ -382,7 +383,13 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
         ) : (
           <>
             <FeedList feed={feed} startedAt={s.startedAt} empty={empty} />
+            <OlderRow feed={feed} />
             <FeedStatus count={count} when={when} />
+            {feed.stored && (
+              <div className="feedfoot">
+                <span>{feedNote(feed)}</span>
+              </div>
+            )}
           </>
         )}
         {panel}
