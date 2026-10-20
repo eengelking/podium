@@ -422,6 +422,8 @@ Click a card or a rail item. The page has a summary, a plan, an agent tree and a
 | Tokens | The context held now |
 | Running time | How long the session has run |
 | Agent time | The orchestrator's time plus every agent's. It is longer than running time when agents run at once |
+| Machine | The machine the session runs on, as its reporter named it. "Not reported" when the session has no user name, so no machine. Hover or tab to the cell for why |
+| System | The machine's operating system and version, such as `macOS 15.4`, with the same icon as My reporters. "Not reported" when the reporter did not send it: update podium-reporter, or set `userName` when the Machine is also not reported |
 | Reporter | The version of the podium-reporter mod the session runs, or "Settings hooks" when it has no mod. The version shows in amber with "update" or "upgrade server" when the server says it is outside the supported range |
 
 #### The plan and Files

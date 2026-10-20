@@ -37,7 +37,8 @@ export const LEVEL_ICON: Record<PeerLevel, ReactNode> = {
   ),
 };
 
-const SYSTEM_ICON: Record<SystemKind, ReactNode> = {
+/** The icon for each family of system. The facts grid on the orchestrator page draws the same ones (#427). */
+export const SYSTEM_ICON: Record<SystemKind, ReactNode> = {
   mac: (
     <svg {...svg}>
       <rect x="2" y="3" width="12" height="8" rx="1" />
@@ -68,10 +69,13 @@ export function AccessLevel({ level }: { level: PeerLevel }) {
   );
 }
 
+/** What a system, or a machine, reads when nothing was reported. My reporters, Admin > Reporters and the orchestrator's facts grid all say it so. */
+export const NOT_REPORTED = "Not reported";
+
 /** A reporter's system: an icon for its family and the name it reported. */
 export function SystemTag({ os }: { os: string | null }) {
   const kind = systemKind(os);
-  if (!kind) return <span className="pm-os muted">Not reported</span>;
+  if (!kind) return <span className="pm-os muted">{NOT_REPORTED}</span>;
   return (
     <span className="pm-os">
       {SYSTEM_ICON[kind]}

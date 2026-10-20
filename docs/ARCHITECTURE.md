@@ -245,8 +245,8 @@ File: `FocusView.tsx`. Issues #165, #197 and #287. Mockup: `mockup/podium-orches
   keep their natural height at the top and bottom.
 - The svg's `preserveAspectRatio="none"` viewBox and `vector-effect: non-scaling-stroke` let the graph stretch
   without changing line widths. `chartsFill.test.ts` reads these rules out of `fleet.css`.
-- `.facts` is a five-column grid (two columns at 640 px and narrower) whose 1 px gap over a `--grid` background draws the hairlines.
-- Blowouts, Session, Resume and Fork are whole-cell controls without button chrome. Resume and Fork are one component, `CopyCell`, with a popup that opens on hover and focus above the cell, or below it when the scrolling page has no room above (`.osum` does not clip). `forkCommand` is built next to `resumeCommand` in `derive.ts`, so the page copies a string and builds nothing (#352). The open state of the blowout detail is
+- `.facts` is a six-column grid, twelve cells (two columns at 640 px and narrower) whose 1 px gap over a `--grid` background draws the hairlines.
+- Blowouts, Session, Resume and Fork are whole-cell controls without button chrome. Resume and Fork are one component, `CopyCell`, and Machine and System are `PopCell`s (#427), both built on `usePopup`: a popup that opens on hover and focus above the cell, or below it when the scrolling page has no room above (`.osum` does not clip). `forkCommand` is built next to `resumeCommand` in `derive.ts`, so the page copies a string and builds nothing (#352). The open state of the blowout detail is
   `FocusView`'s own (kept per session id, closed by default) and reaches the cell as `blow`.
 - The Reporter cell takes its tooltip from `HOOKS_NOTE` and `versionNote`, the same sources as the card chip.
 - The old callout stack, the status chip beside the name and `.alert` are gone. `.callout` remains for the agent

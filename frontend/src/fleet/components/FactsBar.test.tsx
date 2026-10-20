@@ -109,17 +109,18 @@ describe("FactsBar Reporter cell (#124)", () => {
 });
 
 describe("FactsBar copy cells (#352)", () => {
-  it("has ten cells in fixed places: Agent time ends row one, and Session, Resume and Fork end row two", () => {
+  it("has twelve cells in fixed places, six to a row: Blowouts ends row one, and Machine, System, Reporter, Session, Resume and Fork make row two (#427)", () => {
     const { container } = render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
     const keys = [...container.querySelectorAll(".facts > .fact")].map((f) => f.querySelector(".k")!.textContent);
-    expect(keys).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Reporter", "Session", "Resume", "Fork"]);
+    expect(container.querySelector(".facts")).toHaveClass("six");
+    expect(keys).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "System", "Reporter", "Session", "Resume", "Fork"]);
   });
 
   it("gives Resume and Fork their own accessible names and popups", () => {
-    const { container } = render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
+    render(<FactsBar s={makeSession()} now={Date.now()} onAgent={() => {}} />);
     expect(screen.getByRole("button", { name: "Copy resume command" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy fork command" })).toBeInTheDocument();
-    const tips = [...container.querySelectorAll(".facts .tip")].map((t) => t.textContent);
+    const tips = ["Resume", "Fork"].map((g) => within(screen.getByRole("group", { name: g })).getByRole("tooltip", { hidden: true }).textContent);
     expect(tips[0]).toMatch(/Continues this same session/);
     expect(tips[0]).toMatch(/still running in another terminal/);
     expect(tips[1]).toMatch(/This session is not changed/);
@@ -159,5 +160,74 @@ describe("FactsBar copy cells (#352)", () => {
     });
     expect(writeText).toHaveBeenLastCalledWith("cd '/a b' && claude --resume r1");
     vi.unstubAllGlobals();
+  });
+});
+
+describe("FactsBar Machine and System cells (#427)", () => {
+  const MAC = { name: "dana-mbp", id: "m1", os: "macOS 15.4" };
+  const show = (machine: ReturnType<typeof makeSession>["machine"]) => {
+    const { container } = render(<FactsBar s={makeSession({ machine })} now={Date.now()} onAgent={() => {}} />);
+    const cell = (k: string) => [...container.querySelectorAll<HTMLElement>(".facts > .fact")].find((f) => f.querySelector(".k")?.textContent === k)!;
+    const tip = (k: string) => cell(k).querySelector<HTMLElement>('[role="tooltip"]')!;
+    return { container, cell, tip };
+  };
+
+  it("shows the machine's name and its system with the family's icon, as My reporters does", () => {
+    const { cell } = show(MAC);
+    expect(cell("Machine").querySelector(".v")!.textContent).toBe("dana-mbp");
+    expect(cell("System").querySelector(".v")!.textContent).toBe("macOS 15.4");
+    expect(cell("System").querySelector(".v svg")).not.toBeNull();
+  });
+
+  it("gives Linux and Windows their own icons from the same table My reporters uses", () => {
+    const icon = (os: string) => show({ ...MAC, os }).cell("System").querySelector(".v svg")!.innerHTML;
+    expect(new Set([icon("macOS 15.4"), icon("Fedora Linux 44"), icon("Windows 11")]).size).toBe(3);
+  });
+
+  it("says what each cell is in a popup, with the whole system text as the cell's popup, in the Resume and Fork popup's design", () => {
+    const { cell, tip } = show({ ...MAC, os: "Fedora Linux 44 (Workstation Edition) · kernel 6.17.4" });
+    expect(tip("System").textContent).toMatch(/Fedora Linux 44 \(Workstation Edition\) · kernel 6\.17\.4/);
+    expect(tip("Machine").textContent).toMatch(/machine this session runs on/i);
+    for (const k of ["Machine", "System"]) {
+      expect(cell(k)).toHaveClass("pop", "start");
+      expect(cell(k)).toHaveAttribute("tabindex", "0");
+      expect(cell(k).getAttribute("aria-describedby")).toBe(tip(k).id);
+    }
+  });
+
+  it("reads Not reported with the update tooltip when the reporter sent a machine but no system", () => {
+    const { cell, tip } = show({ name: "studio-m2", id: "m2", os: null });
+    expect(cell("System").querySelector(".v")!.textContent).toBe("Not reported");
+    expect(cell("System").querySelector(".v")).toHaveClass("soft");
+    expect(tip("System").textContent).toMatch(/older podium-reporter/);
+    expect(tip("System").textContent).toMatch(/Updating podium-reporter fills it in/);
+    expect(cell("System").textContent).not.toMatch(/undefined|null/);
+  });
+
+  it("reads Not reported in both cells, with a tooltip that does not point at an update, when no machine was sent", () => {
+    const { cell, tip } = show(null);
+    for (const k of ["Machine", "System"]) {
+      expect(cell(k).querySelector(".v")!.textContent).toBe("Not reported");
+      expect(tip(k).textContent).toMatch(/user name/i);
+      expect(tip(k).textContent).toMatch(/userName/);
+      expect(tip(k).textContent).not.toMatch(/Updating/);
+    }
+  });
+
+  it("closes the popup on Escape and brings it back when focus leaves and returns", () => {
+    const { cell } = show(MAC);
+    const c = cell("System");
+    fireEvent.keyDown(c, { key: "Escape" });
+    expect(c).toHaveClass("dismissed");
+    fireEvent.blur(c);
+    expect(c).not.toHaveClass("dismissed");
+  });
+
+  it("opens its popup below the cell when the page has no room above it", () => {
+    const { cell } = show(MAC);
+    const c = cell("Machine");
+    vi.spyOn(c, "getBoundingClientRect").mockReturnValue({ top: 4 } as DOMRect);
+    fireEvent.mouseEnter(c);
+    expect(c).toHaveClass("below");
   });
 });

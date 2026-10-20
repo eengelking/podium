@@ -1,9 +1,11 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { fmtDur, fmtTok } from "../format";
 import { AGENT_TIME_HINT, AGENTS_HINT, COST_HINT_SESSION, sessionAgentSec, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT } from "../logic";
+import { systemKind } from "../peers";
 import type { SessionView } from "../types";
 import { BlowBadge, Cost } from "./Chips";
 import { IconCheck, IconChevron, IconCopy, IconWarn, IconX } from "./Icons";
+import { NOT_REPORTED, SYSTEM_ICON } from "./PeerRights";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
 import { SHORT_ID, useCopy } from "./SessionId";
 
@@ -17,12 +19,10 @@ function scrollParent(el: HTMLElement): HTMLElement {
 }
 
 /**
- * A quiet whole-cell control that copies `text` (Resume and Fork, #352). "Copied" with a check for 1.6 s; when the clipboard refuses nothing changes.
- * `tip` is the popup that says what the command does: it opens on hover and on keyboard focus, closes on Escape or when the pointer or focus
- * leaves, and holds text only. It opens above the cell, or below it when the scrolling page has no room above.
+ * What a cell with a popup needs (Resume, Fork, Machine and System): it opens on hover and on keyboard focus, closes on Escape or when the pointer
+ * or focus leaves, and opens above the cell, or below it when the scrolling page has no room above.
  */
-export function CopyCell({ label, name, text, tip }: { label: string; name: string; text: string; tip: ReactNode }) {
-  const { state, copy } = useCopy(text);
+function usePopup() {
   const [dismissed, setDismissed] = useState(false);
   const [below, setBelow] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
@@ -36,25 +36,33 @@ export function CopyCell({ label, name, text, tip }: { label: string; name: stri
     const room = wrap.current.getBoundingClientRect().top - limit;
     setBelow(room < tipEl.current.offsetHeight + 16);
   };
-  const copied = state === "copied";
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") setDismissed(true);
+  const props = {
+    ref: wrap,
+    className: `pop${dismissed ? " dismissed" : ""}${below ? " below" : ""}`,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDismissed(true);
+    },
+    onMouseEnter: place,
+    onFocus: place,
+    onMouseLeave: () => {
+      // Keyboard focus still inside keeps the popup open, so keep Escape's dismissal until focus leaves too.
+      if (!wrap.current?.contains(document.activeElement)) setDismissed(false);
+    },
+    onBlur: () => setDismissed(false),
   };
+  return { props, tipEl, tipId };
+}
+
+/**
+ * A quiet whole-cell control that copies `text` (Resume and Fork, #352). "Copied" with a check for 1.6 s; when the clipboard refuses nothing changes.
+ * `tip` is the popup that says what the command does; it holds text only, and the cell points to it with `aria-describedby`.
+ */
+export function CopyCell({ label, name, text, tip }: { label: string; name: string; text: string; tip: ReactNode }) {
+  const { state, copy } = useCopy(text);
+  const { props, tipEl, tipId } = usePopup();
+  const copied = state === "copied";
   return (
-    <div
-      ref={wrap}
-      role="group"
-      aria-label={label}
-      className={`fact copy${dismissed ? " dismissed" : ""}${below ? " below" : ""}`}
-      onKeyDown={onKeyDown}
-      onMouseEnter={place}
-      onFocus={place}
-      onMouseLeave={() => {
-        // Keyboard focus still inside keeps the popup open, so keep Escape's dismissal until focus leaves too.
-        if (!wrap.current?.contains(document.activeElement)) setDismissed(false);
-      }}
-      onBlur={() => setDismissed(false)}
-    >
+    <div {...props} role="group" aria-label={label} className={`fact copy ${props.className}`}>
       <button type="button" className="cellbtn" onClick={copy} aria-label={name} aria-describedby={tipId}>
         <span className="k">{label}</span>
         <span className="v soft" aria-live="polite">
@@ -62,6 +70,20 @@ export function CopyCell({ label, name, text, tip }: { label: string; name: stri
           {copied ? <IconCheck /> : <IconCopy />}
         </span>
       </button>
+      <div className="tip" role="tooltip" id={tipId} ref={tipEl}>
+        {tip}
+      </div>
+    </div>
+  );
+}
+
+/** A cell that only reads: a label over a value, with the same kind of popup Resume and Fork have. Focusable, so the popup opens from the keyboard too (#427). */
+function PopCell({ label, value, valueClass, tip }: { label: string; value: ReactNode; valueClass?: string; tip: ReactNode }) {
+  const { props, tipEl, tipId } = usePopup();
+  return (
+    <div {...props} role="group" aria-label={label} tabIndex={0} aria-describedby={tipId} className={`fact start ${props.className}`}>
+      <div className="k">{label}</div>
+      <div className={`v${valueClass ? ` ${valueClass}` : ""}`}>{value}</div>
       <div className="tip" role="tooltip" id={tipId} ref={tipEl}>
         {tip}
       </div>
@@ -114,6 +136,51 @@ const FORK_TIP = (
     </ul>
   </>
 );
+
+const NO_MACHINE_TIP = (
+  <>
+    <b>Not reported.</b> This session sends no machine, so its system is unknown. Podium learns the machine only from a reporter that has a user name. Install podium-reporter and set <code>userName</code> in its options to fill it in.
+  </>
+);
+
+/** The machine the session runs on, as its reporter named it; Not reported when the session sent no machine (no user name, #427). */
+function MachineFact({ s }: { s: SessionView }) {
+  const name = s.machine?.name;
+  if (!name) return <PopCell label="Machine" value={NOT_REPORTED} valueClass="soft" tip={NO_MACHINE_TIP} />;
+  return <PopCell label="Machine" value={name} valueClass="mono" tip={<><b>The machine this session runs on.</b> As its reporter named it.</>} />;
+}
+
+/** The machine's OS and version, with the same icon and wording as My reporters and Admin > Reporters (#427). The popup holds the whole text, which the cell cuts with an ellipsis. */
+function SystemFact({ s }: { s: SessionView }) {
+  const os = s.machine?.os;
+  const kind = systemKind(os ?? null);
+  if (!os || !kind) {
+    const tip = s.machine ? (
+      <>
+        <b>Not reported.</b> This reporter did not send the machine's system. It is an older podium-reporter, or the command to read it failed on the machine. Updating podium-reporter fills it in.
+      </>
+    ) : (
+      NO_MACHINE_TIP
+    );
+    return <PopCell label="System" value={NOT_REPORTED} valueClass="soft" tip={tip} />;
+  }
+  return (
+    <PopCell
+      label="System"
+      value={
+        <>
+          <span className="sysi">{SYSTEM_ICON[kind]}</span>
+          <span className="sys-t">{os}</span>
+        </>
+      }
+      tip={
+        <>
+          <b>The system on this machine.</b> {os}
+        </>
+      }
+    />
+  );
+}
 
 /** The reporter mod's version; "Settings hooks" when there is no mod; the card chip's wording, a warning shape and the note as its tooltip when the server places it out of range. */
 function ReporterFact({ s }: { s: SessionView }) {
@@ -181,14 +248,14 @@ export interface BlowControl {
 }
 
 /**
- * Ten cells in fixed places, five to a row (#165, #352). Row one: Agents, Est. cost, Tokens, Running for, Agent time.
- * Row two: Blowouts, Reporter, Session, Resume, Fork. A cell never moves because another has nothing to say.
+ * Twelve cells in fixed places, six to a row (#165, #352, #427). Row one: Agents, Est. cost, Tokens, Running for, Agent time, Blowouts.
+ * Row two: Machine, System, Reporter, Session, Resume, Fork. A cell never moves because another has nothing to say.
  */
 export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: number; onAgent: (id: string) => void; blow?: BlowControl }) {
   const c = sessionCounts(s);
   const firstFail = s.agents.find((a) => a.status === "failed");
   return (
-    <div className="facts">
+    <div className="facts six">
       <div className="fact agents" title={AGENTS_HINT}>
         <div className="k">Agents</div>
         <div className="v mono">
@@ -219,6 +286,8 @@ export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: numbe
         <div className="v mono">{fmtDur(sessionAgentSec(s, now))}</div>
       </div>
       <BlowoutsFact s={s} blow={blow} />
+      <MachineFact s={s} />
+      <SystemFact s={s} />
       <ReporterFact s={s} />
       <SessionCell id={s.id} />
       <CopyCell label="Resume" name="Copy resume command" text={s.resumeCommand} tip={RESUME_TIP} />

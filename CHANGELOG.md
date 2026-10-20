@@ -16,6 +16,9 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
+- **The orchestrator's facts grid shows the machine and its system (#427).** Two new cells, Machine and System, sit before Reporter, so the grid is twelve cells in two rows of six (two columns by six rows at 640 px and narrower). Blowouts moves from the start of row two to the end of row one to make room. Machine is the host name the reporter sent. System is its OS and version, such as `Fedora Linux 44` or `macOS 15.4`, with the same icon and wording as My reporters and Admin > Reporters, cut with an ellipsis when long. Each has a popup like Resume's and Fork's, opened by hover and by keyboard focus. A session with no machine (no `userName`) reads "Not reported" in both cells and its popup says to set `userName`; a machine with no OS reads "Not reported" and its popup says updating podium-reporter fills it in.
+  Standards: the facts grid is six columns (`facts six`), a cell with a popup is `fact pop` (Resume and Fork share it with the new cells, and the popup rules are keyed to `.fact.pop > .tip` so a `Tip` inside a cell is not styled as a popup), and the system's icon and text are `sysi` and `sys-t`; approved with the mockup on #427 (`mockup/podium-facts-system.html`), option C with Machine before System.
+
 - **Admin > Reporting (#484, #482, #483).** A new menu group with seven pages: Usage, Spend, People and groups, Sessions, Failures, Admin activity and Data kept. Each takes a period, a day, week or month grouping and filters, states the time zone and how far back its data goes, and exports exactly what it shows as CSV or JSON (and prints). Podium now keeps daily summaries of usage, sessions, failures and the fleet for 395 days (`RETAIN_ROLLUP_MS`), written before the detailed rows are swept, so a report can reach past the 30 days of sessions and events. The summaries hold counts, tokens, cost and names, and no session content. Admin > Reporting > Data kept lists what is stored and for how long.
   - **Spend breakdown (#482).** A person's row in Spend today opens what the figure is made of: by session, by model, and orchestrator against agents. Each cut adds up to the row, and a model without a price shows a dash.
   - **Spend projection (#483).** A straight run rate over the last 7, 14 or 30 days projected to the end of the month or 30 days ahead, with the window and assumptions shown, and "Not enough history" when there are fewer than 7 days.
@@ -33,6 +36,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- The simulator (`scripts/podium-sim.ts`) sends an OS with each machine of a `--person`: macOS, Fedora Linux or Windows on the laptop, none for some (an older reporter), and Ubuntu on the build box, so the Machine and System cells show every state (#427).
 - Admin > Reporting: the Admin activity report says when the log held more than 1,000 entries in the period and only the newest are shown, and its reply carries `truncated` (#529).
 - Reporting reads less: a report for today no longer scans the agents, reporter links and failures of every stored session, and the Spend breakdown reads its sessions and agents in two queries instead of several per session (#529).
 - Admin: Spend moved from Activity into the new Reporting group, and the Server page "Reporting and security" is now called **Security** so there is one "Reporting" (#484).

@@ -312,6 +312,9 @@ export function simMachineId(label: string): string {
   return (h.toString(16).padStart(8, '0') + ((h ^ 0x5bd1e995) >>> 0).toString(16).padStart(8, '0')).slice(0, 12);
 }
 
+/** The systems a person's laptop reports: three families, and none, as an older reporter sends (#427). The build box is always Ubuntu. */
+const SIM_LAPTOP_OS: (string | null)[] = ['macOS 15.4', 'Fedora Linux 44', 'Windows 11', null];
+
 /** A long markdown task prompt, so the console's prompt modal has something to render (issue #97). */
 function fullPrompt(task: string): string {
   return [
@@ -384,7 +387,8 @@ export class Simulator {
     this.ownerUse.set(p.name, n + 1);
     const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'person';
     const box = n % 3 === 2 ? 'build' : 'laptop';
-    return { ...p, machine: { name: `${slug}-${box}`, id: simMachineId(`${p.name}:${box}`) } };
+    const os = box === 'build' ? 'Ubuntu 24.04' : SIM_LAPTOP_OS[[...p.name].reduce((a, c) => a + c.charCodeAt(0), 0) % SIM_LAPTOP_OS.length];
+    return { ...p, machine: { name: `${slug}-${box}`, id: simMachineId(`${p.name}:${box}`), ...(os ? { os } : {}) } };
   }
 
   /** The token a session's reports send: its person's, else the --token one. */
