@@ -1,0 +1,148 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Board KPI Collapse</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #538, for approval. The Kanban page's KPI rows (the eight .kpis/.kpi tiles from #450) collapse and reopen as one element.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Classes prefixed mk- are demo chrome.
+   PROPOSED NEW CLASSES for the standards, if the maintainer accepts one option: .kpi-block (wrapper, position: relative), .kpi-tab (the control).
+   Option A, the issue's wording: the collapsed state is a thin bar across the KPI block, chevron centered; open, a small pill straddles the block's bottom edge.
+   Option B, the header's own shape: the .tbar-tab pill in both states. Collapsed it is a pill hung from a hairline instead of a full-width bar. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.mk-demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo b { color: var(--ink); }
+.mk-demo .mk-grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.mk-page { max-width: 1040px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.mk-cap { color: var(--muted); font-size: 12px; }
+.mk-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.mk-pair.mk-two { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.mk-state { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mk-state > b { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mk-frame { container-type: inline-size; padding: 14px 14px 10px; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); }
+.mk-frame.mk-narrow { max-width: 400px; }
+.mk-cards { margin-top: 10px; display: grid; gap: 6px; }
+.mk-card { height: 34px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 12px; padding: 8px 10px; }
+.mk-decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mk-decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.mk-decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+
+/* The Board's KPI layout today: four across, two across in a narrow container. */
+.mk-frame .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+@container (max-width: 640px) { .mk-frame .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* PROPOSED: the control. It reuses .tbar-tab's size, border, hover, focus ring and tip; only its placement differs. */
+.podium .kpi-block { position: relative; margin-bottom: 14px; }
+.podium .kpi-block .kpis { margin-bottom: 0; }
+.podium .kpi-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .kpi-block:not(.shut) .kpi-tab { top: calc(100% - 8px); }
+.podium .kpi-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .kpi-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .kpi-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .kpi-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .kpi-tab:hover::after, .podium .kpi-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .kpi-tab::after { transition: none; } }
+/* Option A, collapsed: the whole control is a thin bar the width of the KPI block. */
+.podium .kpi-block.shut.opt-a .kpi-tab { position: static; transform: none; display: flex; width: 100%; height: 16px; border-radius: 8px; }
+/* Option B, collapsed: the header's pill, hung from a hairline above the cards. */
+.podium .kpi-block.shut.opt-b { height: 16px; border-top: 1px solid var(--axis); margin-bottom: 14px; }
+.podium .kpi-block.shut.opt-b .kpi-tab { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
+.podium .kpi-block[hidden-kpis] .kpis, .podium .kpi-block.shut .kpis { display: none; }
+</style>
+
+<div class="mk-demo" role="group" aria-label="Review controls">
+  <span class="mk-grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="mk-grp"><b>Try it</b> click any control below; both states are live.</span>
+</div>
+
+<main class="mk-page podium">
+  <header>
+    <h1>Kanban: collapse the KPI rows</h1>
+    <p>Issue #538. The eight KPI tiles collapse and reopen as one element, so the cards get the space back. The header's own collapse is unchanged and independent. The choice is saved per browser under its own key and never touches the Fleet page.</p>
+  </header>
+
+  <section class="mk-spec" aria-labelledby="a">
+    <h2 id="a">Option A (as the issue words it): thin bar when collapsed</h2>
+    <div class="mk-pair">
+      <div class="mk-state"><b>Open</b><div class="mk-frame wide" data-opt="opt-a" data-shut="0"></div></div>
+      <div class="mk-state"><b>Collapsed</b><div class="mk-frame wide" data-opt="opt-a" data-shut="1"></div></div>
+    </div>
+    <div class="mk-cap">Open: a small pill sits on the block's bottom edge, chevron up, tip "Hide KPI rows". Collapsed: a 16 px bar across the block's width, chevron down centered, tip "Show KPI rows". The bar is the target, so it is easy to hit. The pill reuses <code>.tbar-tab</code>'s size, border, hover, focus ring and tip.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="b">
+    <h2 id="b">Option B (the header's shape): pill in both states</h2>
+    <div class="mk-pair">
+      <div class="mk-state"><b>Open</b><div class="mk-frame wide" data-opt="opt-b" data-shut="0"></div></div>
+      <div class="mk-state"><b>Collapsed</b><div class="mk-frame wide" data-opt="opt-b" data-shut="1"></div></div>
+    </div>
+    <div class="mk-cap">Collapsed, the pill hangs from a hairline, exactly as the top bar's tab hangs from the strip. A smaller target and less visible, but one control shape across the page.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="c">
+    <h2 id="c">Narrow (400 px, two across), option A</h2>
+    <div class="mk-pair mk-two">
+      <div class="mk-state"><b>Open</b><div class="mk-frame mk-narrow" data-opt="opt-a" data-shut="0"></div></div>
+      <div class="mk-state"><b>Collapsed</b><div class="mk-frame mk-narrow" data-opt="opt-a" data-shut="1"></div></div>
+    </div>
+    <div class="mk-cap">Same control; the existing 640 px container query gives four rows of two tiles when open.</div>
+  </section>
+
+  <section class="mk-decisions" aria-label="Decisions for the maintainer">
+    <div><b>Which option</b>A matches the issue and gives a bigger target; B matches the header exactly. Recommendation: A. Either way it is a new component for the standards, <code>.kpi-tab</code>, built on <code>.tbar-tab</code>.</div>
+    <div><b>Accessibility</b>A real button with <code>aria-expanded</code>, <code>aria-controls</code> pointing at the KPI group's own id, and a name that says what it will do: "Hide KPI rows" / "Show KPI rows". Visible focus ring, tip on hover and focus, no motion beyond the tip fade.</div>
+    <div><b>Persistence</b>Saved separately from the header's flag and from the Fleet page. Default: open.</div>
+    <div><b>Wall mode</b>Default: wall mode leaves the KPI rows as saved and neither reads nor rewrites the flag. Say if you want wall mode to hide them.</div>
+    <div><b>Shortcut</b>None proposed. Say if you want one (for instance <code>k</code>); it would be listed in SPEC beside <code>[</code> <code>]</code> <code>\</code> <code>w</code>.</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function mode(m) {
+    root.setAttribute('data-theme', m);
+    document.querySelectorAll('[data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+  }
+  document.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.mode); }); });
+  mode('dark');
+
+  var tiles = [
+    ['Orchestrators live', 7, 'forks excluded'], ['Orchestrators running', 3, ''], ['Orchestrators waiting', 2, ''], ['Orchestrators with plans', 5, 'of 7 live'],
+    ['Subagents live', 12, 'forks included'], ['Subagents running', 6, ''], ['Subagents waiting', 1, 'queued'], ['Total cards', 31, '14 done']
+  ];
+  var up = 'M1.5 6.5 5 3l3.5 3.5', down = 'M1.5 3.5 5 7l3.5-3.5';
+  var n = 0;
+  document.querySelectorAll('.mk-frame').forEach(function (f) {
+    var id = 'mk-kpis-' + (n++);
+    var shut = f.dataset.shut === '1';
+    var kpis = '<div class="kpis" id="' + id + '" role="group" aria-label="Orchestrators and subagents, plans and cards, whole fleet">' +
+      tiles.map(function (t) { return '<div class="kpi"><div class="k">' + t[0] + '</div><div class="v mono">' + t[1] + '</div><div class="kpi-cap">' + t[2] + '</div></div>'; }).join('') + '</div>';
+    f.innerHTML = '<div class="kpi-block ' + f.dataset.opt + '">' + kpis + '<button type="button" class="kpi-tab" aria-controls="' + id + '"><svg viewBox="0 0 10 10" aria-hidden="true"><path/></svg></button></div>' +
+      '<div class="mk-cards"><div class="mk-card">Card: Add retry to the upload step</div><div class="mk-card">Card: Write the migration</div></div>';
+    var block = f.firstChild, btn = block.querySelector('.kpi-tab'), path = btn.querySelector('path');
+    function paint(s) {
+      block.classList.toggle('shut', s);
+      var name = s ? 'Show KPI rows' : 'Hide KPI rows';
+      btn.setAttribute('aria-expanded', String(!s)); btn.setAttribute('aria-label', name); btn.setAttribute('data-tip', name);
+      path.setAttribute('d', s ? down : up);
+    }
+    paint(shut);
+    btn.addEventListener('click', function () { shut = !shut; paint(shut); });
+  });
+})();
+</script>
