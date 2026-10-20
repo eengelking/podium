@@ -2091,7 +2091,7 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       created again. It writes one `person_deleted` Admin log entry per person, naming who deleted whom.
     - The People page offers it with a checkbox per row, a selection bar (**Delete N…**, **Clear**) and a **Delete**
       button on each row. Both open a confirmation dialog first. Selection is of the rows on the current page only.
-  - Reports (#484, [8.1](#admin-reporting-484)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
+  - Reports (#484, [8.1](#admin-layout-143-mockuppodium-adminhtml)): `GET reports/:report` for `usage`, `spend`, `people`, `sessions`,
     `failures` and `activity`, and `GET reports/retention` for the Data kept panel.
     - Query: `from` and `to` (`YYYY-MM-DD`, inclusive, at most 400 days apart, `to` not after today), `by`
       (`day`, `week` or `month`; weeks start Monday), and `person`, `group` and `model` where the report has them.
@@ -2246,7 +2246,7 @@ CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT N
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff` and `peer-messaging`, which are off, #206, #319, #347); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347)
 ```
 
-Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-reporting-484)). A rollup row
+Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-layout-143-mockuppodium-adminhtml)). A rollup row
 holds counts, tokens, cost and names (a person, group, model, project and effort), never a prompt, an answer, a tool's
 input or a path. A day is a calendar day in the server's time zone (`day` is `YYYY-MM-DD`); every report states that zone.
 
