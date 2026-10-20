@@ -393,8 +393,10 @@ reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `s
   report's clock skew), which the purge and the filters use. Entries sent from Podium are written through the
   respond bridge with their ref, sender and note.
 - **Aggregates, so nothing scans the table.** `stored_sessions` also holds each session's `entries`, `bytes` (an
-  estimate: text and labels plus 48 bytes a row) and `oldest_t` (schema version 2), kept in step in the same
-  transaction as every insert, Podium-entry change and removal chunk. `totals()` and a `list` that filters only on a
+  estimate: text and labels plus 48 bytes a row) and `oldest_t` (schema version 2), and a `loops` table
+  holds each loop's entry count and its first and last times (schema version 3), kept in step in the same
+  transaction as every insert, Podium-entry change and removal chunk. The live feed's `history` note and a history page
+  therefore cost one indexed read, whatever the loop's size. `totals()` and a `list` that filters only on a
   session's name, project, owner or state read that small table. A filter that changes which entries count (`loop`,
   `olderThanDays`, `from`, `to`) counts per session through the covering index `entries_session_t (session_id, t,
   loop)` in slices of about 20,000 rows with a turn for the event loop between them; its `bytes` is then an estimate

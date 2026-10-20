@@ -2302,7 +2302,12 @@ CREATE TABLE entries (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, loop TEX
   -- unique (session_id, loop, seq); indexes on t and on (session_id, ref); `at` is the entry's own time, `t` the same
   -- instant on the server's clock; "by", note and ref are set only for an entry sent from Podium
 CREATE TABLE stored_sessions (session_id TEXT PRIMARY KEY, name TEXT NOT NULL, project TEXT, owner TEXT,
-  first_t INTEGER NOT NULL, last_t INTEGER NOT NULL);  -- what the Admin pages show, with no join into the main database
+  first_t INTEGER NOT NULL, last_t INTEGER NOT NULL,
+  entries INTEGER NOT NULL, bytes INTEGER NOT NULL, oldest_t INTEGER);  -- what the Admin pages show, with no join into the main
+  -- database; entries, bytes (an estimate) and oldest_t are kept in step with `entries` (schema version 2)
+CREATE TABLE loops (session_id TEXT NOT NULL, loop TEXT NOT NULL, entries INTEGER NOT NULL, first_at INTEGER,
+  last_t INTEGER, PRIMARY KEY (session_id, loop));  -- per-loop counts and first and last times, so the live feed's `history`
+  -- note and a history page cost one indexed read (schema version 3)
 ```
 
 A session's rows are removed by code (a deleted session, a purge, an Admin delete, or the hourly run that drops the
