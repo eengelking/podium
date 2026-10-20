@@ -262,7 +262,7 @@ describe('the purge in the sweeper', () => {
     const rows = ADMIN_LOG(people);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ source: 'sweeper' });
-    expect(rows[0]!.detail).toMatch(/^2 entries \(\d+ B\) removed under after$/);
+    expect(rows[0]!.detail).toMatch(/^2 entries \(\d+ B\) removed under purge after 1 day$/);
     expect(lines).toHaveLength(1);
 
     await purgeActivityHistory(fleet.activityHistory, people, logger, clock);

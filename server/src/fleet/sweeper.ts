@@ -2,6 +2,7 @@
 // Each timer body is guarded so a failing sweep is logged and the next one still runs.
 import type { ActivityHistory } from './activityHistory.js';
 import { sizeText } from './sizeText.js';
+import { capWords, countWords, policyWords } from './activityHistoryWords.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import type { Fleet } from './fleet.js';
 import type { PeopleStore } from './people.js';
@@ -32,8 +33,10 @@ export async function purgeActivityHistory(history: ActivityHistory, people: Peo
   try {
     const r = await history.purge(now);
     if (r.entries === 0) return;
-    const policy = history.current().policy;
-    people.log(ACTIVITY_LOG_KINDS.purged, `${r.entries} entries (${sizeText(r.bytes)}) removed under ${policy}`, 'sweeper', now);
+    const current = history.current();
+    const policy = current.policy;
+    const cap = current.capGb === null ? '' : `, ${capWords(current)}`;
+    people.log(ACTIVITY_LOG_KINDS.purged, `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed under ${policyWords(current)}${cap}`, 'sweeper', now);
     logger.info('activity.purged', `podium: activity history purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed, policy });
   } finally {
     purging.delete(history);

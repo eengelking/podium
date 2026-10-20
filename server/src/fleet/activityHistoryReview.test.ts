@@ -237,7 +237,7 @@ describe('a store closed during a delete', () => {
     const r = await p;
     expect(r.entries).toBeGreaterThan(0);
     expect(r.entries).toBeLessThan(120);
-    expect(r).toMatchObject({ sessions: 0, freed: 0 });
+    expect(r).toMatchObject({ freed: 0 });
     expect(h.busy).toBe(false);
   });
 

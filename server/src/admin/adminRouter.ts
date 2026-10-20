@@ -23,6 +23,7 @@ import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
+import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
 import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
 import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
@@ -79,14 +80,6 @@ function readCookie(req: Request, name: string): string | null {
     if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }
   return null;
-}
-
-const countOf = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
-/** The admin log's sentence for the Activity history choice. */
-function policyWords(s: ActivityHistorySettings): string {
-  const keep = { default: 'not kept (the default)', after: `purge after ${s.n} ${s.unit}`, end: 'purge when the session ends', all: 'keep everything, no automatic purge' }[s.policy];
-  return `Activity history set to ${keep}, ${s.capGb === null ? 'no size cap' : `size cap ${s.capGb} GB`}`;
 }
 
 const idParam = (v: string): number | null => (/^\d{1,12}$/.test(v) ? Number(v) : null);
@@ -591,7 +584,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       if (!history || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'activityHistory must give policy, n, unit and capGb' });
       const out = history.settings.set(p);
       if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
-      audit(req, ACTIVITY_LOG_KINDS.changed, policyWords(out.settings), { ...out.settings });
+      audit(req, ACTIVITY_LOG_KINDS.changed, `Activity history set to ${policyWords(out.settings)}, ${capWords(out.settings)}`, { ...out.settings });
       opts.onActivityHistoryChanged?.();
       return void res.json({ ok: true, activityHistory: activityState(history) });
     }
@@ -691,7 +684,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   const how = (b: StoredDeleteBody) => ('ids' in b ? 'ticked sessions' : 'match' in b ? 'a filter' : 'everything');
-  const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${r.entries} ${r.entries === 1 ? 'entry' : 'entries'} (${sizeText(r.bytes)}) from ${countOf(r.sessions, 'session')}, chosen by ${how(b)}`;
+  const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) from ${countWords(r.sessions, 'session', 'sessions')}, chosen: ${how(b)}`;
 
   router.post(STORED_DELETE, express.json({ limit: '64kb' }), (req, res) => {
     if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
