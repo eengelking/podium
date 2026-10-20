@@ -50,7 +50,7 @@ describe('GET and PUT /settings carry the Activity history', () => {
     const res = await agent.get('/api/admin/settings').set(H);
     expect(res.body.activityHistory).toEqual({
       settings: { policy: 'default', n: 30, unit: 'days', capGb: null },
-      totals: { entries: 0, bytes: expect.any(Number), sessions: 0 },
+      totals: { entries: 0, bytes: 0, sessions: 0, fileBytes: expect.any(Number) },
       lastPurge: null,
       authOn: true,
     });

@@ -44,11 +44,15 @@ export const ACTIVITY_LOG_KINDS = {
   purged: 'activity_purged',
 } as const;
 
-/** What is stored now, in total. `bytes` is the size of the activity file's pages in use. */
+/**
+ * What is stored now, in total. `bytes` is the estimate of the entries' size (the same measure every preview, list row and
+ * delete result uses, and the size cap counts); `fileBytes` is the activity file's pages in use, for "on disk".
+ */
 export interface StoredTotals {
   entries: number;
   bytes: number;
   sessions: number;
+  fileBytes: number;
 }
 
 /** The last run of the purge that removed something, or null if none has since the server started. */
@@ -79,6 +83,7 @@ export interface ActivityHistoryPreviewBody {
 export interface ActivityHistoryPreview {
   entries: number;
   bytes: number;
+  /** Sessions that would lose at least one entry (for `default`: sessions with anything stored). */
   sessions: number;
   stopsCapturing: boolean;
 }
@@ -122,7 +127,7 @@ export interface StoredActivityList {
   /** Everything stored, whatever the filter. */
   totals: StoredTotals;
   /** What the filter matches: sessions, entries and bytes, for "Delete all N that match". */
-  match: StoredTotals;
+  match: Omit<StoredTotals, 'fileBytes'>;
   /** Distinct values for the filter's selects. */
   projects: string[];
   owners: string[];
@@ -133,6 +138,7 @@ export type StoredDeleteBody = { ids: string[] } | { match: StoredFilter } | { a
 
 export interface StoredDeleteResult {
   entries: number;
+  /** Sessions that lost at least one entry. */
   sessions: number;
   /** Size of the entries removed. */
   bytes: number;

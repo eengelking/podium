@@ -395,10 +395,13 @@ export class ActivityHistory {
     return { policy: s.policy, total: r.n, since: r.since, keptUntil: s.policy === 'after' && r.newest !== null ? r.newest + activityPeriodMs(s) : null };
   }
 
-  /** Everything stored: entries and sessions from the per-session aggregates, and the bytes of the file's pages in use. */
+  /**
+   * Everything stored, from the per-session aggregates: entries, sessions, and `bytes`, the estimate of the entries' size that
+   * every preview, list row and delete result also uses. `fileBytes` is the file's pages in use, for "on disk".
+   */
   totals(): StoredTotals {
-    const r = this.st('SELECT COALESCE(SUM(entries), 0) AS entries, COUNT(*) AS sessions FROM stored_sessions WHERE entries > 0').get() as { entries: number; sessions: number };
-    return { entries: r.entries, sessions: r.sessions, bytes: this.usedBytes() };
+    const r = this.st('SELECT COALESCE(SUM(entries), 0) AS entries, COALESCE(SUM(bytes), 0) AS bytes, COUNT(*) AS sessions FROM stored_sessions WHERE entries > 0').get() as { entries: number; bytes: number; sessions: number };
+    return { entries: r.entries, sessions: r.sessions, bytes: Math.max(0, r.bytes), fileBytes: this.usedBytes() };
   }
 
   private pragma(name: string): number {
@@ -538,7 +541,7 @@ export class ActivityHistory {
       }
       all = counted;
     }
-    const match: StoredTotals = { entries: 0, sessions: all.length, bytes: 0 };
+    const match: StoredActivityList['match'] = { entries: 0, sessions: all.length, bytes: 0 };
     for (const c of all) {
       match.entries += c.entries;
       match.bytes += c.bytes;
