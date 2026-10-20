@@ -196,7 +196,7 @@ describe("the facts grid", () => {
 
   it("has twelve fixed places: six in each row (#352, #427)", () => {
     const { container } = page();
-    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "System", "Reporter", "Session", "Resume", "Fork"]);
+    expect(labels(container)).toEqual(["Agents", "Est. cost", "Tokens", "Running for", "Agent time", "Blowouts", "Machine", "Reporter", "Session", "Resume", "Fork", "Recording"]);
   });
 
   it("keeps the same twelve places whatever the session holds", () => {

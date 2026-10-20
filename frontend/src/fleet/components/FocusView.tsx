@@ -6,6 +6,7 @@ import { BlowoutCallout } from "./BlowoutCallout";
 import { FactsBar } from "./FactsBar";
 import { FocusHeader } from "./FocusHeader";
 import { PlanPanel, type PlanTab } from "./PlanPanel";
+import { RecordingLayer } from "./RecordingLayer";
 import { stateKind } from "./Chips";
 import { StatusBand } from "./StatusBand";
 
@@ -42,6 +43,7 @@ export function FocusView(props: {
         <FocusHeader s={s} kind={kind} now={now} />
         {open && <BlowoutCallout s={s} onAgent={props.onAgent} id={detailId} />}
         <FactsBar s={s} now={now} onAgent={props.onAgent} blow={{ open, onToggle: () => setOpenFor(open ? null : s.id), controls: detailId }} />
+        <RecordingLayer s={s} now={now} />
         <StatusBand s={s} kind={kind} delegates={delegates} now={now} config={config} onRemove={props.onRemove} />
       </div>
       <div className={`two${tab === "files" ? " wide" : ""}`}>

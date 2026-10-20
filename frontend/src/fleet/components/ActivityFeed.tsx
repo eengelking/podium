@@ -16,17 +16,17 @@ import { nameKey } from "../respond";
 export const ACTIVITY_REPORTER_MINOR = 13;
 const UPDATE = "Run claude plugin update podium-reporter@eengelking-marketplace, then /reload-plugins in that session.";
 
-const ICON_TOOL = (
+export const ICON_TOOL = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
     <path d="m3 4 4 4-4 4M8.5 12.5H13" />
   </svg>
 );
-const ICON_TEXT = (
+export const ICON_TEXT = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
     <path d="M3 4.5h10M3 8h10M3 11.5h6" />
   </svg>
 );
-const ICON_REASONING = (
+export const ICON_REASONING = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
     <circle cx="8" cy="7" r="4.5" />
     <path d="M6 13.5h4" />
@@ -37,7 +37,7 @@ const ICON_EXPAND = (
     <path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9" />
   </svg>
 );
-const ICON_YOU = (
+export const ICON_YOU = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
     <circle cx="8" cy="5.5" r="2.7" />
     <path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4" />
@@ -69,7 +69,7 @@ export function feedTime(at: number, startedAt: number): string {
 }
 
 /** The text with each `[redacted]` the mod put in marked, as text nodes. */
-function Redacted(props: { text: string }) {
+export function Redacted(props: { text: string }) {
   const parts = props.text.split("[redacted]");
   return (
     <>

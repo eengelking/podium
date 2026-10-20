@@ -47,6 +47,15 @@ export type {
   PeerLevel,
   PeerRequest,
   ReporterCompat,
+  RecordingAdminRow,
+  RecordingGrant,
+  RecordingKind,
+  RecordingLoopInfo,
+  RecordingPage,
+  RecordingRow,
+  RecordingSettings,
+  RecordingState,
+  RecordingView,
 } from "../../../server/src/fleet/protocol";
 export type { ActivityEntryView, ActivityReply } from "../../../server/src/fleet/activity";
 export type { ActivityHistoryNote, ActivityHistoryPage, ActivityHistoryPolicy } from "../../../server/src/fleet/activityHistoryTypes";

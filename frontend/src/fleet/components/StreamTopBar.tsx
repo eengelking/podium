@@ -16,7 +16,7 @@ export function StreamTopBar({ page, base, fleetOptions, respondApi, peersApi }:
   const fleet = useFleet({ ...(base ? { base } : {}), ...fleetOptions });
   const flagsOn = fleet.features.respond === true && fleet.features["activity-feed"] !== false;
   return (
-    <RespondProvider flagsOn={flagsOn} diffOn={fleet.features["file-diff"] === true} historyOn={fleet.features["activity-history"] === true} peersOn={fleet.features["peer-messaging"] === true} api={respondApi}>
+    <RespondProvider flagsOn={flagsOn} diffOn={fleet.features["file-diff"] === true} historyOn={fleet.features["activity-history"] === true} recordingOn={fleet.features["session-recording"] === true} peersOn={fleet.features["peer-messaging"] === true} api={respondApi}>
       <Bar page={page} fleet={fleet} peersApi={peersApi} />
     </RespondProvider>
   );

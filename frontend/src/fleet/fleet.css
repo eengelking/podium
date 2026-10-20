@@ -351,6 +351,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .fact.pop { position: relative; }
 .podium .fact .sysi { display: inline-flex; flex: none; }
 .podium .fact .sysi svg { width: 14px; height: 14px; }
+.podium .fact .mname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .fact .sys-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .fact.pop:focus-visible { outline: 2px solid var(--deleg-text); outline-offset: -2px; }
 .podium .fact.pop > .tip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5; width: min(320px, calc(100cqw - 32px)); box-sizing: border-box; padding: 10px 12px 11px; text-align: left; white-space: normal; font-size: 12.5px; line-height: 1.45; color: var(--ink); background: var(--raised); border: 1px solid var(--axis); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); visibility: hidden; opacity: 0; transition: opacity .12s; pointer-events: none; }
@@ -1240,3 +1241,72 @@ body.modal-open #root { filter: blur(5px); }
   .podium .pm-split { grid-template-columns: minmax(0, 1fr); }
   .podium .pm-left { border-right: 0; border-bottom: 1px solid var(--grid); }
 }
+
+/* ---- Session recording (#353, mockup/podium-recording.html) ----
+   The notice is not a wall notice: a band on the card and a layer on the orchestrator page, with no X and no switch, because
+   consent cannot be dismissed. The replay is a page of the Activity feed's own rows, oldest first. */
+/* .band.recording: the card's band in the critical color, a filled dot, the words and who started it. */
+.podium .band.recording { --c: var(--crit); --c-text: var(--crit-text); }
+.podium .band.recording .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); flex: none; }
+.podium .band.recording .bl small { display: block; font-weight: 400; color: var(--ink2); font-size: 12px; }
+/* .rec-bar: the orchestrator page's recording layer, above the status band. .rec-bar.kept is the same layer once capture has
+   ended and the recording is only kept: a ring, the neutral color, Open replay and Delete recording. */
+.podium .rec-bar { display: flex; gap: 10px 14px; align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--crit) 12%, var(--surface)); box-shadow: inset 4px 0 0 var(--crit); }
+.podium .rec-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); margin-top: 4px; flex: none; }
+.podium .rec-bar .tx { flex: 1 1 240px; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.podium .rec-bar .tx b { font-weight: 650; }
+.podium .rec-bar .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .rec-bar .confirm { flex: 1 1 100%; }
+.podium .rec-bar.kept { background: var(--raised); box-shadow: inset 4px 0 0 var(--muted); }
+.podium .rec-bar.kept .dot { background: none; border: 2px solid var(--muted); box-sizing: border-box; }
+/* .fact.rec: the Recording cell, last in the facts. The record mark is a ring with a disc inside. The ring is always neutral. The
+   disc is neutral when idle, absent when the recording is only kept, and red and pulsing on the app's shared beat (data-beat) only
+   while it is recording. */
+.podium .osum .facts .fact.rec .v.recording { color: var(--crit-text); }
+.podium .fact.rec .rec-i { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; border: 1.5px solid currentColor; border-radius: 50%; color: var(--ink2); box-sizing: border-box; }
+.podium .fact.rec .rec-i i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; position: relative; }
+.podium .fact.rec .rec-i.kept i { display: none; }
+.podium .fact.rec .rec-i.live i { background: var(--crit); }
+.podium .fact.rec .rec-i.live i::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--crit); opacity: 0; pointer-events: none; }
+.podium[data-beat="0"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: .55; }
+.podium[data-beat="1"] .fact.rec .rec-i.live i::after { transform: scale(1.6); opacity: .35; }
+.podium[data-beat="2"] .fact.rec .rec-i.live i::after { transform: scale(2.3); opacity: .12; }
+.podium[data-beat="3"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: 0; }
+.podium .fact .v .sep { color: var(--axis); }
+.podium .fact .v .soft { color: var(--muted); font-weight: 400; }
+/* The picker: the app's modal with the Respond modal's option rows. */
+.podium .modal .mb.recmb { padding: 12px 16px 16px; display: grid; gap: 12px; }
+.podium .modal .mb.recmb p { margin: 0; color: var(--ink2); }
+.podium .modal .mb.recmb p b { color: var(--ink); }
+.podium .opt[aria-disabled="true"] { opacity: .6; cursor: default; }
+.podium .opt[aria-disabled="true"]:hover { background: none; }
+.podium .recmb .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* The replay: a page of its own. .feed li.mark is a compaction or a stop, .feed li.cur the row the slider is on, .who the loop's
+   name and .res a collapsed result around the existing .code block. */
+.podium .replay { display: grid; gap: 12px; padding: 12px; align-content: start; }
+.podium .replay .osum .fh { padding: 12px 16px; }
+.podium .replay .osum p { margin: 0; }
+.podium .replay .tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.podium .replay .loading { color: var(--muted); padding: 16px; }
+.podium .replay .feed { height: auto; max-height: 60vh; border: 0; border-radius: 0; }
+.podium .replay .feedfoot { margin: 0; padding: 8px 12px; border-top: 1px solid var(--border); }
+.podium .replay .feedfoot.stat { height: auto; }
+.podium .replay .errbox { color: var(--crit-text); font-size: 12.5px; border: 1px solid color-mix(in srgb, var(--crit-text) 40%, transparent); border-radius: 8px; padding: 12px 16px; }
+.podium .replay .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* A prompt is a .you row, as the feed draws one sent from Podium; the owner tag's own .you rule (a bordered, unbreakable chip) is taken off it here. */
+.podium .replay .feed li.you { white-space: normal; border-width: 0 0 1px; border-radius: 0; }
+.podium .replay .feed li:last-child { border-bottom: 0; }
+.podium .feed li.mark { box-shadow: inset 3px 0 0 var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.podium .feed li.cur { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.podium .feed li .who { font-weight: 600; margin-right: 4px; overflow-wrap: anywhere; }
+.podium .feed li .res { margin-top: 6px; }
+.podium .feed li .res summary { cursor: pointer; color: var(--ink2); width: fit-content; }
+.podium .feed li .res summary:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .res .code { max-height: 6.5em; overflow: hidden; margin: 6px 0 0; }
+.podium .feed li .res[open] .code { max-height: none; }
+.podium .feed li .failbox { margin: 6px 0 0; }
+/* .scrub: the replay's position slider, a labelled range input in the ink color. */
+.podium .scrub { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
+.podium .scrub input[type="range"]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .scrub .hint { white-space: nowrap; color: var(--muted); }

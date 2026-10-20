@@ -5,6 +5,10 @@ import { failText, useList } from "./useList";
 import { plainHttpCaution } from "./plainHttpCaution";
 import { PEER_FLAG } from "./ReporterMessaging";
 import { ADMIN_LIMIT_FIELDS, PeerLimits, type PeerLimitKey } from "../components/PeerLimits";
+import { RecordingLimits, RecordingsTable, RecordingWarning, type RecordingState } from "./RecordingAdmin";
+
+/** The id of the session recording feature flag (#353). */
+const RECORDING_FLAG = "session-recording";
 
 interface NoticeRow {
   id: string;
@@ -22,6 +26,8 @@ interface Settings {
   forgetReporters?: { enabled: boolean; days: number };
   /** Orchestrator messaging's limits (#347, #416). */
   peerMessaging?: Record<PeerLimitKey, number>;
+  /** Session recording's limits and totals (#353); absent from a server that predates it. */
+  recording?: RecordingState;
 }
 
 /**
@@ -44,6 +50,7 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
   const data = list.data;
   // The limits show only while the flag is on; the server refuses a bad one in the same words this checks with.
   const peersOn = data?.features?.some((f) => f.id === PEER_FLAG && f.on) ?? false;
+  const recordingOn = data?.features?.some((f) => f.id === RECORDING_FLAG && f.on) ?? false;
   const saveLimit = async (key: PeerLimitKey, value: number | null): Promise<string | null> => {
     try {
       await api("PUT", "/settings", { peerMessaging: { [key]: value } });
@@ -65,10 +72,19 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
       <Section id="admin-features-h" title="Feature flags" help="Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.">
         <Panel>
           {data
-            ? (data.features ?? []).map((f) => row(`feature-${f.id}`, f.name, f.id === "respond" ? `${f.description} ${plainHttpCaution()}`.trim() : f.description, f.on, () => put({ features: { [f.id]: !f.on } }), f.id))
+            ? (data.features ?? []).flatMap((f) => [
+                row(`feature-${f.id}`, f.name, f.id === "respond" ? `${f.description} ${plainHttpCaution()}`.trim() : f.id === RECORDING_FLAG && data.recording?.authOn === false ? `${f.description} This server has no sign-in, so nothing can be recorded.` : f.description, f.on, () => put({ features: { [f.id]: !f.on } }), f.id),
+                ...(f.id === RECORDING_FLAG && f.on ? [<RecordingWarning key={`${f.id}-warn`} />] : []),
+              ])
             : row("feature-loading", "Feature flags", "", undefined, () => {})}
         </Panel>
       </Section>
+      {recordingOn && data?.recording && (
+        <>
+          <RecordingLimits api={api} state={data.recording} onSaved={list.reload} onLocked={onLocked} />
+          <RecordingsTable api={api} onLocked={onLocked} now={Date.now()} />
+        </>
+      )}
       {peersOn && data?.peerMessaging && (
         <Section id="admin-peer-h" title="Orchestrator messaging" help="Limits for every link on this server. A person can be stricter on their own links in My reporters, not looser.">
           <Panel>
