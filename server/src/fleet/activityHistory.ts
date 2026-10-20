@@ -614,6 +614,8 @@ export class ActivityHistory {
         const stored = (this.st('SELECT COALESCE(SUM(bytes), 0) AS b FROM stored_sessions').get() as { b: number }).b;
         add(await this.removeOldest(stored - s.capGb * (this.opts.capBytesPerGb ?? 1024 ** 3), touched));
       }
+      // Closed while a chunk waited its turn: the file is gone, so there is nothing left to tidy or compact.
+      if (this.closed) return { entries, bytes, sessions: 0, freed: 0 };
       const sessions = this.finishSessions(touched);
       if (!entries && !sessions) return { entries, bytes, sessions, freed: 0 };
       const freed = await this.compact();

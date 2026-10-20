@@ -7,6 +7,7 @@ import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
 import { fixtureReport } from './testing.js';
+import { silentLogger } from '../logging/logger.js';
 
 const CFG: FleetConfig = { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' };
 const T0 = 1_791_648_000_000; // the fixture's sentAt, so the clock skew is zero
@@ -36,6 +37,19 @@ function report(main: ActivityEntry[], agent: ActivityEntry[] = [], feed = true)
 }
 
 const runningAgents = (r: Report) => r.agents.filter((a) => a.status === 'running').map((a) => a.id);
+
+describe('a failing history file', () => {
+  it('is logged and does not refuse the report', async () => {
+    const logger = { ...silentLogger, error: vi.fn() };
+    const fleet = new Fleet(db, CFG, () => clock, logger, { authOn: true });
+    fleet.activityHistorySettings.set({ policy: 'all' });
+    vi.spyOn(fleet.activityHistory, 'ingest').mockImplementation(() => {
+      throw new Error('disk full');
+    });
+    expect(() => fleet.ingest(report([tool(T0)]))).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith('activity.ingest_failed', expect.stringContaining('disk full'), expect.anything());
+  });
+});
 
 describe('what the report reply asks the mod to send', () => {
   it('is exactly the leases under the default policy, with or without the option on', async () => {

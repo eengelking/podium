@@ -247,7 +247,12 @@ export class Fleet {
     const res = ingestReport(this.db, report, this.now(), owner);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
-    if (this.activityHistory.enabled()) this.activityHistory.ingest(report, res.clockSkewMs, this.historyMeta(res.sessionId) ?? { name: report.session.name, project: null, owner });
+    // The report is already saved: a failure of the second file (a full disk, say) is logged and must not refuse the report.
+    try {
+      if (this.activityHistory.enabled()) this.activityHistory.ingest(report, res.clockSkewMs, this.historyMeta(res.sessionId) ?? { name: report.session.name, project: null, owner });
+    } catch (err) {
+      this.logger.error('activity.ingest_failed', `podium: could not store the activity of session ${res.sessionId}: ${(err as Error).message}`, { session_id: res.sessionId, reason: (err as Error).message });
+    }
     if (typeof report.session.fileDiff === 'boolean') this.diffs.noteOption(res.sessionId, report.session.fileDiff);
     this.respond.noteReport(report, this.respondFlagsOn());
     this.noteReporter(report, owner);

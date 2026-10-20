@@ -475,6 +475,18 @@ describe('list and delete', () => {
   });
 });
 
+describe('closing during a removal', () => {
+  it('ends a purge quietly instead of touching the closed file', async () => {
+    const { h, state } = setup({ policy: 'end' });
+    state.live.clear();
+    for (let b = 0; b < 40; b++) h.ingest(report(Array.from({ length: 20 }, (_, k) => tool(T0 + 100 * b + k, `e${b}-${k}`)), [], 'closing-1'), 0, META);
+    const purge = h.purge();
+    await new Promise((resolve) => setImmediate(resolve));
+    h.close();
+    await expect(purge).resolves.toMatchObject({ sessions: 0, freed: 0 });
+  });
+});
+
 describe('compaction', () => {
   it('gives the file’s space back after a large delete', async () => {
     const file = tmpFile();
