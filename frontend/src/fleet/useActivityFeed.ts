@@ -26,6 +26,8 @@ export const EVERY_CHOICES = [5, 10, 20, 30, 60] as const;
 export const EVERY_KEY = "podium.activityEvery";
 /** Entries shown, as the server keeps. */
 export const FEED_KEPT = 20;
+/** Live entries kept in the window once stored history is loaded; older ones are in the stored pages. */
+export const LIVE_KEPT = 500;
 
 const defaultFetch: FetchActivity = async (sessionId, loop, every) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(loop)}/activity?every=${every}`);
@@ -200,8 +202,8 @@ export function useActivityFeed(opts: {
           setState({ ...EMPTY, fetchedAt: Date.now(), live: r.live, adminOff: true });
           return;
         }
-        await takeHistory(r.history);
-        if (cancelled) return;
+        // Not awaited: a slow history page must not hold back the live entries. It merges when it arrives.
+        void takeHistory(r.history);
         const top = r.entries.reduce((n, e) => Math.max(n, e.seq), 0);
         const c = cursor.current;
         // A first answer, or a lease the server started afresh (seq counts from 1 again): what it holds already
@@ -219,8 +221,8 @@ export function useActivityFeed(opts: {
         const low = r.entries.length ? r.entries[0]!.seq : Infinity;
         const synced = (list: ActivityEntryView[]) => list.filter((e) => e.kind !== "podium" || e.seq < low || bySeq.has(e.seq)).map((e) => (e.kind === "podium" ? (bySeq.get(e.seq) ?? e) : e));
         setState((st) => ({
-          // Stored history lifts the cap: everything shown is also stored.
-          entries: loaded.current === "done" ? [...synced(st.entries), ...fresh] : [...synced(st.entries), ...fresh].slice(-FEED_KEPT),
+          // With stored history the cap is far wider: what is trimmed is still stored, and stays one page away.
+          entries: [...synced(st.entries), ...fresh].slice(-(loaded.current === "done" ? LIVE_KEPT : FEED_KEPT)),
           seen: st.seen + fresh.length,
           fetchedAt: Date.now(),
           failed: false,
