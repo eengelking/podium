@@ -9,6 +9,7 @@
 // The Admin can turn the whole feature off (Admin > Settings > Feature flags, `activity-feed`). While it is off no lease
 // is granted, nothing is listed as watched and nothing a mod sends is kept; the fleet calls `clear()` when it goes off.
 import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
+import type { ActivityHistoryNote } from './activityHistoryTypes.js';
 
 /** The refresh intervals the panel offers, in seconds. The first is the default. */
 export const ACTIVITY_EVERY_SECONDS = [5, 10, 20, 30, 60] as const;
@@ -46,6 +47,8 @@ export interface ActivityReply {
   live: boolean;
   enabled: boolean;
   serverTime: number;
+  /** Counts about this loop's stored history (#432). Absent under the default policy, so the reply is as it always was. */
+  history?: ActivityHistoryNote;
 }
 
 interface Lease {

@@ -139,7 +139,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <tr><td class="who">Events and ended sessions</td><td>30 days</td></tr>
           <tr><td class="who">Admin log</td><td>90 days</td></tr>
           <tr><td class="who">Activity history</td><td id="k-row">Purge after 30 days</td></tr>
-        </tbody></table></div></div>
+        </tbody></table></div>
+        <div class="note-line">The first three periods are set with environment variables on the server (<span class="mono">RETAIN_SAMPLES_MS</span>, <span class="mono">RETAIN_EVENTS_MS</span>, <span class="mono">RETAIN_ADMIN_LOG_MS</span>) and cannot be changed here. Activity history is set below.</div></div>
     </section>
     <section class="asec" aria-labelledby="k-a"><div class="asec-h"><div><h2 id="k-a">Activity history</h2><p class="hint">How long an Activity window's entries are kept after a viewer leaves. Off by default.</p></div></div>
       <form class="panel" id="polform" aria-label="Activity history retention">
