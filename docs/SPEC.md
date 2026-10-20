@@ -2103,6 +2103,29 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
       `=`, `+`, `-` or `@` prefixed with `'`), `Content-Disposition: attachment`. The page's JSON export is the
       reply itself, so an export always matches the screen.
     - Today is read from the live tables, and every earlier day from the rollups.
+    - **Columns.** Every report's `rows` are objects, and `columns` names their keys in order. `period` is the bucket's
+      first day (`YYYY-MM-DD`, or `YYYY-MM` for `by=month`). A money field is `null` when no priced model was
+      involved. `breakdown` is a query value that adds a `key` column.
+      - `usage`: `period, people, reporters, sessions, peakLive`. `total` has the same keys over the whole period
+        (`people` and `reporters` counted once, `peakLive` the highest).
+      - `spend`: `breakdown` is `none` (default), `person`, `group`, `model` or `project`. Rows: `period, key, sessions,
+        tokIn, tokOut, costUsd, unpricedSessions`. `key` is absent for `none`.
+      - `people`: one row per person, no `period`: `person, group, sessions, lastReportAt, state` (`active` reported in the
+        period, `quiet` known but not in the period, `never` never reported). The reply also carries
+        `summary: { people, groups, reporters, reporterVersions: {version: count}, engineVersions: {version: count} }`.
+      - `sessions`: `breakdown` is `outcome` (default), `model`, `effort` or `plan`. Rows: `period, key, sessions,
+        avgDurationS, maxDurationS, agentsPerSession, blowouts, maxContextPct`.
+      - `failures`: `breakdown` is `class` (default), `tool` or `person`. Rows: `period, key, count, people` and, while the
+        stored sessions still exist (30 days), `sessionIds` (at most 10) for the History link.
+      - `activity`: read from `admin_log`, not the rollups; `kind` filters. Rows: `t, kind, detail, source`, newest first,
+        at most 1,000. It has no `by`.
+      - `retention`: `{ tables: [{ name, rows, oldestDay, keptDays }], detail: [{ name, keptDays }] }`.
+      - `spend/projection`: rows `key, runRatePerDay, spentThisMonth, projected` (`null` for both `runRatePerDay` and `projected`
+        when there is too little history, with `reason: 'history'`), a `total` row of the same keys, and the reply carries
+        `window: { from, to, days }`, `horizon`, `unpricedSessions` and `historyDays`.
+      - `spend/today/:owner`: `total` and, each adding up to it, `bySession: [{ id, name, model, costUsd, share }]`,
+        `byModel: [{ model, costUsd, share }]`, `bySource: { orchestrator, agents }`; `unpriced` is the count of sessions
+        left out. For a group, `byPerson: [{ owner, costUsd, share }]` comes first and the route takes `?group=1`.
     - `GET reports/spend/today/:owner` (#482) returns `{ owner, total, bySession, byModel, bySource, unpriced }` for
       the breakdown, and `GET reports/spend/projection` (#483) the projection; both are described under *Spend*.
     - A report with names in it (person, group, model, project) returns them as text.
@@ -2234,10 +2257,10 @@ CREATE TABLE usage_daily (      -- one row per day, person, model and project; a
   unpriced_sessions INTEGER NOT NULL, tok_in INTEGER NOT NULL, tok_out INTEGER NOT NULL, tok_cr INTEGER NOT NULL, tok_cw INTEGER NOT NULL,
   PRIMARY KEY (day, owner, model, project)
 );
-CREATE TABLE sessions_daily (   -- one row per day, outcome, effort and plan; durations in whole seconds
-  day TEXT NOT NULL, outcome TEXT NOT NULL, effort TEXT NOT NULL, plan TEXT NOT NULL,   -- outcome: the session's end_reason, or 'running' for one still live when the rollup ran
-  sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, agents INTEGER NOT NULL, blowouts INTEGER NOT NULL, max_context_pct REAL NOT NULL,
-  PRIMARY KEY (day, outcome, effort, plan)
+CREATE TABLE sessions_daily (   -- one row per day, outcome, model, effort and plan; durations in whole seconds
+  day TEXT NOT NULL, outcome TEXT NOT NULL, model TEXT NOT NULL, effort TEXT NOT NULL, plan TEXT NOT NULL,   -- outcome: the session's end_reason, or 'running' for one still live when the rollup ran
+  sessions INTEGER NOT NULL, duration_s INTEGER NOT NULL, max_duration_s INTEGER NOT NULL, agents INTEGER NOT NULL, blowouts INTEGER NOT NULL, max_context_pct REAL NOT NULL,
+  PRIMARY KEY (day, outcome, model, effort, plan)
 );
 CREATE TABLE failures_daily (   -- one row per day, person, failure class and tool
   day TEXT NOT NULL, owner TEXT NOT NULL, class TEXT NOT NULL, tool TEXT NOT NULL, count INTEGER NOT NULL,
@@ -3474,7 +3497,7 @@ menu and the page scroll on their own.
         no extra history is recorded for it.
   - **People and groups**: how many people, groups and reporters there are; who reported in the period; who has
     not reported (quiet for the period, or never); the reporter versions and engine versions in use.
-  - **Sessions**: counts by outcome, model, effort and plan; median and longest duration; agents launched per
+  - **Sessions**: counts by outcome, model, effort and plan; average and longest duration; agents launched per
     session; and how many sessions hit a context blowout and how full the window got.
   - **Failures**: counts by failure class and tool, over time and by person, each class row linking to History
     filtered to those sessions while they are within the 30 days History keeps. It is the root-cause report.
