@@ -2,11 +2,11 @@ import { describe, test, expect } from 'claude-code/testing'
 import { agentReport, buildReport } from './report.ts'
 import { scriptedReport, scriptedState, T0 } from './scripted.ts'
 import { MAIN_LOOP } from './protocol.ts'
-import { ACTIVITY_KEPT, addActivity, agentRequested, agentSpawned, isWatched, setWatched, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, turnComplete } from './state.ts'
+import { ACTIVITY_KEPT, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
 const REPORT_KEYS = ['agents', 'events', 'reporter', 'sentAt', 'session', 'v']
-const SESSION_KEYS = ['activityFeed', 'attached', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
+const SESSION_KEYS = ['activityFeed', 'activityOutput', 'attached', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
 const AGENT_KEYS = ['answerExcerpt', 'blowouts', 'context', 'costUsdEst', 'description', 'effort', 'effortSource', 'endedAt', 'failure', 'id', 'kind', 'lastTool', 'model', 'name', 'parentId', 'promptExcerpt', 'skills', 'startedAt', 'status', 'steps', 'tokens', 'toolCalls', 'toolCounts', 'type', 'usageByModel']
 const FAILURE_KEYS = ['at', 'call', 'class', 'evidence', 'exitCode', 'explanation', 'outputTail', 'retriedAs', 'tool']
 const STEP_KEYS = ['activeText', 'id', 'ownerAgentId', 'ownerLabel', 'state', 'text']
@@ -565,5 +565,158 @@ describe('activity feed (#118)', () => {
     expect('activity' in on.session).toBe(false)
     const unwatched = buildReport(setWatched(s, []), [], { ...meta, activity: true })
     expect('activity' in unwatched.agents[0]!).toBe(false)
+  })
+})
+
+describe('activity command and output (#431)', () => {
+  const base = () => agentSpawned(newSession({ id: 's', cwd: '/x', startedAt: T0 }), { toolUseId: 't1', agentId: 'a1', model: 'claude-sonnet-5-5', subagentType: 'Explore', description: 'Map', prompt: 'p', fork: false }, T0)
+  const bash = (id: string) => ({ at: T0, kind: 'tool' as const, text: 'Bash ls', id, command: 'ls' })
+  const meta = { version: '0.13.0', engineVersion: null, hostSurface: null, now: T0, storedName: null, optionName: null, activity: true }
+  const watched = () => setWatched(base(), ['a1', MAIN_LOOP])
+
+  test('output is watched per loop, and only a loop the reply lists', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    expect(isWatchedOutput(s, 'a1')).toBe(true)
+    expect(isWatchedOutput(s, undefined)).toBe(false)
+    expect(setWatchedOutput(s, ['a1'])).toBe(s)
+    s = setWatchedOutput(s, [MAIN_LOOP, 'a1', 'a1'])
+    expect(s.watchedOutput).toEqual(['@orchestrator', 'a1'].sort((a, b) => a.localeCompare(b)))
+    expect(isWatchedOutput(s, undefined)).toBe(true)
+  })
+
+  test('a loop that stops being watched for output loses the output it held and keeps its command', () => {
+    let s = setWatchedOutput(watched(), ['a1', MAIN_LOOP])
+    s = addActivity(addActivity(s, 'a1', bash('c1')), undefined, bash('c2'))
+    s = finishActivity(s, 'a1', 'c1', { output: 'out', done: true, exitCode: 2, failed: true, outputCut: true })
+    s = finishActivity(s, undefined, 'c2', { output: 'main out', done: true })
+    s = setWatchedOutput(s, [MAIN_LOOP])
+    expect(s.agents.a1!.activity).toEqual([bash('c1')])
+    expect(s.main.activity[0]!.output).toBe('main out')
+    s = setWatchedOutput(s, [])
+    expect(s.main.activity).toEqual([bash('c2')])
+  })
+
+  test('a loop that is no longer watched at all drops its output list too', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    s = setWatched(s, [MAIN_LOOP])
+    expect(s.agents.a1!.activity).toEqual([])
+  })
+
+  test('finishActivity merges into the entry with that id, in that loop, and nothing else', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    s = addActivity(addActivity(s, 'a1', bash('c1')), 'a1', bash('c2'))
+    const done = finishActivity(s, 'a1', 'c2', { output: 'hi', done: true })
+    expect(done.agents.a1!.activity).toEqual([bash('c1'), { ...bash('c2'), output: 'hi', done: true }])
+    expect(done.dirty).toBe(true)
+    expect(finishActivity(s, 'a1', 'gone', { done: true })).toBe(s)
+    expect(finishActivity(s, 'nobody', 'c1', { done: true })).toBe(s)
+  })
+
+  test('a report carries id and command with the feed, and the output only with the option on', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    s = addActivity(s, 'a1', bash('c1'))
+    s = finishActivity(s, 'a1', 'c1', { output: 'hi', done: true, failed: true, exitCode: 1, outputCut: true })
+    const off = buildReport(s, [], meta)
+    expect(off.session.activityOutput).toBe(false)
+    expect(off.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls' }])
+    const on = buildReport(s, [], { ...meta, activityOutput: true })
+    expect(on.session.activityOutput).toBe(true)
+    expect(on.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls', output: 'hi', outputCut: true, done: true, exitCode: 1, failed: true }])
+  })
+
+  test('a command that was cut says so, and an older entry keeps its old shape', () => {
+    let s = watched()
+    s = addActivity(s, 'a1', { ...bash('c1'), commandCut: true })
+    s = addActivity(s, 'a1', { at: T0, kind: 'text', text: 'hello' })
+    const r = buildReport(s, [], meta)
+    expect(r.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls', commandCut: true }, { at: T0, kind: 'text', text: 'hello' }])
+  })
+
+  test('the 200,000-character budget drops output first, then the command, newest entry first, and keeps the summary', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    const big = 'x'.repeat(20_000)
+    for (let i = 0; i < 12; i++) {
+      s = addActivity(s, 'a1', { ...bash(`c${i}`), command: big })
+      s = finishActivity(s, 'a1', `c${i}`, { output: big, done: true })
+    }
+    const list = buildReport(s, [], { ...meta, activityOutput: true }).agents[0]!.activity!
+    expect(list).toHaveLength(12)
+    const chars = list.reduce((n, e) => n + (e.command?.length ?? 0) + (e.output?.length ?? 0), 0)
+    expect(chars).toBeLessThanOrEqual(200_000)
+    expect(list.at(-1)!.output).toBe(big) // the newest keeps all it had
+    expect(list.at(-1)!.command).toBe(big)
+    expect(list[0]!.output).toBeUndefined()
+    expect(list[0]!.command).toBeUndefined()
+    expect(list.every((e) => e.text === 'Bash ls')).toBe(true)
+  })
+
+  test('an entry whose command fits the budget but whose output does not keeps the command alone', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    const big = 'x'.repeat(20_000)
+    s = addActivity(s, 'a1', { ...bash('old'), command: big })
+    s = finishActivity(s, 'a1', 'old', { output: 'z'.repeat(20_100), done: true })
+    for (let i = 0; i < 4; i++) {
+      s = addActivity(s, 'a1', { ...bash(`c${i}`), command: big })
+      s = finishActivity(s, 'a1', `c${i}`, { output: big, done: true })
+    }
+    const list = buildReport(s, [], { ...meta, activityOutput: true }).agents[0]!.activity!
+    expect(list[0]!.command).toBe(big)
+    expect(list[0]!.output).toBeUndefined()
+    expect(list[0]!.done).toBeUndefined()
+    expect(list.at(-1)!.output).toBe(big)
+  })
+
+  test('the orchestrator feed is budgeted before the agents', () => {
+    let s = setWatchedOutput(watched(), ['a1', MAIN_LOOP])
+    const big = 'y'.repeat(20_000)
+    for (let i = 0; i < 6; i++) {
+      s = addActivity(s, undefined, { ...bash(`m${i}`), command: big })
+      s = finishActivity(s, undefined, `m${i}`, { output: big, done: true })
+    }
+    s = addActivity(s, 'a1', { ...bash('c1'), command: big })
+    s = finishActivity(s, 'a1', 'c1', { output: big, done: true })
+    const r = buildReport(s, [], { ...meta, activityOutput: true })
+    expect(r.session.activity!.at(-1)!.output).toBe(big)
+    expect(r.agents[0]!.activity![0]!.output).toBeUndefined()
+    expect(r.agents[0]!.activity![0]!.command).toBeUndefined()
+  })
+
+  const bytes = (x: object) => new TextEncoder().encode(JSON.stringify(x)).length
+  // 3 bytes a character, so 200,000 characters (the character budget) are 600,000 bytes, over the 480,000 a request may hold
+  const wide = '\u20ac'.repeat(20_000)
+
+  test('over the serialized byte limit, output goes first, oldest first, and the commands stay', () => {
+    let s = setWatchedOutput(watched(), ['a1'])
+    for (let i = 0; i < 5; i++) {
+      s = addActivity(s, 'a1', { ...bash(`c${i}`), command: wide })
+      s = finishActivity(s, 'a1', `c${i}`, { output: wide, done: true })
+    }
+    const r = buildReport(s, [], { ...meta, activityOutput: true })
+    expect(bytes(r)).toBeLessThanOrEqual(480_000)
+    const list = r.agents[0]!.activity!
+    expect(list.every((e) => e.command === wide)).toBe(true)
+    expect(list[0]!.output).toBeUndefined()
+    expect(list[0]!.done).toBeUndefined()
+    expect(list[2]!.output).toBeUndefined()
+    expect(list.at(-1)!.output).toBe(wide) // only as many as needed went, the newest last
+  })
+
+  test('still over after the output is gone, the oldest commands go next and the summaries stay', () => {
+    let s = watched()
+    for (let i = 0; i < 10; i++) s = addActivity(s, 'a1', { ...bash(`c${i}`), command: wide })
+    const r = buildReport(s, [], meta)
+    expect(bytes(r)).toBeLessThanOrEqual(480_000)
+    const list = r.agents[0]!.activity!
+    expect(list).toHaveLength(10)
+    expect(list[0]!.command).toBeUndefined()
+    expect(list[0]!.commandCut).toBeUndefined()
+    expect(list[0]!.text).toBe('Bash ls')
+    expect(list.at(-1)!.command).toBe(wide)
+  })
+
+  test('a report under the byte limit is left alone', () => {
+    let s = watched()
+    s = addActivity(s, 'a1', bash('c1'))
+    expect(buildReport(s, [], meta).agents[0]!.activity![0]!.command).toBe('ls')
   })
 })

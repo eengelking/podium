@@ -56,6 +56,20 @@ describe('transport', () => {
     expect(await run(ok())).toEqual([])
   })
 
+  test('reads which loops have a viewer on the feed from watchOutput, and nothing from a server that does not say (#431)', async () => {
+    const reply = (watchOutput: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, watch: ['a1'], watchOutput }) })
+    const run = async (r: HttpResult) => {
+      const t = new Transport(fake([r]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.13.0' })
+      await t.send(build, 0)
+      return t.watchOutput
+    }
+    expect(await run(reply(['a1', '@orchestrator']))).toEqual(['a1', '@orchestrator'])
+    expect(await run(reply(['a1', 7, null]))).toEqual(['a1'])
+    expect(await run(reply('a1'))).toEqual([])
+    expect(await run(ok())).toEqual([])
+    expect(await run({ status: 200, ok: true, text: 'not json' })).toEqual([])
+  })
+
   test('reads whether the server takes answers, and the messages it hands over, and nothing from an older server (#206)', async () => {
     const d = { id: 'dlv_1', askId: null, by: 'Ed', at: 1, kind: 'message', text: 'hi' }
     const run = async (body: unknown) => {

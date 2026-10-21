@@ -1,10 +1,13 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
+import { DETAIL_CHARS_PER_REPORT } from './activityDetail.ts';
 import { clip, excerpt, LIMITS } from './failures.ts';
 import { lastSegment } from './git.ts';
 import { family, windowOf } from './models.ts';
 import { toPlan } from './plan.ts';
 import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from './protocol.ts';
+import { utf8Bytes } from './recording.ts';
+import { RECORDING_LIMITS } from './protocol.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
 
 export const REPORTER_NAME = 'podium-reporter';
@@ -36,6 +39,8 @@ export interface ReportMeta {
   fullText?: boolean;
   /** The `activityFeed` option: send the feed of each loop the server says is watched (#118). */
   activity?: boolean;
+  /** The `activityOutput` option: a Bash call's output may go out with its entry, for a loop the reply lists in `watchOutput` (#431). */
+  activityOutput?: boolean;
   /** The `fileDiff` option: answer requests for one file's diff (#319). */
   fileDiff?: boolean;
   /** The `sessionRecording` option: the owner's consent to be recorded (#353). */
@@ -103,12 +108,31 @@ function usageRows(rows: ModelUsage[]): ModelUsage[] {
   return rows.slice(0, 40).map((r) => ({ ...r, model: clip(r.model, 120) }));
 }
 
-/** A loop's feed as it is sent: every entry redacted and cut again here, like every other free-text field. */
-function feed(list: readonly ActivityEntry[]): ActivityEntry[] {
-  return list.map((e) => ({ at: e.at, kind: e.kind, text: clip(e.text, LIMITS.activity) }));
+/** The most a command or an output may hold as the server takes it: the 20,000-character cut plus the marker (`activityDetail`). */
+const DETAIL_MAX = 20_100;
+
+/** A loop's feed as it is sent: every summary redacted and cut again here, like every other free-text field. A command and an output were redacted and cut when captured; here they are only held to the server's limit. */
+function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntry[] {
+  return list.map((e) => {
+    const out: ActivityEntry = { at: e.at, kind: e.kind, text: clip(e.text, LIMITS.activity) };
+    if (e.kind !== 'tool' || e.id === undefined) return out;
+    out.id = clip(e.id, 200);
+    if (e.command !== undefined) {
+      out.command = e.command.slice(0, DETAIL_MAX);
+      if (e.commandCut) out.commandCut = true;
+    }
+    if (withOutput && e.output !== undefined) {
+      out.output = e.output.slice(0, DETAIL_MAX);
+      if (e.outputCut) out.outputCut = true;
+      if (e.done) out.done = true;
+      if (e.exitCode !== undefined) out.exitCode = e.exitCode;
+      if (e.failed) out.failed = true;
+    }
+    return out;
+  });
 }
 
-export function agentReport(a: AgentState, fullText = false, activity = false): AgentReport {
+export function agentReport(a: AgentState, fullText = false, activity = false, activityOutput = false): AgentReport {
   const window = a.window ?? (a.model ? windowOf(a.model) : null);
   return {
     id: clip(a.id, 200),
@@ -133,7 +157,7 @@ export function agentReport(a: AgentState, fullText = false, activity = false): 
     answerExcerpt: a.answerExcerpt ? excerpt(a.answerExcerpt) : null,
     ...(fullText && a.promptText && !a.promptSent ? { promptText: a.promptText } : {}),
     ...(fullText && a.answerText && !a.answerSent ? { answerText: a.answerText } : {}),
-    ...(activity && a.activity.length ? { activity: feed(a.activity) } : {}),
+    ...(activity && a.activity.length ? { activity: feed(a.activity, activityOutput) } : {}),
     failure: cleanFailure(a.failure),
   };
 }
@@ -169,6 +193,58 @@ function withinActivityBudget(r: Report): Report {
   return r;
 }
 
+const OUTPUT_FIELDS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+const COMMAND_FIELDS = ['command', 'commandCut'] as const;
+
+/** The feeds of a report, the orchestrator's first, then each agent's in order, as the server reads them. */
+function feeds(r: Report): ActivityEntry[][] {
+  const lists: ActivityEntry[][] = [];
+  if (r.session.activity) lists.push(r.session.activity);
+  for (const a of r.agents) if (a.activity) lists.push(a.activity);
+  return lists;
+}
+
+const detailChars = (e: ActivityEntry): number => (e.command?.length ?? 0) + (e.output?.length ?? 0);
+
+/**
+ * Keeps commands and output within the report's own 200,000 characters (#431), apart from the summaries' 60,000: in feed order and
+ * newest entry first, as the server counts them. An entry that does not fit loses its output, and then its command, and keeps its summary.
+ */
+function withinDetailBudget(r: Report): Report {
+  let room = DETAIL_CHARS_PER_REPORT;
+  for (const list of feeds(r)) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const e = list[i]!;
+      if (detailChars(e) <= room) {
+        room -= detailChars(e);
+        continue;
+      }
+      for (const k of OUTPUT_FIELDS) delete e[k];
+      if (detailChars(e) <= room) room -= detailChars(e);
+      else for (const k of COMMAND_FIELDS) delete e[k];
+    }
+  }
+  return r;
+}
+
+/**
+ * Keeps the serialized report under the server's 512 KB body, as a recording's request does (480,000 bytes): the character budget
+ * does not see a multi-byte text. Output goes first, then commands, from the last loop's oldest entry back, until it fits.
+ */
+function withinSize(r: Report): Report {
+  const lists = feeds(r);
+  if (!lists.length || utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return r;
+  const order = lists.slice().reverse().flatMap((list) => list);
+  for (const fields of [OUTPUT_FIELDS, COMMAND_FIELDS]) {
+    for (const e of order) {
+      if (!fields.some((k) => k in e)) continue;
+      for (const k of fields) delete e[k];
+      if (utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return r;
+    }
+  }
+  return r;
+}
+
 /** A full snapshot of the session plus the events given (at most 100). */
 export function buildReport(s0: SessionState, events: readonly ActivityEvent[], meta: ReportMeta): Report {
   const s = resolveOwners(s0);
@@ -178,7 +254,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   // Most recent agents win if a session ever has more than the server accepts.
   const agents = s.order.map((id) => s.agents[id]).filter((a): a is AgentState => !!a).slice(-MAX_AGENTS_PER_REPORT);
   const activity = meta.activity === true;
-  return withinActivityBudget({
+  return withinSize(withinDetailBudget(withinActivityBudget({
     v: 1,
     sentAt: meta.now,
     reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
@@ -210,15 +286,16 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       ...(s.status === 'waiting' && s.background ? { background: s.background } : {}),
       files: { ...s.files, files: s.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) },
       activityFeed: activity,
+      activityOutput: meta.activityOutput === true,
       fileDiff: meta.fileDiff === true,
       sessionRecording: meta.sessionRecording === true,
-      ...(activity && s.main.activity.length ? { activity: feed(s.main.activity) } : {}),
+      ...(activity && s.main.activity.length ? { activity: feed(s.main.activity, meta.activityOutput === true) } : {}),
       ...(meta.respond ? { respond: meta.respond } : {}),
       ...(meta.asks ? { asks: meta.asks.slice(0, 8) } : {}),
       ...(meta.clearedFrom ? { clearedFrom: meta.clearedFrom } : {}),
       peers: meta.peers === true,
     },
-    agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity))),
+    agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity, meta.activityOutput === true))),
     events: events.slice(0, MAX_EVENTS_PER_REPORT).map((e) => ({ ...e, text: clip(e.text, 240) })),
-  });
+  })));
 }
