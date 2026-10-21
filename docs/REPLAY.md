@@ -291,8 +291,12 @@ The tables, the method, the caveats and the maintainer's decision are in [6.4](S
 Not yet tracked as GitHub issues; they are in [ISSUES.md](ISSUES.md):
 
 - The redactor is quadratic on long lines, so the mod redacts in pieces and a secret straddling a cut can be missed.
-- A live check of tool-result text for Bash, Read, Grep and an MCP tool, `/clear` and `/compact` from Podium, a denied
-  permission prompt and an answered question is still owed.
-- The thinking-text research covered only one model at one effort.
+- Claude Code hides a Bash or MCP result of about 90 KB from the mod (it hands over a short stub), so a recording of a very
+  large result holds the stub. The 100,000-character cut is covered by unit tests only.
+- Hot-reloading the mod during a recording lost later prompts in one live run; the cause is not found.
+- A prompt sent within about 2 s of pressing Record can be lost.
+- Redaction hides some text that is not a secret, such as a long identifier line.
+- The `gap` mark after a dropped queue, a fork, and thinking text on models other than haiku and `claude-sonnet-5-5` were not
+  exercised live. Thinking arrived with empty text on every model tried.
 - The replay footer mixes row and entry counts, and Jump to next failure looks enabled for a filter with no rows.
 - The load measurement used simulated traffic.
