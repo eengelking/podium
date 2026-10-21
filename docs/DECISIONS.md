@@ -63,6 +63,8 @@ Other docs cite entries by number, so numbers never change.
 | [36](#36-a-files-diff-is-source-code-so-only-its-owner-can-open-it-319) | A file's diff is source code, so only its owner can open it (#319) |
 | [37](#37-orchestrators-can-message-each-other-but-only-one-persons-own-347) | Orchestrators can message each other, but only one person's own (#347) |
 | [38](#38-the-plan-list-ends-with-the-done-steps-in-the-order-the-server-saw-them-finish-454) | The Plan list ends with the done steps, in the order the server saw them finish (#454) |
+| [39](#39-the-admin-can-keep-the-activity-feed-in-a-second-sqlite-file-432) | The Admin can keep the activity feed, in a second SQLite file (#432) |
+| [40](#40-podium-makes-its-own-ca-and-the-reporter-authenticates-with-a-certificate-577) | Podium makes its own CA, and the reporter authenticates with a certificate (#577) |
 
 ## 1. Podium only observes
 
@@ -1140,3 +1142,69 @@ with an optional size cap that removes the oldest entries first (`SPEC.md` 6.4).
   total (a delete of 2.46 million rows took 33 s against 14 s all at once), that a window-filtered list and the preview
   are estimates or slow-but-not-blocking, and that a delete request waits until its removal is done. The 30-day volume was
   not run.
+
+## 40. Podium makes its own CA, and the reporter authenticates with a certificate (#577)
+
+**Context.** Podium's traffic is plain HTTP. A reporter sends its token, its reports and the answers it holds
+over HTTP, and the browser signs in with a name and a token over HTTP, so anyone on the path can read and
+change them. The only advice was a TLS proxy (20, 28, 31). #323 designed the fix over 17 comments and #577
+builds it. This entry records why it has this shape. Nothing here is built yet.
+
+**Decision.** With TLS turned on (`PODIUM_TLS=on`, `podiumctl start --tls`), the server makes its own CA and
+serving certificate in `/data/tls` and serves HTTPS on a second port. Each person gets a client certificate in
+one generated config file, `reporter-config-<name>-<epoch>.pem`, holding the server address, the CA, the name
+and the certificate with its private key, the way `kubeadm` and `kubectl` do. `SPEC.md` 5.9, 6, 6.8, 7.1 and
+7.7 have the rules.
+
+- A reporter with the file stops sending a token. The server authenticates it from the certificate in the TLS
+  handshake, mapped to a person by SHA-256 fingerprint, and the report's `userName` must still equal that person,
+  as 20 requires. The console keeps its name and token, behind the same TLS (30).
+- The reporter makes its TLS connection through a small Node helper, started per session, because the mod's
+  `$.http.fetch` accepts no CA or certificate. The mod sends its requests to the helper over a Unix socket.
+- Revoking the certificate, the token, or both are separate actions. The server checks revocation on every
+  request. Plain HTTP stays on loopback so an Admin can always sign in (33 still applies to both ports).
+- Serving certificates renew themselves, person certificates renew from the reporter, and the CA rotates only
+  by hand, with a cross-signed overlap when planned.
+- Reporters over HTTP are an Admin switch, on for an existing install and off for a fresh one that enables TLS.
+- macOS and Linux are in scope. Windows is unsupported.
+
+**Why.**
+
+- Tokens in a header over plain HTTP were the accepted cost in 20, 28 and 31. Responding (28) made it worse,
+  since the browser's sign-in and held answers now cross the network too.
+- The maintainer's model is `kubectl`: the CA arrives inside the credential file and is used for that one
+  connection. A person's machine installs nothing and trusts nothing new. A certificate also cannot be lifted
+  out of a header and replayed the way a token can, because the private key signs the handshake and is never
+  sent.
+- A person is still bound to their name (20). The certificate is public and the key proves identity, so a
+  stolen database yields no usable reporter credential.
+- Revocation had to be easy and separate: "it just blocks the reporter from working, but the user can still log
+  in".
+- The helper is the one route that was measured to work (Claude Code 2.1.305, 20 of 20 requests at about 2 ms,
+  the server saw the certificate on every handshake). `$.http.fetch` ignores `ca`, `cert` and `key`.
+  `NODE_EXTRA_CA_CERTS` needs a restart, cannot be set later by a mod, and trusts the CA for the whole process.
+  `curl` per request fails on macOS with a combined PEM file. The long-term fix is an engine option on
+  `$.http.fetch` (#591), and then the helper goes and the file stays.
+- `openssl` and Node's own TLS do the work, with no pure-JS certificate library. The CA lives on durable
+  storage so a restart or rebuild never loses it. Reporter identity is read once per session (29), so the
+  helper follows the same rule.
+
+**Alternatives.**
+
+- Signed requests over verified HTTPS with `crypto.subtle`. Superseded: the helper gives real mutual TLS.
+- A `ca.pem`, a `.pdm` file and a `NODE_EXTRA_CA_CERTS` line with a restart. Superseded by the one file, and kept
+  as the documented fallback if the helper is not accepted.
+- The reporter setting its own trust at runtime. Does not work.
+- A pinned CA hash like `kubeadm join`. Needs the engine option.
+- A TLS proxy only (the earlier advice). It still works, and a server with a real name can use one (35).
+
+**Cost.**
+
+- The reporter needs `node` on the person's `PATH`. How it finds `node` is still open.
+- `$.process` is CLI only per the engine types, so the desktop app and VS Code are untested.
+- A stolen `/data/tls` holds the CA key, which is everything the CA signed. It needs an emergency rotation and a
+  reissue, and the folder must be backed up and permissioned like a secret.
+- A stolen config file holds a person's private key until it is revoked.
+- A browser trusts the CA only when a person installs it.
+- A laptop asleep past both the cross certificate and the grace needs a reissue.
+- Podium now holds a CA, a renewal schedule and a rotation procedure, which is more to run and more to explain.
