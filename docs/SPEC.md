@@ -2818,7 +2818,7 @@ durable, so a restart or a rebuild keeps the CA. Person certificates are in a ta
 `issued_at`, `revoked_at` and `reason`. The CA's and the serving certificate's dates and fingerprint are in a
 small metadata table or in settings rows. Podium keeps only a person's certificate, never their key.
 
-**Serving certificate renewal.** It renews at start and `tls.serving.renewBeforeDays` before expiry, with the same
+**Serving certificate renewal.** It is always automatic, with no setting to turn it off. It renews at start and `tls.serving.renewBeforeDays` before expiry, with the same
 names and the same CA, and is swapped in with `setSecureContext` without a restart (an open connection keeps the
 old one, a new connection gets the new one). The replaced certificate goes to `previous/`. A failure is logged,
 retried daily and shown to the Admin. An Admin can renew now, which also re-issues for a changed bind address or
