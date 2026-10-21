@@ -224,7 +224,7 @@ export const SAMPLES: Sample[] = [
     avoid: ["Drawing a step state in color alone. Each state has its own shape."],
     a11y: "Plan and Files are tabs with the arrow keys. Page buttons are labelled and say which page is current.",
     cases: [
-      { label: "The plan", screen: "focus-running", selector: ".two > .fold-col > .sec" },
+      { label: "The plan", screen: "focus-running", selector: ".two > .fold-col > .fold-clip > .sec" },
       { label: "The Files tab, many files", screen: "app-files-tab", selector: ".two" },
       { label: "Deleted, renamed and binary files, an inferred next step", screen: "app-agent-states", selector: ".two" },
     ],

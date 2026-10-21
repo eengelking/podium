@@ -89,6 +89,13 @@ describe("folding the Plan / Files column (#604)", () => {
     expect(show()).toHaveFocus();
   });
 
+  it("clips only the panel, so the button's tip is not cut off while folded", () => {
+    const { container } = openFocus();
+    fireEvent.click(hide());
+    expect(container.querySelector(".fold-clip")).toContainElement(container.querySelector(".sec"));
+    expect(container.querySelector(".fold-clip")).not.toContainElement(show());
+  });
+
   it("names the rail for a screen reader's sake by the button alone, and hides the rail's text", () => {
     const { container } = openFocus();
     fireEvent.click(hide());

@@ -53,7 +53,9 @@ export function FocusView(props: {
       </div>
       <div className={`two${folded ? " folded" : tab === "files" ? " wide" : ""}`}>
         <div className={`fold-col${folded ? " shut" : ""}${tab === "files" ? " files" : ""}`}>
-          <PlanPanel s={s} onTab={setTab} panelId={planId} />
+          <div className="fold-clip">
+            <PlanPanel s={s} onTab={setTab} panelId={planId} />
+          </div>
           <div className="fold-rail" aria-hidden="true">
             <span>Plan and files</span>
           </div>

@@ -813,11 +813,12 @@ body.modal-open #root { filter: blur(5px); }
 /* Folding the Plan / Files column (#604). The control is the .tbar-tab pill turned 90 degrees: on the column's right edge when open, on a 28 px rail when folded.
    Folded, the panel keeps its open width, hidden and clipped by the narrow track, so the rail is as tall as the panel was and follows it. */
 .podium .two.folded { grid-template-columns: 28px minmax(0, 1fr); }
-.podium .fold-col { position: relative; min-width: 0; display: grid; }
+.podium .fold-col { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
 .podium .fold-col > * { grid-area: 1 / 1; }
-.podium .fold-col.shut { overflow: hidden; }
-.podium .fold-col.shut > .sec { visibility: hidden; width: 300px; }
-.podium .fold-col.shut.files > .sec { width: 400px; }
+.podium .fold-clip { min-width: 0; }
+.podium .fold-col.shut > .fold-clip { overflow: hidden; }
+.podium .fold-col.shut .fold-clip > .sec { visibility: hidden; width: 300px; }
+.podium .fold-col.shut.files .fold-clip > .sec { width: 400px; }
 .podium .fold-tab { position: absolute; top: 14px; right: -8px; z-index: 7; width: 16px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
 .podium .fold-col.shut .fold-tab { right: auto; left: 6px; }
 .podium .fold-tab:hover { background: var(--sel); color: var(--ink); }
@@ -833,14 +834,14 @@ body.modal-open #root { filter: blur(5px); }
 @container (max-width: 700px) {
   .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
   .podium .fold-tab { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
-  .podium .fold-col.shut > .sec, .podium .fold-col.shut .fold-rail { display: none; }
+  .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
   .podium .fold-col.shut .fold-tab { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
   .podium .fold-col.shut .fold-tab svg { transform: rotate(90deg); }
 }
 @media (max-width: 1040px) {
   .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
   .podium .fold-tab { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
-  .podium .fold-col.shut > .sec, .podium .fold-col.shut .fold-rail { display: none; }
+  .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
   .podium .fold-col.shut .fold-tab { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
   .podium .fold-col.shut .fold-tab svg { transform: rotate(90deg); }
 }
