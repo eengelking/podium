@@ -4987,6 +4987,15 @@ Two columns: the plan section and the agent tree.
 selected first and the choice is not saved). While Files is selected the left column is 400 px wide instead of
 300.
 
+- **Folding (#604).** A button on the column's right edge ("Hide plan and files", `aria-expanded`) folds the whole
+  column to a 28 px rail that holds the same button ("Show plan and files") and the name set sideways, and the agent
+  tree takes the width. The rail is as tall as the open column was. The choice is one flag for every orchestrator's
+  page, kept in `localStorage` under `podium.planFiles.collapsed`; it is open unless a stored `true` says
+  otherwise. The panel stays mounted while folded, so the selected tab, its scroll and the plan's page are there
+  when it opens again, and the Files widening is not applied while folded. Where the two columns stack, the same
+  button hides the panel in the stack and the folded bar is 16 px high across the width. Nothing on the page links
+  into the panel, so no link has to open it first.
+
 - **Plan** is the checklist (active, blocked, pending, done, with owner label), under a progress bar that a
   hairline separates from the first step (#200).
   - **Order (#454).** In progress first, then blocked, then pending in plan order, then done in the order they
