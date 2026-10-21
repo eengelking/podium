@@ -12,6 +12,7 @@ import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
 import { TopBar } from "./components/TopBar";
+import { PaneEdgeTab } from "./components/EdgeTab";
 import { TopBarTab } from "./components/TopBarTab";
 import { Legend } from "./components/Legend";
 import { Wall } from "./components/Wall";
@@ -377,7 +378,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     setASort((cur) => (key === null ? { key: null, dir: 1 } : cur.key === key ? { key, dir: cur.dir === 1 ? -1 : 1 } : { key, dir: defaultAgentDir(key) }));
   };
 
-  // A collapsed pane keeps a slim 24 px tab; its saved width comes back when it opens again.
+  // A collapsed pane keeps a slim 24 px strip with its tab; its saved width comes back when it opens again.
   const colStyle = {
     ...(panes.collapsed.left
       ? { ["--rail-w" as string]: "24px" }
@@ -526,9 +527,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             version={state.server?.version ?? null}
             build={state.server?.build ?? null}
             collapsed={panes.collapsed.left}
-            onToggle={() => toggle("left")}
             people={railPeople}
           />
+          <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} />
           <div className="mid">
             {myReporters ? (
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
@@ -596,6 +597,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             {/* My reporters shows no legend (#446). */}
             {!myReporters && <Legend />}
           </div>
+          <PaneEdgeTab side="right" collapsed={panes.collapsed.right} onToggle={() => toggle("right")} />
           <SidePanel
             events={state.events}
             sessions={state.sessions}
@@ -611,7 +613,6 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             now={now}
             activityFeedOn={state.features["activity-feed"] !== false}
             collapsed={panes.collapsed.right}
-            onToggle={() => toggle("right")}
           />
           {!panes.collapsed.left && <ResizeHandle panel="rail" r={resize} container={container} label="Resize orchestrator list" />}
           {!panes.collapsed.right && <ResizeHandle panel="side" r={resize} container={container} label="Resize activity panel" />}

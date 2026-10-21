@@ -193,6 +193,32 @@ describe("FleetView collapsible shell", () => {
     expect(document.getElementById("podium-rail-body")).toBeVisible();
   });
 
+  it("gives each pane the shared edge tab, named for what a click does, with the shortcut in its tip (#626)", () => {
+    const { container } = render(<FleetView state={stateFrom()} />);
+    const cols = container.querySelector(".cols")!;
+    expect(screen.getByRole("button", { name: "Collapse the left pane" })).toBe(left());
+    expect(left()).toHaveClass("edge-tab", "edge-tab-left");
+    expect(left()).toHaveAttribute("data-tip", "Collapse the left pane ([)");
+    expect(left()).not.toHaveAttribute("title");
+    expect(right()).toHaveClass("edge-tab", "edge-tab-right");
+    expect(right()).toHaveAttribute("data-tip", "Collapse the right pane (])");
+    expect(right()).toHaveAttribute("aria-controls", "podium-side-body");
+    // The tabs sit in the grid beside the panes, never inside a pane that scrolls and clips.
+    expect(cols.contains(left()) && !container.querySelector(".rail")!.contains(left())).toBe(true);
+    expect(container.querySelector(".side")!.contains(right())).toBe(false);
+    fireEvent.click(left());
+    expect(screen.getByRole("button", { name: "Expand the left pane" })).toBe(left());
+    expect(left()).toHaveClass("edge-tab-shut");
+    expect(left()).toHaveAttribute("aria-expanded", "false");
+    expect(left()).toHaveAttribute("data-tip", "Expand the left pane ([)");
+    fireEvent.click(right());
+    expect(right()).toHaveAttribute("data-tip", "Expand the right pane (])");
+    expect(right()).toHaveClass("edge-tab-shut");
+    fireEvent.click(left());
+    expect(left()).not.toHaveClass("edge-tab-shut");
+    expect(container.querySelector(".pane-tab")).toBeNull();
+  });
+
   it("collapses the right pane with ] and gives its width to the main column", () => {
     const { container } = render(<FleetView state={stateFrom()} />);
     fireEvent.keyDown(document, { key: "]" });

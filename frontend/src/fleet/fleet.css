@@ -52,25 +52,30 @@ body.podium-resizing .podium .cols { transition: none; }
 
 /* collapsible panes and wall mode (#33) */
 .podium { position: relative; }
-.podium .pane-tab { position: absolute; top: 6px; z-index: 6; width: 24px; height: 26px; display: grid; place-items: center; color: var(--ink2); border-radius: 4px; text-align: center; }
-.podium .pane-tab:hover { background: var(--hover); color: var(--ink); }
-.podium .pane-tab-left { right: 0; }
-.podium .pane-tab-right { left: 0; }
-.podium .rail:not(.collapsed) .rail-head { padding-right: 34px; }
-.podium .side:not(.collapsed) #podium-side-body { padding-top: 32px; }
 .podium .rail.collapsed, .podium .side.collapsed { overflow: hidden; }
 .podium .strip { height: 8px; background: var(--axis); position: relative; z-index: 6; }
 .podium .strip.bad { background: var(--crit); }
-/* The top bar's icon tab (#402). Open, it straddles the bar's bottom border at the middle: 8px sits in the bar's own bottom padding, 8px over the banner's. Hidden, it hangs from the strip at the screen's top edge, transparent and always shown. */
-.podium .tbar-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
-.podium .top .tbar-tab { top: calc(100% - 8px); }
-.podium .strip .tbar-tab { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
-.podium .tbar-tab:hover { background: var(--sel); color: var(--ink); }
-.podium .tbar-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
-.podium .tbar-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium .tbar-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
-.podium .tbar-tab:hover::after, .podium .tbar-tab:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .podium .tbar-tab::after { transition: none; } }
+/* The collapse control, one for the whole app (#402, #538, #604, #626): a bordered pill with a 10 px chevron and a tip from data-tip that shows on hover and keyboard focus. 32 x 16 on a horizontal edge, 16 x 32 on a vertical one. Placement is the -top, -kpi, -fold, -left and -right class. */
+.podium .edge-tab { position: absolute; z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .edge-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .edge-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .edge-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .edge-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .edge-tab:hover::after, .podium .edge-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .edge-tab::after { transition: none; } }
+/* The top bar's tab (#402). Open, it straddles the bar's bottom border at the middle: 8px sits in the bar's own bottom padding, 8px over the banner's. Hidden, it hangs from the strip at the screen's top edge, transparent and always shown. */
+.podium .edge-tab-top, .podium .edge-tab-kpi { left: 50%; transform: translateX(-50%); }
+.podium .top .edge-tab-top { top: calc(100% - 8px); }
+.podium .strip .edge-tab-top { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
+/* A vertical edge: the pill is 16 x 32 and its tip opens toward the page. */
+.podium .edge-tab-left, .podium .edge-tab-right, .podium .edge-tab-fold { width: 16px; height: 32px; }
+.podium .edge-tab-left::after, .podium .edge-tab-right::after, .podium .edge-tab-fold::after { top: 50%; left: calc(100% + 6px); transform: translateY(-50%); }
+.podium .edge-tab-right::after { left: auto; right: calc(100% + 6px); }
+/* The panes' tabs (#33, #626) sit in the .cols grid beside the pane, because the pane scrolls and clips what straddles its edge. Open, the pill straddles the pane's inner edge, 14 px from the top; collapsed, it sits inside the 24 px strip the pane leaves. */
+.podium .edge-tab-left { top: 14px; left: var(--rail-w); transform: translateX(-50%); }
+.podium .edge-tab-right { top: 14px; right: var(--side-w); transform: translateX(50%); }
+.podium .edge-tab-left.edge-tab-shut { left: 4px; transform: none; }
+.podium .edge-tab-right.edge-tab-shut { right: 4px; transform: none; }
 .podium .wall-ctl { position: absolute; top: 6px; right: 10px; z-index: 20; display: flex; gap: 6px; transition: opacity .25s; }
 .podium.idle .wall-ctl { opacity: 0; pointer-events: none; }
 .podium.idle, .podium.idle * { cursor: none !important; }
@@ -678,10 +683,12 @@ body.modal-open #root { filter: blur(5px); }
   .podium .legend { order: 4; padding: 20px 24px 28px; gap: 10px 20px; }
   .podium .rz { display: none; }
   .podium .wall-enter { display: none; }
-  .podium .pane-tab { position: static; width: 100%; height: 28px; display: flex; align-items: center; justify-content: flex-start; padding-left: 14px; }
+  /* The pane controls become a 28 px full-width bar in both states (#626), the size of the button they replace: the rail's closes it upward, the activity panel's downward. */
+  .podium .edge-tab-left { order: 1; } .podium .edge-tab-right { order: 3; }
+  .podium .edge-tab-left, .podium .edge-tab-right, .podium .edge-tab-left.edge-tab-shut, .podium .edge-tab-right.edge-tab-shut { position: relative; inset: auto; transform: none; display: flex; width: 100%; height: 28px; border: 0; border-radius: 0; background: var(--surface); }
+  .podium .edge-tab-left svg, .podium .edge-tab-right svg { transform: rotate(90deg); }
+  .podium .edge-tab-left::after, .podium .edge-tab-right::after { top: auto; bottom: calc(100% + 6px); left: 50%; right: auto; transform: translateX(-50%); }
   .podium .rail.collapsed, .podium .side.collapsed { overflow: visible; }
-  .podium .rail:not(.collapsed) .rail-head { padding-right: 14px; }
-  .podium .side:not(.collapsed) #podium-side-body { padding-top: 0; }
   .podium .rail, .podium .side { border: 0; border-top: 1px solid var(--border); max-height: none; overflow: visible; }
   .podium .rail { border-bottom: 1px solid var(--border); }
   .podium .main { overflow: visible; }
@@ -810,7 +817,7 @@ body.modal-open #root { filter: blur(5px); }
 
 /* Plan and Files tabs, and the file list */
 .podium .two.wide { grid-template-columns: 400px minmax(0, 1fr); }
-/* Folding the Plan / Files column (#604). The control is the .tbar-tab pill turned 90 degrees: on the column's right edge when open, on a 28 px rail when folded.
+/* Folding the Plan / Files column (#604). The control is the shared .edge-tab pill on a vertical edge: on the column's right edge when open, on a 28 px rail when folded.
    Folded, the panel keeps its open width, hidden and clipped by the narrow track, so the rail is as tall as the panel was and follows it. */
 .podium .two.folded { grid-template-columns: 28px minmax(0, 1fr); }
 .podium .fold-col { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -819,31 +826,25 @@ body.modal-open #root { filter: blur(5px); }
 .podium .fold-col.shut > .fold-clip { overflow: hidden; }
 .podium .fold-col.shut .fold-clip > .sec { visibility: hidden; width: 300px; }
 .podium .fold-col.shut.files .fold-clip > .sec { width: 400px; }
-.podium .fold-tab { position: absolute; top: 14px; right: -8px; z-index: 7; width: 16px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
-.podium .fold-col.shut .fold-tab { right: auto; left: 6px; }
-.podium .fold-tab:hover { background: var(--sel); color: var(--ink); }
-.podium .fold-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
-.podium .fold-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium .fold-tab::after { content: attr(data-tip); position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
-.podium .fold-tab:hover::after, .podium .fold-tab:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .podium .fold-tab::after { transition: none; } }
+.podium .edge-tab-fold { top: 14px; right: -8px; }
+.podium .fold-col.shut .edge-tab-fold { right: auto; left: 6px; }
 .podium .fold-rail { display: none; }
 .podium .fold-col.shut .fold-rail { display: flex; justify-content: center; align-items: flex-start; padding-top: 54px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .podium .fold-rail span { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
 /* Stacked (the two columns in one): the same control hides the panel in the stack. Open, the pill straddles the panel's bottom edge; folded, it is a 16 px bar across the width. */
 @container (max-width: 700px) {
   .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
-  .podium .fold-tab { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+  .podium .edge-tab-fold { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
   .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
-  .podium .fold-col.shut .fold-tab { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
-  .podium .fold-col.shut .fold-tab svg { transform: rotate(90deg); }
+  .podium .fold-col.shut .edge-tab-fold { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
+  .podium .fold-col.shut .edge-tab-fold svg { transform: rotate(90deg); }
 }
 @media (max-width: 1040px) {
   .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
-  .podium .fold-tab { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+  .podium .edge-tab-fold { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
   .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
-  .podium .fold-col.shut .fold-tab { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
-  .podium .fold-col.shut .fold-tab svg { transform: rotate(90deg); }
+  .podium .fold-col.shut .edge-tab-fold { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
+  .podium .fold-col.shut .edge-tab-fold svg { transform: rotate(90deg); }
 }
 .podium .tabs { display: flex; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--grid); align-items: stretch; }
 .podium .tabs [role="tab"] { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 9px 10px 8px; cursor: pointer; display: inline-flex; gap: 4px; align-items: baseline; }
@@ -1143,19 +1144,12 @@ body.modal-open #root { filter: blur(5px); }
 .podium .kb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .podium .kb .kpi-block > .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @container (max-width: 640px) { .podium .kb .kpi-block > .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-/* The KPI rows' collapse control (#538). It borrows .tbar-tab's size, border, hover, focus ring and tip. Open, the pill straddles the block's bottom edge; collapsed, it is the whole bar. */
+/* The KPI rows' block (#538). Its collapse control is the shared .edge-tab. Open, the pill straddles the block's bottom edge; collapsed, it is the whole bar. */
 .podium .kpi-block { position: relative; margin-bottom: 14px; }
 .podium .kpi-block .kpis { margin-bottom: 0; }
 .podium .kpi-block .kpis[hidden] { display: none; }
-.podium .kpi-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
-.podium .kpi-block:not(.shut) .kpi-tab { top: calc(100% - 8px); }
-.podium .kpi-block.shut .kpi-tab { position: relative; left: auto; transform: none; display: flex; width: 100%; }
-.podium .kpi-tab:hover { background: var(--sel); color: var(--ink); }
-.podium .kpi-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
-.podium .kpi-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium .kpi-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
-.podium .kpi-tab:hover::after, .podium .kpi-tab:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .podium .kpi-tab::after { transition: none; } }
+.podium .kpi-block:not(.shut) .edge-tab-kpi { top: calc(100% - 8px); }
+.podium .kpi-block.shut .edge-tab-kpi { position: relative; left: auto; transform: none; display: flex; width: 100%; }
 .podium .kb-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
 .podium .kb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .podium .kb-seg button { padding: 4px 10px; font-size: 12px; color: var(--ink2); }

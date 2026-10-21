@@ -5,6 +5,7 @@ import { filterByPeople, meKey, peopleActive } from "../people";
 import { readJson, writeJson } from "../storage";
 import { GOTCHAS_URL, type Kpis, type SessionView } from "../types";
 import { cssVar, FAMILY_COLOR } from "./Chips";
+import { EdgeTab } from "./EdgeTab";
 import { PageNav } from "./PageNav";
 
 const PREFS_KEY = "podium.board";
@@ -110,16 +111,9 @@ export function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: stri
   );
 }
 
-/** The control that hides the KPI rows and brings them back (#538): a pill on the block's bottom edge when open, the whole bar when collapsed. Built on .tbar-tab's look. */
+/** The control that hides the KPI rows and brings them back (#538): a pill on the block's bottom edge when open, the whole bar when collapsed. */
 function KpiTab(props: { collapsed: boolean; controls: string; onToggle: () => void }) {
-  const name = props.collapsed ? "Show KPI rows" : "Hide KPI rows";
-  return (
-    <button type="button" className="kpi-tab" aria-expanded={!props.collapsed} aria-controls={props.controls} aria-label={name} data-tip={name} onClick={props.onToggle}>
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d={props.collapsed ? "M1.5 3.5 5 7l3.5-3.5" : "M1.5 6.5 5 3l3.5 3.5"} />
-      </svg>
-    </button>
-  );
+  return <EdgeTab place="kpi" name={props.collapsed ? "Show KPI rows" : "Hide KPI rows"} points={props.collapsed ? "down" : "up"} controls={props.controls} expanded={!props.collapsed} onToggle={props.onToggle} />;
 }
 
 /** What the page says when no card is on it, in each mode (#426). */

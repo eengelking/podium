@@ -24,7 +24,7 @@ export const SAMPLES: Sample[] = [
   {
     id: "top-bar",
     title: "Top bar",
-    files: ["components/TopBar.tsx", "components/BrandLink.tsx", "components/ConnectionPill.tsx", "components/ThemePicker.tsx", "components/UpdateEveryPicker.tsx", "components/PaneTab.tsx", "components/TopBarTab.tsx", "components/StreamTopBar.tsx"],
+    files: ["components/TopBar.tsx", "components/BrandLink.tsx", "components/ConnectionPill.tsx", "components/ThemePicker.tsx", "components/UpdateEveryPicker.tsx", "components/EdgeTab.tsx", "components/TopBarTab.tsx", "components/StreamTopBar.tsx"],
     purpose: "The row at the top of every page: the logo and name as a link to the fleet, the page name, how many reporters are live, the update interval, the theme and mode, and sign-in. It leaves off the button for the page you are on, Admin, Traffic and My reporters included. A page with no wall of its own (History, Admin) draws the shared bar from StreamTopBar, which owns the fleet stream and has no Hide top bar or wall button. After Signed in as there are 16 px before the next link.",
     use: ["As the one header of a page.", "Showing a page-wide control (theme, update interval, sign-in) that applies everywhere.", "A page with no wall: the shared StreamTopBar."],
     avoid: ["Putting a control that belongs to one screen here.", "A second header row of page-wide controls.", "A button in the bar that leads to the page you are on."],

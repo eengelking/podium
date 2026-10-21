@@ -197,7 +197,7 @@ For a wall display, collapse what you do not need.
 | Top bar | The chevron tab at the middle of the bar's bottom edge, labelled "Hide top bar" | `\` |
 | All three (**Wall mode**) | The button in the top right | `w` |
 
-- A collapsed pane leaves a slim tab to open it again, and the pane returns to the width you had. Your choice is
+- A collapsed pane leaves a slim strip with the same small tab to open it again, and the pane returns to the width you had. Your choice is
   remembered.
 - A hidden top bar leaves a thin strip along the top of the screen with a chevron tab at its middle, labelled "Show top
   bar". It stays visible; click it, or press `\`, to bring the bar back.

@@ -3876,7 +3876,11 @@ pages, responding, the orchestrator page and the right panel.
 - The left pane, the right pane and the top bar each collapse and expand on their own, from a visible control
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
-- A collapsed pane leaves a 24 px edge tab with an expand button (`aria-expanded`, `aria-controls`). Its
+- Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
+  the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
+  new collapse or open control uses it. A pane's pill sits in the `.cols` grid beside the pane, straddling its
+  inner edge near the top, and the tip names the shortcut ("Collapse the left pane ([)").
+- A collapsed pane leaves a 24 px edge strip holding the same pill as its expand button (`aria-expanded`, `aria-controls`). Its
   content is `hidden`, so it is out of the tab order and the accessibility tree, and its saved width comes
   back when it opens.
 - A collapsed top bar leaves a 4 px strip with a Show top bar button, and takes the info banner with it.
@@ -3884,8 +3888,8 @@ pages, responding, the orchestrator page and the right panel.
   the connection…" alert (and a red strip), and reconnecting clears it.
 - The collapsed flags are remembered in `localStorage` under `podium.collapsed`, apart from the widths. The Board
   (`podium.collapsed.board`) and My reporters (`podium.collapsed.reporters`) keep their own.
-- Below 1040 px the panes are stacked, so the control collapses the stacked section to a one-row tab, and the
-  Wall mode button is hidden.
+- Below 1040 px the panes are stacked, so the pill becomes a 28 px full-width bar that collapses the stacked section
+  (the rail's closes it upward, the activity panel's downward), and the Wall mode button is hidden.
 
 **Wall mode**
 - A Wall mode button (in the top bar, or in the upper right corner when the top bar is collapsed) collapses
@@ -5341,7 +5345,7 @@ Create these. Split further only if a file passes about 250 lines.
 - **Side panel:** `SidePanel` (with `ActivityList`, `AgentDetail`, `FailureBox`, `BlowoutBox`, `ReportDocs`,
   `ActivityFeed`, `Modal`).
 - **Shared pieces:** `Chips` (`ModelChip`, `EffortMeter`, `StatusChip`, `BlowBadge`, `GitLine`), `Sparkline`,
-  `ResizeHandle`, `PaneTab`.
+  `ResizeHandle`, `EdgeTab`.
 - **Hooks:** `useFleet`, `useActivityFeed`, `useResizable`, `usePanes`, `useHotkeys`, `useIdle`, `useTheme`,
   `usePeoplePrefs`, `useWallColumns`.
 - **Logic modules:**
