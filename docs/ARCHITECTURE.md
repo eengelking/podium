@@ -606,7 +606,8 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 ### Built-in TLS (#577)
 
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
-certificate, the HTTPS listener (#581) and the serving certificate's renewal (#582). The rest is planned. The rules are in
+certificate, the HTTPS listener (#581), the serving certificate's renewal (#582) and the person certificates with their
+revocation (#583). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
@@ -635,11 +636,25 @@ read from the certificates (`describeCert`) and logged as `tls.listening`, not s
 `/data/tls` holds `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and `previous/`, keys at mode 0600. In container
 mode `podiumctl` keeps this folder on durable storage, and its remove path leaves it unless asked. Person
 certificates are rows in `podium.sqlite`, found by SHA-256 fingerprint. A serving renewal calls `setSecureContext`
-on the live HTTPS server, so nothing restarts.
+on the live HTTPS server, so nothing restarts. `setSecureContext` replaces the whole context, so the renewer passes
+`ca` again with every new serving certificate; without it a renewed server would verify client certificates against
+the public roots and refuse every reporter.
 
-**Who is calling.** `routes.ts` already turns `X-Podium-Token` into an identity before it reads a body. With TLS
-the socket's client certificate is a second way to get one: `socket.authorized`, then a fingerprint lookup in
-`people.ts`, then the same `userName` match. Revocation is checked per request.
+**Person certificates (#583).** `tlsPeople.ts` makes a person's key and `clientAuth` certificate with `openssl`
+(`issuePersonCert`) in a `.new-*` work folder that is deleted afterwards, so the key exists on disk only for those
+seconds and Podium never stores it. It builds the config file (`buildReporterConfig`) from the key, the certificate
+and the CA. `PersonCertStore` (`tlsClientAuth.ts`) is the `person_certificates` table (migration 23): fingerprint
+(primary key), serial, issuer fingerprint, person, the certificate PEM, dates and revocation. A reissue stores the
+new row and revokes the earlier live ones in one transaction. The rows go with the person (`ON DELETE CASCADE`).
+
+**Who is calling.** `requireToken` in `routes.ts` turns a request into an identity before it reads a body. With TLS
+the socket's client certificate is checked first, on every request, by `certAuth` (`tlsClientAuth.ts`): the
+connection must be `socket.authorized` (so Node verified it against the Podium CA), the fingerprint must be a stored
+one, not revoked, not past its dates and issued by a CA the server currently trusts. A certificate that was presented
+and fails is a 401 with `client certificate refused` and never falls back to a token; no certificate at all goes on
+to the token check as before. The same `userName` match applies. Revoking only the certificate leaves the token
+(and the console sign-in) working; revoking the token also revokes the certificate. Because the row is read on every request,
+a revoke reaches a keep-alive connection that is still open and no socket has to be destroyed.
 
 **The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
 `$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a
@@ -648,6 +663,10 @@ config file it sends through the helper with `$.http.fetch(url, { ...init, socke
 callers do not change. The held answer request keeps the engine's 30 second limit, now on the leg to the helper.
 
 **Admin.** New routes under `/api/admin/certificates` and on `people/:id/certificate/...` live in `adminRouter.ts`.
+`POST /people` returns the config file with the token, once; if the certificate cannot be made the person and the
+token are still returned, with a `configError`, since the token is shown once too. Revoking a token, alone or with
+Revoke all, is refused for the last active Administrator (`PeopleStore.assertNotLastAdministrator`); revoking only the
+certificate needs no guard, because the console sign-in does not use it.
 The Certificates page and the header pill, and the reworked People page, are in `frontend/src/fleet/admin/`.
 
 ### People view

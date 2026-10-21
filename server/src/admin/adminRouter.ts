@@ -22,6 +22,8 @@ import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import type { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
+import type { PersonCertStore } from '../tlsClientAuth.js';
+import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
@@ -47,7 +49,12 @@ export interface AdminRouterOptions {
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistory; settings: ActivityHistorySettingsStore };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
-  certificates?: { settings: TlsSettingsStore; renewer: () => ServingRenewer | null };
+  certificates?: {
+    settings: TlsSettingsStore;
+    renewer: () => ServingRenewer | null;
+    /** People's certificates (#583, T5): the store, and what it takes to issue one. `issuer()` is null while TLS is off, and the person routes then answer 404. */
+    people?: { store: PersonCertStore; issuer: () => PersonIssuer | null };
+  };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -272,13 +279,25 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ ...people.list({ ...paging(req), q }), groups: people.allGroups() });
   });
 
-  router.post('/people', (req, res) => {
+  router.post('/people', async (req, res) => {
     try {
       const name = typeof req.body?.name === 'string' ? req.body.name : '';
       const groupId = typeof req.body?.groupId === 'number' ? req.body.groupId : null;
       const { person, token } = people.createPerson(name, groupId, now());
       audit(req, 'person_created', `Added ${person.name}`, { person_id: person.id });
-      res.status(201).json({ ok: true, person: publicPerson(person, groupNameOf(person)), token });
+      const body: Record<string, unknown> = { ok: true, person: publicPerson(person, groupNameOf(person)), token };
+      // With TLS on the config file comes back here too, once. A failure to make it must not lose the token, which is also shown once.
+      const issuer = certs?.people?.issuer();
+      if (certs?.people && issuer) {
+        try {
+          body.config = await issueAndLog(req, person, certs.people.store, issuer);
+        } catch (err) {
+          const reason = (err as Error).message;
+          logger.error('tls.issue_failed', `podium: could not issue a certificate to a new person: ${reason}`, { person_id: person.id, reason });
+          body.configError = 'Podium could not make the certificate. Reissue the config from the person once the server log shows why.';
+        }
+      }
+      res.status(201).json(body);
     } catch (err) {
       fail(res, err);
     }
@@ -302,8 +321,91 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (id === null) return void res.status(400).json({ ok: false, error: 'bad id' });
     const p = people.getPerson(id);
     if (!p) return void res.status(404).json({ ok: false, error: 'unknown person' });
-    if (people.revoke(id, now())) audit(req, 'token_revoked', `Revoked the token of ${p.name}`, { person_id: id });
+    try {
+      people.assertNotLastAdministrator(id);
+    } catch (err) {
+      return fail(res, err);
+    }
+    // Revoking the token revokes the person's certificate too, so a reporter cannot go on with the other credential (#583).
+    const certsRevoked = certs?.people?.store.revokeFor(id, 'revoked', now()) ?? 0;
+    if (people.revoke(id, now())) audit(req, 'token_revoked', `Revoked the token of ${p.name}${certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: certsRevoked });
     res.json({ ok: true });
+  });
+
+  // ---- people's certificates (#583) ---------------------------------------------------------------
+
+  const certs = opts.certificates;
+  const tlsOff = (res: Response) => void res.status(404).json({ ok: false, error: 'TLS is off' });
+
+  /** Issues the person a certificate and logs it (the file's content never goes in the log). Returns the file for the response. */
+  async function issueAndLog(req: Request, person: PersonRow, store: PersonCertStore, issuer: PersonIssuer): Promise<ConfigFile & { expires: string; fingerprint: string }> {
+    const { file, cert } = await issueConfigFor(person, store, issuer, req.get('host'), now());
+    audit(req, 'certificate_issued', `Issued a certificate to ${person.name}`, { person_id: person.id, fingerprint_sha256: cert.fingerprint, not_after: new Date(cert.notAfter).toISOString() });
+    return { ...file, expires: new Date(cert.notAfter).toISOString(), fingerprint: cert.fingerprint };
+  }
+
+  /** The person and the certificate parts when TLS is on; otherwise it has already answered. */
+  function certTarget(req: Request, res: Response): { person: PersonRow; store: PersonCertStore; issuer: PersonIssuer } | null {
+    const c = certs?.people;
+    const issuer = c?.issuer();
+    if (!c || !issuer) {
+      tlsOff(res);
+      return null;
+    }
+    const id = idParam(req.params.id ?? '');
+    if (id === null) {
+      res.status(400).json({ ok: false, error: 'bad id' });
+      return null;
+    }
+    const person = people.getPerson(id);
+    if (!person) {
+      res.status(404).json({ ok: false, error: 'unknown person' });
+      return null;
+    }
+    return { person, store: c.store, issuer };
+  }
+
+  router.post('/people/:id/certificate/reissue', async (req, res) => {
+    const t = certTarget(req, res);
+    if (!t) return;
+    try {
+      res.json({ ok: true, config: await issueAndLog(req, t.person, t.store, t.issuer) });
+    } catch (err) {
+      logger.error('tls.issue_failed', `podium: could not issue a certificate: ${(err as Error).message}`, { person_id: t.person.id, reason: (err as Error).message });
+      res.status(500).json({ ok: false, error: 'Podium could not make the certificate. The earlier one is still valid.' });
+    }
+  });
+
+  // Only the certificate: the person's token and console sign-in are unchanged, so no administrator is locked out by it.
+  router.post('/people/:id/certificate/revoke', (req, res) => {
+    const t = certTarget(req, res);
+    if (!t) return;
+    const n = t.store.revokeFor(t.person.id, 'revoked', now());
+    if (n > 0) audit(req, 'certificate_revoked', `Revoked the certificate of ${t.person.name}`, { person_id: t.person.id });
+    res.json({ ok: true, revoked: n });
+  });
+
+  router.post('/people/:id/revoke-all', (req, res) => {
+    const t = certTarget(req, res);
+    if (!t) return;
+    try {
+      people.assertNotLastAdministrator(t.person.id);
+    } catch (err) {
+      return fail(res, err);
+    }
+    const n = t.store.revokeFor(t.person.id, 'revoked', now());
+    const tokenRevoked = people.revoke(t.person.id, now());
+    if (n > 0 || tokenRevoked) audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
+    res.json({ ok: true, revoked: n, tokenRevoked });
+  });
+
+  // The public half only: the certificate and the CA, as a person could check or hand on. Never a key (Podium has none).
+  router.get('/people/:id/certificate.pem', (req, res) => {
+    const t = certTarget(req, res);
+    if (!t) return;
+    const cert = t.store.current(t.person.id);
+    if (!cert) return void res.status(404).json({ ok: false, error: 'this person has no certificate' });
+    res.type('application/x-pem-file').set('Content-Disposition', `attachment; filename="${fileSafe(t.person.name)}-certificate.pem"`).send(`${cert.certPem}${t.issuer.caCerts().join('')}`);
   });
 
   // One route for one person or many (#243). All or nothing: a refusal deletes nobody.
@@ -700,9 +802,6 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   // ---- certificates (#577) -----------------------------------------------------------------------
-
-  const certs = opts.certificates;
-  const tlsOff = (res: Response) => void res.status(404).json({ ok: false, error: 'TLS is off' });
 
   router.get('/certificates', (_req, res) => {
     const r = certs?.renewer();

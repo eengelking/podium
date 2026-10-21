@@ -294,6 +294,20 @@ CREATE TABLE IF NOT EXISTS fleet_daily (
   reporter_versions_json TEXT NOT NULL, engine_versions_json TEXT NOT NULL
 );`,
   },
+  {
+    version: 23,
+    // The client certificate each person's reporter authenticates with (#583, SPEC 7.7). Found by SHA-256 fingerprint, never by
+    // subject or serial. Only the certificate is stored, never its key. A revoked row stays, so the history of a person's
+    // certificates is kept; the certificates go with the person.
+    sql: `
+CREATE TABLE IF NOT EXISTS person_certificates (
+  fingerprint_sha256 TEXT PRIMARY KEY, serial TEXT NOT NULL, issuer_fingerprint TEXT NOT NULL,
+  person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE, cert_pem TEXT NOT NULL,
+  not_before INTEGER NOT NULL, not_after INTEGER NOT NULL, issued_at INTEGER NOT NULL,
+  revoked_at INTEGER, reason TEXT
+);
+CREATE INDEX IF NOT EXISTS person_certificates_person ON person_certificates(person_id);`,
+  },
 ];
 
 export interface SessionRow {

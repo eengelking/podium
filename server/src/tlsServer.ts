@@ -65,8 +65,10 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
   if (material.createdServing) {
     o.logger.info('tls.serving_created', 'podium: made a serving certificate', { fingerprint_sha256: material.serving.fingerprintSha256, not_after: material.serving.notAfter });
   }
-  const server = https.createServer({ cert: material.cert, key: material.key, minVersion: 'TLSv1.2' }, o.app);
-  const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs }, material.cert);
+  // A client certificate is asked for but not required (a browser has none), and `ca` is what makes `socket.authorized`
+  // mean "signed by Podium": without it Node verifies against the public roots (#583).
+  const server = https.createServer({ cert: material.cert, key: material.key, ca: [material.caCert], requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.2' }, o.app);
+  const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs, ca: [material.caCert] }, material.cert);
   // Renew at start if it is due, before the first connection is accepted; a failure is logged and the current certificate serves.
   await renewer.start();
   server.once('close', () => renewer.stop());

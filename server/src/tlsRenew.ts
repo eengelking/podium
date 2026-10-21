@@ -75,7 +75,9 @@ export interface RenewerOptions {
   /** The names a renewed certificate is valid for (bind address and PODIUM_ALLOWED_HOSTS). */
   names: ServerNames;
   /** The running listener the new certificate is swapped into. */
-  server: { setSecureContext(o: { cert: string; key: string }): void };
+  server: { setSecureContext(o: { cert: string; key: string; ca?: string[] }): void };
+  /** The CA certificate(s) client certificates are verified against, passed again with each new serving certificate (#583). */
+  ca?: string[];
   /** The serving certificate the listener started with. */
   serving: CertInfo;
   settings: () => ServingSettings;
@@ -171,7 +173,8 @@ export class ServingRenewer {
     const { logger } = this.o;
     try {
       const out = await renewServing({ dir: this.o.dir, names: this.o.names, servingDays: this.o.settings().lifetimeDays, openssl: this.o.openssl, now: this.now });
-      this.o.server.setSecureContext({ cert: out.cert, key: out.key });
+      // `setSecureContext` replaces the whole context, so the CA list that client certificates are verified against goes too unless it is given again.
+      this.o.server.setSecureContext({ cert: out.cert, key: out.key, ...(this.o.ca ? { ca: this.o.ca } : {}) });
       const replaced = this.serving;
       this.serving = out.serving;
       this.certPem = out.cert;
