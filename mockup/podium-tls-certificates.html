@@ -1,0 +1,798 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Certificates</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #323 (built-in TLS). Three things: a certificate pill in the top bar that warns before the Podium
+   certificate expires, a new Admin > Server > Certificates page, and a Certificate column on Admin > People.
+   Colors and fonts come from tokens.css through fleet.css; this file defines no tokens of its own and carries no
+   root-selector block. The header, banner, Admin menu, panels, tables, switch and number setting rows, the warning
+   callout, the inline Revoke confirmation and the pager are the app's own markup and classes. The People page is the
+   real one (Create user, search, the table and the pager) with the columns reworked.
+
+   Proposals for the standards (not in fleet.css or admin.css today), each a color from an existing token:
+     .pill.soon     blue   (--deleg), the first stage of the certificate pill
+     .pill.serious  orange (--serious), the second stage; the third and the expired stage use the existing .pill.bad
+     a.pill         a status pill that is a link (the app's pills are all plain spans today)
+     .badge.soon, .badge.serious, .badge.bad, and svg.i inside .badge   the same colors and icons on an Admin table badge
+   Shapes: blue = clock, orange and red = triangle (told apart by color and the day count; the maintainer approved this
+   exception), expired = ring with a cross. Every stage also carries words.
+   .band.crit     a red band row, beside the existing blue, orange, green, yellow and grey ones; also the band row used on an Admin page
+   .menu, .menubox, .mi   a row actions menu (a details disclosure), with .mgh group headings and .msep dividers; Up, Down, Home, End and Escape work
+   tr.confirmrow          a full-width row under a table row that holds the warning-bordered confirmation
+   .nset, .note           a grouped list and a quiet note inside a small modal (the names dialog), with .nm (a name), .kd (its kind) and .env (a variable name)
+   .band .bt, .band .bd   the band row's text layout on an Admin page (a title and a detail line)
+   .tip:focus-visible     a focus ring on the tooltip trigger (the app's own Tip has none today)
+   td.nw                  a layout helper that keeps a cell on one line
+   The show-once box differs from today's: its heading is "Token and reporter config for X", "Copy settings" is "Copy token settings", and it has no primary button, because Create user is the page's primary.
+   The tooltip on a status badge is the app's own Tip (.tip and .tipbox), and the names dialog is the app's small modal.
+   A CA fingerprint line on the status panel: the existing copy control (.sid) in a note line, wrapped so the whole value shows.
+   Proposals for wording: Revoke certificate and Revoke all (token and certificate together) beside the existing Revoke
+   (token), and Reissue config for a person's reporter config.
+   Only the demo chrome (.mk-*) is this mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+
+/* Proposed pill and badge variants, tokens only */
+.podium .pill.soon { color: var(--deleg-text); border-color: color-mix(in srgb, var(--deleg) 55%, transparent); }
+.podium .pill.serious { color: var(--serious-text); border-color: color-mix(in srgb, var(--serious) 55%, transparent); }
+.podium a.pill { text-decoration: none; }
+.podium a.pill:hover { background: var(--hover); }
+.adminv .badge.soon { color: var(--deleg-text); }
+.adminv .badge.serious { color: var(--serious-text); }
+.adminv .badge.bad { color: var(--crit-text); }
+.adminv .badge svg.i { width: 14px; height: 14px; }
+.adminv .badge .dot { margin-inline: 3px; }
+.adminv .once h3 { margin: 6px 0 0; font-size: 13px; font-weight: 600; }
+.adminv .once ol.plain { padding: 0 0 0 18px; }
+.adminv .once ol.plain .code { margin-top: 6px; }
+.adminv .once ol.plain + .hint { margin-top: 10px; }
+/* Layout only: dates stay on one line, and the long fingerprint wraps inside its line instead of clipping */
+.adminv .ptab .mono { white-space: nowrap; }
+.adminv .ptab td .hint { max-width: 30ch; }
+.adminv .ptab td.nw { white-space: nowrap; }
+.adminv .ptab td > .hint, .adminv .ptab td > .tail, .adminv .ptab td > select.field { display: block; }
+.adminv .ptab td > select.field { margin-top: 4px; }
+.adminv .note-line .sid { display: inline-flex; flex-wrap: wrap; text-align: left; overflow-wrap: anywhere; margin-top: 4px; }
+
+/* Proposed: the band row from the orchestrator page, used for an Admin alert, with a red state (the app has blue, orange, green, yellow and grey) */
+.podium .band.crit { --c: var(--crit); --c-text: var(--crit-text); }
+.adminv .band .bt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.adminv .band .bd { color: var(--ink2); font-size: 12px; }
+.adminv .panel > .band { border-top: 0; }
+/* Proposed: a row actions menu, a native details disclosure, for rows with many actions. It opens beside its button and stays inside the page. */
+.adminv .menu { display: inline-block; }
+.adminv .menu > summary { list-style: none; cursor: pointer; }
+.adminv .menu > summary::-webkit-details-marker { display: none; }
+.adminv .menu > summary svg.i { width: 12px; height: 12px; }
+.adminv .menu[open] > summary { background: var(--sel); }
+.adminv .menu > summary:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .tip:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 4px; }
+.adminv .menubox { position: fixed; z-index: 40; min-width: 13rem; padding: 6px; display: grid; gap: 2px; background: var(--raised); border: 1px solid var(--axis); border-radius: 8px; }
+.adminv .menubox .mgh { margin: 6px 8px 2px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.adminv .menubox .mgh:first-child { margin-top: 2px; }
+.adminv .menubox .mi { display: block; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+.adminv .menubox .mi:hover, .adminv .menubox .mi:focus-visible { background: var(--sel); }
+.adminv .menubox .mi.dng { color: var(--crit-text); }
+.adminv .menubox .mi:disabled { color: var(--muted); cursor: not-allowed; background: none; }
+.adminv .menubox .msep { height: 1px; background: var(--grid); margin: 4px 0; }
+/* The confirmation sits in a full-width row under the person's row, so it has room to say what will happen */
+.adminv .ptab tr.confirmrow td { padding: 0; border-bottom: 1px solid var(--grid); }
+.adminv .ptab tr.confirmrow .callout { margin: 8px 16px; }
+/* Proposed: the names dialog. A grouped list inside the app's small modal (the app's modals hold paragraphs and plain lists, not tables). */
+.podium .modal .nset { margin: 0 0 14px; }
+.podium .modal .nset h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; gap: 4px 8px; align-items: baseline; flex-wrap: wrap; }
+.podium .modal .nset h3 .env { font-family: var(--font-mono); font-weight: 400; }
+.podium .modal .nset ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.podium .modal .nset li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--grid); }
+.podium .modal .nset li:first-child { border-top: 0; }
+.podium .modal .nset .nm { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; min-width: 0; }
+.podium .modal .nset .kd { flex: none; color: var(--muted); font-size: 12px; }
+.podium .modal .note { margin: 4px 0 10px; color: var(--muted); font-size: 12px; }
+
+/* Demo chrome */
+.mk-demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo b { color: var(--ink); }
+.mk-demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.mk-stage { padding: 16px; overflow-x: auto; }
+.mk-frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 860px; max-width: 100%; background: var(--bg); transform: translateZ(0); }
+.mk-frame.wide { width: 1180px; }
+.mk-frame.narrow { width: 400px; }
+.mk-frame .podium { height: 100%; }
+.mk-notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.mk-notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.mk-notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mk-scroll { overflow-x: auto; max-width: 100%; }
+.mk-decisions { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 12.5px; }
+.mk-decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.mk-decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.mk-decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+.mk-mono { font-family: var(--font-mono); }
+.mk-view { display: contents; }
+.mk-view[hidden] { display: none; }
+.once[hidden], .band[hidden], .scrim[hidden], .tipbox[hidden] { display: none; }
+@media print { .mk-demo, .nav, .mk-notes { display: none; } .mk-frame { height: auto; border: 0; } }
+</style>
+
+<div class="mk-demo">
+  <b>Certificates (#323)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-pg="certs" aria-pressed="true">Certificates</button>
+    <button type="button" data-pg="people" aria-pressed="false">People</button>
+    <button type="button" data-pg="created" aria-pressed="false">After Create user</button>
+  </span>
+  <span class="grp" role="group" aria-label="Certificate state">State
+    <button type="button" data-st="ok" aria-pressed="true">Healthy</button>
+    <button type="button" data-st="blue" aria-pressed="false">28 days</button>
+    <button type="button" data-st="orange" aria-pressed="false">9 days</button>
+    <button type="button" data-st="red" aria-pressed="false">4 days</button>
+    <button type="button" data-st="srvexp" aria-pressed="false">Serving expired</button>
+    <button type="button" data-st="caexp" aria-pressed="false">CA expired</button>
+    <button type="button" data-st="rot" aria-pressed="false">CA rotating</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="mk-stage">
+<div class="mk-frame wide" id="frame">
+<div class="podium">
+<div class="app">
+
+<header class="top" id="podium-top">
+  <a class="logo" href="#" aria-label="Podium, fleet"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>Podium</a>
+  <span class="pill">Admin</span>
+  <span class="pill" role="status"><span class="dot running" aria-hidden="true"></span>6 reporters live</span>
+  <a class="pill" id="certpill" href="#" data-go="certs" hidden></a>
+  <span class="spacer"></span>
+  <a class="btn" href="#">Fleet</a>
+  <a class="btn" href="#">Board</a>
+  <a class="btn" href="#">History</a>
+  <a class="btn" href="#">Traffic</a>
+  <span class="tb-sep" aria-hidden="true"></span>
+  <span class="tb-me"><span class="tb-who"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4"/></svg>Signed in as <b>Ed</b></span><button type="button" class="btn">Sign out</button></span>
+</header>
+<div class="banner"><span><b>Admin.</b> Tokens, groups, reporters and settings for this server.</span></div>
+
+<main class="adminv" aria-label="Admin">
+<div class="shell">
+    <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn" data-nav="people">People<span class="n">7</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+        <button type="button" class="navbtn" data-nav="certs" aria-current="page">Certificates</button>
+        <button type="button" class="navbtn">Data</button>
+        <button type="button" class="navbtn">Stored activity<span class="n">52</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+  <div class="apage"><div class="apage-in">
+
+  <!-- Admin > Server > Certificates -->
+  <div class="mk-view" id="pg-certs">
+    <div class="page-h"><div><h1>Certificates</h1><p class="lead">Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA. The serving certificate secures the console and every report.</p></div></div>
+
+    <section class="asec" aria-labelledby="c-s"><div class="asec-h"><div><h2 id="c-s">Status</h2><p class="hint">The header shows a pill when the CA or the serving certificate is close to expiring, or a renewal has failed.</p></div></div>
+      <div class="panel">
+        <div class="band" id="c-band" hidden><span class="bi" id="c-bi"></span><span class="bt"><span class="bl" id="c-bl"></span><span class="bd" id="c-bd"></span></span></div>
+        <div class="tw2"><table class="ptab" aria-label="Certificate status">
+          <thead><tr><th scope="col">Certificate</th><th scope="col">Expires</th><th scope="col">Renewal</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="who">Certificate authority
+                <span class="hint" style="display:block">Podium CA, valid 10 years</span></td>
+              <td><span class="mono" id="ca-date"></span><span class="hint" style="display:block" id="ca-left"></span></td>
+              <td>By hand</td>
+              <td id="ca-badge"></td>
+            </tr>
+            <tr id="old-ca-row" hidden>
+              <td class="who">Previous certificate authority<span class="hint" style="display:block">Retiring, accepted until 2026-11-19</span></td>
+              <td><span class="mono">2036-10-17</span><span class="hint" style="display:block">kept for the overlap</span></td>
+              <td><button type="button" class="btn sm" id="retire">Retire old CA…</button></td>
+              <td><span class="badge soon"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2 1.3"/></svg>2 of 6 reporters still use it</span></td>
+            </tr>
+            <tr>
+              <td class="who">Serving certificate
+                <span style="display:block"><button type="button" class="klink" data-modal="names-modal" aria-haspopup="dialog"><bdi>localhost</bdi> and 5 more</button></span></td>
+              <td><span class="mono" id="sv-date"></span><span class="hint" style="display:block" id="sv-left"></span></td>
+              <td id="sv-renew"></td>
+              <td id="sv-badge"></td>
+            </tr>
+          </tbody></table></div>
+        <div class="err" id="c-err" role="alert" hidden></div>
+        <div class="callout" id="retire-confirm" role="alert" hidden>
+          <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>
+          <h3>Retire the old CA?</h3>
+          <p>The 2 reporters still on the old CA are refused at once, and open connections are closed. Their people need a new reporter config from Admin &gt; People. The 4 that already renewed are not affected.</p>
+          <p class="formacts"><button type="button" class="btn dng" data-hide="retire-confirm">Retire old CA</button><button type="button" class="btn" data-hide="retire-confirm">Cancel</button></p>
+        </div>
+        <div class="note-line" id="c-steps" hidden></div>
+        <div class="note-line"><b>CA fingerprint</b> A browser trusts the CA only when a person installs it. Compare this with the fingerprint the browser shows before trusting it.
+          <span class="row2"><button type="button" class="sid" id="fp" aria-label="Copy the CA fingerprint"><span id="fp-t">SHA-256 3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg></button><button type="button" class="btn sm" id="ca-dl">Download CA (ca.pem)</button></span></div>
+        <div class="note-line">Keys and certificates are stored in <span class="mono">/data/tls</span> (keys mode 0600). Keep that folder on a volume or host folder that survives a rebuild: without the CA key, every reporter config must be reissued.</div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="c-r"><div class="asec-h"><div><h2 id="c-r">Renewal and lifetimes</h2><p class="hint">The serving certificate renews itself by default and keeps the one it replaced as a backup. Reporters renew their own certificates. A change saves when you leave the field or flip the switch, and is written to the Admin log.</p></div></div>
+      <div class="panel">
+        <div class="srow"><div class="setname"><b id="sw-auto-n">Renew the serving certificate automatically</b><p class="hint ink2">Podium issues a new one before the old expires and swaps it in with no restart. Reporters and browsers need nothing, because they trust the CA.</p></div>
+          <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-auto-n sw-auto-s" id="auto"></button><span id="sw-auto-s">On</span></div></div>
+        <div class="srow"><div class="setname"><b><label for="n-sv">Serving certificate lifetime</label></b><p class="hint ink2">Default 365 days. From 30 to 825.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="n-sv" type="number" min="30" max="825" step="1" value="365"><span class="hint">days</span></span></div>
+        <div class="err" id="n-sv-e" role="alert" hidden></div>
+        <div class="srow"><div class="setname"><b><label for="n-rn">Renew when this many days remain</label></b><p class="hint ink2">Also the day the header pill would first appear if a renewal does not happen. From 7 to 90.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="n-rn" type="number" min="7" max="90" step="1" value="30"><span class="hint">days</span></span></div>
+        <div class="err" id="n-rn-e" role="alert" hidden></div>
+        <div class="srow"><div class="setname"><b><label for="n-rp">Reporter certificate lifetime</label></b><p class="hint ink2">Default 90 days. A reporter renews its own certificate when 30 days remain. From 30 to 365.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="n-rp" type="number" min="30" max="365" step="1" value="90"><span class="hint">days</span></span></div>
+        <div class="err" id="n-rp-e" role="alert" hidden></div>
+        <div class="srow"><div class="setname"><b><label for="n-gr">Grace after a reporter certificate expires</label></b><p class="hint ink2">Inside this time an expired reporter certificate can still renew itself. After it, an Admin reissues the bundle. From 0 to 90.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="n-gr" type="number" min="0" max="90" step="1" value="30"><span class="hint">days</span></span></div>
+        <div class="err" id="n-gr-e" role="alert" hidden></div>
+        <div class="srow"><div class="setname"><b id="sw-hdr-n">Show the expiry countdown in the header</b><p class="hint ink2">Turn this off if you rely on automatic renewal. A failed renewal and an expired certificate are always shown.</p></div>
+          <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-hdr-n sw-hdr-s" id="hdr"></button><span id="sw-hdr-s">On</span></div></div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="c-http"><div class="asec-h"><div><h2 id="c-http">Reporters over HTTP</h2><p class="hint">A reporter can still connect with its name and token, with no certificate. This is how reporters work today.</p></div></div>
+      <div class="panel">
+        <div class="srow"><div class="setname"><b id="sw-http-n">Allow reporters to connect over HTTP</b><p class="hint ink2" id="http-desc"></p></div>
+          <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-http-n sw-http-s" id="http"></button><span id="sw-http-s">On</span></div></div>
+        <div class="warnbar" id="http-warn" role="note">
+          <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>
+          <span class="tx"></span>
+        </div>
+        <div class="callout" id="http-confirm" role="alert" hidden>
+          <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>
+          <h3>Stop allowing reporters over HTTP?</h3>
+          <p>The 3 reporters connected over HTTP are refused at once, until their person saves a reporter config in <span class="mono">~/.podium/</span> and starts a new Claude Code session. The console on the loopback address keeps working over HTTP, so an Admin can always sign in.</p>
+          <p class="formacts"><button type="button" class="btn dng" id="http-off">Stop allowing HTTP</button><button type="button" class="btn" id="http-keep">Cancel</button></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="c-h"><div class="asec-h"><div><h2 id="c-h">Rotate by hand</h2><p class="hint">For a change of host name, or if a private key may have been exposed.</p></div></div>
+      <div class="panel">
+        <div class="srow"><div class="setname"><b>Renew the serving certificate now</b><p class="hint ink2">Issues a new one from the same CA. The old one is kept as a backup. Reporters and browsers need nothing.</p></div>
+          <button type="button" class="btn" id="renew">Renew now</button></div>
+        <div class="srow"><div class="setname"><b>Rotate the certificate authority</b><p class="hint ink2">Creates a new CA. Reporters keep working through an overlap while they pick up the new CA when they renew. You retire the old CA when none are left.</p></div>
+          <button type="button" class="btn dng" id="rotate">Rotate CA…</button></div>
+        <div class="callout" id="ca-confirm" role="alert" hidden>
+          <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>
+          <h3>Rotate the certificate authority?</h3>
+          <p>Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working until <b>2026-11-19</b> (30 days). Each reporter picks up the new CA when it renews. A reporter that has not renewed by then needs its reporter config reissued from Admin &gt; People.</p>
+          <p class="formacts"><button type="button" class="btn dng" data-hide="ca-confirm">Rotate CA</button><button type="button" class="btn dng" data-hide="ca-confirm">Rotate CA and end the overlap now</button><button type="button" class="btn" data-hide="ca-confirm">Cancel</button></p>
+          <p class="hint">End the overlap now if the old CA key was exposed. Every reporter then needs a new reporter config, and open connections are closed.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="asec" aria-labelledby="c-p"><div class="asec-h"><div><h2 id="c-p">Previous certificates</h2><p class="hint">Kept as a backup in <span class="mono">/data/tls/previous</span>. Podium keeps the last 3.</p></div></div>
+      <div class="panel"><div class="tw2"><table class="ptab" aria-label="Previous certificates">
+        <thead><tr><th scope="col">Certificate</th><th scope="col">Valid</th><th scope="col">Replaced</th><th scope="col">Why</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+          <tr><td class="who">Serving certificate</td><td class="mono">2025-08-22 to 2026-08-22</td><td class="mono">2026-07-23</td><td>Scheduled renewal</td><td><span class="badge off"><span class="dot" aria-hidden="true"></span>kept</span></td></tr>
+          <tr><td class="who">Serving certificate</td><td class="mono">2025-02-10 to 2025-08-22</td><td class="mono">2025-06-30</td><td>Host name added</td><td><span class="badge off"><span class="dot" aria-hidden="true"></span>kept</span></td></tr>
+        </tbody></table></div></div>
+    </section>
+  </div>
+
+  <!-- Admin > People, as it is, with a Certificate column -->
+  <div class="mk-view" id="pg-people" hidden>
+    <div class="page-h"><div><h1>People</h1><p class="lead">Who reports to this server, with a token for the console and a certificate for the reporter.</p></div></div>
+    <section class="once" id="once" aria-labelledby="once-h" hidden>
+      <h2 id="once-h">Token and reporter config for <span id="once-n"></span></h2>
+      <div class="hint ink2" id="once-hint"></div>
+      <pre class="code" id="once-code"></pre>
+      <div id="once-cfg">
+        <h3 id="once-cfg-h">Reporter config</h3>
+        <pre class="code" id="once-file"></pre>
+        <ol class="plain">
+          <li>Download the file and save it in <span class="mono">~/.podium/</span> on the machine where Claude Code runs. Every new Claude Code session on that machine uses it, and podium-reporter finds it there. Make it readable by you only (<span class="mono">chmod 600</span>).</li>
+          <li>Keeping it in another folder? Set <span class="mono">PODIUM_REPORTER_CONFIG</span> to its full path in Claude Code's <span class="mono">settings.json</span>:<pre class="code" id="once-line"></pre></li>
+        </ol>
+        <p class="hint ink2">The file holds the CA, so nothing is installed on the machine. Start a new Claude Code session after you save it; a session that is already running does not pick it up. podium-reporter needs Node.js on the machine's PATH.</p>
+      </div>
+      <div class="row2">
+        <button type="button" class="btn" id="once-copy">Copy token settings</button>
+        <button type="button" class="btn" id="once-dl">Download reporter config</button>
+        <button type="button" class="btn" id="once-done">I have saved it</button>
+        <span class="hint" role="status" id="once-msg"></span>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="admin-create-h"><div class="asec-h"><div><h2 id="admin-create-h">Create user</h2><p class="hint">Adds the person and makes their token and their reporter config. Both are shown once, right after you create them.</p></div></div>
+      <div class="panel">
+        <form class="tool alone" id="addform" autocomplete="off">
+          <div class="f grow"><label for="admin-new-name">Name</label><input class="field" id="admin-new-name" placeholder="Full name, as it should appear" maxlength="48"></div>
+          <button type="submit" class="btn pri">Create user</button>
+        </form>
+      </div>
+    </section>
+    <section class="asec" aria-labelledby="admin-people-h"><div class="asec-h"><div><h2 id="admin-people-h">Reporting people</h2><p class="hint">Revoking a token stops the person's console sign-in on the next request. Revoking a certificate stops their reporter on the next report. Revoke all does both.</p></div></div>
+      <div class="panel">
+        <div class="tool"><div class="f grow inline"><label for="admin-search">Search people</label><input class="field" id="admin-search" type="search" placeholder="Name, group or machine"></div><span class="hint" id="p-msg" role="status"></span></div>
+        <div class="tw2 scroll" tabindex="0" aria-label="People"><table class="ptab">
+          <thead><tr><th class="chk"><input type="checkbox" aria-label="Select all 7 on this page"></th><th>Person</th><th>Machines seen</th><th>Reporter certificate</th><th>Console token</th><th>Last report</th><th>Actions</th></tr></thead>
+          <tbody id="prow"></tbody>
+        </table></div>
+        <div class="apager"><span class="hint" role="status">Showing 1 to 7 of 7</span><span class="row2"><label class="hint" for="p-size">Rows per page</label><select class="field sm" id="p-size"><option>50</option><option>25</option><option>100</option></select><button type="button" class="btn sm" disabled>Previous</button><span class="hint">Page 1 of 1</span><button type="button" class="btn sm" disabled>Next</button></span></div>
+      </div>
+    </section>
+  </div>
+
+  </div></div>
+</div>
+</main>
+
+<div class="scrim" id="names-modal" hidden>
+  <div class="modal sm" role="dialog" aria-modal="true" aria-labelledby="names-t">
+    <div class="mh"><div class="ttl"><h2 id="names-t">6 names on the serving certificate</h2><div class="sub2">A client that connects by any other name refuses it.</div></div><button type="button" class="x" aria-label="Close (Esc)" data-close="names-modal">✕</button></div>
+    <div class="sbody">
+      <section class="nset" aria-labelledby="ns-a"><h3 id="ns-a">Always included</h3>
+        <ul><li><bdi class="nm">localhost</bdi><span class="kd">Name</span></li><li><bdi class="nm">127.0.0.1</bdi><span class="kd">Address</span></li></ul></section>
+      <section class="nset" aria-labelledby="ns-b"><h3 id="ns-b">Allowed hosts <span class="env">PODIUM_ALLOWED_HOSTS</span></h3>
+        <ul><li><bdi class="nm">podium.lan</bdi><span class="kd">Name</span></li><li><bdi class="nm">podium.engineering.example.internal</bdi><span class="kd">Name</span></li><li><bdi class="nm">10.40.8.12</bdi><span class="kd">Address</span></li></ul></section>
+      <section class="nset" aria-labelledby="ns-c"><h3 id="ns-c">Bind address</h3>
+        <ul><li><bdi class="nm">192.168.1.20</bdi><span class="kd">Address</span></li></ul></section>
+      <p class="note">To change the list, edit <span class="mk-mono">PODIUM_ALLOWED_HOSTS</span> or the bind address, then choose Renew now. Podium issues a certificate with the new names.</p>
+    </div>
+    <div class="sfoot"><button type="button" class="sid" id="names-copy" aria-label="Copy the names"><span>Copy names</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg></button><span class="grow"></span><button type="button" class="btn" data-close="names-modal">Close</button></div>
+  </div>
+</div>
+
+<div class="scrim" id="del-modal" hidden>
+  <div class="modal sm" role="dialog" aria-modal="true" aria-labelledby="del-t">
+    <div class="mh"><div class="ttl"><h2 id="del-t">Delete this person?</h2></div><button type="button" class="x" aria-label="Close (Esc)" data-close="del-modal">✕</button></div>
+    <div class="sbody"><p>Their reporter is refused at once. Their past sessions keep their name.</p><p class="note">Their group membership is removed. The name can be used again later.</p></div>
+    <div class="sfoot"><span class="grow"></span><button type="button" class="btn" data-close="del-modal">Cancel</button><button type="button" class="btn bad" data-close="del-modal">Delete</button></div>
+  </div>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<div class="mk-notes">
+  <h2>What this mockup proposes</h2>
+  <ul>
+    <li><b>The header pill.</b> It sits with the other status pills, after the connection pill. It watches the Podium CA and the serving certificate, whichever expires first, and never a person's certificate. It shows nothing until 30 days are left, unless a renewal has failed, when it shows at once. It is a link: click it and Admin > Server > Certificates opens.</li>
+    <li><b>Four stages, each a shape, a word and a color.</b> 30 days or fewer is blue with a clock and "Certificate expires in 28 days". 10 or fewer is orange with a triangle and the same words. 5 or fewer is red with the same triangle. Expired is red with a ring and a cross and "Certificate expired". Orange and red share the triangle and are told apart by color and the day count, which the maintainer approved. The tooltip names the date.</li>
+    <li><b>It is a status, not a notice.</b> The wall-notice rules are for information. A certificate that is about to expire or has expired is a condition the Admin has to act on, like the "reporters need an update" pills, so it stays in the header and has no X. The Admin can switch the healthy countdown off when they rely on automatic renewal. A failed renewal and an expired certificate always show, so the switch can never hide a problem.</li>
+    <li><b>The Certificates page</b> is built from the Admin page parts: the status table, the settings box with the on/off switch rows and the number rows, a box for the two actions, and the warning-bordered confirmation. A number saves when the field is left and shows a rejected value in place (leave a lifetime field with a value outside its range to see it); a switch flips at once. It sits in the Server group, beside Security.</li>
+    <li><b>Automatic renewal is the default.</b> The serving certificate renews itself, keeps the one it replaced as a backup, and swaps in with no restart. The pill appears for it when a renewal fails, with the reason in the critical color and what to try.</li>
+    <li><b>The alert is a band row</b>, the same row the orchestrator page uses: a tinted full-width row with an icon, a bold line and a detail line. It is blue at 30 days (the existing blue band), orange at 10 (the existing orange band) and red at 5 and when expired (a new red band). It sits at the top of the Status panel. The app has no red band today, so <span class="mk-mono">.band.crit</span> is a proposal.</li>
+    <li><b>The expired states.</b> A serving certificate that expired needs one action, Renew now, and nobody else has to do anything because reporters trust the CA. An expired CA is the worst case: the page lists three steps (rotate the CA, reissue each bundle on People, each person replaces theirs). The Admin signs in with their name and token, over the loopback address or past the browser's warning. The recovery button becomes the one primary button on the page.</li>
+    <li><b>The serving certificate's names</b> can be a long list, so the row shows the first name and "and 5 more" as a link: click it and the app's small modal opens. The modal lists the names under the place each one comes from (always included, <span class="mk-mono">PODIUM_ALLOWED_HOSTS</span>, the bind address), marks each as a name or an address, wraps a long name inside its row, and offers Copy names.</li>
+    <li><b>People</b> is the real page with its columns reworked. The two credentials are now two cells, <b>Reporter certificate</b> and <b>Console token</b>, each with its own status badge (the certificate's badge has the app's tooltip with the date and what happens next). The old Status column is gone because each badge now says it, and the token's id (<span class="mk-mono">pdm_&lt;key id&gt;</span>) is in the tooltip of its badge. The Group select sits under the person's name and "created" under Last report, so the table loses a column and fits the page. All the actions are in one <b>Actions</b> menu per row, grouped as Console token, Reporter certificate and Person; an action that does not apply is disabled. Choosing a revoke, a rotate or a reissue opens the warning-bordered confirmation in a full-width row under the person, so the text has room. Delete opens the app's existing dialog.</li>
+    <li><b>After Create user</b> (the third Screen button, or press Create user) the page shows the app's show-once box with two parts. The token is for the console sign-in. The reporter config is one file, <span class="mk-mono">reporter-config-&lt;name&gt;-&lt;epoch&gt;.pem</span>, that holds everything the reporter needs: the server address, the CA, the name, and the certificate with its private key. The only step is to save it in <span class="mk-mono">~/.podium/</span> on the machine where Claude Code runs; every new Claude Code session there uses it and podium-reporter finds it. A person who keeps it elsewhere sets <span class="mk-mono">PODIUM_REPORTER_CONFIG</span> to its path. Nothing is installed on the machine, as with a kubeconfig. A session that is already running does not pick the file up, so the person starts a new one, and podium-reporter needs Node.js on the machine's PATH. Podium keeps only the certificate, so the file cannot be downloaded again: Reissue config makes a new certificate and key and shows the box once more. An Admin can download any person's public certificate from their row. The Certificates page keeps the CA with its fingerprint and a Download CA button, for installing it in a browser.</li>
+    <li><b>Reporters over HTTP</b> is a switch under the renewal settings. While it is on, a warning-colored line says it is not encrypted, that anyone on the network can read and change the name, the token and what the reporter sends, and when it is acceptable. Turning it on is immediate. Turning it off asks first in the warning-bordered box, names how many reporters it will refuse, and says the loopback console keeps working.</li>
+    <li><b>Storage.</b> The note under the status table says where keys live and that they must survive a rebuild.</li>
+  </ul>
+  <h2>Open decisions, with a recommendation</h2>
+  <div class="mk-scroll"><table class="mk-decisions" aria-label="Open decisions">
+    <thead><tr><th scope="col">Decision</th><th scope="col">Recommendation</th><th scope="col">Why</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+      <tr><td>1. Pill and badge colors</td><td>Add <span class="mk-mono">.pill.soon</span>, <span class="mk-mono">.pill.serious</span>, <span class="mk-mono">.badge.soon</span>, <span class="mk-mono">.badge.serious</span>, <span class="mk-mono">.badge.bad</span>, from existing tokens.</td><td>The app has yellow (warn) and red pills but no blue or orange. In the Solarized theme the blue stage's token is teal, so the first stage will not read as blue there.</td><td>Approved</td></tr>
+      <tr><td>2. Orange and red share a shape</td><td>Keep the triangle for both, told apart by color and the day count.</td><td>A third icon is a new shape to design. The standards want a shape per state, so this is an exception.</td><td>Approved</td></tr>
+      <tr><td>3. Not a wall notice, and the switch</td><td>A header status with no X. The switch is an Admin on/off switch that hides only the healthy countdown.</td><td>A failing or expired certificate is an error and cannot be closed.</td><td>Approved</td></tr>
+      <tr><td>4. The thresholds</td><td>30, 10 and 5 days, fixed.</td><td>As the maintainer set them. They could become settings later.</td><td>Approved</td></tr>
+      <tr><td>5. Grace after a reporter certificate expires</td><td>30 days, a setting.</td><td>A reporter renews itself with a signed request. An expired certificate cannot, so a short grace keeps laptops that sat idle from needing an Admin.</td><td>Approved</td></tr>
+      <tr><td>6. Lifetime bounds</td><td>Serving 30 to 825 days, default 365. Reporter 30 to 365, default 90. CA 10 years, fixed at creation.</td><td>The issue asks for a default, a minimum and a maximum. 825 days is the longest lifetime most browsers accept for a private CA's certificates.</td><td>Approved</td></tr>
+      <tr><td>7. Backups</td><td>Keep the last 3 replaced serving certificates in <span class="mk-mono">/data/tls/previous</span>.</td><td>The maintainer asked for a backup of the certificate it rotated from. Three covers a bad renewal without growing without bound.</td><td>Approved</td></tr>
+      <tr><td>8. Recovery when the CA expired</td><td>Sign in with name and token past the browser warning, or on loopback.</td><td>Plain HTTP on loopback stays available, and the Administrators group always keeps a member, so an Admin can always recover.</td><td>Approved</td></tr>
+      <tr><td>9. A pill that is a link</td><td>Add it, as a plain link whose text carries the meaning.</td><td>The app's status pills are plain spans today.</td><td>Approved</td></tr>
+      <tr><td>10. Where the pill sits</td><td>After the connection pill, with the "need an update" pills.</td><td>A comment in TopBar.tsx says to leave the space right of the connection pill empty, and the update pills already sit there.</td><td>Approved</td></tr>
+      <tr><td>11. Revoke wording</td><td>Keep Revoke (token). Add Revoke certificate, Revoke all (token and certificate), and Reissue config.</td><td>One name per action. Revoke all is the "disable the person" idea in a word the page already uses.</td><td>Approved</td></tr>
+      <tr><td>12. A failed renewal always shows the pill</td><td>The switch hides only the healthy countdown. A failed renewal and an expired certificate always show.</td><td>A switch must not be able to hide an error that cannot be closed.</td><td>Approved</td></tr>
+      <tr><td>13. Ending the CA overlap</td><td>A second critical button in the confirmation, with its reason as a hint line.</td><td>No standard puts a checkbox inside a confirmation.</td><td>Approved</td></tr>
+      <tr><td>14. The alert is a band row, with a new red state</td><td>Use the band row for the certificate alert, with .band.crit for red.</td><td>The alert should look like the orchestrator page's band. The app has blue, orange, green, yellow and grey bands but no red.</td><td>Approved</td></tr>
+      <tr><td>15. Status text in a tooltip</td><td>Use the app's Tip on the People status badges; the date and the token id live in the tooltip, not the row. The Certificates page keeps its dates in the table. The header pill's date is a plain title, and the same date is on the Certificates page.</td><td>Keeps the People row short, and the tooltip opens on keyboard focus too. A plain title does not open on focus, so nothing the pill says is only in the title.</td><td>Approved</td></tr>
+      <tr><td>16. One actions menu per row</td><td>Group the row's actions in one menu (Console token, Reporter certificate, Person) and confirm in a full-width row under the person.</td><td>Seven actions do not fit beside the other columns. The alternative is the selection bar the page already has, with the actions moved there.</td><td>Approved</td></tr>
+      <tr><td>17. What an Admin can download later</td><td>The public certificate and CA from the row. The private key only at creation or reissue, shown once.</td><td>Podium keeps only the certificate, so an Admin or a stolen database never holds a person's key.</td><td>Approved</td></tr>
+      <tr><td>18. The names link and its modal</td><td>The text "localhost and 5 more" is the link. The modal groups names by where they come from.</td><td>The list can be long, and a person wants to know why a name is on it.</td><td>Approved</td></tr>
+      <tr><td>19. Status folded into the credential cells</td><td>Drop the Status column; show each credential's status in its own cell.</td><td>The page had one status (the token's). With a second credential, one Status column is ambiguous, and two badges beside their credentials say it more clearly.</td><td>Approved</td></tr>
+      <tr><td>20. The reporter makes its own TLS connection</td><td>The reporter ships a small helper, started for the session, that reads the one config file and makes the HTTPS connection with the CA and the client certificate from it. The reporter sends its requests to the helper over a local socket. The server authenticates the person from the certificate in the handshake. Ask the engine team for a CA and certificate option on <span class="mk-mono">$.http.fetch</span>, which removes the helper.</td><td>Measured on Claude Code 2.1.305 (macOS): 20 of 20 requests, about 2 ms each, with the server seeing the person's certificate on every handshake, and the CA only in the file. It needs <span class="mk-mono">node</span> on the person's machine (measured: without it the spawn fails), and the engine types say <span class="mk-mono">$.process</span> is CLI only; the desktop app and VS Code are untested.</td><td>Approved</td></tr>
+      <tr><td>21. One file, no separate CA file</td><td>The CA is inside the reporter config, so there is no <span class="mk-mono">ca.pem</span>, no <span class="mk-mono">NODE_EXTRA_CA_CERTS</span> line and no restart.</td><td>This follows from decision 20. The earlier two-file flow (a stable <span class="mk-mono">ca.pem</span> and a settings line) is the fallback if the helper is not accepted.</td><td>Approved</td></tr>
+      <tr><td>22. The token's id in a tooltip</td><td>Show the token as <span class="mk-mono">pdm_&lt;key id&gt;</span> in the tooltip on the active or revoked badge, not in the cell.</td><td>The key id only finds a person and is not a secret. The tooltip frees the column's width.</td><td>Approved</td></tr>
+      <tr><td>23. Reporters over HTTP</td><td>A switch on the Certificates page, with a warning line while it is on. On for an existing install, so nothing stops when TLS is turned on. Turning it off asks first and says how many reporters it refuses.</td><td>The issue asks that HTTP keeps working during a move and never falls back unasked. The Admin ends it when everyone has moved. The console on loopback stays on HTTP, so an Admin can always recover.</td><td>Approved</td></tr>
+      <tr><td>24. Where the reporter config lives</td><td>Keep <span class="mk-mono">~/.podium/</span> as specified. When several <span class="mk-mono">reporter-config-*.pem</span> files are there, the newest by an issued-at line in its header wins and the reporter ignores the rest.</td><td><span class="mk-mono">~/.podium/</span> is also podiumctl's home (<span class="mk-mono">config.env</span> with the admin secret, <span class="mk-mono">data/</span>, <span class="mk-mono">podium.log</span>). A reissue leaves older files beside the new one, and the old one is revoked.</td><td>Approved</td></tr>
+      <tr><td>25. A new CA delivered in the renewal response</td><td>Only for planned rotation, as an addition, with a cross certificate that verifies under the old CA. After an emergency rotation the server does not offer it: a hard cutover and a reissue, which is "Rotate CA and end the overlap now".</td><td>The channel is authenticated, but a leaked old CA key would let an attacker hand out their own "new CA".</td><td>Approved</td></tr>
+      <tr><td>26. CA rotation in progress, and Retire old CA</td><td>A blue band says it is in progress, a Previous certificate authority row shows how many reporters still use it, and Retire old CA… asks first and names how many it will refuse.</td><td>The overlap needs an end the Admin can see and choose. Retiring also closes open connections, which do not drop by themselves.</td><td>New</td></tr>
+      <tr><td>27. The show-once box differs from today's</td><td>The heading is "Token and reporter config for X", "Copy settings" becomes "Copy token settings", and the box has no primary button.</td><td>It now holds two things, the token and the file. Create user stays the page's one primary button.</td><td>New</td></tr>
+    </tbody>
+  </table></div>
+  <h2>Not drawn</h2>
+  <ul>
+    <li>The status line the reporter shows on a certificate error, and the Admin screen for browser trust. They follow in the implementation issues.</li>
+    <li>The theme picker in the Admin banner, the selection bar on People, and the empty and loading states, which follow patterns.html. An empty Previous certificates list reads "No earlier certificate has been replaced yet." in a dashed-border box.</li>
+    <li>The 400 px frame only narrows the content. The Admin menu collapses by the browser window's width, not the frame's, so check the collapsed menu by narrowing the browser window itself.</li>
+    <li>At exactly 0 days the pill reads "Certificate expires today" and counts as red.</li>
+  </ul>
+  <p class="hint">Dates and names are example data, with today as 2026-10-20. This mockup is static: nothing is read from or written to a server.</p>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function $(id) { return document.getElementById(id); }
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+
+  var ICON = {
+    clock: '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2 1.3"/></svg>',
+    warn: '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.8M8 11.6v.1"/></svg>',
+    cross: '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5.5"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/></svg>'
+  };
+  var TODAY = Date.UTC(2026, 9, 20);
+  function dateIn(d) { return new Date(TODAY + d * 864e5).toISOString().slice(0, 10); }
+  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+  /* Text goes in as text nodes, never as HTML. Only the fixed icon strings above are markup. */
+  function node(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  function withIcon(el, icon, text) { el.innerHTML = icon; el.appendChild(document.createTextNode(text)); }
+  function badge(cls, icon, text) {
+    var b = node("span", "badge " + cls);
+    if (icon) { b.innerHTML = ICON[icon]; } else { var d = node("span", "dot" + (cls === "ok" ? " running" : "")); d.setAttribute("aria-hidden", "true"); b.appendChild(d); }
+    b.appendChild(document.createTextNode(text));
+    return b;
+  }
+  function put(id, el) { var t = $(id); t.textContent = ""; t.appendChild(el); }
+
+  /* State: days left on the CA and on the serving certificate, and whether a renewal failed. Negative is expired. */
+  var STATES = {
+    ok:     { ca: 3650, sv: 307, fail: false },
+    blue:   { ca: 3650, sv: 28, fail: true },
+    orange: { ca: 3650, sv: 9, fail: true },
+    red:    { ca: 3650, sv: 4, fail: true },
+    srvexp: { ca: 3650, sv: -2, fail: true },
+    caexp:  { ca: -2, sv: 90, fail: false },
+    rot:    { ca: 3650, sv: 307, fail: false, rotating: true }
+  };
+  var state = "ok";
+  function stage(d) { return d < 0 ? "exp" : d <= 5 ? "red" : d <= 10 ? "orange" : d <= 30 ? "blue" : "ok"; }
+  function left(d) { return d === 0 ? "today" : "in " + plural(d, "day"); }
+  function status(d) {
+    var s = stage(d);
+    if (s === "exp") return badge("bad", "cross", "expired " + plural(-d, "day") + " ago");
+    if (s === "red") return badge("bad", "warn", "expires " + left(d));
+    if (s === "orange") return badge("serious", "warn", "expires " + left(d));
+    if (s === "blue") return badge("soon", "clock", "expires " + left(d));
+    return badge("ok", null, "valid");
+  }
+  function on(id) { return $(id).getAttribute("aria-checked") === "true"; }
+  function render() {
+    var s = STATES[state], worst = Math.min(s.ca, s.sv), st = stage(worst);
+    $("ca-date").textContent = dateIn(s.ca);
+    $("ca-left").textContent = s.ca < 0 ? "expired " + plural(-s.ca, "day") + " ago" : plural(s.ca, "day") + " left";
+    put("ca-badge", status(s.ca));
+    $("sv-date").textContent = dateIn(s.sv);
+    $("sv-left").textContent = s.sv < 0 ? "expired " + plural(-s.sv, "day") + " ago" : plural(s.sv, "day") + " left";
+    put("sv-badge", s.ca < 0 ? badge("bad", "cross", "not trusted: the CA expired") : status(s.sv));
+    var rn = $("sv-renew"); rn.textContent = "";
+    if (s.ca < 0) rn.appendChild(document.createTextNode("After the CA is rotated"));
+    else if (s.fail) rn.appendChild(badge("bad", "warn", "last renewal failed"));
+    else rn.appendChild(document.createTextNode(on("auto") ? "Renews itself " + dateIn(s.sv - 30) : "Off"));
+
+    /* The header pill: the healthy countdown follows the switch; a failed renewal and an expired certificate always show */
+    var pill = $("certpill");
+    if (st === "ok" || (st !== "exp" && !s.fail && !on("hdr"))) { pill.hidden = true; }
+    else {
+      pill.hidden = false;
+      pill.className = "pill " + (st === "exp" || st === "red" ? "bad" : st === "orange" ? "serious" : "soon");
+      withIcon(pill, st === "blue" ? ICON.clock : st === "exp" ? ICON.cross : ICON.warn,
+        st === "exp" ? "Certificate expired" : "Certificate expires " + left(worst));
+      pill.title = (s.ca < s.sv ? "The CA" : "The serving certificate") + (worst < 0 ? " expired on " : " expires on ") + dateIn(worst) + ". Open Admin > Server > Certificates.";
+    }
+
+    /* The alert is a band row, as on the orchestrator page: blue, orange or red by stage, red when expired */
+    var band = $("c-band"), steps = $("c-steps");
+    band.hidden = true; steps.hidden = true; steps.textContent = "";
+    var cerr = $("c-err"); cerr.hidden = true; cerr.textContent = "";
+    function setBand(cls, icon, title, detail, role) { band.className = "band " + cls; band.setAttribute("role", role || "alert"); band.hidden = false; $("c-bi").innerHTML = ICON[icon]; $("c-bl").textContent = title; $("c-bd").textContent = detail; }
+    var rf = "The last automatic renewal failed on " + dateIn(-1) + ": openssl was not found in the container. Podium tries again every day. Install openssl in the image, then choose Renew now.";
+    if (state === "caexp") {
+      setBand("crit hot", "cross", "The certificate authority expired on " + dateIn(s.ca) + ".", "Reporters can no longer verify this server, and browsers show a warning. Rotate the CA, then give each person a new reporter config.");
+      steps.hidden = false;
+      var ol = node("ol"); ["Choose Rotate CA… below.", "Reissue each person's reporter config on Admin > People (Reissue config).", "Each person saves the new reporter config in ~/.podium/ and starts a new Claude Code session."].forEach(function (x) { ol.appendChild(node("li", "", x)); });
+      steps.appendChild(node("b", "", "To restore access")); steps.appendChild(ol);
+    } else if (state === "srvexp") {
+      setBand("crit hot", "cross", "The serving certificate expired on " + dateIn(s.sv) + ".", "Reporters and browsers are refused until it is renewed.");
+      cerr.hidden = false; cerr.textContent = rf;
+    } else if (s.rotating) {
+      setBand("deleg", "clock", "Certificate authority rotation is in progress.", "2 of 6 reporters still use the old CA. Podium accepts it until 2026-11-19. Retire it when none are left.", "status");
+    } else if (s.fail) {
+      setBand(st === "red" ? "crit hot" : st === "orange" ? "stale" : "deleg", st === "blue" ? "clock" : "warn", "The serving certificate expires " + left(s.sv) + ".", "Podium renews it automatically, but the last renewal did not work.");
+      cerr.hidden = false; cerr.textContent = rf;
+    }
+
+    $("old-ca-row").hidden = !s.rotating;
+    if (!s.rotating) $("retire-confirm").hidden = true;
+
+    /* The one primary button: only a recovery action in an expired state */
+    var renew = $("renew"), rotate = $("rotate");
+    renew.className = state === "srvexp" ? "btn pri" : "btn";
+    rotate.className = state === "caexp" ? "btn pri" : "btn dng";
+  }
+  document.querySelectorAll("[data-st]").forEach(function (b) { b.addEventListener("click", function () { state = b.getAttribute("data-st"); press("[data-st]", "data-st", state); render(); }); });
+
+  /* Switches flip at once, as SwitchRow does */
+  [["auto", "sw-auto-s"], ["hdr", "sw-hdr-s"]].forEach(function (p) {
+    $(p[0]).addEventListener("click", function () {
+      var v = !on(p[0]); $(p[0]).setAttribute("aria-checked", String(v)); $(p[1]).textContent = v ? "On" : "Off"; render();
+    });
+  });
+  /* Reporters over HTTP: turning it on is immediate and shows the warning line; turning it off asks first, because it refuses the reporters still on HTTP */
+  function httpState() {
+    var onNow = on("http");
+    $("http-warn").querySelector(".tx").textContent = onNow
+      ? "Not encrypted. Over HTTP the name, the token and everything the reporter sends are not encrypted in transit. Anyone on the network can read them, and can change them. Use it on a trusted network, or only while people move to reporter configs."
+      : "Turning this on makes reporters send their name, their token and everything else without encryption. Anyone on the network can read it, and can change it.";
+    $("http-desc").textContent = onNow
+      ? "A reporter uses its name and token, with no certificate. It also keeps a reporter working that has no reporter config yet. 3 of 6 reporters are connected over HTTP now."
+      : "Reporters must use a reporter config over HTTPS. The 3 reporters that were connected over HTTP are refused until they have one.";
+  }
+  $("http").addEventListener("click", function () {
+    if (on("http")) { $("http-confirm").hidden = false; $("http-off").focus(); return; }
+    $("http").setAttribute("aria-checked", "true"); $("sw-http-s").textContent = "On"; httpState();
+  });
+  $("http-keep").addEventListener("click", function () { $("http-confirm").hidden = true; $("http").focus(); });
+  $("http-off").addEventListener("click", function () { $("http-confirm").hidden = true; $("http").setAttribute("aria-checked", "false"); $("sw-http-s").textContent = "Off"; httpState(); $("http").focus(); });
+  httpState();
+
+  /* A number commits when the field is left and shows a rejected value in place */
+  [["n-sv", 30, 825], ["n-rn", 7, 90], ["n-rp", 30, 365], ["n-gr", 0, 90]].forEach(function (p) {
+    var inp = $(p[0]), msg = $(p[0] + "-e"); inp.setAttribute("aria-describedby", p[0] + "-e");
+    inp.addEventListener("blur", function () {
+      var n = Number(inp.value), ok = inp.value.trim() !== "" && Number.isInteger(n) && n >= p[1] && n <= p[2];
+      inp.setAttribute("aria-invalid", String(!ok)); msg.hidden = ok; msg.textContent = ok ? "" : "Enter a whole number of days from " + p[1] + " to " + p[2] + ".";
+    });
+  });
+
+  /* Screens, theme, width */
+  function page(id) {
+    var view = id === "created" ? "people" : id;
+    document.querySelectorAll(".mk-view").forEach(function (p) { p.hidden = p.id !== "pg-" + view; });
+    document.querySelectorAll("[data-nav]").forEach(function (b) { if (b.getAttribute("data-nav") === view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    press("[data-pg]", "data-pg", id);
+    if (id === "created") showOnce("Maya Okafor", "created"); else $("once").hidden = true;
+  }
+  document.querySelectorAll("[data-pg]").forEach(function (b) { b.addEventListener("click", function () { page(b.getAttribute("data-pg")); }); });
+  document.querySelectorAll("[data-nav],[data-go]").forEach(function (b) { b.addEventListener("click", function (e) { e.preventDefault(); page(b.getAttribute("data-nav") || b.getAttribute("data-go")); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "mk-frame " + w; press("[data-w]", "data-w", w); }); });
+  document.querySelectorAll("[data-hide]").forEach(function (b) { b.addEventListener("click", function () { $(b.getAttribute("data-hide")).hidden = true; }); });
+  $("rotate").addEventListener("click", function () { $("ca-confirm").hidden = false; });
+  $("retire").addEventListener("click", function () { $("retire-confirm").hidden = false; });
+
+  /* Copy the fingerprint: the quiet whole-cell control, Copied with a check for 1.6 s */
+  var cd = $("ca-dl"), cdT = null;
+  cd.addEventListener("click", function () { cd.textContent = "Downloaded"; clearTimeout(cdT); cdT = setTimeout(function () { cd.textContent = "Download CA (ca.pem)"; }, 1600); });
+  var fp = $("fp"), fpHTML = fp.innerHTML, fpTimer = null;
+  fp.addEventListener("click", function () {
+    fp.innerHTML = '<span>Copied</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+    clearTimeout(fpTimer); fpTimer = setTimeout(function () { fp.innerHTML = fpHTML; }, 1600);
+  });
+
+  /* Dialogs: the app's small modal. Esc, the X, Cancel or Close, and a press on the dimmed area close it; focus goes back to what opened it. */
+  var opener = null;
+  function openScrim(id, from) { opener = from || null; var m = $(id); m.hidden = false; m.querySelector(".x").focus(); }
+  function closeScrim(m) { m.hidden = true; if (opener) { opener.focus(); opener = null; } }
+  document.querySelectorAll("[data-modal]").forEach(function (b) { b.addEventListener("click", function () { openScrim(b.getAttribute("data-modal"), b); }); });
+  document.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", function () { closeScrim($(b.getAttribute("data-close"))); }); });
+  document.querySelectorAll(".scrim").forEach(function (m) { m.addEventListener("mousedown", function (e) { if (e.target === m) closeScrim(m); }); });
+  document.addEventListener("keydown", function (e) {
+    var m = document.querySelector(".scrim:not([hidden])");
+    if (e.key === "Tab" && m) {
+      var f = Array.from(m.querySelectorAll("button, a[href], input, select, [tabindex='0']")).filter(function (x) { return !x.disabled; });
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+      return;
+    }
+    if (e.key !== "Escape") return;
+    if (m) { closeScrim(m); return; }
+    if (!openMenu) { clearConfirm(); ["ca-confirm", "http-confirm", "retire-confirm"].forEach(function (id) { $(id).hidden = true; }); }
+  });
+  var nc = $("names-copy"), ncHTML = nc.innerHTML, ncT = null;
+  nc.addEventListener("click", function () {
+    nc.innerHTML = '<span>Copied</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+    clearTimeout(ncT); ncT = setTimeout(function () { nc.innerHTML = ncHTML; }, 1600);
+  });
+
+  /* The app's Tip: opens on hover and on keyboard focus, closes on blur, mouse leave and Escape. The text is always in the page as a role=tooltip line the trigger names. */
+  var tipN = 0;
+  function tip(child, text) {
+    var id = "tip" + (++tipN), w = node("span", "tip"), box = node("span", "tipbox", text);
+    w.tabIndex = 0; w.setAttribute("aria-describedby", id); box.id = id; box.setAttribute("role", "tooltip"); box.hidden = true;
+    w.appendChild(child); w.appendChild(box);
+    function open() {
+      box.hidden = false; box.style.visibility = "hidden";
+      var f = frame.getBoundingClientRect(), t0 = w.getBoundingClientRect(), b = box.getBoundingClientRect();
+      var top = t0.bottom - f.top + 6; if (top + b.height > f.height - 8) top = t0.top - f.top - 6 - b.height;
+      box.style.top = top + "px"; box.style.left = Math.max(8, Math.min(t0.left - f.left, f.width - b.width - 8)) + "px"; box.style.visibility = "";
+    }
+    function close() { box.hidden = true; }
+    w.addEventListener("mouseenter", open); w.addEventListener("mouseleave", function () { if (document.activeElement !== w) close(); });
+    w.addEventListener("focus", open); w.addEventListener("blur", close);
+    w.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    return w;
+  }
+
+  /* The show-once box: the token and the bundle for a new person, the bundle alone after a reissue, the token alone after a rotation */
+  function slug(n) { return n.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
+  var EPOCH = Math.floor((TODAY + 14 * 36e5 + 17 * 6e4) / 1000);
+  function showOnce(name, kind) {
+    var tok = kind !== "reissued", cfg = kind !== "rotated", file = "reporter-config-" + slug(name) + "-" + EPOCH + ".pem";
+    $("once").hidden = false; $("once-n").textContent = name; $("once-msg").textContent = "";
+    $("once-hint").textContent = kind === "created"
+      ? "This is the only time the token and the reporter config are shown. The token is for " + name + "'s console sign-in. The reporter config is for their reporter: it holds the server address, the CA, their name, their certificate and its private key, and Podium keeps only the certificate."
+      : kind === "reissued" ? "This is the only time this reporter config is shown. It replaces " + name + "'s old certificate, which stops working now. It holds the new private key, and Podium keeps only the certificate."
+      : "This is the only time the new token is shown. " + name + "'s old token stops working now.";
+    $("once-code").hidden = !tok;
+    $("once-code").textContent = "userName: " + name + "\ntoken: pdm_9f2c41a07be3_5d1e8a37c0b94f62a1d7e3b85c490f26d8a1e7b3c5094f12\nserverUrl: https://podium.lan:4318";
+    $("once-cfg").hidden = !cfg; $("once-dl").hidden = !cfg;
+    $("once-file").textContent = file;
+    $("once-line").textContent = '{ "env": { "PODIUM_REPORTER_CONFIG": "/full/path/to/' + file + '" } }';
+    $("once-dl").setAttribute("data-file", file);
+    press("[data-pg]", "data-pg", "created");
+  }
+  function said(msg) { $("once-msg").textContent = msg; }
+  $("once-copy").addEventListener("click", function () { said("Copied."); });
+  $("once-dl").addEventListener("click", function () { said("Saved " + $("once-dl").getAttribute("data-file") + "."); });
+  $("once-done").addEventListener("click", function () { $("once").hidden = true; press("[data-pg]", "data-pg", "people"); });
+  $("addform").addEventListener("submit", function (e) { e.preventDefault(); showOnce($("admin-new-name").value.trim() || "New Person", "created"); });
+
+  /* People: the real table with a Certificate column. The token's status moved into its own cell, so the Status column is gone. Rows are built as text nodes. */
+  var WARN = '<svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>';
+  var CHEV = '<svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 6l4 4 4-4"/></svg>';
+  var REVOKED = ["off", null, "revoked", "Revoked. The reporter is refused."];
+  var PEOPLE = [
+    { n: "Maya Okafor", g: "Developers", m: ["mokafor-mbp", "build-02"], key: "a41f09c2b7e3", c: ["ok", null, "valid", "Expires 2026-12-30, 71 days left."], cr: "2026-02-11", last: "2 min ago" },
+    { n: "Ed", g: "Administrators", admin: true, m: ["ed-mac"], key: "77c2e1d0a935", c: ["ok", null, "valid", "Expires 2026-12-02, 43 days left."], cr: "2026-01-05", last: "just now" },
+    { n: "Jonas Weber", g: "Developers", m: ["jweber-air"], key: "09be4f6a1c72", c: ["soon", "clock", "renewal due", "Expires 2026-11-12, 23 days left. The reporter renews it itself the next time it connects."], cr: "2026-03-18", last: "3 days ago" },
+    { n: "Cai Lindqvist", g: "Developers", m: ["clind-pro", "clind-ci"], key: "d3a08b5e7f14", c: ["serious", "warn", "expired, in grace", "Expired 2026-10-12. The reporter can still renew it for 22 more days."], cr: "2026-03-02", last: "8 days ago" },
+    { n: "Priya Nair", g: "Developers", m: ["pnair-dell"], key: "5e18c2a9d067", c: ["bad", "cross", "expired", "Expired 2026-08-30, past the 30-day grace. Reissue the config."], cr: "2026-04-21", last: "51 days ago" },
+    { n: "Tom Reyes", g: "Developers", m: ["treyes-mini"], key: "c7d4f1b83a2e", c: REVOKED, cr: "2026-05-09", last: "6 days ago" },
+    { n: "Lena Fischer", g: "No group", m: [], key: "1b62e9d4c780", c: REVOKED, cr: "2026-06-30", last: "40 days ago", tokenRevoked: true }
+  ];
+  var CONFIRM = {
+    rotate: function (n) { return ["Rotate " + n + "'s token?", "Their console sign-in stops until they have the new token, which is shown once. Their reporter keeps working.", "Rotate token", ""]; },
+    "revoke-token": function (n) { return ["Revoke " + n + "'s token?", "They can no longer sign in to the console. Their reporter keeps working.", "Revoke token", " dng"]; },
+    "revoke-cert": function (n) { return ["Revoke " + n + "'s certificate?", "Their reporter is refused at once. They can still sign in to the console.", "Revoke certificate", " dng"]; },
+    "revoke-all": function (n) { return ["Revoke all for " + n + "?", "Their reporter and their console sign-in stop at once. Their open sessions stay on the wall until they end.", "Revoke all", " dng"]; },
+    issue: function (n) { return ["Issue " + n + "'s token?", "A new token replaces the revoked one and is shown once. They can sign in to the console with it.", "Issue new token", ""]; },
+    reissue: function (n) { return ["Reissue " + n + "'s reporter config?", "Their current certificate stops working, and the new reporter config is shown once.", "Reissue config", ""]; }
+  };
+  var openMenu = null;
+  function closeMenu(refocus) { if (openMenu) { var s = openMenu.querySelector("summary"); openMenu.removeAttribute("open"); openMenu = null; if (refocus) s.focus(); } }
+  document.addEventListener("click", function (e) { if (openMenu && !openMenu.contains(e.target)) closeMenu(false); });
+  document.addEventListener("scroll", function () { closeMenu(false); }, true);
+  window.addEventListener("resize", function () { closeMenu(false); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && openMenu) closeMenu(true); });
+  function place(det) {
+    var s = det.querySelector("summary"), box = det.querySelector(".menubox"), f = frame.getBoundingClientRect(), r = s.getBoundingClientRect();
+    box.style.visibility = "hidden"; box.style.top = "0px"; box.style.left = "0px";
+    var b = box.getBoundingClientRect(), top = r.bottom - f.top + 4;
+    if (top + b.height > f.height - 8) top = Math.max(8, r.top - f.top - 4 - b.height);
+    box.style.top = top + "px"; box.style.left = Math.max(8, r.right - f.left - b.width) + "px"; box.style.visibility = "";
+  }
+  function item(label, act, cls, off) { var b = node("button", "mi" + (cls ? " " + cls : ""), label); b.type = "button"; b.setAttribute("role", "menuitem"); b.setAttribute("data-act", act); if (off) b.disabled = true; return b; }
+  function clearConfirm() { document.querySelectorAll("#prow tr.confirmrow").forEach(function (r) { r.remove(); }); }
+  function ask(p, key, tr) {
+    clearConfirm();
+    var c = CONFIRM[key](p.n), row = node("tr", "confirmrow"), td = node("td"), co = node("div", "callout");
+    td.colSpan = 7; co.setAttribute("role", "alert"); co.innerHTML = WARN; co.appendChild(node("h3", "", c[0])); co.appendChild(node("p", "", c[1]));
+    var fa = node("p", "formacts"), y = node("button", "btn" + c[3], c[2]), x = node("button", "btn", "Cancel");
+    y.type = "button"; x.type = "button"; fa.appendChild(y); fa.appendChild(x); co.appendChild(fa); td.appendChild(co); row.appendChild(td);
+    tr.after(row); y.focus();
+    x.addEventListener("click", function () { clearConfirm(); });
+    y.addEventListener("click", function () {
+      clearConfirm();
+      if (key === "revoke-cert") p.c = REVOKED;
+      if (key === "revoke-token") p.tokenRevoked = true;
+      if (key === "revoke-all") { p.c = REVOKED; p.tokenRevoked = true; }
+      draw();
+      if (key === "reissue") showOnce(p.n, "reissued");
+      if (key === "rotate" || key === "issue") showOnce(p.n, "rotated");
+    });
+  }
+  function act(p, key, tr) {
+    if (key === "download") { $("p-msg").textContent = "Saved podium-" + slug(p.n) + ".crt: the certificate and the CA, no private key."; return; }
+    if (key === "delete") { $("del-t").textContent = "Delete " + p.n + "?"; openScrim("del-modal", tr.querySelector("summary")); return; }
+    ask(p, key, tr);
+  }
+  function menu(p, tr) {
+    var det = node("details", "menu"), sum = node("summary", "btn sm"), box = node("div", "menubox");
+    sum.setAttribute("aria-label", "Actions for " + p.n); sum.appendChild(document.createTextNode("Actions")); sum.insertAdjacentHTML("beforeend", CHEV);
+    box.setAttribute("role", "menu");
+    var k = p.c[0], certLive = k === "ok" || k === "soon" || k === "serious";
+    box.appendChild(node("div", "mgh", "Console token"));
+    if (p.tokenRevoked) box.appendChild(item("Issue new token", "issue")); else { box.appendChild(item("Rotate token", "rotate")); box.appendChild(item("Revoke token", "revoke-token", "dng")); }
+    box.appendChild(node("div", "msep")); box.appendChild(node("div", "mgh", "Reporter certificate"));
+    box.appendChild(item("Download certificate", "download", "", k === "off"));
+    box.appendChild(item("Reissue config…", "reissue"));
+    box.appendChild(item("Revoke certificate", "revoke-cert", "dng", !certLive));
+    box.appendChild(node("div", "msep")); box.appendChild(node("div", "mgh", "Person"));
+    box.appendChild(item("Revoke all…", "revoke-all", "dng", p.tokenRevoked && k === "off"));
+    box.appendChild(item("Delete…", "delete", "dng"));
+    det.appendChild(sum); det.appendChild(box);
+    det.addEventListener("toggle", function () {
+      if (det.open) { if (openMenu && openMenu !== det) closeMenu(false); openMenu = det; place(det); var f = box.querySelector(".mi:not(:disabled)"); if (f) f.focus(); }
+      else if (openMenu === det) openMenu = null;
+    });
+    det.addEventListener("focusout", function (e) { if (det.open && e.relatedTarget && !det.contains(e.relatedTarget)) closeMenu(false); });
+    box.addEventListener("keydown", function (e) {
+      var items = Array.from(box.querySelectorAll(".mi:not(:disabled)")), i = items.indexOf(document.activeElement);
+      if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+      else if (e.key === "Home") { e.preventDefault(); items[0].focus(); }
+      else if (e.key === "End") { e.preventDefault(); items[items.length - 1].focus(); }
+    });
+    box.addEventListener("click", function (e) { var b = e.target.closest(".mi"); if (!b || b.disabled) return; closeMenu(false); act(p, b.getAttribute("data-act"), tr); });
+    return det;
+  }
+  function draw() {
+    var tb = $("prow"); tb.textContent = "";
+    PEOPLE.forEach(function (p) {
+      var dead = p.tokenRevoked && p.c[0] === "off";
+      var tr = node("tr", dead ? "revoked" : "");
+      var t0 = node("td", "chk"); var cb = document.createElement("input"); cb.type = "checkbox"; cb.setAttribute("aria-label", "Select " + p.n); t0.appendChild(cb); tr.appendChild(t0);
+      var t1 = node("td"); t1.appendChild(node("span", p.admin ? "who isadmin" : "who", p.n)); if (p.admin) t1.appendChild(node("span", "vh", " (administrator)"));
+      var lb = node("label", "vh", "Group for " + p.n); lb.setAttribute("for", "g-" + slug(p.n)); t1.appendChild(lb);
+      var sel = node("select", "field sm"); sel.id = "g-" + slug(p.n); if (dead) sel.disabled = true;
+      ["No group", "Administrators", "Developers"].forEach(function (g) { var o = node("option", "", g); if (g === p.g) o.selected = true; sel.appendChild(o); });
+      t1.appendChild(sel); tr.appendChild(t1);
+      var t3 = node("td"), mc = node("span", "mchips");
+      if (p.m.length) p.m.forEach(function (m) { mc.appendChild(node("span", "chip mono", m)); }); else mc.appendChild(node("span", "hint", "none yet"));
+      t3.appendChild(mc); tr.appendChild(t3);
+      var t4 = node("td"); t4.appendChild(tip(badge(p.c[0], p.c[1], p.c[2]), p.c[3])); tr.appendChild(t4);
+      var t5 = node("td"); t5.appendChild(tip(p.tokenRevoked ? badge("off", null, "revoked") : badge("ok", null, "active"), (p.tokenRevoked ? "Revoked. Token pdm_" : "Token pdm_") + p.key + ".")); tr.appendChild(t5);
+      var t6 = node("td", "nw", p.last); t6.appendChild(node("span", "hint", "created " + p.cr)); tr.appendChild(t6);
+      var t7 = node("td"); t7.appendChild(menu(p, tr)); tr.appendChild(t7);
+      tb.appendChild(tr);
+    });
+  }
+  draw();
+
+  render();
+})();
+</script>
