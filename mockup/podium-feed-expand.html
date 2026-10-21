@@ -185,8 +185,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       </section>
       <section>
         <h2>A command that finished before the panel was open</h2>
-        <p>Output is collected only while the panel is open, so a call that finished earlier has its command and no output. The row says so and does not claim the command is running.</p>
-        <ol class="feed" id="feed-nc" aria-label="Output not collected"></ol>
+        <p>Output is collected only while the panel is open, so a call that finished earlier has its command and no output. The mod still reports that the call finished and how, so the row shows its status mark on the line and beside Output, and says the output was not collected. It does not claim the command is running. Three rows: exit 0, exit 2, and a failure with no code.</p>
+        <ol class="feed" id="feed-nc" aria-label="Finished, output not collected"></ol>
+      </section>
+      <section>
+        <h2>A call that never reported finishing</h2>
+        <p>No finish report and the session's loop is no longer active, so the call is not running any more and nothing says how it ended. The row reads as not collected and shows no status mark. An older reporter sends no finish report without output, so its rows read the same way.</p>
+        <ol class="feed" id="feed-stale" aria-label="Stale call"></ol>
       </section>
       <section>
         <h2>A failed command with no exit code</h2>
@@ -216,7 +221,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li><b>Which rows open.</b> A Bash row opens when it has more to show: a cut command, or output. A short Read or Grep row that was not cut has nothing more and stays plain text, with no chevron. Opening a row never scrolls the list away from where the person is reading, and a list that is following the newest row keeps following it.</li>
     <li><b>Keyboard and screen readers.</b> Under the whole-row click, the line is a real button with <span class="mono">aria-expanded</span> and <span class="mono">aria-controls</span>. Its name is the tool and the line, and it adds the size ("whole command, 1,842 characters") for a screen reader. Enter and Space toggle it.</li>
     <li><b>Failed, code unknown.</b> When Claude Code reports a failure without a code, the row shows the cross and the single word "Failed", with no number.</li>
-    <li><b>Output was not collected.</b> Output is gathered only while the panel is open, so a Bash call that finished earlier shows its command and "Output was not collected. Output is only collected while this panel is open." A call still running says it is running.</li>
+    <li><b>Output was not collected.</b> Output is gathered only while the panel is open, so a Bash call that finished earlier shows its command and "Output was not collected. Output is only collected while this panel is open."</li>
+    <li><b>How the row tells the cases apart (#598).</b> While the activity feed is on, the mod reports that a Bash call finished (<span class="mono">done</span>, with <span class="mono">failed</span> and <span class="mono">exitCode</span>), with or without output. The row then reads: no <span class="mono">done</span> and the loop active, "Running." and the word running on the line; <span class="mono">done</span> with no output, "Output was not collected." plus the status mark; no <span class="mono">done</span> and the loop not active, "Output was not collected." with no mark (a stale call). A finished row's status shows even when its output was not collected, on the line and beside Output. An older reporter sends no <span class="mono">done</span> without output, so its rows keep today's wording. Activity history keeps none of the three; stored rows are as on the history screen.</li>
     <li><b>Exit status.</b> A command that succeeded shows only a check in the good color; a screen reader hears "Succeeded, exit 0" and the check has a "Succeeded" tooltip. Any other exit shows a cross, the words "Exit 2, failed" and the critical color, so a failure is never missed.</li>
     <li><b>Redaction.</b> Secrets the mod redacted show as the existing red <span class="mono">[redacted]</span> mark, in the command and in the output. Everything from a session is a text node, never HTML. ANSI color codes are stripped.</li>
     <li><b>Cut-off is said in words.</b> A command or output cut at the limit ends with "[cut off at 20,000 characters]". Nothing is cut silently.</li>
@@ -345,7 +351,13 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   fill("feed-old", [ { at: "04:07", kind: "tool", cmd: CMD_LONG, full: false } ]);
   fill("feed-run", [ { at: "04:31", kind: "tool", cmd: CMD_CURL, state: "running", open: true } ]);
-  fill("feed-nc", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output was not collected.", "Output is only collected while this panel is open."], open: true } ]);
+  var NC = ["Output was not collected.", "Output is only collected while this panel is open."];
+  fill("feed-nc", [
+    { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: NC, exit: 0, open: true },
+    { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", outNote: NC, exit: 2, open: true },
+    { at: "04:15", kind: "tool", cmd: "npm run lint -w frontend", outNote: NC, exit: "unknown", open: true }
+  ]);
+  fill("feed-stale", [ { at: "03:20", kind: "tool", cmd: "node scripts/podium-peers-seed.mjs --db /tmp/podium-test.sqlite", outNote: NC, open: true } ]);
   fill("feed-unk", [ { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", out: OUT_FAIL, exit: "unknown", open: true } ]);
   fill("feed-off", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output is turned off by the Admin.", "Someone with Admin access can turn it on in Admin > Settings > Feature flags."], exit: null, open: true } ]);
   fill("feed-hist", [ { at: "00:58", kind: "tool", cmd: CMD_LONG, outNote: ["Output is not kept in history.", "Only the command is stored. Output is shown while someone is watching the session and is gone after."], open: true } ]);
