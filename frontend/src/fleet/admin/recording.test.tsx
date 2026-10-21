@@ -19,6 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -178,6 +179,8 @@ describe("the Recordings table", () => {
   const rowOf = (name: string) => within(screen.getByRole("table", { name: "Recordings" })).getByText(name).closest("tr") as HTMLElement;
 
   it("lists every recording with its owner, who started it, its state in shape and word, size, and when it is deleted", async () => {
+    // The page prints "17:42 today" when the deletion falls on the machine's own day, so the day is fixed: a CI runner in another time zone is on another date.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 15, 12, 0, 0) });
     recording();
     await openSettings();
     await table();

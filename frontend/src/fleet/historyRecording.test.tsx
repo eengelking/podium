@@ -1,14 +1,19 @@
 // A recording that is kept after its session ended is reached from History (#353): the row says so, and the session's read-only
 // page shows its final state with the recording's layer.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { HistoryView } from "./HistoryView";
 import { makeAgent, makeRecording, makeSession, makeState } from "./fixtures";
 import type { RespondApi } from "./respondApi";
 import type { HistoryRow } from "./types";
 
+beforeEach(() => {
+  // A time on the machine's own day prints as "03:10 today", so the day is fixed: a CI runner in another time zone is on another date.
+  vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 15, 12, 0, 0) });
+});
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "#/history");
 });

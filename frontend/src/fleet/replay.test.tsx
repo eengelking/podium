@@ -1,7 +1,7 @@
 // A recording's replay (#353, mockup/podium-recording.html): the rows oldest first, a result under each call, the loop filter, the
 // position slider, Jump to next failure, Show older, the refusals and the errors, and Delete recording.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { ReplayPage } from "./components/ReplayPage";
 import { makeRecording, makeSession } from "./fixtures";
@@ -565,12 +565,9 @@ describe("the replay at its address in the console", () => {
     expect(screen.getByText("Recorded activity")).toBeInTheDocument();
     expect(document.querySelector(".op")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back to api-refactor" }));
-    // Back is the browser's: the entry the replay pushed is left, and the console follows the address.
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 30));
-    });
-    expect(window.location.hash).toBe("#/?open=s1");
-    expect(document.querySelector(".op")).not.toBeNull();
+    // Back is the browser's: the entry the replay pushed is left, and the console follows the address once the popstate arrives (later on a slow runner).
+    await waitFor(() => expect(window.location.hash).toBe("#/?open=s1"));
+    await waitFor(() => expect(document.querySelector(".op")).not.toBeNull());
     expect(screen.queryByText("Recorded activity")).toBeNull();
   });
 
