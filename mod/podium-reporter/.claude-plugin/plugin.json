@@ -65,7 +65,13 @@
     "activityFeed": {
       "type": "boolean",
       "title": "Send an agent's recent activity",
-      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep activity history: then every running agent's activity is sent and stored on the server until the Admin's period ends, and only you and the Admin can read it. Off by default.",
+      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). A Bash call also carries its whole command (up to 20,000 characters, secrets redacted), and the server stores it with the history when the Admin keeps one. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep activity history: then every running agent's activity is sent and stored on the server until the Admin's period ends, and only you and the Admin can read it. Off by default.",
+      "default": false
+    },
+    "activityOutput": {
+      "type": "boolean",
+      "title": "Send a Bash command's output",
+      "description": "Needs 'Send an agent's recent activity' on too. While someone has a Bash command's row open in Podium, send what the command printed (stdout then stderr, up to 20,000 characters, ANSI codes removed) and whether it failed. Output is only sent while the Podium server's Admin has turned this on and someone is looking at that agent's feed, and the server holds it in memory and never stores it. Secrets that look like secrets are replaced with [redacted], but command output can hold what the redactor does not recognize: file contents, environment dumps, tokens of an unfamiliar shape. Off by default.",
       "default": false
     },
     "fileDiff": {

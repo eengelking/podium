@@ -39,8 +39,11 @@ import {
   type SentTexts,
   setIdentity,
   addActivity,
+  finishActivity,
   isWatched,
+  isWatchedOutput,
   setWatched,
+  setWatchedOutput,
   skillLoaded,
   step,
   toolResult,
@@ -53,6 +56,7 @@ import {
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
+import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from './protocol.ts';
@@ -125,6 +129,8 @@ interface Options {
   explainFailures: boolean;
   fullPrompts: boolean;
   activityFeed: boolean;
+  /** A Bash call's output may go out with its entry, for a loop a viewer has the feed open on (#431). Needs `activityFeed`. */
+  activityOutput: boolean;
   /** Answer requests for one file's diff (#319). */
   fileDiff: boolean;
   /** What this session accepts from Podium (#206). */
@@ -197,6 +203,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     explainFailures: o.explainFailures === true,
     fullPrompts: o.fullPrompts === true,
     activityFeed: o.activityFeed === true,
+    activityOutput: o.activityOutput === true,
     fileDiff: o.fileDiff === true,
     respond: respondLevel(o.respond),
     peers: o.peers === true,
@@ -400,6 +407,7 @@ function metaOf(r: Runtime, now: number) {
     machine: r.machine,
     fullText: opts.fullPrompts,
     activity: opts.activityFeed,
+    activityOutput: opts.activityOutput,
     fileDiff: opts.fileDiff,
     sessionRecording: opts.sessionRecording,
     respond: respondNow(r),
@@ -503,6 +511,8 @@ async function flushOnce($: Engine, r: Runtime, now: number, force: boolean): Pr
     if (opts.fullPrompts) r.state = markTextSent(r.state, sentTexts);
     // The reply names the loops someone is watching; with the option off nothing is ever watched (#118).
     r.state = setWatched(r.state, opts.activityFeed ? r.transport.watch : []);
+    // A loop a viewer has the feed open on gets its Bash output read, with both options on (#431). Never a loop that is only in the history's list.
+    r.state = setWatchedOutput(r.state, opts.activityFeed && opts.activityOutput ? r.transport.watchOutput.filter((id) => r.state.watched.includes(id)) : []);
     r.toastedRefusal = null; // accepted again: a later refusal is news again
     toastOnce($, r, true);
     handleDeliveries($, r);
@@ -2010,7 +2020,7 @@ export const register: Register = (on, rawOptions) => {
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
       r.state = toolStarted(r.state, e.agentId, tool);
-      if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, { at: nowMs(), kind: 'tool', text: activityCall(tool, input) });
+      if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, activityEntry(tool, input, e.tool_use_id, nowMs()));
       if (tool === 'Agent' && e.tool_use_id) r.state = agentRequested(r.state, e.tool_use_id, input, nowMs());
       if (tool === 'Skill') r.skillCalls++;
       // The arguments as a PermissionRequest will carry them: the call's own, without the event's fields.
@@ -2044,6 +2054,9 @@ export const register: Register = (on, rawOptions) => {
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
+      if (tool === 'Bash' && e.tool_use_id && opts.activityFeed && opts.activityOutput && isWatchedOutput(r.state, e.agentId)) {
+        r.state = finishActivity(r.state, e.agentId, e.tool_use_id, finishedCall((res ?? {}) as BashResult));
+      }
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
       if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
     });
