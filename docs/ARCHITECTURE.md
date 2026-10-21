@@ -607,7 +607,7 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
 certificate, the HTTPS listener (#581), the serving certificate's renewal (#582) and the person certificates with their
-revocation (#583). The rest is planned. The rules are in
+revocation (#583) and the reporter's own renewal (#585). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
@@ -655,6 +655,23 @@ and fails is a 401 with `client certificate refused` and never falls back to a t
 to the token check as before. The same `userName` match applies. Revoking only the certificate leaves the token
 (and the console sign-in) working; revoking the token also revokes the certificate. Because the row is read on every request,
 a revoke reaches a keep-alive connection that is still open and no socket has to be destroyed.
+
+**Renewing a person's certificate (#585).** `tlsReporterRenew.ts` serves `POST /api/reporter/renew`, mounted at
+`/api/reporter` in `index.ts` ahead of the token check, because it is answered to a certificate only. `authorizeRenewal`
+takes the certificate's bytes from the socket (`getPeerCertificate().raw`), recomputes the fingerprint from them and looks
+it up. A live certificate must be `socket.authorized`. An expired one is accepted only when Node's error was
+`CERT_HAS_EXPIRED`, the bytes equal the stored certificate, its signature verifies under the public key of the CA whose
+fingerprint is on the row, and it expired no more than `tls.reporter.graceDays` ago; the error code alone is what a
+forgery with the same subject and serial also shows. The body is the new public key (EC P-256 only);
+`issueForPublicKey` signs it with `openssl x509 -new -force_pubkey`, and `PersonCertStore.add` stores it without revoking
+the old row, so both work until the old one expires (`replace`, used by an Admin reissue, still revokes). The helper
+(`helper.mjs`) renews at start, before a request, and on a 10 minute timer, one renewal at a time per process and one at a
+time per file through `<file>.lock` (O_EXCL, taken over after a minute). Under the lock it re-reads the file first and takes a
+newer certificate another session wrote instead of renewing again, checks the answer is for its own key and signed by a CA
+the file already holds, and replaces the file with `writeAtomic` (a temporary file in the same folder, fsync, rename, mode
+0600). A refusal is remembered until the file changes, and a request made with an expired certificate then gets
+`X-Podium-Helper-Error: CERT_PAST_GRACE` (or `CERT_RENEWAL_REFUSED`) without going upstream; a failure that may pass is retried
+after a minute. The two settings are `TlsSettingsStore.getReporter()`.
 
 **The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
 `$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a

@@ -134,6 +134,10 @@ export function problemFor(code: string, host: string): Problem | null {
   switch (code) {
     case 'CLIENT_CERT_REJECTED':
       return { code, status: 'certificate refused', text: 'The server did not accept your certificate: it was revoked, has expired, or the server was reset. Ask an Admin to reissue your reporter config.' };
+    case 'CERT_PAST_GRACE':
+      return { code, status: 'certificate expired', text: 'Your Podium certificate expired too long ago to renew itself. Ask an Admin to reissue your reporter config.' };
+    case 'CERT_RENEWAL_REFUSED':
+      return { code, status: 'certificate refused', text: 'The server would not renew your certificate: it was revoked, or is not one this server issued. Ask an Admin to reissue your reporter config.' };
     case 'CLOSED_AFTER_HANDSHAKE':
       return { code, status: 'server closed connection', text: 'The server closed the connection right after the handshake. Either it restarted, or it did not accept your certificate (revoked or expired). If this goes on, ask an Admin to reissue your reporter config.' };
     case 'CERT_HAS_EXPIRED':
@@ -194,7 +198,7 @@ export interface LinkOptions {
 
 /**
  * Starts the helper for `found` and returns a link whose `fetch` sends through it, or a link that says what is wrong.
- * Checked before anything starts: the name matches the session's, the certificate has not expired, `node` exists.
+ * Checked before anything starts: the name matches the session's and `node` exists. An expired certificate does not stop it: the helper renews inside the grace.
  */
 export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValues, o: LinkOptions): Promise<Link> {
   const { headers } = found;
@@ -202,10 +206,13 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   if (o.sessionName && o.sessionName !== headers.user) {
     return brokenLink(found, { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${headers.user}", but this session reports as "${o.sessionName}". Use the file for that name, or change the name.` });
   }
+  // An expired certificate is not the end: inside the grace the helper renews it with the expired one, and past the grace it says so
+  // (CERT_PAST_GRACE) on the first request. Until then the status line says it is renewing.
   const expires = headers.expires ? Date.parse(headers.expires) : Number.NaN;
-  if (Number.isFinite(expires) && expires < o.now()) {
-    return brokenLink(found, { code: 'CLIENT_EXPIRED', status: 'certificate expired', text: `Your Podium certificate expired on ${headers.expires?.slice(0, 10)}. Ask an Admin to reissue your reporter config.` });
-  }
+  const renewingNote: Problem | null =
+    Number.isFinite(expires) && expires < o.now()
+      ? { code: 'CLIENT_RENEWING', status: 'renewing certificate', text: `Your Podium certificate expired on ${headers.expires?.slice(0, 10)}. Renewing it now; if that fails, ask an Admin to reissue your reporter config.` }
+      : null;
   const node = await findNode($, env);
   if (!node) {
     return brokenLink(found, {
@@ -257,7 +264,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
             for (const line of next.value.text.split('\n')) {
               if (line.trim() === 'ready') {
                 running = true;
-                problem = null;
+                problem = renewingNote;
                 settle(true);
               } else if (line.startsWith('error ')) said = line;
               else if (line.trim()) log(`podium-reporter helper: ${line.trim().slice(0, 200)}`);

@@ -242,7 +242,7 @@ describe('certAuth on a real HTTPS listener', () => {
     run('x509', '-req', '-in', 'c.csr', '-CA', path.join(s.dir, 'ca.crt'), '-CAkey', path.join(s.dir, 'ca.key'), '-not_before', '20200101000000Z', '-not_after', '20200102000000Z', '-extfile', 'c.cnf', '-extensions', 'v3', '-out', 'c.pem');
     const pem = fs.readFileSync(path.join(work, 'c.pem'), 'utf8');
     const x = new X509Certificate(pem);
-    s.certs.replace(person.id, { cert: pem, key: '', info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
+    s.certs.replace(person.id, { cert: pem, info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
     const res = await s.get({ cert: pem, key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') });
     expect(res).toMatchObject({ kind: 'refused' });
     expect(String(res.reason)).toMatch(/CERT_HAS_EXPIRED/);

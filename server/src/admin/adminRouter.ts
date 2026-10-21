@@ -818,7 +818,8 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = certs.settings.set(body as Record<string, unknown>);
     if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
     const s = out.settings;
-    audit(req, 'tls_settings_changed', `Serving certificate settings: lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays });
+    const rep = certs.settings.getReporter();
+    audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays });
     res.json({ ok: true, ...r.view() });
   });
 

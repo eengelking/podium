@@ -73,6 +73,15 @@ describe('PUT /api/admin/certificates', () => {
     expect(logKinds(people)).toContain('tls_settings_changed');
   });
 
+  it('saves the reporter lifetime and grace, and the log line names them (#585)', async () => {
+    const { agent, people, settings } = await setup();
+    const res = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.lifetimeDays': 60, 'tls.reporter.graceDays': 10 });
+    expect(res.status).toBe(200);
+    expect(settings.getReporter()).toEqual({ lifetimeDays: 60, graceDays: 10 });
+    expect(people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_settings_changed')?.detail).toMatch(/lifetime 60 days, grace 10 days/);
+    expect((await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.graceDays': 120 })).status).toBe(400);
+  });
+
   it('refuses a number outside its range with a message that names the range, and logs nothing', async () => {
     const { agent, people, settings } = await setup();
     const res = await agent.put('/api/admin/certificates').set(H).send({ 'tls.serving.renewBeforeDays': 120 });
