@@ -19,6 +19,20 @@ export interface PersonRow {
   revokedAt: number | null;
   lastReportAt: number | null;
   machines: string[];
+  /** The person's reporter certificate (#587): null with TLS off, or when they never had one. Never a key. */
+  certificate?: { notAfter: string; revoked: boolean } | null;
+}
+/** What `GET /people` answers: the page, the groups for the Group select, and whether TLS is on (#587). */
+export interface PeopleList extends Paged<PersonRow> {
+  groups: GroupChoice[];
+  tls?: boolean;
+  /** `tls.reporter.graceDays`: how long after expiry the reporter may still renew itself. */
+  graceDays?: number;
+}
+/** The reporter config file the server makes for a person, shown once (SPEC 5.9). */
+export interface ConfigFile {
+  filename: string;
+  content: string;
 }
 export interface GroupRow {
   id: number;

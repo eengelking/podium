@@ -276,8 +276,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   router.get('/people', (req, res) => {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
-    res.json({ ...people.list({ ...paging(req), q }), groups: people.allGroups() });
+    const page = people.list({ ...paging(req), q });
+    // With TLS on each row also says its person's certificate (#587): the expiry the badge needs, never the key. Podium has none.
+    const on = Boolean(certs?.people?.issuer());
+    const rows = page.rows.map((r) => ({ ...r, certificate: on ? certificateOf(r.id) : null }));
+    res.json({ ...page, rows, tls: on, graceDays: certs?.settings.getReporter().graceDays ?? 30, groups: people.allGroups() });
   });
+
+  /** The person's live certificate, or the latest revoked one, or null when they never had one. */
+  function certificateOf(personId: number): { notAfter: string; revoked: boolean } | null {
+    const all = certs?.people?.store.listFor(personId) ?? [];
+    const c = all.find((x) => x.revokedAt === null) ?? all[0];
+    return c ? { notAfter: new Date(c.notAfter).toISOString(), revoked: c.revokedAt !== null } : null;
+  }
 
   router.post('/people', async (req, res) => {
     try {

@@ -155,6 +155,34 @@ describe('creating a person with TLS on', () => {
   });
 });
 
+describe('the People list (#587)', () => {
+  const list = async (s: Awaited<ReturnType<typeof setup>>) => (await s.admin.get('/api/admin/people').set(H)).body as { tls: boolean; graceDays: number; rows: { name: string; certificate: { notAfter: string; revoked: boolean } | null }[] };
+
+  it('says each person\'s certificate: its expiry while live, revoked after, and none for a person without one', async () => {
+    const s = await setup();
+    const a = await create(s, 'Alma');
+    const b = await create(s, 'Bo');
+    await s.admin.post(`/api/admin/people/${b.person.id}/certificate/revoke`).set(H);
+    s.people.createPerson('Cy', null, Date.now());
+    const out = await list(s);
+    expect(out.tls).toBe(true);
+    expect(out.graceDays).toBe(30);
+    const by = Object.fromEntries(out.rows.map((r) => [r.name, r.certificate]));
+    expect(by.Alma).toEqual({ notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
+    expect(by.Bo).toMatchObject({ revoked: true });
+    expect(by.Cy).toBeNull();
+    expect(JSON.stringify(out)).not.toContain('PRIVATE KEY');
+  });
+
+  it('says TLS is off and gives every person no certificate', async () => {
+    const s = await setup({ tlsOn: false });
+    await create(s, 'Dana');
+    const out = await list(s);
+    expect(out.tls).toBe(false);
+    expect(out.rows.every((r) => r.certificate === null)).toBe(true);
+  });
+});
+
 describe('a reporter with the config file', () => {
   it('reports over mutual TLS with no token and is attributed to its person', async () => {
     const s = await setup();

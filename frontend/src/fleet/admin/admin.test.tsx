@@ -126,7 +126,7 @@ describe("tokens", () => {
     expect(screen.queryByText(/pdm_aaaaaaaaaaaa_/)).toBeNull();
     // After it, the list names the token by its key id, `pdm_<key id>`, with none of the secret.
     fireEvent.click(screen.getByRole("button", { name: /^People(?! and)/ }));
-    expect(await screen.findByText("pdm_0123456789ab")).toBeInTheDocument();
+    expect(await screen.findByText(/pdm_0123456789ab/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("pdm_aaaaaaaaaaaa_");
   });
 
@@ -225,12 +225,12 @@ describe("deleting people (#243)", () => {
     await unlock();
     await screen.findByText("person-001");
     const row = screen.getByText("person-001").closest("tr")!;
-    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Delete…" }));
     let dialog = screen.getByRole("dialog", { name: "Delete person-001?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(s.deleteBodies).toEqual([]);
-    fireEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "Delete…" }));
     dialog = screen.getByRole("dialog", { name: "Delete person-001?" });
     expect(within(dialog).getByText(/Their reporter is refused at once\. Their past sessions keep their name\./)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
@@ -246,11 +246,11 @@ describe("deleting people (#243)", () => {
     render(<AdminView />);
     await unlock();
     await screen.findByText("person-000");
-    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("menuitem", { name: "Delete…" }));
     expect(within(screen.getByRole("dialog")).getByText(/Their open Admin session locks\./)).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(within(screen.getByText("person-001").closest("tr")!).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(within(screen.getByText("person-001").closest("tr")!).getByRole("menuitem", { name: "Delete…" })).toBeInTheDocument();
   });
 
   it("shows the server's refusal in the dialog and leaves everyone in the list", async () => {
@@ -259,7 +259,7 @@ describe("deleting people (#243)", () => {
     render(<AdminView />);
     await unlock();
     await screen.findByText("person-000");
-    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("button", { name: "Delete" }));
+    fireEvent.click(within(screen.getByText("person-000").closest("tr")!).getByRole("menuitem", { name: "Delete…" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete" }));
     expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(/signed in to Admin as this person/);
     expect(screen.getByText("person-000")).toBeInTheDocument();
