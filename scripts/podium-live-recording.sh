@@ -38,7 +38,7 @@ case "${1:-}" in
     mkdir "$dir/data" "$dir/work"
     openssl rand -hex 24 > "$dir/secret"
     echo "$port" > "$dir/port"
-    [ -f "$HERE/server/dist/index.js" ] || die "run npm run build first"
+    [[ -f "$HERE/server/dist/index.js" ]] || die "run npm run build first"
     HOST=127.0.0.1 PORT="$port" PODIUM_DB="$dir/data/podium.sqlite" PODIUM_TOKEN="$(cat "$dir/secret")" \
       nohup node "$HERE/server/dist/index.js" > "$dir/server.log" 2>&1 &
     echo $! > "$dir/server.pid"
@@ -50,9 +50,9 @@ case "${1:-}" in
     ;;
   api)
     dir="$2"; method="$3"; path="$4"; body="${5:-}"
-    [ -f "$dir/secret" ] || die "not a work dir: $dir"
+    [[ -f "$dir/secret" ]] || die "not a work dir: $dir"
     port="$(cat "$dir/port")"; base="http://127.0.0.1:$port"
-    if [ "$method" = "SIGNIN" ]; then
+    if [[ "$method" == "SIGNIN" ]]; then
       creds="{\"name\":\"Admin\",\"token\":\"$(cat "$dir/secret")\"}"
       for p in /api/fleet/respond/sign-in /api/admin/unlock; do
         curl -s -m 20 -X POST -b "$dir/jar" -c "$dir/jar" -H 'X-Podium-Respond: 1' -H 'X-Podium-Admin: 1' \
@@ -61,12 +61,12 @@ case "${1:-}" in
       exit 0
     fi
     args=(-s -m 20 -X "$method" -b "$dir/jar" -c "$dir/jar" -H 'X-Podium-Respond: 1' -H 'X-Podium-Admin: 1' -H "Origin: $base")
-    [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data "$body")
+    [[ -n "$body" ]] && args+=(-H 'Content-Type: application/json' --data "$body")
     curl "${args[@]}" "$base$path"; echo
     ;;
   session)
     dir="$2"; name="${3:-p353-live-a}"
-    [ -f "$dir/secret" ] || die "not a work dir: $dir"
+    [[ -f "$dir/secret" ]] || die "not a work dir: $dir"
     case "$name" in p353-live-*) ;; *) die "name must start with p353-live-" ;; esac
     port="$(cat "$dir/port")"
     # Settings for this session only: the installed reporter off, this mod's options, the token as the env override.
@@ -85,12 +85,12 @@ EOF
     ;;
   stop)
     dir="$2"; name="${3:-}"
-    if [ -n "$name" ]; then tmux kill-session -t "$name"
+    if [[ -n "$name" ]]; then tmux kill-session -t "$name"
     else tmux ls -F '#{session_name}' 2>/dev/null | grep '^p353-live-' | while read -r s; do tmux kill-session -t "$s"; done; fi
     ;;
   clean)
     dir="$2"
-    [ -f "$dir/server.pid" ] && [ -f "$dir/secret" ] || die "not a work dir made by 'server': $dir"
+    [[ -f "$dir/server.pid" && -f "$dir/secret" ]] || die "not a work dir made by 'server': $dir"
     kill "$(cat "$dir/server.pid")" 2>/dev/null
     rm -r "$dir"
     echo "removed $dir"
