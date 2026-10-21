@@ -163,7 +163,7 @@ const DARWIN = process.platform === 'darwin';
 function procStats(pid) {
   if (!DARWIN) return null;
   try {
-    const [read, written, userNs, sysNs, rss] = execFileSync('python3', ['-I', '-c', PY, String(pid)], { encoding: 'utf8' }).trim().split(' ').map(Number);
+    const [read, written, userNs, sysNs, rss] = execFileSync('/usr/bin/python3', ['-I', '-c', PY, String(pid)], { encoding: 'utf8' }).trim().split(' ').map(Number);
     return { read, written, cpuNs: userNs + sysNs, rss };
   } catch {
     return null;
@@ -172,7 +172,7 @@ function procStats(pid) {
 function ioregStats() {
   if (!DARWIN) return null;
   try {
-    const text = execFileSync('ioreg', ['-c', 'IOBlockStorageDriver', '-r', '-w0', '-d1'], { encoding: 'utf8' });
+    const text = execFileSync('/usr/sbin/ioreg', ['-c', 'IOBlockStorageDriver', '-r', '-w0', '-d1'], { encoding: 'utf8' });
     let ops = 0;
     let bytes = 0;
     for (const m of text.matchAll(/"Operations \(Write\)"=(\d+)/g)) ops += Number(m[1]);

@@ -4,6 +4,7 @@ import { isRecordingGrant } from './transport.ts'
 import { redactText, type Redacted } from './diffRedact.ts'
 import {
   CUT_MARK,
+  cutMark,
   inputText,
   limitLine,
   RECORDING_BATCH_INTERVAL_MS,
@@ -99,6 +100,24 @@ describe('redactBounded', () => {
     const r = redactBounded(`${'z '.repeat(1500)}\n${key}\nafter`)
     expect(r.text).not.toContain('MIIEowIBAAKCAQEA')
     expect(r.text.endsWith('\nafter')).toBe(true)
+  })
+})
+
+describe('cutMark', () => {
+  test('groups the digits by thousands', () => {
+    expect(cutMark(0)).toBe('[cut off at 0 characters]')
+    expect(cutMark(999)).toBe('[cut off at 999 characters]')
+    expect(cutMark(1000)).toBe('[cut off at 1,000 characters]')
+    expect(cutMark(12345)).toBe('[cut off at 12,345 characters]')
+    expect(cutMark(1234567)).toBe('[cut off at 1,234,567 characters]')
+    expect(cutMark(-1234)).toBe('[cut off at -1,234 characters]')
+    expect(CUT_MARK).toBe(cutMark(RECORDING_LIMITS.text))
+  })
+  test('a very long number is grouped in linear time', () => {
+    const t = Date.now()
+    for (let i = 0; i < 20000; i++) cutMark(Number.MAX_SAFE_INTEGER)
+    expect(cutMark(Number.MAX_SAFE_INTEGER)).toBe('[cut off at 9,007,199,254,740,991 characters]')
+    expect(Date.now() - t).toBeLessThan(1000)
   })
 })
 

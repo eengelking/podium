@@ -641,7 +641,7 @@ export class SessionRecordings {
     const stored = this.all().filter((r) => r.entries > 0);
     const hits = this.matching(f, stored);
     const sum = (rs: RecRow[]) => ({ entries: rs.reduce((a, r) => a + r.entries, 0), sessions: rs.length, bytes: rs.reduce((a, r) => a + r.bytes, 0) });
-    const distinct = (pick: (r: RecRow) => string | null) => [...new Set(stored.map(pick).filter((v): v is string => v !== null))].sort();
+    const distinct = (pick: (r: RecRow) => string | null) => [...new Set(stored.map(pick).filter((v): v is string => v !== null))].sort((a, b) => a.localeCompare(b));
     return {
       total: hits.length,
       page: pg,

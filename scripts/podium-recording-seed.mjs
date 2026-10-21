@@ -156,7 +156,8 @@ function story(s, loops) {
   }
   if (f) out.push(entry(f, 'prompt', 'Check why list.test.ts expected a currency before the change.'), entry(f, 'text', 'The handler drops currency when it maps the row.'));
   out.push(entry(main, 'compact', ''));
-  for (let i = 0; i < 140 && loops > 1; i++) call(i % 3 === 0 && b ? b : main, 'Read', `server/src/invoices/file${i}.ts`, `// file ${i}\nexport const x${i} = ${i};`);
+  const filler = loops > 1 ? 140 : 0;
+  for (let i = 0; i < filler; i++) call(i % 3 === 0 && b ? b : main, 'Read', `server/src/invoices/file${i}.ts`, `// file ${i}\nexport const x${i} = ${i};`);
   out.push(entry(main, 'text', 'The port is done and the tests pass.'));
   return out;
 }

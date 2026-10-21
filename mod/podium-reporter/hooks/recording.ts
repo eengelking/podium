@@ -26,7 +26,13 @@ export const WITHHELD = '[withheld: this file is on the never-send list]';
 
 /** The visible marker at the end of a text cut at `n` characters. */
 export function cutMark(n: number): string {
-  return `[cut off at ${String(n).replaceAll(/\B(?=(\d{3})+(?!\d))/g, ',')} characters]`;
+  const digits = String(n);
+  let grouped = '';
+  for (let i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 === 0 && digits[i - 1] !== '-') grouped += ',';
+    grouped += digits[i];
+  }
+  return `[cut off at ${grouped} characters]`;
 }
 export const CUT_MARK = cutMark(RECORDING_LIMITS.text);
 
