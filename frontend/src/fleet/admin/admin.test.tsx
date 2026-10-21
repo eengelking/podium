@@ -318,6 +318,7 @@ describe("side menu", () => {
       "Settings",
       "Model prices",
       "Security",
+      "Certificates",
       "Data",
       "Stored activity",
       "Usage",

@@ -14,6 +14,7 @@ import { useHeartbeat } from "../useHeartbeat";
 import { usePageVisible } from "../usePageVisible";
 import { APP_NAME } from "../types";
 import { AdminError, makeApi } from "./adminApi";
+import { CertificatesTab } from "./CertificatesTab";
 import { GroupsTab } from "./GroupsTab";
 import { LogTab } from "./LogTab";
 import { ModelPricesTab } from "./ModelPricesTab";
@@ -29,13 +30,14 @@ import { SpendPage } from "./SpendPage";
 import { StoredActivityTab } from "./StoredActivityTab";
 
 type Status = "checking" | "locked" | "open" | "disabled";
-type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored";
+type TabId = "people" | "groups" | "reporters" | "reporting" | "settings" | "certs" | "prices" | "spend" | "log" | "usage" | "rpeople" | "sessions" | "failures" | "activity" | "kept" | "stored";
 const PAGES: Record<TabId, { name: string; lead: string }> = {
   people: { name: "People", lead: "Each person gets a token that only works with their own name. A report is accepted when the two match." },
   groups: { name: "Groups", lead: "Arrange people into groups. The fleet wall shows a band per group." },
   reporters: { name: "Reporters", lead: "Every reporter this server has heard from, and whether it is still reporting." },
   reporting: { name: "Security", lead: "Control how reporters prove who they are, and what protects the tokens." },
   settings: { name: "Settings", lead: "Server-wide choices. A change applies to everyone on this server." },
+  certs: { name: "Certificates", lead: "Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA. The serving certificate secures the console and every report." },
   prices: { name: "Model prices", lead: "What Podium charges each model per million tokens, in dollars. It uses these to work out what a session cost." },
   spend: { name: SPEND_CONFIG.title, lead: SPEND_CONFIG.lead },
   log: { name: "Admin log", lead: "What happened in Admin, newest first." },
@@ -50,7 +52,7 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
 /** The side menu: pages in groups, in the order they are listed. */
 const NAV: { name: string; icon: GroupIconName; ids: TabId[] }[] = [
   { name: "People and access", icon: "access", ids: ["people", "groups", "reporters"] },
-  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "kept", "stored"] },
+  { name: "Server", icon: "server", ids: ["settings", "prices", "reporting", "certs", "kept", "stored"] },
   { name: "Reporting", icon: "reporting", ids: ["usage", "spend", "rpeople", "sessions", "failures", "activity"] },
   { name: "Activity", icon: "activity", ids: ["log"] },
 ];
@@ -78,6 +80,11 @@ const GROUP_ICON: Record<GroupIconName, ReactNode> = {
   activity: <path d="M1.5 8h3l2-5 3 10 2-5h3" />,
 };
 
+/** The pages a link elsewhere in the console can open: `#/admin/settings` and `#/admin/certificates`. */
+function tabForHash(hash: string): TabId | null {
+  return hash === "#/admin/settings" ? "settings" : hash === "#/admin/certificates" ? "certs" : null;
+}
+
 export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peersApi }: { base?: string; fleetOptions?: UseFleetOptions; respondApi?: RespondApi; peersApi?: PeersApi }) {
   const theme = useTheme();
   // The reporters pill's dot pulses on the fleet page's shared beat, which this root carries as data-beat.
@@ -89,7 +96,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [build, setBuild] = useState<string | null>(null);
-  const [tab, setTab] = useState<TabId>(() => (window.location.hash === "#/admin/settings" ? "settings" : "people"));
+  const [tab, setTab] = useState<TabId>(() => tabForHash(window.location.hash) ?? "people");
   const [created, setCreated] = useState<Created | null>(null);
   const [counts, setCounts] = useState<Partial<Record<TabId, number>>>({});
   const [paging, setPaging] = useState({
@@ -102,11 +109,20 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   useEffect(() => {
     document.title = `${APP_NAME} admin`;
   }, []);
-  // Following #/admin/settings while Admin is already open (the link in the wall's confirmation) switches the tab.
+  // Following #/admin/settings (the link in the wall's confirmation) or #/admin/certificates (the header's certificate pill)
+  // while Admin is already open switches the tab.
   useEffect(() => {
-    const onHash = () => window.location.hash === "#/admin/settings" && setTab("settings");
+    const onHash = () => {
+      const t = tabForHash(window.location.hash);
+      if (t) setTab(t);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  // Choosing a tab from the menu drops an Admin hash, so following the same link again (the header pill) is a change the page sees.
+  const pickTab = useCallback((id: TabId) => {
+    if (tabForHash(window.location.hash)) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    setTab(id);
   }, []);
   // A browser signed in to respond as an Administrator opens Admin with no second sign-in (#215).
   const openFromRespond = useCallback(
@@ -217,7 +233,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                         <span className="gt">{g.name}</span>
                       </span>
                       {g.ids.map((id) => (
-                        <button key={id} type="button" className="navbtn" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+                        <button key={id} type="button" className="navbtn" aria-current={tab === id ? "page" : undefined} onClick={() => pickTab(id)}>
                           {PAGES[id].name}
                           {counts[id] !== undefined && <span className="n">{counts[id]}</span>}
                         </button>
@@ -242,6 +258,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} />}
                   {tab === "reporting" && <ReportingTab api={api} onLocked={onLocked} />}
                   {tab === "settings" && <SettingsTab api={api} onLocked={onLocked} />}
+                  {tab === "certs" && <CertificatesTab api={api} base={base} onLocked={onLocked} />}
                   {tab === "prices" && <ModelPricesTab api={api} onLocked={onLocked} />}
                   {tab === "spend" && <SpendPage client={client} fleetOptions={fleetOptions} onCount={onCountSpend} onLocked={onLocked} />}
                   {tab === "usage" && <ReportPage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}

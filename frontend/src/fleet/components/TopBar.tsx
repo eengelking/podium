@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Phase } from "../store";
 import { BrandLink } from "./BrandLink";
+import { CertPill } from "./CertPill";
 import { ConnectionPill } from "./ConnectionPill";
 import { TopBarSignIn, type MyReportersLink } from "./SignIn";
 import { TopBarTab } from "./TopBarTab";
@@ -31,6 +32,8 @@ export function TopBar(props: {
       {/* Do not add anything to the right of the connection pill below. Its text changes width with the
           reporter count, so everything after it would shift. Leave that space empty for now. */}
       <ConnectionPill phase={phase} reporters={reporters} />
+      {/* The certificate countdown (#586) sits with the update pills below, after the connection pill, as the accepted mockup shows. */}
+      <CertPill />
       {!!props.outdated && (
         <span className="pill warn" role="status" title="Update the podium-reporter mod from eengelking-marketplace">
           <span className="dot warn" aria-hidden="true" />

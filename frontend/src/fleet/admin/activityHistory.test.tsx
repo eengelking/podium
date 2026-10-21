@@ -57,11 +57,11 @@ const save = () => fireEvent.click(screen.getByRole("button", { name: "Save" }))
 const putBodies = (s: Server) => s.bodies.filter((b) => (b as { activityHistory?: unknown }).activityHistory);
 
 describe("the menu", () => {
-  it("puts Data and Stored activity in the Server group and leaves Reporting with six", async () => {
+  it("puts Certificates, Data and Stored activity in the Server group and leaves Reporting with six", async () => {
     fakeServer({ unlocked: true });
     render(<AdminView />);
     const server = await screen.findByRole("group", { name: "Server" });
-    expect(within(server).getAllByRole("button").map((b) => b.textContent)).toEqual(["Settings", "Model prices", "Security", "Data", "Stored activity"]);
+    expect(within(server).getAllByRole("button").map((b) => b.textContent)).toEqual(["Settings", "Model prices", "Security", "Certificates", "Data", "Stored activity"]);
     expect(within(screen.getByRole("group", { name: "Reporting" })).getAllByRole("button")).toHaveLength(6);
     expect(screen.queryByRole("button", { name: "Data kept" })).toBeNull();
   });

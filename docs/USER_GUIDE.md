@@ -164,7 +164,8 @@ The dashboard has a top bar, a left rail and a right panel.
 - **Logo.** The Podium logo at the top left is a link home. From History or Admin it takes you back to the fleet page.
 - **Top bar.** A pill names the page ("Fleet" on the wall, "Orchestrator" on a session's page, "History", "Admin"),
   then the connection (`N reporters live`, or a red "disconnected, retrying"). Admin's top bar shows the same
-  connection indicator beside its "Admin" pill.
+  connection indicator beside its "Admin" pill. With built-in TLS on, a certificate pill can follow the connection:
+  see [Certificates](#certificates).
 - **Row under the top bar.** It has the theme picker.
 - **Left rail.** It lists your sessions. When there are more than fit, it shows a page at a time. See
   [Paging the list](#paging-the-list).
@@ -813,12 +814,12 @@ Administrators, or the name **Admin** and the admin secret, which `podiumctl tok
 
 ### Getting around
 
-Admin has fourteen pages, listed in a menu down the left side:
+Admin has sixteen pages, listed in a menu down the left side:
 
 | Menu group | Pages |
 |---|---|
 | People and access | [People](#people-page), [Groups](#groups), [Reporters](#reporters) |
-| Server | [Settings](#settings), [Model prices](#model-prices), [Security](#security), [Data](#data), [Stored activity](#stored-activity) |
+| Server | [Settings](#settings), [Model prices](#model-prices), [Security](#security), [Certificates](#certificates), [Data](#data), [Stored activity](#stored-activity) |
 | Reporting | [Usage](#usage), [Spend](#spend), [People and groups](#people-and-groups), [Sessions](#reporting-sessions), [Failures](#failures), [Admin activity](#admin-activity) |
 | Activity | [Admin log](#admin-log) |
 
@@ -1011,6 +1012,29 @@ and cache write for 1 hour. They start as the prices on Anthropic's pricing shee
 
 One switch, **Allow reporters to use the admin secret**. When it is off, a reporter that still sends the secret is
 refused. Sessions that report with the secret show under the owner **Admin**.
+
+### Certificates
+
+With built-in TLS on (`podiumctl start --tls`), this page shows Podium's own certificate authority (CA) and the
+serving certificate it signs. With TLS off it says so and has nothing else.
+
+- **Status.** The CA and the serving certificate, each with its expiry date, how the certificate renews and a status
+  that is a shape, a word and a color. A band at the top is blue at 30 days or fewer, orange at 10 and red at 5, and red
+  again once the first of them has expired. If the last renewal failed, its reason shows in red under the table. The CA's
+  fingerprint has a copy control, and **Download CA** saves `ca.pem`. "localhost and 3 more" opens the list of names the
+  running serving certificate carries.
+- **Renewal and lifetimes.** The serving certificate's lifetime (30 to 825 days) and how many days before it expires it
+  renews (7 to 90), and a person's certificate lifetime (30 to 365) and the grace after it expires (0 to 90). A number
+  saves when you leave the field; a value the server refuses stays in the box with the reason under it. Each change is
+  written to the Admin log. The last switch turns the header countdown on or off.
+- **Rotate by hand.** **Renew now** issues a new serving certificate from the same CA and keeps the old one as a backup.
+  **Rotate CA…** is not available yet.
+- **Previous certificates.** The last three serving certificates Podium replaced, kept in `/data/tls/previous`.
+
+**The header pill.** Whichever of the CA and the serving certificate expires first shows as a pill after the
+connection: blue with a clock at 30 days or fewer, orange with a triangle at 10, red with a triangle at 5, and "Certificate
+expired" with a ring and a cross. It links to this page, has no close button, and never tracks a person's certificate.
+The switch hides only the countdown: a failed renewal and an expired certificate always show.
 
 ### Data
 

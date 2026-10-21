@@ -379,8 +379,10 @@ describe("Remove a heartbeat-lost session (#41)", () => {
       expect(railX).toHaveLength(1);
       fireEvent.click(railX[0]!);
       fireEvent.click(container.querySelector(".wall .card-slot .remove")!);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      for (const call of fetchMock.mock.calls) {
+      // The top bar also asks /api/tls/status for the certificate pill (#586); only the drops count here.
+      const drops = fetchMock.mock.calls.filter((c) => c[0] !== "/api/tls/status");
+      expect(drops).toHaveLength(2);
+      for (const call of drops) {
         expect(call[0]).toBe("/api/fleet/sessions/lost/drop");
         expect(call[1]).toEqual({ method: "POST" });
       }

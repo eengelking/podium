@@ -850,11 +850,15 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   and the report reply; the mod finds its own with `hooks/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every
   2 s) and `wall`, and accepts at most 100 clients.
-- **Admin pages.** `AdminView` lists fifteen pages in four groups: People, Groups and Reporters (People and
-  access); Settings, Model prices, Security, Data and Stored activity (Server); Usage, Spend, People and groups,
+- **Admin pages.** `AdminView` lists sixteen pages in four groups: People, Groups and Reporters (People and
+  access); Settings, Model prices, Security, Certificates, Data and Stored activity (Server); Usage, Spend, People and groups,
   Sessions, Failures and Admin activity (Reporting); Admin log (Activity). Most have a `*Tab.tsx` file under
   `frontend/src/fleet/admin/`, the Reporting pages share `ReportPages.tsx`, and Data and Stored activity are
-  `DataPage.tsx` and `StoredActivityTab.tsx` (#432).
+  `DataPage.tsx` and `StoredActivityTab.tsx` (#432). Certificates (`CertificatesTab.tsx`, #586) reads
+  `GET /api/admin/certificates`; the header's certificate pill (`CertPill.tsx`) reads the open `GET /api/tls/status` every
+  five minutes (not while the tab is hidden) and links to `#/admin/certificates`. The route answers from memory
+  (`ServingRenewer.statusView()`) and reuses its answer for 30 seconds, never past the moment a certificate ends;
+  its stage is `expired` only once the certificate has ended, and the last day reads critical.
 - **Mounts.** The server mounts `/api/fleet` and `/api/admin`, then `/api/health` and a 404 for any other `/api`
   path, then serves the built frontend with `*` falling back to `index.html`.
 
