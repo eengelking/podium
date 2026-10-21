@@ -2459,8 +2459,9 @@ as the Activity history, [7.7](#activity-history-432)): `401` without a sign-in,
   1; 0 and below for a mark the server wrote), and a `result`'s `callSeq` is the `seq` of the `tool` row it answers.
 - **`GET /api/fleet/respond/sessions/:id/recording/consent`**: the consent before anything is chosen, `200 { ok: true,
   grant }`, where `grant` is the `RecordingGrant` the next report would get (state `off` and `consent.chosen` false when
-  no recording exists). The picker reads `grant.consent.owner` on open to say, before Start, that the owner has not
-  allowed recording. It carries no text and needs no recording to exist. The wall's `SessionView` is sent to everyone, so
+  no recording exists), and `keepHours`, the Admin's *Keep a recording for* value. The picker reads `grant.consent.owner`
+  on open to say, before Start, that the owner has not allowed recording, and `keepHours` to say how long a recording
+  is kept (it states no number until the answer arrives or if it fails). It carries no text and needs no recording to exist. The wall's `SessionView` is sent to everyone, so
   the owner's option is not put there; this route is how the owner and an Admin learn it. Same access as the rest.
 - **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
   `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added

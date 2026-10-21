@@ -423,7 +423,8 @@ describe("when it cannot be shown", () => {
 
   it("says so when the page has no way to read a recording", async () => {
     await replay(undefined, { provider: false });
-    expect(screen.getByRole("alert").textContent).toBe("Could not load the recording: the recording cannot be read from here. Try again.");
+    expect(screen.getByRole("alert").textContent).toBe("This page cannot open recordings. Reload it, and sign in from the top bar if you are not signed in.");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("says nothing has been recorded yet, and when it started", async () => {

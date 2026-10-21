@@ -329,6 +329,10 @@ describe("Stored activity with Source = Recordings", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Loop" }), { target: { value: "main" } });
     fireEvent.change(source(), { target: { value: "recordings" } });
     expect(screen.getByRole("combobox", { name: "Loop" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Loop" })).toHaveAttribute("title", "A recording covers the whole session, so it has no loop to filter by");
+    fireEvent.change(source(), { target: { value: "activity" } });
+    expect(screen.getByRole("combobox", { name: "Loop" })).not.toHaveAttribute("title");
+    fireEvent.change(source(), { target: { value: "recordings" } });
     await screen.findByText("flaky-tests");
     expect(s.calls.filter((c) => c.includes("source=recordings")).every((c) => !c.includes("loop="))).toBe(true);
   });

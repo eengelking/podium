@@ -91,6 +91,8 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
   });
   const whereRef = useRef(where);
   const [rows, setRows] = useState<Load<Paged>>({ state: "loading" });
+  // Rows say more to a signed-in owner or Admin (the kept recording), so the day is read again when the sign-in changes.
+  const [signedIn, setSignedIn] = useState(false);
   const [session, setSession] = useState<Load<SessionView> | null>(null);
   const [agent, setAgent] = useState<string | null>(null);
   const [sort, setSort] = useState<AgentSort>({ key: null, dir: 1 });
@@ -139,7 +141,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
     return () => {
       live = false;
     };
-  }, [base, day, page, size]);
+  }, [base, day, page, size, signedIn]);
 
   useEffect(() => {
     if (!openId) {
@@ -166,7 +168,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
   return (
     <div className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
-        <StreamTopBar page="History" base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
+        <StreamTopBar page="History" base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} onSignInChange={setSignedIn} />
         <div className="banner has-picker">
           <span>
             <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
@@ -230,7 +232,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                               </button>
                               {r.recording && (
                                 <div className="clr">
-                                  <button type="button" className="lk" title="Open the recording of this session" onClick={() => go({ open: r.id }, "push")}>
+                                  <button type="button" className="lk" title="Open this session, where its recording is" onClick={() => go({ open: r.id }, "push")}>
                                     recording kept{r.recording.keptUntil !== null ? ` until ${fmtWhen(r.recording.keptUntil, Date.now(), false)}` : ""}
                                   </button>
                                 </div>

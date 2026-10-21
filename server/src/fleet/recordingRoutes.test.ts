@@ -645,6 +645,15 @@ describe('what History and the picker learn (#353)', () => {
     expect((await boss.get(`${BASE}/consent`)).body.grant.consent.owner).toBe(true);
   });
 
+  it("carries the Admin's keep time, so the picker can state it", async () => {
+    const s = setup();
+    await send(s.app, s.ed.token, report());
+    const a = await signedIn(s.app, 'Ed', s.ed.token);
+    expect((await a.get(`${BASE}/consent`)).body.keepHours).toBe(6);
+    vi.spyOn(s.fleet.recordingSettings, 'get').mockReturnValue({ keepHours: 48, budgetMb: 2048, sessionMb: 256 });
+    expect((await a.get(`${BASE}/consent`)).body.keepHours).toBe(48);
+  });
+
   it('refuses the consent to anyone else, to a signed-out browser, and while the flag is off', async () => {
     const s = setup();
     await send(s.app, s.ed.token, report());
