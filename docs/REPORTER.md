@@ -120,6 +120,11 @@ Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
+- **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left the helper asks the server
+  for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
+  several sessions at once are fine. An expired certificate can still renew for 30 days after it expired (the Admin sets
+  the grace); the status line says "renewing certificate" meanwhile. Past that, or if an Admin revoked the certificate, it
+  says to ask an Admin to reissue your reporter config, and you save the new file in `~/.podium/`.
 - **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.

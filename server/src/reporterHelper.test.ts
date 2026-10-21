@@ -1,7 +1,6 @@
 // The reporter's TLS helper (#584, SPEC 5.9): the mod cannot hand $.http.fetch a CA or a client certificate, so a small
 // Node process makes the connection. These tests run the real script against real certificates and a real HTTPS server.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -10,7 +9,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ensureTls, serverNames } from './tlsCa.js';
+import express from 'express';
+import { X509Certificate, createPrivateKey } from 'node:crypto';
+import { openDb } from './fleet/db.js';
+import { PeopleStore } from './fleet/people.js';
+import { createLogger } from './logging/logger.js';
+import { describeCert, ensureTls, serverNames } from './tlsCa.js';
+import { PersonCertStore } from './tlsClientAuth.js';
+import { createReporterRenewRouter } from './tlsReporterRenew.js';
+import { makeForgerCa, signClientDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
 
 const HELPER = fileURLToPath(new URL('../../mod/podium-reporter/hooks/helper.mjs', import.meta.url));
@@ -65,17 +72,20 @@ const configFor = (p: Pki, server: string, user = 'Dana Lee', caCerts = [p.caCer
 
 interface Running {
   proc: ChildProcess;
+  config: string;
   socket: string;
   out: () => string;
   exited: Promise<number | null>;
 }
 
 /** Starts the helper; resolves once it prints `ready` (or exits, which the caller reads from `out`). */
-async function runHelper(configText: string, server: string, env: Record<string, string> = {}, mode = 0o600): Promise<Running> {
+async function runHelper(configText: string, server: string, env: Record<string, string> = {}, mode = 0o600, sameConfig?: string): Promise<Running> {
   const root = tmp();
-  const config = path.join(root, 'reporter-config-Dana-1.pem');
-  fs.writeFileSync(config, configText, { mode });
-  fs.chmodSync(config, mode);
+  const config = sameConfig ?? path.join(root, 'reporter-config-Dana-1.pem');
+  if (!sameConfig) {
+    fs.writeFileSync(config, configText, { mode });
+    fs.chmodSync(config, mode);
+  }
   const socket = path.join(fs.mkdtempSync(path.join(root, 'run-')), 's.sock');
   const proc = spawn(process.execPath, [HELPER, config, socket, server], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
@@ -89,7 +99,7 @@ async function runHelper(configText: string, server: string, env: Record<string,
     const t = setInterval(() => out.includes('ready') && (clearInterval(t), resolve()), 10);
     void exited.then(() => (clearInterval(t), resolve()));
   });
-  return { proc, socket, out: () => out, exited };
+  return { proc, config, socket, out: () => out, exited };
 }
 
 interface Answer {
@@ -350,5 +360,208 @@ describe('helper.mjs: classifyError', () => {
     expect(classifyError({ code: 'ENOTFOUND' })).toBe('ENOTFOUND');
     expect(classifyError({ code: 'ECONNRESET' })).toBe('ECONNRESET');
     expect(classifyError({ message: 'something odd' })).toBe('UPSTREAM_ERROR');
+  });
+});
+
+// ---- renewing the reporter's own certificate (#585) --------------------------------------------------------------------
+
+const DAY = 86_400_000;
+
+/** A real Podium renewal route behind a real mutual-TLS listener, and a person whose certificate has the dates given. */
+async function renewing(dates: { from: number; to: number } | { days: number }, o: { graceDays?: number; renewStatus?: number } = {}) {
+  const p = await pki();
+  const db = openDb(':memory:');
+  const people = new PeopleStore(db);
+  const certs = new PersonCertStore(db);
+  const person = people.createPerson('Dana Lee').person;
+  const caFp = new X509Certificate(p.caCert).fingerprint256;
+  let cert: string;
+  let key: string;
+  if ('days' in dates) {
+    const i = await issuePersonCert({ dir: p.dir, keyId: person.keyId, days: dates.days });
+    ({ cert, key } = i);
+  } else {
+    ({ cert, key } = signClientDated({ caCrt: path.join(p.dir, 'ca.crt'), caKey: path.join(p.dir, 'ca.key'), keyId: person.keyId, ...dates }));
+  }
+  const info = describeCert(cert);
+  certs.replace(person.id, { cert, info, issuerFingerprint: caFp }, Date.now());
+  p.person = { cert, key, info };
+  const seen: string[] = [];
+  const app = express();
+  app.use('/api/reporter', (req, res, next) => (o.renewStatus ? void res.status(o.renewStatus).json({ ok: false }) : next()));
+  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: Date.now, settings: () => ({ lifetimeDays: 90, graceDays: o.graceDays ?? 30 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
+  app.get('/api/fleet/ping', (req, res) => {
+    const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
+    seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');
+    res.json({ ok: true });
+  });
+  const url = await upstream(p, (req, res) => app(req, res), { requireClient: false });
+  const live = () => certs.listFor(person.id).filter((c) => c.revokedAt === null);
+  return { p, url, certs, person, seen, live, original: new X509Certificate(cert).fingerprint256 };
+}
+
+const partsOfFile = (file: string) => {
+  const text = fs.readFileSync(file, 'utf8');
+  const blocks = text.match(/-----BEGIN ([A-Z ]+)-----[\s\S]*?-----END \1-----/g) ?? [];
+  const certs = blocks.filter((b) => b.includes('CERTIFICATE'));
+  return { text, certs, key: blocks.find((b) => b.includes('PRIVATE KEY'))!, mode: fs.statSync(file).mode & 0o777 };
+};
+
+/** Waits until `f` is true, polling; fails with `what` after `ms`. */
+async function until(f: () => boolean, what: string, ms = 8000): Promise<void> {
+  for (let t = 0; t < ms && !f(); t += 25) await new Promise((r) => setTimeout(r, 25));
+  expect(f(), what).toBe(true);
+}
+
+describe('helper.mjs: renewing its own certificate', () => {
+  // The certificate lasts a day; the test asks the helper to renew when two days remain, so it is due at once.
+  const DUE = { PODIUM_RENEW_BEFORE_SECONDS: String(2 * 86_400) };
+
+  it('renews before expiry, writes the new certificate and the CA to the file in one rename at mode 0600, and keeps the old certificate working', async () => {
+    const r = await renewing({ days: 1 });
+    const original = configFor(r.p, r.url);
+    const h = await runHelper(original, r.url, DUE);
+    await until(() => fs.readFileSync(h.config, 'utf8') !== original, 'the file is rewritten');
+    const f = partsOfFile(h.config);
+    expect(f.mode).toBe(0o600);
+    // the CA first, then the new certificate; the key matches the new certificate
+    const person = new X509Certificate(f.certs.at(-1)!);
+    expect(person.fingerprint256).not.toBe(r.original);
+    expect(person.checkPrivateKey(createPrivateKey(f.key))).toBe(true);
+    expect(person.verify(new X509Certificate(r.p.caCert).publicKey)).toBe(true);
+    expect(f.certs.slice(0, -1).map((c) => new X509Certificate(c).fingerprint256)).toEqual([new X509Certificate(r.p.caCert).fingerprint256]);
+    expect(f.text).toMatch(/^# user: Dana Lee$/m);
+    expect(f.text).toContain(`# fingerprint: ${person.fingerprint256}`);
+    expect(f.text).toContain(`# expires: ${new Date(person.validTo).toISOString()}`);
+    expect(r.live()).toHaveLength(2);
+    // the next request is made with the new certificate
+    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    expect(a.status).toBe(200);
+    expect(r.seen.at(-1)).toBe(person.fingerprint256);
+    // the old certificate still works until it expires
+    expect(r.live().map((c) => c.fingerprint)).toContain(r.original);
+  }, 30_000);
+
+  it('does not renew while more than the threshold remains', async () => {
+    const r = await renewing({ days: 60 });
+    const h = await runHelper(configFor(r.p, r.url), r.url);
+    const before = fs.readFileSync(h.config, 'utf8');
+    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    await new Promise((res) => setTimeout(res, 300));
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
+    expect(r.live()).toHaveLength(1);
+  });
+
+  it('does not renew a short-lived certificate the moment it is issued: it waits until half its life is gone', async () => {
+    // 30 days is the shortest the Admin can set; the 30-day threshold would make it due at once.
+    const r = await renewing({ days: 30 });
+    const original = configFor(r.p, r.url);
+    const h = await runHelper(original, r.url);
+    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    await new Promise((res) => setTimeout(res, 300));
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
+    expect(r.live()).toHaveLength(1);
+  });
+
+  it('renews an expired certificate inside the grace before the request that found it expired goes out', async () => {
+    const r = await renewing({ from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY });
+    const h = await runHelper(configFor(r.p, r.url), r.url);
+    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    expect(a.status).toBe(200);
+    const f = partsOfFile(h.config);
+    const renewed = new X509Certificate(f.certs.at(-1)!);
+    expect(renewed.fingerprint256).not.toBe(r.original);
+    expect(Date.parse(renewed.validTo)).toBeGreaterThan(Date.now());
+    expect(r.seen.at(-1)).toBe(renewed.fingerprint256);
+  }, 30_000);
+
+  it('past the grace it says so, changes nothing and sends nothing upstream', async () => {
+    const r = await renewing({ from: Date.now() - 200 * DAY, to: Date.now() - 40 * DAY });
+    const h = await runHelper(configFor(r.p, r.url), r.url);
+    const before = fs.readFileSync(h.config, 'utf8');
+    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    expect(a.status).toBe(502);
+    expect(a.headers['x-podium-helper-error']).toBe('CERT_PAST_GRACE');
+    expect(r.seen).toEqual([]);
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
+    expect(r.live()).toHaveLength(1);
+    // it does not ask again on every request
+    const b = await viaHelper(h, 'GET', '/api/fleet/ping');
+    expect(b.headers['x-podium-helper-error']).toBe('CERT_PAST_GRACE');
+  }, 30_000);
+
+  it('a forged expired certificate with a stolen serial is refused and the file is not rewritten', async () => {
+    const r = await renewing({ days: 90 });
+    const work = tmp();
+    const forged = signClientDated({ ...makeForgerCa(work), keyId: r.person.keyId, from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY, serial: `0x${new X509Certificate(r.p.person.cert).serialNumber}` });
+    const h = await runHelper(configFor({ ...r.p, person: { ...forged, info: describeCert(forged.cert) } }, r.url), r.url);
+    const before = fs.readFileSync(h.config, 'utf8');
+    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    expect(a.status).toBe(502);
+    expect(a.headers['x-podium-helper-error']).toBe('CERT_RENEWAL_REFUSED');
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
+    expect(r.live()).toHaveLength(1);
+  }, 30_000);
+
+  it('a server that cannot renew right now does not stop the request, and the file is left alone', async () => {
+    const r = await renewing({ days: 1 }, { renewStatus: 503 });
+    const h = await runHelper(configFor(r.p, r.url), r.url, DUE);
+    const before = fs.readFileSync(h.config, 'utf8');
+    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    await new Promise((res) => setTimeout(res, 300));
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
+  }, 30_000);
+
+  it('two sessions renewing together leave one valid file and one new certificate', async () => {
+    const r = await renewing({ days: 1 });
+    const original = configFor(r.p, r.url);
+    const a = await runHelper(original, r.url, DUE);
+    const b = await runHelper('', r.url, DUE, 0o600, a.config);
+    const before = original;
+    const [ra, rb] = await Promise.all([viaHelper(a, 'GET', '/api/fleet/ping'), viaHelper(b, 'GET', '/api/fleet/ping')]);
+    expect([ra.status, rb.status]).toEqual([200, 200]);
+    await until(() => fs.readFileSync(a.config, 'utf8') !== before, 'the file is rewritten');
+    await new Promise((res) => setTimeout(res, 500));
+    const f = partsOfFile(a.config);
+    const person = new X509Certificate(f.certs.at(-1)!);
+    expect(person.checkPrivateKey(createPrivateKey(f.key))).toBe(true);
+    expect(f.mode).toBe(0o600);
+    // the old certificate and the one new certificate; the second session took the first's instead of making a third
+    expect(r.live()).toHaveLength(2);
+    expect(r.live().map((c) => c.fingerprint)).toContain(person.fingerprint256);
+    expect(fs.readdirSync(path.dirname(a.config)).filter((n) => n.includes('.tmp') || n.endsWith('.lock'))).toEqual([]);
+    // both sessions now use the file's certificate
+    r.seen.length = 0;
+    await viaHelper(a, 'GET', '/api/fleet/ping');
+    await viaHelper(b, 'GET', '/api/fleet/ping');
+    expect(r.seen).toEqual([person.fingerprint256, person.fingerprint256]);
+  }, 40_000);
+
+  it('takes over a lock left by a process that died', async () => {
+    const r = await renewing({ days: 1 });
+    const original = configFor(r.p, r.url);
+    const root = tmp();
+    const config = path.join(root, 'reporter-config-Dana-1.pem');
+    fs.writeFileSync(config, original, { mode: 0o600 });
+    // a lock from ten minutes ago, left by a process that died before it could remove it
+    const lock = `${config}.lock`;
+    fs.writeFileSync(lock, '99999999');
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(lock, old, old);
+    await runHelper('', r.url, DUE, 0o600, config);
+    await until(() => fs.readFileSync(config, 'utf8') !== original, 'renewed past a stale lock');
+    await until(() => !fs.existsSync(lock), 'the lock is released');
+  }, 40_000);
+});
+
+describe('helper.mjs: rewriteConfig', () => {
+  it('keeps the name and the server, and updates the issued-at, expires and fingerprint lines', async () => {
+    const { rewriteConfig } = (await import(/* @vite-ignore */ HELPER)) as { rewriteConfig: (text: string, n: { ca: string[]; cert: string; key: string; notAfter: string; fingerprint: string; now: number }) => string };
+    const old = '# podium-reporter-config v1\n# user: Dana Lee\n# server: https://h:4318\n# issued-at: 2026-01-01T00:00:00.000Z 1767225600\n# expires: 2026-04-01T00:00:00.000Z\n# fingerprint: AA\n-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n';
+    const out = rewriteConfig(old, { ca: ['-----BEGIN CERTIFICATE-----\nCA\n-----END CERTIFICATE-----\n'], cert: '-----BEGIN CERTIFICATE-----\nNEW\n-----END CERTIFICATE-----\n', key: '-----BEGIN PRIVATE KEY-----\nK\n-----END PRIVATE KEY-----\n', notAfter: '2026-07-01T00:00:00.000Z', fingerprint: 'BB', now: Date.parse('2026-05-01T00:00:00.000Z') });
+    expect(out.split('\n').slice(0, 6)).toEqual(['# podium-reporter-config v1', '# user: Dana Lee', '# server: https://h:4318', '# issued-at: 2026-05-01T00:00:00.000Z 1777593600', '# expires: 2026-07-01T00:00:00.000Z', '# fingerprint: BB']);
+    expect(out).not.toContain('OLD');
+    expect(out.indexOf('CA')).toBeLessThan(out.indexOf('NEW'));
+    expect(out.indexOf('NEW')).toBeLessThan(out.indexOf('PRIVATE KEY'));
   });
 });

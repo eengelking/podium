@@ -142,6 +142,13 @@ describe('what a helper error means to the person (#584)', () => {
     expect(problemFor('CERT_HAS_EXPIRED', 'h')?.status).toBe('server certificate expired')
     expect(problemFor('ECONNREFUSED', 'h')).toBeNull()
   })
+
+  test('a certificate too old to renew, or a renewal the server refused, asks for a reissue (#585)', () => {
+    expect(problemFor('CERT_PAST_GRACE', 'h')).toMatchObject({ status: 'certificate expired' })
+    expect(problemFor('CERT_PAST_GRACE', 'h')?.text).toContain('Admin')
+    expect(problemFor('CERT_RENEWAL_REFUSED', 'h')).toMatchObject({ status: 'certificate refused' })
+    expect(problemFor('CERT_RENEWAL_REFUSED', 'h')?.text).toContain('reissue')
+  })
 })
 
 describe('starting the helper (#584)', () => {
@@ -216,12 +223,31 @@ describe('starting the helper (#584)', () => {
     expect(link.user).toBe('Ed')
   })
 
-  test('an expired certificate says when, and asks for a new file', async () => {
-    const f = fake({ pathNode: '/p/node' })
+  test('an expired certificate still starts the helper, which renews it inside the grace, and the status line says so until a request goes through', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 200 }] })
     const link = await startLink(f.$, found('Dana Lee', '2026-01-15T00:00:00.000Z'), env, opts)
-    expect(link.problem()?.code).toBe('CLIENT_EXPIRED')
+    expect(f.spawned).toHaveLength(1)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()).toBeNull()
+  })
+
+  test('before that first request the problem is renewing, with the date', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [] })
+    const link = await startLink(f.$, found('Dana Lee', '2026-01-15T00:00:00.000Z'), env, opts)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(link.problem()?.code).toBe('CLIENT_RENEWING')
+    expect(link.problem()?.status).toBe('renewing certificate')
     expect(link.problem()?.text).toContain('2026-01-15')
-    expect(f.spawned).toEqual([])
+  })
+
+  test('past the grace the helper says so and the person is told to ask an Admin to reissue', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'CERT_PAST_GRACE' } }] })
+    const link = await startLink(f.$, found('Dana Lee', '2026-01-15T00:00:00.000Z'), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()?.code).toBe('CERT_PAST_GRACE')
+    expect(link.problem()?.status).toBe('certificate expired')
+    expect(link.problem()?.text).toMatch(/Ask an Admin to reissue/)
   })
 
   test('a helper that stops at start with an error line is said to have failed, with the fix for a loose file mode', async () => {

@@ -6,6 +6,9 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { PeopleStore, PersonRow } from './fleet/people.js';
 import type { IssuedPersonCert } from './tlsPeople.js';
 
+/** What is kept of an issued certificate: never the key. */
+export type CertToStore = Pick<IssuedPersonCert, 'cert' | 'info' | 'issuerFingerprint'>;
+
 export interface PersonCertRow {
   fingerprint: string;
   serial: string;
@@ -74,23 +77,36 @@ export class PersonCertStore {
     return this.listFor(personId).find((c) => c.revokedAt === null);
   }
 
+  private insert(personId: number, c: CertToStore, now: number): void {
+    this.stmt(
+      `INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(c.info.fingerprintSha256, c.info.serial, c.issuerFingerprint, personId, c.cert, Date.parse(c.info.notBefore), Date.parse(c.info.notAfter), now);
+  }
+
   /**
    * Stores a new certificate and revokes the person's earlier live ones as `reissued`, in one step, so there is never a
    * moment with none or with two.
    */
-  replace(personId: number, c: IssuedPersonCert, now: number): PersonCertRow {
+  replace(personId: number, c: CertToStore, now: number): PersonCertRow {
     this.db.exec('BEGIN');
     try {
       this.stmt("UPDATE person_certificates SET revoked_at = ?, reason = 'reissued' WHERE person_id = ? AND revoked_at IS NULL").run(now, personId);
-      this.stmt(
-        `INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(c.info.fingerprintSha256, c.info.serial, c.issuerFingerprint, personId, c.cert, Date.parse(c.info.notBefore), Date.parse(c.info.notAfter), now);
+      this.insert(personId, c, now);
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
     }
+    return this.find(c.info.fingerprintSha256)!;
+  }
+
+  /**
+   * Stores a certificate a reporter renewed for itself and leaves the earlier ones live: the old certificate keeps working
+   * until it expires, since another session of the same person may still hold it (SPEC 6, *Authenticating by certificate*).
+   */
+  add(personId: number, c: CertToStore, now: number): PersonCertRow {
+    this.insert(personId, c, now);
     return this.find(c.info.fingerprintSha256)!;
   }
 

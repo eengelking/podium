@@ -68,6 +68,24 @@ describe('TlsSettingsStore', () => {
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.serving.renewBeforeDays', 'abc');
     expect(new TlsSettingsStore(db).get()).toEqual(SERVING_DEFAULTS);
   });
+
+  it('reads and saves the settings for a person’s certificate, checking their ranges (#585)', () => {
+    const s = new TlsSettingsStore(openDb(':memory:'));
+    expect(s.getReporter()).toEqual({ lifetimeDays: 90, graceDays: 30 });
+    expect(s.set({ 'tls.reporter.lifetimeDays': 365, 'tls.reporter.graceDays': 0 })).toMatchObject({ ok: true, changed: ['tls.reporter.lifetimeDays', 'tls.reporter.graceDays'] });
+    expect(s.getReporter()).toEqual({ lifetimeDays: 365, graceDays: 0 });
+    expect(s.set({ 'tls.reporter.graceDays': 90 })).toMatchObject({ ok: true });
+    expect(s.set({ 'tls.reporter.graceDays': 91 })).toMatchObject({ ok: false, error: expect.stringContaining('0 to 90') });
+    expect(s.set({ 'tls.reporter.lifetimeDays': 29 })).toMatchObject({ ok: false, error: expect.stringContaining('30 to 365') });
+    expect(s.getReporter()).toEqual({ lifetimeDays: 365, graceDays: 90 });
+  });
+
+  it('reads an invalid stored row for a person’s certificate as its default', () => {
+    const db = openDb(':memory:');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.reporter.lifetimeDays', '5');
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.reporter.graceDays', 'x');
+    expect(new TlsSettingsStore(db).getReporter()).toEqual({ lifetimeDays: 90, graceDays: 30 });
+  });
 });
 
 /** An openssl stand-in that fails while the `broken` file exists and is the real one otherwise. */

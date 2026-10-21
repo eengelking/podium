@@ -34,7 +34,7 @@ export interface IssueOptions {
   openssl?: string;
 }
 
-const clientConfig = `[v3_client]
+export const clientConfig = `[v3_client]
 basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature
 extendedKeyUsage = clientAuth
@@ -42,13 +42,13 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always
 `;
 
-const randomSerial = (): string => {
+export const randomSerial = (): string => {
   const b = randomBytes(16);
   b[0] &= 0x7f;
   return `0x${b.toString('hex')}`;
 };
 
-async function openssl(bin: string, args: string[], cwd: string): Promise<void> {
+export async function openssl(bin: string, args: string[], cwd: string): Promise<void> {
   try {
     await run(bin, args, { cwd, timeout: 30_000 });
   } catch (err) {

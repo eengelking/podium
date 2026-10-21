@@ -6,6 +6,8 @@ import { X509Certificate } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Logger } from './logging/logger.js';
 import { listPrevious, renewServing, SERVING_DAYS, type CertInfo, type ServerNames } from './tlsCa.js';
+import { REPORTER_DAYS } from './tlsPeople.js';
+import type { ReporterSettings } from './tlsReporterRenew.js';
 
 const DAY_MS = 86_400_000;
 
@@ -20,6 +22,15 @@ const FIELDS = {
   'tls.serving.renewBeforeDays': { field: 'renewBeforeDays', label: 'Renew the serving certificate before expiry', def: 30, min: 7, max: 90 },
 } as const;
 
+/** A person's certificate (#585): how long it lasts, and how long after expiry the reporter may still renew it. */
+const REPORTER_FIELDS = {
+  'tls.reporter.lifetimeDays': { field: 'lifetimeDays', label: 'A person’s certificate lifetime', def: REPORTER_DAYS, min: 30, max: 365 },
+  'tls.reporter.graceDays': { field: 'graceDays', label: 'The grace after a person’s certificate expires', def: 30, min: 0, max: 90 },
+} as const;
+
+type ReporterKey = keyof typeof REPORTER_FIELDS;
+const reporterKeys = Object.keys(REPORTER_FIELDS) as ReporterKey[];
+
 type SettingKey = keyof typeof FIELDS;
 const keys = Object.keys(FIELDS) as SettingKey[];
 
@@ -28,8 +39,8 @@ export const SERVING_DEFAULTS: ServingSettings = { lifetimeDays: FIELDS['tls.ser
 const isWhole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
 /** The error for one setting's value (it names the range), or null when it is acceptable. */
-export function servingFieldError(key: SettingKey, v: unknown): string | null {
-  const f = FIELDS[key];
+export function servingFieldError(key: SettingKey | ReporterKey, v: unknown): string | null {
+  const f = key in FIELDS ? FIELDS[key as SettingKey] : REPORTER_FIELDS[key as ReporterKey];
   return isWhole(v, f.min, f.max) ? null : `${f.label} must be a whole number of days from ${f.min} to ${f.max}`;
 }
 
@@ -47,13 +58,24 @@ export class TlsSettingsStore {
     return out;
   }
 
+  /** The two settings for a person's certificate, one `settings` row each. A missing or invalid row reads as its default. */
+  getReporter(): ReporterSettings {
+    const out: ReporterSettings = { lifetimeDays: REPORTER_FIELDS['tls.reporter.lifetimeDays'].def, graceDays: REPORTER_FIELDS['tls.reporter.graceDays'].def };
+    for (const k of reporterKeys) {
+      const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(k) as { value: string } | undefined;
+      const n = row ? Number(row.value) : Number.NaN;
+      if (servingFieldError(k, n) === null) out[REPORTER_FIELDS[k].field] = n;
+    }
+    return out;
+  }
+
   /** Saves the given settings, keyed as in SPEC 6. Every value is checked first and nothing is saved when one fails. */
   set(patch: Record<string, unknown>): { ok: true; settings: ServingSettings; changed: string[] } | { ok: false; error: string } {
     const given = Object.keys(patch);
     if (!given.length) return { ok: false, error: 'nothing to change' };
     for (const k of given) {
-      if (!(keys as string[]).includes(k)) return { ok: false, error: `unknown setting: ${k}` };
-      const err = servingFieldError(k as SettingKey, patch[k]);
+      if (!(keys as string[]).includes(k) && !(reporterKeys as string[]).includes(k)) return { ok: false, error: `unknown setting: ${k}` };
+      const err = servingFieldError(k as SettingKey | ReporterKey, patch[k]);
       if (err) return { ok: false, error: err };
     }
     const put = this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
