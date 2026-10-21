@@ -132,3 +132,60 @@ describe("the open orchestrator in the address", () => {
     expect(screen.getByRole("button", { name: "Back to activity" })).toBeInTheDocument();
   });
 });
+
+// The logo is one shared link to the fleet page (#133). These cover it on an orchestrator's page, however that page was reached (#576).
+describe("the logo on an orchestrator's page", () => {
+  const logo = () => screen.getByRole("link", { name: "Podium, fleet" });
+  const orchestratorOf = (name: string) =>
+    expect(screen.getByRole("navigation", { name: "Orchestrators" }).querySelector('.ritem[aria-current="true"]')).toHaveTextContent(name);
+  const withPlan = () => stateFrom({ sessions: [makeSession({ plan: { title: "t", source: "TaskCreate", steps: [{ id: "1", text: "Port endpoints", state: "active", activeText: null, ownerAgentId: null, ownerLabel: null }] } })] });
+
+  it("opens the wall from a page opened by a card, and Back returns to the orchestrator", async () => {
+    window.history.replaceState(null, "", "#/");
+    const { container } = render(<FleetView state={two()} />);
+    fireEvent.click(container.querySelector('.wall .card[data-session="s2"]')!);
+    expect(pageName()).toBe("Orchestrator");
+    fireEvent.click(logo());
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    expect(window.location.hash).toBe("#/");
+    act(() => window.history.back());
+    await waitFor(() => expect(pageName()).toBe("Orchestrator"));
+    orchestratorOf("docs-pass");
+  });
+
+  it("opens the wall from a page opened from the rail", async () => {
+    window.history.replaceState(null, "", "#/");
+    const { container } = render(<FleetView state={two()} />);
+    fireEvent.click(container.querySelector('.wall .card[data-session="s1"]')!);
+    fireEvent.click(railItem("docs-pass"));
+    expect(window.location.hash).toBe("#/?open=s2");
+    fireEvent.click(logo());
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    expect(window.location.hash).toBe("#/");
+  });
+
+  it("opens the wall from a page opened by a shared link or a reload", async () => {
+    window.history.replaceState(null, "", "#/?open=s1");
+    render(<FleetView state={two()} />);
+    expect(pageName()).toBe("Orchestrator");
+    fireEvent.click(logo());
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    expect(window.location.hash).toBe("#/");
+    act(() => window.history.back());
+    await waitFor(() => expect(pageName()).toBe("Orchestrator"));
+    orchestratorOf("api-refactor");
+  });
+
+  it("opens the wall from a page opened from the board", async () => {
+    window.history.replaceState(null, "", "#/board");
+    const { rerender } = render(<FleetView board state={withPlan()} />);
+    fireEvent.click(screen.getByRole("link", { name: "Port endpoints, active, api-refactor" }));
+    expect(window.location.hash).toBe("#/?open=s1");
+    // The app's route change drops the board flag; the selection the click made survives it.
+    rerender(<FleetView state={withPlan()} />);
+    expect(pageName()).toBe("Orchestrator");
+    fireEvent.click(logo());
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    expect(window.location.hash).toBe("#/");
+  });
+});
