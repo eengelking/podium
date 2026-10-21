@@ -1,7 +1,8 @@
 // The server's logger (#140). Each call is an event: a stable dotted name (`report.rejected`), a message for
 // people, and flat fields. Locally it prints either the message alone (`text`, what the server always printed)
-// or one JSON object per line (`json`); the JSON line is also what the shipper sends. In text, the events
-// added with this logger print only at debug (`quietInText`), so the default output is what it always was. Debug and info go to
+// or one JSON object per line (`json`); the JSON line is also what the shipper sends. In text, most of the events
+// added with this logger print only at debug (`quietInText`), so the default output is what it always was; a refused
+// credential (`auth.failed`) and the `tls.*` events print at their own level, folded when they repeat (#602). Debug and info go to
 // stdout, warn and error to stderr, as before. See docs/ARCHITECTURE.md "Logging".
 import os from 'node:os';
 import { cleanFields, scrub, type FieldValue, type Fields } from './redact.js';
@@ -16,20 +17,51 @@ const RANK: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 }
 /**
  * Events added with the logger (#140) that the server did not print before. In the text format they are printed
  * only at debug, so the default output stays what it was; the JSON format and the shipper carry them at their own
- * level. The lines the server always printed (startup, shutdown, rejections, failures) are not listed.
+ * level. The lines the server always printed (startup, shutdown, rejections, failures) are not listed. A refused
+ * credential (`auth.failed`) is not listed either: an Admin looking at a plain log to learn why a reporter is
+ * offline needs the reason, so it prints at warn (#602), folded by `foldedInText`.
  */
 export function quietInText(event: string): boolean {
   return (
     event.startsWith('session.') ||
     event.startsWith('reporter.') ||
     event.startsWith('admin.') ||
+    event.startsWith('tls.') || // below warn; a refusal at warn or error is folded instead
     event === 'sweep.removed' ||
-    event === 'auth.failed' ||
     event === 'report.conflict' ||
     event === 'report.accepted' ||
     event === 'http.request' ||
     event === 'http.aborted'
   );
+}
+
+/** Events whose repeats are folded in the text output: a reporter retrying a refused credential every few seconds. */
+export function foldedInText(event: string, level: Level): boolean {
+  return event === 'auth.failed' || (event.startsWith('tls.') && RANK[level] >= RANK.warn);
+}
+
+/** How long a printed refusal holds back its repeats, and how many distinct refusals are remembered. */
+const FOLD_WINDOW_MS = 60_000;
+const FOLD_MAX_KEYS = 1000;
+
+/**
+ * Decides whether a folded event prints in text. The first of a kind prints; repeats inside the window do not; the
+ * first one after the window prints with the count held back. A kind is the event and its message (which names the route,
+ * source and reason), so a different refusal always prints.
+ */
+function createFolder() {
+  const seen = new Map<string, { at: number; held: number }>();
+  return (key: string, at: number): { print: boolean; held: number } => {
+    const prev = seen.get(key);
+    if (prev && at - prev.at < FOLD_WINDOW_MS) {
+      prev.held += 1;
+      return { print: false, held: 0 };
+    }
+    seen.delete(key);
+    seen.set(key, { at, held: 0 });
+    if (seen.size > FOLD_MAX_KEYS) seen.delete(seen.keys().next().value as string);
+    return { print: true, held: prev?.held ?? 0 };
+  };
 }
 
 /** The contract fields; an event's own fields cannot overwrite them. */
@@ -92,6 +124,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   const secrets = (opts.secrets ?? []).filter((s) => typeof s === 'string' && s.length > 0);
 
   const isEnabled = (level: Level) => RANK[level] >= min;
+  const fold = createFolder();
 
   const log = (level: Level, event: string, message: string, fields?: Fields, emit: EmitOptions = {}) => {
     if (!isEnabled(level)) return;
@@ -111,7 +144,11 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
       }
       const json = JSON.stringify(record);
       if (format === 'json') write(json, level);
-      else if (!quietInText(event) || isEnabled('debug')) write(msg, level);
+      else if (foldedInText(event, level)) {
+        const key = `${event}|${msg}`; // the message names the route, source and reason, and tells apart tls.* events that carry no such fields
+        const { print, held } = fold(key, now());
+        if (print) write(held > 0 ? `${msg} (${held} more in the last minute not printed)` : msg, level);
+      } else if (!quietInText(event) || isEnabled('debug')) write(msg, level);
       if (opts.ship && emit.ship !== false) opts.ship(json);
     } catch {
       // A log line must never take a request or a timer down with it.

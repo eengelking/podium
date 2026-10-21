@@ -71,6 +71,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- Logs: a refused credential (`auth.failed`, the 429 throttle included) and the `tls.*` events now print in the default text output at warn, where they were hidden unless `PODIUM_LOG_LEVEL=debug`. A reporter that retries with the same bad credential gets one line a minute for the same route, source and reason, with a count of the repeats held back. The `json` format and shipped logs still carry every line, and no token, certificate or key is printed (#602).
 - The simulator (`scripts/podium-sim.ts`) sends an OS with each machine of a `--person`: macOS, Fedora Linux or Windows on the laptop, none for some (an older reporter), and Ubuntu on the build box, so the Machine and System cells show every state (#427).
 - Admin > Reporting: the Admin activity report says when the log held more than 1,000 entries in the period and only the newest are shown, and its reply carries `truncated` (#529).
 - Reporting reads less: a report for today no longer scans the agents, reporter links and failures of every stored session, and the Spend breakdown reads its sessions and agents in two queries instead of several per session (#529).

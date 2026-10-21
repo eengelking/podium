@@ -1207,7 +1207,8 @@ newest 100 are kept however old they are. The page says how long entries are kep
 `podiumctl logs` shows what the server did. Each line is an event with a fixed name, so you or an agent can search for it.
 
 In the default text format you see what Podium always printed: its start, reports it rejected, errors and its shutdown.
-The other events below (sessions, reporters, sweeps, Admin changes, refused tokens) print in text only with
+A refused token or certificate prints too, once a minute for the same route, source and reason, with a count of the
+repeats it held back. The other events below (sessions, reporters, sweeps, Admin changes) print in text only with
 `PODIUM_LOG_LEVEL=debug`. The JSON format and the copy sent to VictoriaLogs carry every event at the level in the table.
 
 | Event | Level | When |

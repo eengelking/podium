@@ -749,7 +749,7 @@ mod's logs stay on its machine.
 
 | `PODIUM_LOG_FORMAT` | Output |
 |---|---|
-| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `auth.failed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. |
+| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. `auth.failed` and the `tls.*` events are the exception (#602): they print at their own level (warn) so an Admin sees why a reporter is refused. `foldedInText` folds them: the first line for one event, route, source and reason prints, repeats inside 60 seconds do not, and the next line after the window carries `(N more in the last minute not printed)`. The memory is 1000 kinds, oldest dropped first. Folding is for the text output only; `json` and the shipper get every line. |
 | `json` | The whole record as one line, every event at its own level. The shipper always gets this JSON record. |
 
 **Redaction** (`redact.ts`)
@@ -797,7 +797,7 @@ The shipper runs only when `PODIUM_LOG_SHIP_URL` is set. Request paths never awa
 |---|---|
 | `index.ts` | `server.start` (with the settings, never the token), `server.stop` (then up to 1 s to send what is left) |
 | `requestLog.ts` | `http.request` at debug (method, path without query, route pattern, status, duration, source); `http.aborted` the same for a request the client dropped first |
-| `fleet/routes.ts` | `auth.failed`, `report.rejected`, `report.accepted` at debug, `report.conflict`, `hook.rejected`, `ingest.failed`, `request.failed` |
+| `fleet/routes.ts` | `auth.failed` (printed in text, folded), `report.rejected`, `report.accepted` at debug, `report.conflict`, `hook.rejected`, `ingest.failed`, `request.failed` |
 | `admin/adminRouter.ts` | `admin.<kind>` for each Admin Log entry, with the action, source address and ids, never the entry's text |
 | `fleet/fleet.ts` | `session.started`, `session.ended`, `session.deleted`, `reporter.connected` (the first time an owner, machine and reporter kind is heard, or after a silence longer than `STALE_AFTER_MS`), `reporter.silent` (when a session goes stale), `sweep.removed` |
 | `fleet/sweeper.ts` | `sweeper.failed` |

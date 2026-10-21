@@ -1,5 +1,6 @@
 // The default text output is what the server printed before #140 (the maintainer's decision on #140): the new
-// lifecycle, Admin and refusal events show in text only at debug. This runs the real entry point, sends a normal
+// lifecycle and Admin events show in text only at debug. A refused credential is the exception (#602): it prints
+// at warn, once for a retry. This runs the real entry point, sends a normal
 // report, a rejected one, one with a wrong token and one that ends, lets a session go stale and be dropped, and
 // stops the server, then compares every line it printed.
 import { describe, it, expect } from 'vitest';
@@ -60,6 +61,7 @@ describe('the default text output', () => {
       expect((await post(r)).status).toBe(200);
       expect((await post({ ...r, v: 2 })).status).toBe(400);
       expect((await post(r, 'wrong-token')).status).toBe(401);
+      expect((await post(r, 'wrong-token')).status).toBe(401); // a retry, folded into the line above
       const done = { ...r, session: { ...r.session, id: 'text-output-done', status: 'done' as const, endReason: 'prompt_input_exit' } };
       expect((await post(done)).status).toBe(200);
       await sleep(2500); // the first session goes stale and is dropped; the ended one is swept
@@ -75,6 +77,7 @@ describe('the default text output', () => {
       `Podium server listening on http://127.0.0.1:${port}`,
       `Podium fleet console: http://127.0.0.1:${port}/#/  (database ${db})`,
       'podium: rejected report at $.v: unsupported protocol version',
+      'podium: refused POST /api/fleet/report from 127.0.0.1: wrong token',
       'Received SIGTERM, shutting down',
     ]);
   }, 30_000);

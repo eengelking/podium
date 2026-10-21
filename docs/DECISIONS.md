@@ -598,8 +598,10 @@ fields (`server/src/logging/`, #140).
 - With shipping on, the server makes network calls on its own, and lines are lost when the endpoint is down
   longer than the buffer lasts (it says so once).
 - The default text output stays what it was. The events added with the logger (sessions, reporters, sweeps,
-  Admin changes, refused tokens, conflicts) print in text only at `debug`, which the maintainer chose so
-  that turning nothing on changes nothing. They are still at their own level in `json` and in what is
+  Admin changes, conflicts) print in text only at `debug`, which the maintainer chose so
+  that turning nothing on changes nothing. A refused credential (`auth.failed`) and the `tls.*` events were
+  moved out of that list in #602, folded to one line a minute, because an Admin reading a plain log to find
+  out why a reporter is offline saw nothing. They are still at their own level in `json` and in what is
   shipped, so someone reading plain text at the default level sees less than an agent reading VictoriaLogs.
 - Field names are checked against a deny list and strings are scrubbed, but a new field still needs its
   author to think about what it carries.

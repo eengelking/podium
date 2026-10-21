@@ -3759,8 +3759,11 @@ server makes to a site of its own choosing, and the only one that does not answe
 - `PODIUM_LOG_LEVEL` is `debug`, `info` (default), `warn` or `error`.
 - `PODIUM_LOG_FORMAT` is `text` or `json`:
   - `text` (default) prints the message alone, as before. The events added in #140, such as `session.*`,
-    `reporter.*`, `admin.*`, `sweep.removed` and `auth.failed`, print in text only at `debug`, so the default
-    output is unchanged.
+    `reporter.*`, `admin.*` and `sweep.removed`, print in text only at `debug`, so the default output is
+    unchanged. A refused credential (`auth.failed`) and the `tls.*` events print at their own level, so an
+    Admin can see why a reporter is refused. Repeats of one event, route, source and reason within 60 seconds
+    are folded into the first line, and the next line says how many were held back. `json` and the shipper
+    are not folded.
   - `json` prints one object per line with `timestamp`, `level`, `message`, `event`, `service`, `host`,
     `version` and the event's fields.
 - Access logging is one `http.request` line per request at `debug`, with no query string, header or body. A
