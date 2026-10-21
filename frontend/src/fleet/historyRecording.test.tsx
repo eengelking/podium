@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { HistoryView } from "./HistoryView";
-import { makeAgent, makeRecording, makeSession } from "./fixtures";
+import { makeAgent, makeRecording, makeSession, makeState } from "./fixtures";
 import type { RespondApi } from "./respondApi";
 import type { HistoryRow } from "./types";
 
@@ -46,6 +46,31 @@ describe("History and a kept recording", () => {
     fireEvent.click(link);
     expect(await screen.findByRole("button", { name: /Back to/ })).toBeInTheDocument();
     expect(window.location.hash).toContain("open=s1");
+  });
+
+  it("reads the day again when the person signs in or out, so the kept marker follows the sign-in", async () => {
+    let signed = false;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(url);
+      const sessions = [signed ? { ...row, recording: { keptUntil: KEPT } } : row];
+      return new Response(JSON.stringify({ day: "2026-10-10", sessions, total: 1, page: 1, pageSize: 50 }), { status: 200 });
+    }));
+    const quiet = { onerror: null, readyState: 1, addEventListener() {}, close() {} };
+    const api = {
+      me: vi.fn(async () => ({ enabled: true, signedIn: signed, name: signed ? "Ed" : null, admin: false })),
+      signIn: vi.fn(async () => { signed = true; return { ok: true, name: "Ed", admin: false }; }),
+    } as unknown as RespondApi;
+    render(<HistoryView initialDay="2026-10-10" respondApi={api} fleetOptions={{ open: () => quiet, fetchState: async () => makeState({ features: { "session-recording": true } }) }} />);
+    await screen.findByRole("button", { name: "api-refactor" });
+    expect(screen.queryByText(/recording kept/)).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Name"), { target: { value: "Ed" } });
+    fireEvent.change(within(dialog).getByLabelText("Token"), { target: { value: "tok" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("button", { name: "recording kept until 2026-10-21 03:10" })).toBeInTheDocument();
+    expect(calls.filter((c) => c.includes("/history?day=")).length).toBeGreaterThan(1);
   });
 
   it("says a recording is kept when it is not known until when", async () => {
