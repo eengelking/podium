@@ -270,7 +270,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
   const fetchFn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "https://x");
     const method = init?.method ?? "GET";
-    const path = url.pathname.replace("/api/admin", "");
+    const path = url.pathname.replace(/^.*\/api\/admin/, "");
     state.calls.push(`${method} ${path}${url.search}`);
     if (path === "/session") return json(200, { enabled: state.enabled, unlocked: state.unlocked, version: "1.1.0", build: state.build });
     if (path === "/unlock/from-respond") {

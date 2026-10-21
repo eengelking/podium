@@ -847,7 +847,8 @@ Under **Create user**, type a name and choose Create user.
   move in it and Escape closes it; an action that does not apply is greyed out.
 - **Rotate token** gives a person a new token and stops the old one, and shows it once. Their reporter keeps working.
 - **Revoke token** refuses their console sign-in from the next request, and with TLS on their certificate too, so a
-  person who is cut off cannot go on with the other credential. A revoked person's row offers **Issue new token**.
+  person who is cut off cannot go on with the other credential. A revoked person's row offers **Issue new token**, which
+  brings back the console sign-in only: with TLS on, their reporter stays refused until you choose **Reissue config**.
 - **Revoke certificate** stops their reporter at the next report and leaves the console sign-in. **Revoke all** does both.
   **Reissue config** makes a new certificate and key, stops the old certificate, and shows the new file once. Each asks
   first, in a row under the person that says what will happen.

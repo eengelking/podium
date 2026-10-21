@@ -22,6 +22,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -137,6 +138,29 @@ describe("the Actions menu", () => {
     }
   });
 
+  it("focuses its items without scrolling, so opening it cannot scroll the page and close it (#629)", async () => {
+    const s = fakeServer({ people: 1 });
+    s.tls = true;
+    s.people[0]!.certificate = { notAfter: day(71), revoked: false };
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    const details = within(rowOf("person-000")).getByText("Actions", { selector: "summary" }).closest("details")!;
+    act(() => {
+      details.open = true;
+      details.dispatchEvent(new Event("toggle"));
+    });
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    const menu = within(rowOf("person-000")).getByRole("menu");
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    fireEvent.keyDown(menu, { key: "End" });
+    fireEvent.keyDown(menu, { key: "Home" });
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(focus.mock.calls.every((c) => (c[0] as FocusOptions | undefined)?.preventScroll === true)).toBe(true);
+    focus.mockRestore();
+  });
+
   it("offers Issue new token to a person whose token is revoked, and Reissue config to one whose certificate is gone", async () => {
     const s = fakeServer({ people: 1 });
     s.tls = true;
@@ -214,6 +238,41 @@ describe("the confirmation row", () => {
     choose("person-000", "Rotate token");
     expect(confirmRow()).toHaveTextContent("Their reporter keeps working.");
     expect(document.querySelectorAll("tr.confirmrow")).toHaveLength(1);
+  });
+});
+
+describe("Issue new token (#629)", () => {
+  const body = "A new token replaces the revoked one and is shown once. They can sign in to the console with it.";
+  const ask = async (setup: (s: ReturnType<typeof fakeServer>) => void) => {
+    const s = fakeServer({ people: 1 });
+    s.people[0]!.revokedAt = 5;
+    setup(s);
+    render(<AdminView />);
+    await unlock();
+    await screen.findByText("person-000");
+    choose("person-000", "Issue new token");
+    return confirmRow();
+  };
+
+  it("says the reporter stays refused until Reissue config, when TLS is on and the certificate is revoked", async () => {
+    const row = await ask((s) => {
+      s.tls = true;
+      s.people[0]!.certificate = { notAfter: day(40), revoked: true };
+    });
+    expect(row).toHaveTextContent(`${body} Their reporter stays refused until you choose Reissue config.`);
+  });
+
+  it("leaves the wording as it was with TLS off, or when the certificate is live", async () => {
+    const off = await ask(() => {});
+    expect(off.textContent).toContain(body);
+    expect(off.textContent).not.toContain("Reissue config");
+    cleanup();
+    const live = await ask((s) => {
+      s.tls = true;
+      s.people[0]!.certificate = { notAfter: day(40), revoked: false };
+    });
+    expect(live.textContent).toContain(body);
+    expect(live.textContent).not.toContain("Reissue config");
   });
 });
 
@@ -307,6 +366,17 @@ describe("the show-once box", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create user" }));
     expect(await screen.findByText(/Podium could not make the certificate/)).toBeInTheDocument();
     expect(screen.getByText(/token: pdm_aaaaaaaaaaaa_/)).toBeInTheDocument();
+  });
+
+  it("downloads from under the base Admin was given (#629)", async () => {
+    const s = fakeServer({ people: 1 });
+    s.tls = true;
+    s.people[0]!.certificate = { notAfter: day(71), revoked: false };
+    render(<AdminView base="/proxy/api/admin" />);
+    await unlock();
+    await screen.findByText("person-000");
+    choose("person-000", "Download certificate");
+    expect(saved).toEqual([{ href: expect.stringMatching(/\/proxy\/api\/admin\/people\/1\/certificate\.pem$/), download: "" }]);
   });
 
   it("downloads a person's public certificate from the row, and keeps the key out of it", async () => {
