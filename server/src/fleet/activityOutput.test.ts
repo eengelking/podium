@@ -126,6 +126,89 @@ describe('the reply and the feed', () => {
   });
 });
 
+describe('how a call ended, without output (#598)', () => {
+  const ended = (at: number) => bash(at, { done: true, exitCode: 1, failed: true });
+  const STATUS = { done: true, exitCode: 1, failed: true };
+
+  it('serves done, failed and exitCode with the flag and the option off, and no output', async () => {
+    const s = server({ output: false });
+    await s.send(s.live([], false));
+    await s.feed();
+    clock += 10;
+    await s.send(s.live([bash(clock + 1)], false));
+    await s.send(s.live([{ ...withOutput(clock + 1) }], false));
+    const e = (await s.feed()).body.entries;
+    expect(e).toHaveLength(1);
+    expect(e[0]).toMatchObject({ seq: 1, command: 'npm test -- --run', ...STATUS });
+    expect(e[0]).not.toHaveProperty('output');
+    expect(JSON.stringify(e)).not.toContain(SECRET);
+  });
+
+  it('attaches the status to a call held without it, keeping its place and number', async () => {
+    const s = server();
+    await s.send(s.live([]));
+    await s.feed();
+    clock += 10;
+    await s.send(s.live([bash(clock + 1)]));
+    await s.send(s.live([ended(clock + 1)]));
+    const e = (await s.feed()).body.entries;
+    expect(e).toHaveLength(1);
+    expect(e[0]).toMatchObject({ seq: 1, ...STATUS });
+    expect(e[0]).not.toHaveProperty('output');
+  });
+
+  it('does not hold a call from before the lease began, status or not', async () => {
+    const s = server();
+    await s.send(s.live([]));
+    await s.feed();
+    await s.send(s.live([ended(T0 - 10_000)]));
+    expect((await s.feed()).body.entries).toEqual([]);
+  });
+
+  it('keeps the status when the activity-output flag goes off, and drops the output', async () => {
+    const s = server();
+    await s.send(s.live([]));
+    await s.feed();
+    clock += 10;
+    await s.send(s.live([bash(clock + 1)]));
+    await s.send(s.live([withOutput(clock + 1)]));
+    s.fleet.features.setFeature('activity-output', false);
+    const e = (await s.feed()).body.entries;
+    expect(e[0]).toMatchObject(STATUS);
+    expect(JSON.stringify(e)).not.toContain(SECRET);
+  });
+
+  it('keeps the status when the session turns the option off', async () => {
+    const s = server();
+    await s.send(s.live([]));
+    await s.feed();
+    clock += 10;
+    await s.send(s.live([withOutput(clock + 1)]));
+    await s.send(s.live([ended(clock + 1)], false));
+    const e = (await s.feed()).body.entries;
+    expect(e[0]).toMatchObject(STATUS);
+    expect(e[0]).not.toHaveProperty('output');
+  });
+
+  it('is not stored: the history holds the command only, and a secret in the output of a status-only call is never kept', async () => {
+    const s = server();
+    await s.send(s.live([]));
+    await s.feed();
+    clock += 10;
+    await s.send(s.live([bash(clock + 1)], false));
+    await s.send(s.live([withOutput(clock + 1)], false));
+    expect((await s.feed()).body.entries[0]).toMatchObject(STATUS);
+    expect(JSON.stringify(s.fleet.state())).not.toContain(SECRET);
+    expect(s.seen.join('')).not.toContain(SECRET);
+    expect(lines.join('\n')).not.toContain(SECRET);
+    expect(raw()).not.toContain(SECRET);
+    expect(raw()).toContain('npm test -- --run');
+    const page = s.fleet.activityHistory.page(fixtureReport().session.id, AID, null, 20).entries;
+    expect(page).toEqual([expect.objectContaining({ command: 'npm test -- --run' })]);
+    for (const k of ['done', 'failed', 'exitCode', 'output']) expect(page[0]).not.toHaveProperty(k);
+  });
+});
+
 describe('where output goes', () => {
   async function withSecret() {
     const s = server();

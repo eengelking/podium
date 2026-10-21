@@ -282,12 +282,12 @@ describe('ActivityStore with a Bash command and its output (#431)', () => {
     expect(got(s)).toEqual([{ seq: 1, at: T0 + 1, kind: 'tool', text: `Read f${T0 + 1}` }]);
   });
 
-  it('discards output while the Admin flag is off or the reporter option is not on, and keeps the command', () => {
+  it('discards output while the Admin flag is off or the reporter option is not on, and keeps the command and how the call ended (#598)', () => {
     const s = make();
     s.watch(sid, aid, 5);
     outputOn = false;
     s.ingest(rep([bash(T0 + 1, { output: SECRET, done: true, exitCode: 0, failed: false })]), 0);
-    expect(got(s)[0]).toEqual({ seq: 1, at: T0 + 1, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test' });
+    expect(got(s)[0]).toEqual({ seq: 1, at: T0 + 1, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test', done: true, exitCode: 0 });
     outputOn = true;
     for (const opt of [false, 'absent'] as const) {
       const s2 = make();

@@ -51,8 +51,8 @@ export interface ActivityEntryView {
   failed?: boolean;
 }
 
-/** The fields of an entry that hold a call's output and how it ended: held on the lease only. */
-const OUTPUT_KEYS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+/** The fields of an entry that hold a call's output: held on the lease only, and only while the flag and the option are on. How a call ended (`done`, `failed`, `exitCode`) is not output (#598). */
+const OUTPUT_KEYS = ['output', 'outputCut'] as const;
 
 /** An entry as the lease holds it: a Podium entry also keeps the delivery it is about, to update it later. */
 interface HeldEntry extends ActivityEntryView {
@@ -230,7 +230,7 @@ export class ActivityStore {
       // it keeps its place and number, and the repeat is not read as a new one. A call from before the lease began is not held.
       const held = e.id === undefined ? undefined : lease.entries.find((x) => x.kind === e.kind && x.id === e.id);
       if (held) {
-        Object.assign(held, held.command === undefined ? commandOf(e) : {}, keepOutput ? outputOf(e) : {});
+        Object.assign(held, held.command === undefined ? commandOf(e) : {}, statusOf(e), keepOutput ? outputOf(e) : {});
         continue;
       }
       if (e.at - skewMs < lease.since) continue;
@@ -239,7 +239,7 @@ export class ActivityStore {
       const last = own[own.length - 1];
       if (last && e.at < last.at) continue;
       if (last && e.at === last.at && lease.entries.some((x) => x.kind !== 'podium' && x.at === e.at && x.kind === e.kind && x.text === e.text)) continue;
-      lease.entries.push({ seq: ++lease.seq, at: e.at, kind: e.kind, text: e.text, ...(e.id === undefined ? {} : { id: e.id }), ...commandOf(e), ...(keepOutput ? outputOf(e) : {}) });
+      lease.entries.push({ seq: ++lease.seq, at: e.at, kind: e.kind, text: e.text, ...(e.id === undefined ? {} : { id: e.id }), ...commandOf(e), ...statusOf(e), ...(keepOutput ? outputOf(e) : {}) });
     }
     if (lease.entries.length > LIMITS.activityEntries) lease.entries.splice(0, lease.entries.length - LIMITS.activityEntries);
   }
@@ -285,12 +285,19 @@ function commandOf(e: ActivityEntry): Pick<ActivityEntryView, 'command' | 'comma
   return { command: e.command.slice(0, LIMITS.activityDetail), ...(e.commandCut === true ? { commandCut: true } : {}) };
 }
 
-/** A tool entry's output and how the call ended, within the protocol's limit. */
+/** A tool entry's output, within the protocol's limit. */
 function outputOf(e: ActivityEntry): Partial<ActivityEntryView> {
   if (e.kind !== 'tool') return {};
   const out: Partial<ActivityEntryView> = {};
   if (typeof e.output === 'string') out.output = e.output.slice(0, LIMITS.activityDetail);
   if (e.outputCut === true) out.outputCut = true;
+  return out;
+}
+
+/** How a tool call ended: held and served with the feed, with or without output (#598). */
+function statusOf(e: ActivityEntry): Partial<ActivityEntryView> {
+  if (e.kind !== 'tool') return {};
+  const out: Partial<ActivityEntryView> = {};
   if (e.done === true) out.done = true;
   if (typeof e.exitCode === 'number') out.exitCode = e.exitCode;
   if (e.failed === true) out.failed = true;
