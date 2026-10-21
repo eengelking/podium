@@ -13,9 +13,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { PeopleStore, PersonRow } from './fleet/people.js';
 import type { Logger } from './logging/logger.js';
-import { describeCert, TlsError } from './tlsCa.js';
+import { TlsError } from './tlsCa.js';
 import type { ClientSocket, PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
-import { clientConfig, openssl, randomSerial, REPORTER_DAYS, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
+import { personSubject, REPORTER_DAYS, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
 const DAY_MS = 86_400_000;
 /** A person's certificate is renewed at most once in this long (#612), unless the one presented has expired. */
@@ -57,23 +57,12 @@ function checkPublicKey(pem: unknown): string {
 
 /** Makes a `clientAuth` certificate for the key given, signed by the CA in `dir`. Nothing is left on disk. */
 export async function issueForPublicKey(o: IssueForKeyOptions): Promise<Omit<IssuedPersonCert, 'key'>> {
-  if (!/^[0-9a-f]{12}$/.test(o.keyId)) throw new TlsError('the token key id is not 12 hex digits');
   const pub = checkPublicKey(o.publicKey);
-  const bin = o.openssl ?? 'openssl';
-  const caCrt = path.join(o.dir, 'ca.crt');
-  const caKey = path.join(o.dir, 'ca.key');
-  if (!fs.existsSync(caCrt) || !fs.existsSync(caKey)) throw new TlsError(`${o.dir} has no CA to sign with`);
-  const work = fs.mkdtempSync(path.join(o.dir, '.new-'));
-  try {
-    fs.chmodSync(work, 0o700);
-    fs.writeFileSync(path.join(work, 'client.cnf'), clientConfig);
+  const { cert, info, issuerFingerprint } = await signClientCert(o, async (work) => {
     fs.writeFileSync(path.join(work, 'client.pub'), pub);
-    await openssl(bin, ['x509', '-new', '-force_pubkey', 'client.pub', '-subj', `/CN=pdm_${o.keyId}/O=podium`, '-CA', caCrt, '-CAkey', caKey, '-sha256', '-days', String(o.days ?? REPORTER_DAYS), '-set_serial', randomSerial(), '-extfile', 'client.cnf', '-extensions', 'v3_client', '-out', 'client.crt'], work);
-    const cert = fs.readFileSync(path.join(work, 'client.crt'), 'utf8');
-    return { cert, info: describeCert(cert), issuerFingerprint: new X509Certificate(fs.readFileSync(caCrt, 'utf8')).fingerprint256 };
-  } finally {
-    fs.rmSync(work, { recursive: true, force: true });
-  }
+    return { input: ['-new', '-force_pubkey', 'client.pub', '-subj', personSubject(o.keyId)] };
+  });
+  return { cert, info, issuerFingerprint };
 }
 
 /** The parts of a `tls.TLSSocket` this reads: `raw` is the certificate's DER bytes, present even when it did not verify. */

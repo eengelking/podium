@@ -663,7 +663,7 @@ it up. A live certificate must be `socket.authorized`. An expired one is accepte
 `CERT_HAS_EXPIRED`, the bytes equal the stored certificate, its signature verifies under the public key of the CA whose
 fingerprint is on the row, and it expired no more than `tls.reporter.graceDays` ago; the error code alone is what a
 forgery with the same subject and serial also shows. The body is the new public key (EC P-256 only);
-`issueForPublicKey` signs it with `openssl x509 -new -force_pubkey`, and `PersonCertStore.add` stores it without revoking
+`issueForPublicKey` signs it with `openssl x509 -new -force_pubkey` through `signClientCert` (`tlsPeople.ts`), the one function that makes the work folder, writes the `clientAuth` extension file, picks the serial, signs and reads the dates back for both it and `issuePersonCert`, which differ only in how the public key reaches `openssl x509`, and `PersonCertStore.add` stores it without revoking
 the old row, so both work until the old one expires (`replace`, used by an Admin reissue, still revokes). The helper
 (`helper.mjs`) renews at start, before a request, and on a 10 minute timer, one renewal at a time per process and one at a
 time per file through `<file>.lock` (O_EXCL, naming its owner; one older than a minute is taken over under a second O_EXCL lock, `<file>.lock.takeover`, with a fresh reading after winning it, so two waiters cannot both remove it; a holder refreshes the lock's time every 20 s while it runs and removes it at the end only if it still names it). Under the lock it re-reads the file first and takes a
