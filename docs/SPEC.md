@@ -1961,6 +1961,12 @@ other route the mod calls can be made over mutual TLS, through the helper ([5.9]
   the reporter's new public key (no Node API builds a CSR), and the response carries a new certificate for it.
   The helper writes the new certificate and the CA(s) in one atomic write, so the file never holds one without
   the other. The reporter renews when 30 days of the certificate are left.
+- **Renewal limit.** A person's certificate is renewed at most once an hour. While the person's newest live
+  certificate was issued less than an hour ago, the server answers `429` with a `Retry-After` header (seconds, at
+  most 3600) and the code `TOO_SOON`, before it signs anything or stores a row, and a second request that arrives
+  while one is being signed counts the same way. The window is fixed and is not a setting. An expired certificate
+  inside its grace is never limited, since it has no other way in. The reporter treats a `429` as a wait and not a
+  refusal: it goes on with the old certificate and asks again after `Retry-After`, and never sooner than a minute.
 - **Grace.** A certificate that expired no more than `tls.reporter.graceDays` ago can still renew. The server
   verifies its signature against the CA key (`X509Certificate.verify`) and matches its exact fingerprint to a
   stored one. It never trusts `authorizationError === 'CERT_HAS_EXPIRED'` with a serial, since forged
@@ -2280,7 +2286,7 @@ need the unlocked Admin session like the rest of the Admin API.
 
 | Method and path | Purpose |
 |---|---|
-| `POST /api/reporter/renew` | The reporter renews its certificate ([6](#authenticating-by-certificate-577)). Authenticated by the client certificate. Body: the new public key. Reply: the new certificate, and for a planned CA rotation the added CA and its cross certificate. |
+| `POST /api/reporter/renew` | The reporter renews its certificate ([6](#authenticating-by-certificate-577)). Authenticated by the client certificate. Body: the new public key. Reply: the new certificate, and for a planned CA rotation the added CA and its cross certificate. `429` with `Retry-After` when the person's certificate was renewed less than an hour ago. |
 | `GET /api/admin/certificates` | The CA, the serving certificate, their dates and fingerprint, the names, the settings, the last renewal failure and the previous certificates. |
 | `PUT /api/admin/certificates` | Change the `tls.*` settings ([7.7](#77-hardening)). A value outside its range is a `400` that names the range. |
 | `POST /api/admin/certificates/renew` | Renew the serving certificate now. |

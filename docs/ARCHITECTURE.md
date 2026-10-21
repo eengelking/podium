@@ -671,7 +671,7 @@ newer certificate another session wrote instead of renewing again, checks the an
 the file already holds, and replaces the file with `writeAtomic` (a temporary file in the same folder, fsync, rename, mode
 0600). A refusal is remembered until the file changes, and a request made with an expired certificate then gets
 `X-Podium-Helper-Error: CERT_PAST_GRACE` (or `CERT_RENEWAL_REFUSED`) without going upstream; a failure that may pass is retried
-after a minute. The two settings are `TlsSettingsStore.getReporter()`.
+after a minute. `authenticate` also limits renewal to once an hour per person (`MIN_RENEW_INTERVAL_MS`): while the newest live certificate was issued less than an hour ago it answers 429 with `Retry-After` and `TOO_SOON` before any signing, except for an expired certificate inside its grace. The helper sets its next try from `Retry-After` (`retryDelayMs`). The two settings are `TlsSettingsStore.getReporter()`.
 
 **The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
 `$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a

@@ -368,7 +368,7 @@ describe('helper.mjs: classifyError', () => {
 const DAY = 86_400_000;
 
 /** A real Podium renewal route behind a real mutual-TLS listener, and a person whose certificate has the dates given. */
-async function renewing(dates: { from: number; to: number } | { days: number }, o: { graceDays?: number; renewStatus?: number } = {}) {
+async function renewing(dates: { from: number; to: number } | { days: number }, o: { graceDays?: number; renewStatus?: number; retryAfter?: string } = {}) {
   const p = await pki();
   const db = openDb(':memory:');
   const people = new PeopleStore(db);
@@ -388,8 +388,14 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
   p.person = { cert, key, info };
   const seen: string[] = [];
   const app = express();
-  app.use('/api/reporter', (req, res, next) => (o.renewStatus ? void res.status(o.renewStatus).json({ ok: false }) : next()));
-  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: Date.now, settings: () => ({ lifetimeDays: 90, graceDays: o.graceDays ?? 30 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
+  let renewCalls = 0;
+  app.use('/api/reporter', (req, res, next) => {
+    renewCalls++;
+    if (!o.renewStatus) return next();
+    if (o.retryAfter) res.set('retry-after', o.retryAfter);
+    res.status(o.renewStatus).json({ ok: false, code: o.renewStatus === 429 ? 'TOO_SOON' : undefined });
+  });
+  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90, graceDays: o.graceDays ?? 30 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
   app.get('/api/fleet/ping', (req, res) => {
     const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
     seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');
@@ -397,7 +403,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
   });
   const url = await upstream(p, (req, res) => app(req, res), { requireClient: false });
   const live = () => certs.listFor(person.id).filter((c) => c.revokedAt === null);
-  return { p, url, certs, person, seen, live, original: new X509Certificate(cert).fingerprint256 };
+  return { p, url, certs, person, seen, live, calls: () => renewCalls, original: new X509Certificate(cert).fingerprint256 };
 }
 
 const partsOfFile = (file: string) => {
@@ -510,6 +516,17 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
+  }, 30_000);
+
+  it('a 429 is a wait, not a refusal: the request goes through, the file is left alone, and it does not ask again before Retry-After', async () => {
+    const r = await renewing({ days: 1 }, { renewStatus: 429, retryAfter: '3600' });
+    const original = configFor(r.p, r.url);
+    const h = await runHelper(original, r.url, DUE);
+    await until(() => r.calls() >= 1, 'it asked once');
+    for (let i = 0; i < 3; i++) expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    await new Promise((res) => setTimeout(res, 300));
+    expect(r.calls()).toBe(1);
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
   }, 30_000);
 
   it('two sessions renewing together leave one valid file and one new certificate', async () => {
@@ -659,6 +676,17 @@ describe('helper.mjs: withLock on a stale lock (#611)', () => {
       fs.writeFileSync(lock, 'another-owner');
     });
     expect(fs.readFileSync(lock, 'utf8')).toBe('another-owner');
+  });
+});
+
+describe('helper.mjs: retryDelayMs', () => {
+  it('waits as long as Retry-After says, within the usual retry and a day', async () => {
+    const { retryDelayMs } = (await import(/* @vite-ignore */ HELPER)) as { retryDelayMs: (h: unknown, usual?: number) => number };
+    expect(retryDelayMs('3000', 60_000)).toBe(3_000_000);
+    expect(retryDelayMs(['120'], 60_000)).toBe(120_000);
+    expect(retryDelayMs('5', 60_000)).toBe(60_000);
+    expect(retryDelayMs('99999999', 60_000)).toBe(86_400_000);
+    for (const bad of [undefined, '', 'soon', '-5', '0', 'NaN']) expect(retryDelayMs(bad, 60_000)).toBe(60_000);
   });
 });
 

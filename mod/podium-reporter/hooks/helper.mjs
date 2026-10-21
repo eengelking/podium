@@ -222,6 +222,12 @@ export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LO
   }
 }
 
+/** How long to wait after a 429, from its Retry-After header in seconds: never less than the usual retry, never more than a day. */
+export function retryDelayMs(header, usual = RENEW_RETRY_MS) {
+  const secs = Number(Array.isArray(header) ? header[0] : header);
+  return Number.isFinite(secs) && secs > 0 ? Math.min(Math.max(secs * 1000, usual), DAY_MS) : usual;
+}
+
 /** POSTs JSON to the server over the agent, which holds the person's certificate. Resolves to `{ status, json }`. */
 function postJson(agent, target, pathname, body, timeoutMs) {
   return new Promise((resolve, reject) => {
@@ -235,9 +241,9 @@ function postJson(agent, target, pathname, body, timeoutMs) {
         res.on('error', reject);
         res.on('end', () => {
           try {
-            resolve({ status: res.statusCode ?? 0, json: text ? JSON.parse(text) : {} });
+            resolve({ status: res.statusCode ?? 0, json: text ? JSON.parse(text) : {}, retryAfter: res.headers['retry-after'] });
           } catch {
-            resolve({ status: res.statusCode ?? 0, json: {} });
+            resolve({ status: res.statusCode ?? 0, json: {}, retryAfter: res.headers['retry-after'] });
           }
         });
       },
@@ -343,6 +349,11 @@ function main(configPath, socketPath, serverUrl) {
       const answer = await postJson(agent, target, '/api/reporter/renew', { publicKey: spki }, UPSTREAM_TIMEOUT_MS);
       if (answer.status === 401 && answer.json?.code) {
         refused = { code: answer.json.code === 'PAST_GRACE' ? 'CERT_PAST_GRACE' : 'CERT_RENEWAL_REFUSED', message: String(answer.json.error ?? answer.json.code) };
+        return;
+      }
+      if (answer.status === 429) {
+        // Renewed less than an hour ago (by another session, most likely). Not a refusal: wait as long as the server says.
+        retryAt = Date.now() + retryDelayMs(answer.retryAfter);
         return;
       }
       if (answer.status !== 200 || typeof answer.json?.cert !== 'string') throw new Error(`the server answered ${answer.status}`);

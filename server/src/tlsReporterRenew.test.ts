@@ -52,7 +52,8 @@ async function setup(o: { graceDays?: number; lifetimeDays?: number } = {}) {
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
   let listener: TlsListener | null = null;
-  let clock = () => Date.now();
+  // Two hours ahead by default, so a certificate the test has just issued is past the renewal limit; the limit tests use the real clock.
+  let clock = () => Date.now() + 2 * 3_600_000;
   let issuerOn = true;
   let opensslBin: string | undefined;
   const settings = { lifetimeDays: o.lifetimeDays ?? REPORTER_DEFAULTS.lifetimeDays, graceDays: o.graceDays ?? REPORTER_DEFAULTS.graceDays };
@@ -98,14 +99,14 @@ async function setup(o: { graceDays?: number; lifetimeDays?: number } = {}) {
   };
 
   const post = (c: { cert: string; key: string } | null, body: unknown, route = '/api/reporter/renew') =>
-    new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+    new Promise<{ status: number; body: Record<string, unknown>; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
       const data = JSON.stringify(body);
       const req = https.request(
         { host: '127.0.0.1', port, ca, servername: 'localhost', method: 'POST', path: route, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, ...(c ?? {}) },
         (res) => {
           let text = '';
           res.on('data', (x) => (text += x));
-          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text ? (JSON.parse(text) as Record<string, unknown>) : {} }));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: text ? (JSON.parse(text) as Record<string, unknown>) : {}, headers: res.headers }));
         },
       );
       req.on('error', reject);
@@ -316,6 +317,74 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     expect(res.status).toBe(401);
     expect(res.body.cert).toBeUndefined();
     expect(s.certs.listFor(person.id)).toHaveLength(1);
+  });
+
+  describe('the limit: a certificate is renewed at most once an hour (#612)', () => {
+    it('refuses a second renewal inside the hour with 429, Retry-After and no new row', async () => {
+      const s = await setup();
+      s.setClock(() => Date.now());
+      const { person, issued } = await s.issueFor('Dana');
+      const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
+      expect(res.status).toBe(429);
+      expect(res.body).toMatchObject({ ok: false, code: 'TOO_SOON' });
+      expect(String(res.body.error)).toMatch(/hour/);
+      expect(res.headers['retry-after']).toMatch(/^\d+$/);
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(3500);
+      expect(Number(res.headers['retry-after'])).toBeLessThanOrEqual(3600);
+      expect(s.certs.listFor(person.id)).toHaveLength(1);
+      expect(s.lines.some((l) => l.event === 'tls.reporter_renew_refused' && l.code === 'TOO_SOON')).toBe(true);
+    });
+
+    it('allows the renewal once the hour has passed, and then limits the next one again', async () => {
+      const s = await setup();
+      let offset = 0;
+      s.setClock(() => Date.now() + offset);
+      const { person, issued } = await s.issueFor('Dana');
+      offset = 61 * 60_000;
+      const first = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
+      expect(first.status).toBe(200);
+      // the new certificate counts: asking again straight away is limited
+      const second = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
+      expect(second.status).toBe(429);
+      expect(s.certs.listFor(person.id)).toHaveLength(2);
+    });
+
+    it('never asks for more than an hour, even if the server clock was stepped back', async () => {
+      const s = await setup();
+      const { issued } = await s.issueFor('Dana');
+      s.setClock(() => Date.now() - 24 * 3_600_000);
+      const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
+      expect(res.status).toBe(429);
+      expect(Number(res.headers['retry-after'])).toBeLessThanOrEqual(3600);
+    });
+
+    it('never blocks an expired certificate inside its grace', async () => {
+      const s = await setup();
+      s.setClock(() => Date.now());
+      const e = s.issueDated('Dana', Date.now() - 100 * DAY, Date.now() - 5 * DAY);
+      expect((await s.post(e.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(200);
+    });
+
+    it('lets only one of several renewals sent at the same moment through', async () => {
+      const s = await setup();
+      const { person, issued } = await s.issueFor('Dana');
+      const results = await Promise.all([1, 2, 3, 4].map(() => s.post(issued, { publicKey: pubPem(newKey().publicKey) })));
+      expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 429)).toHaveLength(3);
+      expect(s.certs.listFor(person.id)).toHaveLength(2);
+    });
+
+    it('limits each person on their own', async () => {
+      const s = await setup();
+      s.setClock(() => Date.now());
+      const a = await s.issueFor('Dana');
+      const b = await s.issueFor('Eve');
+      expect((await s.post(a.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(429);
+      expect((await s.post(b.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(429);
+      s.setClock(() => Date.now() + 2 * 3_600_000);
+      expect((await s.post(a.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(200);
+      expect(s.certs.listFor(b.person.id)).toHaveLength(1);
+    });
   });
 
   it('refuses a revoked certificate', async () => {
