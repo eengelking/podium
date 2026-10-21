@@ -104,11 +104,11 @@ interface LiveEntry {
   status: SessionStatusView | null;
 }
 
-/** When a session ended: dropped, else ended, else last seen. */
 /** Whether the viewer asking may know that a session has a recording (its owner or an Admin, signed in). */
 export type RecordingKnown = (row: SessionRow) => boolean;
 
-const endedAtOf =(row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
+/** When a session ended: dropped, else ended, else last seen. */
+const endedAtOf = (row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
 
 export class Fleet {
   readonly hub = new SseHub();

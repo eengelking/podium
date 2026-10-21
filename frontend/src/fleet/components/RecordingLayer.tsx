@@ -63,7 +63,9 @@ export function RecordingLayer({ s, now: shownAt }: { s: SessionView; now: numbe
     setConfirm(null);
     setErr(null);
   }, [s.id]);
-  if (!v || gone === s.id) return null;
+  // A recording deleted here is hidden; one started again afterwards (a new `startedAt`) is a new recording and shows at once.
+  const key = `${s.id}:${v?.startedAt ?? ""}`;
+  if (!v || gone === key) return null;
 
   const can = !!respond && mayRecord(s, respond.me);
   const kept = v.state !== "recording";
@@ -92,7 +94,7 @@ export function RecordingLayer({ s, now: shownAt }: { s: SessionView; now: numbe
     }
   };
   const stop = () => void run("stop the recording", () => respond!.api.recordingStop!(s.id));
-  const remove = () => void run("delete the recording", () => respond!.api.recordingDelete!(s.id), () => setGone(s.id));
+  const remove = () => void run("delete the recording", () => respond!.api.recordingDelete!(s.id), () => setGone(key));
 
   const until = v.keptUntil !== null ? fmtWhen(v.keptUntil, now) : null;
   let text: ReactNode;

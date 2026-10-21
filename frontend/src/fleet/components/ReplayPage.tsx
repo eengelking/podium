@@ -180,6 +180,8 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
   const [delErr, setDelErr] = useState<string | null>(null);
   const [fetchedName, setFetchedName] = useState<string | null>(null);
   const list = useRef<HTMLOListElement>(null);
+  // Counts the loads of page one: an older page that comes back after the loop filter changed belongs to rows no longer shown.
+  const epoch = useRef(0);
 
   // The name of a session the fleet no longer holds (one that ended) comes from its stored page.
   useEffect(() => {
@@ -204,6 +206,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
   const fetchPage = api?.recordingPage;
   useEffect(() => {
     let live = true;
+    epoch.current++;
     setLoad({ state: "loading" });
     setCur(0);
     if (!fetchPage) {
@@ -248,8 +251,10 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
     if (load.state !== "ok" || load.olderBefore === null || !fetchPage) return;
     setOlderBusy(true);
     setOlderErr(null);
+    const mine = epoch.current;
     try {
       const p = await fetchPage(id, { before: load.olderBefore, loop: filter || null });
+      if (epoch.current !== mine) return;
       const before = buildItems(load.rows).length;
       setLoad({ ...load, rows: [...p.entries, ...load.rows], olderBefore: p.olderBefore, total: p.total });
       // Rows added above push the one the slider is on down by as many places as they add.

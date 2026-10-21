@@ -593,8 +593,7 @@ export class SessionRecordings {
     return { entries: rows.map(viewOf), olderBefore, total };
   }
 
-  totals(): RecordingTotals {
-    const rows = this.all();
+  totals(rows: RecRow[] = this.all()): RecordingTotals {
     return { recordings: rows.length, bytes: rows.reduce((a, r) => a + r.bytes, 0), running: rows.filter((r) => this.stateOf(r) === 'recording').length };
   }
 
@@ -605,7 +604,8 @@ export class SessionRecordings {
   /** The Admin's Recordings table: running or kept, a page at a time. `state` and `q` (name, id or owner) narrow it. */
   adminList(opts: { page: number; pageSize: number; state?: StoredState; q?: string }): { total: number; page: number; pageSize: number; rows: RecordingAdminRow[]; totals: RecordingTotals } {
     const q = opts.q?.trim().toLowerCase();
-    const rows = this.all()
+    const held = this.all();
+    const rows = held
       .map((r): RecordingAdminRow => {
         const agents = r.loops.filter((l) => l !== MAIN_LOOP).length;
         const main = r.loops.includes(MAIN_LOOP);
@@ -615,14 +615,14 @@ export class SessionRecordings {
       .filter((r) => (!opts.state || r.state === opts.state) && (!q || r.name.toLowerCase().includes(q) || r.sessionId.toLowerCase().includes(q) || (r.owner ?? '').toLowerCase().includes(q)));
     const size = Math.min(Math.max(Math.floor(opts.pageSize) || 25, 1), 200);
     const page = Math.max(Math.floor(opts.page) || 1, 1);
-    return { total: rows.length, page, pageSize: size, rows: rows.slice((page - 1) * size, page * size), totals: this.totals() };
+    return { total: rows.length, page, pageSize: size, rows: rows.slice((page - 1) * size, page * size), totals: this.totals(held) };
   }
 
   /** The recordings a Stored activity filter matches (Source = Recordings). The loop filter does not apply to a whole recording. */
-  private matching(f: StoredFilter): RecRow[] {
+  private matching(f: StoredFilter, held: RecRow[] = this.all()): RecRow[] {
     const q = f.q?.trim().toLowerCase();
     const now = this.opts.now();
-    return this.all().filter(
+    return held.filter(
       (r) =>
         r.entries > 0 &&
         (!q || r.name.toLowerCase().includes(q) || r.sessionId.toLowerCase().includes(q)) &&
@@ -638,8 +638,8 @@ export class SessionRecordings {
   listStored(f: StoredFilter, page: number, pageSize: number): StoredActivityList {
     const size = Math.min(Math.max(Math.floor(pageSize) || 25, 1), 200);
     const pg = Math.max(Math.floor(page) || 1, 1);
-    const hits = this.matching(f);
     const stored = this.all().filter((r) => r.entries > 0);
+    const hits = this.matching(f, stored);
     const sum = (rs: RecRow[]) => ({ entries: rs.reduce((a, r) => a + r.entries, 0), sessions: rs.length, bytes: rs.reduce((a, r) => a + r.bytes, 0) });
     const distinct = (pick: (r: RecRow) => string | null) => [...new Set(stored.map(pick).filter((v): v is string => v !== null))].sort();
     return {

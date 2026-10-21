@@ -142,7 +142,7 @@ export function pickerState(opts: {
   if (!isLiveSession(s)) return "ended";
   if (grant && !grant.consent.owner) return "noown";
   if (!grant && opts.ownerAllows === false) return "noown";
-  if (!grant && s.recording &&s.recording.state === "recording" && !s.recording.ownerAllows) return "noown";
+  if (!grant && s.recording && s.recording.state === "recording" && !s.recording.ownerAllows) return "noown";
   if (grant && grant.state === "recording") return "started";
   return "ok";
 }
