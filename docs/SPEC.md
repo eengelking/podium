@@ -314,7 +314,6 @@ frontend/src/fleet/
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
-scripts/podium-filediff-demo.mjs     plays a reporter that serves file diffs, for the diff modal (#630; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)
 scripts/podium-peers-e2e.sh          starts a throwaway server from the checkout, seeds it, and runs real Claude Code sessions in tmux that load the mod with --plugin-dir, to try messaging end to end (#347; up and down, has --help and --dry-run)

@@ -88,11 +88,13 @@ const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, 
 const BODY = '<div class="sbs" role="group" aria-label="Diff, old on the left and new on the right"><div class="pane"><div class="pane-h">Before</div><pre aria-label="Before"><span class="l h"><span>@@ -4,3 +4,3 @@ export function run() {</span></span><span class="l"><span class="n">4</span><span class="m"> </span><span>  const a = 1;</span></span><span class="l r"><span class="n">5</span><span class="m">−</span><span>  return a;</span></span></pre></div><div class="pane"><div class="pane-h">After</div><pre aria-label="After"><span class="l h"><span> </span></span><span class="l"><span class="n">4</span><span class="m"> </span><span>  const a = 1;</span></span><span class="l a"><span class="n">5</span><span class="m">+</span><span>  return a + 1;</span></span></pre></div></div>';
 const MSG = { loading: '<div class="diffmsg"><p role="status">Loading...</p><p>The diff is read from the session’s machine now and is not kept. This gives up after 15 seconds.</p></div>', err: '<div class="diffmsg err" role="alert"><p>The diff is not available. The session’s machine did not answer in 15 seconds, or the file no longer differs.</p><p>Step to another file, or close this and open the file again.</p></div>', bin: '<div class="diffmsg"><p>No text diff for a binary file.</p><p>Git shows no lines for it, so there is nothing to draw.</p></div>' };
 let uid = 0;
+const REG = [];
 // cfg: { files, total, i, body, wrap }
 function modal(cfg) {
   const id = 'sw' + (++uid), { files, total, i } = cfg, f = files[i];
+  const k = REG.push({ files, total }) - 1;
   const prev = files[i - 1], next = files[i + 1];
-  return `<div class="modal modal-diff wrapped" role="dialog" aria-label="Diff of ${esc(f)}" data-files='${JSON.stringify(files)}' data-total="${total}" data-i="${i}">
+  return `<div class="modal modal-diff wrapped" role="dialog" aria-label="Diff of ${esc(f)}" data-k="${k}" data-i="${i}">
 <div class="mh"><div class="ttl"><h2><bdi>${esc(f)}</bdi></h2><div class="sub2">M · <span class="cnt"><span class="add">+${10 + i * 7}</span><span class="del">−${3 + i}</span></span> · against the starting commit 7eb90e8</div></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
 <div class="mb diffmb">${cfg.body || BODY}</div>
 <div class="mf"><div class="pager"><span role="status">Showing file ${i + 1} of ${files.length}</span><nav class="pg" aria-label="Files in this diff"><button type="button" data-d="-1" aria-label="Previous file${prev ? ': ' + esc(prev) : ''}" title="Previous file${prev ? ': ' + esc(prev) : ''}" ${prev ? '' : 'disabled'}>‹</button><button type="button" data-d="1" aria-label="Next file${next ? ': ' + esc(next) : ''}" title="Next file${next ? ': ' + esc(next) : ''}" ${next ? '' : 'disabled'}>›</button></nav></div><div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="${id}-n ${id}-s"></button><b id="${id}-n">Wrap lines</b><span id="${id}-s">On</span></div></div></div>`;
@@ -122,7 +124,7 @@ document.addEventListener('click', (e) => {
   }
   const b = e.target.closest('.pager button');
   if (!b || b.disabled) return;
-  const m = b.closest('.modal'), files = JSON.parse(m.dataset.files), total = +m.dataset.total, i = +m.dataset.i + +b.dataset.d;
+  const m = b.closest('.modal'), { files, total } = REG[+m.dataset.k], i = +m.dataset.i + +b.dataset.d;
   const wrapped = m.classList.contains('wrapped'), d = b.dataset.d;
   const t = document.createElement('div');
   t.innerHTML = modal({ files, total, i });
