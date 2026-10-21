@@ -2293,6 +2293,7 @@ need the unlocked Admin session like the rest of the Admin API.
 | `POST /api/admin/certificates/rotate-ca` | Rotate the CA. Body `{ endOverlap }`: false is a planned rotation with an overlap, true is the hard cutover. |
 | `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. |
 | `GET /api/admin/certificates/ca.pem` | The CA certificate, for a browser or a person who wants to check it. No key. |
+| `GET /api/admin/people` | Also answers `tls` (whether TLS is on), `graceDays` (`tls.reporter.graceDays`) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
 | `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
 | `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. |
 | `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
@@ -3872,10 +3873,33 @@ menu and the page scroll on their own.
 - A token shown once sits above the header of whichever page is open until the owner says it is saved.
 
 **People**
-- **Create user**: a Name field and a **Create user** button. The token it makes is shown once.
-- **Reporting people**: a **Search people** label with its field to the right, the table, and the pager. The
-  table's Token column names each token as `pdm_<key id>`, as the Reporters page does, and never shows any of
-  the secret (#218).
+- **Create user**: a Name field and a **Create user** button. The token it makes is shown once, and with TLS on
+  so is the person's reporter config file (see *The show-once box*).
+- **Reporting people**: a **Search people** label with its field to the right, the table, and the pager. A person
+  has two credentials, so the table has a **Reporter certificate** cell and a **Console token** cell, each with its
+  own badge (shape, word and color) and a note that opens on hover and on keyboard focus. The certificate's note
+  gives the date and what happens next; the token's is `pdm_<key id>`, as the Reporters page names it, and no
+  page ever shows any of the secret (#218). There is no Status column. The Group select sits under the person's
+  name and "created" under Last report (#587).
+- **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left; the reporter renews it itself),
+  *expired, in grace* (the reporter can still renew it, for the days the note gives), *expired* (past the grace:
+  reissue the config), *revoked* or *none*. With TLS off the cell says "TLS is off" and the certificate actions
+  are disabled.
+- **The Actions menu**: each row has one menu, grouped Console token (Rotate token, Revoke token, or Issue new
+  token for a revoked token), Reporter certificate (Download certificate, Reissue config…, Revoke certificate) and
+  Person (Revoke all…, Delete…). An action that does not apply is disabled, not hidden. Up, Down, Home, End and
+  Escape work, and it closes when focus leaves it. Rotate token, Revoke token, Revoke certificate, Revoke all,
+  Reissue config and Issue new token each open a warning-bordered confirmation in a full-width row under the
+  person that says what will happen; Delete opens the dialog. Revoke token's confirmation says the reporter is
+  refused too, since revoking the token revokes the certificate ([7.7](#77-hardening), *Revocation*).
+  **Download certificate** gives the public certificate and the CA, never a key.
+- **The show-once box** (after Create user, Reissue config or a token rotation) is headed "Token and reporter
+  config for <name>" (or "Token for <name>" when TLS is off). It holds the token settings (`userName`, `token`,
+  `serverUrl`), and with TLS on the file `reporter-config-<name>-<epoch>.pem` with **Download reporter config**, the
+  two steps (save it in `~/.podium/`; optionally set `PODIUM_REPORTER_CONFIG`) and the note that a running
+  session does not pick it up and podium-reporter needs Node.js on the PATH. A reissue shows only the file and a
+  rotation only the token. Its buttons are **Copy token settings**, **Download reporter config** and **I have saved
+  it**; none is primary, since Create user is the page's primary button. The file cannot be fetched again.
 
 **Groups**
 - **Create group**, then **Manage groups**.
