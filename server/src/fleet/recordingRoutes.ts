@@ -152,7 +152,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   browser.get('/sessions/:id/recording/consent', (req, res) => {
     const got = access(req, res);
     if (!got) return;
-    res.json({ ok: true, grant: fleet.recordings.grant(got.row.id) });
+    res.json({ ok: true, grant: fleet.recordings.grant(got.row.id), keepHours: fleet.recordingSettings.get().keepHours });
   });
 
   browser.put('/sessions/:id/recording', (req, res) => {

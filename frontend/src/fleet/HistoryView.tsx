@@ -230,7 +230,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                               </button>
                               {r.recording && (
                                 <div className="clr">
-                                  <button type="button" className="lk" title="Open the recording of this session" onClick={() => go({ open: r.id }, "push")}>
+                                  <button type="button" className="lk" title="Open this session, where its recording is" onClick={() => go({ open: r.id }, "push")}>
                                     recording kept{r.recording.keptUntil !== null ? ` until ${fmtWhen(r.recording.keptUntil, Date.now(), false)}` : ""}
                                   </button>
                                 </div>

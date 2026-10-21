@@ -19,7 +19,7 @@ const NAME_CUT = 28;
 
 type Load =
   | { state: "loading" }
-  | { state: "error"; status: number | null; message: string; owner: string | null }
+  | { state: "error"; status: number | null; message: string; owner: string | null; unavailable?: true }
   | { state: "ok"; rows: RecordingRow[]; olderBefore: number | null; total: number; grant: RecordingGrant; owner: string | null };
 
 /** A text that may be long: short ones as they are, long ones cut with the whole text one click away. Text only, never HTML. */
@@ -207,7 +207,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
     setLoad({ state: "loading" });
     setCur(0);
     if (!fetchPage) {
-      setLoad({ state: "error", status: null, message: "the recording cannot be read from here", owner: null });
+      setLoad({ state: "error", status: null, message: "the recording cannot be read from here", owner: null, unavailable: true });
       return;
     }
     fetchPage(id, { loop: filter || null })
@@ -329,13 +329,15 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
     main = (
       <>
         <div className="errbox" role="alert">
-          Could not load the recording{load.status ? `: HTTP ${load.status}` : `: ${load.message}`}. Try again.
+          {load.unavailable ? "This page cannot open recordings. Reload it, and sign in from the top bar if you are not signed in." : `Could not load the recording${load.status ? `: HTTP ${load.status}` : `: ${load.message}`}. Try again.`}
         </div>
-        <div className="formacts">
-          <button type="button" className="btn pri" onClick={() => setTries((n) => n + 1)}>
-            Try again
-          </button>
-        </div>
+        {!load.unavailable && (
+          <div className="formacts">
+            <button type="button" className="btn pri" onClick={() => setTries((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
+        )}
       </>
     );
   } else if (load.rows.length === 0 && filter === "") {

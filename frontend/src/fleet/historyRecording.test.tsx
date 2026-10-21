@@ -40,7 +40,7 @@ describe("History and a kept recording", () => {
     render(<HistoryView initialDay="2026-10-10" />);
     const link = await screen.findByRole("button", { name: "recording kept until 2026-10-21 03:10" });
     expect(link.parentElement).toHaveClass("clr");
-    expect(link.title).toBe("Open the recording of this session");
+    expect(link.title).toBe("Open this session, where its recording is");
     expect(link.closest("td")).toBe(screen.getByRole("button", { name: "api-refactor" }).closest("td"));
     expect(screen.getAllByText(/recording kept/)).toHaveLength(1);
     fireEvent.click(link);

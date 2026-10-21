@@ -206,7 +206,7 @@ export function StoredActivityTab(props: { api: AdminApi; onGo: (tab: "kept") =>
             <label className="lab" htmlFor="stored-loop">
               Loop
             </label>
-            <select className="field" id="stored-loop" value={f.loop} disabled={recs} onChange={(e) => change({ loop: e.target.value as Filters["loop"] })}>
+            <select className="field" id="stored-loop" value={f.loop} disabled={recs} title={recs ? "A recording covers the whole session, so it has no loop to filter by" : undefined} onChange={(e) => change({ loop: e.target.value as Filters["loop"] })}>
               {LOOPS.map(([id, name]) => (
                 <option key={id} value={id}>
                   {name}

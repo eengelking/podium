@@ -66,8 +66,8 @@ export const respondApi = {
     const qs = q.toString();
     return callRespond<RecordingPage>("GET", `${sessionPath(sessionId)}/recording${qs ? `?${qs}` : ""}`);
   },
-  /** The consent as it stands before Start (#353): `grant.consent.owner` says whether the session's reporter allows recording. */
-  recordingConsent: (sessionId: string) => callRespond<{ ok: true; grant: RecordingGrant }>("GET", `${sessionPath(sessionId)}/recording/consent`),
+  /** The consent as it stands before Start (#353): `grant.consent.owner` says whether the session's reporter allows recording; `keepHours` is the Admin's keep time. */
+  recordingConsent: (sessionId: string) => callRespond<{ ok: true; grant: RecordingGrant; keepHours?: number }>("GET", `${sessionPath(sessionId)}/recording/consent`),
   /** Chooses the loops to record from now on (#353). */
   recordingStart: (sessionId: string, loops: string[]) => callRespond<{ ok: true; grant: RecordingGrant }>("PUT", `${sessionPath(sessionId)}/recording`, { loops }),
   /** Ends capture and keeps what was recorded. */

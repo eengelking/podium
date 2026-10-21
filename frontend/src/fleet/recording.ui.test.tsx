@@ -226,6 +226,22 @@ describe("the picker", () => {
     expect(within(second.dialog).getByRole("button", { name: "Start recording" })).not.toBeDisabled();
   });
 
+  it("states the Admin's keep time in What is kept, and no number while it is unknown", async () => {
+    const consent = (keepHours?: number) => vi.fn(async () => ({ ok: true as const, keepHours, grant: grantOf([], { state: "off", consent: { admin: true, chosen: false, owner: true } }) }));
+    const known = await open({}, { api: fakeApi({ recordingConsent: consent(48) }) });
+    await flush();
+    expect(known.dialog.textContent).toMatch(/kept for 48 hours, then deleted/);
+    fireEvent.click(within(known.dialog).getByRole("button", { name: "Cancel" }));
+    const one = await open({}, { api: fakeApi({ recordingConsent: consent(1) }) });
+    await flush();
+    expect(one.dialog.textContent).toMatch(/kept for 1 hour, then deleted/);
+    fireEvent.click(within(one.dialog).getByRole("button", { name: "Cancel" }));
+    const unknown = await open({}, { api: fakeApi({ recordingConsent: consent(undefined) }) });
+    await flush();
+    expect(unknown.dialog.textContent).toMatch(/kept for the time the Admin set, then deleted/);
+    expect(unknown.dialog.textContent).not.toMatch(/6 hours/);
+  });
+
   it("keeps Escape, focus and the opener as the app's modal does", async () => {
     const { button } = await open();
     expect(screen.getByRole("button", { name: "Close (Esc)" })).toHaveFocus();

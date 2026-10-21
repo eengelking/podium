@@ -32,13 +32,19 @@ export function RecordPicker({ s, onClose }: { s: SessionView; onClose: () => vo
   const [err, setErr] = useState<string | null>(null);
   // Whether the owner allows recording, asked of the server on open so the picker can say so before Start. A failed ask leaves it unknown.
   const [ownerAllows, setOwnerAllows] = useState<boolean | null>(null);
+  // The Admin's keep time, from the same answer; unknown until it arrives, and the wording then states no number.
+  const [keepHours, setKeepHours] = useState<number | null>(null);
   const state: PickerState = pickerState({ flagOn: respond?.recordingOn === true, me: respond?.me ?? null, s, grant, ownerAllows });
   const consentApi = state === "ok" ? respond?.api.recordingConsent : undefined;
   useEffect(() => {
     if (!consentApi) return;
     let live = true;
     consentApi(s.id).then(
-      (out) => live && setOwnerAllows(out.grant.consent.owner),
+      (out) => {
+        if (!live) return;
+        setOwnerAllows(out.grant.consent.owner);
+        setKeepHours(out.keepHours ?? null);
+      },
       () => undefined,
     );
     return () => {
@@ -150,7 +156,7 @@ export function RecordPicker({ s, onClose }: { s: SessionView; onClose: () => vo
     body = (
       <>
         <Para>Recording starts when you press Start. Nothing before it is kept.</Para>
-        <Para lead="What is kept.">Prompts, file contents, command output and tool results are kept for the time the Admin set, 6 hours unless changed, then deleted. Either the owner or an Admin can stop it or delete it at any time.</Para>
+        <Para lead="What is kept.">Prompts, file contents, command output and tool results are kept for {keepHours === null ? "the time the Admin set" : `${keepHours} ${keepHours === 1 ? "hour" : "hours"}`}, then deleted. Either the owner or an Admin can stop it or delete it at any time.</Para>
         {options}
         {err && (
           <p className="signerr" role="alert">
