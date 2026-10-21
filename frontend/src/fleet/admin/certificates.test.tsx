@@ -519,6 +519,36 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(await screen.findByText("No reporter still uses the old CA. Open connections that came in on it are closed.")).toBeInTheDocument();
   });
 
+  it("says in the band that a reporter that misses the cross certificate and its grace needs a reissued config (#637)", async () => {
+    const view = rotating();
+    await open(view);
+    const b = await waitFor(() => {
+      const el = document.querySelector(".band");
+      if (!el) throw new Error("no band");
+      return el as HTMLElement;
+    });
+    expect(b).toHaveTextContent(`verifies until ${view.rotation!.cross.notAfter.slice(0, 10)}. A reporter that does not connect before then, and before its own 30-day grace ends, is refused, and its person needs a reissued reporter config.`);
+  });
+
+  it("uses the grace period the server reports in that sentence (#637)", async () => {
+    await open({ ...rotating(), reporter: { lifetimeDays: 90, graceDays: 14 } });
+    const b = await waitFor(() => {
+      const el = document.querySelector(".band");
+      if (!el) throw new Error("no band");
+      return el as HTMLElement;
+    });
+    expect(b).toHaveTextContent("before its own 14-day grace ends");
+  });
+
+  it("says the same before the Admin starts a rotation, with the date the cross certificate ends (#637)", async () => {
+    await open(fakeCerts({ overlapDays: 120 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    const ask = await screen.findByRole("alert");
+    const ends = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
+    expect(ask).toHaveTextContent(`keep working for 120 days, until ${ends}.`);
+    expect(ask).toHaveTextContent("A reporter that does not connect before then, and before its own 30-day grace ends (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin > People.");
+  });
+
   it("asks before rotating, with the overlap in days and the two choices", async () => {
     const srv = await open(fakeCerts({ overlapDays: 120 }));
     fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
