@@ -115,6 +115,10 @@ so it never reads as if the agent did not think. Other models, other efforts and
   the tool's result.
 - A question's result is recorded only when Claude Code hands it over as text. An `AskUserQuestion` result is an
   object, so that call shows with no result.
+- **A message from Podium is marked with its sender only when the mod's prompt entry matches it exactly** (same loop, within
+  10 minutes, whitespace folded). A short message never marks a longer prompt that contains it, and a message Claude Code
+  rewraps or rewrites before the mod sees it goes unmarked. An unmarked prompt is shown as a person's own, never under a
+  wrong sender.
 - A decision is recorded only once Claude Code took it. A Podium answer the terminal beat, or one nobody collected,
   leaves nothing. The mod names the sender itself, because only it knows what it took.
 
@@ -178,6 +182,8 @@ appear in Admin > Server > Stored activity with Source set to Recordings. The da
 - It is counted **per part**, from when that part was recorded, not from when the recording started. A purge runs every
   5 minutes and removes what is older, so a short time is honored within a few minutes, and a long recording drops its
   oldest part first.
+- A recording that was chosen but holds no entry yet stays until the same time after it was started (while it runs in a live
+  session it stays regardless), and only then goes.
 - The time shown as "kept until" is when the oldest part still held goes.
 - A session's own retention also applies. The shorter of the two wins.
 - A shorter setting removes recordings that are already older, and the form says so.

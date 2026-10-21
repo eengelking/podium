@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'claude-code/testing'
 import { MAIN_LOOP, RECORDING_LIMITS, type RecordingEntry, type RecordingGrant } from './protocol.ts'
 import { isRecordingGrant } from './transport.ts'
+import { redactText, type Redacted } from './diffRedact.ts'
 import {
   CUT_MARK,
   inputText,
@@ -72,6 +73,26 @@ describe('redactBounded', () => {
     expect(r.text.split('\n').length).toBe(5)
     expect(r.text.endsWith('\nend\n')).toBe(true)
     expect(r.text.replace('[redacted]', SECRET)).toBe(text)
+  })
+  test('pins what redactBounded relies on: the redactor returns one line for each line it is given', () => {
+    const key = ['-----BEGIN RSA PRIVATE KEY-----', 'MIIEowIBAAKCAQEA', 'abcdef', '-----END RSA PRIVATE KEY-----'].join('\n')
+    for (const text of ['', 'a', 'a\n\nb\n', `x\n${key}\nafter`, `one ${SECRET} two\nthree\n\nfour`]) {
+      expect(redactText(text).text.split('\n').length).toBe(text.split('\n').length)
+    }
+  })
+  test('a redactor that returns a different number of lines never shifts content: every piece comes back in order', () => {
+    const filler = 'word '.repeat(300)
+    const text = `${filler}A\n${filler}B\n${filler}C`
+    const dropsFirst = (t: string): Redacted => ({ text: t.split('\n').slice(1).join('\n'), redactions: 3 })
+    const adds = (t: string): Redacted => ({ text: `extra\n${t}`, redactions: 0 })
+    const fewer = redactBounded(text, dropsFirst)
+    expect(fewer.redactions).toBe(3)
+    expect(fewer.text.split('\n').length).toBeGreaterThan(3) // every piece the redactor returned, not one per original line
+    expect(fewer.text.endsWith('C')).toBe(true)
+    const more = redactBounded(text, adds)
+    expect(more.text.startsWith('extra\n')).toBe(true)
+    expect(more.text.split('\n').length).toBeGreaterThan(4)
+    expect(more.text.endsWith('C')).toBe(true)
   })
   test('a private key block across lines is still one block', () => {
     const key = ['-----BEGIN RSA PRIVATE KEY-----', 'MIIEowIBAAKCAQEA', 'abcdef', '-----END RSA PRIVATE KEY-----'].join('\n')

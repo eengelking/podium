@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { FocusView } from "./components/FocusView";
 import { RecordPicker } from "./components/RecordPicker";
+import { RecordingLayer } from "./components/RecordingLayer";
 import { SessionCard } from "./components/SessionCard";
 import { TopBarSignIn } from "./components/SignIn";
 import { makeAgent, makeRecording, makeSession } from "./fixtures";
@@ -348,6 +349,25 @@ describe("the layer above the band", () => {
     await flush();
     expect(api.recordingDelete).toHaveBeenCalledWith(s.id);
     expect(container.querySelector(".rec-bar")).toBeNull();
+  });
+
+  it("shows the layer again for a recording started on the same session after a delete", async () => {
+    const api = fakeApi();
+    const tree = (startedAt: number) => (
+      <RespondProvider api={api} flagsOn={false} recordingOn>
+        <RecordingLayer s={makeSession({ id: "s1", owner: "Ed", recording: makeRecording({ startedAt }) })} now={NOW} />
+      </RespondProvider>
+    );
+    const out = render(tree(at(11, 42)));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Delete recording" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete recording" }));
+    await flush();
+    expect(out.container.querySelector(".rec-bar")).toBeNull();
+    out.rerender(tree(at(11, 42))); // the same recording is still hidden
+    expect(out.container.querySelector(".rec-bar")).toBeNull();
+    out.rerender(tree(at(11, 55))); // a new one has a new start
+    expect(out.container.querySelector(".rec-bar")).not.toBeNull();
   });
 
   it("says what went wrong when a change is refused, and keeps the layer", async () => {

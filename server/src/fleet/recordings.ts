@@ -537,7 +537,7 @@ export class SessionRecordings {
   /**
    * A message delivered from Podium to a recorded loop is remembered (loop, time, sender, text as redacted here), not stored. The
    * mod records every prompt of the loop and cannot tell where one came from, so when its matching `prompt` entry arrives in
-   * `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing. PROVISIONAL (#353).
+   * `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing, and an entry no delivery matches exactly stays unmarked.
    * Only a message becomes a prompt: an answer, an approval, a permission decision and /clear and /compact are recorded by the
    * mod where it takes them (`decision`, `clear`, `compact`), so none of them is remembered here. `ref` names the delivery, so
    * one taken back before the mod got it can be forgotten.
@@ -558,13 +558,13 @@ export class SessionRecordings {
     if (list) this.deliveries.set(sessionId, list.filter((d) => d.ref !== ref));
   }
 
-  /** Takes the oldest remembered delivery that this mod `prompt` entry is: same loop, close in time, its text the delivered one (or holding it). */
+  /** Takes the oldest remembered delivery that this mod `prompt` entry is: same loop, close in time, its text exactly the delivered one once whitespace is folded. */
   private takeDelivery(sessionId: string, e: RecordingEntry): string | null {
     const list = this.deliveries.get(sessionId);
     if (e.kind !== 'prompt' || !list) return null;
     const text = squash(e.text); // the mod redacted it already; a second pass is not idempotent
     if (text === '') return null;
-    const i = list.findIndex((d) => d.loop === e.loop && Math.abs(e.at - d.at) <= PODIUM_PROMPT_MATCH_MS && d.text !== '' && (text.includes(d.text) || d.text.includes(text)));
+    const i = list.findIndex((d) => d.loop === e.loop && Math.abs(e.at - d.at) <= PODIUM_PROMPT_MATCH_MS && d.text === text);
     return i < 0 ? null : list.splice(i, 1)[0]!.by;
   }
 
@@ -709,7 +709,7 @@ export class SessionRecordings {
 
   /**
    * Removes every part older than `keepHours`, counted from when it was stored, in chunks. A recording left with nothing is dropped
-   * unless it is still running. Compacts the file when it removed something. Frequent (every 5 minutes), so a short time is honored.
+   * unless it is still running, or was started less than `keepHours` ago (a chosen recording that stored nothing yet stays that long). Compacts the file when it removed something. Frequent (every 5 minutes), so a short time is honored.
    */
   purge(now: number = this.opts.now()): Promise<PurgeRecordingsResult> {
     return this.exclusive(async () => {
@@ -740,7 +740,7 @@ export class SessionRecordings {
       }
       for (const sid of touched) this.st('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?').run(sid, sid);
       let dropped = 0;
-      for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0').all() as { id: string }[]) {
+      for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?').all(cutoff) as { id: string }[]) {
         const row = this.row(r.id);
         if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;
         this.st('DELETE FROM rec_sessions WHERE session_id = ?').run(r.id);

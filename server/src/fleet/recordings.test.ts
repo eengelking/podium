@@ -371,6 +371,17 @@ describe('expiry, part by part', () => {
     await m.rec.purge();
     expect(m.rec.has('s2')).toBe(false);
   });
+
+  it('keeps a chosen but empty recording until keepHours after it was started, then drops it once its session is gone', async () => {
+    const m = running();
+    m.s.live.delete('s1'); // not live, so only the clock can keep it
+    m.s.now = T0 + 5 * HOUR_MS;
+    await m.rec.purge();
+    expect(m.rec.has('s1')).toBe(true); // empty, but started less than six hours ago
+    m.s.now = T0 + 6 * HOUR_MS + 1;
+    await m.rec.purge();
+    expect(m.rec.has('s1')).toBe(false);
+  });
 });
 
 describe('deleting', () => {
@@ -455,11 +466,21 @@ describe('a prompt delivered from Podium', () => {
     ]);
   });
 
-  it('marks a mod entry that carries more than the delivered text, and each delivery only once', () => {
+  it('marks only an entry whose text is exactly the delivered one (whitespace folded), and each delivery only once', () => {
     const m = running({}, [MAIN_LOOP]);
     m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'please also update the guide', by: 'Boss' });
-    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'Message from Boss: please also update the guide', T0 + 5), prompt(MAIN_LOOP, 2, 'please also update the guide', T0 + 6)));
-    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual(['Boss', undefined]);
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'Message from Boss: please also update the guide', T0 + 5), prompt(MAIN_LOOP, 2, 'please  also\nupdate the guide', T0 + 6), prompt(MAIN_LOOP, 3, 'please also update the guide', T0 + 7)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, 'Boss', undefined]);
+  });
+
+  it('does not let a short message mark a later, longer prompt that merely contains it (or the reverse)', () => {
+    const m = running({}, [MAIN_LOOP]);
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'ok', by: 'Ed' });
+    m.rec.notePodiumPrompt('s1', MAIN_LOOP, { at: T0, text: 'run the whole suite again please', by: 'Ed' });
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 1, 'ok, now run the migration', T0 + 1), prompt(MAIN_LOOP, 2, 'run the whole suite', T0 + 2)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, undefined]);
+    m.rec.ingest('s1', batch(prompt(MAIN_LOOP, 3, 'ok', T0 + 3)));
+    expect(m.rec.page('s1', null, 10, null).entries.map((r) => r.by)).toEqual([undefined, undefined, 'Ed']);
   });
 
   it('forgets a message taken back, and takes no sender from the mod for a prompt', () => {
@@ -639,6 +660,24 @@ describe('what everyone sees, and what the Admin lists', () => {
     expect(m.rec.idsFor({ ids: ['x'] })).toEqual(['x']);
     expect(m.rec.idsFor({ match: { owner: 'Ed' } })).toEqual(['s1']);
     expect(m.rec.idsFor({ all: true }).sort()).toEqual(['s1', 's2']);
+  });
+
+  it('reads the recordings table once per request, and returns the same totals and rows', () => {
+    const m = running();
+    m.rec.noteOption('s2', true);
+    m.rec.start('s2', [MAIN_LOOP], 'Boss', { name: 'api', project: 'acme/api', owner: 'Alex' });
+    m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1)));
+    m.rec.ingest('s2', batch(entry(MAIN_LOOP, 1)));
+    const all = vi.spyOn(m.rec as unknown as { all: () => unknown[] }, 'all');
+    const admin = m.rec.adminList({ page: 1, pageSize: 25 });
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(admin.totals).toEqual(m.rec.totals());
+    expect(admin.rows.map((r) => r.sessionId).sort()).toEqual(['s1', 's2']);
+    all.mockClear();
+    const stored = m.rec.listStored({ owner: 'Alex' }, 1, 25);
+    expect(all).toHaveBeenCalledTimes(1);
+    expect(stored).toMatchObject({ total: 1, totals: { entries: 2, sessions: 2 }, match: { entries: 1, sessions: 1 } });
+    expect(stored.rows.map((r) => r.sessionId)).toEqual(['s2']);
   });
 
   it('counts a recording with nothing stored in the Admin totals but not in Stored activity', () => {
