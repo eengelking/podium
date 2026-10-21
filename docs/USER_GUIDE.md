@@ -1039,6 +1039,12 @@ serving certificate it signs. With TLS off it says so and has nothing else.
   renews (7 to 90), and a person's certificate lifetime (30 to 365) and the grace after it expires (0 to 90). A number
   saves when you leave the field; a value the server refuses stays in the box with the reason under it. Each change is
   written to the Admin log. The last switch turns the header countdown on or off.
+- **Reporters over HTTP.** One switch, **Allow reporters to connect over HTTP**. While it is on, a reporter that has
+  only its name and token (no reporter config) still reports over plain HTTP, and a warning line says that is not
+  encrypted. It is on for a server that already had reporters when TLS was first turned on, and off for a fresh one.
+  Turning it on takes effect at once. Turning it off asks first and names how many reporters are connected over HTTP
+  now, since they are refused at once; a reporter with a reporter config keeps working, and so does the console on the
+  loopback address, so an Admin can always sign in. Each change is written to the Admin log.
 - **Rotate by hand.** **Renew now** issues a new serving certificate from the same CA and keeps the old one as a backup.
   **Rotate CA…** is not available yet.
 - **Previous certificates.** The last three serving certificates Podium replaced, kept in `/data/tls/previous`.

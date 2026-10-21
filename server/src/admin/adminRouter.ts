@@ -21,7 +21,8 @@ import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
-import type { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
+import { ALLOW_HTTP_KEY, type ServingRenewer, type TlsSettingsStore } from '../tlsRenew.js';
+import type { ReporterTransport } from '../tlsHttp.js';
 import type { PersonCertStore } from '../tlsClientAuth.js';
 import type { CaRotation } from '../tlsServer.js';
 import { TlsError } from '../tlsCa.js';
@@ -59,6 +60,8 @@ export interface AdminRouterOptions {
     people?: { store: PersonCertStore; issuer: () => PersonIssuer | null };
     /** Rotating and retiring the CA (#588). Null while TLS is off. */
     rotation?: () => CaRotation | null;
+    /** Which reporters are on HTTP now (#589), for the count the switch names. */
+    transport?: ReporterTransport;
   };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
@@ -819,9 +822,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // ---- certificates (#577) -----------------------------------------------------------------------
 
+  /** Reporters over HTTP (#589): the switch, and how many reporters are on HTTP now out of all that reported lately. */
+  const httpView = () => ({ allow: certs?.settings.allowReportersOverHttp() ?? true, ...(certs?.transport?.count(now()) ?? { overHttp: 0, total: 0 }) });
+
   /** The renewer's view with the overlap's count of reporters still on the old CA (#588). */
   const certificatesView = (r: ServingRenewer) => {
-    const v = { ...r.view(), overlapDays: CROSS_DAYS };
+    const v = { ...r.view(), overlapDays: CROSS_DAYS, http: httpView() };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
     const counts = certs?.people?.store.reportersByIssuer(now() - certs.settings.getReporter().graceDays * 86_400_000);
@@ -849,12 +855,17 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!certs || !r) return tlsOff(res);
     const body: unknown = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return void res.status(400).json({ ok: false, error: 'give the settings to change, such as tls.serving.renewBeforeDays' });
+    const wasAllowed = certs.settings.allowReportersOverHttp();
     const out = certs.settings.set(body as Record<string, unknown>);
     if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
     const s = out.settings;
     const rep = certs.settings.getReporter();
-    audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays, header_countdown: s.headerCountdown });
-    res.json({ ok: true, ...r.view(), reporter: rep });
+    const http = httpView();
+    if (out.changed.includes(ALLOW_HTTP_KEY) && http.allow !== wasAllowed) {
+      audit(req, 'tls_http_changed', http.allow ? 'Allowed reporters to connect over HTTP' : `Stopped allowing reporters over HTTP; ${http.overHttp} reporter${http.overHttp === 1 ? '' : 's'} connected over HTTP ${http.overHttp === 1 ? 'is' : 'are'} refused`, { allow: http.allow, reporters_on_http: http.overHttp });
+    }
+    if (out.changed.some((k) => k !== ALLOW_HTTP_KEY)) audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays, header_countdown: s.headerCountdown });
+    res.json({ ok: true, ...r.view(), reporter: rep, http });
   });
 
   router.post('/certificates/renew', (req, res) => {

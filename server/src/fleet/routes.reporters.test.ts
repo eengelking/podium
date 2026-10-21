@@ -7,6 +7,7 @@ import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { ReporterStore } from './reporters.js';
 import { createFleetRouter } from './routes.js';
+import { ReporterTransport } from '../tlsHttp.js';
 import { fixtureReport } from './testing.js';
 
 const closers: (() => void)[] = [];
@@ -138,5 +139,26 @@ describe('ignored reporters (issue #167)', () => {
     const res = await request(app).post('/api/fleet/hook').set('X-Podium-Token', 'admin-secret').send({ session_id: 'h1', hook_event_name: 'SessionStart', cwd: '/x' });
     expect(res.status).toBe(403);
     expect(fleet.view('h1')).toBeUndefined();
+  });
+});
+
+describe('the transport a reporter used (#589)', () => {
+  it('counts a report and a hook that came over plain HTTP from beyond loopback, and not one from loopback', async () => {
+    const db = openDb(':memory:');
+    const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    closers.push(() => fleet.close());
+    const transport = new ReporterTransport();
+    const app = express();
+    app.set('trust proxy', true);
+    app.use('/api/fleet', createFleetRouter(fleet, { token: null, people: new PeopleStore(db), reporters: new ReporterStore(db, 0), log: () => {}, transport }));
+    // The gate never refuses loopback, so a reporter there is not one the switch would cut off.
+    expect((await request(app).post('/api/fleet/report').send(report({ machine: { name: 'local', id: 'aaaa11112222' } }))).status).toBe(200);
+    expect(transport.count(Date.now())).toEqual({ overHttp: 0, total: 1 });
+    expect((await request(app).post('/api/fleet/report').set('X-Forwarded-For', '10.0.0.5').send(report({ machine: { name: 'studio-m2', id: '9f3a1c7d2e40' } }, 'sess-2'))).status).toBe(200);
+    expect(transport.count(Date.now())).toEqual({ overHttp: 1, total: 2 });
+    const hook = await request(app).post('/api/fleet/hook').set('X-Forwarded-For', '10.0.0.6').send({ hook_event_name: 'SessionStart', session_id: 'h1', cwd: '/x' });
+    expect(hook.status).toBe(200);
+    expect(transport.count(Date.now()).total).toBe(3);
+    expect(transport.count(Date.now()).overHttp).toBe(2);
   });
 });

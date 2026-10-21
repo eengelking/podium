@@ -32,6 +32,25 @@ describe('TlsSettingsStore', () => {
     expect(s.get()).toEqual({ lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true });
   });
 
+  it('reads reporters over HTTP as on until decided, seeds it once, and saves a change', () => {
+    const s = new TlsSettingsStore(openDb(':memory:'));
+    expect(s.allowReportersOverHttp()).toBe(true);
+    s.seedAllowReportersOverHttp(false);
+    expect(s.allowReportersOverHttp()).toBe(false);
+    s.seedAllowReportersOverHttp(true); // a decision already made is kept
+    expect(s.allowReportersOverHttp()).toBe(false);
+    expect(s.set({ 'tls.allowReportersOverHttp': true })).toMatchObject({ ok: true, changed: ['tls.allowReportersOverHttp'] });
+    expect(s.allowReportersOverHttp()).toBe(true);
+    expect(s.set({ 'tls.allowReportersOverHttp': 'yes' })).toEqual({ ok: false, error: 'Allow reporters over HTTP must be on or off' });
+    expect(new TlsSettingsStore(openDb(':memory:')).get()).toEqual(SERVING_DEFAULTS);
+  });
+
+  it('seeds on for an existing install', () => {
+    const s = new TlsSettingsStore(openDb(':memory:'));
+    s.seedAllowReportersOverHttp(true);
+    expect(s.allowReportersOverHttp()).toBe(true);
+  });
+
   it.each([
     ['tls.serving.lifetimeDays', 29, 'from 30 to 825'],
     ['tls.serving.lifetimeDays', 826, 'from 30 to 825'],
