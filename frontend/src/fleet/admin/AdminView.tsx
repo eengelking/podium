@@ -254,7 +254,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                 <div className="apage-in">
                   {created && <OnceBox c={created} onDone={() => setCreated(null)} />}
                   {!REPORT_TABS.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
-                  {tab === "people" && <PeopleTab api={api} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
+                  {tab === "people" && <PeopleTab api={api} base={base} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
                   {tab === "groups" && <GroupsTab api={api} {...paging.groups} onPaging={onGroupPaging} onCount={onCountGroups} onLocked={onLocked} />}
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} />}
                   {tab === "reporting" && <ReportingTab api={api} onLocked={onLocked} />}

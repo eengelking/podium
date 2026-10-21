@@ -15,6 +15,8 @@ export interface MenuGroup {
 }
 
 const GUTTER = 8;
+/** The box is fixed, so moving focus in it never needs a scroll, and a scroll would close the menu at once. */
+const NO_SCROLL = { preventScroll: true };
 
 export function RowMenu({ label, groups, onChoose }: { label: string; groups: MenuGroup[]; onChoose: (act: string) => void }) {
   const det = useRef<HTMLDetailsElement>(null);
@@ -74,7 +76,7 @@ export function RowMenu({ label, groups, onChoose }: { label: string; groups: Me
     const to = e.key === "ArrowDown" ? items[(i + 1) % items.length] : e.key === "ArrowUp" ? items[(i - 1 + items.length) % items.length] : e.key === "Home" ? items[0] : e.key === "End" ? items[items.length - 1] : null;
     if (!to) return;
     e.preventDefault();
-    to.focus();
+    to.focus(NO_SCROLL);
   };
 
   return (
@@ -84,7 +86,7 @@ export function RowMenu({ label, groups, onChoose }: { label: string; groups: Me
       onToggle={() => {
         if (!det.current?.open) return;
         place();
-        enabled()[0]?.focus();
+        enabled()[0]?.focus(NO_SCROLL);
       }}
       onBlur={(e) => {
         if (det.current?.open && e.relatedTarget && !det.current.contains(e.relatedTarget as Node)) close(false);

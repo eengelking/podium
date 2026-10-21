@@ -23,13 +23,13 @@ type Pending = { id: number; kind: Ask } | null;
 const COLS = 7;
 
 /** The words of each confirmation: its heading, what will happen, and the button. A revoke of the token ends the certificate too (SPEC 7.7). */
-function wording(kind: Ask, name: string, tls: boolean, admin: boolean): { title: string; body: string; button: string; danger: boolean } {
+function wording(kind: Ask, name: string, tls: boolean, admin: boolean, certRevoked: boolean): { title: string; body: string; button: string; danger: boolean } {
   const locks = admin ? " Their open Admin session locks." : "";
   switch (kind) {
     case "rotate":
       return { title: `Rotate ${name}’s token?`, body: "Their console sign-in stops until they have the new token, which is shown once. Their reporter keeps working.", button: "Rotate token", danger: false };
     case "issue":
-      return { title: `Issue ${name}’s token?`, body: "A new token replaces the revoked one and is shown once. They can sign in to the console with it.", button: "Issue new token", danger: false };
+      return { title: `Issue ${name}’s token?`, body: `A new token replaces the revoked one and is shown once. They can sign in to the console with it.${tls && certRevoked ? " Their reporter stays refused until you choose Reissue config." : ""}`, button: "Issue new token", danger: false };
     case "revoke-token":
       return { title: `Revoke ${name}’s token?`, body: `They can no longer sign in to the console.${tls ? " Their reporter is refused too, because revoking the token revokes the certificate." : " Their reporter is refused at once."}${locks}`, button: "Revoke token", danger: true };
     case "revoke-cert":
@@ -61,6 +61,8 @@ function menuOf(p: PersonRow, tls: boolean, cert: ReturnType<typeof certCell>): 
 
 export function PeopleTab(props: {
   api: AdminApi;
+  /** Where the Admin API is mounted: the certificate download is a link, not a call through `api`. */
+  base: string;
   page: number;
   pageSize: number;
   q: string;
@@ -143,7 +145,7 @@ export function PeopleTab(props: {
     if (act === "delete") return askDelete([p]);
     if (act === "download") {
       const a = document.createElement("a");
-      a.href = `/api/admin/people/${p.id}/certificate.pem`;
+      a.href = `${props.base}/people/${p.id}/certificate.pem`;
       a.download = "";
       document.body.appendChild(a);
       a.click();
@@ -276,7 +278,7 @@ export function PeopleTab(props: {
                       const cert = certCell(p, tls, graceDays, now);
                       // A person with neither credential in use reads as gone, as a revoked person did.
                       const dead = revoked && (!tls || !cert?.live);
-                      const w = pend ? wording(pend.kind, p.name, tls, adminIds.has(p.groupId ?? -1)) : null;
+                      const w = pend ? wording(pend.kind, p.name, tls, adminIds.has(p.groupId ?? -1), p.certificate?.revoked === true) : null;
                       return (
                         <Fragment key={p.id}>
                           <tr className={`${dead ? "revoked" : ""}${sel.includes(p.id) ? " sel" : ""}`.trim()}>

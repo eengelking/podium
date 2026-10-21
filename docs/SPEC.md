@@ -3891,7 +3891,9 @@ menu and the page scroll on their own.
   Escape work, and it closes when focus leaves it. Rotate token, Revoke token, Revoke certificate, Revoke all,
   Reissue config and Issue new token each open a warning-bordered confirmation in a full-width row under the
   person that says what will happen; Delete opens the dialog. Revoke token's confirmation says the reporter is
-  refused too, since revoking the token revokes the certificate ([7.7](#77-hardening), *Revocation*).
+  refused too, since revoking the token revokes the certificate ([7.7](#77-hardening), *Revocation*). Issue new
+  token's says, while TLS is on and the person's certificate is revoked, that their reporter stays refused until Reissue
+  config (#629).
   **Download certificate** gives the public certificate and the CA, never a key.
 - **The show-once box** (after Create user, Reissue config or a token rotation) is headed "Token and reporter
   config for <name>" (or "Token for <name>" when TLS is off). It holds the token settings (`userName`, `token`,
