@@ -136,11 +136,16 @@ export function activityEntry(tool: string, input: Record<string, unknown>, id: 
   return entry;
 }
 
-/** What a finished Bash call adds to its entry (see `bashOutput`); nothing when the result has nothing to read. */
-export function finishedCall(res: BashResult): Partial<ActivityEntry> {
-  const raw = bashOutput(res);
-  if (raw === null) return {};
-  const o = outputDetail(raw);
+/**
+ * What a finished Bash call adds to its entry (#598): `done`, and `failed` and `exitCode` as the result says, always. The output
+ * (see `bashOutput`) only when `withOutput`; then a result with nothing to read adds no output. Without it the result's text is
+ * read for the exit line alone and none of it is kept.
+ */
+export function finishedCall(res: BashResult, withOutput: boolean): Partial<ActivityEntry> {
   const s = exitStatus(res);
-  return { output: o.text, ...(o.cut ? { outputCut: true } : {}), done: true, ...(s.failed ? { failed: true } : {}), ...(s.exitCode === undefined ? {} : { exitCode: s.exitCode }) };
+  const status: Partial<ActivityEntry> = { done: true, ...(s.failed ? { failed: true } : {}), ...(s.exitCode === undefined ? {} : { exitCode: s.exitCode }) };
+  const raw = withOutput ? bashOutput(res) : null;
+  if (raw === null) return status;
+  const o = outputDetail(raw);
+  return { output: o.text, ...(o.cut ? { outputCut: true } : {}), ...status };
 }

@@ -850,8 +850,8 @@ export function isWatchedOutput(s: SessionState, agentId: string | null | undefi
   return s.watchedOutput.includes(agentId || MAIN_LOOP);
 }
 
-/** What an entry holds once its call has finished (#431): all of it goes when the loop's output lease ends. */
-const OUTPUT_KEYS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+/** The output an entry holds (#431): it goes when the loop's output lease ends. How the call ended (`done`, `failed`, `exitCode`) is not output and stays (#598). */
+const OUTPUT_KEYS = ['output', 'outputCut'] as const;
 
 function withoutOutput(list: ActivityEntry[]): ActivityEntry[] {
   return list.map((e) => {

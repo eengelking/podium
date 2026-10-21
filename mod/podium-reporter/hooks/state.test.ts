@@ -596,16 +596,16 @@ describe('activity command and output (#431)', () => {
     expect(isWatchedOutput(s, undefined)).toBe(true)
   })
 
-  test('a loop that stops being watched for output loses the output it held and keeps its command', () => {
+  test('a loop that stops being watched for output loses the output it held and keeps its command and how the call ended (#598)', () => {
     let s = setWatchedOutput(watched(), ['a1', MAIN_LOOP])
     s = addActivity(addActivity(s, 'a1', bash('c1')), undefined, bash('c2'))
     s = finishActivity(s, 'a1', 'c1', { output: 'out', done: true, exitCode: 2, failed: true, outputCut: true })
     s = finishActivity(s, undefined, 'c2', { output: 'main out', done: true })
     s = setWatchedOutput(s, [MAIN_LOOP])
-    expect(s.agents.a1!.activity).toEqual([bash('c1')])
+    expect(s.agents.a1!.activity).toEqual([{ ...bash('c1'), done: true, exitCode: 2, failed: true }])
     expect(s.main.activity[0]!.output).toBe('main out')
     s = setWatchedOutput(s, [])
-    expect(s.main.activity).toEqual([bash('c2')])
+    expect(s.main.activity).toEqual([{ ...bash('c2'), done: true }])
   })
 
   test('a loop that is no longer watched at all drops its output list too', () => {
@@ -630,10 +630,19 @@ describe('activity command and output (#431)', () => {
     s = finishActivity(s, 'a1', 'c1', { output: 'hi', done: true, failed: true, exitCode: 1, outputCut: true })
     const off = buildReport(s, [], meta)
     expect(off.session.activityOutput).toBe(false)
-    expect(off.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls' }])
+    expect(off.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls', done: true, exitCode: 1, failed: true }])
     const on = buildReport(s, [], { ...meta, activityOutput: true })
     expect(on.session.activityOutput).toBe(true)
     expect(on.agents[0]!.activity).toEqual([{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls', output: 'hi', outputCut: true, done: true, exitCode: 1, failed: true }])
+  })
+
+  test('a call finished without output is reported done, failed and exitCode with the option off or on, and no output (#598)', () => {
+    let s = addActivity(watched(), 'a1', bash('c1'))
+    s = finishActivity(s, 'a1', 'c1', { done: true, failed: true, exitCode: 2 })
+    const want = [{ at: T0, kind: 'tool', text: 'Bash ls', id: 'c1', command: 'ls', done: true, failed: true, exitCode: 2 }]
+    expect(buildReport(s, [], meta).agents[0]!.activity).toEqual(want)
+    expect(buildReport(s, [], { ...meta, activityOutput: true }).agents[0]!.activity).toEqual(want)
+    expect(finishActivity(s, 'a1', 'c1', { done: true })).not.toBe(s)
   })
 
   test('a command that was cut says so, and an older entry keeps its old shape', () => {
@@ -674,7 +683,7 @@ describe('activity command and output (#431)', () => {
     const list = buildReport(s, [], { ...meta, activityOutput: true }).agents[0]!.activity!
     expect(list[0]!.command).toBe(big)
     expect(list[0]!.output).toBeUndefined()
-    expect(list[0]!.done).toBeUndefined()
+    expect(list[0]!.done).toBe(true)
     expect(list.at(-1)!.output).toBe(big)
   })
 
@@ -708,7 +717,7 @@ describe('activity command and output (#431)', () => {
     const list = r.agents[0]!.activity!
     expect(list.every((e) => e.command === wide)).toBe(true)
     expect(list[0]!.output).toBeUndefined()
-    expect(list[0]!.done).toBeUndefined()
+    expect(list[0]!.done).toBe(true)
     expect(list[2]!.output).toBeUndefined()
     expect(list.at(-1)!.output).toBe(wide) // only as many as needed went, the newest last
   })

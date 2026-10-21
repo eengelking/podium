@@ -124,10 +124,11 @@ function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntr
     if (withOutput && e.output !== undefined) {
       out.output = e.output.slice(0, DETAIL_MAX);
       if (e.outputCut) out.outputCut = true;
-      if (e.done) out.done = true;
-      if (e.exitCode !== undefined) out.exitCode = e.exitCode;
-      if (e.failed) out.failed = true;
     }
+    // How the call ended is not output: it goes with the feed (#598).
+    if (e.done) out.done = true;
+    if (e.exitCode !== undefined) out.exitCode = e.exitCode;
+    if (e.failed) out.failed = true;
     return out;
   });
 }
@@ -193,7 +194,7 @@ function withinActivityBudget(r: Report): Report {
   return r;
 }
 
-const OUTPUT_FIELDS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+const OUTPUT_FIELDS = ['output', 'outputCut'] as const;
 const COMMAND_FIELDS = ['command', 'commandCut'] as const;
 
 /** The feeds of a report, the orchestrator's first, then each agent's in order, as the server reads them. */

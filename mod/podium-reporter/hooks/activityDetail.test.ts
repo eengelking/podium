@@ -130,10 +130,21 @@ describe('activityEntry and finishedCall (#431)', () => {
     expect(activityEntry('Read', { file_path: '/x' }, 'tu1', 5)).toEqual({ at: 5, kind: 'tool', text: 'Read /x' })
   })
 
-  test('a finished call adds its output, done and what failed; nothing when there is nothing to read', () => {
-    expect(finishedCall({ result: { stdout: 'hi', stderr: '' } })).toEqual({ output: 'hi', done: true })
-    expect(finishedCall({ isError: true, text: 'Exit code 3\nboom' })).toEqual({ output: 'boom', done: true, failed: true, exitCode: 3 })
-    expect(finishedCall({ text: 'y'.repeat(21_000) }).outputCut).toBe(true)
-    expect(finishedCall({})).toEqual({})
+  test('a finished call adds its output, done and what failed; a result with nothing to read is still done', () => {
+    expect(finishedCall({ result: { stdout: 'hi', stderr: '' } }, true)).toEqual({ output: 'hi', done: true })
+    expect(finishedCall({ isError: true, text: 'Exit code 3\nboom' }, true)).toEqual({ output: 'boom', done: true, failed: true, exitCode: 3 })
+    expect(finishedCall({ text: 'y'.repeat(21_000) }, true).outputCut).toBe(true)
+    expect(finishedCall({}, true)).toEqual({ done: true })
+  })
+
+  test('without output a finished call is done, failed and exitCode only, and none of its text is kept (#598)', () => {
+    const SECRET = 'sk-live-STATUS-ONLY-1234'
+    expect(finishedCall({ result: { stdout: `TOKEN=${SECRET}`, stderr: '' } }, false)).toEqual({ done: true })
+    expect(finishedCall({}, false)).toEqual({ done: true })
+    const failed = finishedCall({ isError: true, text: `Exit code 3\nTOKEN=${SECRET}` }, false)
+    expect(failed).toEqual({ done: true, failed: true, exitCode: 3 })
+    expect(JSON.stringify(failed)).not.toContain(SECRET)
+    expect(finishedCall({ isError: true, text: 'no code' }, false)).toEqual({ done: true, failed: true })
+    expect(finishedCall({ deny: `no ${SECRET}` }, false)).toEqual({ done: true, failed: true })
   })
 })

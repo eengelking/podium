@@ -2054,8 +2054,10 @@ export const register: Register = (on, rawOptions) => {
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
-      if (tool === 'Bash' && e.tool_use_id && opts.activityFeed && opts.activityOutput && isWatchedOutput(r.state, e.agentId)) {
-        r.state = finishActivity(r.state, e.agentId, e.tool_use_id, finishedCall((res ?? {}) as BashResult));
+      // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
+      if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
+        const withOutput = opts.activityOutput && isWatchedOutput(r.state, e.agentId);
+        r.state = finishActivity(r.state, e.agentId, e.tool_use_id, finishedCall((res ?? {}) as BashResult, withOutput));
       }
       recorder.outcome(recLoop(e.agentId), tool, input, callSeq, res, nowMs());
       if (e.tool_use_id) callSeqs.delete(e.tool_use_id);
