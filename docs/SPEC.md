@@ -2291,9 +2291,9 @@ need the unlocked Admin session like the rest of the Admin API.
 | `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. |
 | `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
 | `GET /api/admin/people/:id/certificate.pem` | The person's public certificate and the CA. Never a key. |
-| `POST /api/admin/people/:id/revoke-all` | Revoke the certificate and the token. |
+| `POST /api/admin/people/:id/revoke-all` | Revoke the certificate and the token. Refused for the last active Administrator. |
 
-`POST people/:id/revoke`, in the list below, is still the token's revoke.
+`POST people/:id/revoke`, in the list below, is still the token's revoke, and with TLS on it also revokes the person's certificate ([7.7](#77-hardening), *Revocation*).
 
 #### Admin API
 
@@ -2862,8 +2862,13 @@ and the Administrators group always keeps a member, so a server whose certificat
 true, since without `ca` Node verifies against the public roots. It looks the certificate up by SHA-256
 fingerprint, never by subject or serial. Extended key usage is enforced both ways.
 
-**Revocation.** An Admin can revoke a person's certificate, their token, or both (Revoke all). Revoking the
-certificate stops the reporter and leaves the console sign-in. The server checks the fingerprint's revocation and
+**Revocation.** An Admin can revoke a person's certificate, their token, or both (Revoke all). Revoking only the
+certificate stops the reporter and leaves the token and the console sign-in. Revoking the token also revokes the
+certificate, so a person who is cut off cannot go on with the other credential; Revoke all is the same action
+by name, and a reissue (or a token rotation followed by one) gives the person a way back. Revoke token and Revoke
+all are refused (`400`) for the last active member of Administrators, as Delete is, and the message says to add
+or move another person first; the admin secret still signs in to Admin either way. Revoking only the certificate
+is not guarded, since the console sign-in does not use it. The server checks the fingerprint's revocation and
 issuer on **every request**, or destroys the open sockets when a certificate is revoked or a CA retired, because a
 keep-alive connection stays authorized after the client `ca` list is narrowed.
 
