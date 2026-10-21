@@ -1632,14 +1632,20 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
 - A Bash entry also carries its call id and the whole command (#431): redacted by the same rule, line breaks kept,
   cut to 20,000 characters with a visible `[cut off at 20,000 characters]` marker (`command`, with `commandCut`).
   Any other tool row whose summary was cut at 300 characters may carry its whole line the same way.
+  The mod removes ANSI escape sequences and other control characters (not line breaks or tabs) from a command and from
+  output before redacting, so a coloured secret is still caught. Of the tool rows, the mod sends `id` and `command` for Bash only.
 - With the `activityOutput` option on, the entry gets the call's output, stdout then stderr, redacted and cut the
   same way (`output`, `outputCut`), with `done` and the exit status (`exitCode`, `failed`) once the call returns.
-  A call still running has none of them. Claude Code swaps a result of about 90 KB or more for a short
+  Claude Code's tool types carry no numeric exit code, so the mod sets `failed` from the call's error flag and `exitCode`
+  only when the text of a failed call says "Exit code N" (a live run against Claude Code 2.1.306 showed that text: the
+  status line, then stdout and stderr merged; the mod shows the output without the status line). A call still running has none of them. Claude Code swaps a result of about 90 KB or more for a short
   `<persisted-output>` stub before the mod sees it, so the entry carries that stub.
 - Commands and output count against their own budget, not the 60,000 characters of summaries: one report carries
   at most 200,000 characters of them over all its loops. It is filled from the orchestrator first, then the agents
   in order, and from a loop's newest entry back. An entry that does not fit loses its output, then its command, and
   keeps its summary.
+- The mod also keeps one report under 480,000 serialized bytes, as a recording's request does, since multi-byte text slips
+  past a character budget: it drops output first, then commands, oldest first, until it fits.
 - Thinking is not sent: `turn.step` streams `thinking` chunks, but they are left alone.
 - The orchestrator, subagents and forks are all treated alike.
 

@@ -355,6 +355,14 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   reply's `watchOutput` listing the loop, its `output` and exit status. They have a separate 200,000-character budget
   per report, enforced by `withinActivityBudget` in `protocol.ts`, which also drops output the session's option does
   not allow. DECISIONS 41 has the reasoning.
+- The mod (#431): `activityDetail.ts` builds the pieces. `tool.call` adds a Bash entry with its `id` and `commandDetail`
+  (control characters stripped, `redactBounded` from `recording.ts`, cut at 20,000 characters with the marker). When the call
+  returns, and only with both options on and the loop in `watchOutput` (`setWatchedOutput`, from the transport's
+  `watchOutput`, never wider than `watch`), `finishActivity` adds `output`, `done`, `failed` and `exitCode` to the entry with
+  that `id`, so the next report carries it again. `bashOutput` reads the result record's `stdout` and `stderr`, else the text
+  the model reads; the types have no numeric exit code, so `exitCode` is parsed only from an "Exit code N" in that text.
+  `report.ts` keeps commands and output to 200,000 characters (`withinDetailBudget`) and the body to 480,000 bytes
+  (`withinSize`), output first, then commands, oldest first.
 - The server (#431): `ActivityStore` merges an entry that carries an `id` into the one it already holds, so output that
   arrives after the entry first went out attaches to it. It holds `output`, `done`, `exitCode` and `failed` on the lease
   only, takes them only while the `activity-output` and `activity-feed` flags and the session's `activityOutput` option are
