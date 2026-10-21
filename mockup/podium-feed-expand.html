@@ -184,8 +184,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <ol class="feed" id="feed-run" aria-label="Running"></ol>
       </section>
       <section>
-        <h2>Output is off for this machine</h2>
-        <p>The command is whole and opens; the output block says in words why it is missing.</p>
+        <h2>The Admin has output turned off</h2>
+        <p>The command is whole and opens; the output block says in words why it is missing. The machine's own option has its wording on the Admin mockup (podium-feed-expand-admin.html).</p>
         <ol class="feed" id="feed-off" aria-label="Output off"></ol>
       </section>
       <section>
@@ -333,7 +333,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   fill("feed-old", [ { at: "04:07", kind: "tool", cmd: CMD_LONG, full: false } ]);
   fill("feed-run", [ { at: "04:31", kind: "tool", cmd: CMD_CURL, state: "running", open: true } ]);
-  fill("feed-off", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output is turned off for this machine.", "Someone with Admin access can turn it on in Admin > Settings > Feature flags."], exit: null, open: true } ]);
+  fill("feed-off", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output is turned off by the Admin.", "Someone with Admin access can turn it on in Admin > Settings > Feature flags."], exit: null, open: true } ]);
   fill("feed-hist", [ { at: "00:58", kind: "tool", cmd: CMD_LONG, outNote: ["Output is not kept in history.", "Only the command is stored. Output is shown while someone is watching the session and is gone after."], open: true } ]);
 
   // Demo chrome.
