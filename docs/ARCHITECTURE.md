@@ -357,17 +357,18 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   not allow. DECISIONS 41 has the reasoning.
 - The mod (#431): `activityDetail.ts` builds the pieces. `tool.call` adds a Bash entry with its `id` and `commandDetail`
   (control characters stripped, `redactBounded` from `recording.ts`, cut at 20,000 characters with the marker). When the call
-  returns, and only with both options on and the loop in `watchOutput` (`setWatchedOutput`, from the transport's
-  `watchOutput`, never wider than `watch`), `finishActivity` adds `output`, `done`, `failed` and `exitCode` to the entry with
-  that `id`, so the next report carries it again. `bashOutput` reads the result record's `stdout` and `stderr`, else the text
+  returns, `finishActivity` adds `done`, `failed` and `exitCode` to the entry with that `id` (#598; the exit line is read from
+  the result and no output is kept), and, only with both options on and the loop in `watchOutput` (`setWatchedOutput`, from the
+  transport's `watchOutput`, never wider than `watch`), `output` and `outputCut` as well, so the next report carries it again. `bashOutput` reads the result record's `stdout` and `stderr`, else the text
   the model reads; the types have no numeric exit code, so `exitCode` is parsed only from an "Exit code N" in that text.
   `report.ts` keeps commands and output to 200,000 characters (`withinDetailBudget`) and the body to 480,000 bytes
   (`withinSize`), output first, then commands, oldest first.
 - The server (#431): `ActivityStore` merges an entry that carries an `id` into the one it already holds, so output that
-  arrives after the entry first went out attaches to it. It holds `output`, `done`, `exitCode` and `failed` on the lease
+  arrives after the entry first went out attaches to it. It holds `output` and `outputCut` on the lease
   only, takes them only while the `activity-output` and `activity-feed` flags and the session's `activityOutput` option are
   on, serves them only while the flags are on, and drops them with the lease, the session, a flag turned off, and a
-  restart (`dropOutput`). `watchedOutput` is the reply's `watchOutput`: the lease loops, never the loops the history lists.
+  restart (`dropOutput`). `done`, `exitCode` and `failed` (`statusOf`) are not output (#598): they are held and served with the
+  entry under `activity-feed` alone, survive `dropOutput`, and are dropped with the lease like the entry. `watchedOutput` is the reply's `watchOutput`: the lease loops, never the loops the history lists.
   The Activity history (schema version 5) stores `command` and `command_cut`, and has no column for output, status or id.
 - The console (#431): `BashRow.tsx` is the one Bash row, shared by the feed's `Entry` (panel, Expand modal and Respond modal) and the
   replay's `Row`. Only Bash rows open; the open state is the row's own React state, so it follows the entry's key across the refresh.

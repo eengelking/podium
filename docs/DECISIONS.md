@@ -1281,7 +1281,12 @@ not collected." for both.
   "Failed"), on the line and beside Output. No `done` and the loop not active: "Output was not collected." with no mark,
   a stale call whose end was never reported.
 - **An older mod.** It sends no `done` without output, so its rows keep today's wording: running while the loop is
-  active, otherwise "Output was not collected." with no mark. An older server ignores nothing new, because the fields
-  are optional on the entry.
+  active, otherwise "Output was not collected." with no mark. An older server drops `done`, `failed` and `exitCode`
+  from a session that does not report `activityOutput: true`, so it ignores the new use and its rows stay as they
+  were; with the option on it keeps them, which only helps. Neither case is an error, since the fields are optional on
+  the entry.
+- **A call that throws.** It returns no result, so the mod marks nothing: `done` stays unknown, and the row reads as
+  it does for a stale call. A denied call is `done` and `failed` as before, and its reason is output, so it is sent
+  only with the output switches on.
 - **Why.** The mod knows when a call ends; the server cannot tell a finished call from a running one without being told.
   The mockup is `mockup/podium-feed-expand.html`, "Rows without output".

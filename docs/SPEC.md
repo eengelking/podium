@@ -185,7 +185,8 @@ it as an estimate. Never present it as an invoice.
 - With the `activityFeed` option on, a Bash call's whole command (up to 20,000 characters, redacted) goes with its
   entry, and the Activity history stores it like the rest of the entry (#431). A command's output goes out only
   with the separate `activityOutput` option on, only while a viewer has that loop's feed open, and is never stored
-  ([6.4](#64-failure-and-excerpt-rules)).
+  ([6.4](#64-failure-and-excerpt-rules)). Whether the call has finished and how it ended (`done`, `failed`,
+  `exitCode`) is not output: it goes with the entry whenever the call finishes, with or without output (#598).
 - With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
   server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
   Admin can read it ([7.7](#orchestrator-messaging-347)).
@@ -526,8 +527,10 @@ All hook inputs are plain frozen data. Do not mutate them.
 5. With the `activityFeed` option on and the loop watched ([6.4](#64-failure-and-excerpt-rules)), add one
    activity entry for the call before it runs: the tool's name and a short summary of its arguments. For a Bash
    call the entry also carries the call's `id` and its whole command; once the call returns, and only with the
-   `activityOutput` option on and the loop listed in the reply's `watchOutput`, the same entry gets the output and
-   the exit status (#431).
+   `activityOutput` option on and the loop listed in the reply's `watchOutput`, the same entry gets the output (#431).
+   Whenever the call returns, with or without output, the same entry gets `done` and, as the result says, `failed`
+   and `exitCode`; the mod reads the result's text for the exit line alone and keeps none of it (#598). A call
+   that throws returns no result, so it is not marked done. A call a rule denies is done and failed.
 6. For every tool, remember the loop's latest call (tool, input, `tool_use_id`), so a permission prompt can be
    paired with it.
 7. For `AskUserQuestion` and `ExitPlanMode` while the mod responds, open an ask and wait for an answer (see
@@ -1472,9 +1475,9 @@ interface ActivityEntry {
   commandCut?: boolean;                 // the mod cut the command
   output?: string;                      // stdout then stderr, redacted and cut like the command. Only with the activityOutput option, only for a loop in the reply's `watchOutput`; never stored. "" is a call that printed nothing; absent while the call runs or when no output was captured
   outputCut?: boolean;                  // the mod cut the output
-  done?: boolean;                       // the call has finished (sent with `output`)
-  exitCode?: number;                    // the exit status, when the mod can read it
-  failed?: boolean;                     // the call failed (sent with `output`), with or without `exitCode`
+  done?: boolean;                       // the call has finished (#598): sent with activityFeed, with or without `output`; absent while it runs. Not output, so it needs no activityOutput option
+  exitCode?: number;                    // the exit status, when the mod can read it. Sent with `done`
+  failed?: boolean;                     // the call failed, sent with `done`, with or without `exitCode`
 }
 
 // What a session can be answered with from Podium (#206). Which levels allow which: `questions` gives question and
@@ -1635,10 +1638,11 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   The mod removes ANSI escape sequences and other control characters (not line breaks or tabs) from a command and from
   output before redacting, so a coloured secret is still caught. Of the tool rows, the mod sends `id` and `command` for Bash only.
 - With the `activityOutput` option on, the entry gets the call's output, stdout then stderr, redacted and cut the
-  same way (`output`, `outputCut`), with `done` and the exit status (`exitCode`, `failed`) once the call returns.
+  same way (`output`, `outputCut`). Once the call returns, the entry also gets `done` and the exit status (`exitCode`,
+  `failed`), with the option on or off (#598): these are not output.
   Claude Code's tool types carry no numeric exit code, so the mod sets `failed` from the call's error flag and `exitCode`
   only when the text of a failed call says "Exit code N" (a live run against Claude Code 2.1.306 showed that text: the
-  status line, then stdout and stderr merged; the mod shows the output without the status line). A call still running has none of them. Claude Code swaps a result of about 90 KB or more for a short
+  status line, then stdout and stderr merged; the mod shows the output without the status line). A call still running has none of them. Without the option, or for a loop no viewer has open, the mod reads that status line and keeps none of the output. Claude Code swaps a result of about 90 KB or more for a short
   `<persisted-output>` stub before the mod sees it, so the entry carries that stub.
 - Commands and output count against their own budget, not the 60,000 characters of summaries: one report carries
   at most 200,000 characters of them over all its loops. It is filled from the orchestrator first, then the agents
@@ -1675,6 +1679,10 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
 - It holds a Bash entry's output in memory only, on the lease, with the rest of the live window, and ignores it
   while the Admin's `activity-output` flag is off or the session's `activityOutput` is not true. Output is never
   written to `podium.sqlite` or `activity.sqlite`, and never put in the state, the stream or a log.
+- It holds and serves `done`, `failed` and `exitCode` the same way, in memory with the entry, but without those two
+  switches: they are not output (#598). They attach to a held entry that arrived without them, and a call the lease
+  did not hold when it started is not held when it finishes. They survive the `activity-output` flag turning off and
+  the option turning off.
 
 **Switches**
 - With the option off, the mod captures nothing, ignores `watch`, and sends `activityFeed: false`.
@@ -2322,7 +2330,8 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - Body: `{ entries: (ActivityEntry & { seq })[], since, live, enabled, serverTime }`. `@orchestrator` is the main
   loop. `seq` numbers entries in the order the server took them. An entry may carry the Bash fields of
   [6.2](#62-the-report) (`id`, `command`, `output`, `done`, `exitCode`, `failed` and the cut flags, #431); `output`
-  only while the Admin's `activity-output` flag is on.
+  only while the Admin's `activity-output` flag is on. `done`, `exitCode` and `failed` are not output and are served
+  with the feed whatever that flag says (#598).
 - Each call takes or renews a lease on that loop for `every` seconds (5, 10, 20, 30 or 60; anything else is 5)
   plus 15 seconds. While a lease is live, the reply to each report lists the loop in `watch`.
 - For a session that is not live it answers `live: false`, `since: null` and no entries, and takes no lease.
@@ -3719,8 +3728,10 @@ Other places the warning shows:
 - An activity entry's `id` is clipped to 200 characters, and its `command` and `output` to 20,100 (the 20,000-character
   cap plus the cut-off marker), keeping line breaks. `exitCode` is a non-negative integer; `commandCut`, `outputCut`,
   `done` and `failed` are booleans. A wrong type is rejected with the field's path. The new fields are dropped, not
-  rejected, on an entry that is not a `tool` entry, and `output`, `outputCut`, `done`, `exitCode` and `failed` are
-  dropped unless the session's `activityOutput` is true. Past 200,000 characters of commands and output in one
+  rejected, on an entry that is not a `tool` entry, and `output` and `outputCut` are dropped unless the session's
+  `activityOutput` is true. `done`, `exitCode` and `failed` are kept with the feed whatever `activityOutput` says, and
+  count toward neither budget (#598). An older server drops them without `activityOutput`, so it ignores the new use:
+  its rows stay as they were. Past 200,000 characters of commands and output in one
   report, the server drops the output of the oldest entries that do not fit, then their command (the orchestrator's
   loop first, then the agents' in order, each from its newest entry back), and keeps their summaries.
 - Reject, never crash, on junk.
