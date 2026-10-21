@@ -105,6 +105,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/REPORTER.md` | The reporter mod: install, options, what leaves a session |
 | `docs/USER_GUIDE.md` | Using the dashboard, day-to-day |
 | `docs/MESSAGING.md` | Orchestrator messaging from start to finish: how the parts fit, setup, rights, limits, troubleshooting, the end-to-end test |
+| `docs/REPLAY.md` | Session recording and replay from start to finish: consent, what is captured, the notice, storage, limits, access, the replay, the measurement |
 | `docs/SPEC.md` | Intended behavior and requirements |
 | `docs/ARCHITECTURE.md` | How it was built, departures from the spec, verification, known issues |
 | `docs/DECISIONS.md` | Why a significant choice was made |
