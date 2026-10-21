@@ -597,11 +597,17 @@ describe('protocol', () => {
     it('an entry from an older mod validates and looks as it did', () => {
       expect(first(validateReport(withEntries({ activityOutput: true }, [base])))).toEqual(base);
     });
-    it('drops the output, the exit status and the done mark unless the output option is on, and keeps the command', () => {
-      expect(first(validateReport(withEntries({ activityOutput: false }, [full])))).toEqual({ ...base, id: 'toolu_01bash', command: full.command });
+    it('drops the output unless the output option is on, and keeps the command and how the call ended (#598)', () => {
+      const kept = { ...base, id: 'toolu_01bash', command: full.command, done: true, exitCode: 0 };
+      expect(first(validateReport(withEntries({ activityOutput: false }, [full])))).toEqual(kept);
       const f = withEntries({}, [full]);
       delete (f.session as Record<string, unknown>).activityOutput;
-      expect(first(validateReport(f))).toEqual({ ...base, id: 'toolu_01bash', command: full.command });
+      expect(first(validateReport(f))).toEqual(kept);
+      expect(first(validateReport(withEntries({ activityOutput: false }, [{ ...base, output: 'boom', outputCut: true, done: true, failed: true, exitCode: 2 }])))).toEqual({ ...base, done: true, failed: true, exitCode: 2 });
+    });
+    it('keeps done, failed and exitCode on a call that finished with no output, and drops them from an entry that is not a tool call (#598)', () => {
+      expect(first(validateReport(withEntries({ activityOutput: true }, [{ ...base, done: true, failed: true, exitCode: 1 }])))).toEqual({ ...base, done: true, failed: true, exitCode: 1 });
+      expect(first(validateReport(withEntries({}, [{ ...base, kind: 'text', done: true, failed: true, exitCode: 1 }])))).toEqual({ ...base, kind: 'text' });
     });
     it('drops the command and output of an entry that is not a tool call', () => {
       expect(first(validateReport(withEntries({ activityOutput: true }, [{ ...full, kind: 'text' }])))).toEqual({ ...base, kind: 'text', id: 'toolu_01bash' });
@@ -656,8 +662,8 @@ describe('protocol', () => {
         expect(total(list)).toBeLessThanOrEqual(LIMITS.activityDetailChars);
         expect(list.at(-1)!.output).toHaveLength(20_000);
         expect(list.at(-5)!.output).toHaveLength(20_000);
-        expect(list.at(-6)).toEqual({ ...base, at: base.at + 14, id: 't14' });
-        expect(list[0]).toEqual({ ...base, id: 't0' });
+        expect(list.at(-6)).toEqual({ ...base, at: base.at + 14, id: 't14', done: true });
+        expect(list[0]).toEqual({ ...base, id: 't0', done: true });
       });
       it('keeps the command and drops only the output when the command alone fits', () => {
         const list = [{ ...entries(1, 20_000)[0]!, at: base.at - 1, id: 'old', output: 'o'.repeat(20_100) }, ...entries(4, 20_000)];
@@ -665,7 +671,7 @@ describe('protocol', () => {
         expect(r.ok).toBe(true);
         if (!r.ok) return;
         const got = r.report.session.activity!;
-        expect(got[0]).toEqual({ ...base, at: base.at - 1, id: 'old', command: 'c'.repeat(20_000) });
+        expect(got[0]).toEqual({ ...base, at: base.at - 1, id: 'old', command: 'c'.repeat(20_000), done: true });
         expect(total(got)).toBe(180_000);
       });
       it('is shared across the orchestrator and the agents, the orchestrator first', () => {

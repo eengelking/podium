@@ -192,11 +192,14 @@ export interface ActivityEntry {
   output?: string;
   /** The mod cut the output at its limit. */
   outputCut?: boolean;
-  /** The call has finished. Sent with `output`; absent while it runs. */
+  /**
+   * The call has finished (#598). Sent with `activityFeed` on, with or without `output`; absent while it runs. It is not output:
+   * it needs neither the `activityOutput` option nor the Admin flag, and an older mod sends it only with `output`.
+   */
   done?: boolean;
-  /** The command's exit status, when the mod can read it. */
+  /** The command's exit status, when the mod can read it. Sent with `done`, never kept in the Activity history. */
   exitCode?: number;
-  /** The call failed. Sent with `output` when the exit status says so, whether or not `exitCode` is known. */
+  /** The call failed. Sent with `done` when the exit status says so, whether or not `exitCode` is known. */
   failed?: boolean;
 }
 
@@ -1688,8 +1691,12 @@ function activity(v: unknown, path: string): { activity?: ActivityEntry[] } {
   };
 }
 
-/** What a Bash entry carries beyond its summary, apart from the command (#431): kept only when the session's `activityOutput` option is on. */
-const OUTPUT_FIELDS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+/**
+ * What a Bash entry carries that is a call's output (#431): kept only when the session's `activityOutput` option is on. `done`,
+ * `failed` and `exitCode` are not output; they say how the call ended, ride with `activityFeed` alone (#598), and are never
+ * dropped here, whatever the budget.
+ */
+const OUTPUT_FIELDS = ['output', 'outputCut'] as const;
 
 function detailChars(e: ActivityEntry): number {
   return (e.command?.length ?? 0) + (e.output?.length ?? 0);
@@ -1699,8 +1706,8 @@ function detailChars(e: ActivityEntry): number {
  * Keeps the report's activity within its two budgets. The summaries (`text`) take LIMITS.activityChars: the orchestrator's
  * first, then the agents' in order, and a loop that does not fit loses its feed for this report. Commands and output take
  * LIMITS.activityDetailChars (#431), in the same loop order and newest entry first: an entry that does not fit loses its
- * output, and then its command, and keeps its summary. Output is dropped altogether unless the session says its
- * `activityOutput` option is on.
+ * output, and then its command, and keeps its summary and how the call ended (`done`, `failed`, `exitCode`: a few bytes that
+ * do not count). Output is dropped altogether unless the session says its `activityOutput` option is on.
  */
 function withinActivityBudget(r: Report): void {
   let left: number = LIMITS.activityChars;

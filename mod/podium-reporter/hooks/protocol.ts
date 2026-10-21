@@ -187,11 +187,14 @@ export interface ActivityEntry {
   output?: string;
   /** The mod cut the output at its limit. */
   outputCut?: boolean;
-  /** The call has finished. Sent with `output`; absent while it runs. */
+  /**
+   * The call has finished (#598). Sent with `activityFeed` on, with or without `output`; absent while it runs. It is not output:
+   * it needs neither the `activityOutput` option nor the Admin flag, and an older mod sends it only with `output`.
+   */
   done?: boolean;
-  /** The command's exit status, when the mod can read it. */
+  /** The command's exit status, when the mod can read it. Sent with `done`, never kept in the Activity history. */
   exitCode?: number;
-  /** The call failed. Sent with `output` when the exit status says so, whether or not `exitCode` is known. */
+  /** The call failed. Sent with `done` when the exit status says so, whether or not `exitCode` is known. */
   failed?: boolean;
 }
 
