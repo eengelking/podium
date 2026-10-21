@@ -58,6 +58,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **Kanban page: collapse the KPI rows (#538).** The eight KPI tiles fold into one thin bar and open again from a chevron control, so the cards get the space back. The choice is remembered on its own, apart from the header's and the Fleet page's.
   - Standards: a new `.kpi-tab` control (a pill on the KPI block's edge when open, a full-width bar when collapsed), built on `.tbar-tab`. Approved by the maintainer on #538, with the mockup `mockup/podium-board-kpi-collapse.html`.
+- Standards: new Activity feed row pieces for an openable Bash row (#431, H3 of #530): `.feed li .tgl` (the whole row is the toggle), `.feed li .xp` with its `.xh` header (the opened command and output panel, wrapped, no sideways scroll), `.exit` (the exit status: a bare check for exit 0, a cross and the words "Exit N, failed" for a non-zero exit, so the status is a shape, a word and a color), a bare-check success status, a Copy button as a small button inside `.xh`, and a cross for a failed exit. Approved by the maintainer with the mockup on #431 (`mockup/podium-feed-expand.html`).
 
 ### Changed
 

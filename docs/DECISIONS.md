@@ -65,6 +65,7 @@ Other docs cite entries by number, so numbers never change.
 | [38](#38-the-plan-list-ends-with-the-done-steps-in-the-order-the-server-saw-them-finish-454) | The Plan list ends with the done steps, in the order the server saw them finish (#454) |
 | [39](#39-the-admin-can-keep-the-activity-feed-in-a-second-sqlite-file-432) | The Admin can keep the activity feed, in a second SQLite file (#432) |
 | [40](#40-a-session-can-be-recorded-whole-with-three-yes-answers-353) | A session can be recorded whole, with three yes answers (#353) |
+| [41](#41-a-bash-row-opens-to-the-whole-command-and-its-output-431) | A Bash row opens to the whole command and its output (#431) |
 
 ## 1. Podium only observes
 
@@ -1198,3 +1199,53 @@ ever holds of a conversation. The details are in [REPLAY.md](REPLAY.md).
 - Thinking text is not available, and only one model at one effort was tested.
 - The limits come from simulated traffic, not real sessions, so they may change.
 - The Admin can read every recording and start one without the owner, which is why the notice cannot be hidden.
+
+## 41. A Bash row opens to the whole command and its output (#431)
+
+**Context.** The Activity feed showed a Bash call as one line cut to 300 characters, with no result. A person had to open
+the terminal to see whether a command worked. #432 and #353 changed what the feed may keep since the issue was written,
+so some of its first assumptions (output "in memory only", captured "only for a watched loop") no longer hold as written.
+
+**Decision.** Every Bash row, and any tool row whose line was cut at 300 characters, is closed by default. A click on the
+row opens it to the whole command, then the output with its exit status (a bare check for exit 0, a cross and "Exit N,
+failed" otherwise); a second click or the Collapse button closes it. Command and output wrap. The same row serves the
+agent panel, the Expand modal, the Respond modal and the session-recording replay. The replay shows the result its
+recording already holds (#353); it adds no second copy.
+
+- **Two switches.** The whole command rides the existing `activityFeed` option and `activity-feed` flag. Output has its own
+  reporter option and its own Admin feature flag, both off by default.
+- **Output is never stored.** It is not in `podium.sqlite`, `activity.sqlite`, the state, the stream or the logs. The server
+  holds it in memory only, on the feed's lease. A test checks that a secret in output is found in none of them.
+- **Output is captured only while a viewer has the feed open.** A keep policy under #432 lists a loop as watched with no
+  viewer; that listing never asks the mod for output; only a live viewer lease does (how the mod is told is decided in the protocol stage).
+- **The command is kept.** The Activity history (#432) stores the whole command, redacted and cut at 20,000 characters with
+  a visible `[cut off at 20000 characters]` marker.
+- **Limits.** Command 20,000 characters and output 20,000 characters per entry, each with the marker, the same size as the
+  full prompt cap (`fullText`). The report-wide 60,000-character cap (`activityChars`) stays as it is for the 300-character
+  summaries; commands and output count against a separate per-loop budget, because 20 entries of 40,000 characters each
+  would be 800,000 characters and the old cap would drop nearly all of them. The budget number is chosen in the protocol
+  stage and recorded here when it is.
+- **Claude Code's own cut.** A Bash result of about 90 KB or more arrives as a short `<persisted-output>` stub. The row
+  shows what the mod received, so for that case it shows the stub.
+- **Redaction.** `redactBounded` in `mod/podium-reporter/hooks/recording.ts`, as the recording uses. No third approach.
+
+**Why.**
+
+- Output holds more than a command does (file contents, environment dumps, tokens the redactor does not know), so it
+  gets its own consent and its own default, apart from the command.
+- Capturing only for a live viewer keeps a keep policy from turning every running loop into a standing copy of its output.
+- Not storing output means the Admin's retention and size cap never have to account for it.
+
+**Alternatives.**
+
+- Output on the `activityFeed` option. Rejected: it would grant output to everyone who allowed the command line.
+- Storing output under the keep policy, as #353 does for recordings. Rejected: a recording has its own three yes answers;
+  the feed does not.
+
+**Cost.**
+
+- Redaction in 1,000-character pieces can miss a secret across a cut (see `docs/REPLAY.md`), and it hides some harmless
+  long lines as `[redacted]`.
+- A person who opens a row after the command finished may find no output, because it was not captured before the feed
+  was open.
+- A result over about 90 KB shows a stub, not the output.
