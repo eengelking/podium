@@ -18,6 +18,8 @@ import type { ClientSocket, PersonCertRow, PersonCertStore } from './tlsClientAu
 import { clientConfig, openssl, randomSerial, REPORTER_DAYS, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
 const DAY_MS = 86_400_000;
+/** A person's certificate is renewed at most once in this long (#612), unless the one presented has expired. */
+export const MIN_RENEW_INTERVAL_MS = 3_600_000;
 
 export interface ReporterSettings {
   /** `tls.reporter.lifetimeDays`: how long a person's certificate lasts. */
@@ -165,6 +167,8 @@ export interface ReporterRenewDeps {
 export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
   const router = Router();
   const json = express.json({ limit: '4kb', type: ['application/json'] });
+  /** People with a renewal between the check and the stored row; a second request in that window would pass the hourly limit. */
+  const inFlight = new Set<number>();
 
   const authenticate = (req: Request, res: Response, next: NextFunction): void => {
     const issuer = d.issuer();
@@ -180,6 +184,21 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
       d.logger.warn('tls.reporter_renew_refused', `podium: refused a certificate renewal from ${req.ip ?? 'unknown'}: ${auth.reason}`, { code: auth.code, reason: auth.reason, status: 401, source: req.ip });
       res.status(401).json({ ok: false, code: auth.code, error: WORDS[auth.code] });
       return;
+    }
+    // One renewal an hour per person, so a looping client cannot fill the table or keep openssl busy. A certificate that has
+    // expired inside its grace is never held back: it has no other way in.
+    if (!auth.expired) {
+      const newest = d.certs.current(auth.person.id);
+      const waitMs = inFlight.has(auth.person.id) ? 1000 : newest ? Math.min(newest.issuedAt + MIN_RENEW_INTERVAL_MS - d.now(), MIN_RENEW_INTERVAL_MS) : 0;
+      if (waitMs > 0) {
+        const retryAfter = Math.ceil(waitMs / 1000);
+        d.logger.warn('tls.reporter_renew_refused', `podium: refused a certificate renewal from ${req.ip ?? 'unknown'}: ${auth.person.name} renewed less than an hour ago`, { code: 'TOO_SOON', reason: 'renewed less than an hour ago', status: 429, source: req.ip, retry_after: retryAfter });
+        res.set('Retry-After', String(retryAfter));
+        res.status(429).json({ ok: false, code: 'TOO_SOON', error: 'your certificate was renewed less than an hour ago; try again later', retryAfterSec: retryAfter });
+        return;
+      }
+      inFlight.add(auth.person.id);
+      res.once('close', () => inFlight.delete(auth.person.id));
     }
     res.locals.renewal = auth;
     next();
