@@ -78,7 +78,7 @@ export interface EnsureTlsOptions {
   openssl?: string;
 }
 
-const file = (dir: string, name: string): string => path.join(dir, name);
+export const file = (dir: string, name: string): string => path.join(dir, name);
 
 export const randomSerial = (): string => {
   const b = randomBytes(16);
@@ -86,14 +86,19 @@ export const randomSerial = (): string => {
   return `0x${b.toString('hex')}`;
 };
 
-const caConfig = `[req]
+/**
+ * pathlen:1 leaves room for one cross certificate between this CA and a serving certificate (#588): OpenSSL refuses the
+ * chain [leaf, cross] under a root with pathlen:0. A CA made before this change has pathlen:0 and can only rotate by
+ * ending the overlap.
+ */
+export const caConfig = (cn = 'Podium CA'): string => `[req]
 distinguished_name = dn
 prompt = no
 [dn]
-CN = Podium CA
+CN = ${cn}
 O = podium
 [v3_ca]
-basicConstraints = critical, CA:TRUE, pathlen:0
+basicConstraints = critical, CA:TRUE, pathlen:1
 keyUsage = critical, keyCertSign, cRLSign
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always
@@ -122,7 +127,7 @@ function readable(p: string): boolean {
 }
 
 /** Throws a TlsError that says what is wrong with the folder; creates nothing. */
-function checkExisting(dir: string): { ca: boolean; serving: boolean } {
+export function checkExisting(dir: string): { ca: boolean; serving: boolean } {
   const haveCa = fs.existsSync(file(dir, 'ca.crt'));
   const haveCaKey = fs.existsSync(file(dir, 'ca.key'));
   if (haveCa !== haveCaKey) {
@@ -138,7 +143,7 @@ function checkExisting(dir: string): { ca: boolean; serving: boolean } {
 }
 
 /** Reads and checks what exists (throws a TlsError when it is wrong): the key opens, matches its certificate, and the serving certificate was signed by the CA. */
-function loadExisting(dir: string, state: { ca: boolean; serving: boolean }): void {
+export function loadExisting(dir: string, state: { ca: boolean; serving: boolean }): void {
   if (!state.ca) return;
   for (const n of ['ca.crt', 'ca.key', ...(state.serving ? ['serving.crt', 'serving.key'] : [])]) {
     if (!readable(file(dir, n))) throw new TlsError(`${file(dir, n)} cannot be read; check its owner and mode (keys are 0600)`);
@@ -167,11 +172,11 @@ export async function openssl(bin: string, args: string[], cwd: string): Promise
   }
 }
 
-const genKey = (bin: string, out: string, cwd: string): Promise<void> =>
+export const genKey = (bin: string, out: string, cwd: string): Promise<void> =>
   openssl(bin, ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', out], cwd);
 
-/** Makes `serving.key` and `serving.crt` in `work`, signed by the CA in `dir`; nothing in `dir` changes. */
-async function issueServing(bin: string, dir: string, work: string, names: ServerNames, days: number): Promise<void> {
+/** Makes `serving.key` and `serving.crt` in `work`, signed by the CA in `dir` (its `ca.crt` and `ca.key`); nothing in `dir` changes. */
+export async function issueServing(bin: string, dir: string, work: string, names: ServerNames, days: number): Promise<void> {
   fs.writeFileSync(file(work, 'serving.cnf'), servingConfig(names));
   await genKey(bin, 'serving.key', work);
   await openssl(bin, ['req', '-new', '-key', 'serving.key', '-subj', '/CN=localhost/O=podium', '-out', 'serving.csr'], work);
@@ -180,7 +185,7 @@ async function issueServing(bin: string, dir: string, work: string, names: Serve
 }
 
 /** Moves a finished serving pair from `work` into `dir`. The key goes first: a crash between the two renames leaves a key that does not match its certificate, which is reported at start. */
-function installServing(work: string, dir: string): void {
+export function installServing(work: string, dir: string): void {
   fs.renameSync(file(work, 'serving.key'), file(dir, 'serving.key'));
   fs.renameSync(file(work, 'serving.crt'), file(dir, 'serving.crt'));
 }
@@ -205,7 +210,7 @@ export async function ensureTls(opts: EnsureTlsOptions): Promise<TlsMaterial> {
     fs.chmodSync(work, 0o700);
     let createdCa = false;
     if (!state.ca) {
-      fs.writeFileSync(file(work, 'ca.cnf'), caConfig);
+      fs.writeFileSync(file(work, 'ca.cnf'), caConfig());
       await genKey(bin, 'ca.key', work);
       await openssl(bin, ['req', '-new', '-x509', '-key', 'ca.key', '-sha256', '-days', String(CA_YEARS * 365 + 3), '-set_serial', randomSerial(), '-config', 'ca.cnf', '-extensions', 'v3_ca', '-out', 'ca.crt'], work);
       fs.chmodSync(file(work, 'ca.key'), 0o600);

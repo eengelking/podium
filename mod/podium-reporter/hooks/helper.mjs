@@ -125,6 +125,29 @@ export function rewriteConfig(text, n) {
   return `${head.join('\n')}\n${n.ca.map(pem).join('')}${pem(n.cert)}${pem(n.key)}`;
 }
 
+/**
+ * A planned CA rotation's new CA (#588): `{ ca, cross }`, the new CA and a certificate for it signed by a CA this file already
+ * holds. Returns the new CA's PEM and whether the file holds it, or throws. The cross certificate is checked and dropped, never
+ * stored, because parseConfig would read it as one more trust anchor. A held CA is never replaced or removed.
+ */
+function acceptRotation(rotation, held) {
+  if (typeof rotation?.ca !== 'string' || typeof rotation?.cross !== 'string') throw new Error('the rotation is missing the new CA or the cross certificate');
+  let ca;
+  let cross;
+  try {
+    ca = new X509Certificate(rotation.ca);
+    cross = new X509Certificate(rotation.cross);
+  } catch {
+    throw new Error('the rotation holds a certificate that cannot be read');
+  }
+  const now = Date.now();
+  if (!ca.ca || !cross.ca) throw new Error('the rotation is not made of CA certificates');
+  if (!held.some((c) => cross.verify(new X509Certificate(c).publicKey))) throw new Error('the cross certificate is not signed by a CA in the file');
+  if (!ca.publicKey.equals(cross.publicKey) || ca.subject !== cross.subject) throw new Error('the cross certificate is not for the new CA');
+  for (const c of [ca, cross]) if (Date.parse(c.validFrom) > now || Date.parse(c.validTo) <= now) throw new Error('a certificate in the rotation is not valid now');
+  return { pem: rotation.ca, held: held.some((c) => new X509Certificate(c).fingerprint256 === ca.fingerprint256) };
+}
+
 /** Writes `text` to `file` through a temporary file in the same folder and a rename, at mode 0600, so a reader sees all of the old file or all of the new. */
 function writeAtomic(file, text) {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -432,12 +455,15 @@ function main(configPath, socketPath, serverUrl) {
         return;
       }
       if (answer.status !== 200 || typeof answer.json?.cert !== 'string') throw new Error(`the server answered ${answer.status}`);
-      // Never write what does not check out: the certificate must be for our key and signed by a CA this file already holds.
+      // Never write what does not check out: the certificate must be for our key and signed by a CA this file already holds,
+      // or, during a planned rotation (#588), by the new CA the response vouches for.
       const x = new X509Certificate(answer.json.cert);
       if (!x.publicKey.equals(publicKey) || x.ca) throw new Error('the renewed certificate is not for the new key');
-      if (!cfg.ca.some((c) => x.verify(new X509Certificate(c).publicKey))) throw new Error('the renewed certificate is not signed by the CA in the file');
+      const added = answer.json.rotation === undefined ? null : acceptRotation(answer.json.rotation, cfg.ca);
+      const holders = added ? [...cfg.ca, added.pem] : cfg.ca;
+      if (!holders.some((c) => x.verify(new X509Certificate(c).publicKey))) throw new Error('the renewed certificate is not signed by the CA in the file');
       const text = rewriteConfig(fs.readFileSync(configPath, 'utf8'), {
-        ca: cfg.ca,
+        ca: added && !added.held ? [...cfg.ca, added.pem] : cfg.ca,
         cert: answer.json.cert,
         key: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
         notAfter: new Date(x.validTo).toISOString(),

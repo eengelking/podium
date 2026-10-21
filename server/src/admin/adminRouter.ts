@@ -23,6 +23,9 @@ import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import type { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
 import type { PersonCertStore } from '../tlsClientAuth.js';
+import type { CaRotation } from '../tlsServer.js';
+import { TlsError } from '../tlsCa.js';
+import { CROSS_DAYS } from '../tlsRotation.js';
 import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
@@ -54,6 +57,8 @@ export interface AdminRouterOptions {
     renewer: () => ServingRenewer | null;
     /** People's certificates (#583, T5): the store, and what it takes to issue one. `issuer()` is null while TLS is off, and the person routes then answer 404. */
     people?: { store: PersonCertStore; issuer: () => PersonIssuer | null };
+    /** Rotating and retiring the CA (#588). Null while TLS is off. */
+    rotation?: () => CaRotation | null;
   };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
@@ -814,10 +819,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // ---- certificates (#577) -----------------------------------------------------------------------
 
+  /** The renewer's view with the overlap's count of reporters still on the old CA (#588). */
+  const certificatesView = (r: ServingRenewer) => {
+    const v = { ...r.view(), overlapDays: CROSS_DAYS };
+    if (!v.rotation) return v;
+    const oldFp = v.rotation.previousCa.fingerprintSha256;
+    const counts = certs?.people?.store.reportersByIssuer(now() - certs.settings.getReporter().graceDays * 86_400_000);
+    return { ...v, rotation: { ...v.rotation, reporters: { onOldCa: counts?.byIssuer[oldFp] ?? 0, total: counts?.total ?? 0 } } };
+  };
+
   router.get('/certificates', (_req, res) => {
     const r = certs?.renewer();
     if (!r) return tlsOff(res);
-    res.json({ ok: true, ...r.view(), reporter: certs?.settings.getReporter() });
+    res.json({ ok: true, ...certificatesView(r), reporter: certs?.settings.getReporter() });
   });
 
   // The CA certificate to download, for a browser or a person who wants to check it (T8). It sits behind the unlocked Admin session like the rest of this page; there is no key to send.
@@ -854,6 +868,38 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       audit(req, 'tls_serving_renewed', 'Renewed the serving certificate', { not_after: out.serving.notAfter });
       res.json({ ok: true, ...r.view() });
     }).catch(() => void res.status(500).json({ ok: false, error: 'could not renew the serving certificate' }));
+  });
+
+  // Rotate the CA. `{ endOverlap: false }` is the planned rotation with an overlap, `{ endOverlap: true }` the hard cutover after a leaked key (#588).
+  router.post('/certificates/rotate-ca', (req, res) => {
+    const r = certs?.renewer();
+    const rot = certs?.rotation?.();
+    if (!r || !rot) return tlsOff(res);
+    const body: unknown = req.body;
+    const endOverlap = body && typeof body === 'object' ? (body as { endOverlap?: unknown }).endOverlap : undefined;
+    if (typeof endOverlap !== 'boolean') return void res.status(400).json({ ok: false, error: 'say whether to end the overlap now: { "endOverlap": true | false }' });
+    void rot.rotate(endOverlap).then((out) => {
+      audit(req, 'tls_ca_rotated', endOverlap ? 'Rotated the certificate authority and ended the overlap: every reporter needs a reissued config' : 'Rotated the certificate authority; the old one stays trusted until it is retired', { overlap: out.overlap, connections_closed: out.closed, ca_not_after: out.ca.notAfter });
+      res.json({ ok: true, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+    }).catch((err: unknown) => {
+      // A TlsError says what is wrong in words the Admin can use; anything else is not shown.
+      if (err instanceof TlsError) return void res.status(409).json({ ok: false, error: err.message });
+      res.status(500).json({ ok: false, error: 'could not rotate the certificate authority' });
+    });
+  });
+
+  // Retire the old CA once no reporter needs it. The reply names how many were still on it (#588).
+  router.post('/certificates/retire-ca', (req, res) => {
+    const r = certs?.renewer();
+    const rot = certs?.rotation?.();
+    if (!r || !rot) return tlsOff(res);
+    const before = certificatesView(r).rotation;
+    void rot.retire().then((out) => {
+      if (!out || !before) return void res.status(409).json({ ok: false, error: 'there is no old CA to retire' });
+      const refused = 'reporters' in before ? before.reporters.onOldCa : 0;
+      audit(req, 'tls_ca_retired', `Retired the old certificate authority; ${refused} reporter${refused === 1 ? '' : 's'} still used it and now need a reissued config`, { reporters_refused: refused, connections_closed: out.closed });
+      res.json({ ok: true, refused, connectionsClosed: out.closed, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+    }).catch(() => void res.status(500).json({ ok: false, error: 'could not retire the old certificate authority' }));
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));

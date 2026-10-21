@@ -1,10 +1,13 @@
 // Built-in TLS (#577, T3): the HTTPS listener beside the HTTP one. The same express app serves both, so the routes and the
 // Host check (DECISIONS 33) are the same. Any failure to make or read the CA is logged and leaves HTTP working.
+import { X509Certificate } from 'node:crypto';
 import https from 'node:https';
 import type { RequestListener } from 'node:http';
+import type { TLSSocket } from 'node:tls';
 import type { Logger } from './logging/logger.js';
-import { ensureTls, serverNames, type TlsMaterial } from './tlsCa.js';
+import { ensureTls, serverNames, type CertInfo, type TlsMaterial } from './tlsCa.js';
 import { ServingRenewer, SERVING_DEFAULTS, type ServingSettings } from './tlsRenew.js';
+import { retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { tlsDir } from './tlsStorage.js';
 
 export const DEFAULT_TLS_PORT = 4318;
@@ -25,11 +28,22 @@ export interface StartTlsOptions {
   checkEveryMs?: number;
 }
 
+/** Rotating and retiring the CA of a running listener (#588). */
+export interface CaRotation {
+  /** A planned rotation keeps the old CA trusted for an overlap; `endOverlap` is the hard cutover. Closes the connections that held a client certificate when the overlap ends at once. */
+  rotate(endOverlap: boolean): Promise<{ ca: CertInfo; serving: CertInfo; overlap: boolean; closed: number }>;
+  /** Ends an overlap: the old CA is no longer trusted and connections that came in on its certificates are closed. Returns how many, or null when there is no overlap. */
+  retire(): Promise<{ closed: number } | null>;
+}
+
 export interface TlsListener {
   server: https.Server;
   port: number;
   material: TlsMaterial;
   renewer: ServingRenewer;
+  /** The CAs this listener trusts, the one source for the listener, the renewer and the certificate check (#588). */
+  trust: TrustStore;
+  rotation: CaRotation;
 }
 
 /** The HTTPS port from `PODIUM_TLS_PORT`, or an error that names what is wrong with it. */
@@ -67,11 +81,61 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
   }
   // A client certificate is asked for but not required (a browser has none), and `ca` is what makes `socket.authorized`
   // mean "signed by Podium": without it Node verifies against the public roots (#583).
-  const server = https.createServer({ cert: material.cert, key: material.key, ca: [material.caCert], requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.2' }, o.app);
-  const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs, ca: [material.caCert], caCert: material.caCert }, material.cert);
+  const trust = new TrustStore(dir, o.now);
+  const server = https.createServer({ cert: trust.chain(material.cert), key: material.key, ca: trust.caCerts(), requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.2' }, o.app);
+  const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs, trust, key: material.key }, material.cert);
   // Renew at start if it is due, before the first connection is accepted; a failure is logged and the current certificate serves.
   await renewer.start();
   server.once('close', () => renewer.stop());
+  // Narrowing the client `ca` list does not drop a keep-alive connection that is already authorized, so the open ones are kept to be closed (#588).
+  const open = new Set<TLSSocket>();
+  server.on('secureConnection', (socket) => {
+    open.add(socket);
+    socket.once('close', () => open.delete(socket));
+  });
+  /** Destroys the connections that presented a client certificate (and, with `issuedBy`, only those it signed). */
+  const closeClientConnections = (issuedBy?: string): number => {
+    const key = issuedBy ? new X509Certificate(issuedBy).publicKey : null;
+    let n = 0;
+    for (const socket of open) {
+      const raw = socket.getPeerCertificate().raw;
+      if (!raw) continue;
+      if (key) {
+        try {
+          if (!new X509Certificate(raw).verify(key)) continue;
+        } catch {
+          continue;
+        }
+      }
+      socket.destroy();
+      n++;
+    }
+    return n;
+  };
+  const rotation: CaRotation = {
+    rotate: (endOverlap) =>
+      renewer.exclusive(async () => {
+        const out = await rotateCa({ dir, names, servingDays: settings().lifetimeDays, endOverlap, openssl: o.openssl, now: o.now });
+        trust.reload();
+        renewer.adopt(out);
+        // A hard cutover refuses everything the old CA signed, and an open connection stays authorized until it is closed.
+        const closed = endOverlap ? closeClientConnections() : 0;
+        o.logger.info('tls.ca_rotated', `podium: rotated the CA${endOverlap ? ' and ended the overlap; every reporter needs a reissued config' : '; the old CA stays trusted until it is retired'}`, { overlap: out.overlap, connections_closed: closed, ca_fingerprint_sha256: out.ca.fingerprintSha256, ca_not_after: out.ca.notAfter });
+        return { ca: out.ca, serving: out.serving, overlap: out.overlap, closed };
+      }),
+    // Behind the same queue as a rotation or a serving renewal, which replace the same files.
+    retire: () =>
+      renewer.exclusive(async () => {
+        const previous = trust.previousCa();
+        if (!previous) return null;
+        retireCa(dir);
+        trust.reload();
+        renewer.reapply();
+        const closed = closeClientConnections(previous);
+        o.logger.info('tls.ca_retired', 'podium: retired the old CA', { connections_closed: closed });
+        return { closed };
+      }),
+  };
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
@@ -99,5 +163,5 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
     serving_fingerprint_sha256: serving.fingerprintSha256,
     serving_not_after: serving.notAfter,
   });
-  return { server, port: p.port, material, renewer };
+  return { server, port: p.port, material, renewer, trust, rotation };
 }

@@ -632,6 +632,17 @@ new one in; `setSecureContext` puts it on the running server. Only one renewal r
 named by their SPEC keys (`TlsSettingsStore`). `adminRouter.ts` serves `GET` and `PUT /api/admin/certificates` and
 `POST /api/admin/certificates/renew`, which answer 404 while TLS is off.
 
+**CA rotation (#588).** `tlsRotation.ts` has `TrustStore`, the one list of trusted CAs: `ca.crt`, and during an overlap
+`previous-ca.crt`, `cross.crt` and `rotation.json`. The listener's `ca`, the renewer's `setSecureContext`, `trustedIssuers`
+(the certificate check on each request and the renewal check) and the CA in a config file all read it, so a certificate
+cannot pass TLS and then be refused for its issuer. It ignores a cross certificate that is not the current CA's key signed
+by the previous CA, which is what a rotation that stopped part-way leaves. `rotateCa` builds the new CA, the cross
+certificate and the serving certificate in a `.new-*` folder and moves them in, the overlap files first and `ca.key` after.
+`ServingRenewer.exclusive` runs a rotation and a serving renewal one at a time. `startTls` keeps the open TLS sockets, since
+narrowing the client `ca` list does not drop one that is already authorized: a hard cutover destroys every socket that held
+a client certificate, and retiring destroys the ones whose certificate the old CA signed. `PersonCertStore.reportersByIssuer`
+counts people for the Admin page's "N of M reporters still use the old CA".
+
 **The CA and `/data/tls`.** The server makes and renews certificates by calling `openssl` with `execFile`.
 `ensureTls` works in a `.new-*` folder inside the directory and renames the finished files in, so a failure leaves no
 half-made CA; a CA that exists is read and checked (key matches certificate, serving certificate signed by it), never

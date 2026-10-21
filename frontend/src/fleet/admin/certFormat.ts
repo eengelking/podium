@@ -19,6 +19,10 @@ export interface CertsView {
   reporter: { lifetimeDays: number; graceDays: number };
   lastRenewed: { at: string; trigger: string } | null;
   lastFailure: { at: string; reason: string; trigger: string } | null;
+  /** How long a planned rotation's overlap lasts, for the confirmation's words. */
+  overlapDays?: number;
+  /** An overlap that is under way after a planned CA rotation (#588). */
+  rotation?: { previousCa: CertInfo; cross: CertInfo; startedAt: number; reporters: { onOldCa: number; total: number } } | null;
 }
 
 /** The stage of one certificate: blue at 30 days or fewer, orange at 10, red at 5, then expired (mockup #573). */

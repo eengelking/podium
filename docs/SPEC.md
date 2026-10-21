@@ -1971,7 +1971,8 @@ other route the mod calls can be made over mutual TLS, through the helper ([5.9]
   verifies its signature against the CA key (`X509Certificate.verify`) and matches its exact fingerprint to a
   stored one. It never trusts `authorizationError === 'CERT_HAS_EXPIRED'` with a serial, since forged
   certificates report the same error. Past the grace, an Admin reissues the config.
-- **A new CA in the response.** Only for a planned CA rotation, as an addition, with a cross certificate that
+- **A new CA in the response.** The renewal response adds `rotation: { ca, cross }` (the new CA and its cross
+  certificate) while a planned overlap is open, and leaves the field out at every other time. Only for a planned CA rotation, as an addition, with a cross certificate that
   verifies under the CA the reporter already holds. After an emergency rotation the server does not offer it
   ([7.7](#77-hardening)).
 
@@ -2291,7 +2292,7 @@ need the unlocked Admin session like the rest of the Admin API.
 | `PUT /api/admin/certificates` | Change the `tls.*` settings ([7.7](#77-hardening)). A value outside its range is a `400` that names the range. |
 | `POST /api/admin/certificates/renew` | Renew the serving certificate now. |
 | `POST /api/admin/certificates/rotate-ca` | Rotate the CA. Body `{ endOverlap }`: false is a planned rotation with an overlap, true is the hard cutover. |
-| `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. |
+| `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. Answers `409` when there is none. The reply names how many reporters were still on it (`refused`) and how many connections it closed. |
 | `GET /api/admin/certificates/ca.pem` | The CA certificate, for a browser or a person who wants to check it. No key. |
 | `GET /api/admin/people` | Also answers `tls` (whether TLS is on), `graceDays` (`tls.reporter.graceDays`) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
 | `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
@@ -2880,12 +2881,19 @@ issuer on **every request**, or destroys the open sockets when a certificate is 
 keep-alive connection stays authorized after the client `ca` list is narrowed.
 
 **CA rotation.** Planned rotation has an overlap. The server makes a new CA, signs a cross certificate for it with
-the old one (`CA:TRUE`, `keyCertSign`, SKID and AKID, no `pathlen:0`, a lifetime that ends the overlap), and
-presents `[new leaf, cross certificate]` in that order. It trusts both CAs for client certificates, and the new CA
+the old one (`CA:TRUE`, `keyCertSign`, SKID and AKID, no `pathlen:0`, a lifetime of 120 days that ends the overlap: a
+reporter's 90 days and its 30-day grace), and presents `[new leaf, cross certificate]` in that order, leaving the
+cross certificate out once it has expired. A CA is made with `pathlen:1`, because OpenSSL refuses the chain `[leaf, cross]`
+under a root with `pathlen:0`; a CA made before that (`pathlen:0`) cannot take a planned rotation and is refused with
+a message that points to **Rotate CA and end the overlap now**. A new CA's subject is `CN=Podium CA <date>`, so two
+CAs in one overlap can be told apart. Only one overlap is open at a time. The old CA's key is not kept: the planned
+rotation replaces `ca.key` and nothing is signed with the old key afterwards. The listener, the serving renewer, the
+check on each request and the CA(s) in a new config all read one list of trusted CAs, so they cannot disagree. It trusts both CAs for client certificates, and the new CA
 reaches reporters in the renewal response ([6](#authenticating-by-certificate-577)). The Admin retires the old CA
-when none are left; the page counts the reporters still on it, and retiring refuses them at once and closes open
-connections. After a leaked CA key there is no overlap (**Rotate CA and end the overlap now**): a hard cutover, no
-in-band delivery, and every reporter needs a reissued config. A reporter asleep past both the cross certificate and
+when none are left; the page counts the reporters still on it (each person once, by their newest live certificate), and
+retiring refuses them at once and closes the open connections that came in on a certificate the old CA signed. After a leaked CA key there is no overlap (**Rotate CA and end the overlap now**): a hard cutover, no
+in-band delivery, and every reporter needs a reissued config; every open connection that held a client certificate is
+closed. A reporter asleep past both the cross certificate and
 the grace needs a reissue.
 
 **Failure behavior** (written from #577, pending the maintainer's confirmation in the review of #578).
