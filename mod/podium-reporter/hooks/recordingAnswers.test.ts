@@ -310,6 +310,36 @@ describe('a tool permission decided from Podium', () => {
   })
 })
 
+describe('a message sent from Podium', () => {
+  // Claude Code starts the turn for a prompt a plugin submits between turns with the text inside its own frame (seen live on 2.1.305),
+  // and the server marks the entry as "from Podium" only when it holds exactly the text it delivered, so the frame must not be recorded.
+  const FRAMED = (t: string) =>
+    `The podium-reporter plugin sent a message:\n${t}\n\nThis is how Claude Code surfaces a prompt a plugin submits between turns — it starts this turn in the user's place. Address the message above.`
+
+  test('is recorded as the text Podium sent, not as the frame the engine put round it', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { text: 'Reply with only the word pong.' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted).toEqual(['Reply with only the word pong.'])
+    await $.turn.start({ text: FRAMED('Reply with only the word pong.'), turnId: 't1' })
+    const e = await sent(w)
+    expect(shape(e)).toEqual([[1, 'prompt', undefined, undefined, undefined, undefined]])
+    expect(e[0]!.text).toBe('Reply with only the word pong.')
+  })
+
+  test('a prompt the person types that merely contains a sent text is left as typed', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.server.deliveries.push(by('message', null, { text: 'pong' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    await $.turn.start({ text: 'Please say pong twice', turnId: 't1' })
+    expect((await sent(w))[0]!.text).toBe('Please say pong twice')
+  })
+})
+
 describe('/clear and /compact sent from Podium', () => {
   const command = (command: 'clear' | 'compact') => by('command', null, { id: `dlv_${command}`, command })
 

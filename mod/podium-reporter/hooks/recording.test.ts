@@ -14,6 +14,7 @@ import {
   refusedLine,
   startLine,
   stoppedLine,
+  unframeSent,
   clockOn,
   timeWithDay,
   utf8Bytes,
@@ -100,6 +101,24 @@ describe('redactBounded', () => {
     const r = redactBounded(`${'z '.repeat(1500)}\n${key}\nafter`)
     expect(r.text).not.toContain('MIIEowIBAAKCAQEA')
     expect(r.text.endsWith('\nafter')).toBe(true)
+  })
+})
+
+describe('unframeSent', () => {
+  test('a sent text comes back bare from its frame, or as it is, and is used up once', () => {
+    const sent = ['a', 'b c']
+    expect(unframeSent('Frame:\nb c\n\nExplanation.', sent)).toBe('b c')
+    expect(sent).toEqual(['a'])
+    expect(unframeSent('a', sent)).toBe('a')
+    expect(sent).toEqual([])
+    expect(unframeSent('Frame:\nb c\n\nExplanation.', sent)).toBe('Frame:\nb c\n\nExplanation.')
+  })
+
+  test('a text that only contains a sent one, or an empty sent text, is left alone', () => {
+    const sent = ['pong', '']
+    expect(unframeSent('say pong twice', sent)).toBe('say pong twice')
+    expect(unframeSent('', sent)).toBe('')
+    expect(sent).toEqual(['pong', ''])
   })
 })
 
