@@ -93,7 +93,7 @@ describe('Report.session.sessionRecording (#353)', () => {
 
 describe('recording settings constants (#353)', () => {
   it('keep the defaults inside the ranges, and the longest keep at 7 days', () => {
-    expect(RECORDING_DEFAULTS).toEqual({ keepHours: 6, budgetMb: 2048, sessionMb: 256 });
+    expect(RECORDING_DEFAULTS).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
     for (const k of ['keepHours', 'budgetMb', 'sessionMb'] as const) {
       expect(RECORDING_DEFAULTS[k]).toBeGreaterThanOrEqual(RECORDING_RANGES[k].min);
       expect(RECORDING_DEFAULTS[k]).toBeLessThanOrEqual(RECORDING_RANGES[k].max);

@@ -175,7 +175,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     }
     const out = fleet.recordings.start(got.row.id, v.request.loops, got.v.name, metaOf(fleet, got.row));
     if (out !== 'ok') {
-      const why = { limit: 'the recording stopped for its limit; delete it to start again', budget: "the disk budget is reached", busy: 'the last recording of this session is still being deleted' }[out];
+      const why = { limit: 'the recording stopped for its limit; delete it to start again', budget: 'the disk budget has no room for a new recording', busy: 'the last recording of this session is still being deleted' }[out];
       res.status(409).json({ ok: false, error: why });
       return;
     }

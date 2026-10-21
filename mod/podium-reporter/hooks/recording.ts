@@ -8,16 +8,15 @@ import { redactText, withheldPath, type Redacted } from './diffRedact.ts';
 import { BACKOFF_MS } from './transport.ts';
 import { RECORDING_LIMITS, type RecordingBatch, type RecordingEntry, type RecordingGrant, type RecordingKind } from './protocol.ts';
 
-/**
- * How soon after a batch the next one may go. PROVISIONAL: chosen from the write-load measurement of #353's checklist, not yet
- * measured. The spec's ceiling is one request a second.
- */
-export const RECORDING_BATCH_INTERVAL_MS = 1000;
+/** How soon after a batch the next one may go: 5 s, from the write-load measurement (SPEC 6.4 "Measured write load"). */
+export const RECORDING_BATCH_INTERVAL_MS = 5000;
+/** A queue this big (256 KB) goes at the next flush tick without waiting out the interval, so a busy loop does not pile up. */
+export const RECORDING_FLUSH_BYTES = 256 * 1024;
 /** Entries in one request (the server's limit). */
 export const RECORDING_BATCH_ENTRIES = RECORDING_LIMITS.entries;
 /** Serialized bytes of one request (the server's limit, under its 512 KB body limit). */
 export const RECORDING_BATCH_BYTES = RECORDING_LIMITS.bodyBytes;
-/** Bytes the queue holds while the server cannot be reached. PROVISIONAL (8 MB), see SPEC 6.4. */
+/** Bytes the queue holds while the server cannot be reached. 8 MB, see SPEC 6.4. */
 export const RECORDING_QUEUE_BYTES = RECORDING_LIMITS.queueBytes;
 /** Room in a request for its envelope (`v`, `sentAt`, the array) beyond the entries. */
 const ENVELOPE_BYTES = 200;
@@ -341,7 +340,7 @@ export class Recorder {
   /** Whether a request should go now. */
   due(now: number): boolean {
     if (this.inFlight || this.items.length === 0 || now < this.nextAttemptAt) return false;
-    return this.closing || now - this.lastSentAt >= RECORDING_BATCH_INTERVAL_MS;
+    return this.closing || this.queuedBytes >= RECORDING_FLUSH_BYTES || now - this.lastSentAt >= RECORDING_BATCH_INTERVAL_MS;
   }
 
   /** The oldest entries that fit one request, held until `done`, `drop` or `failed`. Null when nothing waits or a request is out. */

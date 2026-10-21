@@ -29,7 +29,7 @@ const REC = (over: Partial<RecordingAdminRow> = {}): RecordingAdminRow => ({ ses
 function recording(rows: RecordingAdminRow[] = [REC(), REC({ sessionId: "s2", name: "flaky-tests", state: "stopped", owner: null, startedBy: "Admin", bytes: 21 * 1024 * 1024 }), REC({ sessionId: "s3", name: "docs-sweep", state: "limit", limit: "session", keptUntil: null }), REC({ sessionId: "s4", name: "big", state: "limit", limit: "budget" })], on = true, authOn = true) {
   const s = fakeServer({ unlocked: true });
   s.features["session-recording"] = on;
-  s.recording = { settings: { keepHours: 6, budgetMb: 2048, sessionMb: 256 }, totals: { recordings: rows.length, bytes: 41 * 1024 * 1024, running: 1 }, authOn };
+  s.recording = { settings: { keepHours: 6, budgetMb: 4096, sessionMb: 512 }, totals: { recordings: rows.length, bytes: 41 * 1024 * 1024, running: 1 }, authOn };
   s.recordings = rows;
   return s;
 }
@@ -91,13 +91,13 @@ describe("the limits", () => {
   const gb = () => screen.getByRole("textbox", { name: "Size in gigabytes" }) as HTMLInputElement;
   const mb = () => screen.getByRole("textbox", { name: "Size in megabytes" }) as HTMLInputElement;
 
-  it("shows the defaults: 6 hours, 2 GB, 256 MB, and what is stored now", async () => {
+  it("shows the defaults: 6 hours, 4 GB, 512 MB, and what is stored now", async () => {
     recording();
     await openSettings();
     const f = within(await form());
-    expect([n().value, unit().value, gb().value, mb().value]).toEqual(["6", "hours", "2", "256"]);
+    expect([n().value, unit().value, gb().value, mb().value]).toEqual(["6", "hours", "4", "512"]);
     expect(f.getByText(/4 recordings, 41\.0 MB/)).toBeInTheDocument();
-    expect(f.getByText(/stored now, of a 2 GB budget\. Stored activity lists them with its Source filter set to Recordings\./)).toBeInTheDocument();
+    expect(f.getByText(/stored now, of a 4 GB budget\. Stored activity lists them with its Source filter set to Recordings\./)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Session recording" })).toBeInTheDocument();
   });
 
@@ -147,7 +147,7 @@ describe("the limits", () => {
     await screen.findByRole("alert");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(n().value).toBe("6");
-    expect(gb().value).toBe("2");
+    expect(gb().value).toBe("4");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -159,8 +159,8 @@ describe("the limits", () => {
   });
 
   it("checks each limit against the range the server takes", () => {
-    const ok = { n: "6", unit: "hours", gb: "2", mb: "256" };
-    expect(limitsOf(ok)).toEqual({ ok: true, value: { keepHours: 6, budgetMb: 2048, sessionMb: 256 } });
+    const ok = { n: "6", unit: "hours", gb: "4", mb: "512" };
+    expect(limitsOf(ok)).toEqual({ ok: true, value: { keepHours: 6, budgetMb: 4096, sessionMb: 512 } });
     expect(limitsOf({ ...ok, n: "0" })).toMatchObject({ ok: false });
     expect(limitsOf({ ...ok, n: "169" })).toMatchObject({ ok: false });
     expect(limitsOf({ ...ok, n: "1.5" })).toMatchObject({ ok: false });

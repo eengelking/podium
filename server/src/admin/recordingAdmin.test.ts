@@ -70,7 +70,7 @@ describe('GET and PUT /settings carry session recording', () => {
     const { agent, service } = await unlocked();
     record(service, 's1');
     const res = await agent.get('/api/admin/settings');
-    expect(res.body.recording).toEqual({ settings: { keepHours: 6, budgetMb: 2048, sessionMb: 256 }, totals: { recordings: 1, bytes: expect.any(Number), running: 1 }, authOn: true });
+    expect(res.body.recording).toEqual({ settings: { keepHours: 6, budgetMb: 4096, sessionMb: 512 }, totals: { recordings: 1, bytes: expect.any(Number), running: 1 }, authOn: true });
     expect(res.body.recording.totals.bytes).toBeGreaterThan(0);
     expect(res.body.features.find((f: { id: string }) => f.id === 'session-recording')).toMatchObject({ on: false });
   });
@@ -85,10 +85,10 @@ describe('GET and PUT /settings carry session recording', () => {
     const { agent, people, settings } = await unlocked();
     const res = await agent.put('/api/admin/settings').set(H).send({ recording: { keepHours: 12, sessionMb: 128 } });
     expect(res.status).toBe(200);
-    expect(res.body.recording.settings).toEqual({ keepHours: 12, budgetMb: 2048, sessionMb: 128 });
-    expect(settings.get()).toEqual({ keepHours: 12, budgetMb: 2048, sessionMb: 128 });
+    expect(res.body.recording.settings).toEqual({ keepHours: 12, budgetMb: 4096, sessionMb: 128 });
+    expect(settings.get()).toEqual({ keepHours: 12, budgetMb: 4096, sessionMb: 128 });
     const row = logRows(people).find((r) => r.kind === 'recording_settings_changed');
-    expect(row?.detail).toBe('Session recording limits: kept 6 to 12 hours, disk budget 2048 to 2048 MB, one session 256 to 128 MB');
+    expect(row?.detail).toBe('Session recording limits: kept 6 to 12 hours, disk budget 4096 to 4096 MB, one session 512 to 128 MB');
     expect(row?.actor).toBe('Admin secret');
   });
 
@@ -120,18 +120,18 @@ describe('GET and PUT /settings carry session recording', () => {
     const res = await agent.put('/api/admin/settings').set(H).send({ recording: bodies[name] });
     expect(res.status).toBe(400);
     expect(res.body.error).toContain(word);
-    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 2048, sessionMb: 256 });
+    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
   });
 
   it('reads a damaged saved row as the defaults, field by field', async () => {
     const { settings } = setup();
     const db = (settings as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } }).db;
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('recording_settings', '{"keepHours":24,"budgetMb":"big","sessionMb":9999999}');
-    expect(settings.get()).toEqual({ keepHours: 24, budgetMb: 2048, sessionMb: 256 });
+    expect(settings.get()).toEqual({ keepHours: 24, budgetMb: 4096, sessionMb: 512 });
     db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('not json', 'recording_settings');
-    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 2048, sessionMb: 256 });
+    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
     db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('7', 'recording_settings');
-    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 2048, sessionMb: 256 });
+    expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
   });
 
   it('needs the Admin unlocked and the cross-site header', async () => {

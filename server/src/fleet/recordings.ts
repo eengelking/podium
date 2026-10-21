@@ -35,6 +35,11 @@ const CHUNK_ROWS = 5000;
 const ROW_OVERHEAD = 48;
 
 /**
+ * Room a new recording needs under the disk budget: one full request (RECORDING_LIMITS.bodyBytes). With less left, its first batch
+ * could stop at once with a `budget` limit, so the start is refused instead (SPEC 7.7).
+ */
+export const RECORDING_START_HEADROOM_BYTES = RECORDING_LIMITS.bodyBytes;
+/**
  * How far apart (ms) a prompt Podium delivered and the mod's `prompt` entry for it may be and still count as the same prompt. A
  * message sent while the session runs waits in Claude Code's queue, so the entry can come well after the delivery.
  */
@@ -341,13 +346,13 @@ export class SessionRecordings {
   /**
    * Someone with the right chose to record the session's loops from now on. Nothing before this moment is kept. Starts a new
    * recording, changes the loops of a running one, or starts a stopped one again. `limit` when its own limit stopped it (delete
-   * it first), `budget` while the stored total is at the Admin's budget, `busy` while a delete of it is still going.
+   * it first), `budget` while less than one request (RECORDING_START_HEADROOM_BYTES) is left under the Admin's budget, `busy` while a delete of it is still going.
    */
   start(sessionId: string, loops: string[], by: string, meta: RecordingMeta): 'ok' | 'limit' | 'budget' | 'busy' {
     if (this.deleting.has(sessionId)) return 'busy';
     const r = this.row(sessionId);
     if (r?.state === 'limit') return 'limit';
-    if (this.totalBytes() >= this.opts.settings().budgetMb * MB) return 'budget';
+    if (this.totalBytes() + RECORDING_START_HEADROOM_BYTES > this.opts.settings().budgetMb * MB) return 'budget';
     const now = this.opts.now();
     // A recording that is running keeps who started it and when; one that was stopped starts again from now.
     const keep = r?.state === 'recording' ? r : undefined;
@@ -399,7 +404,7 @@ export class SessionRecordings {
 
   /**
    * A /clear gave the session a new id. When the old one was being recorded, the new one is recorded from its first report with the
-   * same starter and the orchestrator's loop; the owner's option is the new session's own, as its report says. PROVISIONAL (#353).
+   * same starter and the orchestrator's loop; the owner's option is the new session's own, as its report says (#353, SPEC 6.4).
    */
   carryOver(oldId: string, newId: string, meta: RecordingMeta): boolean {
     if (!this.enabled() || this.deleting.has(newId)) return false;

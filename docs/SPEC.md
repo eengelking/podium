@@ -982,12 +982,18 @@ and what it writes in the owner's terminal.
 - **Thinking.** `turn.step` delivers `thinking` chunks with empty text (#353 research, below). The mod records one
   `thinking` entry for each thinking block, with no text, so the replay can show where the model thought.
 - **Batching.** Entries queue in memory and go out in `POST /api/fleet/sessions/:id/recording` ([7.1](#71-endpoints))
-  at most once a second, up to 200 entries and 480,000 bytes a request. A failed request is retried with the same
-  entries; the server drops a repeat by `(loop, seq)`. While the server cannot be reached the queue is bounded; past
+  at most once every 5 seconds, up to 200 entries and 480,000 bytes a request; a queue that has passed 256 KB goes at the
+  next flush tick without waiting out the 5 seconds, so a busy loop does not pile up. A failed request is retried with the
+  same entries; the server drops a repeat by `(loop, seq)`. The mod treats `404` and `409` from the route like a network
+  failure: it backs off and retries the same entries, while `403` stops capture and `400` and `413` drop the batch. After each accepted
+  batch the mod writes one line to the debug log only (never the terminal): `podium-reporter: recording: sent <n> entries,
+  <n> redactions`. While the server cannot be reached the queue is bounded; past
   its bound the oldest entries go and one `gap` entry records how many ([6.4](#session-recording-opt-in-353)).
 - **Stopping.** The mod stops capturing, and drops its queue after one last send, when a reply says `state` is
   `stopped` or `limit`, when `consent.owner` or `consent.admin` turns false, when the option goes off, and when the
-  session ends. A reload of the module while the reply still says `recording` picks it up again at the next reply.
+  session ends. A reply to a batch that carries no readable `recording` is read as off: capture stops, the same as for a
+  server that sends none. A later reply, to a batch or to a report, that says `recording` again starts capture again. A
+  reload of the module while the reply still says `recording` picks it up again at the next reply.
 - **Terminal text.** The mod writes a line to the owner's terminal in the same words the console uses, in these
   cases (`mockup/podium-recording.html`, *Owner's terminal*):
   - *Recording starts*, once, when it begins capturing: "podium: This session is being recorded by <name>, from
@@ -1770,7 +1776,7 @@ them, and they appear on *Stored activity* with the Source set to Recordings. Ca
 does not need the `activityFeed` option or a keep policy.
 
 **Gaps.** A recording is not guaranteed complete.
-- While the server cannot be reached the mod queues entries in memory, up to 8 MB (provisional). Past that the
+- While the server cannot be reached the mod queues entries in memory, up to 8 MB. Past that the
   oldest entries go and one `gap` entry per loop says how many (`lost`). Nothing is kept across a restart of the
   session's process.
 - An entry the mod cannot read (a tool whose result it cannot see) is recorded without its result, and the replay
@@ -1791,18 +1797,22 @@ JSON row, `recording_settings`, in the `settings` table ([7.2](#72-database-sqli
   minutes. The time shown to a person as "kept until" is when the oldest part still held goes. A session's own
   retention ([7.5](#75-lifecycle-timers), Retention) also applies, and the shorter of the two wins. A shorter time
   removes parts that are already older.
-- *Disk budget*: 2 GB by default, for all recordings together. When the stored total reaches it, every running
+- *Disk budget*: 4 GB by default, for all recordings together. When the stored total would pass it, every running
   recording stops, with a `limit` mark (`limit: "budget"`) at the point where it stopped. Nothing already stored is cut
-  short, and a new recording cannot start while the total is at the budget.
-- *Limit for one session*: 256 MB by default. A recording stops when its session reaches it, with a `limit` mark
+  short, and a new recording cannot start while the total is at the budget, which is when it has no *headroom*: headroom
+  is one full request (480,000 bytes), so a start is refused when the stored total plus 480,000 bytes is above the budget
+  ([7.7](#session-recording-353)). Otherwise the total rests just under the budget, a start is accepted, and its first
+  batch stops with `limit`.
+- *Limit for one session*: 512 MB by default. A recording stops when its session reaches it, with a `limit` mark
   (`limit: "session"`), and the owner is told in the terminal.
-- **The 2 GB, the 256 MB and the 8 MB queue are provisional.** They are the numbers of the mockup. They are set from
-  a measurement of the write load and of what real sessions record (the checklist of #353), and may change before
-  release. The server enforces them from the Admin's row, so changing them needs no code change.
+- **The 4 GB, the 512 MB and the 8 MB queue are set from a measurement** of the write load ("Measured write load"
+  below). The traffic in it was simulated: **real sessions have not been measured**, so the numbers can change when they
+  are. The server enforces them from the Admin's row, so changing them needs no code change. The per-session limit
+  cannot be set above the disk budget, and both defaults are inside their ranges (8 MB to 4 GB, and 64 MB to 100 GB).
 - Sizes are the stored text's bytes. The budget and the cap are checked as a batch is stored, so a recording can
   pass its limit by at most one batch (about 480 KB).
 
-**Measured write load (#353, provisional).** `scripts/podium-recording-load.mjs` reproduces every number below. It starts a
+**Measured write load (#353, simulated traffic).** `scripts/podium-recording-load.mjs` reproduces every number below. It starts a
 throwaway server, drives sessions through the mod's own `Recorder` (so redaction, the 100,000 character cut and the batching
 are the real ones), and reads the server's disk writes and CPU. It was run on an Apple M5 (macOS 27.0.1, APFS SSD) with the
 load generator on the same machine, over loopback.
@@ -1854,14 +1864,14 @@ Findings:
   run gave 9.3 and 9.9, the 180 s runs 9.6 and 10.1. With the typical profile it is 2.3 MB per loop (2.7 in the file), 9 MB
   for a session of 4. At the default 6 hours of retention, the busy session holds about 225 MB, and 20 busy sessions fill
   4.5 GB.
-- **The caps stop recording as specified.** At the per-session limit (8 MB, and the default 256 MB) the recording held 7.94
+- **The caps stop recording as specified.** At the per-session limit (8 MB, and the then default 256 MB) the recording held 7.94
   and 255.94 MB, its state read `limit` with `limit: "session"`, the last row was the `limit` mark, a later batch got `403
-  recording is off`, and starting it again got `409` (delete it first). At the disk budget (64 MB, and the default 2 GB)
+  recording is off`, and starting it again got `409` (delete it first). At the disk budget (64 MB, and the then default 2 GB)
   every running recording stopped with `limit: "budget"` and its mark, at 63.96 and 2,047.92 MB stored; the file held
   2,058 MB, 0.5% more. The server took 164 MB/s from a single poster. Deleting one recording let a new one start.
-  One gap: a start is refused when the total is at or above the budget, but a recording stops when the next entry would pass
-  it, so the total rests a little under the budget and a start is still accepted; its first batch then stops with `limit`
-  ("budget"). Harmless: it then reads as stopped by the budget.
+  One gap, since fixed: a start was refused only when the total was at or above the budget, but a recording stops when the
+  next entry would pass it, so the total rested a little under the budget and a start was accepted; its first batch then
+  stopped with `limit` ("budget"). A start now needs headroom (see *Disk budget*).
 - **The purge keeps up.** The server purges every 5 minutes. With 20 busy sessions writing for 11 minutes and every row
   older than 30 s moved back by 7 hours every 10 s (a stand-in for waiting out the retention), the stored total made a
   sawtooth: it grew to 56 to 67 MB (5 minutes of writing) and fell to about 7 MB at each of the two runs, which removed 7,497
@@ -1874,20 +1884,19 @@ the runs are minutes long and the hours are an extrapolation; the purge run ages
 adds writes of its own and says nothing about the write load; the system-wide operation counts are not a measurement of
 the server alone.
 
-**Recommendation (not applied; the constants above are unchanged).** For the maintainer to decide:
+**Decision (the maintainer's, from the measurement above; the traffic was simulated).**
 - **Batch interval: 5 s instead of 1 s.** It cuts requests by 3.4 times, the server's writes for 20 busy sessions by 29%
   (36% beyond the baseline) and its CPU by 35%. The cost is a replay that trails a live session by up to 5 s, and up to 5 s
   of entries lost if the session's process dies. 10 s saves a further 12% only. Because one request is at most 480 KB, 5 s
-  allows a session 96 KB/s on average; the busiest session in the runs queued 370 KB, but a burst of big results would
-  wait, so the mod should also send at once when its queue passes about 256 KB.
-- **Batch size: keep 200 entries and 480,000 bytes.** At 5 s the mean batch was 7 entries and 54 KB, the largest 370 KB.
+  allows a session 96 KB/s on average, so the mod also sends at once, at its next flush tick, when its queue passes 256 KB.
+- **Batch size: unchanged, 200 entries and 480,000 bytes.** At 5 s the mean batch was 7 entries and 54 KB, the largest 370 KB.
   The limits are not what is reached.
 - **Limit for one session: 512 MB instead of 256 MB.** A busy session of 4 loops holds about 225 MB over 6 hours, close to
   256 MB, and one of 8 busy loops would reach 256 MB after about 3.4 hours and stop recording while the trouble is still
   going on.
 - **Disk budget: 4 GB instead of 2 GB.** 2 GB holds 6 hours of about 9 busy sessions of 4 loops (about 37 typical ones).
-  Reaching it stops every recording at once, so it should be a safety stop, not the normal limit. The mod's 8 MB queue is
-  memory, not disk; the largest queue in the runs was 370 KB, so 8 MB looks ample.
+  Reaching it stops every recording at once, so it should be a safety stop, not the normal limit.
+- **The mod's queue: unchanged, 8 MB.** It is memory, not disk; the largest queue in the runs was 370 KB, so 8 MB is ample.
 
 **Stopping, keeping and deleting.**
 - **Stop** ends capture for the whole session (the orchestrator and every agent and fork). The server writes a
@@ -1898,6 +1907,11 @@ the server alone.
   deleted one, and any batch while the flag or the owner's option is off are refused as before.
 - **Delete** removes the whole recording for good, and stops capture if it is still running. It does not touch the
   session, History or the live feed. Deleting is for the session's owner and an Admin.
+- **`/clear`.** A `/clear` gives the session a new id. When the server sees the first report of a session whose
+  `clearedFrom` names a recording that is running (with the orchestrator among its loops), the new session inherits the
+  choice, the starter and the start time, recorded for the orchestrator's loop; the old recording stops, with no `stopped`
+  mark and no one named. The owner's consent does not carry over: the new session still needs its own `sessionRecording`
+  option, which its own report states. Nothing is carried when the flag is off or the new session already has a recording.
 - A session that ends keeps its recording as it is (capture ended with it) until it expires. Deleting the
   session, or its own retention running out, removes the recording with it.
 - The owner can also stop capture on the machine at any time by turning the `sessionRecording` option off. It ends
@@ -2552,7 +2566,7 @@ as the Activity history, [7.7](#activity-history-432)): `401` without a sign-in,
   the owner's option is not put there; this route is how the owner and an Admin learn it. Same access as the rest.
 - **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
   `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added
-  later are recorded from that moment on; nothing before it is kept. `409` when the Admin's budget is reached or the
+  later are recorded from that moment on; nothing before it is kept. `409` when the disk budget has no headroom (7.7) or the
   recording has stopped for its limit (`DELETE` it first to start again), `400` for a loop the session does not have.
   It does not need the reporter's option: it records the choice, and the reply's `grant.consent.owner` says whether
   the owner has allowed it, so the picker can tell the person.
@@ -2668,9 +2682,9 @@ The `/api/admin/*` routes ([7.7](#77-hardening)):
   - Session recording (#353, [6.4](#session-recording-opt-in-353)):
     - the settings reply carries `recording`: `{ settings: { keepHours, budgetMb, sessionMb }, totals: { recordings,
       bytes, running }, authOn }`, and a change sends `{ recording: { keepHours?, budgetMb?, sessionMb? } }`:
-      `keepHours` 1 to 168 (default 6), `budgetMb` 64 to 102,400 (default 2,048), `sessionMb` 8 to 4,096 (default 256,
+      `keepHours` 1 to 168 (default 6), `budgetMb` 64 to 102,400 (default 4,096), `sessionMb` 8 to 4,096 (default 512,
       and not above `budgetMb`). A value outside its range is a `400`. A change is written to the Admin log as
-      `recording_settings_changed`. These ranges and defaults are provisional until measured.
+      `recording_settings_changed`. The defaults are set from measurement ([6.4](#session-recording-opt-in-353)).
     - the flag itself is `session-recording` in `features`, like any other, and turning it on is a `400` while the server
       runs without a token.
     - `GET recordings?page=&pageSize=&state=&q=`: the recordings, running or kept, as `{ total, page, pageSize, rows,
@@ -2797,7 +2811,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off, #206, #319, #347, #353); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 2048, 256 }` (#353); the recordings themselves are in `activity.sqlite`, not here
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off, #206, #319, #347, #353); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -3135,6 +3149,10 @@ as it happens.
   what is stored until it expires.
 - **It needs authentication on.** Without a token the flag cannot be turned on and the server reads it as off, for the
   reason the Activity history gives: nobody could be told apart as the one who may read.
+- **A start needs headroom under the disk budget.** Headroom is one full request, 480,000 bytes. A start (`PUT`) is
+  refused with `409` when the stored total plus 480,000 bytes is above the budget, because ingest stops a recording at the
+  entry that would pass the budget and a recording that starts with less room would stop at its first batch. The error
+  reads "the disk budget has no room for a new recording". Deleting a recording makes room.
 - **Who may read, choose, stop, delete or open it:** the session's owner and an Admin, by the Activity history's
   rule (a respond session; the signed-in person whose name equals the session's `owner`, compared
   case-insensitively; a session owned by `Admin` is read with the admin secret; a session with no owner by an Admin
@@ -4310,8 +4328,8 @@ becomes a standard in the release-prep PR, not in the feature PR.
 - **Settings > Session recording** holds the form of the three limits: *Keep a recording for* (a number and hours or
   days, 6 hours by default, at most 7 days), *Disk budget* (GB) and *Limit for one session* (MB). Saving is the
   page's primary button and is written to the Admin log; a shorter time removes recordings that are already older,
-  and the form says so. A line under it says how many recordings and how much is stored, of the budget. The numbers
-  are provisional ([6.4](#session-recording-opt-in-353)).
+  and the form says so. A line under it says how many recordings and how much is stored, of the budget. The defaults
+  are set from measurement ([6.4](#session-recording-opt-in-353)).
 - **Recordings** (a section on the same page) lists every recording, running or kept: the session, who owns it, who
   started it, its state as shape plus word (Recording, Stopped, Limit reached), size, when it goes, and **Stop** or
   **Open replay**, and **Delete**. Stop and Delete ask first in the warning-bordered confirmation box. The state word is
