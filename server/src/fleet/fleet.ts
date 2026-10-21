@@ -209,7 +209,7 @@ export class Fleet {
             const meta = this.historyMeta(sid);
             if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
-          // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353, provisional). An answer, an
+          // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353), when its text matches exactly. An answer, an
           // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them.
           if (delivery.kind === 'message') this.historySafely('add', sid, () => this.recordings.notePodiumPrompt(sid, loop ?? MAIN_LOOP, e, ref));
         },

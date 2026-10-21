@@ -334,6 +334,26 @@ describe("Show older", () => {
     expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
   });
 
+  it("drops an older page that arrives after the loop filter changed, and keeps the rows of the new filter", async () => {
+    let finish!: (p: RecordingPage) => void;
+    const late = new Promise<RecordingPage>((res) => (finish = res));
+    const own = [row({ kind: "text", text: "agent row", loop: "p", at: at(11, 50) })];
+    const recordingPage = vi
+      .fn()
+      .mockResolvedValueOnce(pageOf({ entries: newest(), olderBefore: 6, total: 342 }))
+      .mockImplementationOnce(() => late)
+      .mockResolvedValueOnce(pageOf({ entries: own, olderBefore: null, total: 1 }));
+    const { container } = await replay(fakeApi({ recordingPage: recordingPage as never }));
+    fireEvent.click(screen.getByRole("button", { name: "Show older" }));
+    fireEvent.change(screen.getByLabelText("Loop"), { target: { value: "p" } });
+    await flush();
+    finish(pageOf({ entries: older(), olderBefore: null, total: 342 }));
+    await flush();
+    expect(container.textContent).toContain("agent row");
+    expect(container.textContent).not.toContain("older one");
+    expect(lis(container)).toHaveLength(1);
+  });
+
   it("says what went wrong when older rows cannot be loaded, and lets you try again", async () => {
     const api = fakeApi({ recordingPage: vi.fn().mockResolvedValueOnce(pageOf({ entries: newest(), olderBefore: 6 })).mockRejectedValueOnce(new RespondError(500, {})) as never });
     await replay(api);

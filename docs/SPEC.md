@@ -1696,10 +1696,12 @@ Admin turning the flag off also stops every recording, and what was recorded is 
 - `prompt`: the task prompt an agent starts with, the person's prompt, and a message sent from Podium.
   The mod records every prompt of a loop and cannot tell where one came from, so a message from Podium arrives as
   an ordinary `prompt` entry. The server remembers each message it delivered (loop, time, sender, text) and, when the mod's
-  entry for it arrives (same loop, within 10 minutes, the text the delivered one or holding it), adds the sender as
-  the entry's marker (`by`), as the Activity history marks them. The server writes no prompt of its own: a delivery
-  the mod never records leaves nothing in the recording. Redaction differs between mod and server, so a prompt whose
-  redacted text no longer matches stays unmarked. Only a message is remembered this way: an answer, an approval and
+  entry for it arrives (same loop, within 10 minutes, the same text once runs of whitespace are folded to one space), adds
+  the sender as the entry's marker (`by`), as the Activity history marks them. The match is exact, never "contains": a
+  short message such as "ok" does not mark a later, longer prompt that holds it. The server writes no prompt of its own: a
+  delivery the mod never records leaves nothing in the recording. Redaction differs between mod and server, and Claude
+  Code may rewrap or rewrite a message before the mod sees it, so a prompt whose text no longer matches exactly stays
+  unmarked (it fails safe: an unmarked prompt, never a wrong sender). Only a message is remembered this way: an answer, an approval and
   `/clear` and `/compact` do not arrive as a prompt, and the mod records them itself (`decision`, `clear`, `compact`).
 - `text`: what the model wrote in each request, whole.
 - `tool`: each call, with its **whole** input (a Bash command in full, the content of a Write, the old and new text
@@ -1794,7 +1796,8 @@ does not need the `activityFeed` option or a keep policy.
 JSON row, `recording_settings`, in the `settings` table ([7.2](#72-database-sqlite)):
 - *Keep a recording for*: 6 hours by default, at least 1 hour and at most 7 days. It is counted per part, from when
   that part was recorded, and a purge every 5 minutes removes what is older, so a short time is honored within a few
-  minutes. The time shown to a person as "kept until" is when the oldest part still held goes. A session's own
+  minutes. A chosen recording that holds no entry yet stays until that long after it was started (a running one whose
+  session is live stays regardless), and only then goes. The time shown to a person as "kept until" is when the oldest part still held goes. A session's own
   retention ([7.5](#75-lifecycle-timers), Retention) also applies, and the shorter of the two wins. A shorter time
   removes parts that are already older.
 - *Disk budget*: 4 GB by default, for all recordings together. When the stored total would pass it, every running
@@ -2953,7 +2956,8 @@ The sweeper runs this hourly:
   database no longer holds, so a session's own retention ends its history too (the shorter wins).
 - Session recordings (#353) are purged by the same 5-minute run. Each part older than the Admin's *Keep a recording
   for* (6 hours by default, at most 7 days) is removed, and so are the parts of a session the main database no
-  longer holds. The run compacts the file as for the Activity history, and writes one `recording_purged` entry to the
+  longer holds. A recording left with no entry is dropped only once it was started more than that long ago, and never
+  while it is running and its session is live. The run compacts the file as for the Activity history, and writes one `recording_purged` entry to the
   Admin log per run that removes something, with counts and sizes and never text.
 
 The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `RETAIN_SESSIONS_MS`,
