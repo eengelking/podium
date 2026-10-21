@@ -981,7 +981,7 @@ These settings apply to every browser and stay after a restart.
   `activityFeed` option says. Turned back on, open panels start the feed again, empty, without a reload. Turned off, nothing
   new is stored either, even if the Admin keeps stored history.
 - **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
-  the Files list to read its diff in a window. The diff is source code: the mod reads it from the machine only when
+  the Files list to read its diff in a window, and step to the next or previous file with the buttons at the window's lower left. The diff is source code: the mod reads it from the machine only when
   someone opens the file, and only if that machine's `fileDiff` option is on. The server passes it to the one browser
   that asked and keeps no copy. The mod hides what looks like a secret (tokens, passwords, keys, credentials in URLs) as `[redacted]` before
   the diff leaves the machine, and never sends `.env` files, keys or credentials files at all. Hiding is best

@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
 import { FilesList, diffAccess } from "./components/FilesList";
-import { FileDiffModal, WRAP_KEY } from "./components/FileDiffModal";
+import { FileDiffModal, STEP_DELAY_MS, WRAP_KEY } from "./components/FileDiffModal";
 import { RespondProvider, type RespondContext } from "./useRespond";
 import { RespondError, type RespondApi } from "./respondApi";
 import type { FileDiffReply, FilesReport, RespondMe, SessionView } from "./types";
@@ -238,7 +238,7 @@ describe("the modal", () => {
     expect(left!.scrollLeft).toBe(30);
   });
   it("says it could not be loaded when it is opened outside the console's provider", () => {
-    render(<FileDiffModal sessionId="s" file={REPORT.files[0]!} since="start" onClose={() => {}} />);
+    render(<FileDiffModal sessionId="s" files={REPORT.files} index={0} since="start" onStep={() => {}} onClose={() => {}} />);
     expect(screen.getByRole("alert").textContent).toMatch(/could not be loaded/);
   });
   it("asks again each time it is opened and keeps nothing between", async () => {
@@ -306,13 +306,13 @@ describe("the Wrap lines switch (#623)", () => {
     const dlg = await open();
     expect(dlg.classList.contains("wrapped")).toBe(true);
   });
-  it("sits at the right of the bottom row, with the note at the left", async () => {
+  it("sits at the right of the bottom row, after the pager and the note", async () => {
     const api = fakeApi(vi.fn(async () => ok({ truncated: true, shownLines: 2000, totalLines: 10190 })));
     await show({ api });
     fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
     await flush();
     const row = screen.getByRole("dialog").querySelector(".mf")!;
-    expect([...row.children].map((e) => e.className)).toEqual(["foot-note", "sw"]);
+    expect([...row.children].map((e) => e.className)).toEqual(["pager", "foot-note", "sw"]);
   });
   it("is not shown where no diff is drawn", async () => {
     const api = fakeApi(vi.fn(async () => ok({ status: "binary", text: "" })));
@@ -337,5 +337,179 @@ describe("the Wrap lines switch (#623)", () => {
     const uni = dlg.querySelector(".uni .l.r")!;
     expect(uni.querySelectorAll(".n").length).toBe(2);
     expect(uni.querySelectorAll(".m").length).toBe(1);
+  });
+});
+
+describe("stepping through the files (#630)", () => {
+  const many = (n: number): FilesReport => ({
+    files: Array.from({ length: n }, (_, i) => ({ path: `src/f${i + 1}.ts`, status: "modified" as const, from: null, added: i + 1, removed: 0 })),
+    total: n + 10,
+    added: n,
+    removed: 0,
+    since: "start",
+  });
+  const diffFor = (path: string) => ok({ path, text: `@@ -1 +1 @@\n-old ${path}\n+new ${path}` });
+  const prev = () => screen.getByRole("button", { name: /^Previous file/ }) as HTMLButtonElement;
+  const next = () => screen.getByRole("button", { name: /^Next file/ }) as HTMLButtonElement;
+  // A step asks for its file after a short pause (STEP_DELAY_MS), so a test waits that out.
+  const pause = () => act(async () => void (await new Promise((r) => setTimeout(r, STEP_DELAY_MS + 40))));
+  const stepTo = async (b: HTMLElement) => {
+    fireEvent.click(b);
+    await pause();
+  };
+  const pos = (dlg: HTMLElement) => dlg.querySelector(".mf .pager span")!.textContent;
+  async function openAt(report: FilesReport, name: string, fileDiff = vi.fn(async (_s: string, path: string) => diffFor(path))) {
+    await show({ api: fakeApi(fileDiff), report });
+    fireEvent.click(screen.getByRole("button", { name: `Open diff of ${name}` }));
+    await flush();
+    return { dlg: screen.getByRole("dialog"), fileDiff };
+  }
+
+  it("steps forward and back in the Files tab's order, in place, with the position and the file it opens named on each button", async () => {
+    const { dlg, fileDiff } = await openAt(REPORT, "src/a.ts");
+    expect(pos(dlg)).toBe("Showing file 1 of 3");
+    expect(next().getAttribute("aria-label")).toBe("Next file: docs/new.md");
+    expect(next().title).toBe("Next file: docs/new.md");
+    await stepTo(next());
+    expect(screen.getByRole("dialog")).toBe(dlg);
+    expect(dlg.querySelector("h2")!.textContent).toBe("docs/new.md");
+    expect(dlg.querySelector(".sub2")!.textContent).toContain("A · +3−0");
+    expect(pos(dlg)).toBe("Showing file 2 of 3");
+    expect(prev().getAttribute("aria-label")).toBe("Previous file: src/a.ts");
+    await stepTo(prev());
+    expect(dlg.querySelector("h2")!.textContent).toBe("src/a.ts");
+    expect(fileDiff.mock.calls.map((c) => c[1])).toEqual(["src/a.ts", "docs/new.md", "src/a.ts"]);
+  });
+  it("disables Previous at the first file and Next at the last, and does not wrap", async () => {
+    await openAt(REPORT, "src/a.ts");
+    expect(prev().disabled).toBe(true);
+    expect(next().disabled).toBe(false);
+    await stepTo(next());
+    await stepTo(next());
+    expect(screen.getByRole("dialog").querySelector("h2")!.textContent).toBe("img/logo.png");
+    expect(next().disabled).toBe(true);
+    expect(prev().disabled).toBe(false);
+    await stepTo(next());
+    expect(screen.getByRole("dialog").querySelector("h2")!.textContent).toBe("img/logo.png");
+  });
+  it("shows both buttons disabled for a list of one file", async () => {
+    const one: FilesReport = { ...REPORT, files: [REPORT.files[0]!], total: 1 };
+    const { dlg } = await openAt(one, "src/a.ts");
+    expect(pos(dlg)).toBe("Showing file 1 of 1");
+    expect(prev().disabled).toBe(true);
+    expect(next().disabled).toBe(true);
+    expect(prev().getAttribute("aria-label")).toBe("Previous file");
+  });
+  it("announces the position politely", async () => {
+    const { dlg } = await openAt(REPORT, "src/a.ts");
+    expect(dlg.querySelector(".mf .pager span")!.getAttribute("aria-live")).toBe("polite");
+  });
+  it("steps through every file the report holds, not only the page the first one was opened from", async () => {
+    const report = many(45);
+    await show({ api: fakeApi(vi.fn(async (_s: string, path: string) => diffFor(path))), report });
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/f20.ts" }));
+    await flush();
+    const dlg = screen.getByRole("dialog");
+    expect(pos(dlg)).toBe("Showing file 20 of 45");
+    await stepTo(next());
+    expect(dlg.querySelector("h2")!.textContent).toBe("src/f21.ts");
+    expect(pos(dlg)).toBe("Showing file 21 of 45");
+    expect(next().disabled).toBe(false);
+  });
+  it("keeps the Wrap lines choice, shows the diff from the top and keeps focus on the button used", async () => {
+    const { dlg } = await openAt(REPORT, "src/a.ts");
+    fireEvent.click(screen.getByRole("switch", { name: /Wrap lines/ }));
+    dlg.querySelector<HTMLElement>(".mb")!.scrollTop = 80;
+    next().focus();
+    await stepTo(next());
+    expect(dlg.classList.contains("wrapped")).toBe(false);
+    expect(dlg.querySelector<HTMLElement>(".mb")!.scrollTop).toBe(0);
+    expect(document.activeElement).toBe(next());
+    window.localStorage.clear();
+  });
+  it("moves focus to the other button when the one used becomes disabled at an end", async () => {
+    await openAt(REPORT, "docs/new.md");
+    next().focus();
+    await stepTo(next());
+    expect(next().disabled).toBe(true);
+    expect(document.activeElement).toBe(prev());
+  });
+  it("never leaves the old diff on screen while the next one loads or fails", async () => {
+    const waiting = new Map<string, (r: FileDiffReply) => void>();
+    const fileDiff = vi.fn((_s: string, path: string) => (path === "src/a.ts" ? Promise.resolve(diffFor(path)) : new Promise<FileDiffReply>((r) => waiting.set(path, r))));
+    const { dlg } = await openAt(REPORT, "src/a.ts", fileDiff as never);
+    expect(dlg.textContent).toContain("new src/a.ts");
+    fireEvent.click(next());
+    expect(dlg.textContent).not.toContain("new src/a.ts");
+    expect(dlg.querySelector(".diffmb")).toBeNull();
+    expect(within(dlg).getByRole("status", { name: "" }).textContent).toContain("Loading");
+    expect(pos(dlg)).toBe("Showing file 2 of 3");
+    expect(prev().disabled).toBe(false);
+    await pause();
+    await act(async () => waiting.get("docs/new.md")!(diffFor("docs/new.md")));
+    expect(dlg.textContent).toContain("new docs/new.md");
+  });
+  it("drops a reply for a file the person has already left", async () => {
+    const waiting = new Map<string, (r: FileDiffReply) => void>();
+    const fileDiff = vi.fn((_s: string, path: string) => new Promise<FileDiffReply>((r) => waiting.set(path, r)));
+    const { dlg } = await openAt(REPORT, "src/a.ts", fileDiff as never);
+    await stepTo(next());
+    await stepTo(next());
+    expect(dlg.querySelector("h2")!.textContent).toBe("img/logo.png");
+    await act(async () => waiting.get("src/a.ts")!(diffFor("src/a.ts")));
+    await act(async () => waiting.get("docs/new.md")!(diffFor("docs/new.md")));
+    expect(dlg.textContent).not.toContain("new docs/new.md");
+    expect(dlg.textContent).not.toContain("new src/a.ts");
+    await act(async () => waiting.get("img/logo.png")!(ok({ status: "binary", text: "" })));
+    expect(dlg.textContent).toContain("No text diff for a binary file.");
+  });
+  it("shows a failure for the file in view, and the row still steps past it", async () => {
+    const fileDiff = vi.fn(async (_s: string, path: string) => {
+      if (path === "docs/new.md") throw new RespondError(429, { error: "busy" });
+      return diffFor(path);
+    });
+    const { dlg } = await openAt(REPORT, "src/a.ts", fileDiff as never);
+    await stepTo(next());
+    expect(within(dlg).getByRole("alert").textContent).toMatch(/Too many diffs are waiting/);
+    expect(pos(dlg)).toBe("Showing file 2 of 3");
+    await stepTo(prev());
+    expect(dlg.textContent).toContain("new src/a.ts");
+    expect(within(dlg).queryByRole("alert")).toBeNull();
+  });
+  it("steps onto a binary file and shows its usual message, then goes on", async () => {
+    const fileDiff = vi.fn(async (_s: string, path: string) => (path === "img/logo.png" ? ok({ status: "binary", text: "" }) : diffFor(path)));
+    const { dlg } = await openAt(REPORT, "docs/new.md", fileDiff as never);
+    await stepTo(next());
+    expect(dlg.textContent).toContain("No text diff for a binary file.");
+    expect(dlg.querySelector(".sub2")!.textContent).toContain("binary");
+    expect(prev().disabled).toBe(false);
+  });
+  it("asks only for the file it stops on when stepped quickly, so waiting diffs do not pile up", async () => {
+    const report = many(30);
+    const { fileDiff } = await openAt(report, "src/f1.ts");
+    const dlg = screen.getByRole("dialog");
+    for (let i = 0; i < 5; i++) fireEvent.click(next());
+    expect(pos(dlg)).toBe("Showing file 6 of 30");
+    await pause();
+    expect(fileDiff.mock.calls.map((c) => c[1])).toEqual(["src/f1.ts", "src/f6.ts"]);
+    expect(dlg.textContent).toContain("new src/f6.ts");
+  });
+  it("keeps the Wrap lines switch in the row while the next diff loads", async () => {
+    const fileDiff = vi.fn((_s: string, path: string) => (path === "src/a.ts" ? Promise.resolve(diffFor(path)) : new Promise<FileDiffReply>(() => {})));
+    const { dlg } = await openAt(REPORT, "src/a.ts", fileDiff as never);
+    await stepTo(next());
+    expect(dlg.querySelector(".mf .sw")).not.toBeNull();
+  });
+  it("asks for one file at a time: no file is fetched ahead", async () => {
+    const { fileDiff } = await openAt(REPORT, "src/a.ts");
+    expect(fileDiff).toHaveBeenCalledTimes(1);
+  });
+  it("gives focus back to the row that opened it on close, after stepping", async () => {
+    await openAt(REPORT, "src/a.ts");
+    const row = screen.getByRole("button", { name: "Open diff of src/a.ts" });
+    await stepTo(next());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await flush();
+    expect(document.activeElement).toBe(row);
   });
 });

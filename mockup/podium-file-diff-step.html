@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium diff modal stepper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<!-- Mockup for issue #630, on top of #319 and #623 (mockup/podium-file-diff-wrap.html). Links the app stylesheet (fleet.css, which imports tokens.css), so it has no :root block. The modal, header, panes, line rows, foot note and the .sw switch are the app's own classes; the .mf bottom row is #623's. The stepper reuses the pager's button look (.pager .pg button) and the compact "N of M" (.at). Light/dark and the narrow width are the buttons at the top. Every frame's buttons work. -->
+<style>
+/* Page chrome only. */
+.podium.mock { height: auto; min-height: 100%; padding: 20px 16px 60px; }
+.mock .page { max-width: 1280px; margin: 0 auto; }
+.mock h1 { font-size: 17px; margin: 0 0 4px; }
+.mock h2.sect { font-size: 14px; margin: 34px 0 4px; }
+.mock p.note { color: var(--muted); font-size: 12.5px; margin: 4px 0 10px; max-width: 78ch; }
+.mock .bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 12px 0 0; }
+.mock .bar button { font-size: 12px; color: var(--ink2); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.mock .bar button[aria-pressed="true"] { color: var(--ink); background: var(--sel); }
+.mock :focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.mock .frames { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 12px; }
+.mock .frame h3 { margin: 0 0 6px; font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mock .stage { background: var(--raised); border: 1px dashed var(--axis); border-radius: 8px; padding: 14px; }
+.mock .stage .modal { max-height: 440px; }
+.mock.narrow .stage { max-width: 380px; }
+.diffmsg { padding: 28px 20px; color: var(--ink); font-size: 13px; }
+.diffmsg.err { color: var(--bad); }
+
+/* From #623 (already on development): the bottom row and the Wrap lines switch. */
+.podium .modal .mf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 8px 14px; border-top: 1px solid var(--grid); flex: none; }
+.podium .modal .mf .foot-note { flex: 1 1 24ch; min-width: 0; padding: 0; border: 0; }
+.podium .modal .mf .sw { margin-left: auto; }
+.sw { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.sw button { width: 36px; height: 22px; border-radius: 999px; background: var(--axis); border: 1px solid var(--border); position: relative; flex: none; cursor: pointer; }
+.sw button::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); }
+.sw button[aria-checked="true"] { background: var(--good); }
+.sw button[aria-checked="true"]::after { transform: translateX(14px); background: var(--on-good); }
+.sw > span { font-size: 12px; color: var(--ink2); min-width: 28px; }
+.sw > b { font-size: 12px; font-weight: 500; color: var(--ink2); }
+
+/* NEW (1): the stepper, first in the bottom row, at the lower left. It is the Files and Plan tabs' footer (PageNav, components.html#plan-panel,
+   patterns.html#paging) with its own text: .pager holding the “Showing …” span and nav.pg with ‹ and ›, the buttons really disabled at the ends. Its
+   own border and padding come off because the .mf row already has them. The only new rules are that and the order of the three parts. */
+.podium .modal .mf .pager { padding: 0; border: 0; flex: none; order: 0; justify-content: flex-start; gap: 8px 12px; }
+.podium .modal .mf .foot-note { order: 1; }
+.podium .modal .mf .sw { order: 2; }
+.mock.narrow .modal .mf .sw { order: 1; }
+.mock.narrow .modal .mf .foot-note { order: 2; flex-basis: 100%; }
+</style>
+</head>
+<body>
+<div class="podium mock" id="wrap">
+<div class="page">
+  <h1>Back and forward in the file diff modal</h1>
+  <p class="note">Issue #630. Previous and Next buttons and the position at the lower left of the diff modal step through the changed files without closing it. Every frame below works: press the buttons. Dark and light, and a 340px width, are the buttons below.</p>
+  <div class="bar" role="group" aria-label="Preview">
+    <button type="button" data-t="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-t="light" aria-pressed="false">Light</button>
+    <button type="button" id="nar" aria-pressed="false">Narrow (340px)</button>
+  </div>
+
+  <h2 class="sect">First, middle and last file</h2>
+  <p class="note">The first file has Back dimmed, the last has Forward dimmed. The title, counts and diff change in place; the Wrap lines choice stays. The list is capped in these frames: the report holds 12 of 40 files, and the pager counts the 12.</p>
+  <div class="frames" id="f-pos"></div>
+
+  <h2 class="sect">Loading and failing</h2>
+  <p class="note">The row is there while a diff loads and when it fails, so a person can step past a file that did not load. A reply for a file the person has already left is dropped. The old diff is never left on screen: the body shows Loading as soon as the file changes.</p>
+  <div class="frames" id="f-state"></div>
+
+  <h2 class="sect">One file, and a binary file in the list</h2>
+  <p class="note">A list of one file has both buttons dimmed and reads “Showing file 1 of 1”. A binary file opens with its usual message and stepping goes on past it.</p>
+  <div class="frames" id="f-edge"></div>
+
+  <h2 class="sect">Built from, decided, and open</h2>
+  <p class="note"><b>Reused:</b> the modal and its header, the diff panes, <code>.mf</code> and the Wrap lines switch (#623), the <code>.foot-note</code> text, and the footer of the Files and Plan tabs (PageNav): <code>.pager</code> with its “Showing …” text and <code>nav.pg</code> holding the <code>‹</code> and <code>›</code> buttons, the same size and look, both <code>disabled</code> at the ends. Two differences from the tab, both for you to decide below: the text counts files (“Showing file 3 of 12”) and the numbered page buttons are left out. The pager’s border and padding come off because <code>.mf</code> has them, and it sits at the left instead of spreading across the row. No new class, color, size or icon.</p>
+  <p class="note"><b>Which files:</b> the same files, in the same order, as the Files tab, taken from the whole report, not only the page the first file was opened from. Opening the 22nd file from page 2 shows “Showing file 22 of 40”. The report can be capped by the server; the Files tab already says so (“Listing the first N of M files”), and the modal counts the files it can step through, with no extra note.</p>
+  <p class="note"><b>Names:</b> as PageNav’s are “Previous page” and “Next page”, these are named for what they open: “Previous file: src/a.ts” and “Next file: src/c.ts”, with the same text as the tooltip. The “Showing file 3 of 12” text is a polite status (<code>role="status"</code>). A disabled end is announced as unavailable. A disabled button cannot hold focus, so when the person steps onto the first or last file, focus moves to the other button and the modal never loses it.</p>
+  <p class="note"><b>Keyboard:</b> Tab to a button, Enter or Space to step; holding Enter steps quickly. No arrow-key or other shortcut is added: arrows scroll the diff and the page uses <code>[</code>, <code>]</code> and <code>\</code>, so any new key would collide. Esc still closes. Focus stays on the button that was used, except at an end (above); the modal does not close and reopen. The scroll goes back to the top.</p>
+  <p class="note"><b>Fetching:</b> only the file in view is requested. The next one is not fetched ahead, so the number of waiting diffs does not rise. Stepping fast drops the replies for files already left; the 429 and 504 messages still show for the file in view.</p>
+  <p class="note"><b>Narrow width:</b> the pager and the switch share the first line and the note wraps onto its own line below. The buttons keep the pager’s size, as in the Files tab. <b>Open for you:</b> (e) the Files tab shows one numbered button per page; a list of up to 200 files would be 200 buttons, so this shows only Previous and Next. Say if you want numbers (a window of them) instead. (a) the pager at the lower left, ahead of the note, with the switch at the right; (b) no keyboard shortcuts beyond Tab and Enter; (c) a capped list gets no note in the modal, as the Files tab already says so (the issue asked for one, so say if you want it back); (d) the issue asks for buttons easy to hit, and the pager’s buttons are small (about 22px); making them bigger in the modal would be a change to the standard and needs your approval.</p>
+</div>
+</div>
+<script>
+const FILES = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const BODY = '<div class="sbs" role="group" aria-label="Diff, old on the left and new on the right"><div class="pane"><div class="pane-h">Before</div><pre aria-label="Before"><span class="l h"><span>@@ -4,3 +4,3 @@ export function run() {</span></span><span class="l"><span class="n">4</span><span class="m"> </span><span>  const a = 1;</span></span><span class="l r"><span class="n">5</span><span class="m">−</span><span>  return a;</span></span></pre></div><div class="pane"><div class="pane-h">After</div><pre aria-label="After"><span class="l h"><span> </span></span><span class="l"><span class="n">4</span><span class="m"> </span><span>  const a = 1;</span></span><span class="l a"><span class="n">5</span><span class="m">+</span><span>  return a + 1;</span></span></pre></div></div>';
+const MSG = { loading: '<div class="diffmsg"><p role="status">Loading...</p><p>The diff is read from the session’s machine now and is not kept. This gives up after 15 seconds.</p></div>', err: '<div class="diffmsg err" role="alert"><p>The diff is not available. The session’s machine did not answer in 15 seconds, or the file no longer differs.</p><p>Step to another file, or close this and open the file again.</p></div>', bin: '<div class="diffmsg"><p>No text diff for a binary file.</p><p>Git shows no lines for it, so there is nothing to draw.</p></div>' };
+let uid = 0;
+// cfg: { files, total, i, body, wrap }
+function modal(cfg) {
+  const id = 'sw' + (++uid), { files, total, i } = cfg, f = files[i];
+  const prev = files[i - 1], next = files[i + 1];
+  return `<div class="modal modal-diff wrapped" role="dialog" aria-label="Diff of ${esc(f)}" data-files='${JSON.stringify(files)}' data-total="${total}" data-i="${i}">
+<div class="mh"><div class="ttl"><h2><bdi>${esc(f)}</bdi></h2><div class="sub2">M · <span class="cnt"><span class="add">+${10 + i * 7}</span><span class="del">−${3 + i}</span></span> · against the starting commit 7eb90e8</div></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+<div class="mb diffmb">${cfg.body || BODY}</div>
+<div class="mf"><div class="pager"><span role="status">Showing file ${i + 1} of ${files.length}</span><nav class="pg" aria-label="Files in this diff"><button type="button" data-d="-1" aria-label="Previous file${prev ? ': ' + esc(prev) : ''}" title="Previous file${prev ? ': ' + esc(prev) : ''}" ${prev ? '' : 'disabled'}>‹</button><button type="button" data-d="1" aria-label="Next file${next ? ': ' + esc(next) : ''}" title="Next file${next ? ': ' + esc(next) : ''}" ${next ? '' : 'disabled'}>›</button></nav></div><div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="${id}-n ${id}-s"></button><b id="${id}-n">Wrap lines</b><span id="${id}-s">On</span></div></div></div>`;
+}
+const frame = (h, html) => `<div class="frame"><h3>${h}</h3><div class="stage">${html}</div></div>`;
+const BIG = ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts', 'src/f.ts', 'src/g.ts', 'src/h.ts', 'src/i.ts', 'src/j.ts', 'src/k.ts', 'src/l.ts'];
+document.getElementById('f-pos').innerHTML =
+  frame('First file of 12 (Back dimmed), list capped', modal({ files: BIG, total: 40, i: 0 })) +
+  frame('A middle file', modal({ files: BIG, total: 40, i: 2 })) +
+  frame('Last file of 12 (Forward dimmed)', modal({ files: BIG, total: 40, i: 11 }));
+document.getElementById('f-state').innerHTML =
+  frame('Loading the next file', modal({ files: FILES, total: 3, i: 1, body: MSG.loading })) +
+  frame('Failed (504): Back and Forward still work', modal({ files: FILES, total: 3, i: 1, body: MSG.err }));
+document.getElementById('f-edge').innerHTML =
+  frame('A list of one file', modal({ files: ['src/only.ts'], total: 1, i: 0 })) +
+  frame('A binary file in the middle', modal({ files: ['src/a.ts', 'logo.png', 'src/c.ts'], total: 3, i: 1, body: MSG.bin }));
+
+// Working buttons: step in place, keep the Wrap lines choice and focus, reset scroll.
+document.addEventListener('click', (e) => {
+  const sw = e.target.closest('.sw button');
+  if (sw) {
+    const on = sw.getAttribute('aria-checked') !== 'true';
+    sw.setAttribute('aria-checked', String(on));
+    sw.closest('.sw').querySelector('span').textContent = on ? 'On' : 'Off';
+    sw.closest('.modal').classList.toggle('wrapped', on);
+    return;
+  }
+  const b = e.target.closest('.pager button');
+  if (!b || b.disabled) return;
+  const m = b.closest('.modal'), files = JSON.parse(m.dataset.files), total = +m.dataset.total, i = +m.dataset.i + +b.dataset.d;
+  const wrapped = m.classList.contains('wrapped'), d = b.dataset.d;
+  const t = document.createElement('div');
+  t.innerHTML = modal({ files, total, i });
+  const n = t.firstElementChild;
+  n.classList.toggle('wrapped', wrapped);
+  const s = n.querySelector('.sw button'); s.setAttribute('aria-checked', String(wrapped)); n.querySelector('.sw span').textContent = wrapped ? 'On' : 'Off';
+  m.replaceWith(n);
+  const used = n.querySelector(`.pager button[data-d="${d}"]`);
+  (used.disabled ? n.querySelector(`.pager button[data-d="${-d}"]`) : used).focus();
+});
+const root = document.documentElement, wrapEl = document.getElementById('wrap');
+document.querySelectorAll('button[data-t]').forEach((b) => b.addEventListener('click', () => {
+  root.setAttribute('data-theme', b.dataset.t);
+  document.querySelectorAll('button[data-t]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+}));
+document.getElementById('nar').addEventListener('click', (e) => {
+  const on = wrapEl.classList.toggle('narrow');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+});
+</script>
+</body>
+</html>

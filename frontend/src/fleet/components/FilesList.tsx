@@ -133,6 +133,9 @@ export function FilesList({ report, hint, session }: { report: FilesReport | nul
   const shown = report.files.slice(from, from + FILES_PER_PAGE);
   const note = SINCE_NOTE[report.since];
   const access = diffAccess(session, ctx);
+  // The modal steps through every file the report holds, in this list's order. If a later report no longer has the open file, it shows that file alone.
+  const idx = diffOf ? report.files.findIndex((f) => f.path === diffOf.path) : -1;
+  const stepFiles = diffOf && idx < 0 ? [diffOf] : report.files;
   const open = (f: ChangedFile, from: HTMLElement) => {
     opener.current = from;
     setDiffOf(f);
@@ -152,7 +155,7 @@ export function FilesList({ report, hint, session }: { report: FilesReport | nul
         ))}
       </ul>
       {access.kind === "why" && <div className="foot-note" role="note">{access.text}</div>}
-      {diffOf && session && <FileDiffModal sessionId={session.id} file={diffOf} since={report.since} onClose={close} />}
+      {diffOf && session && <FileDiffModal sessionId={session.id} files={stepFiles} index={Math.max(idx, 0)} since={report.since} onStep={(i) => setDiffOf(stepFiles[i] ?? diffOf)} onClose={close} />}
       <PageNav label="Files pages" at={at} pages={pages} from={from} shown={shown.length} total={report.files.length} perPage={FILES_PER_PAGE} onPage={setPage} />
       {(report.total > report.files.length || note) && (
         <div className="foot-note">

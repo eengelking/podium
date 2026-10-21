@@ -54,6 +54,7 @@ scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
 scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code sessions in tmux (costs model usage)
 node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
+node scripts/podium-filediff-demo.mjs --help  # play a reporter that serves file diffs, for looking at the diff modal
 ```
 
 `page-shot.mjs` is how to see a UI change at a narrow width in the built app. Start a throwaway server on its own port and database

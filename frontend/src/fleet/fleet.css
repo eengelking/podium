@@ -917,6 +917,10 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal .mf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 8px 14px; border-top: 1px solid var(--grid); flex: none; }
 .podium .modal .mf .foot-note { flex: 1 1 24ch; min-width: 0; padding: 0; border: 0; }
 .podium .modal .mf .sw { margin-left: auto; }
+/* Previous and Next (#630, mockup/podium-file-diff-step.html): the Files tab's pager at the left of the row, with its own border and
+   padding off because the row has them. At a narrow width the switch comes up beside it and the note takes a line of its own below. */
+.podium .modal .mf .pager { padding: 0; border: 0; flex: none; justify-content: flex-start; gap: 8px 12px; }
+@media (max-width: 480px) { .podium .modal .mf .sw { order: 1; } .podium .modal .mf .foot-note { order: 2; flex-basis: 100%; } }
 /* Wrapped (the default): each line goes on the one side-by-side grid by its pair number, so the two halves of a row share a height. The panes stay two elements in the same order, so keyboard and screen reader order is as when unwrapped. */
 .podium .modal-diff.wrapped .sbs { padding-bottom: 6px; }
 .podium .modal-diff.wrapped .sbs .pane, .podium .modal-diff.wrapped .sbs .pane pre { display: contents; }

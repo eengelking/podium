@@ -314,6 +314,7 @@ frontend/src/fleet/
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
+scripts/podium-filediff-demo.mjs     plays a reporter that serves file diffs, for the diff modal (#630; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)
 scripts/podium-peers-e2e.sh          starts a throwaway server from the checkout, seeds it, and runs real Claude Code sessions in tmux that load the mod with --plugin-dir, to try messaging end to end (#347; up and down, has --help and --dry-run)
@@ -5038,11 +5039,22 @@ selected first and the choice is not saved). While Files is selected the left co
     screen reader order do not change). A **Wrap lines** switch (the `.sw` on/off switch, with its On or Off
     word) at the lower right of the modal's bottom row turns wrapping off, and then long lines scroll inside the
     modal, each side on its own with the other following. The choice is kept in the browser
-    (`podium.diffWrap`), and a failed read means wrapped. The note below (the cut and the count of hidden
-    values) is at the left of that row, and the row shows only where a diff is drawn. Each `[redacted]` in it
+    (`podium.diffWrap`), and a failed read means wrapped. The switch shows only where a diff is drawn. The
+    note below (the cut and the count of hidden values) sits between the pager and the switch. Each `[redacted]` in it
     is bold and in the critical color, and a footer counts them ("3 values hidden as possible secrets").
     It shows a loading state (the word "Loading" at 18px with three dots that fill in on the console's shared
-    beat, all three still when the reader prefers reduced motion), and for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
+    beat, all three still when the reader prefers reduced motion). The bottom row always starts at the left with the
+    Files tab's pager (#630, `mockup/podium-file-diff-step.html`): "Showing file 3 of 12" and Previous and Next
+    buttons (`‹` and `›`) that step through every file in `session.files`, in the list's order and not only the
+    page the first one came from, without closing the modal. Each button is named for the file it opens ("Next
+    file: src/b.ts") and has that as its tooltip, and is disabled at the first and last file (no wrap). The
+    modal's content changes in place: the title, counts and diff, the scroll back to the top, the Wrap lines
+    choice kept, and focus on the button used (or on the other one when the used one has just been disabled).
+    Only the file in view is asked for, 120 ms after the last step so that holding a key down asks for the file it stops on and not each one it passes (the server holds four a session), and a reply for a file the person has left is dropped, so the last file's
+    diff is never drawn under the next file's title; a 429 or 504 shows for the file in view and the buttons
+    still step past it. The row shows in loading, failed and binary states too. Below 480 px the switch comes up
+    beside the pager and the note takes a line of its own. Where the diff is
+    drawn, and for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
     untracked file, and a cut diff ("Showing the first N lines of M") a plain message. Close, Esc and the dimmed
     area return focus to the row.
   - Otherwise the row is not a button. With the `file-diff` flag off nothing changes, since a flag that is off

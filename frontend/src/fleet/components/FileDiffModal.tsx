@@ -12,15 +12,21 @@ import { Modal } from "./Modal";
 // one column where it is narrower than 720px (a container query in fleet.css picks which). Nothing is kept: closing
 // the modal drops it, and opening it again asks again. Long lines wrap by default (#623, mockup/podium-file-diff-wrap.html):
 // each line sits on the side-by-side grid by its pair number (--r), so the two halves of a row stay level, and the choice
-// is kept in the browser.
+// is kept in the browser. Previous and Next step through the report's files in the Files tab's order without closing the modal
+// (#630, mockup/podium-file-diff-step.html): the Files tab's footer, with the file it opens named on each button. Only the file
+// in view is asked for, and a reply for a file the person has left is dropped.
 
 export const WRAP_KEY = "podium.diffWrap";
+/** How long a step waits before it asks for the file, so holding a key down asks for the one it stops on and not for each file it passes (the server holds four a session). */
+export const STEP_DELAY_MS = 120;
 
 const LETTER: Record<ChangedFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 const MINUS = "−";
 const BASE_WORDS: Record<FilesReport["since"], string> = { start: "against the starting commit", upstream: "against the branch's upstream", worktree: "against the working tree" };
 
 type Load = { state: "loading" } | { state: "done"; reply: FileDiffReply } | { state: "failed"; why: string };
+/** A reply belongs to the file it was asked for, so a modal that has stepped on never draws the last file's diff. */
+type Held = { path: string; load: Load };
 
 /** What a refusal or a failure to ask says, in words with what to try (voice.html). */
 function failure(err: unknown): string {
@@ -202,27 +208,68 @@ function footNote(reply: FileDiffReply): string {
   return bits.join(" ");
 }
 
-/** The modal's bottom row: the note at the left, when there is one, and the Wrap lines switch at the right (the Admin's .sw). */
-function Foot({ reply, wrap, onWrap }: { reply: FileDiffReply; wrap: boolean; onWrap: () => void }) {
-  const id = useId();
-  const note = footNote(reply);
-  const drawn = reply.status === "ok" && !!reply.text;
-  if (!drawn) return note ? <div className="foot-note">{note}</div> : null;
+type Step = { files: ChangedFile[]; index: number; onStep: (index: number) => void };
+
+/** The Files tab's footer in the modal's bottom row: where this file sits, and Previous and Next, disabled at the ends. */
+function Stepper({ files, index, onStep }: Step) {
+  const prev = useRef<HTMLButtonElement>(null);
+  const next = useRef<HTMLButtonElement>(null);
+  const went = useRef<1 | -1 | null>(null);
+  const before = files[index - 1];
+  const after = files[index + 1];
+  // A button that has just become disabled cannot keep focus, so the person lands on the other one and the modal never loses it.
+  useEffect(() => {
+    const used = went.current === 1 ? next.current : went.current === -1 ? prev.current : null;
+    went.current = null;
+    if (used?.disabled) (used === next.current ? prev.current : next.current)?.focus();
+  }, [index]);
+  const go = (by: 1 | -1) => () => {
+    went.current = by;
+    onStep(index + by);
+  };
   return (
-    <div className="mf">
-      {note ? <div className="foot-note">{note}</div> : null}
-      <div className="sw">
-        <button type="button" role="switch" aria-checked={wrap} aria-labelledby={`${id}-n ${id}-s`} onClick={onWrap} />
-        <b id={`${id}-n`}>Wrap lines</b>
-        <span id={`${id}-s`}>{wrap ? "On" : "Off"}</span>
-      </div>
+    <div className="pager">
+      <span aria-live="polite">
+        Showing file {index + 1} of {files.length}
+      </span>
+      <nav className="pg" aria-label="Files in this diff">
+        <button type="button" ref={prev} aria-label={`Previous file${before ? `: ${before.path}` : ""}`} title={`Previous file${before ? `: ${before.path}` : ""}`} disabled={!before} onClick={go(-1)}>
+          {"‹"}
+        </button>
+        <button type="button" ref={next} aria-label={`Next file${after ? `: ${after.path}` : ""}`} title={`Next file${after ? `: ${after.path}` : ""}`} disabled={!after} onClick={go(1)}>
+          {"›"}
+        </button>
+      </nav>
     </div>
   );
 }
 
-export function FileDiffModal(props: { sessionId: string; file: ChangedFile; since: FilesReport["since"]; onClose: () => void }) {
+/** The modal's bottom row: where the file sits in the list at the left, then the note, when there is one, and the Wrap lines switch at the right (the Admin's .sw). */
+function Foot({ load, step, wrap, onWrap }: { load: Load; step: Step; wrap: boolean; onWrap: () => void }) {
+  const id = useId();
+  const reply = load.state === "done" ? load.reply : null;
+  const note = reply ? footNote(reply) : "";
+  // Kept while a diff loads, so the switch does not drop out and come back at each step.
+  const drawn = load.state === "loading" || (reply?.status === "ok" && !!reply.text);
+  return (
+    <div className="mf">
+      <Stepper {...step} />
+      {note ? <div className="foot-note">{note}</div> : null}
+      {drawn ? (
+        <div className="sw">
+          <button type="button" role="switch" aria-checked={wrap} aria-labelledby={`${id}-n ${id}-s`} onClick={onWrap} />
+          <b id={`${id}-n`}>Wrap lines</b>
+          <span id={`${id}-s`}>{wrap ? "On" : "Off"}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function FileDiffModal(props: { sessionId: string; files: ChangedFile[]; index: number; since: FilesReport["since"]; onStep: (index: number) => void; onClose: () => void }) {
   const ctx = useRespond();
-  const [load, setLoad] = useState<Load>({ state: "loading" });
+  const [held, setHeld] = useState<Held | null>(null);
+  const asked = useRef(false);
   const titleId = useId();
   // Wrapped unless the saved choice is exactly false, so a failed or odd read falls back to wrapped.
   const [wrap, setWrap] = useState(() => readJson<unknown>(WRAP_KEY, true) !== false);
@@ -230,22 +277,30 @@ export function FileDiffModal(props: { sessionId: string; file: ChangedFile; sin
     writeJson(WRAP_KEY, !wrap);
     setWrap(!wrap);
   };
-  const { file, sessionId } = props;
+  const { files, index, sessionId } = props;
+  const file = files[index]!;
   const api = ctx?.api;
+  const load: Load = held?.path === file.path ? held.load : { state: "loading" };
 
   useEffect(() => {
     let live = true;
-    setLoad({ state: "loading" });
-    if (!api?.fileDiff) {
-      setLoad({ state: "failed", why: failure(null) });
+    const path = file.path;
+    const fileDiff = api?.fileDiff;
+    if (!fileDiff) {
+      setHeld({ path, load: { state: "failed", why: failure(null) } });
       return;
     }
-    api
-      .fileDiff(sessionId, file.path)
-      .then((reply) => live && setLoad({ state: "done", reply }))
-      .catch((err: unknown) => live && setLoad({ state: "failed", why: failure(err) }));
+    // The first file is asked for at once; a later one after a pause, which a further step cancels.
+    const ask = () =>
+      fileDiff(sessionId, path)
+        .then((reply) => live && setHeld({ path, load: { state: "done", reply } }))
+        .catch((err: unknown) => live && setHeld({ path, load: { state: "failed", why: failure(err) } }));
+    const wait = asked.current ? setTimeout(() => void ask(), STEP_DELAY_MS) : null;
+    if (!wait) void ask();
+    asked.current = true;
     return () => {
       live = false;
+      if (wait) clearTimeout(wait);
     };
   }, [api, sessionId, file.path]);
 
@@ -272,8 +327,8 @@ export function FileDiffModal(props: { sessionId: string; file: ChangedFile; sin
   );
   return (
     <Modal titleId={titleId} title={<bdi>{file.path}</bdi>} sub={sub} onClose={props.onClose} className={wrap ? "modal-diff wrapped" : "modal-diff"}>
-      <Body path={file.path} load={load} />
-      {load.state === "done" && <Foot reply={load.reply} wrap={wrap} onWrap={flipWrap} />}
+      <Body key={file.path} path={file.path} load={load} />
+      <Foot load={load} step={{ files, index, onStep: props.onStep }} wrap={wrap} onWrap={flipWrap} />
     </Modal>
   );
 }
