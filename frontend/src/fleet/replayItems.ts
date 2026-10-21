@@ -131,6 +131,6 @@ export function bashCommand(input: string): string | null {
 /** A recorded Bash result as the feed shows one: a failed call's own "Exit code N" line is the status, apart from the output. */
 export function bashResult(r: RecordingRow): { output: string; failed: boolean; exitCode?: number } {
   const failed = r.failed === true;
-  const m = failed ? /^Exit code (\d+)\n?/.exec(r.text) : null;
+  const m = failed ? /^Exit code (-?\d{1,3})(?:\n|$)/.exec(r.text) : null;
   return m ? { output: r.text.slice(m[0].length), failed, exitCode: Number.parseInt(m[1]!, 10) } : { output: r.text, failed };
 }

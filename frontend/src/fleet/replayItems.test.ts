@@ -165,6 +165,10 @@ describe("bashCommand and bashResult (#431)", () => {
     expect(bashResult(row({ kind: "result", text: "Exit code 127", failed: true }))).toEqual({ output: "", failed: true, exitCode: 127 });
   });
 
+  it("takes a negative exit code too, as the mod does", () => {
+    expect(bashResult(row({ kind: "result", text: "Exit code -1\nkilled", failed: true }))).toEqual({ output: "killed", failed: true, exitCode: -1 });
+  });
+
   it("leaves the text of a call that did not fail, or failed without a code line, whole", () => {
     expect(bashResult(row({ kind: "result", text: "Exit code 2\nnot a failure" }))).toEqual({ output: "Exit code 2\nnot a failure", failed: false });
     expect(bashResult(row({ kind: "result", text: "Permission denied by a hook", failed: true }))).toEqual({ output: "Permission denied by a hook", failed: true });
