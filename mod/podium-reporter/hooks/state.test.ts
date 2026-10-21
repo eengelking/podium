@@ -566,6 +566,18 @@ describe('activity feed (#118)', () => {
     const unwatched = buildReport(setWatched(s, []), [], { ...meta, activity: true })
     expect('activity' in unwatched.agents[0]!).toBe(false)
   })
+
+  test('a Bash entry with no call id still carries its command, commandCut and output', () => {
+    const e = { at: T0 + 1, kind: 'tool' as const, text: 'Bash ls', command: 'ls', commandCut: true, output: 'a', done: true }
+    const s = addActivity(setWatched(base(), ['a1']), 'a1', e)
+    const a = s.agents.a1!
+    expect(agentReport(a, false, true, true).activity).toEqual([e])
+    const noOut = agentReport(a, false, true, false).activity![0]!
+    expect(noOut.command).toBe('ls')
+    expect(noOut.commandCut).toBe(true)
+    expect('id' in noOut).toBe(false)
+    expect('output' in noOut).toBe(false)
+  })
 })
 
 describe('activity command and output (#431)', () => {

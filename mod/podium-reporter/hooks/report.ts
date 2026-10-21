@@ -115,8 +115,8 @@ const DETAIL_MAX = 20_100;
 function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntry[] {
   return list.map((e) => {
     const out: ActivityEntry = { at: e.at, kind: e.kind, text: clip(e.text, LIMITS.activity) };
-    if (e.kind !== 'tool' || e.id === undefined) return out;
-    out.id = clip(e.id, 200);
+    if (e.kind !== 'tool') return out;
+    if (e.id !== undefined) out.id = clip(e.id, 200);
     if (e.command !== undefined) {
       out.command = e.command.slice(0, DETAIL_MAX);
       if (e.commandCut) out.commandCut = true;
