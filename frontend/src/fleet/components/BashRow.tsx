@@ -241,7 +241,7 @@ export function BashRow(props: BashRowProps) {
   if (can) {
     const label = cut ? `Show whole command, ${chars(d.command!.length)} characters` : d.output === undefined ? "Show command" : "Show output";
     head = (
-      <button type="button" className="tgl" ref={tgl} aria-expanded={open} aria-controls={id}>
+      <button type="button" className="tgl" ref={tgl} aria-expanded={open} aria-controls={open ? id : undefined}>
         {CHEV}
         {line}
         {d.done && (

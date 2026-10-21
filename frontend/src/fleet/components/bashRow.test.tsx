@@ -31,12 +31,12 @@ afterEach(() => {
 });
 
 describe("a Bash row", () => {
-  it("is closed by default, with a real button that names what it controls", () => {
+  it("is closed by default, with a real button and no aria-controls until the details are in the page", () => {
     show([entry(1)]);
     expect(rowOf()).toHaveClass("can");
     expect(rowOf()).not.toHaveClass("open");
     expect(tgl()).toHaveAttribute("aria-expanded", "false");
-    expect(tgl().getAttribute("aria-controls")).toBeTruthy();
+    expect(tgl()).not.toHaveAttribute("aria-controls");
     expect(rowOf().querySelector(".xp")).toBeNull();
     expect(tgl().textContent).toContain("Bash");
     expect(tgl().textContent).toContain("npm test");
