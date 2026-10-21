@@ -666,7 +666,7 @@ forgery with the same subject and serial also shows. The body is the new public 
 `issueForPublicKey` signs it with `openssl x509 -new -force_pubkey`, and `PersonCertStore.add` stores it without revoking
 the old row, so both work until the old one expires (`replace`, used by an Admin reissue, still revokes). The helper
 (`helper.mjs`) renews at start, before a request, and on a 10 minute timer, one renewal at a time per process and one at a
-time per file through `<file>.lock` (O_EXCL, taken over after a minute). Under the lock it re-reads the file first and takes a
+time per file through `<file>.lock` (O_EXCL, naming its owner; one older than a minute is taken over under a second O_EXCL lock, `<file>.lock.takeover`, with a fresh reading after winning it, so two waiters cannot both remove it; a holder refreshes the lock's time every 20 s while it runs and removes it at the end only if it still names it). Under the lock it re-reads the file first and takes a
 newer certificate another session wrote instead of renewing again, checks the answer is for its own key and signed by a CA
 the file already holds, and replaces the file with `writeAtomic` (a temporary file in the same folder, fsync, rename, mode
 0600). A refusal is remembered until the file changes, and a request made with an expired certificate then gets

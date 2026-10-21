@@ -5,7 +5,7 @@
 //   node helper.mjs <config path> <socket path> <server url>
 //
 // It prints `ready` on stdout once it listens, and `error <CODE> <why>` before exiting 1 when it cannot start.
-import { X509Certificate, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { X509Certificate, generateKeyPairSync, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -146,30 +146,79 @@ function writeAtomic(file, text) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Runs `fn` while holding `<file>.lock`, a file made with O_EXCL. A lock older than a minute belongs to a process that died and is taken over. Returns null when the lock could not be had in time. */
-async function withLock(lockFile, fn) {
-  const until = Date.now() + LOCK_WAIT_MS;
+const TAKEOVER_STALE_MS = 10_000;
+
+/** True when `file` exists and was last written more than `ms` ago. */
+function olderThan(file, ms) {
+  try {
+    return Date.now() - fs.statSync(file).mtimeMs > ms;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Removes a stale lock so that only one waiter does it and none removes a lock another waiter just made. Two waiters that both
+ * read the lock as stale cannot both remove it, because removing takes a second lock, `<lock>.takeover`, made with O_EXCL, and the
+ * lock is read again after winning it: by then a waiter that was slower may find a fresh lock, and leaves it alone.
+ */
+function takeOverStale(lockFile, staleMs) {
+  const takeover = `${lockFile}.takeover`;
+  let fd;
+  try {
+    fd = fs.openSync(takeover, 'wx', 0o600);
+  } catch (err) {
+    // Another waiter is at it. Its own lock is short-lived; one left by a process that died is cleared after a few seconds.
+    if (err.code === 'EEXIST' && olderThan(takeover, TAKEOVER_STALE_MS)) fs.rmSync(takeover, { force: true });
+    return;
+  }
+  try {
+    if (olderThan(lockFile, staleMs)) fs.rmSync(lockFile, { force: true });
+  } finally {
+    fs.closeSync(fd);
+    fs.rmSync(takeover, { force: true });
+  }
+}
+
+/**
+ * Runs `fn` while holding `<file>.lock`, a file made with O_EXCL that names its owner. A lock older than a minute belongs to a
+ * process that died and is taken over (see takeOverStale). The lock is removed at the end only if it still names this owner, so
+ * a holder that was taken over (it ran for over a minute) does not remove its successor's lock. Returns null when the lock could
+ * not be had in `waitMs`. While `fn` runs the lock's time is refreshed every third of `staleMs`, so a live holder is never taken over
+ * however long it takes.
+ */
+export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LOCK_STALE_MS) {
+  const until = Date.now() + waitMs;
+  const owner = `${process.pid}:${randomBytes(8).toString('hex')}`;
   for (;;) {
     try {
       const fd = fs.openSync(lockFile, 'wx', 0o600);
-      fs.writeSync(fd, String(process.pid));
+      fs.writeSync(fd, owner);
       fs.closeSync(fd);
       break;
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
-      try {
-        if (Date.now() - fs.statSync(lockFile).mtimeMs > LOCK_STALE_MS) fs.rmSync(lockFile, { force: true });
-      } catch {
-        // gone already
-      }
+      if (olderThan(lockFile, staleMs)) takeOverStale(lockFile, staleMs);
       if (Date.now() > until) return null;
       await sleep(50 + Math.random() * 50);
     }
   }
+  const beat = setInterval(() => {
+    try {
+      if (fs.readFileSync(lockFile, 'utf8') === owner) fs.utimesSync(lockFile, new Date(), new Date());
+    } catch {
+      // gone or taken: nothing of ours to keep fresh
+    }
+  }, Math.max(10, staleMs / 3));
   try {
     return { value: await fn() };
   } finally {
-    fs.rmSync(lockFile, { force: true });
+    clearInterval(beat);
+    try {
+      if (fs.readFileSync(lockFile, 'utf8') === owner) fs.rmSync(lockFile, { force: true });
+    } catch {
+      // already gone
+    }
   }
 }
 

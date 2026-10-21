@@ -7,8 +7,8 @@ import https from 'node:https';
 import type { AddressInfo, Socket } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { openDb } from './fleet/db.js';
@@ -552,6 +552,114 @@ describe('helper.mjs: renewing its own certificate', () => {
     await until(() => fs.readFileSync(config, 'utf8') !== original, 'renewed past a stale lock');
     await until(() => !fs.existsSync(lock), 'the lock is released');
   }, 40_000);
+});
+
+describe('helper.mjs: withLock on a stale lock (#611)', () => {
+  // Every child waits for `go`, then takes the lock and spends 80 ms inside it; a second one inside at the same time is a violation.
+  const CHILD = `
+    import fs from 'node:fs';
+    const [helper, lock, marker, go] = process.argv.slice(1);
+    const { withLock } = await import(helper);
+    fs.writeFileSync(go + '.ready-' + process.pid, '');
+    while (!fs.existsSync(go)) await new Promise((r) => setTimeout(r, 1));
+    const got = await withLock(lock, async () => {
+      try { fs.closeSync(fs.openSync(marker, 'wx')); } catch { return 'violation'; }
+      await new Promise((r) => setTimeout(r, 80));
+      fs.rmSync(marker, { force: true });
+      return 'ok';
+    });
+    process.stdout.write(got === null ? 'timeout' : got.value);
+  `;
+
+  it('lets one waiter in at a time when many find the same stale lock together', async () => {
+    const results: string[] = [];
+    for (let round = 0; round < 6; round++) {
+      const dir = tmp();
+      const lock = path.join(dir, 'c.pem.lock');
+      const go = path.join(dir, 'go');
+      fs.writeFileSync(lock, '99999999');
+      const old = new Date(Date.now() - 10 * 60_000);
+      fs.utimesSync(lock, old, old);
+      const kids = Array.from({ length: 8 }, () => {
+        const proc = spawn(process.execPath, ['--input-type=module', '-e', CHILD, pathToFileURL(HELPER).href, lock, path.join(dir, 'inside'), go], { stdio: ['ignore', 'pipe', 'pipe'] });
+        cleanup.push(() => {
+          proc.kill('SIGKILL');
+        });
+        let out = '';
+        proc.stdout.on('data', (c) => (out += c));
+        return new Promise<string>((resolve) => proc.on('exit', () => resolve(out || 'crashed')));
+      });
+      await until(() => fs.readdirSync(dir).filter((n) => n.startsWith('go.ready-')).length === 8, 'every child is ready', 15_000);
+      fs.writeFileSync(go, '');
+      results.push(...(await Promise.all(kids)));
+      expect(fs.existsSync(lock)).toBe(false);
+    }
+    expect(results.filter((r) => r !== 'ok')).toEqual([]);
+  }, 60_000);
+
+  it('does not take over a lock that was fresh again by the time it acted on a stale reading', async () => {
+    const { withLock } = (await import(/* @vite-ignore */ HELPER)) as { withLock: (lock: string, fn: () => Promise<void>, waitMs?: number) => Promise<unknown> };
+    const lock = path.join(tmp(), 'c.pem.lock');
+    fs.writeFileSync(lock, 'stale-owner');
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(lock, old, old);
+    // This waiter reads the lock as stale; before it acts, another waiter takes it over and makes a fresh one.
+    const real = fs.statSync;
+    let swapped = false;
+    const spy = vi.spyOn(fs, 'statSync').mockImplementation(((...a: Parameters<typeof fs.statSync>) => {
+      const st = real(...a);
+      if (!swapped && String(a[0]) === lock) {
+        swapped = true;
+        fs.writeFileSync(lock, 'fresh-owner');
+      }
+      return st;
+    }) as typeof fs.statSync);
+    let ran = false;
+    const got = await withLock(lock, async () => void (ran = true), 400);
+    spy.mockRestore();
+    expect(swapped).toBe(true);
+    expect(ran).toBe(false);
+    expect(got).toBeNull();
+    expect(fs.readFileSync(lock, 'utf8')).toBe('fresh-owner');
+  });
+
+  it('never takes a lock from a holder that is still running, however long it takes', async () => {
+    const { withLock } = (await import(/* @vite-ignore */ HELPER)) as { withLock: (lock: string, fn: () => Promise<string>, waitMs?: number, staleMs?: number) => Promise<{ value: string } | null> };
+    const lock = path.join(tmp(), 'c.pem.lock');
+    // the lock goes stale after 300 ms without a refresh; the holder works for 1.2 s
+    const holder = withLock(lock, async () => {
+      await new Promise((r) => setTimeout(r, 1200));
+      return 'held';
+    }, 5000, 300);
+    await new Promise((r) => setTimeout(r, 100));
+    const waiter = await withLock(lock, async () => 'stolen', 900, 300);
+    expect(waiter).toBeNull();
+    expect(await holder).toEqual({ value: 'held' });
+    expect(fs.existsSync(lock)).toBe(false);
+  });
+
+  it('clears a takeover lock left by a process that died mid-takeover, then gets the lock', async () => {
+    const { withLock } = (await import(/* @vite-ignore */ HELPER)) as { withLock: (lock: string, fn: () => Promise<string>, waitMs?: number) => Promise<{ value: string } | null> };
+    const lock = path.join(tmp(), 'c.pem.lock');
+    const old = new Date(Date.now() - 10 * 60_000);
+    for (const f of [lock, `${lock}.takeover`]) {
+      fs.writeFileSync(f, '99999999');
+      fs.utimesSync(f, old, old);
+    }
+    const got = await withLock(lock, async () => 'in', 5000);
+    expect(got).toEqual({ value: 'in' });
+    expect(fs.readdirSync(path.dirname(lock))).toEqual([]);
+  });
+
+  it('does not remove a lock that another process took after this one lost its own', async () => {
+    const { withLock } = (await import(/* @vite-ignore */ HELPER)) as { withLock: (lock: string, fn: () => Promise<void>) => Promise<unknown> };
+    const lock = path.join(tmp(), 'c.pem.lock');
+    await withLock(lock, async () => {
+      // this holder was taken over: someone else's lock is in its place when it finishes
+      fs.writeFileSync(lock, 'another-owner');
+    });
+    expect(fs.readFileSync(lock, 'utf8')).toBe('another-owner');
+  });
 });
 
 describe('helper.mjs: rewriteConfig', () => {
