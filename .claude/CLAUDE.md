@@ -24,7 +24,7 @@ The operator uses shorthand in place of typing a full request out. Case-insensit
 |---|---|
 | `plmk` | "Please let me know if you have any questions or if I can provide any further context and/or information." |
 | `wni` | "What is the next GitHub issue to resolve?" |
-| `pmm` | "PR has been merged to main." |
+| `prm` | "Project has been merged to its parent branch." |
 | `cii` | "Please review outstanding docs/ISSUES.md and create GitHub issues for anything not yet tracked. Let me know when done." |
 | `pnb` | "Please process the next batch of queued items." |
 
@@ -67,7 +67,7 @@ GitHub's default branch stays `main` on purpose. Do not change it.
 
 **Closing issues (this repo overrides the skills here).** The installed skills say feature PRs use `Refs #N` and the release PR carries `Closes #N`. This repo does the opposite:
 
-- A feature, fix or batch-final PR into `development` carries `Closes #N` for the issues it resolves, and the issue is closed when that PR merges. GitHub only acts on closing keywords for a PR into the default branch, so it will not do this by itself: after confirming the merge, close each issue with `gh issue close <N> --comment "Fixed in #<PR>; ships with the next release."` (the `pmm` step). Say in the issue that the change is on `development` and ships with the next release.
+- A feature, fix or batch-final PR into `development` carries `Closes #N` for the issues it resolves, and the issue is closed when that PR merges. GitHub only acts on closing keywords for a PR into the default branch, so it will not do this by itself: after confirming the merge, close each issue with `gh issue close <N> --comment "Fixed in #<PR>; ships with the next release."` (the `prm` step). Say in the issue that the change is on `development` and ships with the next release.
 - The `development` to `main` release PR closes nothing and carries no `Closes #N`. Its body names the version and quotes the CHANGELOG section.
 - The exception is a hotfix. The hotfix PR into `main` carries `Closes #N`, which GitHub honors because `main` is the default branch. Its backport PR into `development` carries `Refs #N`.
 - A sub-agent's PR into a batch integration branch still claims no `Closes #N`.
