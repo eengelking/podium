@@ -59,8 +59,6 @@ export interface AdminRouterOptions {
     people?: { store: PersonCertStore; issuer: () => PersonIssuer | null };
     /** Rotating and retiring the CA (#588). Null while TLS is off. */
     rotation?: () => CaRotation | null;
-    /** Days a person's certificate can still renew after it ends, for counting who still depends on the old CA. */
-    graceDays?: () => number;
   };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
@@ -826,7 +824,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const v = { ...r.view(), overlapDays: CROSS_DAYS };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
-    const counts = certs?.people?.store.reportersByIssuer(now() - (certs.graceDays?.() ?? certs.settings.getReporter().graceDays) * 86_400_000);
+    const counts = certs?.people?.store.reportersByIssuer(now() - certs.settings.getReporter().graceDays * 86_400_000);
     return { ...v, rotation: { ...v.rotation, reporters: { onOldCa: counts?.byIssuer[oldFp] ?? 0, total: counts?.total ?? 0 } } };
   };
 
@@ -896,11 +894,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const rot = certs?.rotation?.();
     if (!r || !rot) return tlsOff(res);
     const before = certificatesView(r).rotation;
-    const out = before ? rot.retire() : null;
-    if (!out || !before) return void res.status(409).json({ ok: false, error: 'there is no old CA to retire' });
-    const refused = 'reporters' in before ? before.reporters.onOldCa : 0;
-    audit(req, 'tls_ca_retired', `Retired the old certificate authority; ${refused} reporter${refused === 1 ? '' : 's'} still used it and now need a reissued config`, { reporters_refused: refused, connections_closed: out.closed });
-    res.json({ ok: true, refused, connectionsClosed: out.closed, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+    void rot.retire().then((out) => {
+      if (!out || !before) return void res.status(409).json({ ok: false, error: 'there is no old CA to retire' });
+      const refused = 'reporters' in before ? before.reporters.onOldCa : 0;
+      audit(req, 'tls_ca_retired', `Retired the old certificate authority; ${refused} reporter${refused === 1 ? '' : 's'} still used it and now need a reissued config`, { reporters_refused: refused, connections_closed: out.closed });
+      res.json({ ok: true, refused, connectionsClosed: out.closed, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+    }).catch(() => void res.status(500).json({ ok: false, error: 'could not retire the old certificate authority' }));
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));

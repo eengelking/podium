@@ -519,7 +519,7 @@ describe('a CA rotation seen by a renewing reporter (#588)', () => {
     const { issued } = await s.issueFor('Dana');
     await s.listener.rotation.rotate(false);
     const newCa = s.listener.trust.currentCa();
-    expect(s.listener.rotation.retire()).not.toBeNull();
+    expect(await s.listener.rotation.retire()).not.toBeNull();
     s.trustOnlyClients([newCa]);
     const res = await s.post(issued, sign(newKey().publicKey));
     expect(res.status).toBe(401);

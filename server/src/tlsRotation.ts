@@ -160,7 +160,7 @@ export async function rotateCa(o: RotateOptions): Promise<RotatedCa> {
   const now = (o.now ?? Date.now)();
   const { dir } = o;
   const state = checkExisting(dir);
-  if (!state.ca || !state.serving) throw new TlsError(`${dir} has no CA to rotate`);
+  if (!state.ca || !state.serving) throw new TlsError('there is no CA to rotate');
   loadExisting(dir, state);
   const oldCa = fs.readFileSync(file(dir, 'ca.crt'), 'utf8');
   if (!o.endOverlap) {

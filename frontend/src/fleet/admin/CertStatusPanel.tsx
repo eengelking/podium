@@ -26,7 +26,7 @@ function bandOf(v: CertsView, now: number): Band | null {
   const caFirst = ca < sv;
   const cert = caFirst && v.ca ? v.ca : v.serving;
   const stage = stageOf(cert.notAfter, now);
-  if (v.rotation && stage !== "expired") {
+  if (v.rotation && stage === "ok") {
     const { onOldCa } = v.rotation.reporters;
     return { role: "status", cls: "deleg", icon: <IconClock />, title: "Certificate authority rotation is in progress.", detail: `${plural(onOldCa, "reporter")} still ${onOldCa === 1 ? "uses" : "use"} the old CA. Podium accepts it until you retire it, and presents a chain the old CA verifies until ${dateOf(v.rotation.cross.notAfter)}. Retire it when none are left.` };
   }

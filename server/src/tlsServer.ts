@@ -32,8 +32,8 @@ export interface StartTlsOptions {
 export interface CaRotation {
   /** A planned rotation keeps the old CA trusted for an overlap; `endOverlap` is the hard cutover. Closes the connections that held a client certificate when the overlap ends at once. */
   rotate(endOverlap: boolean): Promise<{ ca: CertInfo; serving: CertInfo; overlap: boolean; closed: number }>;
-  /** Ends an overlap: the old CA is no longer trusted and connections that came in on its certificates are closed. Returns how many. */
-  retire(): { closed: number } | null;
+  /** Ends an overlap: the old CA is no longer trusted and connections that came in on its certificates are closed. Returns how many, or null when there is no overlap. */
+  retire(): Promise<{ closed: number } | null>;
 }
 
 export interface TlsListener {
@@ -123,16 +123,18 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
         o.logger.info('tls.ca_rotated', `podium: rotated the CA${endOverlap ? ' and ended the overlap; every reporter needs a reissued config' : '; the old CA stays trusted until it is retired'}`, { overlap: out.overlap, connections_closed: closed, ca_fingerprint_sha256: out.ca.fingerprintSha256, ca_not_after: out.ca.notAfter });
         return { ca: out.ca, serving: out.serving, overlap: out.overlap, closed };
       }),
-    retire: () => {
-      const previous = trust.previousCa();
-      if (!previous) return null;
-      retireCa(dir);
-      trust.reload();
-      renewer.reapply();
-      const closed = closeClientConnections(previous);
-      o.logger.info('tls.ca_retired', 'podium: retired the old CA', { connections_closed: closed });
-      return { closed };
-    },
+    // Behind the same queue as a rotation or a serving renewal, which replace the same files.
+    retire: () =>
+      renewer.exclusive(async () => {
+        const previous = trust.previousCa();
+        if (!previous) return null;
+        retireCa(dir);
+        trust.reload();
+        renewer.reapply();
+        const closed = closeClientConnections(previous);
+        o.logger.info('tls.ca_retired', 'podium: retired the old CA', { connections_closed: closed });
+        return { closed };
+      }),
   };
   try {
     await new Promise<void>((resolve, reject) => {

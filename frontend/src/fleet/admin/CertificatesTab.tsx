@@ -124,7 +124,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
               <IconWarn className="wicon" />
               <h3>Rotate the certificate authority?</h3>
               <p>
-                Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working for {view.overlapDays ?? 120} days. Each reporter picks up the new CA when it renews. A reporter that has not renewed by then needs its reporter config reissued from Admin &gt; People.
+                Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working {view.overlapDays ? `for ${view.overlapDays} days` : "through the overlap"}. Each reporter picks up the new CA when it renews. A reporter that has not renewed by then needs its reporter config reissued from Admin &gt; People.
                 {view.rotation && " A rotation is already in progress: retire the old CA first, or end the overlap now."}
               </p>
               <p className="formacts">

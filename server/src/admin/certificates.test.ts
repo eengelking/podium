@@ -223,13 +223,13 @@ describe('rotating and retiring the CA (#588)', () => {
         renewer.adopt(out);
         return { ca: out.ca, serving: out.serving, overlap: out.overlap, closed: 0 };
       }),
-      retire: () => {
+      retire: () => renewer.exclusive(async () => {
         if (!trust.previousCa()) return null;
         retireCa(dir);
         trust.reload();
         renewer.reapply();
         return { closed: 2 };
-      },
+      }),
     };
     const app = express();
     app.use('/api/admin', createAdminRouter({ secret: SECRET, people, log: () => {}, certificates: { settings, renewer: () => (tlsOn ? renewer : null), rotation: () => (tlsOn ? rotation : null), people: { store, issuer: () => null } } }));

@@ -476,6 +476,13 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(within(row).getByRole("button", { name: "Retire old CA…" })).toBeInTheDocument();
   });
 
+  it("still warns that the serving certificate is about to expire while a rotation is open", async () => {
+    await open({ ...rotating(), serving: fakeCert(8) });
+    await screen.findByRole("table", { name: "Certificate status" });
+    expect(band()).toHaveTextContent("The serving certificate expires in 8 days.");
+    expect(band()).not.toHaveTextContent("rotation is in progress");
+  });
+
   it("has no previous CA row and no rotation band when nothing is rotating", async () => {
     await open();
     await screen.findByRole("table", { name: "Certificate status" });

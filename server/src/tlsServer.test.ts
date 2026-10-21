@@ -189,14 +189,14 @@ describe('rotating the CA on a running listener (#588)', () => {
     expect(sockets).toHaveLength(1);
     const closed = new Promise<void>((r) => sockets[0]!.once('close', () => r()));
 
-    const out = l.rotation.retire();
+    const out = await l.rotation.retire();
     expect(out).toEqual({ closed: 1 });
     await closed;
     // The new CA's client is untouched and the old CA's certificate is no longer authorized.
     expect(await authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).toEqual({ authorized: false });
     expect(await authed(port, l.trust.currentCa(), freshAgent, fresh)).toEqual({ authorized: true });
     expect(l.trust.trustedIssuers()).toHaveLength(1);
-    expect(l.rotation.retire()).toBeNull();
+    expect(await l.rotation.retire()).toBeNull();
     expect(s.lines.find((x) => x.event === 'tls.ca_rotated')).toMatchObject({ overlap: true, connections_closed: 0 });
     expect(s.lines.find((x) => x.event === 'tls.ca_retired')).toMatchObject({ connections_closed: 1 });
   });
