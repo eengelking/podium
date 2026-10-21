@@ -403,7 +403,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
               {pos}
             </span>
           </div>
-          <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recorded activity, oldest first" tabIndex={0}>
+          <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recorded activity, oldest first" tabIndex={0} /* NOSONAR S6845: a focusable scroll region, by design */>
             {items.length === 0 && <li className="empty">No rows for this loop.</li>}
             {items.map((it, i) => (
               <Row key={it.key} item={it} i={i} startedAt={startedAt} who={names.get(it.row.loop) ?? it.row.loop} cur={i === cur} me={respond?.me?.signedIn ? respond.me.name : null} />
