@@ -351,6 +351,10 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched.
 - `report.ts` sends `session.activityFeed` always, and a loop's `activity` only when the option is on and the
   ring is not empty, within a 60,000-character budget per report.
+- Since #431 an entry may also carry a Bash call's `id`, whole `command` and, with the `activityOutput` option and the
+  reply's `watchOutput` listing the loop, its `output` and exit status. They have a separate 200,000-character budget
+  per report, enforced by `withinActivityBudget` in `protocol.ts`, which also drops output the session's option does
+  not allow. DECISIONS 41 has the reasoning. The server and mod behavior arrive in later commits of the same issue.
 
 **UI**
 

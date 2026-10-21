@@ -172,7 +172,7 @@ view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
 it as an estimate. Never present it as an invoice.
 
 **Conversation content.** No reading of conversation transcripts. Podium sends short excerpts only
-([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are four opt-in exceptions:
+([section 6.4](#64-failure-and-excerpt-rules)), never whole messages or files. There are five opt-in exceptions:
 
 - With the `fullPrompts` option on, an agent's own task prompt and final answer go out whole (up to 20,000
   characters each, [6.4](#64-failure-and-excerpt-rules)), never the conversation around them.
@@ -182,6 +182,10 @@ it as an estimate. Never present it as an invoice.
   keep the Activity history (#432, off by default), they go out for every running loop of the session whether
   or not anyone watches, and the server stores them until the Admin's period ends; only the session's owner
   and an Admin can read what is stored ([7.7](#77-hardening)).
+- With the `activityFeed` option on, a Bash call's whole command (up to 20,000 characters, redacted) goes with its
+  entry, and the Activity history stores it like the rest of the entry (#431). A command's output goes out only
+  with the separate `activityOutput` option on, only while a viewer has that loop's feed open, and is never stored
+  ([6.4](#64-failure-and-excerpt-rules)).
 - With orchestrator messaging on (#347), the text of a message one orchestrator sends another goes to the
   server and is kept there for 30 days, with secrets replaced on the sending machine. Only its owner and an
   Admin can read it ([7.7](#orchestrator-messaging-347)).
@@ -520,7 +524,10 @@ All hook inputs are plain frozen data. Do not mutate them.
 4. For every tool: if the result `isError` or is `{ deny }`, record a failure candidate on that loop
    ([6.4](#64-failure-and-excerpt-rules)).
 5. With the `activityFeed` option on and the loop watched ([6.4](#64-failure-and-excerpt-rules)), add one
-   activity entry for the call before it runs: the tool's name and a short summary of its arguments.
+   activity entry for the call before it runs: the tool's name and a short summary of its arguments. For a Bash
+   call the entry also carries the call's `id` and its whole command; once the call returns, and only with the
+   `activityOutput` option on and the loop listed in the reply's `watchOutput`, the same entry gets the output and
+   the exit status (#431).
 6. For every tool, remember the loop's latest call (tool, input, `tool_use_id`), so a permission prompt can be
    paired with it.
 7. For `AskUserQuestion` and `ExitPlanMode` while the mod responds, open an ask and wait for an answer (see
@@ -1182,6 +1189,7 @@ supported.
 | `explainFailures` | boolean | `false` | Phase 5 only. When true, ask a small model to explain a failure (costs tokens). |
 | `fullPrompts` | boolean | `false` | When true, send each agent's whole task prompt and final answer as `promptText` and `answerText` ([6.4](#64-failure-and-excerpt-rules)). Off by default: only the 400-character excerpts are sent. |
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
+| `activityOutput` | boolean | `false` | When true, the mod sends a Bash command's output with its activity entry, only for a loop a viewer has the feed open on (see below). Title "Send a Bash command's output". Needs `activityFeed` on. |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
 | `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. The server takes it in the report (`session.peers`, #412). Read from `register`'s options (#414); the report sends `session.peers` true only with the option on and an interactive session. |
@@ -1207,6 +1215,17 @@ Read the options via the `options` argument of `register`. A config change reloa
   lists every running loop of the session as watched, so these entries are captured and stored on the server
   whether or not anyone watches, until the Admin's period ends. The option description in the mod's
   `plugin.json` says so.
+
+**`activityOutput`** (#431)
+- When true, the mod adds what a Bash call printed (stdout then stderr), and how it exited, to that call's activity
+  entry ([6.4](#64-failure-and-excerpt-rules)), and sends `session.activityOutput`. It needs `activityFeed` on as well.
+- Off by default and separate from `activityFeed`: the whole command rides `activityFeed`, the output needs this
+  too, because output holds more than a command does (file contents, environment dumps, tokens the redactor does not
+  know). Neither implies the other.
+- The mod sends output only for a loop in the reply's `watchOutput` ([6.1](#61-endpoint)), which lists only loops a
+  viewer has the feed open on. A loop that is in `watch` only because the Activity history keeps it is never asked
+  for output.
+- Its description in `plugin.json` says output can hold secrets the redactor does not recognize.
 
 **`fileDiff`** (#319)
 - When true, the mod answers a request in the reply's `diffs` ([6.1](#61-endpoint)) by sending the diff of that
@@ -1296,7 +1315,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   { "ok": true, "serverTime": <epoch ms>, "ackedEvents": <n>, "sessionId": "…", "liveSessions": <n>,
     "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" },
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
-    "watch": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
+    "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
     "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],
     "recording": RecordingGrant }
   ```
@@ -1305,6 +1324,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](#77-har
   |---|---|
   | `serverVersion`, `serverBuild`, `reporterSupport`, `reporterCompat` | Explained in [6.8](#68-version-compatibility). |
   | `watch` | The loops a viewer is watching right now, the orchestrator's main loop as `@orchestrator`, so the mod knows whose activity to send ([6.4](#64-failure-and-excerpt-rules)). While the Admin keeps the Activity history (#432) and the session's reporter has the `activityFeed` option on, it also lists the orchestrator and every running agent, watched or not. Always empty while the Admin has the activity feed turned off. |
+  | `watchOutput` | The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is on (#431). A subset of `watch`: the loops the Activity history lists without a viewer are never here, so the mod captures a Bash call's output only while someone is looking. Empty while the flag is off or nobody watches; an older server sends no field, which the mod reads as empty. |
   | `respond` | Whether the server takes answers for this session now ([7.7](#77-hardening): authentication on, the Admin's `respond` and `activity-feed` flags on, and the session has an owner). The mod announces asks only while it is true. |
   | `diffs` | The file diffs the session's signed-in owner is waiting for now (`{ id, path }`, #319, [6.4](#64-failure-and-excerpt-rules)), at most 4. Always empty while the Admin's `file-diff` flag is off or the session has no owner. |
   | `deliveries` | The messages and commands sent from Podium for this session that the mod has not yet given a result for ([6.2](#62-the-report), [7.1](#71-endpoints)), in the order they were sent, at most 20, and always empty while `respond` is false. An answer to an ask never comes here, only through the held request. |
@@ -1362,6 +1382,7 @@ interface Report {
     attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit; null from a reporter older than 0.7.0 or when the roster could not be read
     fileDiff?: boolean;                 // whether the reporter's fileDiff option is on (5.9); absent from a reporter older than the release that adds it
     activityFeed?: boolean;             // whether the reporter's activityFeed option is on (5.9); absent from a reporter older than 0.13.0
+    activityOutput?: boolean;           // whether the reporter's activityOutput option is on (#431); absent from a reporter older than the release that adds it
     activity?: ActivityEntry[];         // the main loop's activity feed, sent only while the reply's `watch` lists `@orchestrator` (6.4)
     background?: {                      // what an idle session waits on (#119), with waitReason null; absent from a reporter older than 0.11.0 and when there is none
       tasks: { type: 'shell' | 'agent' | 'monitor' | 'workflow' | 'wakeup' | 'other'; description: string; status: string }[];  // at most 20; description ≤ 120 chars, never a whole shell command
@@ -1445,6 +1466,15 @@ interface ActivityEntry {
   at: number;                           // when the reporter saw it
   kind: 'tool' | 'text' | 'reasoning';  // `reasoning` is reserved; the reporter does not send thinking
   text: string;                         // a tool call: the tool's name, a space, a short summary of its arguments; text: what the model wrote in one step. Redacted, ≤ 300 chars
+  // A Bash call's detail (#431). All optional, only on a `tool` entry; an entry from an older mod has none of them and shows as before.
+  id?: string;                          // the tool_use_id, so output that arrives after the entry first went out is matched to it
+  command?: string;                     // the whole command, redacted, line breaks kept, ≤ 20,000 chars then "[cut off at 20,000 characters]". Rides activityFeed; stored in the Activity history
+  commandCut?: boolean;                 // the mod cut the command
+  output?: string;                      // stdout then stderr, redacted and cut like the command. Only with the activityOutput option, only for a loop in the reply's `watchOutput`; never stored. "" is a call that printed nothing; absent while the call runs or when no output was captured
+  outputCut?: boolean;                  // the mod cut the output
+  done?: boolean;                       // the call has finished (sent with `output`)
+  exitCode?: number;                    // the exit status, when the mod can read it
+  failed?: boolean;                     // the call failed (sent with `output`), with or without `exitCode`
 }
 
 // What a session can be answered with from Podium (#206). Which levels allow which: `questions` gives question and
@@ -1599,6 +1629,17 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
 - The visible text of each model request is one entry (whitespace collapsed).
 - Each is redacted by the rule above and cut to 300 characters. A loop keeps its last 20, and one report
   carries at most 60,000 characters of them.
+- A Bash entry also carries its call id and the whole command (#431): redacted by the same rule, line breaks kept,
+  cut to 20,000 characters with a visible `[cut off at 20,000 characters]` marker (`command`, with `commandCut`).
+  Any other tool row whose summary was cut at 300 characters may carry its whole line the same way.
+- With the `activityOutput` option on, the entry gets the call's output, stdout then stderr, redacted and cut the
+  same way (`output`, `outputCut`), with `done` and the exit status (`exitCode`, `failed`) once the call returns.
+  A call still running has none of them. Claude Code swaps a result of about 90 KB or more for a short
+  `<persisted-output>` stub before the mod sees it, so the entry carries that stub.
+- Commands and output count against their own budget, not the 60,000 characters of summaries: one report carries
+  at most 200,000 characters of them over all its loops. It is filled from the orchestrator first, then the agents
+  in order, and from a loop's newest entry back. An entry that does not fit loses its output, then its command, and
+  keeps its summary.
 - Thinking is not sent: `turn.step` streams `thinking` chunks, but they are left alone.
 - The orchestrator, subagents and forks are all treated alike.
 
@@ -1612,6 +1653,10 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   for this: it captures and sends whatever `watch` lists.
 - The mod captures and sends entries only for the loops listed, from the moment it sees them listed, and
   forgets a loop's entries once it is no longer listed.
+- **Output has a stricter rule (#431).** The mod captures a Bash call's output only for a loop in the reply's
+  `watchOutput`, which lists the loops under a live viewer lease and never a loop listed only for the Activity
+  history. A command that finished before the viewer opened the feed has no output to show. When the loop leaves
+  `watchOutput` the mod stops capturing and forgets what it held.
 
 **What the server does**
 - For the live window it keeps the last 20 entries of a watched loop in memory only.
@@ -1619,12 +1664,19 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
 - It never keeps an entry older than the lease in memory, so a viewer who comes back starts empty. Nothing is
   backfilled there.
 - Under a keep policy it also writes every entry a report carries to the Activity history, described next.
-  The live window is unchanged.
+  The live window is unchanged. The history takes the entry's `command` but never its `output`, `exitCode`,
+  `failed` or `done`.
+- It holds a Bash entry's output in memory only, on the lease, with the rest of the live window, and ignores it
+  while the Admin's `activity-output` flag is off or the session's `activityOutput` is not true. Output is never
+  written to `podium.sqlite` or `activity.sqlite`, and never put in the state, the stream or a log.
 
 **Switches**
 - With the option off, the mod captures nothing, ignores `watch`, and sends `activityFeed: false`.
 - The feed needs two switches: this reporter option on the machine, and the server's `activity-feed` feature
   flag (Admin > Settings > Feature flags, [8.1](#81-what-the-ui-must-do)), which is on by default.
+- Output has two more switches (#431): the machine's `activityOutput` option and the Admin's `activity-output`
+  flag (off by default, needs `activity-feed`). With either off, no output is captured or kept, the whole command
+  still rides `activityFeed`, and the row says in words which switch is off.
 - With the flag off the server grants no lease, every reply's `watch` is empty, it drops every lease and entry
   it held at the moment the flag goes off, it keeps nothing a mod sends, and it captures nothing for the
   Activity history. Entries already stored are still purged by the policy. Turning it back on needs nothing
@@ -2261,7 +2313,9 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 
 **`GET /api/fleet/sessions/:id/agents/:agentId/activity?every=`**
 - Body: `{ entries: (ActivityEntry & { seq })[], since, live, enabled, serverTime }`. `@orchestrator` is the main
-  loop. `seq` numbers entries in the order the server took them.
+  loop. `seq` numbers entries in the order the server took them. An entry may carry the Bash fields of
+  [6.2](#62-the-report) (`id`, `command`, `output`, `done`, `exitCode`, `failed` and the cut flags, #431); `output`
+  only while the Admin's `activity-output` flag is on.
 - Each call takes or renews a lease on that loop for `every` seconds (5, 10, 20, 30 or 60; anything else is 5)
   plus 15 seconds. While a lease is live, the reply to each report lists the loop in `watch`.
 - For a session that is not live it answers `live: false`, `since: null` and no entries, and takes no lease.
@@ -2814,7 +2868,7 @@ CREATE TABLE reporters (                                                  -- #14
 );
 CREATE TABLE reporter_sessions (reporter_key TEXT NOT NULL REFERENCES reporters(key) ON DELETE CASCADE, session_id TEXT NOT NULL, PRIMARY KEY (reporter_key, session_id));  -- counts a reporter's sessions and finds the recent ones that still exist
 CREATE TABLE reporter_ignores (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, pattern TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE (kind, pattern));  -- #167, migration 13: a report from a reporter that matches a rule is refused. kind is key, address or version; pattern is text with * for "anything"
-CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off, #206, #319, #347, #353); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);       -- allow_admin_secret_reporting: '1' (default) or '0'; feature.<id>: '0' once the Admin turns a feature flag off and '1' once on, an unset flag taking its default (on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off, #206, #319, #347, #353, #431); wall_notice.<id>: '0' once a notice is off; wall_show_background_sessions: '1' when on (default off); model_prices: JSON of only what the Admin changed from the built-in prices, `{ "<key>": { std?, long? } }` (#117); peer_settings: JSON of the orchestrator messaging limits and retention, `{ roundTrips, perMinute, maxChars, retainDays }` (#347); activity_history: JSON of the Admin's Activity history choice, `{ policy, n, unit, capGb }`, an unset row meaning `default` (#432); recording_settings: JSON of the session recording limits, `{ keepHours, budgetMb, sessionMb }`, an unset row meaning `{ 6, 4096, 512 }` (#353); the recordings themselves are in `activity.sqlite`, not here
 ```
 
 Migration 22 (#484) adds the daily rollups that Admin > Reporting reads ([8.1](#admin-layout-143-mockuppodium-adminhtml)). A rollup row
@@ -3655,6 +3709,13 @@ Other places the warning shows:
   entry's text is clipped to 300 characters and stripped of control characters. Past 60,000 characters of
   activity in one report, the server drops the feed of the loops that do not fit (the orchestrator's first,
   then the agents' in order) rather than the report.
+- An activity entry's `id` is clipped to 200 characters, and its `command` and `output` to 20,100 (the 20,000-character
+  cap plus the cut-off marker), keeping line breaks. `exitCode` is a non-negative integer; `commandCut`, `outputCut`,
+  `done` and `failed` are booleans. A wrong type is rejected with the field's path. The new fields are dropped, not
+  rejected, on an entry that is not a `tool` entry, and `output`, `outputCut`, `done`, `exitCode` and `failed` are
+  dropped unless the session's `activityOutput` is true. Past 200,000 characters of commands and output in one
+  report, the server drops the output of the oldest entries that do not fit, then their command (the orchestrator's
+  loop first, then the agents' in order, each from its newest entry back), and keeps their summaries.
 - Reject, never crash, on junk.
 - Never execute, `eval`, or interpolate reported strings into SQL (parameterized statements only) or into HTML
   (the UI uses React text nodes only).
@@ -4242,6 +4303,14 @@ features that can be switched off appear here."
     someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after
     the panel closes unless the Admin chooses to keep activity in Admin > Server > Data. Off, nothing is captured
     or kept."
+  - **Bash output in the activity feed** (`activity-output`, #431, `mockup/podium-feed-expand-admin.html`): "Lets a
+    person open a Bash row in the Activity feed to see what the command printed and how it exited. Needs the Agent
+    activity feed on, and the reporter's activityOutput option on the machine as well. Output is held in memory while
+    the panel is open and is never stored. Off, no output is captured or sent." It sits under Agent activity feed.
+    With a warning bar (`role="note"`) under it while it is on: "Output holds whatever a command printed: file
+    contents, environment dumps and tokens the redactor does not know. Podium hides the secrets it recognizes, but it
+    cannot promise to catch all of them. Anyone who can open the Activity panel of a session can read its output
+    while the panel is open." Off by default.
   - **Respond from Podium** (`respond`, #206, [7.7](#77-hardening)).
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
     the console. The diff is source code, read from the machine only when asked and never stored. Needs the
@@ -4261,7 +4330,7 @@ features that can be switched off appear here."
   - **Release check** (`update-check`, #499, [6.8](#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
     `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
     bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
-- Flags default to on, except `respond`, `file-diff`, `peer-messaging` and `session-recording`, which are off by default.
+- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `session-recording` and `activity-output`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
@@ -5163,6 +5232,11 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
   - The panel learns it from `StateBody.features` and from the route's `enabled: false`. While the panel is
     open it keeps asking the route on its interval (no lease is taken while the flag is off), so the feed
     starts again by itself, empty, when the flag is turned back on.
+- *Output off (#431).* A Bash row's output block says in words why there is none: "Output is turned off by the Admin."
+  (the `activity-output` flag, with "Someone with Admin access can turn it on in Admin > Settings > Feature
+  flags."), or "Output is turned off for this machine." (naming the `activityOutput` option, "Send a Bash command's
+  output"). An older reporter says it sends no output. The whole command still shows. The Expand and Respond
+  modals and the replay follow the same words.
 - A settings-hooks session has no mod and shows no Activity section.
 
 **Tools used**

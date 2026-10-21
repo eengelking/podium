@@ -1217,14 +1217,31 @@ recording already holds (#353); it adds no second copy.
 - **Output is never stored.** It is not in `podium.sqlite`, `activity.sqlite`, the state, the stream or the logs. The server
   holds it in memory only, on the feed's lease. A test checks that a secret in output is found in none of them.
 - **Output is captured only while a viewer has the feed open.** A keep policy under #432 lists a loop as watched with no
-  viewer; that listing never asks the mod for output; only a live viewer lease does (how the mod is told is decided in the protocol stage).
+  viewer; that listing never asks the mod for output; only a live viewer lease does. The reply carries a second list,
+  `watchOutput`, a subset of `watch` made only of loops under a live lease while the `activity-output` flag is on. The
+  mod captures output for a loop only when it is in `watchOutput` and its `activityOutput` option is on. Extending
+  `watch` was rejected: it mixes lease loops with history loops, so the mod could not tell a viewer from a keep
+  policy. A reply field is the smallest change: an older server sends none, which the mod reads as "no output".
+- **The entry fields.** `id` (the tool call's id, so output that arrives after the entry first went out is matched to
+  its entry, and the console can key an open row), `command`, `commandCut`, `output`, `outputCut`, `done`, `exitCode`
+  and `failed`, all optional. Stdout and stderr go in one `output` (stdout first). Claude Code's Bash result type has
+  `stdout`, `stderr` and `interrupted` but no exit code; the mod reads `isError`, and an `exitCode` only if the result
+  text gives one, so `failed` may be true with no `exitCode`. The Admin flag is `activity-output`, "Bash output in the
+  activity feed"; the reporter option is `activityOutput`, "Send a Bash command's output" (mockup
+  `mockup/podium-feed-expand-admin.html`, approved).
 - **The command is kept.** The Activity history (#432) stores the whole command, redacted and cut at 20,000 characters with
   a visible `[cut off at 20000 characters]` marker.
 - **Limits.** Command 20,000 characters and output 20,000 characters per entry, each with the marker, the same size as the
   full prompt cap (`fullText`). The report-wide 60,000-character cap (`activityChars`) stays as it is for the 300-character
   summaries; commands and output count against a separate per-loop budget, because 20 entries of 40,000 characters each
-  would be 800,000 characters and the old cap would drop nearly all of them. The budget number is chosen in the protocol
-  stage and recorded here when it is.
+  would be 800,000 characters and the old cap would drop nearly all of them. The budget is 200,000 characters of commands
+  and output per report (`LIMITS.activityDetailChars`), shared over the orchestrator and the agents, the orchestrator
+  first, each from its newest entry back. An entry that does not fit loses its output, then its command, and keeps its
+  summary. Why 200,000: it holds ten whole entries (a 20,000-character command and output), enough for a window of
+  recent work, and with the 60,000 of summaries and the 120,000 of full text it stays near 380,000 characters, under
+  the 512 KB body limit (`BODY_LIMIT`) for ordinary text. JSON escaping and non-ASCII text can push it past that, so
+  the mod must also check the serialized size of a report, as the recording does at 480,000 bytes, and drop output
+  first when over.
 - **Claude Code's own cut.** A Bash result of about 90 KB or more arrives as a short `<persisted-output>` stub. The row
   shows what the mod received, so for that case it shows the stub.
 - **Redaction.** `redactBounded` in `mod/podium-reporter/hooks/recording.ts`, as the recording uses. No third approach.
