@@ -126,6 +126,18 @@ function pathLenZero(pem: string, bin: string): boolean {
   }
 }
 
+/** True unless the CA in `dir` has `pathlen:0`, which cannot sit above a cross certificate, so a planned rotation would be refused. True when there is no CA to read. */
+export function caCanOverlap(dir: string, openssl = 'openssl'): boolean {
+  const crt = file(dir, 'ca.crt');
+  if (!fs.existsSync(crt)) return true;
+  try {
+    return !pathLenZero(fs.readFileSync(crt, 'utf8'), openssl);
+  } catch {
+    // A page that only reports this must not fail because openssl is missing or the CA is unreadable; rotateCa still refuses with its own message.
+    return true;
+  }
+}
+
 export interface RotateOptions {
   dir: string;
   names: ServerNames;

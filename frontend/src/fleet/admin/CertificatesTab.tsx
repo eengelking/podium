@@ -95,6 +95,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
   }
   const t = now();
   const servingExpired = stageOf(view.serving.notAfter, t) === "expired";
+  const noOverlap = view.canOverlap === false;
   const caExpired = !!view.ca && stageOf(view.ca.notAfter, t) === "expired";
   return (
     <>
@@ -116,6 +117,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
             <div className="setname">
               <b>Rotate the certificate authority</b>
               <p className="hint ink2">Creates a new CA. Reporters keep working through an overlap while they pick up the new CA when they renew. You retire the old CA when none are left.</p>
+              {noOverlap && <p className="hint ink2">This CA was made before rotation with an overlap was possible, so only a rotation that ends the overlap now is open to it.</p>}
             </div>
             <button type="button" className={caExpired ? "btn pri" : "btn dng"} disabled={busy} aria-expanded={asking} onClick={() => setAsking(true)}>
               Rotate CA…
@@ -125,12 +127,18 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
             <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && setAsking(false)}>
               <IconWarn className="wicon" />
               <h3>Rotate the certificate authority?</h3>
+              {noOverlap ? (
+                <p id="c-nolap">
+                  This CA was made before rotation with an overlap was possible, so it cannot be rotated with an overlap. Rotate CA and end the overlap now replaces it at once. Every reporter then needs a new reporter config from Admin &gt; People, and open connections are closed. The new CA can take a planned rotation next time.
+                </p>
+              ) : (
               <p>
                 Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working {view.overlapDays ? `for ${view.overlapDays} days, until ${dateOf(new Date(t + view.overlapDays * 86_400_000).toISOString())}` : "through the overlap"}. Each reporter picks up the new CA when it renews. A reporter that does not connect before then, and before its own {view.reporter.graceDays}-day grace ends (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin &gt; People.
                 {view.rotation && " A rotation is already in progress: retire the old CA first, or end the overlap now."}
               </p>
+              )}
               <p className="formacts">
-                <button type="button" className="btn dng" disabled={!!view.rotation} onClick={() => void rotate(false)}>
+                <button type="button" className="btn dng" disabled={!!view.rotation || noOverlap} aria-describedby={noOverlap ? "c-nolap" : undefined} onClick={() => void rotate(false)}>
                   Rotate CA
                 </button>
                 <button type="button" className="btn dng" onClick={() => void rotate(true)}>

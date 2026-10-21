@@ -7,7 +7,7 @@ import type { TLSSocket } from 'node:tls';
 import type { Logger } from './logging/logger.js';
 import { ensureTls, serverNames, type CertInfo, type TlsMaterial } from './tlsCa.js';
 import { ServingRenewer, SERVING_DEFAULTS, type ServingSettings } from './tlsRenew.js';
-import { retireCa, rotateCa, TrustStore } from './tlsRotation.js';
+import { caCanOverlap, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { tlsDir } from './tlsStorage.js';
 
 export const DEFAULT_TLS_PORT = 4318;
@@ -30,6 +30,8 @@ export interface StartTlsOptions {
 
 /** Rotating and retiring the CA of a running listener (#588). */
 export interface CaRotation {
+  /** False for a CA made with `pathlen:0` (before #588), which a planned rotation refuses; only the hard cutover works for it (#638). */
+  canOverlap(): boolean;
   /** A planned rotation keeps the old CA trusted for an overlap; `endOverlap` is the hard cutover. Closes the connections that held a client certificate when the overlap ends at once. */
   rotate(endOverlap: boolean): Promise<{ ca: CertInfo; serving: CertInfo; overlap: boolean; closed: number }>;
   /** Ends an overlap: the old CA is no longer trusted and connections that came in on its certificates are closed. Returns how many, or null when there is no overlap. */
@@ -113,6 +115,7 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
     return n;
   };
   const rotation: CaRotation = {
+    canOverlap: () => caCanOverlap(dir, o.openssl),
     rotate: (endOverlap) =>
       renewer.exclusive(async () => {
         const out = await rotateCa({ dir, names, servingDays: settings().lifetimeDays, endOverlap, openssl: o.openssl, now: o.now });

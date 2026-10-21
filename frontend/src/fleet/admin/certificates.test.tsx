@@ -560,6 +560,21 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(srv.certBodies).toEqual([]);
   });
 
+  it("says why a planned rotation is off for a CA made before T10, and leaves the hard cutover (#638)", async () => {
+    const srv = await open(fakeCerts({ overlapDays: 120, canOverlap: false }));
+    expect(await screen.findByText(/This CA was made before rotation with an overlap was possible/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    const ask = await screen.findByRole("alert");
+    expect(ask).toHaveTextContent("cannot be rotated with an overlap");
+    expect(ask).toHaveTextContent("Every reporter then needs a new reporter config from Admin > People, and open connections are closed.");
+    expect(ask).not.toHaveTextContent("keep working for 120 days");
+    const planned = within(ask).getByRole("button", { name: "Rotate CA" });
+    expect(planned).toBeDisabled();
+    expect(planned).toHaveAccessibleDescription(/cannot be rotated with an overlap/);
+    expect(within(ask).getByRole("button", { name: "Rotate CA and end the overlap now" })).toBeEnabled();
+    expect(srv.certBodies).toEqual([]);
+  });
+
   it("rotates with an overlap, and the page then shows it in progress", async () => {
     const srv = await open(fakeCerts({ overlapDays: 120 }));
     fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));

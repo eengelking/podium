@@ -2885,7 +2885,10 @@ the old one (`CA:TRUE`, `keyCertSign`, SKID and AKID, no `pathlen:0`, a lifetime
 reporter's 90 days and its 30-day grace), and presents `[new leaf, cross certificate]` in that order, leaving the
 cross certificate out once it has expired. A CA is made with `pathlen:1`, because OpenSSL refuses the chain `[leaf, cross]`
 under a root with `pathlen:0`; a CA made before that (`pathlen:0`) cannot take a planned rotation and is refused with
-a message that points to **Rotate CA and end the overlap now**. A new CA's subject is `CN=Podium CA <date>`, so two
+a message that points to **Rotate CA and end the overlap now**. `GET /api/admin/certificates` says so in `canOverlap`
+(false for such a CA), and the page then shows why before the Admin presses anything: the confirmation explains that the
+CA cannot be rotated with an overlap, **Rotate CA** is disabled with that reason as its description, and only **Rotate CA
+and end the overlap now** is open. The cutover makes a `pathlen:1` CA, so the next rotation can be planned (#638). A new CA's subject is `CN=Podium CA <date>`, so two
 CAs in one overlap can be told apart. Only one overlap is open at a time. The old CA's key is not kept: the planned
 rotation replaces `ca.key` and nothing is signed with the old key afterwards. The listener, the serving renewer, the
 check on each request and the CA(s) in a new config all read one list of trusted CAs, so they cannot disagree. It trusts both CAs for client certificates, and the new CA
