@@ -6,7 +6,8 @@ Podium shows every Claude Code session on your machine in one browser tab. It wa
 session, stops an agent or changes anything, unless you turn on [answering from Podium](#answering-a-session-from-podium).
 
 Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERVER.md) for the server's settings,
-[MESSAGING.md](MESSAGING.md) for setting up orchestrator messaging and [GOTCHAS.md](GOTCHAS.md) for sharp edges.
+[MESSAGING.md](MESSAGING.md) for setting up orchestrator messaging, [REPLAY.md](REPLAY.md) for recording a session and
+replaying it, and [GOTCHAS.md](GOTCHAS.md) for sharp edges.
 
 ## Contents
 
@@ -27,6 +28,7 @@ Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERV
 - [One session](#one-session)
 - [Activity](#activity)
 - [Answering a session from Podium](#answering-a-session-from-podium)
+- [Session recording](#session-recording)
 - [My reporters](#my-reporters)
 - [Traffic](#traffic)
 - [History](#history)
@@ -634,6 +636,39 @@ An answer counts once the session confirms it, usually within 2 seconds. Until t
 - A tool request answered in the terminal still looks open in Podium until the command finishes, since Claude Code says
   nothing sooner.
 
+### Session recording
+
+Podium can record one session whole and let you replay it, to see what happened and why. It is off by default and needs
+three yes answers: the Admin's **Session recording** switch, your choice of the session, and the `sessionRecording`
+option on the machine the session runs on. [REPLAY.md](REPLAY.md) explains all of it.
+
+To record and replay:
+
+1. Open the orchestrator's page. If the Admin has turned the feature on and you own the session (or are an Admin), the
+   last cell of the facts panel reads **Record**.
+2. Press it, tick the orchestrator and the agents you want, and press **Start recording**. If the machine's owner has not
+   allowed recording, the dialog says so and nothing is recorded.
+3. A red band on the card and a layer on the page say that it is being recorded, by whom, and when it is deleted. They
+   have no X and cannot be hidden, for anyone, while the session is recorded. The owner's terminal says it too.
+4. **Stop recording** ends it and keeps what was recorded. **Open replay** plays it back, oldest first: filter by agent,
+   drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Each of
+   these asks first.
+5. A session that has ended is reached from History, whose row says "recording kept until <time>", or from Admin >
+   Settings > Recordings.
+
+What to know:
+
+- Only the session's owner and an Admin can stop, delete or replay it. Everyone sees that it is recorded and never what
+  is in it.
+- It keeps whole prompts, file contents, command output and tool results. Anything that looks like a secret is replaced
+  with `[redacted]` on the machine, but that is not a guarantee, so do not record a session you would not want an Admin
+  to read.
+- It is kept for 6 hours unless the Admin sets longer (7 days at most), and it stops by itself at 512 MB for one session
+  or when all recordings reach 4 GB.
+- The model's thinking text is not available. The replay marks where it thought and says the text is not there.
+- An answer or approval sent from Podium shows in the replay as a row with who sent it. A question you answered in the
+  terminal, or a permission prompt you answered there, leaves no row of its own; the tool's result still shows what ran.
+
 ### My reporters
 
 **My reporters** (`#/me/reporters`) lists the machines that report your sessions to this server, and is where you
@@ -962,6 +997,22 @@ These settings apply to every browser and stay after a restart.
   **Orchestrator messaging** section here, a Messaging section on each reporter, [My reporters](#my-reporters) and
   [Traffic](#traffic).
 
+- **Session recording** (`session-recording`) is off by default. It lets the owner of a session, or an Admin, record the
+  session whole and replay it (see [Session recording](#session-recording)). It needs authentication on, and the switch is
+  unavailable without a token. Turned on, it adds a **Session recording** section and a **Recordings** table here. Turned
+  off, every recording stops and what is stored stays until it expires.
+
+**Session recording**, shown while that flag is on, sets how long recordings are kept and how big they may get. The
+**Recordings** table below it lists every recording with its owner, who started it, state, size and when it goes, with
+**Stop**, **Open replay** and **Delete**. Stop and Delete ask first. [REPLAY.md](REPLAY.md#limits) has the ranges and what
+happens at each limit.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Keep a recording for | 6 hours | Counted per part from when it was recorded, at most 7 days. A shorter time removes recordings already older |
+| Disk budget | 4 GB | All recordings together. Reaching it stops every recording |
+| Limit for one session | 512 MB | A recording stops when its session reaches it |
+
 **Orchestrator messaging**, shown while that flag is on, sets the limits on every link. An owner can make them stricter
 on their own links in My reporters, never looser. [MESSAGING.md](MESSAGING.md#limits) says what happens at each one.
 
@@ -1044,7 +1095,8 @@ guarantee, so deleting has to be quick and complete (below).
 
 ### Stored activity
 
-The Activity history Podium holds, by session. At the top are the totals (entries, size on disk and sessions). Filter
+The Activity history Podium holds, by session. Set **Source** to Recordings to list session recordings instead
+([Session recording](#session-recording)). At the top are the totals (entries, size on disk and sessions). Filter
 by session, loop, project, owner, age, or a range of dates (**Entries from** and **to**), tick sessions and delete:
 
 - **Delete N…** removes the ticked sessions' history.
@@ -1317,6 +1369,7 @@ secret is replaced with `[redacted]` before it is sent. Podium never reads trans
 | What an agent is doing (recent tool calls and the text it writes, each cut to 300 characters) | Only if you turn on the mod's `activityFeed` option (off by default), and even then only while someone has that agent's panel open in the console, unless the server's Admin chooses to keep activity history, which stores it for every running agent until the Admin's period ends |
 | The diff of one changed file | Only if you turn on the mod's `fileDiff` option (off by default) and the Admin turns on the File diff switch, and only when the session's owner opens that file in the console. It is source code with anything that looks like a secret replaced by `[redacted]` on your machine (best effort, not a guarantee; files such as `.env` and keys are never sent), shown to that one person and not kept by the server |
 | What a session waits on you for (a question with its options, a plan, or a tool's arguments) | Only if you set the mod's `respond` option (`off` by default) and the server takes answers. Only the session's owner and an Admin can see it, and the server keeps it in memory only |
+| Everything a session does, whole: prompts, tool inputs and results | Only if you turn on the mod's `sessionRecording` option (off by default), the Admin turns on Session recording, and the session's owner or an Admin chooses to record it. Secrets are replaced on your machine (best effort). Kept 6 hours by default, readable only by the owner and an Admin, and marked as recorded for everyone while it runs. See [REPLAY.md](REPLAY.md) |
 | Your name and your machine | Only once you set the mod's `userName` option (empty by default) |
 | The model's thinking | Never |
 

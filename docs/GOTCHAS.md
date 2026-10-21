@@ -18,6 +18,7 @@ This is the short, practical list. The full list of known limitations is under "
 - [Running the server](#running-the-server)
 - [What the dashboard shows](#what-the-dashboard-shows)
 - [Orchestrator messaging](#orchestrator-messaging)
+- [Session recording](#session-recording)
 - [Developing](#developing)
 
 ## Connecting the mod
@@ -517,6 +518,43 @@ waiting on its person, not idle, so the message waits with it (SPEC 7.7, "Delive
 reporters to show and cannot take part.
 
 **Do:** Sign in with your own name and token, the ones your reporters use.
+
+## Session recording
+
+The feature is in [REPLAY.md](REPLAY.md).
+
+### Record says "This session's reporter does not allow recording"
+
+**You see:** you chose a session and pressed Start recording, and the dialog or the layer says the reporter does not
+allow recording. Nothing is recorded.
+
+**Why:** the third yes answer is the reporter's `sessionRecording` option on the machine the session runs on, and it is
+off by default. The browser cannot turn it on, on purpose.
+
+**Do:** on that machine, run `/plugin configure podium-reporter@eengelking-marketplace` and turn on **Allow session
+recording**, then start the recording again. Capture begins at the next reply, so allow a few seconds.
+
+### A permission prompt or question I answered in the terminal is not in the replay
+
+**You see:** the replay shows the tool call and its result, but no "Allowed a tool once" or "Answered a question" row.
+
+**Why:** the replay marks only answers and approvals sent from Podium. The mod cannot see a permission prompt that was
+answered in the terminal, and a question's result arrives as an object it cannot read as text.
+
+**Do:** read the tool's result: it shows what ran and whether it was refused. A decision row means someone answered from
+Podium.
+
+### After `/clear` the recording is on a different session
+
+**You see:** after `/clear` the old session's recording reads stopped, with no one named, and the new session shows it
+recording.
+
+**Why:** `/clear` gives the session a new id. The server carries a running recording over to the new session, with the same
+starter and start time, and stops the old one. The owner's consent is not carried: the new session's own report must state
+that `sessionRecording` is on.
+
+**Do:** replay the first part from the old session's page and the rest from the new one. If the new session says the
+reporter does not allow recording, turn the option on for that machine.
 
 ## Developing
 
