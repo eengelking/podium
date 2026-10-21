@@ -146,8 +146,6 @@ function writeAtomic(file, text) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const TAKEOVER_STALE_MS = 10_000;
-
 /** True when `file` exists and was last written more than `ms` ago. */
 function olderThan(file, ms) {
   try {
@@ -157,57 +155,75 @@ function olderThan(file, ms) {
   }
 }
 
-/**
- * Removes a stale lock so that only one waiter does it and none removes a lock another waiter just made. Two waiters that both
- * read the lock as stale cannot both remove it, because removing takes a second lock, `<lock>.takeover`, made with O_EXCL, and the
- * lock is read again after winning it: by then a waiter that was slower may find a fresh lock, and leaves it alone.
- */
-function takeOverStale(lockFile, staleMs) {
-  const takeover = `${lockFile}.takeover`;
-  let fd;
+/** The generations of a lock, `<lock>.<n>`, lowest first: `[{ gen, file }]`. */
+function generations(lockFile) {
+  const dir = path.dirname(lockFile);
+  const prefix = `${path.basename(lockFile)}.`;
+  let names = [];
   try {
-    fd = fs.openSync(takeover, 'wx', 0o600);
-  } catch (err) {
-    // Another waiter is at it. Its own lock is short-lived; one left by a process that died is cleared after a few seconds.
-    if (err.code === 'EEXIST' && olderThan(takeover, TAKEOVER_STALE_MS)) fs.rmSync(takeover, { force: true });
-    return;
+    names = fs.readdirSync(dir);
+  } catch {
+    // no folder, no lock
   }
-  try {
-    if (olderThan(lockFile, staleMs)) fs.rmSync(lockFile, { force: true });
-  } finally {
-    fs.closeSync(fd);
-    fs.rmSync(takeover, { force: true });
-  }
+  return names
+    .filter((n) => n.startsWith(prefix) && /^\d+$/.test(n.slice(prefix.length)))
+    .map((n) => ({ gen: Number(n.slice(prefix.length)), file: path.join(dir, n) }))
+    .sort((x, y) => x.gen - y.gen);
 }
 
 /**
- * Runs `fn` while holding `<file>.lock`, a file made with O_EXCL that names its owner. A lock older than a minute belongs to a
- * process that died and is taken over (see takeOverStale). The lock is removed at the end only if it still names this owner, so
- * a holder that was taken over (it ran for over a minute) does not remove its successor's lock. Returns null when the lock could
- * not be had in `waitMs`. While `fn` runs the lock's time is refreshed every third of `staleMs`, so a live holder is never taken over
- * however long it takes.
+ * Runs `fn` while holding the lock `<lockFile>`, which is a numbered file, `<lockFile>.<n>`, made with O_EXCL and naming its
+ * owner. The lock is held by the highest number and is free when there is none or the highest is older than `staleMs` (its owner
+ * died, or it let go: letting go ages the file instead of removing it). To take it, a waiter creates the next number. Of several
+ * waiters that want the same number exactly one creates it and the rest see it exist, so taking a stale lock needs no removal that
+ * two waiters could race on, and a waiter never removes a lock another has just made. A number is never used twice, so a waiter
+ * working from an old reading cannot be handed a number that has since been held and released. Numbers below the one taken are
+ * leftovers and are removed. While `fn` runs the file's time is refreshed every third of `staleMs`, so a live holder is not taken
+ * over however long it takes. Returns null when the lock could not be had in `waitMs`.
  */
 export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LOCK_STALE_MS) {
   const until = Date.now() + waitMs;
   const owner = `${process.pid}:${randomBytes(8).toString('hex')}`;
+  let mine = null;
   for (;;) {
+    const all = generations(lockFile);
+    const top = all.at(-1);
+    if (!top || olderThan(top.file, staleMs)) {
+      const file = `${lockFile}.${(top?.gen ?? 0) + 1}`;
+      try {
+        const fd = fs.openSync(file, 'wx', 0o600);
+        fs.writeSync(fd, owner);
+        fs.closeSync(fd);
+        mine = file;
+        break;
+      } catch (err) {
+        if (err.code !== 'EEXIST') throw err;
+        continue; // another waiter took this number: look again
+      }
+    }
+    if (Date.now() > until) return null;
+    await sleep(50 + Math.random() * 50);
+  }
+  for (const g of generations(lockFile)) {
+    if (g.file === mine || g.gen > Number(mine.slice(mine.lastIndexOf('.') + 1))) continue;
     try {
-      const fd = fs.openSync(lockFile, 'wx', 0o600);
-      fs.writeSync(fd, owner);
-      fs.closeSync(fd);
-      break;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-      if (olderThan(lockFile, staleMs)) takeOverStale(lockFile, staleMs);
-      if (Date.now() > until) return null;
-      await sleep(50 + Math.random() * 50);
+      fs.rmSync(g.file, { force: true });
+    } catch {
+      // a leftover we cannot remove is stale; the next taker tries again
     }
   }
+  const ours = () => {
+    try {
+      return fs.readFileSync(mine, 'utf8') === owner;
+    } catch {
+      return false;
+    }
+  };
   const beat = setInterval(() => {
     try {
-      if (fs.readFileSync(lockFile, 'utf8') === owner) fs.utimesSync(lockFile, new Date(), new Date());
+      if (ours()) fs.utimesSync(mine, new Date(), new Date());
     } catch {
-      // gone or taken: nothing of ours to keep fresh
+      // gone: nothing of ours to keep fresh
     }
   }, Math.max(10, staleMs / 3));
   try {
@@ -215,9 +231,9 @@ export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LO
   } finally {
     clearInterval(beat);
     try {
-      if (fs.readFileSync(lockFile, 'utf8') === owner) fs.rmSync(lockFile, { force: true });
+      if (ours()) fs.utimesSync(mine, new Date(0), new Date(0));
     } catch {
-      // already gone
+      // gone already
     }
   }
 }
