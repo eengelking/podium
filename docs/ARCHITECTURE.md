@@ -606,7 +606,7 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 ### Built-in TLS (#577)
 
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
-certificate and the HTTPS listener (#581). The rest is planned. The rules are in
+certificate, the HTTPS listener (#581) and the serving certificate's renewal (#582). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
@@ -616,6 +616,16 @@ listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and se
 (`hostCheck.ts`) runs on both (33). The HTTPS server asks for a client certificate (`requestCert: true`,
 `rejectUnauthorized: false`, `ca` set to the Podium CA or CAs), so a request with no certificate still reaches the
 console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting.
+
+**Serving certificate renewal (#582).** `tlsRenew.ts` has `ServingRenewer`, made by `startTls` for the listener it
+starts. It checks at start, before the first connection, and then every day on an unref'd timer; the check renews when
+fewer than `tls.serving.renewBeforeDays` remain. A certificate made less than a day ago is left alone, so a renew-before
+longer than the lifetime renews once a day and not at every check. `renewServing` (`tlsCa.ts`) makes the new pair in a
+`.new-*` folder, copies the old pair to `previous/` (certificate and key, keys 0600, the last 3 kept), then renames the
+new one in; `setSecureContext` puts it on the running server. Only one renewal runs at a time. A failure is logged as
+`tls.renew_failed`, kept as `lastFailure` and retried by the next daily check. The two settings are `settings` rows
+named by their SPEC keys (`TlsSettingsStore`). `adminRouter.ts` serves `GET` and `PUT /api/admin/certificates` and
+`POST /api/admin/certificates/renew`, which answer 404 while TLS is off.
 
 **The CA and `/data/tls`.** The server makes and renews certificates by calling `openssl` with `execFile`.
 `ensureTls` works in a `.new-*` folder inside the directory and renames the finished files in, so a failure leaves no

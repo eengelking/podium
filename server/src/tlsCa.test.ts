@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 import { afterEach, describe, expect, it } from 'vitest';
-import { describeCert, ensureTls, serverNames, TlsError } from './tlsCa.js';
+import { describeCert, ensureTls, listPrevious, PREVIOUS_KEEP, renewServing, serverNames, TlsError } from './tlsCa.js';
 
 const dirs: string[] = [];
 const scratch = (): string => {
@@ -195,5 +195,72 @@ describe('the material works for an HTTPS server', () => {
     } finally {
       server.close();
     }
+  });
+});
+
+describe('renewServing', () => {
+  const days = (c: { notBefore: string; notAfter: string }) => Math.round((Date.parse(c.notAfter) - Date.parse(c.notBefore)) / 86_400_000);
+
+  it('makes a new certificate from the same CA with the new lifetime and keeps the old one in previous/', async () => {
+    const dir = scratch();
+    const first = await ensureTls({ dir, names });
+    const out = await renewServing({ dir, names, servingDays: 30 });
+    expect(out.serving.serial).not.toBe(first.serving.serial);
+    expect(days(out.serving)).toBe(30);
+    expect(new X509Certificate(out.cert).verify(new X509Certificate(first.caCert).publicKey)).toBe(true);
+    expect(fs.readFileSync(path.join(dir, 'serving.crt'), 'utf8')).toBe(out.cert);
+    expect(fs.readFileSync(path.join(dir, 'ca.crt'), 'utf8')).toBe(first.caCert);
+    const kept = fs.readdirSync(path.join(dir, 'previous'));
+    expect(kept).toHaveLength(2);
+    expect(listPrevious(dir)).toEqual([first.serving]);
+    for (const n of kept.filter((f) => f.endsWith('.key'))) expect(mode(path.join(dir, 'previous', n))).toBe(0o600);
+    expect(mode(path.join(dir, 'previous'))).toBe(0o700);
+    expect(mode(path.join(dir, 'serving.key'))).toBe(0o600);
+    expect(fs.readdirSync(dir).some((n) => n.startsWith('.new-'))).toBe(false);
+  });
+
+  it('keeps only the last three replaced certificates, newest first', async () => {
+    const dir = scratch();
+    await ensureTls({ dir, names });
+    const serials: string[] = [];
+    let t = Date.UTC(2026, 0, 1);
+    for (let i = 0; i < 5; i++) {
+      serials.push(describeCert(fs.readFileSync(path.join(dir, 'serving.crt'))).serial);
+      await renewServing({ dir, names, servingDays: 365, now: () => (t += 1000) });
+    }
+    expect(PREVIOUS_KEEP).toBe(3);
+    expect(listPrevious(dir).map((c) => c.serial)).toEqual(serials.slice(2).reverse());
+    expect(fs.readdirSync(path.join(dir, 'previous'))).toHaveLength(6);
+  });
+
+  it('picks up changed names', async () => {
+    const dir = scratch();
+    await ensureTls({ dir, names: serverNames(undefined, []) });
+    const out = await renewServing({ dir, names, servingDays: 365 });
+    expect(new X509Certificate(out.cert).subjectAltName).toContain('DNS:podium.lan');
+  });
+
+  it('changes nothing when openssl fails', async () => {
+    const dir = scratch();
+    const first = await ensureTls({ dir, names });
+    await expect(renewServing({ dir, names, servingDays: 30, openssl: 'no-such-openssl' })).rejects.toThrow(/not installed or not on PATH/);
+    expect(fs.readFileSync(path.join(dir, 'serving.crt'), 'utf8')).toBe(first.cert);
+    expect(fs.existsSync(path.join(dir, 'previous'))).toBe(false);
+    expect(fs.readdirSync(dir).some((n) => n.startsWith('.new-'))).toBe(false);
+  });
+
+  it('refuses a folder with no serving certificate, and reads no previous/ that is missing', async () => {
+    const dir = scratch();
+    fs.mkdirSync(dir, { recursive: true });
+    await expect(renewServing({ dir, names, servingDays: 30 })).rejects.toBeInstanceOf(TlsError);
+    expect(listPrevious(dir)).toEqual([]);
+  });
+
+  it('skips a damaged backup when listing', async () => {
+    const dir = scratch();
+    await ensureTls({ dir, names });
+    await renewServing({ dir, names, servingDays: 365 });
+    fs.writeFileSync(path.join(dir, 'previous', 'serving-zzz-1.crt'), 'not a certificate');
+    expect(listPrevious(dir)).toHaveLength(1);
   });
 });

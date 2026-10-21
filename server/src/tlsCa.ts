@@ -72,6 +72,8 @@ export class TlsError extends Error {}
 export interface EnsureTlsOptions {
   dir: string;
   names: ServerNames;
+  /** Lifetime of a serving certificate made now (`tls.serving.lifetimeDays`); 365 when absent. */
+  servingDays?: number;
   /** The openssl binary; tests may point it elsewhere. */
   openssl?: string;
 }
@@ -168,9 +170,24 @@ async function openssl(bin: string, args: string[], cwd: string): Promise<void> 
 const genKey = (bin: string, out: string, cwd: string): Promise<void> =>
   openssl(bin, ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', out], cwd);
 
+/** Makes `serving.key` and `serving.crt` in `work`, signed by the CA in `dir`; nothing in `dir` changes. */
+async function issueServing(bin: string, dir: string, work: string, names: ServerNames, days: number): Promise<void> {
+  fs.writeFileSync(file(work, 'serving.cnf'), servingConfig(names));
+  await genKey(bin, 'serving.key', work);
+  await openssl(bin, ['req', '-new', '-key', 'serving.key', '-subj', '/CN=localhost/O=podium', '-out', 'serving.csr'], work);
+  await openssl(bin, ['x509', '-req', '-in', 'serving.csr', '-CA', file(dir, 'ca.crt'), '-CAkey', file(dir, 'ca.key'), '-sha256', '-days', String(days), '-set_serial', randomSerial(), '-extfile', 'serving.cnf', '-extensions', 'v3_serving', '-out', 'serving.crt'], work);
+  fs.chmodSync(file(work, 'serving.key'), 0o600);
+}
+
+/** Moves a finished serving pair from `work` into `dir`. The key goes first: a crash between the two renames leaves a key that does not match its certificate, which is reported at start. */
+function installServing(work: string, dir: string): void {
+  fs.renameSync(file(work, 'serving.key'), file(dir, 'serving.key'));
+  fs.renameSync(file(work, 'serving.crt'), file(dir, 'serving.crt'));
+}
+
 /**
  * Makes the CA and the serving certificate when they are missing and returns what the HTTPS listener needs.
- * An existing CA is read, never rewritten. A serving certificate that exists is kept as it is (T4 renews it).
+ * An existing CA is read, never rewritten. A serving certificate that exists is kept as it is (`renewServing` replaces it).
  */
 export async function ensureTls(opts: EnsureTlsOptions): Promise<TlsMaterial> {
   const bin = opts.openssl ?? 'openssl';
@@ -199,19 +216,87 @@ export async function ensureTls(opts: EnsureTlsOptions): Promise<TlsMaterial> {
     }
     let createdServing = false;
     if (!state.serving) {
-      fs.writeFileSync(file(work, 'serving.cnf'), servingConfig(opts.names));
-      await genKey(bin, 'serving.key', work);
-      await openssl(bin, ['req', '-new', '-key', 'serving.key', '-subj', '/CN=localhost/O=podium', '-out', 'serving.csr'], work);
-      await openssl(bin, ['x509', '-req', '-in', 'serving.csr', '-CA', file(dir, 'ca.crt'), '-CAkey', file(dir, 'ca.key'), '-sha256', '-days', String(SERVING_DAYS), '-set_serial', randomSerial(), '-extfile', 'serving.cnf', '-extensions', 'v3_serving', '-out', 'serving.crt'], work);
-      fs.chmodSync(file(work, 'serving.key'), 0o600);
-      fs.renameSync(file(work, 'serving.key'), file(dir, 'serving.key'));
-      fs.renameSync(file(work, 'serving.crt'), file(dir, 'serving.crt'));
+      await issueServing(bin, dir, work, opts.names, opts.servingDays ?? SERVING_DAYS);
+      installServing(work, dir);
       createdServing = true;
     }
     const caCert = fs.readFileSync(file(dir, 'ca.crt'), 'utf8');
     const cert = fs.readFileSync(file(dir, 'serving.crt'), 'utf8');
     const key = fs.readFileSync(file(dir, 'serving.key'), 'utf8');
     return { caCert, cert, key, ca: describeCert(caCert), serving: describeCert(cert), createdCa, createdServing };
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** How many replaced serving certificates are kept in `previous/`. */
+export const PREVIOUS_KEEP = 3;
+
+export interface RenewServingOptions {
+  dir: string;
+  names: ServerNames;
+  servingDays: number;
+  openssl?: string;
+  /** Names the replaced files; tests pass a fixed clock. */
+  now?: () => number;
+}
+
+export interface RenewedServing {
+  cert: string;
+  key: string;
+  serving: CertInfo;
+}
+
+const previousDir = (dir: string): string => file(dir, 'previous');
+
+/** The replaced serving certificates, newest first. A file that cannot be read is skipped. */
+export function listPrevious(dir: string): CertInfo[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(previousDir(dir)).filter((n) => n.endsWith('.crt'));
+  } catch {
+    return [];
+  }
+  const out: CertInfo[] = [];
+  for (const n of names.sort().reverse()) {
+    try {
+      out.push(describeCert(fs.readFileSync(file(previousDir(dir), n), 'utf8')));
+    } catch {
+      // a damaged backup is not worth failing a page over
+    }
+  }
+  return out;
+}
+
+/**
+ * Replaces the serving certificate with a new one from the same CA, for `names`. The one being replaced is copied to
+ * `previous/` first and only the last PREVIOUS_KEEP stay. Nothing in `dir` changes unless the new certificate was made.
+ */
+export async function renewServing(opts: RenewServingOptions): Promise<RenewedServing> {
+  const bin = opts.openssl ?? 'openssl';
+  const { dir } = opts;
+  const state = checkExisting(dir);
+  if (!state.ca || !state.serving) throw new TlsError(`${dir} has no serving certificate to renew`);
+  loadExisting(dir, state);
+  const work = fs.mkdtempSync(path.join(dir, '.new-'));
+  try {
+    fs.chmodSync(work, 0o700);
+    await issueServing(bin, dir, work, opts.names, opts.servingDays);
+    const old = describeCert(fs.readFileSync(file(dir, 'serving.crt')));
+    const prev = previousDir(dir);
+    fs.mkdirSync(prev, { recursive: true, mode: 0o700 });
+    const stamp = new Date((opts.now ?? Date.now)()).toISOString().replaceAll(/\D/g, '');
+    const base = `serving-${stamp}-${old.serial.toLowerCase()}`;
+    fs.copyFileSync(file(dir, 'serving.crt'), file(prev, `${base}.crt`));
+    fs.copyFileSync(file(dir, 'serving.key'), file(prev, `${base}.key`));
+    fs.chmodSync(file(prev, `${base}.key`), 0o600);
+    for (const n of fs.readdirSync(prev).filter((f) => f.endsWith('.crt')).sort().reverse().slice(PREVIOUS_KEEP)) {
+      fs.rmSync(file(prev, n), { force: true });
+      fs.rmSync(file(prev, n.replace(/\.crt$/, '.key')), { force: true });
+    }
+    installServing(work, dir);
+    const cert = fs.readFileSync(file(dir, 'serving.crt'), 'utf8');
+    return { cert, key: fs.readFileSync(file(dir, 'serving.key'), 'utf8'), serving: describeCert(cert) };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
