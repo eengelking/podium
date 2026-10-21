@@ -1,6 +1,6 @@
 // The reporter's TLS helper (#584, SPEC 5.9): the mod cannot hand $.http.fetch a CA or a client certificate, so a small
 // Node process makes the connection. These tests run the real script against real certificates and a real HTTPS server.
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -17,7 +17,7 @@ import { createLogger } from './logging/logger.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
 import { PersonCertStore } from './tlsClientAuth.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
-import { makeForgerCa, signClientDated } from './tlsTesting.js';
+import { makeForgerCa, opensslStamp, signClientDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
 
 const HELPER = fileURLToPath(new URL('../../mod/podium-reporter/hooks/helper.mjs', import.meta.url));
@@ -571,6 +571,113 @@ describe('helper.mjs: renewing its own certificate', () => {
   }, 40_000);
 });
 
+// ---- a planned CA rotation: the new CA arrives as an addition, vouched for by a cross certificate (#588) -----------------
+
+type Variant = 'ok' | 'stranger-cross' | 'key-mismatch' | 'no-rotation' | 'extra-only' | 'expired-cross' | 'unheld-no-rotation';
+
+/** A renew route that signs the helper's new key with a NEW CA and answers with `rotation`, the way the server will during a planned rotation. */
+async function rotating(variant: Variant) {
+  const p = await pki();
+  const work = tmp();
+  const run = (...a: string[]) => execFileSync('openssl', a, { cwd: work });
+  const subj = '/CN=Podium CA 2/O=podium';
+  fs.writeFileSync(path.join(work, 'ca.cnf'), '[v3_ca]\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n');
+  fs.writeFileSync(path.join(work, 'leaf.cnf'), '[v3]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
+  run('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'new.key');
+  run('req', '-new', '-x509', '-key', 'new.key', '-subj', subj, '-config', 'ca.cnf', '-extensions', 'v3_ca', '-days', '3650', '-out', 'new.crt');
+  run('req', '-new', '-key', 'new.key', '-subj', subj, '-out', 'new.csr');
+  // the cross certificate: the new CA's name and key, signed by the old CA (or by a stranger's)
+  const signer = variant === 'stranger-cross' ? makeForgerCa(work) : { caCrt: path.join(p.dir, 'ca.crt'), caKey: path.join(p.dir, 'ca.key') };
+  const dates = variant === 'expired-cross' ? ['-not_before', opensslStamp(Date.now() - 20 * DAY), '-not_after', opensslStamp(Date.now() - 10 * DAY)] : ['-days', '365'];
+  run('x509', '-req', '-in', 'new.csr', '-CA', signer.caCrt, '-CAkey', signer.caKey, ...dates, '-extfile', 'ca.cnf', '-extensions', 'v3_ca', '-out', 'cross.crt');
+  // a second CA with the same name but another key, to put in the rotation in place of the one the cross certificate vouches for
+  run('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'other.key');
+  run('req', '-new', '-x509', '-key', 'other.key', '-subj', subj, '-config', 'ca.cnf', '-extensions', 'v3_ca', '-days', '3650', '-out', 'other.crt');
+  const read = (n: string) => fs.readFileSync(path.join(work, n), 'utf8');
+  const newCa = read('new.crt');
+  const cross = read('cross.crt');
+  let calls = 0;
+  const url = await upstream(p, (req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      calls++;
+      fs.writeFileSync(path.join(work, 'pub.pem'), (JSON.parse(body) as { publicKey: string }).publicKey);
+      const [crt, key] = variant === 'no-rotation' || variant === 'extra-only' ? [path.join(p.dir, 'ca.crt'), path.join(p.dir, 'ca.key')] : ['new.crt', 'new.key'];
+      run('x509', '-new', '-force_pubkey', 'pub.pem', '-subj', '/CN=pdm_a1b2c3d4e5f6/O=podium', '-CA', crt, '-CAkey', key, '-days', '90', '-extfile', 'leaf.cnf', '-extensions', 'v3', '-out', 'leaf.crt');
+      const cert = read('leaf.crt');
+      const x = new X509Certificate(cert);
+      const rotation = variant === 'no-rotation' || variant === 'unheld-no-rotation' ? undefined : { ca: variant === 'key-mismatch' ? read('other.crt') : newCa, cross };
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: true, cert, ca: p.caCert, expires: x.validTo, fingerprint: x.fingerprint256, ...(rotation ? { rotation } : {}) }));
+    });
+  }, { requireClient: false });
+  const issued = await issuePersonCert({ dir: p.dir, keyId: 'a1b2c3d4e5f6', days: 1 });
+  p.person = { cert: issued.cert, key: issued.key, info: describeCert(issued.cert) };
+  return { p, url, newCa, calls: () => calls, original: configFor(p, url) };
+}
+
+const caFingerprints = (file: string) =>
+  partsOfFile(file).certs.filter((c) => new X509Certificate(c).ca).map((c) => new X509Certificate(c).fingerprint256);
+
+describe('helper.mjs: a planned CA rotation (#588)', () => {
+  const DUE = { PODIUM_RENEW_BEFORE_SECONDS: String(2 * 86_400) };
+  const refused = async (variant: Variant) => {
+    const r = await rotating(variant);
+    const h = await runHelper(r.original, r.url, DUE);
+    await until(() => r.calls() > 0 && h.out().includes('renewal failed'), 'the renewal is refused');
+    return { r, h };
+  };
+
+  it('adds the new CA to the file beside the old one, with the renewed certificate, and does not store the cross certificate', async () => {
+    const r = await rotating('ok');
+    const h = await runHelper(r.original, r.url, DUE);
+    await until(() => fs.readFileSync(h.config, 'utf8') !== r.original, 'the file is rewritten');
+    const f = partsOfFile(h.config);
+    const cas = caFingerprints(h.config);
+    expect(cas).toEqual([new X509Certificate(r.p.caCert).fingerprint256, new X509Certificate(r.newCa).fingerprint256]);
+    expect(f.certs).toHaveLength(3);
+    const person = new X509Certificate(f.certs.at(-1)!);
+    expect(person.verify(new X509Certificate(r.newCa).publicKey)).toBe(true);
+    expect(person.checkPrivateKey(createPrivateKey(f.key))).toBe(true);
+    expect(f.mode).toBe(0o600);
+  }, 30_000);
+
+  it('still adds the new CA when the renewed certificate is signed by a CA the file already holds', async () => {
+    const r = await rotating('extra-only');
+    const h = await runHelper(r.original, r.url, DUE);
+    await until(() => fs.readFileSync(h.config, 'utf8') !== r.original, 'the file is rewritten');
+    expect(caFingerprints(h.config)).toEqual([new X509Certificate(r.p.caCert).fingerprint256, new X509Certificate(r.newCa).fingerprint256]);
+  }, 30_000);
+
+  it('refuses a cross certificate no held CA signed, and leaves the file as it was', async () => {
+    const { r, h } = await refused('stranger-cross');
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(r.original);
+  }, 30_000);
+
+  it('refuses a rotation whose CA is not the one the cross certificate vouches for, and leaves the file as it was', async () => {
+    const { r, h } = await refused('key-mismatch');
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(r.original);
+  }, 30_000);
+
+  it('refuses an expired cross certificate, and leaves the file as it was', async () => {
+    const { r, h } = await refused('expired-cross');
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(r.original);
+  }, 30_000);
+
+  it('without a rotation, a certificate signed by a CA the file does not hold is still refused', async () => {
+    const { r, h } = await refused('unheld-no-rotation');
+    expect(fs.readFileSync(h.config, 'utf8')).toBe(r.original);
+  }, 30_000);
+
+  it('without a rotation, renews as before', async () => {
+    const r = await rotating('no-rotation');
+    const h = await runHelper(r.original, r.url, DUE);
+    await until(() => fs.readFileSync(h.config, 'utf8') !== r.original, 'the file is rewritten');
+    expect(caFingerprints(h.config)).toEqual([new X509Certificate(r.p.caCert).fingerprint256]);
+  }, 30_000);
+});
+
 describe('helper.mjs: withLock (#611, #616)', () => {
   // Every child waits for `go`, then takes the lock and spends 80 ms inside it; a second one inside at the same time is a violation.
   const CHILD = `
@@ -897,5 +1004,18 @@ describe('helper.mjs: rewriteConfig', () => {
     expect(out).not.toContain('OLD');
     expect(out.indexOf('CA')).toBeLessThan(out.indexOf('NEW'));
     expect(out.indexOf('NEW')).toBeLessThan(out.indexOf('PRIVATE KEY'));
+  });
+
+  it('writes two CAs that parseConfig reads back as two CAs, beside one person certificate and one key', async () => {
+    const { rewriteConfig, parseConfig } = (await import(/* @vite-ignore */ HELPER)) as {
+      rewriteConfig: (text: string, n: { ca: string[]; cert: string; key: string; notAfter: string; fingerprint: string; now: number }) => string;
+      parseConfig: (text: string) => { ca: string[]; cert: string; key: string };
+    };
+    const p = await pki();
+    const second = await pki();
+    const out = rewriteConfig(configFor(p, 'https://h:4318'), { ca: [p.caCert, second.caCert], cert: p.person.cert, key: p.person.key, notAfter: p.person.info.notAfter, fingerprint: p.person.info.fingerprintSha256, now: Date.now() });
+    const got = parseConfig(out);
+    expect(got.ca.map((c) => new X509Certificate(c).fingerprint256)).toEqual([p.caCert, second.caCert].map((c) => new X509Certificate(c).fingerprint256));
+    expect(new X509Certificate(got.cert).fingerprint256).toBe(new X509Certificate(p.person.cert).fingerprint256);
   });
 });
