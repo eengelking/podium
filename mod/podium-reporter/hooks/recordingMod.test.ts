@@ -392,7 +392,7 @@ describe('session recording', () => {
     await tick(w, 1)
     w.server.recStatus = 200
     await $.turn.start({ text: 'good', turnId: 't2' })
-    await tick(w, 4)
+    await tick(w, 6)
     const posts = recPosts(w).map((c) => (c.body as RecordingBatch).entries.map((e) => e.text))
     expect(posts).toEqual([['bad'], ['good']])
   })

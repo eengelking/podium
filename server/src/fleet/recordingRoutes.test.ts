@@ -336,7 +336,7 @@ describe('PUT /respond/sessions/:id/recording (start)', () => {
     vi.spyOn(fleet.recordings, 'totalBytes').mockReturnValue(100);
     const budget = await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] });
     expect(budget.status).toBe(409);
-    expect(budget.body.error).toBe('the disk budget is reached');
+    expect(budget.body.error).toBe('the disk budget has no room for a new recording');
   });
 
   it('is 409 while the last recording of the session is still being deleted', async () => {
@@ -650,7 +650,7 @@ describe('what History and the picker learn (#353)', () => {
     await send(s.app, s.ed.token, report());
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     expect((await a.get(`${BASE}/consent`)).body.keepHours).toBe(6);
-    vi.spyOn(s.fleet.recordingSettings, 'get').mockReturnValue({ keepHours: 48, budgetMb: 2048, sessionMb: 256 });
+    vi.spyOn(s.fleet.recordingSettings, 'get').mockReturnValue({ keepHours: 48, budgetMb: 4096, sessionMb: 512 });
     expect((await a.get(`${BASE}/consent`)).body.keepHours).toBe(48);
   });
 

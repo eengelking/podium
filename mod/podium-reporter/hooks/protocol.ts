@@ -646,7 +646,7 @@ export interface RecordingGrant {
   bytes: number;
 }
 
-/** Limits for session recording. Sizes marked provisional are set from measurement before release (#353); the Admin's values are in RECORDING_DEFAULTS. */
+/** Limits for session recording. Sizes were set from a simulated-traffic measurement (#353, SPEC 6.4 "Measured write load"); the Admin's values are in RECORDING_DEFAULTS. */
 export const RECORDING_LIMITS = {
   /** Entries in one batch. */
   entries: 200,
@@ -654,22 +654,22 @@ export const RECORDING_LIMITS = {
   text: 100_000,
   /** Serialized bytes of one batch, below the 512 KB body limit with room for JSON escaping. */
   bodyBytes: 480_000,
-  /** Bytes the mod queues while the server cannot be reached. Past it the oldest entries go and a `gap` entry says how many. Provisional. */
+  /** Bytes the mod queues while the server cannot be reached. Past it the oldest entries go and a `gap` entry says how many. */
   queueBytes: 8_000_000,
   /** Rows of one replay page, and the most a request may ask for. */
   page: 200,
 } as const;
 
-/** What the Admin sets, one JSON row `recording_settings` in `settings`. All three are provisional until measured (#353). */
+/** What the Admin sets, one JSON row `recording_settings` in `settings`. Defaults set from measurement (#353). */
 export interface RecordingSettings {
   /** How long each part is kept, counted from when it was recorded. */
   keepHours: number;
-  /** Disk budget for all recordings, in megabytes. At this size every recording stops. */
+  /** Disk budget for all recordings, in megabytes. At this size every recording stops, and a new one needs room for one more request (SPEC 7.7). */
   budgetMb: number;
   /** Limit for one session, in megabytes. A recording stops when its session reaches it. */
   sessionMb: number;
 }
-export const RECORDING_DEFAULTS: RecordingSettings = { keepHours: 6, budgetMb: 2048, sessionMb: 256 };
+export const RECORDING_DEFAULTS: RecordingSettings = { keepHours: 6, budgetMb: 4096, sessionMb: 512 };
 /** Whole numbers. `keepHours` is at most 7 days. */
 export const RECORDING_RANGES = { keepHours: { min: 1, max: 168 }, budgetMb: { min: 64, max: 102_400 }, sessionMb: { min: 8, max: 4096 } } as const;
 

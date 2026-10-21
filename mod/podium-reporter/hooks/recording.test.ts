@@ -6,6 +6,7 @@ import {
   inputText,
   limitLine,
   RECORDING_BATCH_INTERVAL_MS,
+  RECORDING_FLUSH_BYTES,
   Recorder,
   redactBounded,
   refusedLine,
@@ -366,6 +367,23 @@ describe('Recorder batches and queue', () => {
     expect(utf8Bytes(JSON.stringify(batch))).toBeLessThanOrEqual(RECORDING_LIMITS.bodyBytes)
   })
 
+  test('the interval is five seconds, and a queue past the flush size goes without waiting for it', () => {
+    expect(RECORDING_BATCH_INTERVAL_MS).toBe(5000)
+    expect(RECORDING_FLUSH_BYTES).toBe(256 * 1024)
+    const r = on()
+    r.said(MAIN_LOOP, 'a', 1)
+    r.done(r.nextBatch(0)!.count, 10_000)
+    r.said(MAIN_LOOP, 'small', 2)
+    expect(r.due(10_001)).toBe(false) // inside the interval, queue small
+    while (r.queuedBytes < RECORDING_FLUSH_BYTES) r.said(MAIN_LOOP, 'x '.repeat(10_000), 3)
+    expect(r.due(10_001)).toBe(true) // inside the interval, queue past the flush size
+    const b = r.nextBatch(10_001)!
+    expect(r.due(10_002)).toBe(false) // a request is out
+    r.failed(10_002)
+    expect(r.due(10_003)).toBe(false) // backing off, even past the flush size
+    r.done(b.count, 20_000)
+  })
+
   test('the interval holds a batch back, and a failure backs off', () => {
     const r = on()
     r.said(MAIN_LOOP, 'a', 1)
@@ -375,17 +393,18 @@ describe('Recorder batches and queue', () => {
     r.said(MAIN_LOOP, 'b', 2)
     expect(r.due(10_000 + RECORDING_BATCH_INTERVAL_MS - 1)).toBe(false)
     expect(r.due(10_000 + RECORDING_BATCH_INTERVAL_MS)).toBe(true)
-    const c = r.nextBatch(11_000)!
-    expect(r.due(11_000)).toBe(false)
-    r.failed(11_000)
+    const t = 10_000 + RECORDING_BATCH_INTERVAL_MS
+    const c = r.nextBatch(t)!
+    expect(r.due(t)).toBe(false)
+    r.failed(t)
     expect(r.queued).toBe(1)
-    expect(r.due(11_500)).toBe(false)
-    expect(r.due(12_000)).toBe(true)
+    expect(r.due(t + 500)).toBe(false)
+    expect(r.due(t + 1000)).toBe(true)
     expect(c.batch.entries[0]!.seq).toBe(2)
-    expect(r.nextBatch(12_000)!.batch.entries[0]!.seq).toBe(2) // the same entries again
-    r.failed(12_000)
-    r.failed(12_000)
-    expect(r.nextAttemptAt).toBeGreaterThan(12_000 + 2000)
+    expect(r.nextBatch(t + 1000)!.batch.entries[0]!.seq).toBe(2) // the same entries again
+    r.failed(t + 1000)
+    r.failed(t + 1000)
+    expect(r.nextAttemptAt).toBeGreaterThan(t + 1000 + 2000)
   })
 
   test('nothing is due with an empty queue', () => {

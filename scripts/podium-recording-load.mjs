@@ -41,7 +41,7 @@ load
   --duration <s>     seconds measured after the warm-up (default 120)
   --warmup <s>       seconds before measuring (default 10)
   --mode <m>         on (default) or off (baseline: same reports, nothing recorded)
-  --interval <ms>    time between batches of one session (default 1000, the mod's RECORDING_BATCH_INTERVAL_MS)
+  --interval <ms>    time between batches of one session (default 5000, the mod's RECORDING_BATCH_INTERVAL_MS)
   --call-every <s>   mean seconds between tool calls of one loop (default 8)
   --profile <p>      busy (default: results 1 KB to 200 KB, median about 6 KB, mean about 22 KB) or typical (mean about 4.6 KB)
   --report-every <s> seconds between a session's reports (default 5)
@@ -514,7 +514,7 @@ async function load() {
   if (mode !== 'on' && mode !== 'off') throw new Error('--mode must be on or off');
   const profile = arg('--profile', 'busy');
   if (!PROFILES[profile]) throw new Error('--profile must be busy or typical');
-  const opts = { intervalMs: num('--interval', 1000), callEveryMs: num('--call-every', 8) * 1000, reportEveryMs: num('--report-every', 5) * 1000, resultSize: PROFILES[profile] };
+  const opts = { intervalMs: num('--interval', 5000), callEveryMs: num('--call-every', 8) * 1000, reportEveryMs: num('--report-every', 5) * 1000, resultSize: PROFILES[profile] };
   const srv = new Server();
   try {
     await srv.start();
@@ -624,7 +624,7 @@ async function caps() {
   try {
     await srv.start();
     await srv.setup(true);
-    const limits = full ? { sessionMb: 256, budgetMb: 2048 } : { sessionMb: 8, budgetMb: 64 };
+    const limits = full ? { sessionMb: 512, budgetMb: 4096 } : { sessionMb: 8, budgetMb: 64 };
     if (!full) {
       const r = await srv.setLimits(limits);
       if (r.status >= 300) throw new Error(`limits: ${JSON.stringify(r.body)}`);
@@ -717,7 +717,7 @@ async function purge() {
     await srv.start();
     await srv.setup(true);
     if (full) {
-      await srv.setLimits({ sessionMb: 256, budgetMb: 2048 });
+      await srv.setLimits({ sessionMb: 512, budgetMb: 4096 });
       const list = [];
       for (let i = 0; i < 9; i++) list.push(await newRecorded(srv, 200 + i));
       const t0 = performance.now();

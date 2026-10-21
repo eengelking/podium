@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openActivityDb } from './activityDb.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type RecordingBatch, type RecordingEntry, type RecordingSettings } from './protocol.js';
-import { PODIUM_PROMPT_MATCH_MS, SessionRecordings, type RecordingTrail } from './recordings.js';
+import { PODIUM_PROMPT_MATCH_MS, RECORDING_START_HEADROOM_BYTES, SessionRecordings, type RecordingTrail } from './recordings.js';
 import { HOUR_MS, MB } from './recordingSettings.js';
 
 const T0 = 1_800_000_000_000;
@@ -306,6 +306,22 @@ describe('the session limit and the disk budget', () => {
     expect(m.trails.map((t) => t.kind === 'limit' && t.which)).toEqual(['budget', 'budget']);
     expect(m.rec.page('s1', null, 10, null).entries.at(-1)?.kind).toBe('limit');
     expect(m.rec.totalBytes()).toBeGreaterThanOrEqual(400);
+    expect(m.rec.start('s3', [MAIN_LOOP], 'Ed', META)).toBe('budget');
+  });
+});
+
+describe('starting while the budget is nearly full', () => {
+  it('refuses a start when less than one request is left under the budget, and accepts one while that much is left', () => {
+    const m = running();
+    m.s.settings = { ...m.s.settings, budgetMb: 1 }; // 1,048,576 bytes
+    const big = 'x'.repeat(100_000);
+    const seqs = [1, 2, 3, 4, 5];
+    m.rec.ingest('s1', batch(...seqs.map((n) => entry(MAIN_LOOP, n, big))));
+    expect(m.rec.totalBytes() + RECORDING_START_HEADROOM_BYTES).toBeLessThanOrEqual(MB);
+    expect(m.rec.start('s2', [MAIN_LOOP], 'Ed', META)).toBe('ok');
+    m.rec.ingest('s1', batch(...[6, 7].map((n) => entry(MAIN_LOOP, n, big))));
+    expect(m.rec.totalBytes() + RECORDING_START_HEADROOM_BYTES).toBeGreaterThan(MB);
+    expect(m.rec.totalBytes()).toBeLessThan(MB); // under the budget, yet no room for a new recording
     expect(m.rec.start('s3', [MAIN_LOOP], 'Ed', META)).toBe('budget');
   });
 });
