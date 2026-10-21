@@ -29,6 +29,7 @@ import { inlineScriptHashes, securityHeaders } from "./securityHeaders.js";
 import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
+import { warnIfTlsNotPersistent } from "./tlsStorage.js";
 import { RESPOND } from "./fleet/featureFlags.js";
 import { startUpdateCheck } from "./fleet/updateCheck.js";
 
@@ -44,6 +45,8 @@ const { logger } = logging;
 if (TOKEN && TOKEN.length < 24) {
   logger.warn("server.weak_token", `podium: PODIUM_TOKEN is only ${TOKEN.length} characters; use at least 24 (podiumctl makes a long one for you)`, { length: TOKEN.length });
 }
+
+warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
 
 const fleetDb = new FleetDb(openDb(DB_PATH));
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });

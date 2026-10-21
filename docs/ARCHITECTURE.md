@@ -1426,7 +1426,12 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
   default OCI image format).
 - It also passes the host's time zone as `TZ`, so the day for "Est. cost today" is the host's.
 - Inside, the server binds `0.0.0.0:4317`. The host-side bind is where access is limited. With built-in TLS on it
-  also binds `0.0.0.0:4318`, published the same way, and the image carries the `openssl` package (planned, #580).
+  also binds `0.0.0.0:4318`, published the same way, and the image carries the `openssl` package (#580). `podiumctl`
+  publishes `4318` and mounts the host folder `~/.podium/tls` at `/data/tls` (`:U` under Podman, so the `node` user owns
+  it) only when TLS is on, so the CA outlives the container and the volume. After `run` it reads the container's mounts
+  and warns when `/data/tls` is missing; the server checks `/proc/self/mountinfo` and logs `tls.storage_not_persistent`
+  when `/data/tls` is not on a named volume or bind mount (the anonymous volume the image's `VOLUME /data` makes does not
+  count, since removing the container removes it). `rm` keeps the folder unless `--purge-tls --yes`.
 - Container mode relies on `podman run` or `docker run` failing when the port is taken.
 - A standalone `start` refuses while a `podium` container runs under either engine, not only the saved one.
 
