@@ -184,6 +184,16 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <ol class="feed" id="feed-run" aria-label="Running"></ol>
       </section>
       <section>
+        <h2>A command that finished before the panel was open</h2>
+        <p>Output is collected only while the panel is open, so a call that finished earlier has its command and no output. The row says so and does not claim the command is running.</p>
+        <ol class="feed" id="feed-nc" aria-label="Output not collected"></ol>
+      </section>
+      <section>
+        <h2>A failed command with no exit code</h2>
+        <p>Claude Code does not always give a code. The row shows a cross and the single word Failed, with no number.</p>
+        <ol class="feed" id="feed-unk" aria-label="Failed, code unknown"></ol>
+      </section>
+      <section>
         <h2>The Admin has output turned off</h2>
         <p>The command is whole and opens; the output block says in words why it is missing. The machine's own option has its wording on the Admin mockup (podium-feed-expand-admin.html).</p>
         <ol class="feed" id="feed-off" aria-label="Output off"></ol>
@@ -202,9 +212,11 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 <div class="notes">
   <h2>What this changes</h2>
   <ul>
-    <li><b>Click a row to open it, click again to close it.</b> Every row starts closed. Anywhere on a row that has more to show is the target: the time, the icon, the line and the empty space beside it. A Bash row, or any tool row whose line was cut at 300 characters, has this. The chevron turns, the row takes the raised surface while open, and the opened part ends with a Collapse button, so there is always a visible way back. Opened, it shows the whole command, then the output with its exit status. Closed, it goes back to the one-line summary it is today. Clicking inside the opened command or output does not close the row, so text can be selected and copied.</li>
-    <li><b>Which rows open.</b> A row opens when it has more to show: a cut command, or output (Bash). A short Read or Grep row that was not cut has nothing more and stays plain text, with no chevron. Opening a row never scrolls the list away from where the person is reading, and a list that is following the newest row keeps following it.</li>
+    <li><b>Click a row to open it, click again to close it.</b> Every row starts closed. Anywhere on a row that has more to show is the target: the time, the icon, the line and the empty space beside it. Only a Bash row has this: the mod sends the whole command and the output for Bash and for no other tool, so a Read or Grep row stays as it is today, even when its line was cut at 300 characters. The chevron turns, the row takes the raised surface while open, and the opened part ends with a Collapse button, so there is always a visible way back. Opened, it shows the whole command, then the output with its exit status. Closed, it goes back to the one-line summary it is today. Clicking inside the opened command or output does not close the row, so text can be selected and copied.</li>
+    <li><b>Which rows open.</b> A Bash row opens when it has more to show: a cut command, or output. A short Read or Grep row that was not cut has nothing more and stays plain text, with no chevron. Opening a row never scrolls the list away from where the person is reading, and a list that is following the newest row keeps following it.</li>
     <li><b>Keyboard and screen readers.</b> Under the whole-row click, the line is a real button with <span class="mono">aria-expanded</span> and <span class="mono">aria-controls</span>. Its name is the tool and the line, and it adds the size ("whole command, 1,842 characters") for a screen reader. Enter and Space toggle it.</li>
+    <li><b>Failed, code unknown.</b> When Claude Code reports a failure without a code, the row shows the cross and the single word "Failed", with no number.</li>
+    <li><b>Output was not collected.</b> Output is gathered only while the panel is open, so a Bash call that finished earlier shows its command and "Output was not collected. Output is only collected while this panel is open." A call still running says it is running.</li>
     <li><b>Exit status.</b> A command that succeeded shows only a check in the good color; a screen reader hears "Succeeded, exit 0" and the check has a "Succeeded" tooltip. Any other exit shows a cross, the words "Exit 2, failed" and the critical color, so a failure is never missed.</li>
     <li><b>Redaction.</b> Secrets the mod redacted show as the existing red <span class="mono">[redacted]</span> mark, in the command and in the output. Everything from a session is a text node, never HTML. ANSI color codes are stripped.</li>
     <li><b>Cut-off is said in words.</b> A command or output cut at the limit ends with "[cut off at 20,000 characters]". Nothing is cut silently.</li>
@@ -280,7 +292,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var arg = el("span", "arg"); redacted(arg, shown); head.appendChild(arg);
     if (cut) head.appendChild(el("span", "cut", "…"));
     if (d.state === "running") head.appendChild(el("span", "state", "running"));
-    else if (d.exit != null && more) { var ex = el("span", "state"); ex.innerHTML = d.exit === 0 ? '<span class="exit ok" title="Succeeded">' + OK + '<span class="sr">Succeeded, exit 0</span></span>' : '<span class="exit bad">' + BAD + "Exit " + d.exit + ", failed</span>"; head.appendChild(ex); }
+    else if (d.exit != null && more) { var ex = el("span", "state"); ex.innerHTML = d.exit === "unknown" ? '<span class="exit bad">' + BAD + "Failed</span>" : d.exit === 0 ? '<span class="exit ok" title="Succeeded">' + OK + '<span class="sr">Succeeded, exit 0</span></span>' : '<span class="exit bad">' + BAD + "Exit " + d.exit + ", failed</span>"; head.appendChild(ex); }
     if (cut && !hasFull) head.appendChild(el("span", "nofull", "cut at 300 characters; this reporter sends no more"));
     if (more) { var s = el("span", "sr", cut && hasFull ? " Show whole command, " + num(cmd.length) + " characters" : " Show output"); head.appendChild(s); }
     body.appendChild(head);
@@ -290,7 +302,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     ch.appendChild(copyBtn("Copy command")); c.appendChild(ch); var pre = el("pre", "code xcmd"); pre.setAttribute("aria-label", "Whole command"); redacted(pre, cmd); c.appendChild(pre); xp.appendChild(c);
     var o = el("div"); var oh = el("div", "xh");
     var lab = el("span"); lab.textContent = "Output"; oh.appendChild(lab);
-    if (d.exit != null && d.state !== "running") { var st = el("span", "exit " + (d.exit === 0 ? "ok" : "bad")); st.innerHTML = (d.exit === 0 ? OK + '<span class="sr">Succeeded, exit 0</span>' : BAD + "Exit " + d.exit + ", failed"); if (d.exit === 0) st.title = "Succeeded"; oh.appendChild(st); }
+    if (d.exit != null && d.state !== "running") { var st = el("span", "exit " + (d.exit === 0 ? "ok" : "bad")); st.innerHTML = (d.exit === 0 ? OK + '<span class="sr">Succeeded, exit 0</span>' : BAD + (d.exit === "unknown" ? "Failed" : "Exit " + d.exit + ", failed")); if (d.exit === 0) st.title = "Succeeded"; oh.appendChild(st); }
     if (d.out != null) oh.appendChild(copyBtn("Copy output"));
     o.appendChild(oh);
     if (d.out != null) { var po = el("pre", "code xout"); po.setAttribute("aria-label", "Output"); d.out.split("\n").forEach(function (l, i, a) { var t = l.indexOf("[cut off") === 0 ? el("span", "mark", l) : null; if (t) po.appendChild(t); else redacted(po, l); if (i < a.length - 1) po.appendChild(document.createTextNode("\n")); }); o.appendChild(po); }
@@ -333,6 +345,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   fill("feed-old", [ { at: "04:07", kind: "tool", cmd: CMD_LONG, full: false } ]);
   fill("feed-run", [ { at: "04:31", kind: "tool", cmd: CMD_CURL, state: "running", open: true } ]);
+  fill("feed-nc", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output was not collected.", "Output is only collected while this panel is open."], open: true } ]);
+  fill("feed-unk", [ { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", out: OUT_FAIL, exit: "unknown", open: true } ]);
   fill("feed-off", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output is turned off by the Admin.", "Someone with Admin access can turn it on in Admin > Settings > Feature flags."], exit: null, open: true } ]);
   fill("feed-hist", [ { at: "00:58", kind: "tool", cmd: CMD_LONG, outNote: ["Output is not kept in history.", "Only the command is stored. Output is shown while someone is watching the session and is gone after."], open: true } ]);
 

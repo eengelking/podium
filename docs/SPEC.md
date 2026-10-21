@@ -1631,7 +1631,7 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   carries at most 60,000 characters of them.
 - A Bash entry also carries its call id and the whole command (#431): redacted by the same rule, line breaks kept,
   cut to 20,000 characters with a visible `[cut off at 20,000 characters]` marker (`command`, with `commandCut`).
-  Any other tool row whose summary was cut at 300 characters may carry its whole line the same way.
+  Only a Bash row carries a whole command; any other tool row stays at its 300-character summary.
   The mod removes ANSI escape sequences and other control characters (not line breaks or tabs) from a command and from
   output before redacting, so a coloured secret is still caught. Of the tool rows, the mod sends `id` and `command` for Bash only.
 - With the `activityOutput` option on, the entry gets the call's output, stdout then stderr, redacted and cut the
@@ -5244,6 +5244,13 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
   flags."), or "Output is turned off for this machine." (naming the `activityOutput` option, "Send a Bash command's
   output"). An older reporter says it sends no output. The whole command still shows. The Expand and Respond
   modals and the replay follow the same words.
+  - A call that finished before the panel was open has its command and no output, since output is captured only while
+    a viewer has the panel open: the block says "Output was not collected." and "Output is only collected while this
+    panel is open." A stored-history row says "Output is not kept in history." and "Only the command is stored. Output
+    is shown while someone is watching the session and is gone after." A call still running says "Running." and "The
+    output appears here when the command finishes."
+  - A failed call with no exit code shows a cross and the one word "Failed"; with a code, "Exit N, failed". A call that
+    succeeded shows a bare check with "Succeeded, exit 0" for a screen reader.
 - A settings-hooks session has no mod and shows no Activity section.
 
 **Tools used**

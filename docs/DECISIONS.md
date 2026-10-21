@@ -1206,7 +1206,7 @@ ever holds of a conversation. The details are in [REPLAY.md](REPLAY.md).
 the terminal to see whether a command worked. #432 and #353 changed what the feed may keep since the issue was written,
 so some of its first assumptions (output "in memory only", captured "only for a watched loop") no longer hold as written.
 
-**Decision.** Every Bash row, and any tool row whose line was cut at 300 characters, is closed by default. A click on the
+**Decision.** Every Bash row is closed by default (only Bash: the mod sends a whole command and output for no other tool). A click on the
 row opens it to the whole command, then the output with its exit status (a bare check for exit 0, a cross and "Exit N,
 failed" otherwise); a second click or the Collapse button closes it. Command and output wrap. The same row serves the
 agent panel, the Expand modal, the Respond modal and the session-recording replay. The replay shows the result its
