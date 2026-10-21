@@ -24,6 +24,20 @@ const ENVELOPE_BYTES = 200;
 /** The result recorded for a file on the never-send list. */
 export const WITHHELD = '[withheld: this file is on the never-send list]';
 
+/**
+ * The text of a prompt the mod submitted for a message from Podium, as the turn's first text. Claude Code starts the turn for such a
+ * prompt with the text inside its own frame ("The <plugin> plugin sent a message:", the text on lines of its own, then an
+ * explanation), and the server marks an entry as from Podium only when it holds exactly the text it delivered. `sent` lists the
+ * texts the mod submitted and not yet seen back; a match, bare or framed on lines of its own, is taken out of it and returned as
+ * sent. Any other text, one that merely contains a sent text included, comes back as it is.
+ */
+export function unframeSent(text: string, sent: string[]): string {
+  const i = sent.findIndex((s) => s.length > 0 && (text === s || text.includes(`\n${s}\n`)));
+  if (i < 0) return text;
+  const [s] = sent.splice(i, 1);
+  return s ?? text;
+}
+
 /** The visible marker at the end of a text cut at `n` characters. */
 export function cutMark(n: number): string {
   const digits = String(n);

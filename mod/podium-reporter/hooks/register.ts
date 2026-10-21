@@ -57,7 +57,7 @@ import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.t
 import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from './protocol.ts';
 import { isRecordingGrant } from './transport.ts';
-import { limitLine, Recorder, refusedLine, startLine, stoppedLine } from './recording.ts';
+import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
 import { redactText } from './diffRedact.ts';
 import {
   accessAnswer,
@@ -1239,10 +1239,17 @@ function handleDeliveries($: Engine, r: Runtime): void {
   }
 }
 
+/** Texts of messages from Podium this mod submitted, not yet seen back as a turn's text (#353). */
+const sentFromPodium: string[] = [];
+
 /** A message from Podium starts a turn of its own once the session is idle, under the plugin's name (not as the person). */
 async function submitMessage($: Engine, sid: string, d: Delivery): Promise<void> {
+  const text = d.text ?? '';
+  // Remembered for the recording: the engine frames this prompt, and the turn that follows is recorded as the text sent (#353).
+  sentFromPodium.push(text);
+  if (sentFromPodium.length > 20) sentFromPodium.shift();
   try {
-    await $.prompt.submit({ text: d.text ?? '' });
+    await $.prompt.submit({ text });
     transcriptLine($, answeredLine(d, nowMs()));
     queueResult(sid, d.id, 'took');
   } catch (err) {
@@ -1876,7 +1883,7 @@ export const register: Register = (on, rawOptions) => {
   on('turn.start', async ($, e, next) => {
     safe('turn.start', (r) => {
       r.state = turnStart(r.state);
-      recorder.prompt(recLoop(e.agentId), e.text, nowMs());
+      recorder.prompt(recLoop(e.agentId), e.agentId ? e.text : unframeSent(e.text, sentFromPodium), nowMs());
     });
     return next(e);
   }).catch(($, e, next) => next(e));
