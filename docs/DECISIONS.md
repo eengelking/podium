@@ -1266,3 +1266,22 @@ recording already holds (#353); it adds no second copy.
 - A person who opens a row after the command finished may find no output, because it was not captured before the feed
   was open.
 - A result over about 90 KB shows a stub, not the output.
+
+**Amended (#598): a finished call says so, with or without output.** Under #431 a Bash entry got `done` only together with
+output, so a call still running and one that finished before the panel opened looked alike, and the row said "Output was
+not collected." for both.
+
+- **What the mod sends.** While `activityFeed` is on, the mod sends `done`, `failed` and `exitCode` on a Bash entry
+  whenever the call finishes, with or without output. Output itself is unchanged: it still needs the `activityOutput`
+  option, the `activity-output` flag and the loop in `watchOutput`.
+- **What the server does.** It keeps the three fields with the entry in memory, as it keeps the rest of the entry. The
+  Activity history stores none of them; it stores only the whole command, as before.
+- **What the row says.** No `done` and the loop active: "Running." and the word running on the line. `done` with no
+  output: "Output was not collected." and the status mark (a bare check for exit 0, a cross and "Exit N, failed" or
+  "Failed"), on the line and beside Output. No `done` and the loop not active: "Output was not collected." with no mark,
+  a stale call whose end was never reported.
+- **An older mod.** It sends no `done` without output, so its rows keep today's wording: running while the loop is
+  active, otherwise "Output was not collected." with no mark. An older server ignores nothing new, because the fields
+  are optional on the entry.
+- **Why.** The mod knows when a call ends; the server cannot tell a finished call from a running one without being told.
+  The mockup is `mockup/podium-feed-expand.html`, "Rows without output".
