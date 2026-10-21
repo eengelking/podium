@@ -598,3 +598,68 @@ describe("the replay at its address in the console", () => {
     expect(document.querySelector(".op")).not.toBeNull();
   });
 });
+
+describe("a Bash call in the replay (#431)", () => {
+  const input = (command: string) => JSON.stringify({ command, description: "run it" });
+  const bashRows = (): RecordingRow[] => [
+    row({ kind: "tool", name: "Bash", text: input("npm run build -w frontend"), loop: "p", at: at(11, 46) }),
+    row({ kind: "result", name: "Bash", text: "Exit code 2\nerror TS2322: bad\n[redacted]", failed: true, loop: "p", at: at(11, 46, 5) }),
+    row({ kind: "tool", name: "Bash", text: input("echo hi"), loop: "p", at: at(11, 47) }),
+    row({ kind: "result", name: "Bash", text: "hi\n", loop: "p", at: at(11, 47, 1) }),
+    row({ kind: "tool", name: "Bash", text: input("sleep 100"), loop: "p", at: at(11, 48) }),
+    row({ kind: "tool", name: "Read", text: "a.ts\nsecond line", at: at(11, 49) }),
+    row({ kind: "result", name: "Read", text: "contents", at: at(11, 49, 1) }),
+    row({ kind: "tool", name: "Bash", text: `{"command":"${"x".repeat(400)}`, loop: "p", at: at(11, 50) }),
+  ];
+  const open = (i: number) => fireEvent.click(lis(document.body)[i]!.querySelector("button.tgl")!);
+
+  it("draws the call, its whole command and its output as the feed's row, in place of the two disclosures", async () => {
+    await replay(fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: bashRows() })) }));
+    const li = lis(document.body)[0]!;
+    expect(li.className).toContain("tool");
+    expect(li.dataset.i).toBe("0");
+    expect(li.querySelector(".who")!.textContent).toBe("a-very-long-agent-name-that-has-to-be-cut-in-a-row:");
+    expect(li.querySelector("details")).toBeNull();
+    expect(li.querySelector(".failbox")).toBeNull();
+    expect(li.querySelector(".tgl .state .exit.bad")!.textContent).toBe("Exit 2, failed");
+    open(0);
+    expect(li.querySelector("pre.xcmd")!.textContent).toBe("npm run build -w frontend");
+    expect(li.querySelector("pre.xout")!.textContent).toBe("error TS2322: bad\n[redacted]");
+    expect(li.querySelector("pre.xout .rd")).not.toBeNull();
+    expect(li.querySelector(".xh .exit.bad")!.textContent).toBe("Exit 2, failed");
+  });
+
+  it("shows a call that succeeded with a bare check, and keeps the row marked as the current one", async () => {
+    await replay(fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: bashRows() })) }));
+    const li = lis(document.body)[1]!;
+    expect(li.querySelector(".tgl .state .exit.ok")).not.toBeNull();
+    open(1);
+    expect(li.querySelector("pre.xout")!.textContent).toBe("hi\n");
+    fireEvent.change(document.querySelector<HTMLInputElement>("input[type=range]")!, { target: { value: "1" } });
+    expect(li).toHaveClass("cur");
+    expect(li).toHaveAttribute("aria-current", "true");
+  });
+
+  it("says no output was recorded for a call with no result", async () => {
+    await replay(fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: bashRows() })) }));
+    open(2);
+    const li = lis(document.body)[2]!;
+    expect(li.querySelector(".feedoff b")!.textContent).toBe("No output was recorded.");
+    expect(li.querySelector(".tgl .state")).toBeNull();
+  });
+
+  it("leaves another tool's disclosures, and a Bash input that is not JSON, as they were", async () => {
+    await replay(fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: bashRows() })) }));
+    const read = lis(document.body)[3]!;
+    expect(read.querySelector("button.tgl")).toBeNull();
+    expect(read.querySelector("details.res summary")!.textContent).toBe("Whole input (16 characters)");
+    const cutInput = lis(document.body)[4]!;
+    expect(cutInput.querySelector("button.tgl")).toBeNull();
+    expect(cutInput.querySelector("details.res summary")!.textContent).toMatch(/^Whole input/);
+  });
+
+  it("still jumps to the next failed call", async () => {
+    await replay(fakeApi({ recordingPage: vi.fn(async () => pageOf({ entries: bashRows() })) }));
+    expect(screen.getByRole("button", { name: "Jump to next failure" })).toBeEnabled();
+  });
+});

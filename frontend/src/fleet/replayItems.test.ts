@@ -1,6 +1,6 @@
 // The replay's rows (#353): results go under their calls, marks get their words, long output is cut for the failure box.
 import { describe, expect, it } from "vitest";
-import { buildItems, firstLine, markWords, nextFailure, tailLines } from "./replayItems";
+import { bashCommand, bashResult, buildItems, firstLine, markWords, nextFailure, tailLines } from "./replayItems";
 import type { RecordingRow } from "./types";
 
 let n = 0;
@@ -147,5 +147,26 @@ describe("text helpers", () => {
     expect(nextFailure(items, 0)).toBe(2);
     expect(nextFailure(items, 2)).toBe(0);
     expect(nextFailure(buildItems([row({ kind: "text" })]), 0)).toBe(-1);
+  });
+});
+
+describe("bashCommand and bashResult (#431)", () => {
+  it("reads the command out of a recorded input, and says null for anything that is not one", () => {
+    expect(bashCommand('{"command":"ls -la","description":"list"}')).toBe("ls -la");
+    expect(bashCommand('{"command":3}')).toBeNull();
+    expect(bashCommand('{"file_path":"a"}')).toBeNull();
+    expect(bashCommand("null")).toBeNull();
+    expect(bashCommand("npm test")).toBeNull();
+    expect(bashCommand('{"command":"cut off')).toBeNull();
+  });
+
+  it("takes a failed call's own 'Exit code N' line off the output and gives it as the status", () => {
+    expect(bashResult(row({ kind: "result", text: "Exit code 2\nboom", failed: true }))).toEqual({ output: "boom", failed: true, exitCode: 2 });
+    expect(bashResult(row({ kind: "result", text: "Exit code 127", failed: true }))).toEqual({ output: "", failed: true, exitCode: 127 });
+  });
+
+  it("leaves the text of a call that did not fail, or failed without a code line, whole", () => {
+    expect(bashResult(row({ kind: "result", text: "Exit code 2\nnot a failure" }))).toEqual({ output: "Exit code 2\nnot a failure", failed: false });
+    expect(bashResult(row({ kind: "result", text: "Permission denied by a hook", failed: true }))).toEqual({ output: "Permission denied by a hook", failed: true });
   });
 });

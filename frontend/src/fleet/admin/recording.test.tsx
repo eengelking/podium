@@ -389,3 +389,32 @@ describe("Stored activity with Source = Recordings", () => {
     expect(screen.getByRole("group", { name: "Delete stored activity" })).toBeInTheDocument();
   });
 });
+
+describe("the Bash output flag (#431, mockup/podium-feed-expand-admin.html)", () => {
+  const warning = () => screen.queryByText(/Output holds whatever a command printed/);
+
+  it("shows the warning under the flag while it is on, and not while it is off", async () => {
+    const s = fakeServer({ unlocked: true });
+    s.features["activity-output"] = true;
+    await openSettings();
+    const sw = await screen.findByRole("switch", { name: /Bash output in the activity feed/ });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("activity-output")).toHaveClass("fid");
+    const warn = warning()!;
+    expect(warn.textContent).toMatch(/Anyone who can open the Activity panel of a session can read its output while the panel is open\./);
+    expect(warn.closest(".warnbar")).toHaveAttribute("role", "note");
+    // It sits right under the switch's own row.
+    expect(sw.closest(".srow")!.nextElementSibling).toBe(warn.closest(".warnbar"));
+    fireEvent.click(sw);
+    await waitFor(() => expect(warning()).toBeNull());
+    expect(s.bodies).toContainEqual({ features: { "activity-output": false } });
+  });
+
+  it("shows no warning with the flag off, and turning it on shows it", async () => {
+    fakeServer({ unlocked: true }).features["activity-output"] = false;
+    await openSettings();
+    expect(warning()).toBeNull();
+    fireEvent.click(await screen.findByRole("switch", { name: /Bash output in the activity feed/ }));
+    await waitFor(() => expect(warning()).not.toBeNull());
+  });
+});

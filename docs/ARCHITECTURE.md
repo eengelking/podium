@@ -369,6 +369,12 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   on, serves them only while the flags are on, and drops them with the lease, the session, a flag turned off, and a
   restart (`dropOutput`). `watchedOutput` is the reply's `watchOutput`: the lease loops, never the loops the history lists.
   The Activity history (schema version 5) stores `command` and `command_cut`, and has no column for output, status or id.
+- The console (#431): `BashRow.tsx` is the one Bash row, shared by the feed's `Entry` (panel, Expand modal and Respond modal) and the
+  replay's `Row`. Only Bash rows open; the open state is the row's own React state, so it follows the entry's key across the refresh.
+  `useRowAnchor` keeps the list's place when a row opens or closes. `useActivityFeed` takes a changed `output`, `done`, `failed` or
+  `exitCode` on a seq it already has, and lays a live twin's output over a stored row. A row with no `output` says why in order: stored
+  history, the Admin's flag (`ActivityOutputFlag`, from the state's features), the session's `activityOutput`, then "not collected". A
+  call still running cannot be told from one that finished before the panel opened (neither has `output` or `done`), so no row says it is running.
 
 **UI**
 

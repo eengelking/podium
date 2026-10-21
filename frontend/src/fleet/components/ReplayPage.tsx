@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { RespondError } from "../respondApi";
 import { replayLine, fmtWhen, leaveReplay, sizeWords } from "../recording";
-import { buildItems, COLLAPSE_AT, firstLine, nextFailure, tailLines, type ReplayItem } from "../replayItems";
+import { bashCommand, bashResult, buildItems, COLLAPSE_AT, firstLine, nextFailure, tailLines, type ReplayItem } from "../replayItems";
 import type { RecordingGrant, RecordingLoopInfo, RecordingPage, RecordingRow, SessionView } from "../types";
 import { nameKey } from "../respond";
 import { useRespond } from "../useRespond";
 import { feedTime, ICON_REASONING, ICON_TEXT, ICON_TOOL, ICON_YOU, Redacted } from "./ActivityFeed";
 import { Blank } from "./Blank";
+import { BashRow, ARG_CUT, useRowAnchor, type RowAnchor } from "./BashRow";
 import { IconBack, IconX } from "./Icons";
 import { ConfirmBox, recordingFail } from "./RecordingLayer";
 
@@ -72,9 +73,38 @@ function Failed({ call, result }: { call: string; result: RecordingRow }) {
   );
 }
 
-function Row({ item, i, startedAt, who, cur, me }: { item: ReplayItem; i: number; startedAt: number; who: string; cur: boolean; me: string | null }) {
+function Row({ item, i, startedAt, who, cur, me, anchor }: { item: ReplayItem; i: number; startedAt: number; who: string; cur: boolean; me: string | null; anchor: RowAnchor }) {
   const { row } = item;
   const text = row.text;
+  // A Bash call is the same row as in the Activity feed: its command and its output open together. Any other tool keeps its disclosures.
+  const command = item.kind === "tool" && row.name === "Bash" ? bashCommand(text) : null;
+  if (command !== null) {
+    const res = item.result ? bashResult(item.result) : null;
+    const flat = command.replaceAll(/\s+/g, " ").trim();
+    return (
+      <BashRow
+        className={`${CLASS[item.kind]}${cur ? " cur" : ""}`}
+        liProps={{ "data-i": i, "aria-current": cur ? "true" : undefined }}
+        time={feedTime(row.at, startedAt)}
+        timeTitle={new Date(row.at).toLocaleTimeString()}
+        kindLabel={LABEL[item.kind]}
+        icon={ICON[item.kind]}
+        who={
+          <span className="who" title={who}>
+            {who}:
+          </span>
+        }
+        line={flat.slice(0, ARG_CUT)}
+        cut={flat.length > ARG_CUT}
+        anchor={anchor}
+        d={{
+          command,
+          ...(res ? { output: res.output, done: true, failed: res.failed, ...(res.exitCode === undefined ? {} : { exitCode: res.exitCode }) } : {}),
+          missing: { title: "No output was recorded.", note: "A result the mod cannot read as text is left out, and a result on an older page is not loaded yet." },
+        }}
+      />
+    );
+  }
   let body: ReactNode;
   if (item.kind === "tool") {
     const { line, more } = firstLine(text);
@@ -180,6 +210,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
   const [delErr, setDelErr] = useState<string | null>(null);
   const [fetchedName, setFetchedName] = useState<string | null>(null);
   const list = useRef<HTMLOListElement>(null);
+  const anchor = useRowAnchor(list, false);
   // Counts the loads of page one: an older page that comes back after the loop filter changed belongs to rows no longer shown.
   const epoch = useRef(0);
 
@@ -406,7 +437,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
           <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recorded activity, oldest first" tabIndex={0} /* NOSONAR S6845: a focusable scroll region, by design */>
             {items.length === 0 && <li className="empty">No rows for this loop.</li>}
             {items.map((it, i) => (
-              <Row key={it.key} item={it} i={i} startedAt={startedAt} who={names.get(it.row.loop) ?? it.row.loop} cur={i === cur} me={respond?.me?.signedIn ? respond.me.name : null} />
+              <Row key={it.key} item={it} i={i} startedAt={startedAt} who={names.get(it.row.loop) ?? it.row.loop} cur={i === cur} me={respond?.me?.signedIn ? respond.me.name : null} anchor={anchor} />
             ))}
           </ol>
           <div className="feedfoot stat older">

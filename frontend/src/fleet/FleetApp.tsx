@@ -45,6 +45,7 @@ import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
 import { RespondModal } from "./components/Respond";
+import { ActivityOutputFlag } from "./components/BashRow";
 import type { SessionView } from "./types";
 
 
@@ -131,18 +132,20 @@ interface FleetViewProps {
 export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
-    <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
-      <FleetViewBody
-        state={props.state}
-        updateEvery={props.updateEvery}
-        onUpdateEvery={props.onUpdateEvery}
-        board={props.board}
-        myReporters={props.myReporters}
-        peersApi={props.peersApi}
-        traffic={props.traffic}
-        trafficApi={props.trafficApi}
-      />
-    </RespondProvider>
+    <ActivityOutputFlag.Provider value={props.state.features["activity-output"] === true}>
+      <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} api={props.respondApi}>
+        <FleetViewBody
+          state={props.state}
+          updateEvery={props.updateEvery}
+          onUpdateEvery={props.onUpdateEvery}
+          board={props.board}
+          myReporters={props.myReporters}
+          peersApi={props.peersApi}
+          traffic={props.traffic}
+          trafficApi={props.trafficApi}
+        />
+      </RespondProvider>
+    </ActivityOutputFlag.Provider>
   );
 });
 

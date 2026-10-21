@@ -3,12 +3,25 @@ import { AdminError, type AdminApi } from "./adminApi";
 import { Panel, Section, SwitchRow } from "./Page";
 import { failText, useList } from "./useList";
 import { plainHttpCaution } from "./plainHttpCaution";
-import { PEER_FLAG } from "./ReporterMessaging";
+import { PEER_FLAG, WarnIcon } from "./ReporterMessaging";
 import { ADMIN_LIMIT_FIELDS, PeerLimits, type PeerLimitKey } from "../components/PeerLimits";
 import { RecordingLimits, RecordingsTable, RecordingWarning, type RecordingState } from "./RecordingAdmin";
 
 /** The id of the session recording feature flag (#353). */
 const RECORDING_FLAG = "session-recording";
+const OUTPUT_FLAG = "activity-output";
+
+/** The warning under the Bash output flag (#431, mockup/podium-feed-expand-admin.html): what output holds, and who can read it. Shown while the switch is on. */
+export function OutputWarning() {
+  return (
+    <div className="warnbar" role="note">
+      <WarnIcon />
+      <span className="tx">
+        Output holds whatever a command printed: file contents, environment dumps and tokens the redactor does not know. Podium hides the secrets it recognizes, but it cannot promise to catch all of them. Anyone who can open the Activity panel of a session can read its output while the panel is open.
+      </span>
+    </div>
+  );
+}
 
 interface NoticeRow {
   id: string;
@@ -75,6 +88,7 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
             ? (data.features ?? []).flatMap((f) => [
                 row(`feature-${f.id}`, f.name, f.id === "respond" ? `${f.description} ${plainHttpCaution()}`.trim() : f.id === RECORDING_FLAG && data.recording?.authOn === false ? `${f.description} This server has no sign-in, so nothing can be recorded.` : f.description, f.on, () => put({ features: { [f.id]: !f.on } }), f.id),
                 ...(f.id === RECORDING_FLAG && f.on ? [<RecordingWarning key={`${f.id}-warn`} />] : []),
+                ...(f.id === OUTPUT_FLAG && f.on ? [<OutputWarning key={`${f.id}-warn`} />] : []),
               ])
             : row("feature-loading", "Feature flags", "", undefined, () => {})}
         </Panel>

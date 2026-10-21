@@ -116,3 +116,21 @@ export function nextFailure(items: readonly ReplayItem[], from: number): number 
   }
   return -1;
 }
+
+/** The command of a recorded Bash call: its input is stored as JSON. Null when the text is not that (a cut input is not valid JSON). */
+export function bashCommand(input: string): string | null {
+  try {
+    const v: unknown = JSON.parse(input);
+    const c = v !== null && typeof v === "object" ? (v as { command?: unknown }).command : undefined;
+    return typeof c === "string" ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A recorded Bash result as the feed shows one: a failed call's own "Exit code N" line is the status, apart from the output. */
+export function bashResult(r: RecordingRow): { output: string; failed: boolean; exitCode?: number } {
+  const failed = r.failed === true;
+  const m = failed ? /^Exit code (\d+)\n?/.exec(r.text) : null;
+  return m ? { output: r.text.slice(m[0].length), failed, exitCode: Number.parseInt(m[1]!, 10) } : { output: r.text, failed };
+}

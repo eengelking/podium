@@ -1305,6 +1305,34 @@ body.modal-open #root { filter: blur(5px); }
 .podium .feed li .res .code { max-height: 6.5em; overflow: hidden; margin: 6px 0 0; }
 .podium .feed li .res[open] .code { max-height: none; }
 .podium .feed li .failbox { margin: 6px 0 0; }
+/* A Bash row opens to its whole command and output (#431, mockup/podium-feed-expand.html). .tgl is the row's own button, .chev
+   turns when it is open, .xp is the opened part (.xh a label line with its Copy button, .xcmd and .xout the two blocks), .exit the
+   status as a shape, a word and a color. The whole row is the click target; the opened part is not, so its text can be selected. */
+.podium .feed li .tgl { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.podium .feed li .tgl:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .tgl .chev { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; color: var(--muted); transition: transform 0.12s ease-out; }
+.podium .feed li .tgl[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.podium .feed li .tgl .cut { color: var(--muted); }
+.podium .feed li.can { cursor: pointer; }
+.podium .feed li.can:hover { background: var(--hover); }
+.podium .feed li.open, .podium .feed li.open:hover { background: var(--raised); }
+.podium .feed li .tgl .state { margin-left: 6px; color: var(--muted); font-family: var(--font-ui); font-size: 11px; white-space: nowrap; }
+.podium .feed li .nofull { color: var(--ink); font-family: var(--font-ui); font-size: 11px; margin-left: 4px; }
+.podium .feed li .xp { margin: 6px 0 2px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; font-family: var(--font-ui); cursor: default; }
+.podium .feed li .xp > div { min-width: 0; }
+.podium .feed li .xp .xh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 3px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+.podium .feed li .xp .xh .exit { margin-right: auto; margin-left: 8px; }
+.podium .feed li .xp .xh .btn { padding: 2px 8px; font-size: 11.5px; }
+.podium .feed li .xp .code { max-height: none; overflow: visible; cursor: text; }
+.podium .feed li .xp .code.xcmd, .podium .feed li .xp .code.xout { white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .feed li .xp .foot { display: flex; justify-content: flex-end; }
+.podium .feed li .xp .code .mark { color: var(--muted); }
+.podium .feed li .xp .feedoff { cursor: default; }
+.podium .exit { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.podium .exit.ok { color: var(--good-text); }
+.podium .exit.bad { color: var(--crit-text); }
+.podium .exit svg { flex: none; }
+@media (prefers-reduced-motion: reduce) { .podium .feed li .tgl .chev { transition: none; } }
 /* .scrub: the replay's position slider, a labelled range input in the ink color. */
 .podium .scrub { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
