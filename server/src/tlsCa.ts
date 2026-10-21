@@ -80,7 +80,7 @@ export interface EnsureTlsOptions {
 
 const file = (dir: string, name: string): string => path.join(dir, name);
 
-const randomSerial = (): string => {
+export const randomSerial = (): string => {
   const b = randomBytes(16);
   b[0] &= 0x7f; // positive, so openssl does not read the top bit as a sign
   return `0x${b.toString('hex')}`;
@@ -157,7 +157,7 @@ function loadExisting(dir: string, state: { ca: boolean; serving: boolean }): vo
   }
 }
 
-async function openssl(bin: string, args: string[], cwd: string): Promise<void> {
+export async function openssl(bin: string, args: string[], cwd: string): Promise<void> {
   try {
     await run(bin, args, { cwd, timeout: 30_000 });
   } catch (err) {

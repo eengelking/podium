@@ -1,17 +1,13 @@
 // Built-in TLS (#577, T5): a client certificate for each person, and the reporter config file it travels in.
 // The key is made in a work folder, read once for the config file and deleted with the folder. Podium keeps the
 // certificate and never the key (SPEC 7.7, *Keys and certificates*).
-import { execFile } from 'node:child_process';
-import { X509Certificate, randomBytes } from 'node:crypto';
+import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { hostnameOf } from './hostCheck.js';
 import type { PersonRow } from './fleet/people.js';
-import { describeCert, TlsError, type CertInfo } from './tlsCa.js';
+import { describeCert, openssl, randomSerial, TlsError, type CertInfo } from './tlsCa.js';
 import type { PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
-
-const run = promisify(execFile);
 
 export const REPORTER_DAYS = 90;
 export const CONFIG_HEADER = '# podium-reporter-config v1';
@@ -26,15 +22,7 @@ export interface IssuedPersonCert {
   issuerFingerprint: string;
 }
 
-export interface IssueOptions {
-  dir: string;
-  /** The token's key id: the subject is `CN=pdm_<keyId>, O=podium`, never the person's name. */
-  keyId: string;
-  days?: number;
-  openssl?: string;
-}
-
-export const clientConfig = `[v3_client]
+const clientConfig = `[v3_client]
 basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature
 extendedKeyUsage = clientAuth
@@ -42,24 +30,31 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid:always
 `;
 
-export const randomSerial = (): string => {
-  const b = randomBytes(16);
-  b[0] &= 0x7f;
-  return `0x${b.toString('hex')}`;
-};
-
-export async function openssl(bin: string, args: string[], cwd: string): Promise<void> {
-  try {
-    await run(bin, args, { cwd, timeout: 30_000 });
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: string };
-    if (e.code === 'ENOENT') throw new TlsError(`${bin} is not installed or not on PATH; built-in TLS needs it to make certificates`);
-    throw new TlsError(`${bin} ${args[0]} failed: ${(e.stderr ?? e.message).toString().trim().split('\n')[0]}`);
-  }
+/** The part of making a certificate that differs: how the person's public key reaches `openssl x509`. */
+export interface KeyStep {
+  /** The `openssl x509` arguments that name the input and the subject, such as `-req -in client.csr`. */
+  input: string[];
+  /** The person's private key, when this step made one. */
+  key?: string;
 }
 
-/** Makes a key and a `clientAuth` certificate for one person, signed by the CA in `dir`. Nothing is left on disk. */
-export async function issuePersonCert(o: IssueOptions): Promise<IssuedPersonCert> {
+export interface SignOptions {
+  dir: string;
+  /** The token's key id: the subject is `CN=pdm_<keyId>, O=podium`, never the person's name. */
+  keyId: string;
+  days?: number;
+  openssl?: string;
+}
+
+/** The subject of every person certificate. */
+export const personSubject = (keyId: string): string => `/CN=pdm_${keyId}/O=podium`;
+
+/**
+ * Signs a `clientAuth` certificate with the CA in `dir`: the work folder, the extension file, the serial, the signing and
+ * the reading back of the dates are here once. `prepare` puts the public key in the work folder and says how `openssl x509`
+ * takes it. Nothing is left on disk.
+ */
+export async function signClientCert(o: SignOptions, prepare: (work: string, bin: string) => Promise<KeyStep>): Promise<IssuedPersonCert> {
   if (!/^[0-9a-f]{12}$/.test(o.keyId)) throw new TlsError('the token key id is not 12 hex digits');
   const bin = o.openssl ?? 'openssl';
   const caCrt = path.join(o.dir, 'ca.crt');
@@ -69,16 +64,25 @@ export async function issuePersonCert(o: IssueOptions): Promise<IssuedPersonCert
   try {
     fs.chmodSync(work, 0o700);
     fs.writeFileSync(path.join(work, 'client.cnf'), clientConfig);
-    await openssl(bin, ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'client.key'], work);
-    fs.chmodSync(path.join(work, 'client.key'), 0o600);
-    await openssl(bin, ['req', '-new', '-key', 'client.key', '-subj', `/CN=pdm_${o.keyId}/O=podium`, '-out', 'client.csr'], work);
-    await openssl(bin, ['x509', '-req', '-in', 'client.csr', '-CA', caCrt, '-CAkey', caKey, '-sha256', '-days', String(o.days ?? REPORTER_DAYS), '-set_serial', randomSerial(), '-extfile', 'client.cnf', '-extensions', 'v3_client', '-out', 'client.crt'], work);
+    const step = await prepare(work, bin);
+    await openssl(bin, ['x509', ...step.input, '-CA', caCrt, '-CAkey', caKey, '-sha256', '-days', String(o.days ?? REPORTER_DAYS), '-set_serial', randomSerial(), '-extfile', 'client.cnf', '-extensions', 'v3_client', '-out', 'client.crt'], work);
     const cert = fs.readFileSync(path.join(work, 'client.crt'), 'utf8');
-    const key = fs.readFileSync(path.join(work, 'client.key'), 'utf8');
-    return { cert, key, info: describeCert(cert), issuerFingerprint: new X509Certificate(fs.readFileSync(caCrt, 'utf8')).fingerprint256 };
+    return { cert, key: step.key ?? '', info: describeCert(cert), issuerFingerprint: new X509Certificate(fs.readFileSync(caCrt, 'utf8')).fingerprint256 };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
+}
+
+export type IssueOptions = SignOptions;
+
+/** Makes a key and a `clientAuth` certificate for one person, signed by the CA in `dir`. Nothing is left on disk. */
+export function issuePersonCert(o: IssueOptions): Promise<IssuedPersonCert> {
+  return signClientCert(o, async (work, bin) => {
+    await openssl(bin, ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'client.key'], work);
+    fs.chmodSync(path.join(work, 'client.key'), 0o600);
+    await openssl(bin, ['req', '-new', '-key', 'client.key', '-subj', personSubject(o.keyId), '-out', 'client.csr'], work);
+    return { input: ['-req', '-in', 'client.csr'], key: fs.readFileSync(path.join(work, 'client.key'), 'utf8') };
+  });
 }
 
 /** A person's name as it appears in a file name: letters, digits, dot, underscore and dash; anything else becomes a dash. */

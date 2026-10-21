@@ -66,6 +66,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **One function signs a person's certificate (#613, part of #577).** Making a certificate from a key `openssl` generates (an Admin issuing a config) and from a public key a reporter sends (a renewal) had two copies of the work folder, extension file, serial, signing and date readback. `signClientCert` now does those once and the two callers supply only how the key reaches `openssl x509`. No change in behavior; a test now checks both produce the same profile and clean up.
+
 - The simulator (`scripts/podium-sim.ts`) sends an OS with each machine of a `--person`: macOS, Fedora Linux or Windows on the laptop, none for some (an older reporter), and Ubuntu on the build box, so the Machine and System cells show every state (#427).
 - Admin > Reporting: the Admin activity report says when the log held more than 1,000 entries in the period and only the newest are shown, and its reply carries `truncated` (#529).
 - Reporting reads less: a report for today no longer scans the agents, reporter links and failures of every stored session, and the Spend breakdown reads its sessions and agents in two queries instead of several per session (#529).

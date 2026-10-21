@@ -151,6 +151,31 @@ describe('issuing a certificate for a public key', () => {
   });
 });
 
+describe('both ways of signing a person certificate share one path (#613)', () => {
+  const paths = [
+    ['issuePersonCert', (dir: string, keyId: string) => issuePersonCert({ dir, keyId })],
+    ['issueForPublicKey', (dir: string, keyId: string) => issueForPublicKey({ dir, keyId, publicKey: pubPem(newKey().publicKey) })],
+  ] as const;
+
+  it.each(paths)('%s makes the same profile: clientAuth, not a CA, the person subject, signed by the CA, no work folder left', async (_n, make) => {
+    const s = await setup();
+    const out = await make(s.dir, 'a1b2c3d4e5f6');
+    const x = new X509Certificate(out.cert);
+    expect(x.subject).toBe('CN=pdm_a1b2c3d4e5f6\nO=podium');
+    expect(x.ca).toBe(false);
+    expect(x.keyUsage).toEqual(['1.3.6.1.5.5.7.3.2']);
+    expect(x.verify(new X509Certificate(s.ca).publicKey)).toBe(true);
+    expect(out.issuerFingerprint).toBe(new X509Certificate(s.ca).fingerprint256);
+    expect(fs.readdirSync(s.dir).filter((n) => n.startsWith('.new-'))).toEqual([]);
+  });
+
+  it.each(paths)('%s refuses a key id that is not 12 hex digits and a folder with no CA', async (_n, make) => {
+    const s = await setup();
+    await expect(make(s.dir, '../etc/passwd')).rejects.toThrow(/12 hex digits/);
+    await expect(make(tmp(), 'a1b2c3d4e5f6')).rejects.toThrow(/no CA to sign with/);
+  });
+});
+
 describe('authorizeRenewal', () => {
   const sock = (x: { raw: Buffer; fingerprint256: string }, error: string | null): RenewSocket => ({ encrypted: true, authorized: error === null, authorizationError: error, getPeerCertificate: () => x });
   const peer = (pem: string) => ({ raw: new X509Certificate(pem).raw, fingerprint256: new X509Certificate(pem).fingerprint256 });
