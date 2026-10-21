@@ -21,6 +21,7 @@ import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
+import type { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
@@ -45,6 +46,8 @@ export interface AdminRouterOptions {
   peers?: PeerService;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistory; settings: ActivityHistorySettingsStore };
+  /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
+  certificates?: { settings: TlsSettingsStore; renewer: () => ServingRenewer | null };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -694,6 +697,43 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
       res.json(out);
     }).catch(storeFailed(res));
+  });
+
+  // ---- certificates (#577) -----------------------------------------------------------------------
+
+  const certs = opts.certificates;
+  const tlsOff = (res: Response) => void res.status(404).json({ ok: false, error: 'TLS is off' });
+
+  router.get('/certificates', (_req, res) => {
+    const r = certs?.renewer();
+    if (!r) return tlsOff(res);
+    res.json({ ok: true, ...r.view() });
+  });
+
+  // Flat body keyed as in SPEC 6: { "tls.serving.lifetimeDays": 90, "tls.serving.renewBeforeDays": 30 }.
+  router.put('/certificates', (req, res) => {
+    const r = certs?.renewer();
+    if (!certs || !r) return tlsOff(res);
+    const body: unknown = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return void res.status(400).json({ ok: false, error: 'give the settings to change, such as tls.serving.renewBeforeDays' });
+    const out = certs.settings.set(body as Record<string, unknown>);
+    if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
+    const s = out.settings;
+    audit(req, 'tls_settings_changed', `Serving certificate settings: lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays });
+    res.json({ ok: true, ...r.view() });
+  });
+
+  router.post('/certificates/renew', (req, res) => {
+    const r = certs?.renewer();
+    if (!r) return tlsOff(res);
+    void r.renewNow().then((out) => {
+      if (!out.ok) {
+        audit(req, 'tls_serving_renew_failed', 'Renewing the serving certificate failed', {});
+        return void res.status(500).json({ ok: false, error: out.error, ...r.view() });
+      }
+      audit(req, 'tls_serving_renewed', 'Renewed the serving certificate', { not_after: out.serving.notAfter });
+      res.json({ ok: true, ...r.view() });
+    }).catch(() => void res.status(500).json({ ok: false, error: 'could not renew the serving certificate' }));
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));

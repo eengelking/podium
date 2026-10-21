@@ -4,6 +4,7 @@ import https from 'node:https';
 import type { RequestListener } from 'node:http';
 import type { Logger } from './logging/logger.js';
 import { ensureTls, serverNames, type TlsMaterial } from './tlsCa.js';
+import { ServingRenewer, SERVING_DEFAULTS, type ServingSettings } from './tlsRenew.js';
 import { tlsDir } from './tlsStorage.js';
 
 export const DEFAULT_TLS_PORT = 4318;
@@ -17,12 +18,18 @@ export interface StartTlsOptions {
   allowedHosts: string[];
   logger: Logger;
   openssl?: string;
+  /** The Admin's serving-certificate settings, read each time they are needed. */
+  settings?: () => ServingSettings;
+  now?: () => number;
+  /** How often the renewal check runs; a day unless a test says otherwise. */
+  checkEveryMs?: number;
 }
 
 export interface TlsListener {
   server: https.Server;
   port: number;
   material: TlsMaterial;
+  renewer: ServingRenewer;
 }
 
 /** The HTTPS port from `PODIUM_TLS_PORT`, or an error that names what is wrong with it. */
@@ -42,9 +49,11 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
     return null;
   }
   const dir = tlsDir(o.dbPath);
+  const settings = o.settings ?? (() => SERVING_DEFAULTS);
+  const names = serverNames(o.bind, o.allowedHosts);
   let material: TlsMaterial;
   try {
-    material = await ensureTls({ dir, names: serverNames(o.bind, o.allowedHosts), openssl: o.openssl });
+    material = await ensureTls({ dir, names, servingDays: settings().lifetimeDays, openssl: o.openssl });
   } catch (err) {
     const reason = (err as Error).message;
     o.logger.error('tls.failed', `podium: TLS is not started: ${reason}; HTTP keeps working`, { dir, reason });
@@ -57,6 +66,10 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
     o.logger.info('tls.serving_created', 'podium: made a serving certificate', { fingerprint_sha256: material.serving.fingerprintSha256, not_after: material.serving.notAfter });
   }
   const server = https.createServer({ cert: material.cert, key: material.key, minVersion: 'TLSv1.2' }, o.app);
+  const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs }, material.cert);
+  // Renew at start if it is due, before the first connection is accepted; a failure is logged and the current certificate serves.
+  await renewer.start();
+  server.once('close', () => renewer.stop());
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
@@ -68,19 +81,21 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
   } catch (err) {
     const reason = (err as Error).message;
     o.logger.error('tls.failed', `podium: HTTPS could not listen on port ${p.port}: ${reason}; HTTP keeps working`, { port: p.port, reason });
+    renewer.stop();
     return null;
   }
   // Without a handler a later socket-level error would be an uncaught exception that takes HTTP down with it.
   server.on('error', (err) => o.logger.error('tls.server_error', `podium: the HTTPS server reported an error: ${err.message}`, { reason: err.message }));
   server.on('tlsClientError', (err) => o.logger.warn('tls.handshake_failed', `podium: a TLS handshake failed: ${err.message}`, { reason: err.message }));
+  const serving = renewer.view().serving;
   o.logger.info('tls.listening', `Podium HTTPS listening on https://${o.bind}:${p.port}`, {
     bind: o.bind,
     port: p.port,
     ca_fingerprint_sha256: material.ca.fingerprintSha256,
     ca_not_before: material.ca.notBefore,
     ca_not_after: material.ca.notAfter,
-    serving_fingerprint_sha256: material.serving.fingerprintSha256,
-    serving_not_after: material.serving.notAfter,
+    serving_fingerprint_sha256: serving.fingerprintSha256,
+    serving_not_after: serving.notAfter,
   });
-  return { server, port: p.port, material };
+  return { server, port: p.port, material, renewer };
 }
