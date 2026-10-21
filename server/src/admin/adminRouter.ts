@@ -25,6 +25,7 @@ import type { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
 import type { PersonCertStore } from '../tlsClientAuth.js';
 import type { CaRotation } from '../tlsServer.js';
 import { TlsError } from '../tlsCa.js';
+import { CROSS_DAYS } from '../tlsRotation.js';
 import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
@@ -822,7 +823,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   /** The renewer's view with the overlap's count of reporters still on the old CA (#588). */
   const certificatesView = (r: ServingRenewer) => {
-    const v = r.view();
+    const v = { ...r.view(), overlapDays: CROSS_DAYS };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
     const counts = certs?.people?.store.reportersByIssuer(now() - (certs.graceDays?.() ?? certs.settings.getReporter().graceDays) * 86_400_000);

@@ -120,6 +120,7 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
         renewer.adopt(out);
         // A hard cutover refuses everything the old CA signed, and an open connection stays authorized until it is closed.
         const closed = endOverlap ? closeClientConnections() : 0;
+        o.logger.info('tls.ca_rotated', `podium: rotated the CA${endOverlap ? ' and ended the overlap; every reporter needs a reissued config' : '; the old CA stays trusted until it is retired'}`, { overlap: out.overlap, connections_closed: closed, ca_fingerprint_sha256: out.ca.fingerprintSha256, ca_not_after: out.ca.notAfter });
         return { ca: out.ca, serving: out.serving, overlap: out.overlap, closed };
       }),
     retire: () => {
@@ -128,7 +129,9 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
       retireCa(dir);
       trust.reload();
       renewer.reapply();
-      return { closed: closeClientConnections(previous) };
+      const closed = closeClientConnections(previous);
+      o.logger.info('tls.ca_retired', 'podium: retired the old CA', { connections_closed: closed });
+      return { closed };
     },
   };
   try {

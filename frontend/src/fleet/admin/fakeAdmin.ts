@@ -422,6 +422,20 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         if (state.certError) return json(500, { ok: false, error: state.certError });
         return json(200, { ok: true, ...c });
       }
+      if (path === "/certificates/rotate-ca" && method === "POST") {
+        const b = JSON.parse(String(init?.body)) as { endOverlap: boolean };
+        state.certBodies.push(b);
+        if (state.certError) return json(409, { ok: false, error: state.certError });
+        c.rotation = b.endOverlap ? null : { previousCa: c.ca!, cross: fakeCert(120, { serial: "CR01" }, 120), startedAt: Date.now(), reporters: { onOldCa: 2, total: 6 } };
+        return json(200, { ok: true, ...c });
+      }
+      if (path === "/certificates/retire-ca" && method === "POST") {
+        state.certBodies.push({ retire: true });
+        if (!c.rotation) return json(409, { ok: false, error: "there is no old CA to retire" });
+        const refused = c.rotation.reporters.onOldCa;
+        c.rotation = null;
+        return json(200, { ok: true, refused, connectionsClosed: 1, ...c });
+      }
       if (path === "/certificates" && method === "PUT") {
         const b = JSON.parse(String(init?.body)) as Record<string, number | boolean>;
         state.certBodies.push(b);

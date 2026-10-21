@@ -12,6 +12,7 @@ import { Panel, Section } from "./Page";
 const DAY = 86_400_000;
 
 interface Band {
+  role?: "status";
   cls: string;
   icon: ReactNode;
   title: string;
@@ -25,6 +26,10 @@ function bandOf(v: CertsView, now: number): Band | null {
   const caFirst = ca < sv;
   const cert = caFirst && v.ca ? v.ca : v.serving;
   const stage = stageOf(cert.notAfter, now);
+  if (v.rotation && stage !== "expired") {
+    const { onOldCa } = v.rotation.reporters;
+    return { role: "status", cls: "deleg", icon: <IconClock />, title: "Certificate authority rotation is in progress.", detail: `${plural(onOldCa, "reporter")} still ${onOldCa === 1 ? "uses" : "use"} the old CA. Podium accepts it until you retire it, and presents a chain the old CA verifies until ${dateOf(v.rotation.cross.notAfter)}. Retire it when none are left.` };
+  }
   if (stage === "ok") return null;
   const what = caFirst ? "The certificate authority" : "The serving certificate";
   const days = daysUntil(cert.notAfter, now);
@@ -57,8 +62,10 @@ function Fingerprint({ value }: { value: string }) {
   );
 }
 
-export function CertStatusPanel({ view, now, base }: { view: CertsView; now: number; base: string }) {
+export function CertStatusPanel({ view, now, base, onRetire }: { view: CertsView; now: number; base: string; onRetire: () => Promise<void> }) {
   const [names, setNames] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const rot = view.rotation ?? null;
   const { ca, serving } = view;
   const band = bandOf(view, now);
   const caExpired = !!ca && stageOf(ca.notAfter, now) === "expired";
@@ -69,7 +76,7 @@ export function CertStatusPanel({ view, now, base }: { view: CertsView; now: num
     <Section id="c-s" title="Status" help="The header shows a pill when the CA or the serving certificate is close to expiring, or a renewal has failed.">
       <Panel>
         {band && (
-          <div className={`band ${band.cls}`} role="alert">
+          <div className={`band ${band.cls}`} role={band.role ?? "alert"}>
             <span className="bi">{band.icon}</span>
             <span className="bt">
               <span className="bl">{band.title}</span>
@@ -101,6 +108,36 @@ export function CertStatusPanel({ view, now, base }: { view: CertsView; now: num
                   <td>By hand</td>
                   <td>
                     <CertBadge notAfter={ca.notAfter} now={now} />
+                  </td>
+                </tr>
+              )}
+              {rot && (
+                <tr>
+                  <td className="who">
+                    Previous certificate authority
+                    <span className="hint">Retiring, chain verified by it until {dateOf(rot.cross.notAfter)}</span>
+                  </td>
+                  <td className="nw">
+                    <span className="mono">{dateOf(rot.previousCa.notAfter)}</span>
+                    <span className="hint">kept for the overlap</span>
+                  </td>
+                  <td>
+                    <button type="button" className="btn sm" aria-expanded={asking} onClick={() => setAsking(true)}>
+                      Retire old CA…
+                    </button>
+                  </td>
+                  <td>
+                    {rot.reporters.onOldCa > 0 ? (
+                      <span className="badge soon">
+                        <IconClock />
+                        {rot.reporters.onOldCa} of {rot.reporters.total} reporters still use it
+                      </span>
+                    ) : (
+                      <span className="badge ok">
+                        <span className="dot running" aria-hidden="true" />
+                        no reporter uses it
+                      </span>
+                    )}
                   </td>
                 </tr>
               )}
@@ -140,6 +177,33 @@ export function CertStatusPanel({ view, now, base }: { view: CertsView; now: num
             </tbody>
           </table>
         </div>
+        {rot && asking && (
+          <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && setAsking(false)}>
+            <IconWarn className="wicon" />
+            <h3>Retire the old CA?</h3>
+            <p>
+              {rot.reporters.onOldCa > 0
+                ? `The ${plural(rot.reporters.onOldCa, "reporter")} still on the old CA ${rot.reporters.onOldCa === 1 ? "is" : "are"} refused at once, and open connections are closed. Their people need a new reporter config from Admin > People. The ${rot.reporters.total - rot.reporters.onOldCa} that already renewed ${rot.reporters.total - rot.reporters.onOldCa === 1 ? "is" : "are"} not affected.`
+                : "No reporter still uses the old CA. Open connections that came in on it are closed."}
+            </p>
+            <p className="formacts">
+              <button
+                type="button"
+                className="btn dng"
+                autoFocus
+                onClick={() => {
+                  setAsking(false);
+                  void onRetire();
+                }}
+              >
+                Retire old CA
+              </button>
+              <button type="button" className="btn" onClick={() => setAsking(false)}>
+                Cancel
+              </button>
+            </p>
+          </div>
+        )}
         {view.lastFailure && (
           <div className="err" role="alert">
             {failureText(view.lastFailure)}

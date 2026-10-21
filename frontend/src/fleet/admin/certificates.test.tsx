@@ -132,7 +132,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     expect(await within(await screen.findByRole("table", { name: "Certificate status" })).findByText("expired today", { selector: ".badge" })).toBeInTheDocument();
   });
 
-  it("walks through the recovery when the CA has expired, and holds Rotate CA… back until it exists", async () => {
+  it("walks through the recovery when the CA has expired, and makes Rotate CA… the one primary button", async () => {
     await open(fakeCerts({ ca: fakeCert(-2, { serial: "CA01" }) }));
     await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveClass("crit", "hot");
@@ -144,7 +144,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     expect(screen.getByText("To restore access")).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toContain("Choose Rotate CA… below.");
     const rotate = screen.getByRole("button", { name: "Rotate CA…" });
-    expect(rotate).toBeDisabled();
+    expect(rotate).toBeEnabled();
     expect(rotate).toHaveClass("pri");
     expect(screen.getByRole("button", { name: "Renew now" })).not.toHaveClass("pri");
   });
@@ -383,12 +383,12 @@ describe("Admin > Server > Certificates (#586)", () => {
       expect(await screen.findByRole("button", { name: "Unlock Admin" })).toBeInTheDocument();
     });
 
-    it("keeps Rotate CA… disabled and says it is for a later release", async () => {
+    it("offers Rotate CA… as a danger button, no longer held back for a later release", async () => {
       await open();
       const rotate = await screen.findByRole("button", { name: "Rotate CA…" });
-      expect(rotate).toBeDisabled();
+      expect(rotate).toBeEnabled();
       expect(rotate).toHaveClass("btn", "dng");
-      expect(screen.getByText(/Available in a later release\./)).toBeInTheDocument();
+      expect(screen.queryByText(/Available in a later release\./)).toBeNull();
     });
 
     it("lists the certificates it kept with their dates, and says when there are none", async () => {
@@ -454,5 +454,107 @@ describe("Admin > Server > Certificates (#586)", () => {
       });
       expect(screen.getByRole("button", { name: /^Settings/ })).toHaveAttribute("aria-current", "page");
     });
+  });
+});
+
+describe("Admin > Server > Certificates, CA rotation (#588)", () => {
+  const rotating = (onOldCa = 2, total = 6) => fakeCerts({ overlapDays: 120, rotation: { previousCa: fakeCert(3600, { serial: "OLD1" }, 3650), cross: fakeCert(30, { serial: "CR01" }, 120), startedAt: Date.now(), reporters: { onOldCa, total } } });
+
+  it("shows the blue status band, the previous CA row with the count, and Retire old CA…", async () => {
+    await open(rotating());
+    const b = await waitFor(() => {
+      const el = document.querySelector(".band");
+      if (!el) throw new Error("no band");
+      return el as HTMLElement;
+    });
+    expect(b).toHaveAttribute("role", "status");
+    expect(b.className).toContain("deleg");
+    expect(b).toHaveTextContent("Certificate authority rotation is in progress.");
+    expect(b).toHaveTextContent("2 reporters still use the old CA");
+    const row = within(table("Certificate status")).getByText("Previous certificate authority").closest("tr")!;
+    expect(row).toHaveTextContent("2 of 6 reporters still use it");
+    expect(within(row).getByRole("button", { name: "Retire old CA…" })).toBeInTheDocument();
+  });
+
+  it("has no previous CA row and no rotation band when nothing is rotating", async () => {
+    await open();
+    await screen.findByRole("table", { name: "Certificate status" });
+    expect(screen.queryByText("Previous certificate authority")).toBeNull();
+    expect(band()).toBeNull();
+  });
+
+  it("asks before retiring, names the count, and does nothing on Cancel", async () => {
+    const srv = await open(rotating());
+    fireEvent.click(await screen.findByRole("button", { name: "Retire old CA…" }));
+    const ask = await screen.findByRole("alert");
+    expect(ask).toHaveTextContent("Retire the old CA?");
+    expect(ask).toHaveTextContent("The 2 reporters still on the old CA are refused at once, and open connections are closed.");
+    expect(ask).toHaveTextContent("The 4 that already renewed are not affected.");
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Retire the old CA?")).toBeNull();
+    expect(srv.certBodies).toEqual([]);
+  });
+
+  it("retires the old CA and says who now needs a new config", async () => {
+    const srv = await open(rotating());
+    fireEvent.click(await screen.findByRole("button", { name: "Retire old CA…" }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Retire old CA" }));
+    expect(await screen.findByText(/Retired the old CA\. 2 reporters now need a new reporter config/)).toBeInTheDocument();
+    expect(srv.certBodies).toEqual([{ retire: true }]);
+    await waitFor(() => expect(screen.queryByText("Previous certificate authority")).toBeNull());
+  });
+
+  it("says no reporter uses it when the count is zero", async () => {
+    await open(rotating(0, 6));
+    const row = (await within(await screen.findByRole("table", { name: "Certificate status" })).findByText("Previous certificate authority")).closest("tr")!;
+    expect(row).toHaveTextContent("no reporter uses it");
+    fireEvent.click(within(row).getByRole("button", { name: "Retire old CA…" }));
+    expect(await screen.findByText("No reporter still uses the old CA. Open connections that came in on it are closed.")).toBeInTheDocument();
+  });
+
+  it("asks before rotating, with the overlap in days and the two choices", async () => {
+    const srv = await open(fakeCerts({ overlapDays: 120 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    const ask = await screen.findByRole("alert");
+    expect(ask).toHaveTextContent("Rotate the certificate authority?");
+    expect(ask).toHaveTextContent("keep working for 120 days");
+    expect(within(ask).getByRole("button", { name: "Rotate CA and end the overlap now" })).toBeEnabled();
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(srv.certBodies).toEqual([]);
+  });
+
+  it("rotates with an overlap, and the page then shows it in progress", async () => {
+    const srv = await open(fakeCerts({ overlapDays: 120 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Rotate CA" }));
+    expect(await screen.findByText(/Rotated\. Reporters pick up the new CA when they renew/)).toBeInTheDocument();
+    expect(srv.certBodies).toEqual([{ endOverlap: false }]);
+    expect(await screen.findByText("Previous certificate authority")).toBeInTheDocument();
+  });
+
+  it("ends the overlap now on request, saying every reporter needs a new config", async () => {
+    const srv = await open(fakeCerts({ overlapDays: 120 }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Rotate CA and end the overlap now" }));
+    expect(await screen.findByText(/Every reporter needs a new reporter config/)).toBeInTheDocument();
+    expect(srv.certBodies).toEqual([{ endOverlap: true }]);
+    expect(screen.queryByText("Previous certificate authority")).toBeNull();
+  });
+
+  it("while a rotation is open, the planned rotation is off and ending the overlap is not", async () => {
+    await open(rotating());
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    const ask = (await screen.findAllByRole("alert")).find((a) => a.textContent?.includes("Rotate the certificate authority?"))!;
+    expect(ask).toHaveTextContent("already in progress");
+    expect(within(ask).getByRole("button", { name: "Rotate CA" })).toBeDisabled();
+    expect(within(ask).getByRole("button", { name: "Rotate CA and end the overlap now" })).toBeEnabled();
+  });
+
+  it("shows why a rotation was refused", async () => {
+    const srv = await open(fakeCerts({ overlapDays: 120 }));
+    srv.certError = "this CA cannot be rotated that way";
+    fireEvent.click(await screen.findByRole("button", { name: "Rotate CA…" }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Rotate CA" }));
+    expect(await screen.findByText(/this CA cannot be rotated that way/)).toBeInTheDocument();
   });
 });

@@ -178,7 +178,7 @@ describe('rotating the CA on a running listener (#588)', () => {
   });
 
   it('retiring the old CA refuses its certificates at once and closes the connection that was open', async () => {
-    const { l, port, oldCa, person, dir } = await start();
+    const { s, l, port, oldCa, person, dir } = await start();
     await l.rotation.rotate(false);
     const fresh = await issuePersonCert({ dir, keyId: 'bbbbbbbbbbbb' });
     const keep = new https.Agent({ keepAlive: true, maxSockets: 1 });
@@ -197,6 +197,8 @@ describe('rotating the CA on a running listener (#588)', () => {
     expect(await authed(port, l.trust.currentCa(), freshAgent, fresh)).toEqual({ authorized: true });
     expect(l.trust.trustedIssuers()).toHaveLength(1);
     expect(l.rotation.retire()).toBeNull();
+    expect(s.lines.find((x) => x.event === 'tls.ca_rotated')).toMatchObject({ overlap: true, connections_closed: 0 });
+    expect(s.lines.find((x) => x.event === 'tls.ca_retired')).toMatchObject({ connections_closed: 1 });
   });
 
   it('ending the overlap now refuses every old certificate and closes every connection that held a client certificate', async () => {
