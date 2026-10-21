@@ -537,7 +537,8 @@ export class Fleet {
 
   /** The History row's recording marker (#353): only for a viewer `mayKnow` says may know of the session's recording, and only while one is held. */
   private keptMark(row: SessionRow, mayKnow?: RecordingKnown): Pick<HistoryRow, 'recording'> {
-    if (!mayKnow?.(row)) return {};
+    // With the Admin's flag off the replay routes answer 404, so the marker would point at nothing.
+    if (!this.recordings.enabled() || !mayKnow?.(row)) return {};
     const keptUntil = this.recordings.keptUntilOf(row.id);
     return keptUntil === null ? {} : { recording: { keptUntil } };
   }

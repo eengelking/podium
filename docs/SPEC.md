@@ -2204,8 +2204,9 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - A row also carries `recording: { keptUntil }` (#353) when a recording of the session is held and the request comes
   from a signed-in viewer who is the session's owner or an Admin (the sign-in of [the browser routes for session
   recording](#browser-routes-for-session-recording-353)); `keptUntil` is when the oldest part still held goes, as
-  `keptUntil` is everywhere else. For anyone else, and for a session with no recording, the field is absent, so
-  History tells nobody else that a recording exists.
+  `keptUntil` is everywhere else. For anyone else, for a session with no recording, and while the Admin's
+  `session-recording` flag is off (the replay routes answer `404` then), the field is absent, so History tells nobody
+  else that a recording exists and never points at one that cannot be opened.
 
 #### Mod routes for responding
 

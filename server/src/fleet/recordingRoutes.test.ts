@@ -616,6 +616,15 @@ describe('what History and the picker learn (#353)', () => {
     expect((await request(s.app).get(url)).body.sessions[0]).not.toHaveProperty('recording');
   });
 
+  it('leaves the mark out while the session-recording flag is off, since the replay routes answer 404 then', async () => {
+    const s = await chosen();
+    const url = await ended(s);
+    s.fleet.features.setFeature('session-recording', false);
+    expect((await s.a.get(url)).body.sessions[0]).not.toHaveProperty('recording');
+    s.fleet.features.setFeature('session-recording', true);
+    expect((await s.a.get(url)).body.sessions[0].recording).toBeDefined();
+  });
+
   it('marks nothing for a session with no recording', async () => {
     const s = setup();
     await send(s.app, s.ed.token, report(true, { status: 'done', endReason: 'clear' }));
