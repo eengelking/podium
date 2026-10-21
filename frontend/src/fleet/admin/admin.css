@@ -103,6 +103,12 @@
 .adminv .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; white-space: nowrap; }
 .adminv .badge.ok { color: var(--good-text); }
 .adminv .badge.off { color: var(--muted); }
+.adminv .badge.soon { color: var(--deleg-text); }
+.adminv .badge.serious { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.adminv .badge.bad { color: var(--crit-text); }
+.adminv .badge svg.i { width: 14px; height: 14px; }
+.adminv .ptab td.nw { white-space: nowrap; }
+.adminv .ptab td.nw .hint { display: block; }
 .adminv .apager { display: flex; justify-content: space-between; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 8px 16px; border-top: 1px solid var(--border); }
 
 /* switch rows: every on/off setting */
@@ -360,3 +366,10 @@
 .adminv .srow .row2 select.field { min-width: 0; }
 .adminv .klink { background: none; border: 0; padding: 0; font: inherit; cursor: pointer; }
 .adminv .ptab td.who .hint { display: block; }
+
+/* Certificates (#586): the band row on an Admin panel, the CA fingerprint line and the dates that stay on one line */
+.adminv .band .bt { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.adminv .band .bd { color: var(--ink2); font-size: 12px; }
+.adminv .panel > .band { border-top: 0; }
+.adminv .note-line .sid { display: inline-flex; flex-wrap: wrap; max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
+.adminv .note-line .sid > span { min-width: 0; }

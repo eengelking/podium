@@ -56,6 +56,14 @@ describe('GET /api/admin/certificates', () => {
     expect(Object.keys(res.body.ca).sort()).toEqual(['fingerprintSha256', 'notAfter', 'notBefore', 'serial', 'subject']);
   });
 
+  it('also returns a person\'s certificate lifetime and grace, so the page can show them (T8)', async () => {
+    const { agent } = await setup();
+    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 90, graceDays: 30 });
+    const put = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.graceDays': 10 });
+    expect(put.body.reporter).toEqual({ lifetimeDays: 90, graceDays: 10 });
+    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 90, graceDays: 10 });
+  });
+
   it('answers 404 when TLS is off, on all the routes', async () => {
     const { agent } = await setup(false);
     expect((await agent.get('/api/admin/certificates').set(H)).status).toBe(404);

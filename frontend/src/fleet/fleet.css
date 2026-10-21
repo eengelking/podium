@@ -31,6 +31,11 @@ body { margin: 0; }
 .podium .dot.warn { background: var(--warn); }
 .podium .pill.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit) 55%, transparent); }
 .podium .pill.good { color: var(--good-text); border-color: color-mix(in srgb, var(--good) 55%, transparent); background: color-mix(in srgb, var(--good) 12%, transparent); font-weight: 600; }
+.podium .pill.soon { color: var(--deleg-text); border-color: color-mix(in srgb, var(--deleg) 55%, transparent); }
+.podium .pill.serious { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); border-color: color-mix(in srgb, var(--serious) 55%, transparent); }
+.podium a.pill { text-decoration: none; }
+.podium a.pill:hover { background: var(--hover); }
+.podium a.pill:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
 .podium .spacer { flex: 1; }
 .podium .btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); font-size: 12px; font-weight: 500; text-decoration: none; }
 .podium .btn:hover { background: var(--sel); }
@@ -290,6 +295,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .band.stale { --c: var(--serious); --c-text: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
 .podium .band.done { --c: var(--muted); --c-text: var(--muted); }
 .podium .band.deleg { --c: var(--deleg); --c-text: var(--deleg-text); }
+.podium .band.crit { --c: var(--crit); --c-text: var(--crit-text); }
 .podium .card.sc .sd .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
 .podium .card.sc .sd .si-bg, .podium .card.sc .sd .si-deleg { color: var(--deleg-text); }
 .podium .card.sc .sd .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
@@ -719,6 +725,7 @@ body.modal-open #root { filter: blur(5px); }
    trigger's rectangle. It is fixed, so a table's scroll container cannot clip it; it wraps and is at most 20 rem, or the
    viewport less a gutter, wide. */
 .podium .tipbox { position: fixed; z-index: 40; width: max-content; max-width: min(20rem, calc(100vw - 16px)); box-sizing: border-box; white-space: normal; overflow-wrap: anywhere; font-weight: 400; text-align: left; background: var(--raised); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.35; box-shadow: 0 4px 14px rgb(0 0 0 / .25); pointer-events: none; }
+.podium .tip:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 4px; }
 
 /* history (#/history) */
 .podium .history { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; }
@@ -1073,6 +1080,15 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal.sm .sfoot { display: flex; align-items: center; gap: 8px; padding: 10px 18px 14px; flex-wrap: wrap; }
 .podium .modal.sm .sfoot .grow { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
 .podium .modal.sm .signin { grid-template-columns: 70px minmax(0, 1fr); }
+.podium .modal .nset { margin: 0 0 14px; }
+.podium .modal .nset h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); display: flex; gap: 4px 8px; align-items: baseline; flex-wrap: wrap; }
+.podium .modal .nset h3 .env { font-family: var(--font-mono); font-weight: 400; }
+.podium .modal .nset ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.podium .modal .nset li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--grid); }
+.podium .modal .nset li:first-child { border-top: 0; }
+.podium .modal .nset .nm { font-family: var(--font-mono); font-size: 12.5px; overflow-wrap: anywhere; min-width: 0; }
+.podium .modal .nset .kd { flex: none; color: var(--muted); font-size: 12px; }
+.podium .modal .note { margin: 4px 0 10px; color: var(--muted); font-size: 12px; }
 
 /* The kanban board (#346): five columns, one card per plan step. Looks follow mockup/podium-kanban.html. */
 .podium .kb { container-type: inline-size; display: flex; flex-direction: column; gap: 10px; min-width: 0; }

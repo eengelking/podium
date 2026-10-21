@@ -75,7 +75,7 @@ stored hashed, so Podium cannot show one again. They travel in a header, so a se
 needs a trusted network or a TLS proxy.
 
 Admin locks after 10 idle minutes, and five wrong names or tokens lock it for 15 minutes. Admin's pages (people,
-groups, reporters, settings, model prices, the admin log) are in the "Admin" section of
+groups, reporters, settings, model prices, certificates, the admin log) are in the "Admin" section of
 [USER_GUIDE.md](USER_GUIDE.md).
 
 ### Several people on one Podium

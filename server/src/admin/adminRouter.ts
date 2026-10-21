@@ -806,7 +806,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   router.get('/certificates', (_req, res) => {
     const r = certs?.renewer();
     if (!r) return tlsOff(res);
-    res.json({ ok: true, ...r.view() });
+    res.json({ ok: true, ...r.view(), reporter: certs?.settings.getReporter() });
   });
 
   // The CA certificate to download, for a browser or a person who wants to check it (T8). Public; there is no key to send.
@@ -829,7 +829,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const s = out.settings;
     const rep = certs.settings.getReporter();
     audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays, header_countdown: s.headerCountdown });
-    res.json({ ok: true, ...r.view() });
+    res.json({ ok: true, ...r.view(), reporter: rep });
   });
 
   router.post('/certificates/renew', (req, res) => {

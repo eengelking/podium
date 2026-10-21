@@ -1,5 +1,6 @@
 // A small in-memory stand-in for /api/admin, shared by the Admin tests and the standards pages' Admin screens (#354).
 import { vi } from "vitest";
+import type { CertInfo, CertsView } from "./certFormat";
 import type { ActivityHistoryPreview, ActivityHistoryState, StoredDeleteResult, StoredSessionRow } from "./adminApi";
 
 interface PriceSet {
@@ -142,6 +143,28 @@ function fakeReport(report: string, url: URL) {
   return { ...base, columns: [{ key: "t", label: "When", unit: "time" }, { key: "kind", label: "Kind", unit: "text" }, { key: "detail", label: "What happened", unit: "text" }, { key: "source", label: "From", unit: "text" }], rows: entries.filter((e) => !kind || e.kind === kind), total: null };
 }
 
+const FP = "3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E";
+/** A certificate that ends `days` whole days from now (and half a day over, so a test run never crosses the day), or has ended. */
+export function fakeCert(days: number, over: Partial<CertInfo> = {}, lasts = 365): CertInfo {
+  const end = Date.now() + days * 86_400_000 + (days < 0 ? -43_200_000 : 43_200_000);
+  return { fingerprintSha256: FP, subject: "CN=Podium", notBefore: new Date(end - lasts * 86_400_000).toISOString(), notAfter: new Date(end).toISOString(), serial: "01AB", ...over };
+}
+/** What GET /certificates answers, healthy: a CA with ten years, a serving certificate with 307 days, six names, one earlier certificate. */
+export function fakeCerts(over: Partial<CertsView> = {}): CertsView {
+  return {
+    ca: fakeCert(3650, { subject: "CN=Podium CA", serial: "CA01" }, 3650),
+    serving: fakeCert(307),
+    names: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "10.40.8.12"] },
+    certificateNames: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "10.40.8.12"] },
+    previous: [fakeCert(-60, { serial: "0001" })],
+    settings: { lifetimeDays: 365, renewBeforeDays: 30, headerCountdown: true },
+    reporter: { lifetimeDays: 90, graceDays: 30 },
+    lastRenewed: null,
+    lastFailure: null,
+    ...over,
+  };
+}
+
 /** A small in-memory stand-in for /api/admin. */
 export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean; build?: string | null } = {}) {
   const state = {
@@ -171,6 +194,12 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     pageLimit: 50,
     rules: [] as { id: number; kind: string; pattern: string; createdAt: number }[],
     forget: { enabled: false, days: 30 },
+    /** Certificates (#586): null while TLS is off, which answers 404 "TLS is off". A test replaces it with `fakeCerts()`. */
+    certs: null as CertsView | null,
+    certBodies: [] as Record<string, unknown>[],
+    /** While set, saving a certificate setting is refused with this message and a 400; a renewal fails with it and a 500. */
+    certError: "",
+    renewals: 0,
     /** Orchestrator messaging (#416): off unless a test sets it. */
     peers: null as FakePeers | null,
     peerLimits: null as Record<string, number> | null,
@@ -358,6 +387,29 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       }
       if (url.searchParams.get("format") === "csv") return Promise.resolve(new Response(`period,sessions\n2026-10-19,69\n`, { status: 200, headers: { "Content-Type": "text/csv" } }));
       return json(200, state.reports[name] ?? fakeReport(name, url));
+    }
+    if (path.startsWith("/certificates")) {
+      const c = state.certs;
+      if (!c) return json(404, { ok: false, error: "TLS is off" });
+      if (path === "/certificates/renew" && method === "POST") {
+        state.renewals += 1;
+        if (state.certError) return json(500, { ok: false, error: state.certError });
+        return json(200, { ok: true, ...c });
+      }
+      if (path === "/certificates" && method === "PUT") {
+        const b = JSON.parse(String(init?.body)) as Record<string, number | boolean>;
+        state.certBodies.push(b);
+        if (state.certError) return json(400, { ok: false, error: state.certError });
+        for (const [k, v] of Object.entries(b)) {
+          if (k === "tls.header.countdown") c.settings.headerCountdown = v as boolean;
+          else if (k === "tls.serving.lifetimeDays") c.settings.lifetimeDays = v as number;
+          else if (k === "tls.serving.renewBeforeDays") c.settings.renewBeforeDays = v as number;
+          else if (k === "tls.reporter.lifetimeDays") c.reporter.lifetimeDays = v as number;
+          else c.reporter.graceDays = v as number;
+        }
+        return json(200, { ok: true, ...c });
+      }
+      return json(200, { ok: true, ...c });
     }
     if (path === "/groups") return json(200, { total: 0, page: 1, pageSize: 50, rows: [] });
     if (path === "/log") return json(200, { retainMs: 90 * 86_400_000, total: 1, page: 1, pageSize: 50, rows: [{ id: 1, t: 1, kind: "unlock_failed", detail: "Wrong secret (1)", source: "10.0.0.1" }] }); // NOSONAR S1313: a made-up private address in a fake server, never connected to

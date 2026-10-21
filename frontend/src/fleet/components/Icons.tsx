@@ -23,6 +23,7 @@ export const IconCheck = svg(<path d="M3.5 8.5l3 3 6-7" />);
 export const IconX = svg(<path d="M4 4l8 8M12 4l-8 8" />);
 export const IconClock = svg(<><circle cx="8" cy="8" r="5.5" /><path d="M8 5v3.2l2 1.3" /></>);
 export const IconWarn = svg(<><path d="M8 2.5l6 10.5H2z" /><path d="M8 7v2.8M8 11.6v.1" /></>);
+export const IconCertCross = svg(<><circle cx="8" cy="8" r="5.5" /><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" /></>);
 export const IconBack = svg(<path d="M10 3L5 8l5 5" />);
 export const IconBranch = svg(<><circle cx="4.5" cy="3.5" r="1.6" /><circle cx="4.5" cy="12.5" r="1.6" /><circle cx="11.5" cy="5.5" r="1.6" /><path d="M4.5 5.1v5.8M11.5 7.1c0 2.4-3 2.4-6 3.6" /></>);
 export const IconTree = svg(<><rect x="2" y="2.5" width="7" height="5" rx="1" /><rect x="7" y="8.5" width="7" height="5" rx="1" /><path d="M4 7.5v3h3" /></>);
