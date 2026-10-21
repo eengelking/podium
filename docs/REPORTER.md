@@ -110,6 +110,23 @@ The levels of `respond`:
 | `questions-and-plans` | The above, plus approving or rejecting a plan |
 | `everything` | The above, plus allowing or denying a tool (allow once only), and `/clear` and `/compact` |
 
+## Over TLS
+
+When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
+run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
+connects to the address in the file over HTTPS with your certificate, with no token and nothing installed on your machine.
+Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
+
+- **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
+  `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
+  Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
+- **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
+  another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
+  another name or from another CA. It never falls back to HTTP.
+- **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
+  helper running.
+- Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.
+
 ## Messaging your other orchestrators
 
 This section is the mod's side. To set messaging up across your machines, with the server's flag, rights, limits and

@@ -60,7 +60,7 @@ export interface HttpResult {
   ok: boolean;
   text: string;
 }
-export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<HttpResult>;
+export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<HttpResult>;
 
 export interface TransportConfig {
   serverUrl: string;
@@ -297,8 +297,10 @@ export class Transport {
     return mine[0] < max[0] || (mine[0] === max[0] && mine[1] < max[1]);
   }
 
-  statusText(): string {
+  /** `problem` is what the TLS link says is wrong (#584), shown ahead of the connection state. */
+  statusText(problem?: string | null): string {
     const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}`;
+    if (problem) return `${name} ○ ${problem}`;
     if (this.refused) return `${name} ○ token refused`;
     if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;
     if (this.online === false) return `${name} ○ offline`;
