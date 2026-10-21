@@ -10,6 +10,8 @@ export interface FeatureDef {
 }
 
 export const ACTIVITY_FEED = 'activity-feed';
+/** A Bash command's output in the Activity feed (#431): off until the Admin turns it on. Needs `activity-feed` on as well. */
+export const ACTIVITY_OUTPUT = 'activity-output';
 /** Respond from Podium (#206): off until the Admin turns it on. */
 export const RESPOND = 'respond';
 /** A changed file's diff, opened by the session's owner (#319): off until the Admin turns it on. */
@@ -29,6 +31,13 @@ export const FEATURES: readonly FeatureDef[] = [
     description:
       "Shows an agent's recent tool calls and text in its panel while someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after the panel closes unless the Admin chooses to keep activity in Admin > Server > Data. Off, nothing is captured or kept.",
     defaultOn: true,
+  },
+  {
+    id: ACTIVITY_OUTPUT,
+    name: 'Bash output in the activity feed',
+    description:
+      "Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited. Needs the Agent activity feed on, and the reporter's activityOutput option on the machine as well. Output is held in memory while the panel is open and is never stored. Off, no output is captured or sent.",
+    defaultOn: false,
   },
   {
     id: RESPOND,
