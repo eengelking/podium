@@ -15,6 +15,8 @@ interface P {
   name: string;
   groupId: number | null;
   revokedAt: number | null;
+  /** The person's reporter certificate (#587): absent means none. */
+  certificate?: { notAfter: string; revoked: boolean } | null;
 }
 
 /** Orchestrator messaging as the fake server keeps it (#416): one owner's reporters, the stored rights and the open requests. */
@@ -165,6 +167,9 @@ export function fakeCerts(over: Partial<CertsView> = {}): CertsView {
   };
 }
 
+/** The reporter config file the server makes for a person (#587), with a short stand-in for the PEM. */
+const fakeConfig = (name: string) => ({ filename: `reporter-config-${name.toLowerCase()}-1760000000.pem`, content: "# podium-reporter-config v1\n", expires: "2027-01-19T00:00:00.000Z", fingerprint: "AA:BB" });
+
 /** A small in-memory stand-in for /api/admin. */
 export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?: boolean; respondAdmin?: boolean; build?: string | null } = {}) {
   const state = {
@@ -191,11 +196,16 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     removeBodies: [] as unknown[],
     deleteBodies: [] as { ids: number[] }[],
     deleteError: "",
+    /** While set, a person's rotate, revoke or reissue is refused with this message and a 400 (such as the last administrator). */
+    personError: "",
     pageLimit: 50,
     rules: [] as { id: number; kind: string; pattern: string; createdAt: number }[],
     forget: { enabled: false, days: 30 },
     /** Certificates (#586): null while TLS is off, which answers 404 "TLS is off". A test replaces it with `fakeCerts()`. */
     certs: null as CertsView | null,
+    /** People's certificates (#587): whether TLS is on for the People list, the grace it reports, and the reporter config a new person or a reissue gets. */
+    tls: false,
+    graceDays: 30,
     certBodies: [] as Record<string, unknown>[],
     /** While set, saving a certificate setting is refused with this message and a 400; a renewal fails with it and a 500. */
     certError: "",
@@ -250,7 +260,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     ] as { key: string; state: string; name: string; named: boolean; who: string; credential: string | null; adminSecret: boolean; version: string; compat: string; firstSeenAt: number; lastSeenAt: number; sessions: number; live: number }[],
   };
   const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
-  const row = (p: P) => ({ id: p.id, name: p.name, credential: "pdm_0123456789ab", groupId: p.groupId, groupName: state.groups.find((g) => g.id === p.groupId)?.name ?? null, createdAt: 1, rotatedAt: null, revokedAt: p.revokedAt, lastReportAt: null, machines: [] });
+  const row = (p: P) => ({ id: p.id, name: p.name, credential: "pdm_0123456789ab", groupId: p.groupId, groupName: state.groups.find((g) => g.id === p.groupId)?.name ?? null, createdAt: 1, rotatedAt: null, revokedAt: p.revokedAt, lastReportAt: null, machines: [], certificate: state.tls ? (p.certificate ?? null) : null });
   /** The sessions of one page of a reporter's details: session-1 is the newest. */
   const recentPage = (total: number, url: URL) => {
     const size = Number(url.searchParams.get("pageSize") ?? 50);
@@ -287,7 +297,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const size = Number(url.searchParams.get("pageSize") ?? 50);
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       const all = state.people.filter((p) => p.name.toLowerCase().includes(q));
-      return json(200, { total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size).map(row), groups: state.groups });
+      return json(200, { total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size).map(row), groups: state.groups, tls: state.tls, graceDays: state.graceDays });
     }
     const grp = /^\/people\/(\d+)\/group$/.exec(path);
     if (grp && method === "PUT") {
@@ -307,7 +317,23 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const name = JSON.parse(String(init?.body)).name as string;
       const p = { id: state.people.length + 1, name, groupId: null, revokedAt: null };
       state.people.push(p);
-      return json(201, { ok: true, person: row(p), token: "pdm_aaaaaaaaaaaa_" + "b".repeat(48) });
+      return json(201, { ok: true, person: row(p), token: "pdm_aaaaaaaaaaaa_" + "b".repeat(48), ...(state.tls ? { config: fakeConfig(name) } : {}) });
+    }
+    const act = /^\/people\/(\d+)\/(rotate|revoke|revoke-all|certificate\/revoke|certificate\/reissue)$/.exec(path);
+    if (act && method === "POST") {
+      const who = state.people.find((x) => x.id === Number(act[1]))!;
+      if (state.personError) return json(400, { ok: false, error: state.personError });
+      if (act[2] === "rotate") {
+        who.revokedAt = null;
+        return json(200, { ok: true, person: row(who), token: "pdm_cccccccccccc_" + "d".repeat(48) });
+      }
+      if (act[2] === "certificate/reissue") {
+        who.certificate = { notAfter: "2027-01-19T00:00:00.000Z", revoked: false };
+        return json(200, { ok: true, config: fakeConfig(who.name) });
+      }
+      if (act[2] !== "certificate/revoke") who.revokedAt = 5;
+      if (act[2] !== "revoke") who.certificate = { notAfter: who.certificate?.notAfter ?? "2027-01-19T00:00:00.000Z", revoked: true };
+      return json(200, { ok: true });
     }
     if (path === "/reporters" && method === "GET") {
       const st = url.searchParams.get("state") ?? "";

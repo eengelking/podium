@@ -835,12 +835,23 @@ Under **Create user**, type a name and choose Create user.
 
 - Podium shows the token once, above the page (it stays there when you switch pages), with the settings to paste into
   that person's reporter: `userName`, `token` and `serverUrl`. Copy them before you choose "I have saved it", because
-  Podium keeps only a hash and cannot show the token again.
-- The list shows the token's key id as `pdm_` and twelve characters, the same way Reporters shows it, when each person
-  last reported and from which machines.
-- **Rotate** gives a person a new token and stops the old one.
-- **Revoke** refuses their reports from the next one on, and their sessions go stale and drop as usual. A revoked
-  person's row offers **Issue new token** instead.
+  Podium keeps only a hash and cannot show the token again. With TLS on, the same box also gives the person's reporter
+  config, one file named `reporter-config-<name>-<epoch>.pem`: choose **Download reporter config**, save it in
+  `~/.podium/` on the machine where Claude Code runs, and start a new Claude Code session. A session that is already
+  running does not pick it up, and podium-reporter needs Node.js on the machine's PATH. Podium keeps only the
+  certificate, so the file is shown once.
+- The list has a **Reporter certificate** cell and a **Console token** cell, each with its own badge. Hover a badge (or
+  tab to it) for the note: the certificate's date and what happens next, or the token's `pdm_` key id. The Group select
+  is under the name, and "created" is under Last report. With TLS off the certificate cell says so.
+- Each row has one **Actions** menu, grouped Console token, Reporter certificate and Person. Arrow keys, Home and End
+  move in it and Escape closes it; an action that does not apply is greyed out.
+- **Rotate token** gives a person a new token and stops the old one, and shows it once. Their reporter keeps working.
+- **Revoke token** refuses their console sign-in from the next request, and with TLS on their certificate too, so a
+  person who is cut off cannot go on with the other credential. A revoked person's row offers **Issue new token**.
+- **Revoke certificate** stops their reporter at the next report and leaves the console sign-in. **Revoke all** does both.
+  **Reissue config** makes a new certificate and key, stops the old certificate, and shows the new file once. Each asks
+  first, in a row under the person that says what will happen.
+- **Download certificate** gives the public certificate and the CA, never a key, so it cannot replace the file.
 - **Delete** removes a person, and a dialog asks first. Their reporter is refused at once, they leave their group, and
   an Administrator's open Admin session locks. Their past sessions, spend and Admin log entries keep their name, and the
   name can be used again later. To delete several people, tick their rows (the box in the header ticks the page), then

@@ -373,3 +373,28 @@
 .adminv .panel > .band { border-top: 0; }
 .adminv .note-line .sid { display: inline-flex; flex-wrap: wrap; max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; margin-top: 4px; }
 .adminv .note-line .sid > span { min-width: 0; }
+
+/* People (#587): the show-once box holds two things, the row Actions menu, and the confirmation in a full-width row under the person */
+.adminv .once h3 { margin: 6px 0 0; font-size: 13px; font-weight: 600; }
+.adminv .once ol.plain { padding: 0 0 0 18px; }
+.adminv .once ol.plain .code { margin-top: 6px; }
+.adminv .once ol.plain + .hint { margin-top: 10px; }
+/* Proposed: a row actions menu, a native details disclosure, for rows with many actions. It opens beside its button and stays inside the page. */
+.adminv .menu { display: inline-block; }
+.adminv .menu > summary { list-style: none; cursor: pointer; }
+.adminv .menu > summary::-webkit-details-marker { display: none; }
+.adminv .menu > summary svg.i { width: 12px; height: 12px; }
+.adminv .menu[open] > summary { background: var(--sel); }
+.adminv .menu > summary:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.adminv .menubox { position: fixed; z-index: 40; min-width: 13rem; padding: 6px; display: grid; gap: 2px; background: var(--raised); border: 1px solid var(--axis); border-radius: 8px; }
+.adminv .menubox .mgh { margin: 6px 8px 2px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.adminv .menubox .mgh:first-child { margin-top: 2px; }
+.adminv .menubox .mi { display: block; width: 100%; text-align: left; padding: 6px 8px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+.adminv .menubox .mi:hover, .adminv .menubox .mi:focus-visible { background: var(--sel); }
+.adminv .menubox .mi.dng { color: var(--crit-text); }
+.adminv .menubox .mi:disabled { color: var(--muted); cursor: not-allowed; background: none; }
+.adminv .menubox .msep { height: 1px; background: var(--grid); margin: 4px 0; }
+.adminv .menubox .mgroup { display: grid; gap: 2px; }
+.adminv .ptab tr.confirmrow td { padding: 0; border-bottom: 1px solid var(--grid); }
+.adminv .ptab tr.confirmrow .callout { margin: 8px 16px; }
+.adminv .ptab td.pcell .who { display: block; }

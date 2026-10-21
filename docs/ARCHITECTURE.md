@@ -139,8 +139,12 @@ DECISIONS 20 and 30.
   (#172), or `Admin` with the admin secret, checked by `fleet/nameToken.ts` as the sign-in to respond is.
 - Sessions have an idle expiry, a per-address lockout, and a required `X-Podium-Admin` header on changes.
 - A restart ends every Admin session, which is also how rotating the admin secret ends them.
-- The Admin page (`frontend/src/fleet/admin/`, route `#/admin`) holds a new token in component state only until
-  the owner says it is saved.
+- The Admin page (`frontend/src/fleet/admin/`, route `#/admin`) holds a new token, and a person's reporter config
+  file, in component state only until the owner says it is saved (`OnceBox.tsx`). Neither is written to browser storage,
+  and the file cannot be fetched again: the server keeps the certificate and never the key.
+- Admin > People (`PeopleTab.tsx`, #587) reads `GET /api/admin/people`, which adds `tls`, `graceDays` and each row's
+  `certificate` (`notAfter`, `revoked`) while TLS is on. `peopleCert.ts` turns that into the Reporter certificate badge
+  and its note; `RowMenu.tsx` is the per-row Actions menu (a details disclosure placed from its button).
 
 **Opening Admin from the console sign-in** (#215, #272)
 

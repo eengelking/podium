@@ -19,7 +19,8 @@ import { GroupsTab } from "./GroupsTab";
 import { LogTab } from "./LogTab";
 import { ModelPricesTab } from "./ModelPricesTab";
 import { AdminFoot, PageHeader } from "./Page";
-import { PeopleTab, type Created } from "./PeopleTab";
+import { PeopleTab } from "./PeopleTab";
+import { OnceBox, type Created } from "./OnceBox";
 import { ReportersTab, type ReporterPaging } from "./ReportersTab";
 import { DataPage } from "./DataPage";
 import { REPORT_CONFIGS, ReportPage, SPEND_CONFIG } from "./ReportPages";
@@ -251,7 +252,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
               </nav>
               <div className="apage" ref={pageRef}>
                 <div className="apage-in">
-                  {created && <OnceSettings c={created} onDone={() => setCreated(null)} />}
+                  {created && <OnceBox c={created} onDone={() => setCreated(null)} />}
                   {!REPORT_TABS.has(tab) && <PageHeader title={page.name} lead={page.lead} />}
                   {tab === "people" && <PeopleTab api={api} {...paging.people} onPaging={onPeoplePaging} onCreated={setCreated} onCount={onCountPeople} onLocked={onLocked} />}
                   {tab === "groups" && <GroupsTab api={api} {...paging.groups} onPaging={onGroupPaging} onCount={onCountGroups} onLocked={onLocked} />}
@@ -340,41 +341,5 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
         Use your own name and token if you are in Administrators, or the name <span className="mono">Admin</span> with the admin secret. On the server’s machine, <span className="mono">podiumctl token</span> prints the secret. Admin locks again after 10 minutes without activity. After 5 wrong tries, a secret or token alike, it locks for 15 minutes.
       </div>
     </form>
-  );
-}
-
-/** The show-once panel: the settings to paste into the person's reporter. Stays above the tabs. */
-function OnceSettings({ c, onDone }: { c: Created; onDone: () => void }) {
-  const [msg, setMsg] = useState("");
-  const text = `userName: ${c.name}\ntoken: ${c.token}\nserverUrl: ${window.location.origin}`;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setMsg("Copied.");
-    } catch {
-      setMsg("Could not copy. Select the text and copy it.");
-    }
-  };
-  return (
-    <section className="once" aria-labelledby="admin-once-h">
-      <h2 id="admin-once-h">Token for {c.name}</h2>
-      <div className="hint ink2">
-        This is the only time the token is shown. Put these settings in {c.name}’s reporter. The token does nothing without the matching name. It stays here while you switch tabs.
-      </div>
-      <pre className="code" id="admin-once-code">
-        {text}
-      </pre>
-      <div className="row2">
-        <button type="button" className="btn pri" onClick={copy}>
-          Copy settings
-        </button>
-        <button type="button" className="btn" onClick={onDone}>
-          I have saved it
-        </button>
-        <span className="hint" role="status">
-          {msg}
-        </span>
-      </div>
-    </section>
   );
 }
