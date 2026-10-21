@@ -47,17 +47,16 @@ function sequenceEnd(text: string, i: number): number {
 export function stripControl(text: string): string {
   let out = '';
   let from = 0;
-  for (let i = 0; i < text.length; i++) {
+  let i = 0;
+  while (i < text.length) {
     const c = text.charCodeAt(i);
-    if (c >= 0x20 && c < 0x7f) continue;
-    if (c > 0x9f) continue;
-    if (c === 0x0a || c === 0x09) continue;
+    if ((c >= 0x20 && c < 0x7f) || c > 0x9f || c === 0x0a || c === 0x09) {
+      i++;
+      continue;
+    }
     out += text.slice(from, i);
-    if (c === ESC) {
-      const end = sequenceEnd(text, i);
-      from = end;
-      i = end - 1;
-    } else from = i + 1;
+    from = c === ESC ? sequenceEnd(text, i) : i + 1;
+    i = from;
   }
   return from === 0 ? text : out + text.slice(from);
 }

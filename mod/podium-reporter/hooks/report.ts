@@ -231,18 +231,17 @@ function withinDetailBudget(r: Report): Report {
  * Keeps the serialized report under the server's 512 KB body, as a recording's request does (480,000 bytes): the character budget
  * does not see a multi-byte text. Output goes first, then commands, from the last loop's oldest entry back, until it fits.
  */
-function withinSize(r: Report): Report {
+function withinSize(r: Report): void {
   const lists = feeds(r);
-  if (!lists.length || utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return r;
+  if (!lists.length || utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
   const order = lists.slice().reverse().flatMap((list) => list);
   for (const fields of [OUTPUT_FIELDS, COMMAND_FIELDS]) {
     for (const e of order) {
       if (!fields.some((k) => k in e)) continue;
       for (const k of fields) delete e[k];
-      if (utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return r;
+      if (utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
     }
   }
-  return r;
 }
 
 /** A full snapshot of the session plus the events given (at most 100). */
@@ -254,7 +253,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   // Most recent agents win if a session ever has more than the server accepts.
   const agents = s.order.map((id) => s.agents[id]).filter((a): a is AgentState => !!a).slice(-MAX_AGENTS_PER_REPORT);
   const activity = meta.activity === true;
-  return withinSize(withinDetailBudget(withinActivityBudget({
+  const report = withinDetailBudget(withinActivityBudget({
     v: 1,
     sentAt: meta.now,
     reporter: { name: REPORTER_NAME, version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
@@ -297,5 +296,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
     },
     agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity, meta.activityOutput === true))),
     events: events.slice(0, MAX_EVENTS_PER_REPORT).map((e) => ({ ...e, text: clip(e.text, 240) })),
-  })));
+  }));
+  withinSize(report);
+  return report;
 }
