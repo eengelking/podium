@@ -5242,8 +5242,9 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
 - *Output off (#431).* A Bash row's output block says in words why there is none: "Output is turned off by the Admin."
   (the `activity-output` flag, with "Someone with Admin access can turn it on in Admin > Settings > Feature
   flags."), or "Output is turned off for this machine." (naming the `activityOutput` option, "Send a Bash command's
-  output"). An older reporter says it sends no output. The whole command still shows. The Expand and Respond
-  modals and the replay follow the same words.
+  output"). An older reporter sends no `command`, so a cut row shows its 300 characters with the note "cut at 300
+  characters; this reporter sends no more" and no chevron. The Expand and Respond modals and the replay follow the
+  same words.
   - A call that finished before the panel was open has its command and no output, since output is captured only while
     a viewer has the panel open: the block says "Output was not collected." and "Output is only collected while this
     panel is open." A stored-history row says "Output is not kept in history." and "Only the command is stored. Output
