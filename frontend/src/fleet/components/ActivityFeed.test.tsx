@@ -710,12 +710,24 @@ describe("a Bash call's output arriving after its entry (#431)", () => {
     await wait(5000);
     expect(li().classList.contains("can")).toBe(true);
     fireEvent.click(li().querySelector("button.tgl")!);
-    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output was not collected.");
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Running.");
     await wait(5000);
     expect(li().classList.contains("open")).toBe(true);
     expect(li().querySelector("pre.xout")!.textContent).toBe("ok\n");
     expect(li().querySelector(".xh .exit.ok")).not.toBeNull();
     expect(container.querySelectorAll(".feed li")).toHaveLength(1);
+  });
+
+  it("takes done, failed and an exit code with no output on a seq the row already has (#598)", async () => {
+    show({ session: { activityOutput: true }, fetch: fetcher(reply([]), reply([bash(1)]), reply([bash(1, { done: true, failed: true, exitCode: 2 })])) });
+    await flush();
+    await wait(5000);
+    expect(li().querySelector(".state")!.textContent).toBe("running");
+    await wait(5000);
+    expect(li().querySelector(".state .exit.bad")!.textContent).toBe("Exit 2, failed");
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output was not collected.");
+    expect(li().querySelector(".xh .exit.bad")).not.toBeNull();
   });
 
   it("takes a changed failed status and exit code the same way", async () => {
@@ -763,7 +775,7 @@ describe("a Bash call's output arriving after its entry (#431)", () => {
     expect(li().querySelector(".feedoff b")!.textContent).toBe("Output is not kept in history.");
     await wait(5000);
     expect(document.querySelectorAll(".feed li")).toHaveLength(1);
-    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output was not collected.");
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Running.");
     await wait(5000);
     expect(li().classList.contains("open")).toBe(true);
     expect(li().querySelector("pre.xout")!.textContent).toBe("fine");

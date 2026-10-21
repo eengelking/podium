@@ -1288,5 +1288,11 @@ not collected." for both.
 - **A call that throws.** It returns no result, so the mod marks nothing: `done` stays unknown, and the row reads as
   it does for a stale call. A denied call is `done` and `failed` as before, and its reason is output, so it is sent
   only with the output switches on.
+- **Running or stale (console).** Only the newest entry of the feed can read as running: a Bash call with no `done`
+  and no output, last in the list, in a loop that is working. An older mod never sends `done` without output, so any
+  earlier call with none may have finished long ago; a later entry, text included, means the call returned. A call
+  that runs beside another reads as not collected until it reports, which claims nothing false. The flag and option
+  wording stay ahead of "Running.", since output will not come; the line still says running. The replay is unchanged:
+  it knows from the recording whether a call has a result and never says running.
 - **Why.** The mod knows when a call ends; the server cannot tell a finished call from a running one without being told.
   The mockup is `mockup/podium-feed-expand.html`, "Rows without output".

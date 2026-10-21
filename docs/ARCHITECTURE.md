@@ -374,8 +374,12 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   replay's `Row`. Only Bash rows open; the open state is the row's own React state, so it follows the entry's key across the refresh.
   `useRowAnchor` keeps the list's place when a row opens or closes. `useActivityFeed` takes a changed `output`, `done`, `failed` or
   `exitCode` on a seq it already has, and lays a live twin's output over a stored row. A row with no `output` says why in order: stored
-  history, the Admin's flag (`ActivityOutputFlag`, from the state's features), the session's `activityOutput`, then "not collected". A
-  call still running cannot be told from one that finished before the panel opened (neither has `output` or `done`), so no row says it is running.
+  history, the Admin's flag (`ActivityOutputFlag`, from the state's features), the session's `activityOutput`, then "Running." or "not
+  collected" (`missingOutput`). Since #598 the mod sends `done` without output too, so a finished call shows its status mark whatever the
+  reason it has no output, and a call with no `done` is told by the loop: `FeedList` takes `active` and marks running only the newest
+  entry, when it is a Bash call with no `done` and no output and the loop is active. An older mod's earlier calls, a call a later entry
+  follows and every call of a loop that has ended read as not collected, with no mark. The replay knows from the recording whether a call
+  has a result and keeps its own wording, "No output was recorded."; it never says running.
 
 **UI**
 

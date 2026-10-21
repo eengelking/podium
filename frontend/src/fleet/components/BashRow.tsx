@@ -66,10 +66,10 @@ export interface Missing {
 
 /**
  * The words for a call with no output, in the order the mockups give: a stored-history row, the Admin's flag off, the machine's
- * option off, then the rest. A call still running cannot be told from one that finished before the panel was open (the entry
- * has neither `output` nor `done` in both cases), so the rest says only that no output was collected.
+ * option off, then the rest, which says the output was not collected. A call that is running (#598) says so after those three,
+ * since a flag or option that is off means its output will never come; a finished call's status mark shows whatever the reason.
  */
-export function missingOutput(why: { stored: boolean; adminOn: boolean | null; machineOn: boolean | null | undefined }): Missing {
+export function missingOutput(why: { stored: boolean; adminOn: boolean | null; machineOn: boolean | null | undefined; running?: boolean }): Missing {
   if (why.stored) return { title: "Output is not kept in history.", note: "Only the command is stored. Output is shown while someone is watching the session and is gone after." };
   if (why.adminOn === false) return { title: "Output is turned off by the Admin.", note: "Someone with Admin access can turn it on in Admin > Settings > Feature flags." };
   if (why.machineOn !== true)
@@ -81,6 +81,7 @@ export function missingOutput(why: { stored: boolean; adminOn: boolean | null; m
         </>
       ),
     };
+  if (why.running) return { title: "Running.", note: "The output appears here when the command finishes." };
   return { title: "Output was not collected.", note: "Output is only collected while this panel is open." };
 }
 
@@ -92,6 +93,8 @@ export interface BashData {
   done?: boolean;
   failed?: boolean;
   exitCode?: number;
+  /** No output yet because the call is still running (#598): the line says running and the output box says so. */
+  running?: boolean;
   missing: Missing;
 }
 
@@ -244,10 +247,12 @@ export function BashRow(props: BashRowProps) {
       <button type="button" className="tgl" ref={tgl} aria-expanded={open} aria-controls={open ? id : undefined}>
         {CHEV}
         {line}
-        {d.done && (
+        {d.done ? (
           <span className="state">
             <ExitStatus d={d} />
           </span>
+        ) : (
+          d.running && <span className="state">running</span>
         )}
         <span className="sr-only"> {label}</span>
       </button>

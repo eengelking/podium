@@ -77,7 +77,7 @@ function senderOf(by: string | undefined, me: string | null): string {
   return me && nameKey(by) === nameKey(me) ? "You" : by;
 }
 
-function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; machineOutput: boolean | null | undefined; anchor: RowAnchor }) {
+function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; running: boolean; machineOutput: boolean | null | undefined; anchor: RowAnchor }) {
   const { e } = props;
   const adminOutput = useContext(ActivityOutputFlag);
   const k = KIND[e.kind];
@@ -89,6 +89,7 @@ function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; machine
   // Only a Bash row opens: the mod sends a whole command and output for no other tool (#431).
   if (e.kind === "tool" && name === "Bash") {
     const stored = e.key !== undefined && e.key.startsWith("h") && e.live !== true;
+    const running = props.running && !stored && e.output === undefined && !e.done;
     return (
       <BashRow
         className={`${k.cls}${props.fresh ? " new" : ""}`}
@@ -99,7 +100,7 @@ function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; machine
         line={arg}
         cut={e.text.length >= LINE_CUT}
         anchor={props.anchor}
-        d={{ command: e.command, output: e.output, done: e.done, failed: e.failed, exitCode: e.exitCode, missing: missingOutput({ stored, adminOn: adminOutput, machineOn: props.machineOutput }) }}
+        d={{ command: e.command, output: e.output, done: e.done, failed: e.failed, exitCode: e.exitCode, running, missing: missingOutput({ stored, adminOn: adminOutput, machineOn: props.machineOutput, running }) }}
       />
     );
   }
@@ -129,8 +130,14 @@ function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; machine
   );
 }
 
-/** The list with its follow-the-latest behaviour: it stays at the bottom until the viewer scrolls up, and a pill brings it back. */
-export function FeedList(props: { feed: FeedState; startedAt: number; empty: string; machineOutput?: boolean | null }) {
+/**
+ * The list with its follow-the-latest behaviour: it stays at the bottom until the viewer scrolls up, and a pill brings it back.
+ * `active` is whether the loop is still working (#598). Only the newest entry can read as running: a Bash call with no `done` and
+ * no output, last in the list, in a loop that is working. An older reporter sends no `done` without output, so any earlier call
+ * with none could have finished long ago; a later entry, text included, means the call returned. A call running beside another
+ * one reads as not collected until it reports, which claims nothing false.
+ */
+export function FeedList(props: { feed: FeedState; startedAt: number; empty: string; machineOutput?: boolean | null; active?: boolean }) {
   const list = useRef<HTMLOListElement>(null);
   const [following, setFollowing] = useState(true);
   const lastSeq = useRef(0);
@@ -176,7 +183,7 @@ export function FeedList(props: { feed: FeedState; startedAt: number; empty: str
   return (
     <div className="feedwrap">
       <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recent activity, newest last" tabIndex={0} onScroll={onScroll}>
-        {entries.length ? entries.map((e) => <Entry key={e.key ?? e.seq} e={e} startedAt={props.startedAt} fresh={!e.key && e.seq > lastSeq.current && lastSeq.current > 0} machineOutput={props.machineOutput} anchor={anchor} />) : <li className="empty">{props.empty}</li>}
+        {entries.length ? entries.map((e) => <Entry key={e.key ?? e.seq} running={props.active === true && e === newest} e={e} startedAt={props.startedAt} fresh={!e.key && e.seq > lastSeq.current && lastSeq.current > 0} machineOutput={props.machineOutput} anchor={anchor} />) : <li className="empty">{props.empty}</li>}
       </ol>
       {!following && (
         <button type="button" className="jump" onClick={jump}>
@@ -360,7 +367,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
             </span>
             {active && <EverySelect id={`every-${props.loop}`} every={every} onChange={pick} />}
           </div>
-          <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} />
+          <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} active={active} />
           <OlderRow feed={feed} />
           <FeedStatus count={count} when={when} />
           <div className="feedfoot">
@@ -375,7 +382,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
               <AdminOffNote />
             ) : (
               <>
-                <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} />
+                <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} active={active} />
                 <OlderRow feed={feed} />
                 <FeedStatus count={count} when={when} />
                 {feed.stored && (

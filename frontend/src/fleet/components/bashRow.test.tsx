@@ -10,10 +10,10 @@ const T0 = 1_000_000;
 const entry = (seq: number, over: Partial<FeedEntry> = {}): FeedEntry => ({ seq, at: T0 + seq * 1000, kind: "tool", text: "Bash npm test", command: "npm test", ...over });
 const feed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false });
 
-function show(entries: FeedEntry[], opts: { admin?: boolean | null; machine?: boolean | null } = {}) {
+function show(entries: FeedEntry[], opts: { admin?: boolean | null; machine?: boolean | null; active?: boolean } = {}) {
   const ui = (list: FeedEntry[]) => (
     <ActivityOutputFlag.Provider value={opts.admin === undefined ? true : opts.admin}>
-      <FeedList feed={feed(list)} startedAt={T0} empty="none" machineOutput={opts.machine === undefined ? true : opts.machine} />
+      <FeedList feed={feed(list)} startedAt={T0} empty="none" machineOutput={opts.machine === undefined ? true : opts.machine} active={opts.active} />
     </ActivityOutputFlag.Provider>
   );
   const r = render(ui(entries));
@@ -383,5 +383,93 @@ describe("useRowAnchor", () => {
     top = -250;
     a.after();
     expect(scrollTop).toBe(130 - 250);
+  });
+});
+
+describe("a Bash call with no output (#598)", () => {
+  const box = () => {
+    fireEvent.click(tgl());
+    const b = rowOf().querySelector(".feedoff")!;
+    return [b.querySelector("b")!.textContent, b.querySelector(".ghost")!.textContent];
+  };
+  const NC = ["Output was not collected.", "Output is only collected while this panel is open."];
+
+  it("says a finished call finished, with a bare check on the line and beside Output", () => {
+    show([entry(1, { done: true, exitCode: 0 })], { active: true });
+    expect(tgl().querySelector(".state .exit.ok")).not.toBeNull();
+    expect(box()).toEqual(NC);
+    expect(rowOf().querySelector(".xh .exit.ok")).not.toBeNull();
+    expect(rowOf().textContent).not.toContain("running");
+  });
+
+  it("shows a cross and the code for a failed call, and the one word Failed when no code is known", () => {
+    show([entry(1, { done: true, failed: true, exitCode: 2 }), entry(2, { done: true, failed: true })], { active: true });
+    expect(tgl(0).querySelector(".state .exit.bad")!.textContent).toBe("Exit 2, failed");
+    expect(tgl(1).querySelector(".state .exit.bad")!.textContent).toBe("Failed");
+    fireEvent.click(tgl(0));
+    expect(rowOf(0).querySelector(".xh .exit.bad")!.textContent).toBe("Exit 2, failed");
+    expect(rowOf(0).querySelector(".feedoff b")!.textContent).toBe(NC[0]);
+  });
+
+  it("says running for the newest call with no finish report while the loop is active", () => {
+    show([entry(1)], { active: true });
+    expect(tgl().querySelector(".state")!.textContent).toBe("running");
+    expect(box()).toEqual(["Running.", "The output appears here when the command finishes."]);
+    expect(rowOf().querySelector(".xh .exit")).toBeNull();
+  });
+
+  it("does not say running when the loop is not active: a stale call reads as not collected, with no mark", () => {
+    show([entry(1)], { active: false });
+    expect(tgl().querySelector(".state")).toBeNull();
+    expect(box()).toEqual(NC);
+    expect(rowOf().querySelector(".xh .exit")).toBeNull();
+  });
+
+  it("says running only for the newest entry: an older row with no finish report, or one a later entry follows, is not claimed to run", () => {
+    show([entry(1), entry(2, { done: true }), entry(3, { kind: "text", text: "Done.", command: undefined }), entry(4)], { active: true });
+    expect(tgl(0).querySelector(".state")).toBeNull();
+    expect(tgl(3).querySelector(".state")!.textContent).toBe("running");
+    // A text entry after the call means the call returned.
+    cleanup();
+    show([entry(1), entry(2, { kind: "text", text: "Done.", command: undefined })], { active: true });
+    expect(document.querySelectorAll(".state").length).toBe(0);
+  });
+
+  it("does not say running for a stored entry, or for one with output", () => {
+    show([entry(1, { key: "h9" })], { active: true });
+    expect(tgl().querySelector(".state")).toBeNull();
+    cleanup();
+    show([entry(1, { output: "x", done: true })], { active: true });
+    expect(tgl().querySelector(".state")!.textContent).not.toBe("running");
+  });
+
+  it("keeps the Admin's flag and the machine's option ahead of the not-collected words, with the status still shown", () => {
+    const r = show([entry(1, { done: true, exitCode: 0 })], { admin: false, active: true });
+    expect(box()[0]).toBe("Output is turned off by the Admin.");
+    expect(rowOf().querySelector(".xh .exit.ok")).not.toBeNull();
+    r.unmount();
+    show([entry(1, { done: true, failed: true, exitCode: 1 })], { machine: false, active: true });
+    expect(box()[0]).toBe("Output is turned off for this machine.");
+    expect(rowOf().querySelector(".xh .exit.bad")).not.toBeNull();
+  });
+
+  it("keeps the flag and the option ahead of Running. for a call with no finish report, and the line still says running", () => {
+    const r = show([entry(1)], { admin: false, active: true });
+    expect(tgl().querySelector(".state")!.textContent).toBe("running");
+    expect(box()[0]).toBe("Output is turned off by the Admin.");
+    r.unmount();
+    show([entry(1)], { machine: false, active: true });
+    expect(box()[0]).toBe("Output is turned off for this machine.");
+  });
+
+  it("builds the Running words without a component", () => {
+    expect(missingOutput({ stored: false, adminOn: true, machineOn: true, running: true }).title).toBe("Running.");
+  });
+
+  it("takes a finish report that arrives later on a seq the row already has", () => {
+    const r = show([entry(1)], { active: true });
+    expect(tgl().querySelector(".state")!.textContent).toBe("running");
+    r.again([entry(1, { done: true, failed: true, exitCode: 3 })]);
+    expect(tgl().querySelector(".state .exit.bad")!.textContent).toBe("Exit 3, failed");
   });
 });

@@ -5257,10 +5257,16 @@ the loop's recent tool calls and the text it writes ([6.4](#64-failure-and-excer
   characters; this reporter sends no more" and no chevron. The Expand and Respond modals and the replay follow the
   same words.
   - A call that finished before the panel was open has its command and no output, since output is captured only while
-    a viewer has the panel open: the block says "Output was not collected." and "Output is only collected while this
-    panel is open." A stored-history row says "Output is not kept in history." and "Only the command is stored. Output
-    is shown while someone is watching the session and is gone after." A call still running says "Running." and "The
-    output appears here when the command finishes."
+    a viewer has the panel open. The mod still reports that the call finished (`done`, `failed`, `exitCode`, #598), so
+    the row shows its status mark on the line and beside Output, and the block says "Output was not collected." and
+    "Output is only collected while this panel is open." The Admin's flag and the machine's option, when off, are said
+    in place of that, and the status mark still shows. A stored-history row says "Output is not kept in history." and
+    "Only the command is stored. Output is shown while someone is watching the session and is gone after."
+  - A call with no `done` is told by its loop. The newest entry of the feed, a Bash call with no `done` and no output,
+    while the loop is working, says "Running." and "The output appears here when the command finishes.", and its line
+    says "running". Any other call with no `done` (an older call, one a later entry follows, or any call of a loop
+    that has ended) says "Output was not collected." with no status mark. An older reporter sends no `done` without
+    output, so its rows read this way, apart from the newest one while the loop works.
   - A failed call with no exit code shows a cross and the one word "Failed"; with a code, "Exit N, failed". A call that
     succeeded shows a bare check with "Succeeded, exit 0" for a screen reader.
 - A settings-hooks session has no mod and shows no Activity section.
