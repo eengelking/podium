@@ -9,7 +9,7 @@ const build = (events: ActivityEvent[]): Report => ({ ...scriptedReport(), event
 function fake(responses: (HttpResult | Error)[]) {
   const calls: { url: string; headers: Record<string, string>; body: Report }[] = []
   const fetch: FetchLike = async (url, init) => {
-    calls.push({ url, headers: init.headers, body: JSON.parse(init.body) as Report })
+    calls.push({ url, headers: init.headers, body: JSON.parse(init.body ?? '') as Report })
     const r = responses.shift() ?? { status: 200, ok: true, text: '{"ok":true}' }
     if (r instanceof Error) throw r
     return r

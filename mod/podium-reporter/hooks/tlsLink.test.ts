@@ -1,0 +1,271 @@
+import { describe, test, expect } from 'claude-code/testing'
+import { findConfig, findNode, problemFor, startLink, type FoundConfig, type LinkEngine } from './tlsLink.ts'
+
+const NOW = Date.parse('2026-02-01T00:00:00Z')
+
+const text = (user: string, issued: number, expires = '2026-04-01T00:00:00.000Z') =>
+  `# podium-reporter-config v1\n# user: ${user}\n# server: https://podium.lan:4318\n# issued-at: x ${issued}\n# expires: ${expires}\n# fingerprint: AA\n-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n`
+
+interface Fake {
+  $: LinkEngine
+  fetched: { url: string; socketPath?: string; headers?: Record<string, string> }[]
+  spawned: { argv: readonly string[]; env?: Record<string, string> }[]
+  finishHelper: () => void
+}
+
+/** A stand-in for `$`: files by path, the PATH's `node`, what the helper prints, and what the helper answers. */
+function fake(o: {
+  files?: Record<string, string>
+  env?: Record<string, string>
+  pathNode?: string | null
+  helperOut?: string[]
+  helperExits?: boolean
+  answers?: Array<{ status: number; headers?: Record<string, string> }>
+}): Fake {
+  const files = o.files ?? {}
+  const fetched: Fake['fetched'] = []
+  const spawned: Fake['spawned'] = []
+  let end: () => void = () => {}
+  const answers = [...(o.answers ?? [])]
+  const $: LinkEngine = {
+    env: { get: async (n) => o.env?.[n] },
+    fs: {
+      read: async (p) => {
+        if (!(p in files)) throw new Error('ENOENT')
+        return files[p]
+      },
+      list: async (p) => {
+        const dir = (p ?? '').replace(/\/$/, '')
+        const below = Object.keys(files)
+          .filter((f) => f.startsWith(`${dir}/`))
+          .map((f) => f.slice(dir.length + 1))
+        const names = [...new Set(below.map((f) => f.split('/')[0] as string))].map((name) => ({ name, kind: below.includes(name) ? 'file' : 'dir' }))
+        if (!names.length) throw new Error('ENOENT')
+        return names
+      },
+      exists: async (p) => p in files,
+    },
+    process: {
+      run: async () => {
+        if (o.pathNode) return { exitCode: 0, stdout: `${o.pathNode}\n` }
+        throw new Error('ENOENT')
+      },
+      spawn: (req) => {
+        spawned.push(req)
+        const lines = o.helperOut ?? ['ready\n']
+        const done = new Promise<void>((r) => (end = r))
+        return {
+          [Symbol.asyncIterator]() {
+            let i = 0
+            return {
+              async next() {
+                if (i < lines.length) return { done: false as const, value: { stream: 'stdout', text: lines[i++] as string } }
+                if (o.helperExits) return { done: true as const, value: undefined }
+                await done
+                return { done: true as const, value: undefined }
+              },
+              async return() {
+                end()
+                return { done: true as const, value: undefined }
+              },
+            }
+          },
+        }
+      },
+    },
+    http: {
+      fetch: async (url, init) => {
+        fetched.push({ url, socketPath: init?.socketPath, headers: init?.headers })
+        const a = answers.shift() ?? { status: 200 }
+        return { status: a.status, ok: a.status < 300, text: '{}', headers: a.headers ?? {} }
+      },
+    },
+    clock: { sleep: () => new Promise<void>(() => {}) },
+    plugin: { root: '/plugin' },
+  }
+  return { $, fetched, spawned, finishHelper: () => end() }
+}
+
+const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundConfig => ({
+  path: '/home/d/.podium/reporter-config-Dana-Lee-1.pem',
+  headers: { user, server: 'https://podium.lan:4318', issuedAt: 1, expires, fingerprint: 'AA' },
+})
+const env = { config: undefined, home: '/home/d', node: undefined, tmp: undefined }
+
+describe('finding the reporter config (#584)', () => {
+  test('no file means no link: the reporter works as today', async () => {
+    const r = await findConfig(fake({}).$, env)
+    expect(r.found).toBeNull()
+    expect(r.problem).toBeNull()
+  })
+
+  test('the newest file in ~/.podium wins, by its issued-at line', async () => {
+    const f = fake({ files: { '/home/d/.podium/reporter-config-Dana-1.pem': text('Dana', 100), '/home/d/.podium/reporter-config-Dana-2.pem': text('Dana', 200), '/home/d/.podium/other.txt': 'x' } })
+    expect((await findConfig(f.$, env)).found?.path).toBe('/home/d/.podium/reporter-config-Dana-2.pem')
+  })
+
+  test('PODIUM_REPORTER_CONFIG names the file and the folder is not read', async () => {
+    const f = fake({ files: { '/x/mine.pem': text('Dana', 5), '/home/d/.podium/reporter-config-Dana-9.pem': text('Dana', 900) } })
+    const r = await findConfig(f.$, { ...env, config: '/x/mine.pem' })
+    expect(r.found?.path).toBe('/x/mine.pem')
+  })
+
+  test('PODIUM_REPORTER_CONFIG naming something that is not a config is a problem, not silence', async () => {
+    const r = await findConfig(fake({ files: { '/x/mine.pem': 'nope' } }).$, { ...env, config: '/x/mine.pem' })
+    expect(r.found).toBeNull()
+    expect(r.problem?.code).toBe('CONFIG_INVALID')
+  })
+})
+
+describe('finding node (#584)', () => {
+  test('PODIUM_NODE wins, and a path that is not there is no node', async () => {
+    expect(await findNode(fake({ files: { '/opt/n': '' }, pathNode: '/usr/bin/node' }).$, { ...env, node: '/opt/n' })).toBe('/opt/n')
+    expect(await findNode(fake({ pathNode: '/usr/bin/node' }).$, { ...env, node: '/nowhere' })).toBeNull()
+  })
+
+  test('the PATH comes next, then the usual places', async () => {
+    expect(await findNode(fake({ pathNode: '/p/node' }).$, env)).toBe('/p/node')
+    expect(await findNode(fake({ files: { '/opt/homebrew/bin/node': '' } }).$, env)).toBe('/opt/homebrew/bin/node')
+    expect(await findNode(fake({ files: { '/home/d/.nvm/versions/node/v20.1.0/bin/node': '', '/home/d/.nvm/versions/node/v22.2.0/bin/node': '' } }).$, env)).toBe('/home/d/.nvm/versions/node/v22.2.0/bin/node')
+  })
+
+  test('none anywhere is null', async () => {
+    expect(await findNode(fake({}).$, env)).toBeNull()
+  })
+})
+
+describe('what a helper error means to the person (#584)', () => {
+  test('each failure a person can act on has words, and an outage has none', () => {
+    expect(problemFor('CLIENT_CERT_REJECTED', 'h')?.text).toContain('Admin')
+    expect(problemFor('ALTNAME', 'podium.lan:4318')?.text).toContain('podium.lan:4318')
+    expect(problemFor('UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'h')?.text).toContain('CA')
+    expect(problemFor('CERT_HAS_EXPIRED', 'h')?.status).toBe('server certificate expired')
+    expect(problemFor('ECONNREFUSED', 'h')).toBeNull()
+  })
+})
+
+describe('starting the helper (#584)', () => {
+  const opts = { sessionName: 'Dana Lee', now: () => NOW }
+
+  test('starts node on the helper with the config, a socket and the https address, and clears the two variables that turn verification off', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found(), env, opts)
+    expect(link.problem()).toBeNull()
+    const s = f.spawned[0]
+    expect(s?.argv[0]).toBe('/p/node')
+    expect(s?.argv[1]).toBe('/plugin/hooks/helper.mjs')
+    expect(s?.argv[2]).toBe('/home/d/.podium/reporter-config-Dana-Lee-1.pem')
+    expect(s?.argv[3]).toMatch(/^\/home\/d\/\.podium\/run\/[0-9a-f]{8}\.sock$/)
+    expect(s?.argv[4]).toBe('https://podium.lan:4318')
+    expect(s?.env).toEqual({ NODE_TLS_REJECT_UNAUTHORIZED: '', NODE_OPTIONS: '' })
+  })
+
+  test('requests go to the helper on its socket, with the path kept, and never to http://<server>', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/api/fleet/report', { method: 'POST', headers: { a: 'b' }, body: '{}' })
+    expect(f.fetched[0]?.url).toBe('http://podium/api/fleet/report')
+    expect(f.fetched[0]?.socketPath).toBe(f.spawned[0]?.argv[3])
+  })
+
+  test('a request to any other server is refused, and so is the same name with a different port', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found(), env, opts)
+    await expect(link.fetch('https://evil.example/api/fleet/report', { method: 'POST', headers: {}, body: '' })).rejects.toThrow(/other than the one/)
+    await expect(link.fetch('https://podium.lan:43180/x', { method: 'GET', headers: {} })).rejects.toThrow(/other than the one/)
+    expect(f.fetched).toEqual([])
+  })
+
+  test('a helper error header becomes a problem with words, and the next good answer clears it', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'CLIENT_CERT_REJECTED' } }, { status: 200 }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()?.code).toBe('CLIENT_CERT_REJECTED')
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()).toBeNull()
+  })
+
+  test('an outage (connection refused) is not a problem the person must fix', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'ECONNREFUSED' } }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()).toBeNull()
+  })
+
+  test('no node says so plainly, spawns nothing, and sends nothing', async () => {
+    const f = fake({})
+    const link = await startLink(f.$, found(), env, opts)
+    expect(link.problem()?.status).toBe('no node')
+    expect(link.problem()?.text).toContain('PODIUM_NODE')
+    await expect(link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })).rejects.toThrow(/node/)
+    expect(f.spawned).toEqual([])
+    expect(f.fetched).toEqual([])
+  })
+
+  test('a file for another name is refused before anything starts', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found('Ed'), env, opts)
+    expect(link.problem()?.code).toBe('NAME_MISMATCH')
+    expect(f.spawned).toEqual([])
+  })
+
+  test('a session with no name takes the file’s', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found('Ed'), env, { ...opts, sessionName: '' })
+    expect(link.problem()).toBeNull()
+    expect(link.user).toBe('Ed')
+  })
+
+  test('an expired certificate says when, and asks for a new file', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found('Dana Lee', '2026-01-15T00:00:00.000Z'), env, opts)
+    expect(link.problem()?.code).toBe('CLIENT_EXPIRED')
+    expect(link.problem()?.text).toContain('2026-01-15')
+    expect(f.spawned).toEqual([])
+  })
+
+  test('a helper that stops at start with an error line is said to have failed, with the fix for a loose file mode', async () => {
+    const f = fake({ pathNode: '/p/node', helperOut: ['error CONFIG_PERMISSIONS file is readable by others\n'], helperExits: true })
+    const link = await startLink(f.$, found(), env, opts)
+    // the first request waits for the helper to start, and learns why it did not
+    await expect(link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })).rejects.toThrow(/chmod 600/)
+    expect(link.problem()?.code).toBe('CONFIG_PERMISSIONS')
+    expect(link.problem()?.text).toContain('chmod 600')
+  })
+
+  test('an outage keeps a standing certificate problem instead of wiping it', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'ALTNAME' } }, { status: 502, headers: { 'x-podium-helper-error': 'ECONNRESET' } }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()?.code).toBe('ALTNAME')
+  })
+
+  test('an answer with no headers at all is read as an answer, not a crash', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const raw = f.$.http.fetch
+    f.$.http.fetch = async (u, i) => ({ ...(await raw(u, i)), headers: undefined as never })
+    const link = await startLink(f.$, found(), env, opts)
+    expect((await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })).status).toBe(200)
+  })
+
+  test('a connection closed right after the handshake is worded as a maybe, not as a revoked certificate', () => {
+    const t = problemFor('CLOSED_AFTER_HANDSHAKE', 'h')
+    expect(t?.text).toContain('restarted')
+    expect(t?.text).toContain('did not accept your certificate')
+  })
+
+  test('startLink does not wait for the helper: a helper that never says ready does not hold up the session', async () => {
+    const f = fake({ pathNode: '/p/node', helperOut: [] })
+    const link = await startLink(f.$, found(), env, opts)
+    expect(link.problem()).toBeNull()
+    expect(f.spawned.length).toBe(1)
+  })
+
+  test('stop ends the helper', async () => {
+    const f = fake({ pathNode: '/p/node' })
+    const link = await startLink(f.$, found(), env, opts)
+    link.stop()
+    await expect(link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })).rejects.toThrow()
+  })
+})
