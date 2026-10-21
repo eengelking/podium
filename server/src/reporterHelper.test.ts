@@ -595,17 +595,39 @@ describe('helper.mjs: withLock (#611, #616)', () => {
   };
   type WithLock = (lock: string, fn: () => Promise<string>, waitMs?: number, staleMs?: number) => Promise<{ value: string } | null>;
   const loadWithLock = async () => ((await import(/* @vite-ignore */ HELPER)) as { withLock: WithLock }).withLock;
-  const files = (dir: string) => fs.readdirSync(dir).sort();
+  const files = (dir: string) => fs.readdirSync(dir).filter((n) => !n.endsWith('.scheme')).sort();
 
-  async function contend(startWith: (lock: string) => void, kids: number, rounds: number): Promise<string[]> {
+  // A helper of the T7 kind: the plain `<lock>` file with O_EXCL, a stale one removed by its age, nothing else.
+  const OLD_CHILD = `
+    import fs from 'node:fs';
+    const [lock, marker, go] = process.argv.slice(1);
+    fs.writeFileSync(go + '.ready-' + process.pid, '');
+    while (!fs.existsSync(go)) await new Promise((r) => setTimeout(r, 1));
+    let out = 'timeout';
+    for (let i = 0; i < 600; i++) {
+      try {
+        const fd = fs.openSync(lock, 'wx', 0o600); fs.writeSync(fd, 'old:' + process.pid); fs.closeSync(fd);
+      } catch (e) { await new Promise((r) => setTimeout(r, 20)); continue; }
+      try { fs.closeSync(fs.openSync(marker, 'wx')); } catch { out = 'violation'; fs.rmSync(lock, { force: true }); break; }
+      await new Promise((r) => setTimeout(r, 80));
+      fs.rmSync(marker, { force: true });
+      fs.rmSync(lock, { force: true });
+      out = 'ok';
+      break;
+    }
+    process.stdout.write(out);
+  `;
+
+  async function contend(startWith: (lock: string) => void, kids: number, rounds: number, oldKids = 0): Promise<string[]> {
     const results: string[] = [];
     for (let round = 0; round < rounds; round++) {
       const dir = tmp();
       const lock = path.join(dir, 'c.pem.lock');
       const go = path.join(dir, 'go');
       startWith(lock);
-      const procs = Array.from({ length: kids }, () => {
-        const proc = spawn(process.execPath, ['--input-type=module', '-e', CHILD, pathToFileURL(HELPER).href, lock, path.join(dir, 'inside'), go], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const procs = Array.from({ length: kids + oldKids }, (_, i) => {
+        const args = i < kids ? [CHILD, pathToFileURL(HELPER).href, lock, path.join(dir, 'inside'), go] : [OLD_CHILD, lock, path.join(dir, 'inside'), go];
+        const proc = spawn(process.execPath, ['--input-type=module', '-e', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
         cleanup.push(() => {
           proc.kill('SIGKILL');
         });
@@ -613,12 +635,14 @@ describe('helper.mjs: withLock (#611, #616)', () => {
         proc.stdout.on('data', (c) => (out += c));
         return new Promise<string>((resolve) => proc.on('exit', () => resolve(out || 'crashed')));
       });
-      await until(() => fs.readdirSync(dir).filter((n) => n.startsWith('go.ready-')).length === kids, 'every child is ready', 15_000);
+      await until(() => fs.readdirSync(dir).filter((n) => n.startsWith('go.ready-')).length === kids + oldKids, 'every child is ready', 15_000);
       fs.writeFileSync(go, '');
       results.push(...(await Promise.all(procs)));
       // the lock is let go by aging its file, so one file is left, and it is stale
-      const left = files(dir).filter((n) => n.includes('.lock'));
-      expect(left).toHaveLength(1);
+      const left = files(dir).filter((n) => /\.lock\.\d+$/.test(n));
+      expect(files(dir).filter((n) => n.endsWith('.lock'))).toEqual([]);
+      expect(left.length).toBeLessThanOrEqual(1);
+      if (!left.length) continue;
       expect(Date.now() - fs.statSync(path.join(dir, left[0]!)).mtimeMs).toBeGreaterThan(60_000);
     }
     return results;
@@ -644,7 +668,7 @@ describe('helper.mjs: withLock (#611, #616)', () => {
       return 'in';
     });
     expect(got).toEqual({ value: 'in' });
-    expect(during).toEqual(['c.pem.lock.6']);
+    expect(during).toEqual(['c.pem.lock', 'c.pem.lock.6']);
     expect(files(dir)).toEqual(['c.pem.lock.6']);
   });
 
@@ -673,7 +697,7 @@ describe('helper.mjs: withLock (#611, #616)', () => {
     spy.mockRestore();
     expect(swapped).toBe(true);
     expect(got).toEqual({ value: 'in' });
-    expect(during).toEqual(['c.pem.lock.3']);
+    expect(during).toEqual(['c.pem.lock', 'c.pem.lock.3']);
   });
 
   it('numbers climb with each taking, and only the newest file is kept', async () => {
@@ -711,16 +735,111 @@ describe('helper.mjs: withLock (#611, #616)', () => {
     expect(fs.readFileSync(`${lock}.2`, 'utf8')).toBe('fresh-owner');
   });
 
-  it('does not touch a file named .lock or .takeover that an older helper left', async () => {
+  it('takes over a stale plain lock an older helper left, and never touches its .takeover marker', async () => {
     const withLock = await loadWithLock();
     const dir = tmp();
     const lock = path.join(dir, 'c.pem.lock');
     stale(lock, 'old-plain-lock');
     stale(`${lock}.takeover`, 'old-marker');
-    const got = await withLock(lock, async () => 'in', 2000);
+    let during = '';
+    const got = await withLock(lock, async () => {
+      during = fs.readFileSync(lock, 'utf8');
+      return 'in';
+    }, 2000);
     expect(got).toEqual({ value: 'in' });
-    expect(files(dir)).toEqual(['c.pem.lock', 'c.pem.lock.1', 'c.pem.lock.takeover']);
+    expect(during).not.toBe('old-plain-lock');
+    expect(fs.existsSync(lock)).toBe(false);
     expect(fs.readFileSync(`${lock}.takeover`, 'utf8')).toBe('old-marker');
+  });
+
+  describe('across lock schemes (#621)', () => {
+    it('waits for a live plain lock held by an older helper, and does not run', async () => {
+      const withLock = await loadWithLock();
+      const dir = tmp();
+      const lock = path.join(dir, 'c.pem.lock');
+      fs.writeFileSync(lock, 'old:1234');
+      let ran = false;
+      const got = await withLock(lock, async () => void (ran = true) as unknown as string, 400);
+      expect(got).toBeNull();
+      expect(ran).toBe(false);
+      expect(fs.readFileSync(lock, 'utf8')).toBe('old:1234');
+    });
+
+    it('goes ahead when the older helper lets go of its plain lock', async () => {
+      const withLock = await loadWithLock();
+      const lock = path.join(tmp(), 'c.pem.lock');
+      fs.writeFileSync(lock, 'old:1234');
+      setTimeout(() => fs.rmSync(lock), 200);
+      const got = await withLock(lock, async () => 'in', 3000);
+      expect(got).toEqual({ value: 'in' });
+    });
+
+    it('holds the plain lock while it works, so an older helper’s O_EXCL fails, and lets go of it after', async () => {
+      const withLock = await loadWithLock();
+      const lock = path.join(tmp(), 'c.pem.lock');
+      let oldTakes = '';
+      await withLock(lock, async () => {
+        try {
+          fs.closeSync(fs.openSync(lock, 'wx'));
+          oldTakes = 'took it';
+        } catch (err) {
+          oldTakes = (err as NodeJS.ErrnoException).code ?? '';
+        }
+        return 'in';
+      });
+      expect(oldTakes).toBe('EEXIST');
+      expect(fs.existsSync(lock)).toBe(false);
+    });
+
+    it('refreshes the plain lock too while it works, so an older helper does not take it for dead', async () => {
+      const withLock = await loadWithLock();
+      const lock = path.join(tmp(), 'c.pem.lock');
+      let age = Number.POSITIVE_INFINITY;
+      await withLock(lock, async () => {
+        await new Promise((r) => setTimeout(r, 700));
+        age = Date.now() - fs.statSync(lock).mtimeMs;
+        return 'in';
+      }, 3000, 300);
+      expect(age).toBeLessThan(250);
+    });
+
+    it('lets one in at a time when helpers of both kinds start together on no lock', async () => {
+      expect(await contend(() => {}, 4, 6, 4)).toEqual(Array(48).fill('ok'));
+    }, 120_000);
+
+    it('lets one in at a time when helpers of both kinds start together on a stale plain lock', async () => {
+      // the older helpers cannot clear it (they only wait), so only the newer ones get in; they must not run together
+      const results = await contend((lock) => stale(lock, 'dead-old'), 6, 4, 0);
+      expect(results).toEqual(Array(24).fill('ok'));
+    }, 120_000);
+
+    describe('the scheme marker', () => {
+      it('is written as 2 when absent, and raised from 1', async () => {
+        const withLock = await loadWithLock();
+        const dir = tmp();
+        const lock = path.join(dir, 'c.pem.lock');
+        await withLock(lock, async () => 'in');
+        expect(fs.readFileSync(`${lock}.scheme`, 'utf8').trim()).toBe('2');
+        fs.writeFileSync(`${lock}.scheme`, '1\n');
+        await withLock(lock, async () => 'in');
+        expect(fs.readFileSync(`${lock}.scheme`, 'utf8').trim()).toBe('2');
+        fs.writeFileSync(`${lock}.scheme`, 'garbage');
+        await withLock(lock, async () => 'in');
+        expect(fs.readFileSync(`${lock}.scheme`, 'utf8').trim()).toBe('2');
+      });
+
+      it('makes a helper that does not know the scheme refuse, with a code, and take no lock', async () => {
+        const withLock = await loadWithLock();
+        const dir = tmp();
+        const lock = path.join(dir, 'c.pem.lock');
+        fs.writeFileSync(`${lock}.scheme`, '3\n');
+        let ran = false;
+        await expect(withLock(lock, async () => void (ran = true) as unknown as string)).rejects.toMatchObject({ code: 'LOCK_SCHEME', message: expect.stringMatching(/newer|scheme 3/) });
+        expect(ran).toBe(false);
+        expect(fs.readdirSync(dir)).toEqual(['c.pem.lock.scheme']);
+        expect(fs.readFileSync(`${lock}.scheme`, 'utf8').trim()).toBe('3');
+      });
+    });
   });
 
   it('never takes a lock from a holder that is still running, however long it takes', async () => {

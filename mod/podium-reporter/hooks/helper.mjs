@@ -171,17 +171,47 @@ function generations(lockFile) {
     .sort((x, y) => x.gen - y.gen);
 }
 
+/** The lock scheme this helper speaks. 1 was the plain `<lock>` file of the first renewal code; 2 adds the numbered files. */
+export const LOCK_SCHEME = 2;
+
 /**
- * Runs `fn` while holding the lock `<lockFile>`, which is a numbered file, `<lockFile>.<n>`, made with O_EXCL and naming its
- * owner. The lock is held by the highest number and is free when there is none or the highest is older than `staleMs` (its owner
- * died, or it let go: letting go ages the file instead of removing it). To take it, a waiter creates the next number. Of several
- * waiters that want the same number exactly one creates it and the rest see it exist, so taking a stale lock needs no removal that
- * two waiters could race on, and a waiter never removes a lock another has just made. A number is never used twice, so a waiter
- * working from an old reading cannot be handed a number that has since been held and released. Numbers below the one taken are
- * leftovers and are removed. While `fn` runs the file's time is refreshed every third of `staleMs`, so a live holder is not taken
- * over however long it takes. Returns null when the lock could not be had in `waitMs`.
+ * Records the scheme in `<lock>.scheme` and refuses a lock that a newer helper has written a higher number to, because this
+ * helper would not know how to exclude it. A missing, older or unreadable marker is raised to this helper's scheme.
+ */
+function checkScheme(lockFile) {
+  const marker = `${lockFile}.scheme`;
+  let seen = Number.NaN;
+  try {
+    seen = Number.parseInt(fs.readFileSync(marker, 'utf8'), 10);
+  } catch {
+    // no marker yet
+  }
+  if (seen > LOCK_SCHEME) {
+    throw Object.assign(new Error(`${marker} says lock scheme ${seen}, newer than the ${LOCK_SCHEME} this helper knows; update podium-reporter`), { code: 'LOCK_SCHEME' });
+  }
+  if (seen !== LOCK_SCHEME) writeAtomic(marker, `${LOCK_SCHEME}\n`);
+}
+
+/**
+ * Runs `fn` while holding the lock `<lockFile>`. It is two locks, taken in this order.
+ *
+ * First a numbered file, `<lockFile>.<n>`, made with O_EXCL and naming its owner. The lock is held by the highest number and is
+ * free when there is none or the highest is older than `staleMs` (its owner died, or it let go: letting go ages the file instead of
+ * removing it). To take it, a waiter creates the next number. Of several waiters that want the same number exactly one creates
+ * it and the rest see it exist, so taking a stale lock needs no removal that two waiters could race on, and a waiter never removes
+ * a lock another has just made. A number is never used twice, so a waiter working from an old reading cannot be handed a number
+ * that has since been held and released. Numbers below the one taken are leftovers and are removed.
+ *
+ * Then, while holding that, the plain file `<lockFile>` itself, with O_EXCL, which is what the first renewal code (lock scheme 1)
+ * took. Taking it keeps a session on that older code out while this one works, and waits for one that holds it. Only the holder of
+ * the numbered lock ever removes a stale plain lock, so this helper's sessions do not race on it; the one race left is with an
+ * older helper clearing the same stale file, which only that older code can close.
+ *
+ * While `fn` runs both files' times are refreshed every third of `staleMs`, so a live holder is not taken over however long it
+ * takes. Returns null when the lock could not be had in `waitMs`, and throws (code LOCK_SCHEME) for a scheme this helper does not know.
  */
 export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LOCK_STALE_MS) {
+  checkScheme(lockFile);
   const until = Date.now() + waitMs;
   const owner = `${process.pid}:${randomBytes(8).toString('hex')}`;
   let mine = null;
@@ -212,29 +242,58 @@ export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LO
       // a leftover we cannot remove is stale; the next taker tries again
     }
   }
-  const ours = () => {
+  const ours = (file) => {
     try {
-      return fs.readFileSync(mine, 'utf8') === owner;
+      return fs.readFileSync(file, 'utf8') === owner;
     } catch {
       return false;
     }
   };
+  const held = [mine];
   const beat = setInterval(() => {
-    try {
-      if (ours()) fs.utimesSync(mine, new Date(), new Date());
-    } catch {
-      // gone: nothing of ours to keep fresh
+    for (const f of held) {
+      try {
+        if (ours(f)) fs.utimesSync(f, new Date(), new Date());
+      } catch {
+        // gone: nothing of ours to keep fresh
+      }
     }
   }, Math.max(10, staleMs / 3));
-  try {
-    return { value: await fn() };
-  } finally {
+  const letGo = () => {
     clearInterval(beat);
     try {
-      if (ours()) fs.utimesSync(mine, new Date(0), new Date(0));
+      if (ours(mine)) fs.utimesSync(mine, new Date(0), new Date(0));
     } catch {
       // gone already
     }
+    try {
+      if (held.includes(lockFile) && ours(lockFile)) fs.rmSync(lockFile, { force: true });
+    } catch {
+      // gone already; a plain lock we cannot remove goes stale
+    }
+  };
+  try {
+    for (;;) {
+      try {
+        const fd = fs.openSync(lockFile, 'wx', 0o600);
+        fs.writeSync(fd, owner);
+        fs.closeSync(fd);
+        held.push(lockFile);
+        break;
+      } catch (err) {
+        if (err.code !== 'EEXIST') throw err;
+        // Ours alone to clear: no other session of this kind holds the numbered lock.
+        if (olderThan(lockFile, staleMs)) {
+          fs.rmSync(lockFile, { force: true });
+          continue;
+        }
+        if (Date.now() > until) return null; // the finally lets go of the numbered lock
+        await sleep(50 + Math.random() * 50);
+      }
+    }
+    return { value: await fn() };
+  } finally {
+    letGo();
   }
 }
 
