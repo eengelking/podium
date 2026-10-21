@@ -25,11 +25,11 @@ const names = serverNames('127.0.0.1', ['podium.lan']);
 describe('TlsSettingsStore', () => {
   it('reads the defaults, saves a change and reads it back', () => {
     const s = new TlsSettingsStore(openDb(':memory:'));
-    expect(s.get()).toEqual({ lifetimeDays: 365, renewBeforeDays: 30 });
+    expect(s.get()).toEqual({ lifetimeDays: 365, renewBeforeDays: 30, headerCountdown: true });
     expect(SERVING_DEFAULTS).toEqual(s.get());
     const out = s.set({ 'tls.serving.lifetimeDays': 30, 'tls.serving.renewBeforeDays': 90 });
-    expect(out).toEqual({ ok: true, settings: { lifetimeDays: 30, renewBeforeDays: 90 }, changed: ['tls.serving.lifetimeDays', 'tls.serving.renewBeforeDays'] });
-    expect(s.get()).toEqual({ lifetimeDays: 30, renewBeforeDays: 90 });
+    expect(out).toEqual({ ok: true, settings: { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true }, changed: ['tls.serving.lifetimeDays', 'tls.serving.renewBeforeDays'] });
+    expect(s.get()).toEqual({ lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true });
   });
 
   it.each([
@@ -136,7 +136,7 @@ describe('ServingRenewer.checkDue', () => {
   });
 
   it('leaves a certificate made less than a day ago alone even when renewBeforeDays exceeds its lifetime', async () => {
-    const s = await renewerSetup({ settings: { lifetimeDays: 30, renewBeforeDays: 90 } });
+    const s = await renewerSetup({ settings: { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true } });
     expect(await s.renewer.checkDue('start')).toBe(false);
     s.clock.t += 2 * DAY; // old enough now; 28 days left < 90
     expect(await s.renewer.checkDue('schedule')).toBe(true);
@@ -263,7 +263,7 @@ describe('the swap on a running listener', () => {
     const base = { env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger };
 
     // First run makes the certificate with the shortest lifetime and the longest renew-before, as the issue's check does.
-    const settings: ServingSettings = { lifetimeDays: 30, renewBeforeDays: 90 };
+    const settings: ServingSettings = { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true };
     const first = (await startTls({ ...base, settings: () => settings }))!;
     const created = first.renewer.view().serving;
     await new Promise((r) => first.server.close(r));

@@ -5,7 +5,7 @@
 import { X509Certificate } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Logger } from './logging/logger.js';
-import { listPrevious, renewServing, SERVING_DAYS, type CertInfo, type ServerNames } from './tlsCa.js';
+import { describeCert, listPrevious, renewServing, SERVING_DAYS, type CertInfo, type ServerNames } from './tlsCa.js';
 import { REPORTER_DAYS } from './tlsPeople.js';
 import type { ReporterSettings } from './tlsReporterRenew.js';
 
@@ -14,7 +14,11 @@ const DAY_MS = 86_400_000;
 export interface ServingSettings {
   lifetimeDays: number;
   renewBeforeDays: number;
+  /** `tls.header.countdown` (#586): show the healthy countdown in the header pill. A failed renewal and an expired certificate always show. */
+  headerCountdown: boolean;
 }
+
+const COUNTDOWN_KEY = 'tls.header.countdown';
 
 /** The settings this issue owns, by the key SPEC 6 gives them. */
 const FIELDS = {
@@ -34,7 +38,7 @@ const reporterKeys = Object.keys(REPORTER_FIELDS) as ReporterKey[];
 type SettingKey = keyof typeof FIELDS;
 const keys = Object.keys(FIELDS) as SettingKey[];
 
-export const SERVING_DEFAULTS: ServingSettings = { lifetimeDays: FIELDS['tls.serving.lifetimeDays'].def, renewBeforeDays: FIELDS['tls.serving.renewBeforeDays'].def };
+export const SERVING_DEFAULTS: ServingSettings = { lifetimeDays: FIELDS['tls.serving.lifetimeDays'].def, renewBeforeDays: FIELDS['tls.serving.renewBeforeDays'].def, headerCountdown: true };
 
 const isWhole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 
@@ -55,6 +59,8 @@ export class TlsSettingsStore {
       const n = row ? Number(row.value) : Number.NaN;
       if (servingFieldError(k, n) === null) out[FIELDS[k].field] = n;
     }
+    const c = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(COUNTDOWN_KEY) as { value: string } | undefined;
+    if (c?.value === 'false') out.headerCountdown = false;
     return out;
   }
 
@@ -74,6 +80,10 @@ export class TlsSettingsStore {
     const given = Object.keys(patch);
     if (!given.length) return { ok: false, error: 'nothing to change' };
     for (const k of given) {
+      if (k === COUNTDOWN_KEY) {
+        if (typeof patch[k] !== 'boolean') return { ok: false, error: 'The header countdown must be on or off' };
+        continue;
+      }
       if (!(keys as string[]).includes(k) && !(reporterKeys as string[]).includes(k)) return { ok: false, error: `unknown setting: ${k}` };
       const err = servingFieldError(k as SettingKey | ReporterKey, patch[k]);
       if (err) return { ok: false, error: err };
@@ -100,6 +110,8 @@ export interface RenewerOptions {
   server: { setSecureContext(o: { cert: string; key: string; ca?: string[] }): void };
   /** The CA certificate(s) client certificates are verified against, passed again with each new serving certificate (#583). */
   ca?: string[];
+  /** The CA certificate PEM, for the Admin page to describe and offer (#586). Never the key. */
+  caCert?: string;
   /** The serving certificate the listener started with. */
   serving: CertInfo;
   settings: () => ServingSettings;
@@ -111,6 +123,8 @@ export interface RenewerOptions {
 }
 
 export interface CertificateView {
+  /** The CA certificate (never its key), or null when the renewer was not given it. */
+  ca: CertInfo | null;
   serving: CertInfo;
   /** What a renewal would put on the certificate, and what the running one carries. */
   names: ServerNames;
@@ -217,8 +231,14 @@ export class ServingRenewer {
     }
   }
 
+  /** The CA certificate PEM, or null when not given. Public by nature. */
+  caPem(): string | null {
+    return this.o.caCert ?? null;
+  }
+
   view(): CertificateView {
     return {
+      ca: this.o.caCert ? describeCert(this.o.caCert) : null,
       serving: this.serving,
       names: this.o.names,
       certificateNames: namesOf(this.certPem),

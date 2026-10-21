@@ -809,6 +809,15 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ ok: true, ...r.view() });
   });
 
+  // The CA certificate to download, for a browser or a person who wants to check it (T8). Public; there is no key to send.
+  router.get('/certificates/ca.pem', (_req, res) => {
+    const r = certs?.renewer();
+    if (!r) return tlsOff(res);
+    const pem = r.caPem();
+    if (!pem) return void res.status(404).json({ ok: false, error: 'no CA certificate' });
+    res.type('application/x-pem-file').set('Content-Disposition', 'attachment; filename="podium-ca.pem"').send(pem);
+  });
+
   // Flat body keyed as in SPEC 6: { "tls.serving.lifetimeDays": 90, "tls.serving.renewBeforeDays": 30 }.
   router.put('/certificates', (req, res) => {
     const r = certs?.renewer();
@@ -819,7 +828,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
     const s = out.settings;
     const rep = certs.settings.getReporter();
-    audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays });
+    audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays, header_countdown: s.headerCountdown });
     res.json({ ok: true, ...r.view() });
   });
 
