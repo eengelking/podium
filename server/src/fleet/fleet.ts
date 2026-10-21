@@ -19,7 +19,7 @@ import { openActivityDb } from './activityDb.js';
 import { ActivityHistory, type SessionMeta } from './activityHistory.js';
 import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
 import type { DatabaseSync } from 'node:sqlite';
-import { ACTIVITY_FEED, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK } from './featureFlags.js';
+import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK } from './featureFlags.js';
 import { RecordingSettingsStore } from './recordingSettings.js';
 import { SessionRecordings } from './recordings.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
@@ -157,6 +157,8 @@ export class Fleet {
     this.features = new FeatureFlags(db.db, (id, on) => {
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
       if (id === FILE_DIFF && !on) this.diffs.clear();
+      // Output going off drops every output held on a lease (#431). The commands, the leases and the history are untouched.
+      if (id === ACTIVITY_OUTPUT && !on) this.activity.dropOutput();
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       // Messaging going off drops every message still waiting; the rights stay.
@@ -194,6 +196,7 @@ export class Fleet {
       now,
       () => this.features.featureOn(ACTIVITY_FEED),
       (sid) => (this.activityHistory.enabled() ? this.activityHistory.loopsToWatch(sid) : []),
+      () => this.features.featureOn(ACTIVITY_OUTPUT),
     );
     this.respond = new RespondStore(
       now,
@@ -422,6 +425,7 @@ export class Fleet {
         ownerGroup: this.db.groupOfOwner(row.owner),
         pricing: this.prices.pricing(),
         activityFeed: this.activity.feedOn(row.id),
+        activityOutput: this.activity.outputOptionOn(row.id),
         fileDiff: this.diffs.optionOn(row.id),
         respond: this.respond.info(row.id),
         asks: this.respond.summaries(row.id),

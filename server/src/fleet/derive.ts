@@ -207,6 +207,8 @@ export interface SessionInput {
   pricing?: Pricing;
   /** Whether the reporter has the activityFeed option on, from the activity store; null when unknown. */
   activityFeed?: boolean | null;
+  /** Whether the reporter has the activityOutput option on (#431), held in memory; null when unknown. */
+  activityOutput?: boolean | null;
   /** Whether the reporter has the fileDiff option on (#319), held in memory; null when unknown. */
   fileDiff?: boolean | null;
   /** Report.session.respond as last reported (#206), held in memory; null when unknown. */
@@ -280,6 +282,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     ownerGroup: input.ownerGroup ?? null,
     machine: parse<MachineInfo | null>(row.machine_json, null),
     activityFeed: input.activityFeed ?? null,
+    activityOutput: input.activityOutput ?? null,
     fileDiff: input.fileDiff ?? null,
     respond: input.respond ?? null,
     asks: input.asks ?? [],

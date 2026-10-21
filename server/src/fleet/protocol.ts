@@ -953,6 +953,8 @@ export interface SessionView {
    * than 0.13.0, a settings-hooks session, or no report since the server started. Held in memory, not stored.
    */
   activityFeed: boolean | null;
+  /** Whether the reporter's activityOutput option is on (#431); null as for `activityFeed`. Held in memory. */
+  activityOutput: boolean | null;
   /** Whether the reporter's fileDiff option is on (#319); null as for `activityFeed`. Held in memory. */
   fileDiff: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */

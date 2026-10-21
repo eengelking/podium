@@ -250,7 +250,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {

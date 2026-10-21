@@ -354,7 +354,13 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 - Since #431 an entry may also carry a Bash call's `id`, whole `command` and, with the `activityOutput` option and the
   reply's `watchOutput` listing the loop, its `output` and exit status. They have a separate 200,000-character budget
   per report, enforced by `withinActivityBudget` in `protocol.ts`, which also drops output the session's option does
-  not allow. DECISIONS 41 has the reasoning. The server and mod behavior arrive in later commits of the same issue.
+  not allow. DECISIONS 41 has the reasoning.
+- The server (#431): `ActivityStore` merges an entry that carries an `id` into the one it already holds, so output that
+  arrives after the entry first went out attaches to it. It holds `output`, `done`, `exitCode` and `failed` on the lease
+  only, takes them only while the `activity-output` and `activity-feed` flags and the session's `activityOutput` option are
+  on, serves them only while the flags are on, and drops them with the lease, the session, a flag turned off, and a
+  restart (`dropOutput`). `watchedOutput` is the reply's `watchOutput`: the lease loops, never the loops the history lists.
+  The Activity history (schema version 5) stores `command` and `command_cut`, and has no column for output, status or id.
 
 **UI**
 
@@ -399,7 +405,7 @@ reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `s
   report's clock skew), which the purge and the filters use. Entries sent from Podium are written through the
   respond bridge with their ref, sender and note.
 - **Aggregates, so nothing scans the table.** `stored_sessions` also holds each session's `entries`, `bytes` (an
-  estimate: text and labels plus 48 bytes a row) and `oldest_t` (schema version 2), and a `loops` table
+  estimate: text, a Bash command and labels plus 48 bytes a row) and `oldest_t` (schema version 2), and a `loops` table
   holds each loop's entry count and its first and last times (schema version 3), kept in step in the same
   transaction as every insert, Podium-entry change and removal chunk. The live feed's `history` note and a history page
   therefore cost one indexed read, whatever the loop's size. `totals()` and a `list` that filters only on a

@@ -10,6 +10,12 @@
 // needs no lease: `watched()` then also lists the loops the history asks for, for a session whose reporter has the
 // option on, and the history takes every entry a report carries. This live window behaves as above either way.
 //
+// A Bash entry may carry the call's `id`, its whole `command` and, once the call finished, its `output` with an exit status
+// (#431). The command is held like the rest of the entry (and the history stores it). Output is held here and nowhere else, on
+// the lease: it is taken only while the Admin's `activity-output` flag and the session's `activityOutput` option are on, goes
+// with the lease, the session and a flag turned off, and is never written to a database or logged. `watchedOutput()` is the
+// reply's `watchOutput`: the loops under a live lease, never a loop the history lists with no viewer.
+//
 // The Admin can turn the whole feature off (Admin > Settings > Feature flags, `activity-feed`). While it is off no lease
 // is granted, nothing is listed as watched and nothing a mod sends is kept; the fleet calls `clear()` when it goes off.
 import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
@@ -34,7 +40,19 @@ export interface ActivityEntryView {
   text: string;
   by?: string;
   note?: string | null;
+  /** The tool call's id, command and output with its status (#431); see ActivityEntry in protocol.ts. `output` is never stored. */
+  id?: string;
+  command?: string;
+  commandCut?: boolean;
+  output?: string;
+  outputCut?: boolean;
+  done?: boolean;
+  exitCode?: number;
+  failed?: boolean;
 }
+
+/** The fields of an entry that hold a call's output and how it ended: held on the lease only. */
+const OUTPUT_KEYS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
 
 /** An entry as the lease holds it: a Podium entry also keeps the delivery it is about, to update it later. */
 interface HeldEntry extends ActivityEntryView {
@@ -73,6 +91,8 @@ export class ActivityStore {
   private readonly leases = new Map<string, Map<string, Lease>>();
   /** Session id -> whether its reporter has the activityFeed option on, from the last report that said. */
   private readonly feed = new Map<string, boolean>();
+  /** Session id -> whether its reporter has the activityOutput option on, from the last report that said (#431). */
+  private readonly outputOpt = new Map<string, boolean>();
 
   constructor(
     private readonly now: () => number,
@@ -83,7 +103,14 @@ export class ActivityStore {
      * only for a session whose reporter has the `activityFeed` option on.
      */
     private readonly historyLoops: (sessionId: string) => string[] = () => [],
+    /** Whether the Admin has `activity-output` on (#431). Off, no output is taken, held or served. */
+    private readonly outputFlag: () => boolean = () => false,
   ) {}
+
+  /** Whether output may be taken and served now: the Admin's `activity-feed` and `activity-output` flags are both on. */
+  private get outputOn(): boolean {
+    return this.isOn() && this.outputFlag();
+  }
 
   /** Whether the feature is on for this server. The route grants no lease while it is off. */
   get on(): boolean {
@@ -112,7 +139,9 @@ export class ActivityStore {
       loops.set(loop, lease);
     }
     lease.until = Math.max(lease.until, now + everySeconds * 1000 + ACTIVITY_LEASE_SLACK_MS);
-    return { entries: lease.entries.map(({ ref: _ref, ...e }) => e), since: lease.since };
+    // Output is served only while the flag is on, whatever the lease still holds.
+    const showOutput = this.outputOn;
+    return { entries: lease.entries.map(({ ref: _ref, ...e }) => (showOutput ? e : withoutOutput(e))), since: lease.since };
   }
 
   /** The loops of a session someone is watching: the report reply's `watch`. */
@@ -125,9 +154,24 @@ export class ActivityStore {
     return loops;
   }
 
+  /**
+   * The loops of `watched()` that a viewer has open right now (a live lease): the report reply's `watchOutput` (#431). A loop
+   * listed only because the Activity history keeps it is not here. Empty while either flag is off.
+   */
+  watchedOutput(sessionId: string): string[] {
+    if (!this.outputOn) return [];
+    this.expireSession(sessionId, this.now());
+    return [...(this.leases.get(sessionId)?.keys() ?? [])];
+  }
+
   /** Whether the session's reporter has the option on; null when no report has said (an older reporter, or since a restart). */
   feedOn(sessionId: string): boolean | null {
     return this.feed.get(sessionId) ?? null;
+  }
+
+  /** Whether the session's reporter has the `activityOutput` option on (#431); null when no report has said. */
+  outputOptionOn(sessionId: string): boolean | null {
+    return this.outputOpt.get(sessionId) ?? null;
   }
 
   /**
@@ -137,13 +181,18 @@ export class ActivityStore {
   ingest(report: Report, skewMs: number): void {
     const sid = report.session.id;
     if (typeof report.session.activityFeed === 'boolean') this.feed.set(sid, report.session.activityFeed);
+    if (typeof report.session.activityOutput === 'boolean') {
+      this.outputOpt.set(sid, report.session.activityOutput);
+      if (!report.session.activityOutput) this.dropSessionOutput(sid);
+    }
     if (!this.isOn()) return;
+    const keepOutput = this.outputOn && report.session.activityOutput === true;
     const loops = this.leases.get(sid);
     if (!loops) return;
     this.expireSession(sid, this.now());
     const take = (loop: string, list: ActivityEntry[] | undefined) => {
       const lease = loops.get(loop);
-      if (lease && list?.length) this.merge(lease, list, skewMs);
+      if (lease && list?.length) this.merge(lease, list, skewMs, keepOutput);
     };
     take(MAIN_LOOP, report.session.activity);
     for (const a of report.agents) take(a.id, a.activity);
@@ -175,15 +224,22 @@ export class ActivityStore {
   }
 
   /** Adds what is new in a reporter's snapshot (its last 20, oldest first) and keeps the last 20. */
-  private merge(lease: Lease, list: ActivityEntry[], skewMs: number): void {
+  private merge(lease: Lease, list: ActivityEntry[], skewMs: number, keepOutput: boolean): void {
     for (const e of list) {
+      // A call already held gets what arrived since (its output, status, a command first sent without): it is the same entry, so
+      // it keeps its place and number, and the repeat is not read as a new one. A call from before the lease began is not held.
+      const held = e.id === undefined ? undefined : lease.entries.find((x) => x.kind === e.kind && x.id === e.id);
+      if (held) {
+        Object.assign(held, held.command === undefined ? commandOf(e) : {}, keepOutput ? outputOf(e) : {});
+        continue;
+      }
       if (e.at - skewMs < lease.since) continue;
       // Compared with the reporter's own entries only: a Podium entry carries the server's time, not the reporter's.
       const own = lease.entries.filter((x) => x.kind !== 'podium');
       const last = own[own.length - 1];
       if (last && e.at < last.at) continue;
       if (last && e.at === last.at && lease.entries.some((x) => x.kind !== 'podium' && x.at === e.at && x.kind === e.kind && x.text === e.text)) continue;
-      lease.entries.push({ seq: ++lease.seq, at: e.at, kind: e.kind, text: e.text });
+      lease.entries.push({ seq: ++lease.seq, at: e.at, kind: e.kind, text: e.text, ...(e.id === undefined ? {} : { id: e.id }), ...commandOf(e), ...(keepOutput ? outputOf(e) : {}) });
     }
     if (lease.entries.length > LIMITS.activityEntries) lease.entries.splice(0, lease.entries.length - LIMITS.activityEntries);
   }
@@ -192,6 +248,15 @@ export class ActivityStore {
   expire(): void {
     const now = this.now();
     for (const sid of [...this.leases.keys()]) this.expireSession(sid, now);
+  }
+
+  /** The Admin turned `activity-output` off: every held output goes, in every session. The leases and commands stay. */
+  dropOutput(): void {
+    for (const loops of this.leases.values()) for (const lease of loops.values()) lease.entries = lease.entries.map(withoutOutput);
+  }
+
+  private dropSessionOutput(sessionId: string): void {
+    for (const lease of this.leases.get(sessionId)?.values() ?? []) lease.entries = lease.entries.map(withoutOutput);
   }
 
   /** The Admin turned the feature off: every lease and every entry goes, in every session. */
@@ -203,6 +268,7 @@ export class ActivityStore {
   dropSession(sessionId: string): void {
     this.leases.delete(sessionId);
     this.feed.delete(sessionId);
+    this.outputOpt.delete(sessionId);
   }
 
   private expireSession(sessionId: string, now: number): void {
@@ -211,4 +277,28 @@ export class ActivityStore {
     for (const [loop, lease] of loops) if (now > lease.until) loops.delete(loop);
     if (!loops.size) this.leases.delete(sessionId);
   }
+}
+
+/** A tool entry's command and its cut flag, within the protocol's limit. Nothing on any other kind of entry. */
+function commandOf(e: ActivityEntry): Pick<ActivityEntryView, 'command' | 'commandCut'> {
+  if (e.kind !== 'tool' || typeof e.command !== 'string') return {};
+  return { command: e.command.slice(0, LIMITS.activityDetail), ...(e.commandCut === true ? { commandCut: true } : {}) };
+}
+
+/** A tool entry's output and how the call ended, within the protocol's limit. */
+function outputOf(e: ActivityEntry): Partial<ActivityEntryView> {
+  if (e.kind !== 'tool') return {};
+  const out: Partial<ActivityEntryView> = {};
+  if (typeof e.output === 'string') out.output = e.output.slice(0, LIMITS.activityDetail);
+  if (e.outputCut === true) out.outputCut = true;
+  if (e.done === true) out.done = true;
+  if (typeof e.exitCode === 'number') out.exitCode = e.exitCode;
+  if (e.failed === true) out.failed = true;
+  return out;
+}
+
+function withoutOutput<T extends HeldEntry>(e: T): T {
+  const out = { ...e };
+  for (const k of OUTPUT_KEYS) delete out[k];
+  return out;
 }
