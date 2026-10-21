@@ -119,6 +119,11 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  // Choosing a tab from the menu drops an Admin hash, so following the same link again (the header pill) is a change the page sees.
+  const pickTab = useCallback((id: TabId) => {
+    if (tabForHash(window.location.hash)) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    setTab(id);
+  }, []);
   // A browser signed in to respond as an Administrator opens Admin with no second sign-in (#215).
   const openFromRespond = useCallback(
     () =>
@@ -228,7 +233,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                         <span className="gt">{g.name}</span>
                       </span>
                       {g.ids.map((id) => (
-                        <button key={id} type="button" className="navbtn" aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+                        <button key={id} type="button" className="navbtn" aria-current={tab === id ? "page" : undefined} onClick={() => pickTab(id)}>
                           {PAGES[id].name}
                           {counts[id] !== undefined && <span className="n">{counts[id]}</span>}
                         </button>

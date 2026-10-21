@@ -123,6 +123,24 @@ describe("CertPill", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
+  it("does not ask while the tab is hidden, and asks again when it is shown", async () => {
+    const fetchFn = answer(status());
+    vi.stubGlobal("fetch", fetchFn);
+    const vis = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    render(<CertPill />);
+    await act(async () => {});
+    await act(async () => {
+      vi.advanceTimersByTime(TLS_POLL_MS);
+    });
+    expect(fetchFn).not.toHaveBeenCalled();
+    vis.mockReturnValue("visible");
+    await act(async () => {
+      vi.advanceTimersByTime(TLS_POLL_MS);
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    vis.mockRestore();
+  });
+
   it("sits after the connection pill in the top bar", async () => {
     vi.stubGlobal("fetch", answer(status({ stage: "expired", daysLeft: -1 })));
     render(<TopBar page="Admin" phase="live" reporters={2} />);

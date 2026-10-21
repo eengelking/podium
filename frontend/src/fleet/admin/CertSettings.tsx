@@ -56,6 +56,7 @@ function DaysRow(props: { id: string; name: string; hint: string; value: number;
 
 export function CertSettings({ view, save }: { view: CertsView; save: SaveSetting }) {
   const { settings, reporter } = view;
+  const [switchErr, setSwitchErr] = useState("");
   return (
     <Section
       id="c-r"
@@ -72,8 +73,13 @@ export function CertSettings({ view, save }: { view: CertsView; save: SaveSettin
           name="Show the expiry countdown in the header"
           description="Turn this off if you rely on automatic renewal. A failed renewal and an expired certificate are always shown."
           on={settings.headerCountdown}
-          onFlip={() => void save("tls.header.countdown", !settings.headerCountdown)}
+          onFlip={() => void save("tls.header.countdown", !settings.headerCountdown).then((e) => setSwitchErr(e ?? ""))}
         />
+        {switchErr && (
+          <div className="err" id="sw-hdr-e" role="alert">
+            {switchErr}
+          </div>
+        )}
       </Panel>
     </Section>
   );

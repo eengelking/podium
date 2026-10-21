@@ -30,8 +30,8 @@ export function NamesModal({ view, onClose }: { view: CertsView; onClose: () => 
   const always = all.filter((r) => ALWAYS.has(r.name));
   const added = all.filter((r) => !ALWAYS.has(r.name));
   const { state, copy } = useCopy(all.map((r) => r.name).join("\n"));
-  const next = namesList(view.names).map((r) => r.name).join(" ");
-  const differs = next !== all.map((r) => r.name).join(" ");
+  const sorted = (rows: { name: string }[]) => rows.map((r) => r.name).sort().join(" ");
+  const differs = sorted(namesList(view.names)) !== sorted(all);
   return (
     <Modal titleId="names-t" title={`${all.length} names on the serving certificate`} sub="A client that connects by any other name refuses it." className="sm" onClose={onClose}>
       <div className="sbody">

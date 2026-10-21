@@ -58,6 +58,8 @@ export function useTlsStatus(): TlsStatus | null {
   useEffect(() => {
     let live = true;
     const read = async () => {
+      // Nobody is looking at a hidden tab, and the answer changes once a day.
+      if (document.visibilityState === "hidden") return;
       try {
         const r = await fetch("/api/tls/status", { cache: "no-store" });
         const body = r.ok ? ((await r.json()) as TlsStatus | null) : null;

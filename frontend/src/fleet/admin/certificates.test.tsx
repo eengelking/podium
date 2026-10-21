@@ -239,6 +239,13 @@ describe("Admin > Server > Certificates (#586)", () => {
       expect(screen.queryByRole("dialog")).toBeNull();
     });
 
+    it("does not say the names differ when only their order does", async () => {
+      await open(fakeCerts({ names: { dns: ["podium.lan", "localhost"], ip: ["10.40.8.12", "127.0.0.1"] } }));
+      fireEvent.click(await screen.findByRole("button", { name: /and \d+ more/ }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).queryByText(/The next renewal will use a different list/)).toBeNull();
+    });
+
     it("shows a single name as plain text with no dialog to open", async () => {
       await open(fakeCerts({ certificateNames: { dns: ["localhost"], ip: [] } }));
       const t = await screen.findByRole("table", { name: "Certificate status" });
@@ -328,6 +335,15 @@ describe("Admin > Server > Certificates (#586)", () => {
       expect(sw).toHaveAccessibleName(/Off$/);
     });
 
+    it("shows the server's reason under the header countdown switch when the save is refused", async () => {
+      const srv = await open();
+      srv.certError = "could not save";
+      const sw = await screen.findByRole("switch", { name: /Show the expiry countdown in the header/ });
+      fireEvent.click(sw);
+      expect(await screen.findByText("could not save")).toBeInTheDocument();
+      expect(sw).toHaveAttribute("aria-checked", "true");
+    });
+
     it("goes back to the sign-in when the session has lapsed while saving", async () => {
       const srv = await open();
       await screen.findByRole("table", { name: "Certificate status" });
@@ -399,6 +415,21 @@ describe("Admin > Server > Certificates (#586)", () => {
       await unlock();
       expect(screen.getByRole("button", { name: "Certificates" })).toHaveAttribute("aria-current", "page");
       expect(await screen.findByRole("table", { name: "Certificate status" })).toBeInTheDocument();
+    });
+
+    it("follows the pill again after another tab was chosen from the menu", async () => {
+      const srv = fakeServer();
+      srv.certs = fakeCerts();
+      window.location.hash = "#/admin/certificates";
+      render(<AdminView />);
+      await unlock();
+      fireEvent.click(screen.getByRole("button", { name: /^People(?! and)/ }));
+      expect(window.location.hash).toBe("");
+      act(() => {
+        window.location.hash = "#/admin/certificates";
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+      });
+      expect(screen.getByRole("button", { name: "Certificates" })).toHaveAttribute("aria-current", "page");
     });
 
     it("switches to Certificates when the hash changes while Admin is open, and ignores other hashes", async () => {

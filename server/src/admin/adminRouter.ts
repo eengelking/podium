@@ -809,7 +809,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ ok: true, ...r.view(), reporter: certs?.settings.getReporter() });
   });
 
-  // The CA certificate to download, for a browser or a person who wants to check it (T8). Public; there is no key to send.
+  // The CA certificate to download, for a browser or a person who wants to check it (T8). It sits behind the unlocked Admin session like the rest of this page; there is no key to send.
   router.get('/certificates/ca.pem', (_req, res) => {
     const r = certs?.renewer();
     if (!r) return tlsOff(res);
