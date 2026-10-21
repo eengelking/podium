@@ -44,7 +44,7 @@ export function excerpt(text: string | null | undefined, max: number = LIMITS.ex
   return clip(String(text).replace(/\s+/g, ' ').trim(), max);
 }
 
-const CUT_MARKER = '\n\n[cut off at 20,000 characters]';
+export const CUT_MARKER = '\n\n[cut off at 20,000 characters]';
 
 /** The whole text redacted, line breaks kept, cut to 20,000 characters with a visible marker. */
 export function fullText(text: string | null | undefined): string {
