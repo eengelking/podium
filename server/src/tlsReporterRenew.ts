@@ -213,7 +213,9 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
           not_after: issued.info.notAfter,
           within_grace: auth.expired,
         });
-        res.json({ ok: true, cert: issued.cert, ca: issuer.caCerts(), expires: issued.info.notAfter, fingerprint: issued.info.fingerprintSha256 });
+        // Only during a planned rotation; the reporter takes it as an addition and only if the cross certificate verifies under a CA it holds.
+        const rotation = issuer.rotation?.();
+        res.json({ ok: true, cert: issued.cert, ca: issuer.caCerts(), ...(rotation ? { rotation } : {}), expires: issued.info.notAfter, fingerprint: issued.info.fingerprintSha256 });
       })
       .catch((err: unknown) => {
         if (err instanceof TlsError && /public key/.test(err.message)) return void res.status(400).json({ ok: false, error: err.message });

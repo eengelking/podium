@@ -305,3 +305,42 @@ describe('certAuth with a stand-in socket', () => {
     expect(certAuth({ encrypted: true, getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: unverified' });
   });
 });
+
+describe('PersonCertStore.reportersByIssuer (#588)', () => {
+  const issued = (issuer: string, serial: string, notAfter: number): IssuedPersonCert => {
+    const info = { fingerprintSha256: `fp-${serial}`, subject: 's', notBefore: new Date(0).toISOString(), notAfter: new Date(notAfter).toISOString(), serial };
+    return { cert: 'pem', key: '', info, issuerFingerprint: issuer };
+  };
+  const store = () => {
+    const db = openDb(':memory:');
+    return { people: new PeopleStore(db), certs: new PersonCertStore(db) };
+  };
+
+  it('counts each person once, by their newest live certificate', () => {
+    const { people, certs } = store();
+    const a = people.createPerson('A').person;
+    const b = people.createPerson('B').person;
+    const c = people.createPerson('C').person;
+    const future = Date.now() + 86_400_000;
+    certs.replace(a.id, issued('old', '1', future), 1000);
+    certs.replace(b.id, issued('old', '2', future), 1000);
+    // B renewed onto the new CA and still holds the old, live certificate: B is on the new CA.
+    certs.add(b.id, issued('new', '3', future), 2000);
+    certs.replace(c.id, issued('new', '4', future), 1000);
+    expect(certs.reportersByIssuer(Date.now())).toEqual({ total: 3, byIssuer: { old: 1, new: 2 } });
+  });
+
+  it('leaves out a revoked certificate and one that ended before the cutoff, and keeps one inside the grace', () => {
+    const { people, certs } = store();
+    const a = people.createPerson('A').person;
+    const b = people.createPerson('B').person;
+    const c = people.createPerson('C').person;
+    const now = Date.now();
+    certs.replace(a.id, issued('old', '1', now + 1000), 1000);
+    certs.revokeFor(a.id, 'revoked', 2000);
+    certs.replace(b.id, issued('old', '2', now - 40 * 86_400_000), 1000);
+    certs.replace(c.id, issued('old', '3', now - 10 * 86_400_000), 1000);
+    // a 30-day grace: the cutoff is 30 days ago
+    expect(certs.reportersByIssuer(now - 30 * 86_400_000)).toEqual({ total: 1, byIssuer: { old: 1 } });
+  });
+});

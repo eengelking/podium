@@ -110,6 +110,20 @@ export class PersonCertStore {
     return this.find(c.info.fingerprintSha256)!;
   }
 
+  /**
+   * How many people are on each CA: a person counts once, by their newest certificate that is not revoked and has not run
+   * past `cutoff` (its end, less the grace). Used to say how many reporters still depend on the old CA (#588).
+   */
+  reportersByIssuer(cutoff: number): { total: number; byIssuer: Record<string, number> } {
+    const rows = this.stmt(
+      `SELECT c.issuer_fingerprint AS issuer FROM person_certificates c
+       WHERE c.rowid = (SELECT MAX(p.rowid) FROM person_certificates p WHERE p.person_id = c.person_id AND p.revoked_at IS NULL AND p.not_after > ?)`,
+    ).all(cutoff) as unknown as Array<{ issuer: string }>;
+    const byIssuer: Record<string, number> = {};
+    for (const r of rows) byIssuer[r.issuer] = (byIssuer[r.issuer] ?? 0) + 1;
+    return { total: rows.length, byIssuer };
+  }
+
   /** Revokes the person's live certificates. Returns how many it revoked; 0 when there was none to revoke. */
   revokeFor(personId: number, reason: string, now: number): number {
     return Number(this.stmt('UPDATE person_certificates SET revoked_at = ?, reason = ? WHERE person_id = ? AND revoked_at IS NULL').run(now, reason, personId).changes);

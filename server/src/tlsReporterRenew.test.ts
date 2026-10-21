@@ -67,18 +67,20 @@ async function setup(o: { graceDays?: number; lifetimeDays?: number } = {}) {
       logger,
       now: () => clock(),
       settings: () => settings,
-      trustedIssuers: () => (listener ? [listener.material.ca.fingerprintSha256] : []),
-      issuer: () => (listener && issuerOn ? { dir, port: listener.port, caCerts: () => [listener!.material.caCert], openssl: opensslBin } : null),
+      trustedIssuers: () => listener?.trust.trustedIssuers() ?? [],
+      issuer: () => (listener && issuerOn ? { dir, port: listener.port, caCerts: () => [listener!.trust.currentCa()], rotation: () => listener!.trust.deliverable(), openssl: opensslBin } : null),
     }),
   );
   app.get('/whoami', (req, res) => {
-    const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => (listener ? [listener.material.ca.fingerprintSha256] : []), now: () => clock() });
+    const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => listener?.trust.trustedIssuers() ?? [], now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
   const port = await freePort();
   listener = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath: path.join(root, 'podium.sqlite'), bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger })) as TlsListener;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const ca = listener.material.caCert;
+  /** What the test's clients trust: the CA the server started with, until a test says otherwise. */
+  let clientCa: string[] = [ca];
 
   const personWith = (name: string) => people.createPerson(name).person;
   const store = (personId: number, i: IssuedPersonCert) => certs.replace(personId, i, Date.now());
@@ -102,7 +104,7 @@ async function setup(o: { graceDays?: number; lifetimeDays?: number } = {}) {
     new Promise<{ status: number; body: Record<string, unknown>; headers: http.IncomingHttpHeaders }>((resolve, reject) => {
       const data = JSON.stringify(body);
       const req = https.request(
-        { host: '127.0.0.1', port, ca, servername: 'localhost', method: 'POST', path: route, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, ...(c ?? {}) },
+        { host: '127.0.0.1', port, ca: clientCa, servername: 'localhost', method: 'POST', path: route, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, ...(c ?? {}) },
         (res) => {
           let text = '';
           res.on('data', (x) => (text += x));
@@ -114,13 +116,13 @@ async function setup(o: { graceDays?: number; lifetimeDays?: number } = {}) {
     });
   const whoami = (c: { cert: string; key: string }) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
-      https.get({ host: '127.0.0.1', port, ca, servername: 'localhost', path: '/whoami', ...c }, (res) => {
+      https.get({ host: '127.0.0.1', port, ca: clientCa, servername: 'localhost', path: '/whoami', ...c }, (res) => {
         let text = '';
         res.on('data', (x) => (text += x));
         res.on('end', () => resolve(JSON.parse(text) as Record<string, unknown>));
       }).on('error', reject);
     });
-  return { root, dir, db, people, certs, logger, lines, settings, listener, ca, port, issueFor, issueDated, post, whoami, setClock: (f: () => number) => (clock = f), personWith, setIssuerOn: (on: boolean) => (issuerOn = on), setOpenssl: (b: string) => (opensslBin = b) };
+  return { root, dir, db, people, certs, logger, lines, settings, listener, ca, port, issueFor, issueDated, post, whoami, setClock: (f: () => number) => (clock = f), personWith, trustOnlyClients: (c: string[]) => (clientCa = c), setIssuerOn: (on: boolean) => (issuerOn = on), setOpenssl: (b: string) => (opensslBin = b) };
 }
 
 describe('issuing a certificate for a public key', () => {
@@ -483,5 +485,61 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       req.end('{}');
     });
     expect(res).toBe(401);
+  });
+});
+
+describe('a CA rotation seen by a renewing reporter (#588)', () => {
+  const sign = (k: KeyObject) => ({ publicKey: pubPem(k) });
+
+  it('a planned rotation adds the new CA and its cross certificate to the response, signs the new certificate with the new CA, and both CAs authenticate', async () => {
+    const s = await setup();
+    const { issued } = await s.issueFor('Dana');
+    await s.listener.rotation.rotate(false);
+    const { ca: newCa } = s.listener.trust.deliverable()!;
+    const k = newKey();
+    const res = await s.post(issued, sign(k.publicKey));
+    expect(res.status).toBe(200);
+    expect(res.body.ca).toEqual([newCa]);
+    const rotation = res.body.rotation as { ca: string; cross: string };
+    expect(rotation.ca).toBe(newCa);
+    const cross = new X509Certificate(rotation.cross);
+    expect(cross.verify(new X509Certificate(s.ca).publicKey)).toBe(true);
+    expect(cross.publicKey.equals(new X509Certificate(newCa).publicKey)).toBe(true);
+    const renewed = new X509Certificate(res.body.cert as string);
+    expect(renewed.verify(new X509Certificate(newCa).publicKey)).toBe(true);
+    // The old certificate (old CA) and the renewed one (new CA) both identify Dana during the overlap.
+    s.trustOnlyClients([s.ca]);
+    expect(await s.whoami(issued)).toEqual({ kind: 'person', name: 'Dana' });
+    s.trustOnlyClients([newCa]);
+    expect(await s.whoami({ cert: res.body.cert as string, key: k.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() })).toEqual({ kind: 'person', name: 'Dana' });
+  });
+
+  it('offers nothing after the overlap ends, and the old certificate is refused at renewal', async () => {
+    const s = await setup();
+    const { issued } = await s.issueFor('Dana');
+    await s.listener.rotation.rotate(false);
+    const newCa = s.listener.trust.currentCa();
+    expect(s.listener.rotation.retire()).not.toBeNull();
+    s.trustOnlyClients([newCa]);
+    const res = await s.post(issued, sign(newKey().publicKey));
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('NOT_TRUSTED');
+    expect((await s.whoami(issued)).kind).not.toBe('person');
+  });
+
+  it('after a hard cutover there is nothing to offer, and an old certificate cannot renew', async () => {
+    const s = await setup();
+    const { issued } = await s.issueFor('Dana');
+    await s.listener.rotation.rotate(true);
+    s.trustOnlyClients([s.listener.trust.currentCa()]);
+    const res = await s.post(issued, sign(newKey().publicKey));
+    expect(res.status).toBe(401);
+    expect(res.body.rotation).toBeUndefined();
+    expect((await s.whoami(issued)).kind).not.toBe('person');
+    // A person reissued after the cutover renews, and the answer carries no rotation.
+    const fresh = await s.issueFor('Eli');
+    const ok = await s.post(fresh.issued, sign(newKey().publicKey));
+    expect(ok.status).toBe(200);
+    expect(ok.body.rotation).toBeUndefined();
   });
 });

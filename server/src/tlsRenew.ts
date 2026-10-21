@@ -5,9 +5,10 @@
 import { X509Certificate } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Logger } from './logging/logger.js';
-import { describeCert, listPrevious, renewServing, SERVING_DAYS, type CertInfo, type ServerNames } from './tlsCa.js';
+import { describeCert, listPrevious, renewServing, SERVING_DAYS, type CertInfo, type RenewedServing, type ServerNames } from './tlsCa.js';
 import { REPORTER_DAYS } from './tlsPeople.js';
 import type { ReporterSettings } from './tlsReporterRenew.js';
+import type { RotationView, TrustStore } from './tlsRotation.js';
 import type { StatusView } from './tlsStatus.js';
 
 const DAY_MS = 86_400_000;
@@ -113,6 +114,10 @@ export interface RenewerOptions {
   ca?: string[];
   /** The CA certificate PEM, for the Admin page to describe and offer (#586). Never the key. */
   caCert?: string;
+  /** What is trusted, when the server can rotate its CA (#588): it replaces `ca` and `caCert`, which only a stand-in test passes. */
+  trust?: TrustStore;
+  /** The serving key, kept so the context can be set again after the trust changes. */
+  key?: string;
   /** The serving certificate the listener started with. */
   serving: CertInfo;
   settings: () => ServingSettings;
@@ -134,6 +139,8 @@ export interface CertificateView {
   settings: ServingSettings;
   lastRenewed: { at: string; trigger: RenewTrigger } | null;
   lastFailure: RenewFailure | null;
+  /** An overlap that is under way after a planned CA rotation, or null (#588). */
+  rotation: RotationView | null;
 }
 
 /** The DNS and IP names in a certificate's subjectAltName. */
@@ -155,13 +162,45 @@ export class ServingRenewer {
   private inflight: Promise<{ ok: true; serving: CertInfo } | { ok: false; error: string }> | null = null;
   private inflightTrigger: RenewTrigger | null = null;
   private timer: NodeJS.Timeout | null = null;
-  private caNotAfter: { notAfter: string } | null | undefined;
+  private caNotAfter: { pem: string; notAfter: string } | null | undefined;
+  private keyPem: string | undefined;
+  /** Renewals and CA rotations run one at a time: both replace serving.crt. */
+  private chain: Promise<unknown> = Promise.resolve();
   private readonly now: () => number;
 
   constructor(private readonly o: RenewerOptions, certPem: string) {
     this.serving = o.serving;
     this.certPem = certPem;
+    this.keyPem = o.key;
     this.now = o.now ?? Date.now;
+  }
+
+  /** Runs `fn` after whatever renewal or rotation is under way. */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(fn, fn);
+    this.chain = run.catch(() => undefined);
+    return run;
+  }
+
+  /** The CA list and chain the listener should use now. */
+  private context(cert: string, key: string): { cert: string; key: string; ca?: string[] } {
+    const ca = this.o.trust?.caCerts() ?? this.o.ca;
+    return { cert: this.o.trust ? this.o.trust.chain(cert) : cert, key, ...(ca ? { ca } : {}) };
+  }
+
+  /** Takes up a serving certificate made outside a renewal (a CA rotation): the listener serves it and the page describes it. */
+  adopt(out: RenewedServing): void {
+    this.o.server.setSecureContext(this.context(out.cert, out.key));
+    this.serving = out.serving;
+    this.certPem = out.cert;
+    this.keyPem = out.key;
+    this.lastFailure = null;
+    this.caNotAfter = undefined;
+  }
+
+  /** Sets the context again with the current trust, after the old CA is retired. */
+  reapply(): void {
+    if (this.keyPem) this.o.server.setSecureContext(this.context(this.certPem, this.keyPem));
   }
 
   /** Runs the start check, then once a day. A check that fails is logged, never thrown. */
@@ -200,7 +239,7 @@ export class ServingRenewer {
     if (this.inflight && trigger === 'manual' && this.inflightTrigger !== 'manual') await this.inflight;
     if (!this.inflight) {
       this.inflightTrigger = trigger;
-      this.inflight = this.doRenew(trigger).finally(() => {
+      this.inflight = this.exclusive(() => this.doRenew(trigger)).finally(() => {
         this.inflight = null;
       });
     }
@@ -212,10 +251,11 @@ export class ServingRenewer {
     try {
       const out = await renewServing({ dir: this.o.dir, names: this.o.names, servingDays: this.o.settings().lifetimeDays, openssl: this.o.openssl, now: this.now });
       // `setSecureContext` replaces the whole context, so the CA list that client certificates are verified against goes too unless it is given again.
-      this.o.server.setSecureContext({ cert: out.cert, key: out.key, ...(this.o.ca ? { ca: this.o.ca } : {}) });
+      this.o.server.setSecureContext(this.context(out.cert, out.key));
       const replaced = this.serving;
       this.serving = out.serving;
       this.certPem = out.cert;
+      this.keyPem = out.key;
       this.lastFailure = null;
       this.lastRenewed = { at: new Date(this.now()).toISOString(), trigger };
       logger.info('tls.serving_renewed', 'podium: renewed the serving certificate', {
@@ -235,18 +275,19 @@ export class ServingRenewer {
 
   /** The CA certificate PEM, or null when not given. Public by nature. */
   caPem(): string | null {
-    return this.o.caCert ?? null;
+    return this.o.trust?.currentCa() ?? this.o.caCert ?? null;
   }
 
   /** What the header pill needs, with no parsing and no disk read: the CA's end date is read once and kept. */
   statusView(): StatusView {
-    this.caNotAfter ??= this.o.caCert ? { notAfter: describeCert(this.o.caCert).notAfter } : null;
-    return { serving: { notAfter: this.serving.notAfter }, ca: this.caNotAfter, lastFailure: this.lastFailure, settings: { headerCountdown: this.o.settings().headerCountdown } };
+    const pem = this.caPem();
+    if (this.caNotAfter === undefined || this.caNotAfter?.pem !== pem) this.caNotAfter = pem ? { pem, notAfter: describeCert(pem).notAfter } : null;
+    return { serving: { notAfter: this.serving.notAfter }, ca: this.caNotAfter && { notAfter: this.caNotAfter.notAfter }, lastFailure: this.lastFailure, settings: { headerCountdown: this.o.settings().headerCountdown } };
   }
 
   view(): CertificateView {
     return {
-      ca: this.o.caCert ? describeCert(this.o.caCert) : null,
+      ca: this.caPem() ? describeCert(this.caPem()!) : null,
       serving: this.serving,
       names: this.o.names,
       certificateNames: namesOf(this.certPem),
@@ -254,6 +295,7 @@ export class ServingRenewer {
       settings: this.o.settings(),
       lastRenewed: this.lastRenewed,
       lastFailure: this.lastFailure,
+      rotation: this.o.trust?.rotation() ?? null,
     };
   }
 }

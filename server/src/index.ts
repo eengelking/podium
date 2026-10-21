@@ -63,9 +63,9 @@ const tlsSettings = new TlsSettingsStore(fleetDb.db);
 let tlsListener: TlsListener | null = null;
 // People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
 const personCerts = new PersonCertStore(fleetDb.db);
-const trustedIssuers = () => (tlsListener ? [tlsListener.material.ca.fingerprintSha256] : []);
+const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
-const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: tlsListener.port, caCerts: () => [tlsListener!.material.caCert], days: tlsSettings.getReporter().lifetimeDays } : null);
+const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: tlsListener.port, caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
 const reporters = new ReporterStore(fleetDb.db, Date.now());
 const stopSweeper = startSweeper(
   fleet,
@@ -106,7 +106,7 @@ const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.feat
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers } }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
 app.use(createRouter());

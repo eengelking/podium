@@ -129,6 +129,8 @@ export interface PersonIssuer {
   port: number;
   /** The CA certificate(s) a config file carries: one, or two during a CA overlap. */
   caCerts: () => string[];
+  /** The new CA and its cross certificate during a planned CA rotation, for a renewal response (#588). */
+  rotation?: () => { ca: string; cross: string } | null;
   days?: number;
   openssl?: string;
 }

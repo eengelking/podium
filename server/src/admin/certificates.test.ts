@@ -9,7 +9,11 @@ import { openDb } from '../fleet/db.js';
 import { PeopleStore } from '../fleet/people.js';
 import { createLogger } from '../logging/logger.js';
 import { ensureTls, serverNames } from '../tlsCa.js';
+import { PersonCertStore } from '../tlsClientAuth.js';
 import { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
+import { issuePersonCert } from '../tlsPeople.js';
+import { retireCa, rotateCa, TrustStore } from '../tlsRotation.js';
+import type { CaRotation } from '../tlsServer.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -194,5 +198,106 @@ describe('a failure while answering', () => {
     const res = await agent.post('/api/admin/certificates/renew').set(H);
     expect(res.status).toBe(500);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+describe('rotating and retiring the CA (#588)', () => {
+  async function rotatable(tlsOn = true) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-carot-'));
+    dirs.push(root);
+    const dir = path.join(root, 'tls');
+    const names = serverNames('127.0.0.1', []);
+    const material = await ensureTls({ dir, names });
+    const db = openDb(':memory:');
+    const people = new PeopleStore(db);
+    const settings = new TlsSettingsStore(db);
+    const store = new PersonCertStore(db);
+    const trust = new TrustStore(dir);
+    const swaps: unknown[] = [];
+    const logger = createLogger({ format: 'json', write: () => {} });
+    const renewer = new ServingRenewer({ dir, names, server: { setSecureContext: (o) => swaps.push(o) }, serving: material.serving, settings: () => settings.get(), logger, trust, key: material.key }, material.cert);
+    const rotation: CaRotation = {
+      rotate: (endOverlap) => renewer.exclusive(async () => {
+        const out = await rotateCa({ dir, names, servingDays: 365, endOverlap });
+        trust.reload();
+        renewer.adopt(out);
+        return { ca: out.ca, serving: out.serving, overlap: out.overlap, closed: 0 };
+      }),
+      retire: () => {
+        if (!trust.previousCa()) return null;
+        retireCa(dir);
+        trust.reload();
+        renewer.reapply();
+        return { closed: 2 };
+      },
+    };
+    const app = express();
+    app.use('/api/admin', createAdminRouter({ secret: SECRET, people, log: () => {}, certificates: { settings, renewer: () => (tlsOn ? renewer : null), rotation: () => (tlsOn ? rotation : null), people: { store, issuer: () => null } } }));
+    const agent = request.agent(app);
+    expect((await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
+    return { agent, people, store, dir, trust, swaps, material };
+  }
+
+  it('answers 404 when TLS is off', async () => {
+    const { agent } = await rotatable(false);
+    expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false })).status).toBe(404);
+    expect((await agent.post('/api/admin/certificates/retire-ca').set(H)).status).toBe(404);
+  });
+
+  it('wants endOverlap to be said, and refuses anything else', async () => {
+    const { agent } = await rotatable();
+    for (const body of [{}, { endOverlap: 'yes' }, { endOverlap: 1 }]) {
+      expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send(body)).status).toBe(400);
+    }
+  });
+
+  it('a planned rotation shows the overlap with the count of reporters still on the old CA, then retiring names them', async () => {
+    const { agent, people, store, dir, material, swaps } = await rotatable();
+    const dana = people.createPerson('Dana').person;
+    const eli = people.createPerson('Eli').person;
+    store.replace(dana.id, await issuePersonCert({ dir, keyId: dana.keyId }), Date.now());
+    const res = await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false });
+    expect(res.status).toBe(200);
+    store.replace(eli.id, await issuePersonCert({ dir, keyId: eli.keyId }), Date.now());
+    expect(res.body.ca.fingerprintSha256).not.toBe(material.ca.fingerprintSha256);
+    const read = await agent.get('/api/admin/certificates').set(H);
+    expect(read.body.rotation.previousCa.fingerprintSha256).toBe(material.ca.fingerprintSha256);
+    expect(read.body.rotation.reporters).toEqual({ onOldCa: 1, total: 2 });
+    expect(JSON.stringify(read.body)).not.toContain('PRIVATE KEY');
+    expect(swaps.length).toBeGreaterThan(0);
+
+    const out = await agent.post('/api/admin/certificates/retire-ca').set(H);
+    expect(out.status).toBe(200);
+    expect(out.body).toMatchObject({ ok: true, refused: 1, connectionsClosed: 2 });
+    expect((await agent.get('/api/admin/certificates').set(H)).body.rotation).toBeNull();
+    const again = await agent.post('/api/admin/certificates/retire-ca').set(H);
+    expect(again.status).toBe(409);
+  });
+
+  it('refuses a second planned rotation while one is open, in words, and ending the overlap works then', async () => {
+    const { agent } = await rotatable();
+    expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false })).status).toBe(200);
+    const again = await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toMatch(/retire the old CA/);
+    const hard = await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: true });
+    expect(hard.status).toBe(200);
+    expect(hard.body.rotation).toBeNull();
+  });
+
+  it('writes every rotate and retire to the Admin log', async () => {
+    const { agent, people } = await rotatable();
+    await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false });
+    await agent.post('/api/admin/certificates/retire-ca').set(H);
+    await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: true });
+    expect(logKinds(people)).toEqual(expect.arrayContaining(['tls_ca_rotated', 'tls_ca_retired']));
+    expect(logKinds(people).filter((k) => k === 'tls_ca_rotated')).toHaveLength(2);
+  });
+
+  it('needs an unlocked session', async () => {
+    const { agent } = await rotatable();
+    await agent.post('/api/admin/lock').set(H);
+    expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: true })).status).toBe(401);
+    expect((await agent.post('/api/admin/certificates/retire-ca').set(H)).status).toBe(401);
   });
 });

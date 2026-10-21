@@ -7,6 +7,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
+import { issuePersonCert } from './tlsPeople.js';
 import { startTls, tlsPortFrom, type TlsListener } from './tlsServer.js';
 
 const cleanup: Array<() => void> = [];
@@ -130,5 +131,86 @@ describe('startTls', () => {
     expect(String(failed[0].reason)).toMatch(/not a port/);
     expect(String(failed[1].reason)).toMatch(/ca.key but no ca.crt/);
     expect(String(failed[2].reason)).toMatch(/EADDRINUSE/);
+  });
+});
+
+describe('rotating the CA on a running listener (#588)', () => {
+  type Auth = { authorized: boolean };
+  const authed = (port: number, ca: string, agent: https.Agent, client?: { cert: string; key: string }) =>
+    new Promise<Auth>((resolve, reject) => {
+      const req = https.get({ host: '127.0.0.1', port, ca, agent, servername: 'localhost', path: '/auth', ...(client ?? {}) }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve(JSON.parse(body) as Auth));
+      });
+      req.on('error', reject);
+    });
+
+  async function start() {
+    const s = setup();
+    s.app.get('/auth', (req, res) => res.json({ authorized: (req.socket as unknown as { authorized: boolean }).authorized }));
+    const port = await freePort();
+    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
+    cleanup.push(() => l.server.close());
+    const dir = path.join(s.root, 'tls');
+    const oldCa = l.trust.currentCa();
+    const person = await issuePersonCert({ dir, keyId: 'aaaaaaaaaaaa' });
+    return { s, l, port, dir, oldCa, person };
+  }
+
+  it('trusts a certificate from each CA during the overlap, from the one source, and the listener, the renewer and the check agree', async () => {
+    const { l, port, oldCa, person, dir } = await start();
+    const out = await l.rotation.rotate(false);
+    expect(out.overlap).toBe(true);
+    const fresh = await issuePersonCert({ dir, keyId: 'bbbbbbbbbbbb' });
+    const agent = new https.Agent({ keepAlive: false });
+    // A client holding only the old CA still verifies the server, and either CA's client certificate is authorized.
+    expect(await authed(port, oldCa, agent, person)).toEqual({ authorized: true });
+    expect(await authed(port, l.trust.currentCa(), agent, fresh)).toEqual({ authorized: true });
+    expect(l.trust.trustedIssuers()).toHaveLength(2);
+
+    // A serving renewal during the overlap keeps both: the CA list and the cross certificate go back into the context.
+    await l.renewer.renewNow();
+    expect(await authed(port, oldCa, agent, person)).toEqual({ authorized: true });
+    expect(await authed(port, l.trust.currentCa(), agent, fresh)).toEqual({ authorized: true });
+    expect(l.renewer.view().rotation).not.toBeNull();
+    expect(l.renewer.caPem()).toBe(l.trust.currentCa());
+  });
+
+  it('retiring the old CA refuses its certificates at once and closes the connection that was open', async () => {
+    const { l, port, oldCa, person, dir } = await start();
+    await l.rotation.rotate(false);
+    const fresh = await issuePersonCert({ dir, keyId: 'bbbbbbbbbbbb' });
+    const keep = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    expect(await authed(port, oldCa, keep, person)).toEqual({ authorized: true });
+    const freshAgent = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    expect(await authed(port, l.trust.currentCa(), freshAgent, fresh)).toEqual({ authorized: true });
+    const sockets = Object.values(keep.freeSockets).flat();
+    expect(sockets).toHaveLength(1);
+    const closed = new Promise<void>((r) => sockets[0]!.once('close', () => r()));
+
+    const out = l.rotation.retire();
+    expect(out).toEqual({ closed: 1 });
+    await closed;
+    // The new CA's client is untouched and the old CA's certificate is no longer authorized.
+    expect(await authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).toEqual({ authorized: false });
+    expect(await authed(port, l.trust.currentCa(), freshAgent, fresh)).toEqual({ authorized: true });
+    expect(l.trust.trustedIssuers()).toHaveLength(1);
+    expect(l.rotation.retire()).toBeNull();
+  });
+
+  it('ending the overlap now refuses every old certificate and closes every connection that held a client certificate', async () => {
+    const { l, port, oldCa, person } = await start();
+    const keep = new https.Agent({ keepAlive: true, maxSockets: 1 });
+    expect(await authed(port, oldCa, keep, person)).toEqual({ authorized: true });
+    const sockets = Object.values(keep.freeSockets).flat();
+    const closed = new Promise<void>((r) => sockets[0]!.once('close', () => r()));
+    const out = await l.rotation.rotate(true);
+    expect(out).toMatchObject({ overlap: false, closed: 1 });
+    await closed;
+    expect(l.trust.previousCa()).toBeNull();
+    expect(await authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).toEqual({ authorized: false });
+    // A client that held only the old CA no longer verifies the server.
+    await expect(authed(port, oldCa, new https.Agent({ keepAlive: false }))).rejects.toBeDefined();
   });
 });
