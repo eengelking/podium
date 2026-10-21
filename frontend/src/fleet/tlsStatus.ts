@@ -28,14 +28,13 @@ export const dayWord = (days: number) => (days <= 0 ? "today" : `in ${plural(day
  * The pill for a status, or null when the header shows nothing. A healthy certificate never shows. The blue, orange and red
  * countdown follows the Admin's switch; a failed renewal and an expired certificate always show (decision 12).
  */
-export function pillOf(s: TlsStatus | null, now: number): PillView | null {
+export function pillOf(s: TlsStatus | null): PillView | null {
   if (!s?.enabled) return null;
-  const expiresMs = Date.parse(s.expiresAt);
   const what = s.subject === "ca" ? "The CA" : "The serving certificate";
   const open = "Open Admin > Server > Certificates.";
   const date = s.expiresAt.slice(0, 10);
-  // The server counts whole days, so the last day reads as 0 and expired. The pill says "today" until the moment passes.
-  const stage: TlsStage = s.stage === "expired" && expiresMs > now ? "critical" : s.stage;
+  // The server holds "expired" back until the certificate has ended, and the last day reads "expires today" (stage critical).
+  const stage = s.stage;
   if (stage === "expired") return { tone: "bad", icon: "cross", text: "Certificate expired", title: `${what} expired on ${date}. ${open}` };
   if (stage === "ok") {
     if (!s.renewalFailed) return null;

@@ -856,7 +856,9 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   `frontend/src/fleet/admin/`, the Reporting pages share `ReportPages.tsx`, and Data and Stored activity are
   `DataPage.tsx` and `StoredActivityTab.tsx` (#432). Certificates (`CertificatesTab.tsx`, #586) reads
   `GET /api/admin/certificates`; the header's certificate pill (`CertPill.tsx`) reads the open `GET /api/tls/status` every
-  five minutes and links to `#/admin/certificates`.
+  five minutes (not while the tab is hidden) and links to `#/admin/certificates`. The route answers from memory
+  (`ServingRenewer.statusView()`) and reuses its answer for 30 seconds, never past the moment a certificate ends;
+  its stage is `expired` only once the certificate has ended, and the last day reads critical.
 - **Mounts.** The server mounts `/api/fleet` and `/api/admin`, then `/api/health` and a 404 for any other `/api`
   path, then serves the built frontend with `*` falling back to `index.html`.
 

@@ -108,7 +108,7 @@ app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
 app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
-app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.view() ?? null }));
+app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
 app.use(express.static(frontendDist));

@@ -8,6 +8,7 @@ import type { Logger } from './logging/logger.js';
 import { describeCert, listPrevious, renewServing, SERVING_DAYS, type CertInfo, type ServerNames } from './tlsCa.js';
 import { REPORTER_DAYS } from './tlsPeople.js';
 import type { ReporterSettings } from './tlsReporterRenew.js';
+import type { StatusView } from './tlsStatus.js';
 
 const DAY_MS = 86_400_000;
 
@@ -154,6 +155,7 @@ export class ServingRenewer {
   private inflight: Promise<{ ok: true; serving: CertInfo } | { ok: false; error: string }> | null = null;
   private inflightTrigger: RenewTrigger | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private caNotAfter: { notAfter: string } | null | undefined;
   private readonly now: () => number;
 
   constructor(private readonly o: RenewerOptions, certPem: string) {
@@ -234,6 +236,12 @@ export class ServingRenewer {
   /** The CA certificate PEM, or null when not given. Public by nature. */
   caPem(): string | null {
     return this.o.caCert ?? null;
+  }
+
+  /** What the header pill needs, with no parsing and no disk read: the CA's end date is read once and kept. */
+  statusView(): StatusView {
+    this.caNotAfter ??= this.o.caCert ? { notAfter: describeCert(this.o.caCert).notAfter } : null;
+    return { serving: { notAfter: this.serving.notAfter }, ca: this.caNotAfter, lastFailure: this.lastFailure, settings: { headerCountdown: this.o.settings().headerCountdown } };
   }
 
   view(): CertificateView {

@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import type { CertInfo } from './tlsCa.js';
-import { createTlsStatusRouter, stageForDays, tlsStatus } from './tlsStatus.js';
+import { createTlsStatusRouter, STATUS_CACHE_MS, stageForDays, tlsStatus } from './tlsStatus.js';
 
 const DAY = 86_400_000;
 const NOW = Date.parse('2026-10-21T12:00:00Z');
@@ -11,7 +11,7 @@ const cert = (daysLeft: number): CertInfo => ({ fingerprintSha256: 'AA:BB', subj
 
 describe('stageForDays', () => {
   it.each([
-    [400, 'ok'], [31, 'ok'], [30, 'soon'], [11, 'soon'], [10, 'serious'], [6, 'serious'], [5, 'critical'], [1, 'critical'], [0, 'expired'], [-1, 'expired'], [-40, 'expired'],
+    [400, 'ok'], [31, 'ok'], [30, 'soon'], [11, 'soon'], [10, 'serious'], [6, 'serious'], [5, 'critical'], [1, 'critical'], [0, 'critical'], [-1, 'expired'], [-40, 'expired'],
   ])('%d days left is %s', (days, stage) => {
     expect(stageForDays(days)).toBe(stage);
   });
@@ -39,7 +39,13 @@ describe('tlsStatus', () => {
 
   it('floors toward the past, so an expired certificate is negative', () => {
     expect(tlsStatus(view(3000, -0.5), NOW)).toMatchObject({ daysLeft: -1, stage: 'expired' });
+    expect(tlsStatus(view(3000, 0), NOW)).toMatchObject({ daysLeft: 0, stage: 'expired' });
     expect(tlsStatus(view(3000, 4.9), NOW)).toMatchObject({ daysLeft: 4, stage: 'critical' });
+  });
+
+  it('stays critical, not expired, until the moment the certificate ends (the notice window covers the last day)', () => {
+    expect(tlsStatus(view(3000, 0.5), NOW)).toMatchObject({ daysLeft: 0, stage: 'critical' });
+    expect(tlsStatus(view(3000, 1 / DAY), NOW)).toMatchObject({ daysLeft: 0, stage: 'critical' });
   });
 
   it('carries the failure flag and the setting, and nothing else', () => {
@@ -48,6 +54,52 @@ describe('tlsStatus', () => {
     expect(Object.keys(out).sort()).toEqual(['daysLeft', 'enabled', 'expiresAt', 'renewalFailed', 'showCountdown', 'stage', 'subject']);
     const text = JSON.stringify(out);
     for (const leak of ['AA:BB', 'secret', 'serial']) expect(text).not.toContain(leak);
+  });
+});
+
+describe('GET /api/tls/status cache', () => {
+  function counted(v: ReturnType<typeof view> | null, clock: { t: number }) {
+    const calls = { n: 0 };
+    const a = express();
+    a.use('/api/tls', createTlsStatusRouter({ view: () => { calls.n++; return v; }, now: () => clock.t }));
+    return { a, calls };
+  }
+
+  it('reads the certificates once for requests inside the cache window', async () => {
+    const clock = { t: NOW };
+    const { a, calls } = counted(view(3000, 200), clock);
+    await request(a).get('/api/tls/status');
+    clock.t += STATUS_CACHE_MS - 1;
+    const res = await request(a).get('/api/tls/status');
+    expect(calls.n).toBe(1);
+    expect(res.body).toMatchObject({ enabled: true, stage: 'ok' });
+  });
+
+  it('reads again once the window has passed', async () => {
+    const clock = { t: NOW };
+    const { a, calls } = counted(view(3000, 200), clock);
+    await request(a).get('/api/tls/status');
+    clock.t += STATUS_CACHE_MS;
+    await request(a).get('/api/tls/status');
+    expect(calls.n).toBe(2);
+  });
+
+  it('does not serve a cached answer past the moment a certificate expires', async () => {
+    const clock = { t: NOW };
+    const { a, calls } = counted(view(3000, 10 / DAY), clock); // ends 10 s from now, inside the window
+    expect((await request(a).get('/api/tls/status')).body).toMatchObject({ stage: 'critical' });
+    clock.t += 10_000;
+    const res = await request(a).get('/api/tls/status');
+    expect(calls.n).toBe(2);
+    expect(res.body).toMatchObject({ stage: 'expired' });
+  });
+
+  it('caches the answer for TLS off too', async () => {
+    const clock = { t: NOW };
+    const { a, calls } = counted(null, clock);
+    await request(a).get('/api/tls/status');
+    await request(a).get('/api/tls/status');
+    expect(calls.n).toBe(1);
   });
 });
 

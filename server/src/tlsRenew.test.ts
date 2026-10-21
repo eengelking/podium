@@ -149,6 +149,26 @@ describe('ServingRenewer.checkDue', () => {
   });
 });
 
+describe('ServingRenewer.statusView', () => {
+  it('gives the few facts the header needs, from memory, and follows a renewal', async () => {
+    const s = await renewerSetup();
+    const withCa = new ServingRenewer(
+      { dir: s.dir, names, server: { setSecureContext: (o) => s.swaps.push(o) }, serving: s.material.serving, settings: () => s.settings, logger: createLogger({ format: 'json', write: () => {} }), now: () => s.clock.t, caCert: s.material.caCert },
+      s.material.cert,
+    );
+    expect(withCa.statusView()).toEqual({ serving: { notAfter: s.material.serving.notAfter }, ca: { notAfter: s.material.ca.notAfter }, lastFailure: null, settings: { headerCountdown: true } });
+    s.clock.t += 340 * DAY;
+    expect(await withCa.checkDue('schedule')).toBe(true);
+    expect(withCa.view().serving.serial).not.toBe(s.material.serving.serial);
+    expect(withCa.statusView().serving.notAfter).toBe(withCa.view().serving.notAfter);
+  });
+
+  it('has no CA when none was given', async () => {
+    const s = await renewerSetup();
+    expect(s.renewer.statusView().ca).toBeNull();
+  });
+});
+
 describe('ServingRenewer failure and retry', () => {
   it('reports a failure, keeps the current certificate, and the next check retries and clears it', async () => {
     const root = scratch();

@@ -14,12 +14,12 @@ function status(over: Partial<Extract<TlsStatus, { enabled: true }>> = {}): TlsS
 
 describe("pillOf", () => {
   it("shows nothing while TLS is off or no answer has come", () => {
-    expect(pillOf(null, NOW)).toBeNull();
-    expect(pillOf({ enabled: false }, NOW)).toBeNull();
+    expect(pillOf(null)).toBeNull();
+    expect(pillOf({ enabled: false })).toBeNull();
   });
 
   it("shows nothing for a healthy certificate with no failed renewal", () => {
-    expect(pillOf(status({ stage: "ok", daysLeft: 300 }), NOW)).toBeNull();
+    expect(pillOf(status({ stage: "ok", daysLeft: 300 }))).toBeNull();
   });
 
   it.each<[TlsStage, number, string, string, string]>([
@@ -28,35 +28,35 @@ describe("pillOf", () => {
     ["critical", 4, "bad", "warn", "Certificate expires in 4 days"],
     ["critical", 1, "bad", "warn", "Certificate expires in 1 day"],
   ])("%s at %i days is %s with the %s icon", (stage, daysLeft, tone, icon, text) => {
-    expect(pillOf(status({ stage, daysLeft }), NOW)).toMatchObject({ tone, icon, text });
+    expect(pillOf(status({ stage, daysLeft }))).toMatchObject({ tone, icon, text });
   });
 
   it("says Certificate expired, with a ring and a cross, once the date has passed", () => {
-    const v = pillOf(status({ stage: "expired", daysLeft: -2 }), NOW);
+    const v = pillOf(status({ stage: "expired", daysLeft: -2 }));
     expect(v).toMatchObject({ tone: "bad", icon: "cross", text: "Certificate expired" });
     expect(v?.title).toContain("The serving certificate expired on");
   });
 
-  it("says expires today on the last day, when the server already counts it as expired", () => {
-    const v = pillOf(status({ stage: "expired", daysLeft: 0, expiresAt: new Date(NOW + 3_600_000).toISOString() }), NOW);
+  it("says expires today on the last day, which the server still calls critical", () => {
+    const v = pillOf(status({ stage: "critical", daysLeft: 0, expiresAt: new Date(NOW + 3_600_000).toISOString() }));
     expect(v).toMatchObject({ tone: "bad", icon: "warn", text: "Certificate expires today" });
   });
 
   it("names the CA in the tooltip when it expires first", () => {
-    expect(pillOf(status({ subject: "ca" }), NOW)?.title).toMatch(/^The CA expires on \d{4}-\d{2}-\d{2}\. Open Admin > Server > Certificates\.$/);
+    expect(pillOf(status({ subject: "ca" }))?.title).toMatch(/^The CA expires on \d{4}-\d{2}-\d{2}\. Open Admin > Server > Certificates\.$/);
   });
 
   it("hides the blue, orange and red countdown when the Admin switched it off", () => {
-    for (const stage of ["soon", "serious", "critical"] as const) expect(pillOf(status({ stage, showCountdown: false }), NOW)).toBeNull();
+    for (const stage of ["soon", "serious", "critical"] as const) expect(pillOf(status({ stage, showCountdown: false }))).toBeNull();
   });
 
   it("shows the countdown despite the switch when a renewal failed, and always shows an expired certificate", () => {
-    expect(pillOf(status({ showCountdown: false, renewalFailed: true }), NOW)).toMatchObject({ text: "Certificate expires in 28 days" });
-    expect(pillOf(status({ stage: "expired", daysLeft: -1, showCountdown: false }), NOW)).toMatchObject({ text: "Certificate expired" });
+    expect(pillOf(status({ showCountdown: false, renewalFailed: true }))).toMatchObject({ text: "Certificate expires in 28 days" });
+    expect(pillOf(status({ stage: "expired", daysLeft: -1, showCountdown: false }))).toMatchObject({ text: "Certificate expired" });
   });
 
   it("shows a failed renewal at once, even with plenty of days left, whatever the switch says", () => {
-    expect(pillOf(status({ stage: "ok", daysLeft: 300, renewalFailed: true, showCountdown: false }), NOW)).toMatchObject({ tone: "serious", icon: "warn", text: "Certificate renewal failed" });
+    expect(pillOf(status({ stage: "ok", daysLeft: 300, renewalFailed: true, showCountdown: false }))).toMatchObject({ tone: "serious", icon: "warn", text: "Certificate renewal failed" });
   });
 });
 

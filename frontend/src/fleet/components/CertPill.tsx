@@ -20,6 +20,6 @@ export function CertPillView({ view }: { view: PillView }) {
  * countdown off (a failed renewal and an expired certificate always show).
  */
 export function CertPill() {
-  const view = pillOf(useTlsStatus(), Date.now());
+  const view = pillOf(useTlsStatus());
   return view ? <CertPillView view={view} /> : null;
 }
