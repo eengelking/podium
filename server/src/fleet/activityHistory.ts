@@ -117,12 +117,22 @@ interface EntryRow {
   text: string;
   by: string | null;
   note: string | null;
+  command: string | null;
+  command_cut: number | null;
 }
 
 const viewOf = (r: EntryRow): ActivityEntryView =>
   r.kind === 'podium'
     ? { seq: r.seq, at: r.at, kind: 'podium', text: r.text, by: r.by ?? undefined, note: r.note }
-    : { seq: r.seq, at: r.at, kind: r.kind as ActivityEntry['kind'], text: r.text };
+    : {
+        seq: r.seq,
+        at: r.at,
+        kind: r.kind as ActivityEntry['kind'],
+        text: r.text,
+        // Only the command is stored (#431); a stored row never has output, an exit status or a call id.
+        ...(r.command === null ? {} : { command: r.command }),
+        ...(r.command_cut ? { commandCut: true } : {}),
+      };
 
 export class ActivityHistory {
   private readonly tails = new Map<string, Tail>();
@@ -238,7 +248,8 @@ export class ActivityHistory {
       tail.same = new Set();
     }
     tail.same.add(key);
-    return this.insert(sid, loop, ++tail.seq, e.at, e.at - skewMs, e.kind, text, null, null, null);
+    const command = e.kind === 'tool' && typeof e.command === 'string' ? e.command.slice(0, LIMITS.activityDetail) : null;
+    return this.insert(sid, loop, ++tail.seq, e.at, e.at - skewMs, e.kind, text, null, null, null, command, command !== null && e.commandCut === true);
   }
 
   /**
@@ -299,8 +310,8 @@ export class ActivityHistory {
   }
 
   /** Inserts one entry and returns its size as the aggregates count it. */
-  private insert(sid: string, loop: string, seq: number, at: number, t: number, kind: string, text: string, by: string | null, note: string | null, ref: string | null): number {
-    const row = this.st(`INSERT INTO entries (session_id, loop, seq, at, t, kind, text, "by", note, ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${entryBytesSql()} AS b`).get(sid, loop, seq, at, t, kind, text, by, note, ref) as { b: number };
+  private insert(sid: string, loop: string, seq: number, at: number, t: number, kind: string, text: string, by: string | null, note: string | null, ref: string | null, command: string | null = null, commandCut = false): number {
+    const row = this.st(`INSERT INTO entries (session_id, loop, seq, at, t, kind, text, "by", note, ref, command, command_cut) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${entryBytesSql()} AS b`).get(sid, loop, seq, at, t, kind, text, by, note, ref, command, commandCut ? 1 : null) as { b: number };
     return row.b;
   }
 
@@ -369,7 +380,7 @@ export class ActivityHistory {
   page(sessionId: string, loop: string, before: number | null, limit: number = ACTIVITY_HISTORY_PAGE): { entries: ActivityEntryView[]; olderBefore: number | null; total: number; since: number | null; keptUntil: number | null } {
     const size = Math.min(Math.max(Math.floor(limit) || ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
     const rows = this.db
-      .prepare('SELECT seq, at, kind, text, "by" AS by, note FROM entries WHERE session_id = ? AND loop = ? AND seq < ? ORDER BY seq DESC LIMIT ?')
+      .prepare('SELECT seq, at, kind, text, "by" AS by, note, command, command_cut FROM entries WHERE session_id = ? AND loop = ? AND seq < ? ORDER BY seq DESC LIMIT ?')
       .all(sessionId, loop, before ?? Number.MAX_SAFE_INTEGER, size) as unknown as EntryRow[];
     rows.reverse();
     const oldest = rows[0]?.seq;

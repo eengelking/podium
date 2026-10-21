@@ -8,11 +8,11 @@ import type { DatabaseSync } from 'node:sqlite';
 const sqlite = process.getBuiltinModule('node:sqlite');
 
 /** The schema version, kept in `PRAGMA user_version`. Raise it and add a step to `STEPS` to change the schema. */
-export const ACTIVITY_SCHEMA_VERSION = 4;
+export const ACTIVITY_SCHEMA_VERSION = 5;
 
-/** The size of one stored entry as the Stored activity table counts it: its text and labels, plus 48 bytes of row overhead. `a` is a table alias with its dot, or ''. */
-export const entryBytesSql = (a = ''): string =>
-  `(length(${a}text) + length(${a}kind) + length(${a}loop) + COALESCE(length(${a}"by"), 0) + COALESCE(length(${a}note), 0) + COALESCE(length(${a}ref), 0) + 48)`;
+/** The size of one stored entry as the Stored activity table counts it: its text, a Bash command (#431) and labels, plus 48 bytes of row overhead. `a` is a table alias with its dot, or ''. */
+export const entryBytesSql = (a = '', command = true): string =>
+  `(length(${a}text) + length(${a}kind) + length(${a}loop) + COALESCE(length(${a}"by"), 0) + COALESCE(length(${a}note), 0) + COALESCE(length(${a}ref), 0) + ${command ? `COALESCE(length(${a}command), 0) + ` : ''}48)`;
 
 /**
  * Sets each loop's entry count, the `at` of its first entry and the `t` of its last (by sequence) from its rows, so the live
@@ -29,8 +29,10 @@ export function recomputeLoops(db: DatabaseSync): void {
 
 /** Sets each stored session's entries, bytes and oldest_t from its rows. One pass over `entries`; used by the v2 migration and the seeder. */
 export function recomputeAggregates(db: DatabaseSync): void {
+  // The v2 migration runs before v5 adds the `command` column; a file that old has no commands to count.
+  const command = (db.prepare("SELECT 1 AS x FROM pragma_table_info('entries') WHERE name = 'command'").get() as { x: number } | undefined) !== undefined;
   db.exec('UPDATE stored_sessions SET entries = 0, bytes = 0, oldest_t = NULL');
-  const rows = db.prepare(`SELECT session_id AS sid, COUNT(*) AS n, SUM(${entryBytesSql()}) AS b, MIN(t) AS oldest FROM entries GROUP BY session_id`).all() as { sid: string; n: number; b: number; oldest: number }[];
+  const rows = db.prepare(`SELECT session_id AS sid, COUNT(*) AS n, SUM(${entryBytesSql('', command)}) AS b, MIN(t) AS oldest FROM entries GROUP BY session_id`).all() as { sid: string; n: number; b: number; oldest: number }[];
   const put = db.prepare('UPDATE stored_sessions SET entries = ?, bytes = ?, oldest_t = ? WHERE session_id = ?');
   for (const r of rows) put.run(r.n, r.b, r.oldest, r.sid);
 }
@@ -124,6 +126,10 @@ export const ACTIVITY_SCHEMA_STEPS: readonly string[] = [
    CREATE UNIQUE INDEX rec_entries_loop_seq ON rec_entries (session_id, loop, seq);
    CREATE INDEX rec_entries_session_n ON rec_entries (session_id, n);
    CREATE INDEX rec_entries_t ON rec_entries (t);`,
+  // v5 (#431): a Bash entry's whole command, redacted by the mod, and whether the mod cut it. The call's output, exit status and id
+  // have no column: they are never stored. Rows from before have NULL, so no aggregate changes.
+  `ALTER TABLE entries ADD COLUMN command TEXT;
+   ALTER TABLE entries ADD COLUMN command_cut INTEGER;`,
 ];
 
 /** Where the activity file lives: beside the main database, or in memory when the main one is. */
