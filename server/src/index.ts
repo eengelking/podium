@@ -30,6 +30,7 @@ import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
 import { warnIfTlsNotPersistent } from "./tlsStorage.js";
+import { startTls, type TlsListener } from "./tlsServer.js";
 import { RESPOND } from "./fleet/featureFlags.js";
 import { startUpdateCheck } from "./fleet/updateCheck.js";
 
@@ -132,6 +133,14 @@ const server = app.listen(PORT, HOST, () => {
   plainHttp.atStart();
 });
 
+// Built-in TLS (#577): with PODIUM_TLS=on, HTTPS on a second port serves the same app. A failure is logged and HTTP stays up.
+let tlsListener: TlsListener | null = null;
+void startTls({ env: process.env, app, dbPath: DB_PATH, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then((l) => {
+  tlsListener = l;
+  // A signal that arrived while the CA was being made has already started the shutdown.
+  if (closing) l?.server.close();
+});
+
 let closing = false;
 function shutdown(signal: string) {
   if (closing) return;
@@ -140,6 +149,7 @@ function shutdown(signal: string) {
   stopSweeper();
   stopUpdateCheck();
   fleet.close();
+  tlsListener?.server.close();
   server.close(() => {
     fleetDb.close();
     fleet.activityHistory.close();

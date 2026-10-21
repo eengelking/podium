@@ -605,16 +605,23 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 
 ### Built-in TLS (#577)
 
-Designed, not built. This records the planned structure so the sub-issues (#578 to #591) agree. The rules are in
+Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
+certificate and the HTTPS listener (#581). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
 
-**Listeners.** `server/src/index.ts` now has one `app.listen`. With TLS on it also starts `https.createServer`
-on the HTTPS port (`4318`) with the same Express app, next to the HTTP listener (`4317`). The Host check
+**Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
+starts `https.createServer` on the HTTPS port (`4318`, `PODIUM_TLS_PORT`) with the same Express app, next to the HTTP
+listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and serving certificate. Any failure there
+(openssl missing, a half-present CA, a bad or busy port) logs `tls.failed` and leaves HTTP running. The Host check
 (`hostCheck.ts`) runs on both (33). The HTTPS server asks for a client certificate (`requestCert: true`,
 `rejectUnauthorized: false`, `ca` set to the Podium CA or CAs), so a request with no certificate still reaches the
 console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting.
 
 **The CA and `/data/tls`.** The server makes and renews certificates by calling `openssl` with `execFile`.
+`ensureTls` works in a `.new-*` folder inside the directory and renames the finished files in, so a failure leaves no
+half-made CA; a CA that exists is read and checked (key matches certificate, serving certificate signed by it), never
+rewritten. A serving certificate that exists is kept as it is until renewal (T4) is built. Dates and fingerprints are
+read from the certificates (`describeCert`) and logged as `tls.listening`, not stored twice.
 `/data/tls` holds `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and `previous/`, keys at mode 0600. In container
 mode `podiumctl` keeps this folder on durable storage, and its remove path leaves it unless asked. Person
 certificates are rows in `podium.sqlite`, found by SHA-256 fingerprint. A serving renewal calls `setSecureContext`
