@@ -16,6 +16,8 @@ COPY scripts scripts
 RUN npm run build -w frontend && npm run build -w server
 
 FROM docker.io/library/node:24-slim
+# The server makes the CA and its certificates by calling openssl (built-in TLS, #577); the slim image does not carry it.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4317 PODIUM_DB=/data/podium.sqlite
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -30,5 +32,5 @@ VOLUME /data
 ARG PODIUM_BUILD=
 ENV PODIUM_BUILD=$PODIUM_BUILD
 USER node
-EXPOSE 4317
+EXPOSE 4317 4318
 CMD ["node", "server/dist/index.js"]

@@ -345,7 +345,8 @@ Added after the first build. `docs/ARCHITECTURE.md` ("Running as a service") rec
 - a build stage that runs `npm ci --ignore-scripts` and both builds;
 - a runtime stage with the server's production dependencies, the two `dist` trees, a non-root user and a
   `/data` volume for the SQLite files (`podium.sqlite`, and `activity.sqlite` beside it when the Admin keeps the
-  Activity history).
+  Activity history), the `openssl` package the server calls to make certificates (built-in TLS, [7.7](#77-hardening)),
+  and `EXPOSE 4317 4318`.
 
 Nothing else is needed. There is no second service.
 
@@ -360,6 +361,15 @@ Container mode uses Podman when it is installed and Docker otherwise; `--engine 
 - `status` exits 3 when the server is stopped.
 - `--mode`, `--engine`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
   `PODIUMCTL_HOME`).
+- `--tls` (saved as `PODIUM_TLS=on`; `config set PODIUM_TLS=off` turns it off again) enables built-in TLS
+  ([7.7](#77-hardening)). With it, container mode also publishes the HTTPS port (`PODIUM_TLS_PORT`, default 4318) on
+  the `--bind` address and bind-mounts the host folder `~/.podium/tls` (mode 0700) at `/data/tls`, so the CA survives
+  a restart, a rebuild and a removed volume, and a person can find it and back it up. After the container starts,
+  `podiumctl` checks that the mount is there and warns when it is not; the server logs `tls.storage_not_persistent`
+  when `/data/tls` is not on a named volume or a bind mount. Standalone mode keeps the CA in `data/tls` beside the
+  database (mode 0700).
+- `rm` never deletes the TLS folder by itself: it says the folder is kept and what deleting it means.
+  `rm --purge-tls --yes` deletes it, and every reporter config must then be reissued.
 
 #### Network
 

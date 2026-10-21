@@ -15,6 +15,7 @@ export const CONTAINER = 'podium';
 export const VOLUME = 'podium-data';
 export const SERVICE_LABEL = 'dev.podium.server';
 const INNER_PORT = 4317;
+const INNER_TLS_PORT = 4318;
 /** Container engines podiumctl drives, in the order it prefers them when more than one is installed. */
 export const ENGINES = ['podman', 'docker'];
 
@@ -26,7 +27,7 @@ export const PASSTHROUGH = [
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
 /** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. Container-only: PODIUMCTL_ENGINE. */
-export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB'];
+export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB', 'PODIUM_TLS', 'PODIUM_TLS_PORT'];
 const ALL_KEYS = [...OWN_KEYS, ...PASSTHROUGH];
 /** Keys an older config may still hold. Ignored by the server; `config unset` removes them, `config set` refuses. */
 export const RETIRED_KEYS = ['ANTHROPIC_ADMIN_API_KEY'];
@@ -50,6 +51,7 @@ Commands:
   disable             Stop starting on boot
   shell               Open a shell in the container (container mode)
   rm [--purge --yes]  Remove the container; --purge --yes also deletes the data and the image
+                      --purge-tls --yes also deletes the TLS folder (the CA: every reporter config must then be reissued)
   run                 Run the server in the foreground (what the boot service calls)
 
 Options:
@@ -57,6 +59,7 @@ Options:
   --engine podman|docker        Container engine (saved; default: podman if installed, else docker)
   --port N                      Port on this machine (saved; default 4317)
   --bind ADDR                   Address to listen on (saved; default 127.0.0.1)
+  --tls                         Turn built-in TLS on (saved as PODIUM_TLS=on; off by default). Turn it off: config set PODIUM_TLS=off
   -f, --follow                  logs: follow
   --tail N                      logs: lines to show (default 100)
   --rotate                      token: generate a new admin secret
@@ -66,12 +69,19 @@ Options:
 Files (set PODIUMCTL_HOME to move them; default ~/.podium):
   config.env     Settings, one KEY=VALUE per line, mode 0600. Holds the generated token.
   data/          SQLite database (standalone mode); container mode uses the volume "${VOLUME}".
+  tls/           The CA and serving certificate when TLS is on (container mode; standalone keeps them in data/tls).
+                 Back it up and keep it private: it holds the CA key. rm and rm --purge keep it.
   podium.log     Server log (standalone mode); container mode: \`podiumctl logs\`.
 
 Auth: the first \`start\` generates the admin secret and saves it as PODIUM_TOKEN in config.env. Open the
 dashboard (\`podiumctl url\`), go to Admin and sign in with the name Admin and the secret to make a token for each person. On your own machine a reporter can
 send the secret itself as X-Podium-Token. Find it any time with \`podiumctl token\`. To run without auth (and
 without Admin): \`podiumctl config set PODIUM_TOKEN=\` (empty on purpose).
+
+Built-in TLS (off by default; \`podiumctl start --tls\` or \`podiumctl config set PODIUM_TLS=on\`, then restart):
+  PODIUM_TLS            on or off. On: the server makes its own CA and serves HTTPS next to HTTP
+  PODIUM_TLS_PORT       Port for HTTPS on this machine (default 4318); the HTTP port is unchanged
+                        Container mode publishes it on the --bind address and keeps the CA in ~/.podium/tls
 
 Host names (a page on another site can rebind its name to this machine, so the server refuses a request whose
 Host is not one it expects; 127.0.0.1, localhost and [::1] always work, and so does the --bind address):
@@ -150,7 +160,13 @@ export function resolveConfig(file, flags = {}, installed = ['podman']) {
   const port = Number(flags.port ?? file.PODIUMCTL_PORT ?? INNER_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`invalid port "${flags.port ?? file.PODIUMCTL_PORT}"`);
   const bind = flags.bind ?? file.PODIUMCTL_BIND ?? '127.0.0.1';
-  return { mode, engine, port, bind, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
+  if (file.PODIUM_TLS !== undefined && !['', 'on', 'off'].includes(file.PODIUM_TLS)) throw new Error(`PODIUM_TLS must be on or off, not "${file.PODIUM_TLS}"`);
+  // `--tls` turns it on; `--tls=off` is honored rather than read as a truthy string.
+  const tls = flags.tls === undefined ? file.PODIUM_TLS === 'on' : flags.tls !== 'off' && flags.tls !== false;
+  const tlsPort = Number(file.PODIUM_TLS_PORT || INNER_TLS_PORT);
+  if (!Number.isInteger(tlsPort) || tlsPort < 1 || tlsPort > 65535) throw new Error(`invalid HTTPS port "${file.PODIUM_TLS_PORT}"`);
+  if (tls && tlsPort === port) throw new Error(`the HTTPS port and the HTTP port must be different, both are ${port}`);
+  return { mode, engine, port, bind, tls, tlsPort, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
 }
 
 /** Environment the server process gets (the token and other settings live here, never on a command line). */
@@ -162,22 +178,37 @@ export function serverEnv(cfg, inContainer) {
   // The container runs in UTC, so without the host's zone "Est. cost today" would restart at UTC midnight (#139).
   if (inContainer) Object.assign(env, { TZ: cfg.extra.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone, HOST: '0.0.0.0', PORT: String(INNER_PORT), PODIUM_DB: '/data/podium.sqlite', PODIUM_HOST_HOME: os.homedir() });
   else Object.assign(env, { HOST: cfg.bind, PORT: String(cfg.port), PODIUM_DB: cfg.db ?? '' });
+  // Inside the container the HTTPS port is always the image's; the host side is mapped by containerRunArgs.
+  if (cfg.tls) Object.assign(env, { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(inContainer ? INNER_TLS_PORT : cfg.tlsPort) });
   return env;
 }
 
-export function containerRunArgs(cfg, envNames) {
+/**
+ * `tlsDir` is the host folder that holds the CA; it is mounted at /data/tls only with TLS on, so the CA outlives the
+ * container and the volume, and a person can find it and back it up. Podman's :U gives the container's `node` user
+ * the folder (rootless Podman maps users); Docker uses the folder as the host user made it.
+ */
+export function containerRunArgs(cfg, envNames, tlsDir) {
   return [
     'run', '-d', '--name', CONTAINER, '--restart', 'unless-stopped',
     '-p', `${cfg.bind}:${cfg.port}:${INNER_PORT}`,
+    ...(cfg.tls ? ['-p', `${cfg.bind}:${cfg.tlsPort}:${INNER_TLS_PORT}`] : []),
     // Podman always maps host.containers.internal to this machine; Docker maps host.docker.internal only on Desktop.
     ...(cfg.engine === 'docker' ? ['--add-host', 'host.docker.internal:host-gateway'] : []),
     '-v', `${VOLUME}:/data`,
+    ...(cfg.tls ? ['-v', `${tlsDir}:/data/tls${cfg.engine === 'podman' ? ':U' : ''}`] : []),
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--health-cmd', `node -e "fetch('http://127.0.0.1:${INNER_PORT}/api/fleet/state').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"`,
     '--health-interval', '30s',
     ...envNames.flatMap((n) => ['-e', n]),
     IMAGE,
   ];
+}
+
+/** What to tell a person when the started container has nothing mounted at /data/tls, or null when the CA is on a mount. `mounts` is the engine's `.Mounts`. */
+export function tlsStorageWarning(mounts) {
+  if (mounts.some((m) => m.Destination === '/data/tls')) return null;
+  return 'TLS is on but /data/tls is not on a volume or a bind mount, so recreating the container would lose the CA and every reporter config would need reissuing. Check the container with `podiumctl status`.';
 }
 
 /** Homebrew installs node under Cellar/<formula>/<version>, a directory `brew upgrade` deletes; `opt/<formula>` is the link that survives it. */
@@ -250,6 +281,7 @@ export function maskConfig(file) {
 
 const homeDir = () => process.env.PODIUMCTL_HOME || path.join(os.homedir(), '.podium');
 const configPath = () => path.join(homeDir(), 'config.env');
+const tlsDirPath = () => path.join(homeDir(), 'tls');
 const logPath = () => path.join(homeDir(), 'podium.log');
 const pidPath = () => path.join(homeDir(), 'podium.pid');
 
@@ -272,6 +304,7 @@ function loadCfg(flags, { persist }) {
   const cfg = resolveConfig(file, flags, installedEngines());
   if (persist) {
     const next = { ...file, PODIUMCTL_MODE: cfg.mode, PODIUMCTL_PORT: String(cfg.port), PODIUMCTL_BIND: cfg.bind };
+    if (flags.tls !== undefined) next.PODIUM_TLS = cfg.tls ? 'on' : 'off';
     // Saved so stop, status and the boot unit keep using the engine that started the container, whatever is installed later.
     if (cfg.mode === 'container' && cfg.engine) next.PODIUMCTL_ENGINE = cfg.engine;
     if (JSON.stringify(next) !== JSON.stringify(file)) writeConfigFile(next);
@@ -352,6 +385,24 @@ const containerState = (engine) => {
 /** Another installed engine that runs the podium container, e.g. Podman's while cfg.engine is now docker. */
 const otherEngineRunning = (cfg) => installedEngines().find((e) => e !== cfg.engine && /^running/.test(containerState(e) ?? ''));
 
+// ---------- TLS folder ----------
+
+/** The folder that holds a CA: only its owner may open it, because it holds the CA key. */
+function makePrivateDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Rootless Podman's :U hands the folder to a mapped user, and then the host user may not chmod it; it is private already.
+  try { fs.chmodSync(dir, 0o700); } catch (e) { if (e.code !== 'EPERM' && e.code !== 'EACCES') throw e; }
+}
+/** The warning for a started container, from its mounts; says nothing when the engine cannot be asked. */
+function checkTlsStorage(cfg) {
+  const r = ce(cfg.engine, ['container', 'inspect', CONTAINER, '--format', '{{json .Mounts}}']);
+  if (r.status !== 0) return;
+  let mounts = [];
+  try { mounts = JSON.parse(r.stdout); } catch { return; }
+  const warning = tlsStorageWarning(Array.isArray(mounts) ? mounts : []);
+  if (warning) console.error(`podiumctl: warning: ${warning}`);
+}
+
 // ---------- standalone ----------
 
 function readPid() {
@@ -369,6 +420,7 @@ function standaloneEnv(cfg) {
   const env = { ...process.env, ...serverEnv(cfg, false) };
   if (!env.PODIUM_DB) env.PODIUM_DB = path.join(homeDir(), 'data', 'podium.sqlite');
   fs.mkdirSync(path.dirname(env.PODIUM_DB), { recursive: true });
+  if (cfg.tls) makePrivateDir(path.join(path.dirname(env.PODIUM_DB), 'tls'));
   return env;
 }
 function requireBuilt() {
@@ -439,8 +491,10 @@ async function cmdStart(cfg) {
     if (ce(cfg.engine, ['image', 'inspect', IMAGE], { stdio: 'ignore' }).status !== 0) { say('No image yet; building it...'); await cmdBuild(cfg); }
     ce(cfg.engine, ['rm', '-f', CONTAINER], { stdio: 'ignore' });
     const env = serverEnv(cfg, true);
-    const r = ce(cfg.engine, containerRunArgs(cfg, Object.keys(env)), { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'inherit'] });
+    if (cfg.tls) makePrivateDir(tlsDirPath());
+    const r = ce(cfg.engine, containerRunArgs(cfg, Object.keys(env), tlsDirPath()), { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'inherit'] });
     if (r.status !== 0) fail(`${cfg.engine} run failed`);
+    if (cfg.tls) checkTlsStorage(cfg);
   } else {
     if (readPid()) { say(`Already running at ${dashUrl(cfg)}`); return; }
     if (await portInUse(cfg)) {
@@ -464,6 +518,7 @@ async function cmdStart(cfg) {
   }
   if (!up) fail(`started, but the server did not answer at ${dashUrl(cfg)}. See: podiumctl logs`);
   say(`Podium is up at ${dashUrl(cfg)}  (${cfg.mode} mode${cfg.mode === 'container' ? `, ${cfg.engine}` : ''})`);
+  if (cfg.tls) say(`TLS is on: HTTPS on port ${cfg.tlsPort}. The CA is kept in ${cfg.mode === 'container' ? tlsDirPath() : path.join(path.dirname(standaloneEnv(cfg).PODIUM_DB), 'tls')}; back it up and keep it private.`);
 }
 
 async function cmdStop(cfg) {
@@ -510,6 +565,7 @@ async function cmdStatus(cfg) {
   const ok = running && (await healthy(cfg));
   lines.push(`health:   ${running ? (ok ? 'answering' : 'not answering') : '-'}`);
   lines.push(`url:      ${dashUrl(cfg)}`);
+  lines.push(`tls:      ${cfg.tls ? `on (HTTPS port ${cfg.tlsPort})` : 'off'}`);
   lines.push(`token:    ${cfg.token === undefined ? 'not generated yet (created on first start)' : cfg.token === '' ? 'none (auth off)' : 'set (podiumctl token)'}`);
   lines.push(`on boot:  ${bootState()}`);
   lines.push(`config:   ${configPath()}`);
@@ -650,15 +706,26 @@ async function cmdRun(cfg) {
 }
 
 function cmdRm(cfg, flags) {
+  // Refuse before anything is removed, so a forgotten --yes leaves the container as it was.
+  if (flags['purge-tls'] && !flags.yes) fail('--purge-tls deletes the CA, so every reporter config must be reissued. Re-run with --purge-tls --yes to confirm.');
   ensureEngine(cfg);
   ce(cfg.engine, ['rm', '-f', CONTAINER], { stdio: 'ignore' });
   say('Container removed (the data volume is kept).');
   if (flags.purge) {
     if (!flags.yes) fail('--purge deletes the database and the image. Re-run with --purge --yes to confirm.');
+    say('--purge deletes the database (the data volume) and the image.');
     ce(cfg.engine, ['volume', 'rm', '-f', VOLUME], { stdio: 'ignore' });
     ce(cfg.engine, ['rmi', '-f', IMAGE], { stdio: 'ignore' });
     say('Volume and image removed.');
   }
+  const tlsDir = tlsDirPath();
+  if (!fs.existsSync(tlsDir)) return;
+  if (flags['purge-tls']) {
+    try { fs.rmSync(tlsDir, { recursive: true, force: true }); } catch (e) {
+      fail(`could not delete ${tlsDir} (${e.code}). Rootless Podman gave the folder to the container's user; delete it with: ${cfg.engine} unshare rm -rf ${tlsDir}`);
+    }
+    say(`${tlsDir} deleted: the CA is gone, so every reporter config must be reissued.`);
+  } else say(`${tlsDir} is kept: it holds the CA. Delete it with --purge-tls --yes, which means every reporter config must be reissued.`);
 }
 
 // ---------- main ----------
