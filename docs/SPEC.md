@@ -1802,6 +1802,93 @@ JSON row, `recording_settings`, in the `settings` table ([7.2](#72-database-sqli
 - Sizes are the stored text's bytes. The budget and the cap are checked as a batch is stored, so a recording can
   pass its limit by at most one batch (about 480 KB).
 
+**Measured write load (#353, provisional).** `scripts/podium-recording-load.mjs` reproduces every number below. It starts a
+throwaway server, drives sessions through the mod's own `Recorder` (so redaction, the 100,000 character cut and the batching
+are the real ones), and reads the server's disk writes and CPU. It was run on an Apple M5 (macOS 27.0.1, APFS SSD) with the
+load generator on the same machine, over loopback.
+- **Load.** Each session is an orchestrator with 3 agents. Every loop makes a tool call about every 8 s (exponential gaps).
+  A call has an input of 0.5 to 5 KB (small for Read, Grep and Glob), a result after 0.2 to 3 s, a text entry half the time
+  and a thinking mark 40% of the time. The *busy* profile gives results of 1 KB to 200 KB (55% under 8 KB, 30% to 50 KB,
+  the rest above, cut at 100,000 characters; mean 22 KB); *typical* has a mean of 4.6 KB. Sessions report every 5 s. This is
+  made-up traffic, not real sessions; **real sessions have not been measured yet**.
+- **Method.** Bytes written and CPU are the server process's own, from `proc_pid_rusage` (`ri_diskio_byteswritten`, user and
+  system time). It was checked by writing a known 100 MiB file, which it read back as 100 MiB; `time -l` reports 0 block
+  operations on macOS, so it is not used. Operations come from the block driver's counters in `ioreg`, which are
+  **system-wide and noisy** (the same configuration read 33 to 363 operations a second; the machine's own background is
+  about 40), so they say only that the load is small: tens to about 200 a second, bursts of 1,600 to 3,000 a second in the
+  one-second maxima, which the baseline (470 to 730) also shows from checkpoints. The count that is exact is commits: one
+  request is one transaction. Each run is 180 s after a 10 s warm-up (one is 600 s); disk per hour is that rate times 3,600.
+
+| Sessions (loops) | Recording | Requests/s | Ingested KB/s | Server writes KB/s | Server CPU, mean | Request p95 |
+|---|---|---|---|---|---|---|
+| 5 (20) | off | 0 | 0 | 20 | 0.7% | n/a |
+| 5 (20) | on, 1 s | 3.4 | 48 | 175 | 1.2% | 4 ms |
+| 20 (80) | off | 0 | 0 | 234 | 1.9% | n/a |
+| 20 (80) | on, 1 s | 13.6 | 218 | 1,280 | 4.0% | 5 to 9 ms |
+| 50 (200) | off | 0 | 0 | 761 | 4.2% | n/a |
+| 50 (200) | on, 1 s | 33.8 | 531 | 3,855 | 8.2% | 11 ms |
+| 20 (80), typical results | on, 1 s | 13.5 | 52 | 863 | 3.4% | 4 ms |
+
+| 20 sessions, busy | Requests/s | Server writes KB/s | Writes minus the 234 baseline | Server CPU, mean |
+|---|---|---|---|---|
+| batch every 1 s | 13.6 | 1,280 | 1,046 (4.8 per byte ingested) | 4.0% |
+| batch every 2 s | 8.8 | 1,071 | 837 | 3.1% |
+| batch every 5 s | 4.0 | 903 | 669 (3.1 per byte ingested) | 2.6% |
+| batch every 10 s | 2.0 | 799 | 565 | 2.1% |
+
+At 50 sessions a batch every 5 s took 10.0 requests/s, 2,789 KB/s of writes (against 3,855) and 4.8% CPU (against 8.2%).
+Runs of the same setting differed by 3 to 8% in bytes, and the one 600 s run wrote 13% more than the 180 s ones (1,451 KB/s
+for 20 sessions at 1 s), so read the writes as plus or minus 15%. Server memory stayed at 118 to 155 MB. A probe of
+`/api/health` every 250 ms read a p95 of 1.6 to 3.3 ms with recording on and 1.6 to 1.7 ms with it off; its worst reading was
+27 to 69 ms with recording on and 4 to 12 ms with it off. A batch is stored in one synchronous transaction, so the server
+answers nothing else while it runs.
+
+Findings:
+- **The server writes 3 to 12 times what it ingests,** and much of the cost is per commit, not per byte. Beyond the baseline
+  a batch cost about 40 KB plus about 2.3 times its own size: 47 KB for the typical profile's 4 KB batches, 77 KB for the
+  busy profile's 16 KB ones (1 s), 167 KB for 54 KB ones (5 s) and 283 KB for 108 KB ones (10 s). (Each row goes into a table
+  and three indexes, and the recording's counters change; this was not profiled further.) The *typical* profile shows it
+  most: 52 KB/s ingested, 629 KB/s written beyond the baseline. Fewer, larger batches are the lever.
+- **Disk per hour of recording, busy profile:** 9.3 to 9.6 MB per loop (an orchestrator or an agent) counted by the server,
+  9.9 to 10.2 MB in the file (about 6% more), so a session of 4 loops is about 38 MB an hour (40 MB in the file). The 600 s
+  run gave 9.3 and 9.9, the 180 s runs 9.6 and 10.1. With the typical profile it is 2.3 MB per loop (2.7 in the file), 9 MB
+  for a session of 4. At the default 6 hours of retention, the busy session holds about 225 MB, and 20 busy sessions fill
+  4.5 GB.
+- **The caps stop recording as specified.** At the per-session limit (8 MB, and the default 256 MB) the recording held 7.94
+  and 255.94 MB, its state read `limit` with `limit: "session"`, the last row was the `limit` mark, a later batch got `403
+  recording is off`, and starting it again got `409` (delete it first). At the disk budget (64 MB, and the default 2 GB)
+  every running recording stopped with `limit: "budget"` and its mark, at 63.96 and 2,047.92 MB stored; the file held
+  2,058 MB, 0.5% more. The server took 164 MB/s from a single poster. Deleting one recording let a new one start.
+  One gap: a start is refused when the total is at or above the budget, but a recording stops when the next entry would pass
+  it, so the total rests a little under the budget and a start is still accepted; its first batch then stops with `limit`
+  ("budget"). Harmless: it then reads as stopped by the budget.
+- **The purge keeps up.** The server purges every 5 minutes. With 20 busy sessions writing for 11 minutes and every row
+  older than 30 s moved back by 7 hours every 10 s (a stand-in for waiting out the retention), the stored total made a
+  sawtooth: it grew to 56 to 67 MB (5 minutes of writing) and fell to about 7 MB at each of the two runs, which removed 7,497
+  and 8,666 entries; the file fell back to 8.6 MB. Requests stayed at a p95 of 8 ms. A full budget (2,048 MB, 21,685 rows,
+  all aged) was removed in one run in under a second (polled every 250 ms), the file went from 2,058 MB to under 1 MB, and
+  `/api/health` read a p95 of 2.0 ms and a worst of 95 ms. The first run is 5 minutes after the server starts.
+
+Caveats: the traffic is invented; the server and the generator share one machine (the generator used 2 to 13% of a core);
+the runs are minutes long and the hours are an extrapolation; the purge run ages rows by rewriting their time, so it also
+adds writes of its own and says nothing about the write load; the system-wide operation counts are not a measurement of
+the server alone.
+
+**Recommendation (not applied; the constants above are unchanged).** For the maintainer to decide:
+- **Batch interval: 5 s instead of 1 s.** It cuts requests by 3.4 times, the server's writes for 20 busy sessions by 29%
+  (36% beyond the baseline) and its CPU by 35%. The cost is a replay that trails a live session by up to 5 s, and up to 5 s
+  of entries lost if the session's process dies. 10 s saves a further 12% only. Because one request is at most 480 KB, 5 s
+  allows a session 96 KB/s on average; the busiest session in the runs queued 370 KB, but a burst of big results would
+  wait, so the mod should also send at once when its queue passes about 256 KB.
+- **Batch size: keep 200 entries and 480,000 bytes.** At 5 s the mean batch was 7 entries and 54 KB, the largest 370 KB.
+  The limits are not what is reached.
+- **Limit for one session: 512 MB instead of 256 MB.** A busy session of 4 loops holds about 225 MB over 6 hours, close to
+  256 MB, and one of 8 busy loops would reach 256 MB after about 3.4 hours and stop recording while the trouble is still
+  going on.
+- **Disk budget: 4 GB instead of 2 GB.** 2 GB holds 6 hours of about 9 busy sessions of 4 loops (about 37 typical ones).
+  Reaching it stops every recording at once, so it should be a safety stop, not the normal limit. The mod's 8 MB queue is
+  memory, not disk; the largest queue in the runs was 370 KB, so 8 MB looks ample.
+
 **Stopping, keeping and deleting.**
 - **Stop** ends capture for the whole session (the orchestrator and every agent and fork). The server writes a
   `stopped` mark with who stopped it and when. What was recorded is **kept** until it expires, can still be
