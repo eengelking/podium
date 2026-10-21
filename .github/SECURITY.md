@@ -24,7 +24,7 @@ These are not vulnerabilities on their own. [Running the server](../docs/SERVER.
 | Behavior | Why it is not a bug |
 |---|---|
 | **Fleet reads are open on localhost.** `GET /api/fleet/state`, `/stream`, `/sessions/...`, `/events` and `/history` need no token; only reports, hooks and deletes do. | They show how the wall looks. A waiting session's question, plan or tool input (under `/api/fleet/respond`) is the exception: it is shown only to its owner or an Admin who has signed in. |
-| **Tokens travel in a header over plain HTTP.** | A server reachable over a network needs a trusted network or a TLS proxy. |
+| **Tokens travel in a header over plain HTTP, unless built-in TLS is on.** | Plain HTTP is the default for a fresh install. A server reachable over a network needs a trusted network, a TLS proxy or built-in TLS (see "Built-in TLS" below). |
 | **A person who holds a valid token can delete any session.** | Any valid credential may `DELETE` a session. |
 | **Anyone with access to your user account or to `~/.podium` can read the token and the data.** `podman inspect podium` (or `docker inspect podium`) also shows the token, because it is part of the container's environment. | The token has to live somewhere the server can read it. |
 | **`--bind` or `HOST` set to something other than `127.0.0.1` lets other machines read the dashboard,** including every person's name and machine name. | That is what binding to another address asks for. |
@@ -60,11 +60,35 @@ by sending more than the session's level allows, is in scope.
 | Limit | What to do about it |
 |---|---|
 | **The admin secret is a shared credential.** Anything done with it is attributed to "Admin secret", not to a person. | Give each person a token, and turn off reporting with the admin secret in Admin when you no longer need it. |
-| **The token and the session cookie travel over plain HTTP.** The server warns in its log (`server.respond_plain_http`) when responding is on and it is bound beyond loopback, and when a sign-in reaches it over plain HTTP at a name that is not loopback; Admin > Settings and the mod's status line (`⚠`) say so too. None of them blocks anything. | On any network but your own machine, put a TLS proxy in front and set `PODIUM_TRUST_PROXY` to the proxy's address or hop count, so the Admin log and the lockouts see each person's address and the cookies are marked `Secure`. The bind-address warning cannot tell a proxied server from a bare one: with a TLS proxy in front you can ignore it. |
+| **The token and the session cookie travel over plain HTTP, unless built-in TLS or a TLS proxy is used.** The server warns in its log (`server.respond_plain_http`) when responding is on and it is bound beyond loopback, and when a sign-in reaches it over plain HTTP at a name that is not loopback; Admin > Settings and the mod's status line (`⚠`) say so too. None of them blocks anything. | On any network but your own machine, put a TLS proxy in front and set `PODIUM_TRUST_PROXY` to the proxy's address or hop count, so the Admin log and the lockouts see each person's address and the cookies are marked `Secure`. The bind-address warning cannot tell a proxied server from a bare one: with a TLS proxy in front you can ignore it. |
 | **`PODIUM_TRUST_PROXY` believes `X-Forwarded-For` from the hops you name.** A hop that does not overwrite that header lets any client choose its source address, which defeats the Admin, sign-in and admin-secret lockouts and makes the Admin log's `source` untrue. `true` (trust every hop) is refused. | Name only a proxy that sets `X-Forwarded-For` itself, and only the hops between it and Podium. Leave the setting off with no proxy. |
 | **The admin log has no export.** It keeps entries for 90 days (`RETAIN_ADMIN_LOG_MS`) and the newest 100 whatever their age. | Ship the server log to VictoriaLogs if you need a copy or a longer record. |
 
 If you think you have found something like this, please report it rather than opening a public issue.
+
+## Built-in TLS
+
+Podium can serve HTTPS itself (#577, DECISIONS 40). It is off until the Admin turns it on with `PODIUM_TLS=on` or
+`podiumctl start --tls`. The server then makes a CA and a serving certificate, and gives each person a reporter
+config file with their client certificate and key, shown once. The reporter proves who it is with that certificate
+instead of a token. Not built yet: this is the planned behavior in `docs/SPEC.md` 7.7.
+
+| What TLS stops | How |
+|---|---|
+| Passive snooping of tokens, reports and answers | Traffic is encrypted. |
+| An active man in the middle, or a host answering as the server | The reporter checks the server against the CA in its own config file. |
+| Replay of captured traffic | TLS. |
+| A stolen database yielding usable reporter credentials | Person certificates are public and tokens are hashes. The server keeps no person's key. |
+| An expired or revoked certificate being used | The server checks the certificate's fingerprint on every request. |
+
+| What TLS does not stop | What to do about it |
+|---|---|
+| **A compromised machine, or a stolen config file.** The private key is in the file. | Revoke the person's certificate and keep the file mode 0600. |
+| **A stolen console token.** | Revoke the token. |
+| **A stolen `/data/tls`.** It holds the CA key, so it holds everything the CA signed. | Treat it as an emergency: rotate the CA with no overlap and reissue every config. Back the folder up and set its permissions like a secret. |
+| **Any process running as the same user.** It can read the config file and use the helper's socket. | The same as for any file in that account. |
+| **Plain HTTP while "Allow reporters to connect over HTTP" is on.** Name, token and reports are not encrypted. Admin says so in a warning line. | Turn the switch off when every reporter has a config. The console on loopback stays on HTTP so an Admin can always sign in. |
+| **A browser that trusts a CA it should not.** | Admin shows the CA's fingerprint so a person can compare it before installing. |
 
 ## Orchestrator messaging
 
@@ -95,6 +119,7 @@ a limit, or a way to read a conversation's text as anyone but its owner or an Ad
 | The rules the server and the mod follow | `docs/SPEC.md` 7.7 "Hardening": "Who a report is from", "Who", "The browser's credential", "The mod never trusts the server" and "The admin log" |
 | How a person turns responding on and uses it | `docs/USER_GUIDE.md`, "Answering a session from Podium" |
 | How orchestrator messaging is set up, and what is kept | `docs/MESSAGING.md`, with the reasoning in `docs/DECISIONS.md` 37 |
+| Why Podium makes its own CA, and the rules for it | `docs/DECISIONS.md` 40, `docs/SPEC.md` 5.9, 6 and 7.7 "Built-in TLS" |
 | What is open by design | `docs/GOTCHAS.md` and [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") |
 
 ## Reporting a vulnerability

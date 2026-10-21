@@ -165,7 +165,8 @@ view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
   ([7.7](#77-hardening)), but it is still one server you run yourself. The server binds to `127.0.0.1` by
   default. In the container image it listens on all interfaces inside the container, and the port is published
   only on the host's `127.0.0.1` ([4.4](#44-packaging-running-and-distribution)). Reaching it from other
-  machines is an explicit choice (`--bind`) and needs a trusted network or a TLS proxy.
+  machines is an explicit choice (`--bind`). Over plain HTTP it needs a trusted network or a TLS proxy. With
+  built-in TLS turned on ([7.7](#77-hardening), *Built-in TLS*) the server serves HTTPS itself.
 - No hosted deployment, accounts, or cloud sync. A container on the same machine is not a hosted deployment.
 
 **Cost.** No billing accuracy. Cost is an estimate from token counts and a price table. The UI always labels
@@ -1196,6 +1197,61 @@ mod one shared set of `userConfig` values and no storage for a single session's 
 Two logins on one machine are possible only through the environment variables above. If the engine gains a
 per-session login or a way to tell which session a sign-in came from, the mod should use it.
 
+#### The reporter config file (#577)
+
+With TLS on ([7.7](#77-hardening), *Built-in TLS*), a reporter authenticates with a certificate instead of a token.
+Everything it needs is in one file the Admin gives the person once. Designed in DECISIONS 40.
+
+- **Name.** `reporter-config-<name>-<epoch>.pem`, where `<epoch>` is the second the file was issued.
+- **Format.** A PEM-style text file, in this order:
+  1. The first line, `# podium-reporter-config v1`.
+  2. Header lines, `# key: value`: `user`, `server`, `issued-at` (an ISO time and an epoch), `expires` and
+     `fingerprint` (the SHA-256 of the person's certificate).
+  3. PEM blocks: the CA certificate (one, or two during a CA overlap, [7.7](#77-hardening)), the person's
+     certificate and the person's private key.
+- **Parsing.** By block type and role, never by position. A `CERTIFICATE` block is a CA certificate or the
+  person's certificate according to whether it is a CA. `PRIVATE KEY` is the key. A reader ignores a header line
+  it does not know.
+- **Where it is found.** `PODIUM_REPORTER_CONFIG`, if set, names the file. It is a plain environment variable
+  read with `$.env.get`, not a `userConfig` option. Otherwise the newest `reporter-config-*.pem` in `~/.podium/`
+  wins, by its `issued-at` header line, and every other file there is ignored (a reissue leaves older files
+  beside the new one, and the old certificate is revoked). `~/.podium/` is also `podiumctl`'s home, and the
+  names do not collide.
+- **No file.** The reporter keeps working as today: the `serverUrl` and `token` options over HTTP, if the server
+  allows reporters over HTTP.
+- **With a file.** `serverUrl` is the address in the file. The reporter never sends a credential over `http://`
+  when the URL was `https://`, and never falls back to HTTP unasked.
+- **Permissions.** The file holds a private key. The reporter refuses, or tightens, a file that is group- or
+  world-readable, as `ssh` does, and the box that shows the file says `chmod 600`.
+- **Identity.** The file is read at `session.start`. When the helper opens a new upstream connection it re-reads
+  the file only if the name in it equals the session's name (DECISIONS 29), and it keeps the last good copy if a
+  read fails. A running session does not pick up a file saved after it started.
+
+**The helper.** The mod cannot give `$.http.fetch` a CA or a client certificate, so podium-reporter starts a small
+Node script, `hooks/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from
+the file, and the mod sends its requests to it over a Unix socket with `$.http.fetch(..., { socketPath })`.
+
+- It is started as `node helper.mjs <config path> <socket path> <server url>` and prints `ready` on its stdout
+  when it is listening. The mod waits for that line, not for the socket file.
+- It forces `rejectUnauthorized: true` and starts with `NODE_TLS_REJECT_UNAUTHORIZED` and `NODE_OPTIONS` cleared.
+- It uses one socket per session, in a directory with mode 0700, and the socket is `chmod 0600`. A socket path is
+  104 bytes at most on macOS and 108 on Linux.
+- It exits when its parent dies and removes only its own socket. A `session.end` with reason `clear` does not stop
+  it.
+- A failure comes back as an `X-Podium-Helper-Error` header (`CERT_HAS_EXPIRED`, `ALTNAME`, `ECONNREFUSED`,
+  `CLIENT_CERT_REJECTED` and so on). It aborts the response on a mid-body upstream error, so a truncated reply is
+  never read as a `200`.
+- It writes the config file atomically (a temporary file, then a rename) under a lock, because several sessions
+  can renew at once, and keeps the mode 0600.
+
+**Platforms.** macOS and Linux are in scope. Windows is out of scope and unsupported. The desktop app and VS Code
+are untested: `$.process` is CLI only per the engine types, so the helper may not start there.
+
+**Open: how the reporter finds `node`.** The helper needs `node`, and a Claude Code started from a desktop
+launcher often has no `nvm` or Homebrew `PATH` (measured: the spawn fails with `ENOENT`). Whether to look for it
+through an option, a `PODIUM_NODE` variable, a search of the usual places, or some mix is not decided, so this
+section does not say. Until it is, a missing `node` is reported plainly (below) and nothing else is promised.
+
 ### 5.10 Alternatives and extras the implementer may use
 
 - **Settings command hooks** (`.claude/settings.json` `hooks`: `SessionStart`, `SessionEnd`, `SubagentStart`, `SubagentStop`, `PreCompact`, `PostCompact`, `Notification`, `PermissionRequest`, `TaskCreated`, `TaskCompleted`, `Stop`) can `curl` the server without a mod. Every payload has `session_id`, `transcript_path`, `cwd`, `hook_event_name`, and inside a subagent `agent_id`, `agent_type`, and often `effort.level`. They lack per-step usage and context, so they can only drive a reduced display. `POST /api/fleet/hook` accepts them, for sessions started without the mod. The mod is the primary path.
@@ -1880,6 +1936,37 @@ reporter, and the reporter's own check above still covers the mod.
 
 ---
 
+#### Authenticating by certificate (#577)
+
+Designed in DECISIONS 40. With TLS on ([7.7](#77-hardening), *Built-in TLS*), `POST /api/fleet/report` and every
+other route the mod calls can be made over mutual TLS, through the helper ([5.9](#59-mod-configuration-userconfig)).
+
+- **Who is calling.** The server authenticates the person from the certificate in the handshake and not from
+  `X-Podium-Token`. It accepts a client only when `socket.authorized` is true against the Podium CA(s) it was given
+  as `ca`, looks the certificate up by its SHA-256 fingerprint, and checks it is not revoked. The report's
+  `userName` must still equal that person (DECISIONS 20).
+- **The token.** A reporter that has a config file sends none. A reporter without one still sends its token, over
+  HTTP, while the Admin allows reporters over HTTP. The console signs in with a name and a token as before.
+- **Renewal.** `POST /api/reporter/renew` is authenticated by the person's current certificate. The body carries
+  the reporter's new public key (no Node API builds a CSR), and the response carries a new certificate for it.
+  The helper writes the new certificate and the CA(s) in one atomic write, so the file never holds one without
+  the other. The reporter renews when 30 days of the certificate are left.
+- **Grace.** A certificate that expired no more than `tls.reporter.graceDays` ago can still renew. The server
+  verifies its signature against the CA key (`X509Certificate.verify`) and matches its exact fingerprint to a
+  stored one. It never trusts `authorizationError === 'CERT_HAS_EXPIRED'` with a serial, since forged
+  certificates report the same error. Past the grace, an Admin reissues the config.
+- **A new CA in the response.** Only for a planned CA rotation, as an addition, with a cross certificate that
+  verifies under the CA the reporter already holds. After an emergency rotation the server does not offer it
+  ([7.7](#77-hardening)).
+
+#### Compatibility and the certificate reporter (#577)
+
+The reporter that reads a config file and starts the helper is a new minor version of the mod, so it ships with
+a release like any other mod change, and `REPORTER_SUPPORT.max` moves to that release's `MAJOR.MINOR.0` in the
+same release-prep PR. A mod without it keeps working against a server with TLS on while the Admin allows
+reporters over HTTP, and a mod with it keeps working against a server with TLS off by using no config file.
+The renewal response carries no new `reporterSupport` field.
+
 ## 7. The server
 
 ### 7.1 Endpoints
@@ -2175,6 +2262,28 @@ signed-in person's own reporters: the admin secret has none (`403`). `403` too w
 - `GET /api/fleet/respond/peers/conversations/:a/:b`: one conversation's messages with their text, oldest first, for its
   owner or an Admin (the admin secret or an Administrator). Each is `{ id, from, to, owner, text, sentAt, state,
   stateAt, why, approved }`. `403` for anyone else, `404` when there is none.
+
+#### Certificate routes (#577)
+
+Names and shapes are confirmed in the design (DECISIONS 40). They exist only while TLS is on, and the Admin routes
+need the unlocked Admin session like the rest of the Admin API.
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/reporter/renew` | The reporter renews its certificate ([6](#authenticating-by-certificate-577)). Authenticated by the client certificate. Body: the new public key. Reply: the new certificate, and for a planned CA rotation the added CA and its cross certificate. |
+| `GET /api/admin/certificates` | The CA, the serving certificate, their dates and fingerprint, the names, the settings, the last renewal failure and the previous certificates. |
+| `PUT /api/admin/certificates` | Change the `tls.*` settings ([7.7](#77-hardening)). A value outside its range is a `400` that names the range. |
+| `POST /api/admin/certificates/renew` | Renew the serving certificate now. |
+| `POST /api/admin/certificates/rotate-ca` | Rotate the CA. Body `{ endOverlap }`: false is a planned rotation with an overlap, true is the hard cutover. |
+| `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. |
+| `GET /api/admin/certificates/ca.pem` | The CA certificate, for a browser or a person who wants to check it. No key. |
+| `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
+| `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. |
+| `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
+| `GET /api/admin/people/:id/certificate.pem` | The person's public certificate and the CA. Never a key. |
+| `POST /api/admin/people/:id/revoke-all` | Revoke the certificate and the token. |
+
+`POST people/:id/revoke`, in the list below, is still the token's revoke.
 
 #### Admin API
 
@@ -2674,8 +2783,122 @@ The registry removes a client on `close`/`error`, and a write that throws never 
   publishes it on the host's `127.0.0.1` ([4.4](#44-packaging-running-and-distribution)).
 - If `PODIUM_TOKEN` is set, `POST /report`, `DELETE` and `POST /hook` require `X-Podium-Token`. Reads and the
   `drop` route stay open on localhost.
-- Tokens and the admin secret travel in a header over plain HTTP. A server reachable over a network needs a
-  trusted network or a TLS proxy.
+- Over plain HTTP, tokens and the admin secret travel in a header, so a server reachable over a network needs
+  a trusted network or a TLS proxy. With built-in TLS on, the server serves HTTPS itself, and a reporter with a
+  certificate sends no token (*Built-in TLS*, below). Plain HTTP stays for the console on loopback and, while the
+  Admin allows it, for reporters.
+
+#### Built-in TLS (#577)
+
+Designed in DECISIONS 40, on #323 and #577. Podium makes its own CA, signs a serving certificate, and gives each
+person a client certificate in one generated config file ([5.9](#59-mod-configuration-userconfig)), the way
+`kubeadm` and `kubectl` do. A person's machine trusts nothing new and installs nothing.
+
+**Enabling.** TLS is opt-in and off by default. `PODIUM_TLS=on`, or `podiumctl start --tls`, makes the first start
+create a CA and a serving certificate when none exist. A fresh install without it stays on plain HTTP, with
+loopback as the default bind. A CA that exists is never overwritten. A missing or unreadable key stops TLS with a
+log line and leaves HTTP working.
+
+**Ports.** HTTP keeps `4317`. HTTPS is `4318`, changed with `PODIUM_TLS_PORT`. `podiumctl` publishes both and the
+Containerfile exposes both. The routes are the same on both. The Host check applies to both (DECISIONS 33).
+
+**Keys and certificates.** The CA, the serving certificate and every person's certificate use EC P-256 keys, made
+with `openssl` (called with `execFile`, no shell).
+
+| Certificate | Lifetime | Names and subject |
+|---|---|---|
+| CA | 10 years, fixed at creation | `CA:TRUE`, `keyCertSign`, with SKID and AKID. |
+| Serving | 1 year (`tls.serving.lifetimeDays`) | `serverAuth`. Names are `localhost`, `127.0.0.1`, the bind address and `PODIUM_ALLOWED_HOSTS`. |
+| Person | 90 days (`tls.reporter.lifetimeDays`) | `clientAuth`. Subject `CN=pdm_<key id>, O=podium`. A name never goes into the subject. |
+
+**Storage.** In `/data/tls` (`data/tls` in standalone mode): `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and
+`previous/` (the last 3 replaced serving certificates). Every key is mode 0600 and the directory 0700. `/data` is
+durable, so a restart or a rebuild keeps the CA. Person certificates are in a table in `podium.sqlite` with
+`fingerprint_sha256` (unique), `serial`, `issuer_fingerprint`, `person_id`, `not_before`, `not_after`,
+`issued_at`, `revoked_at` and `reason`. The CA's and the serving certificate's dates and fingerprint are in a
+small metadata table or in settings rows. Podium keeps only a person's certificate, never their key.
+
+**Serving certificate renewal.** It is always automatic, with no setting to turn it off. It renews at start and `tls.serving.renewBeforeDays` before expiry, with the same
+names and the same CA, and is swapped in with `setSecureContext` without a restart (an open connection keeps the
+old one, a new connection gets the new one). The replaced certificate goes to `previous/`. A failure is logged,
+retried daily and shown to the Admin. An Admin can renew now, which also re-issues for a changed bind address or
+`PODIUM_ALLOWED_HOSTS`.
+
+**Settings.** Changed in Admin > Server > Certificates ([7.1](#certificate-routes-577)). Each change is written to
+the Admin log.
+
+| Key | Default | Range |
+|---|---|---|
+| `tls.serving.lifetimeDays` | 365 | 30 to 825 |
+| `tls.serving.renewBeforeDays` | 30 | 7 to 90 |
+| `tls.reporter.lifetimeDays` | 90 | 30 to 365 |
+| `tls.reporter.graceDays` | 30 | 0 to 90 |
+| `tls.header.countdown` | true | on or off |
+| `tls.allowReportersOverHttp` | see below | on or off |
+
+`tls.header.countdown` hides only the healthy countdown in the header pill. The pill is blue at 30 days or fewer,
+orange at 10, red at 5, and reads "Certificate expired" after that. It tracks the CA and the serving certificate,
+whichever expires first, and never a person's certificate. A failed renewal and an expired certificate always show.
+
+**Reporters over HTTP.** `tls.allowReportersOverHttp` defaults to **off** on a fresh install that enables TLS and
+to **on** for an existing install, so nothing stops when TLS is turned on. While it is on, the Admin page shows a
+warning that name, token and everything the reporter sends are not encrypted. Turning it off asks first, names how
+many reporters it will refuse, and says the console on loopback keeps working. With it off, the HTTP listener
+refuses reporter routes except on loopback. The console on loopback stays on HTTP so an Admin can always sign in,
+and the Administrators group always keeps a member, so a server whose certificate expired can be recovered.
+
+**Mapping a certificate to a person.** The server runs `https.createServer` with `requestCert: true`,
+`rejectUnauthorized: false` and `ca` set to the Podium CA(s). It accepts a client only when `socket.authorized` is
+true, since without `ca` Node verifies against the public roots. It looks the certificate up by SHA-256
+fingerprint, never by subject or serial. Extended key usage is enforced both ways.
+
+**Revocation.** An Admin can revoke a person's certificate, their token, or both (Revoke all). Revoking the
+certificate stops the reporter and leaves the console sign-in. The server checks the fingerprint's revocation and
+issuer on **every request**, or destroys the open sockets when a certificate is revoked or a CA retired, because a
+keep-alive connection stays authorized after the client `ca` list is narrowed.
+
+**CA rotation.** Planned rotation has an overlap. The server makes a new CA, signs a cross certificate for it with
+the old one (`CA:TRUE`, `keyCertSign`, SKID and AKID, no `pathlen:0`, a lifetime that ends the overlap), and
+presents `[new leaf, cross certificate]` in that order. It trusts both CAs for client certificates, and the new CA
+reaches reporters in the renewal response ([6](#authenticating-by-certificate-577)). The Admin retires the old CA
+when none are left; the page counts the reporters still on it, and retiring refuses them at once and closes open
+connections. After a leaked CA key there is no overlap (**Rotate CA and end the overlap now**): a hard cutover, no
+in-band delivery, and every reporter needs a reissued config. A reporter asleep past both the cross certificate and
+the grace needs a reissue.
+
+**Failure behavior** (written from #577, pending the maintainer's confirmation in the review of #578).
+
+- *The reporter* says what is wrong in the status line and in `/podium`, never a bare "offline", for each of:
+  no `node`; no config file; a config file that is group- or world-readable; an expired certificate (inside the
+  grace it says it is renewing, past it it says to ask an Admin to reissue); a revoked certificate; a name in the
+  file that does not match the session's; an unreachable server (it retries as today); a server certificate that
+  is expired, not for this name or not signed by the CA in the file; and a skewed clock. It never sends a
+  credential over `http://` when the URL was `https://`, and never falls back to HTTP unasked. Wording follows
+  `docs/standards/voice.html`.
+- *The helper* returns a structured error and aborts the response on a mid-body upstream error ([5.9](#59-mod-configuration-userconfig)).
+- *The server* logs `tls.*` events (handshake failures, use of a revoked or expired certificate, renewals) and
+  writes every rotate, retire, revoke and setting change to the Admin log. The header pill covers the CA and the
+  serving certificate. Each person's expiry is shown on Admin > People.
+
+**Threat model** (written from #577, pending the maintainer's confirmation in the review of #578). `.github/SECURITY.md` carries the same list for readers.
+
+- *TLS stops:* passive snooping of tokens, reports and answers; an active man in the middle; a host answering as
+  the server (the reporter verifies the CA from its file); replay of captured traffic; a stolen database yielding
+  usable reporter credentials (person certificates are public and tokens are hashes); and an expired or revoked
+  certificate being used (checked on every request).
+- *TLS does not stop:* a compromised machine or a stolen config file (the private key is in it: revoke the
+  certificate and keep the file mode 0600); a stolen console token (revoke it); **a stolen `/data/tls`**, which
+  holds the CA key and so everything it signs (an emergency rotation, a hard cutover and a reissue, and the folder
+  must be backed up and permissioned like a secret); any process running as the same user (it can read the config
+  and use the helper's socket); plain HTTP while reporters are allowed over HTTP; and a browser that trusts a CA it
+  should not (Admin shows the fingerprint so a person can compare it).
+
+**Browsers.** A browser trusts the CA only when a person installs it. Admin shows the fingerprint and a Download CA
+button. The console keeps its name-and-token sign-in behind the same TLS.
+
+**Platforms and limits.** macOS and Linux are in scope, Windows is unsupported ([5.9](#59-mod-configuration-userconfig)).
+A public certificate authority and ACME are out of scope: a server with a real name can sit behind a TLS proxy
+(#305).
 
 #### Who a report is from (issue #36)
 
@@ -2983,7 +3206,7 @@ This is the only way anything reaches a session from Podium, so every rule here 
 **Security note**
 - `.github/SECURITY.md` says what responding exposes: that it lets the server's people send answers and
   messages into sessions whose owners opted in, what the console shows to whom, and that the browser's token
-  and the session cookie travel over plain HTTP unless a TLS proxy is used.
+  and the session cookie travel over plain HTTP unless a TLS proxy or built-in TLS is used.
 
 #### Orchestrator messaging (#347)
 

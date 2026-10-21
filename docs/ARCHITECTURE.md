@@ -29,6 +29,7 @@ with the default view at `#/`. An earlier usage dashboard lived here until it wa
   - [Responding](#responding)
   - [File diff](#file-diff)
   - [Orchestrator messaging](#orchestrator-messaging)
+  - [Built-in TLS](#built-in-tls-577)
   - [People view](#people-view)
   - [Logging](#logging)
   - [Shared contract](#shared-contract)
@@ -601,6 +602,36 @@ server for looking at the pages, and with `--talk` adds conversations for Traffi
 with real Claude Code sessions: `up` starts a throwaway server from the checkout, seeds it with `--talk`, and starts
 sessions in tmux that load the mod with `--plugin-dir`; `down` stops them. Its test covers only the help, the argument
 checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSAGING.md#testing-it-end-to-end)).
+
+### Built-in TLS (#577)
+
+Designed, not built. This records the planned structure so the sub-issues (#578 to #591) agree. The rules are in
+`SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
+
+**Listeners.** `server/src/index.ts` now has one `app.listen`. With TLS on it also starts `https.createServer`
+on the HTTPS port (`4318`) with the same Express app, next to the HTTP listener (`4317`). The Host check
+(`hostCheck.ts`) runs on both (33). The HTTPS server asks for a client certificate (`requestCert: true`,
+`rejectUnauthorized: false`, `ca` set to the Podium CA or CAs), so a request with no certificate still reaches the
+console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting.
+
+**The CA and `/data/tls`.** The server makes and renews certificates by calling `openssl` with `execFile`.
+`/data/tls` holds `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and `previous/`, keys at mode 0600. In container
+mode `podiumctl` keeps this folder on durable storage, and its remove path leaves it unless asked. Person
+certificates are rows in `podium.sqlite`, found by SHA-256 fingerprint. A serving renewal calls `setSecureContext`
+on the live HTTPS server, so nothing restarts.
+
+**Who is calling.** `routes.ts` already turns `X-Podium-Token` into an identity before it reads a body. With TLS
+the socket's client certificate is a second way to get one: `socket.authorized`, then a fingerprint lookup in
+`people.ts`, then the same `userName` match. Revocation is checked per request.
+
+**The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
+`$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a
+Unix socket. The seam in the mod is the one `FetchLike` at `register.ts` (`const fetch: FetchLike = ...`): with a
+config file it sends through the helper with `$.http.fetch(url, { ...init, socketPath })`, so `Transport` and its
+callers do not change. The held answer request keeps the engine's 30 second limit, now on the leg to the helper.
+
+**Admin.** New routes under `/api/admin/certificates` and on `people/:id/certificate/...` live in `adminRouter.ts`.
+The Certificates page and the header pill, and the reworked People page, are in `frontend/src/fleet/admin/`.
 
 ### People view
 
@@ -1394,7 +1425,8 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
   the named volume `podium-data`, and a `--health-cmd` (the `HEALTHCHECK` instruction is dropped by Podman's
   default OCI image format).
 - It also passes the host's time zone as `TZ`, so the day for "Est. cost today" is the host's.
-- Inside, the server binds `0.0.0.0:4317`. The host-side bind is where access is limited.
+- Inside, the server binds `0.0.0.0:4317`. The host-side bind is where access is limited. With built-in TLS on it
+  also binds `0.0.0.0:4318`, published the same way, and the image carries the `openssl` package (planned, #580).
 - Container mode relies on `podman run` or `docker run` failing when the port is taken.
 - A standalone `start` refuses while a `podium` container runs under either engine, not only the saved one.
 
