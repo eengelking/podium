@@ -275,6 +275,13 @@ export class SessionRecordings {
     return (r.oldestT ?? this.opts.now()) + this.opts.settings().keepHours * HOUR_MS;
   }
 
+  /** When the oldest part of the session's recording goes, or null when none is held (or the server has no token, as for `view`). */
+  keptUntilOf(sessionId: string): number | null {
+    if (!this.opts.authOn) return null;
+    const r = this.row(sessionId);
+    return r ? this.keptUntil(r) : null;
+  }
+
   /** The consent state a report's reply and a batch's reply carry (SPEC 6.1). */
   grant(sessionId: string): RecordingGrant {
     const enabled = this.enabled();
@@ -567,8 +574,8 @@ export class SessionRecordings {
     const at = before ?? Number.MAX_SAFE_INTEGER;
     const rows = (
       loop === null
-        ? this.st('SELECT n, loop, at, kind, text, name, call_seq AS callSeq, failed, cut, lost, "by" AS by FROM rec_entries WHERE session_id = ? AND n < ? ORDER BY n DESC LIMIT ?').all(sessionId, at, size)
-        : this.st('SELECT n, loop, at, kind, text, name, call_seq AS callSeq, failed, cut, lost, "by" AS by FROM rec_entries WHERE session_id = ? AND loop = ? AND n < ? ORDER BY n DESC LIMIT ?').all(sessionId, loop, at, size)
+        ? this.st('SELECT n, seq, loop, at, kind, text, name, call_seq AS callSeq, failed, cut, lost, "by" AS by FROM rec_entries WHERE session_id = ? AND n < ? ORDER BY n DESC LIMIT ?').all(sessionId, at, size)
+        : this.st('SELECT n, seq, loop, at, kind, text, name, call_seq AS callSeq, failed, cut, lost, "by" AS by FROM rec_entries WHERE session_id = ? AND loop = ? AND n < ? ORDER BY n DESC LIMIT ?').all(sessionId, loop, at, size)
     ) as unknown as PageRow[];
     rows.reverse();
     const oldest = rows[0]?.n;
@@ -742,6 +749,7 @@ export class SessionRecordings {
 
 interface PageRow {
   n: number;
+  seq: number;
   loop: string;
   at: number;
   kind: RecordingKind;
@@ -756,6 +764,7 @@ interface PageRow {
 
 const viewOf = (r: PageRow): RecordingRow => ({
   n: r.n,
+  seq: r.seq,
   loop: r.loop,
   at: r.at,
   kind: r.kind,

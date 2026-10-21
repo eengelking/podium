@@ -53,22 +53,30 @@ export function decisionLabel(r: RecordingRow): string {
 }
 
 /**
- * The rows in the server's order, a result placed under the call it answers. The stored row has no sequence number of its own,
- * so a result goes to the oldest call of the same loop and tool still waiting for one: calls made together get their results in
- * order, and a call made alone gets its own. A result whose call is on an older page that is not loaded yet stands as a row.
+ * The rows in the server's order, a result placed under the call it answers. A result names its call by `callSeq`, the `seq` of a
+ * `tool` row in the same loop, so overlapping calls get their own results. A result with no `callSeq` goes to the oldest call of
+ * the same loop and tool still waiting for one. A result whose call is on an older page that is not loaded yet stands as a row.
  */
 export function buildItems(rows: readonly RecordingRow[]): ReplayItem[] {
   const waiting = new Map<string, ReplayItem[]>();
+  const bySeq = new Map<string, ReplayItem>();
   const items: ReplayItem[] = [];
   for (const row of rows) {
     if (row.kind === "tool") {
       const item: ReplayItem = { key: row.n, kind: "tool", row, failed: false };
       const k = JSON.stringify([row.loop, row.name ?? ""]);
       waiting.set(k, [...(waiting.get(k) ?? []), item]);
+      bySeq.set(JSON.stringify([row.loop, row.seq]), item);
       items.push(item);
     } else if (row.kind === "result") {
       const k = JSON.stringify([row.loop, row.name ?? ""]);
-      const call = waiting.get(k)?.shift();
+      let call: ReplayItem | undefined;
+      if (row.callSeq === undefined) call = waiting.get(k)?.shift();
+      else {
+        call = bySeq.get(JSON.stringify([row.loop, row.callSeq]));
+        if (call && !call.result) waiting.set(k, (waiting.get(k) ?? []).filter((w) => w !== call));
+        else call = undefined;
+      }
       if (call) {
         call.result = row;
         call.failed = row.failed === true;

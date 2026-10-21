@@ -203,6 +203,29 @@ describe("the picker", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("says up front, before Start, that the owner has not allowed it, when the server says so", async () => {
+    const recordingConsent = vi.fn(async () => ({ ok: true as const, grant: grantOf([], { state: "off", consent: { admin: true, chosen: false, owner: false } }) }));
+    const api = fakeApi({ recordingConsent });
+    const { dialog, s } = await open({}, { api });
+    await flush();
+    expect(recordingConsent).toHaveBeenCalledWith(s.id);
+    expect(dialog.textContent).toMatch(/does not allow recording/);
+    expect(within(dialog).getByRole("button", { name: "Start recording" })).toBeDisabled();
+    expect(api.recordingStart).not.toHaveBeenCalled();
+  });
+
+  it("offers Start as usual when the server says the owner allows it, and when the consent cannot be read", async () => {
+    const yes = fakeApi({ recordingConsent: vi.fn(async () => ({ ok: true as const, grant: grantOf([], { state: "off", consent: { admin: true, chosen: false, owner: true } }) })) });
+    const first = await open({}, { api: yes });
+    await flush();
+    expect(within(first.dialog).getByRole("button", { name: "Start recording" })).not.toBeDisabled();
+    fireEvent.click(within(first.dialog).getByRole("button", { name: "Cancel" }));
+    const broken = fakeApi({ recordingConsent: vi.fn(async () => { throw new RespondError(500, { error: "boom" }); }) });
+    const second = await open({}, { api: broken });
+    await flush();
+    expect(within(second.dialog).getByRole("button", { name: "Start recording" })).not.toBeDisabled();
+  });
+
   it("keeps Escape, focus and the opener as the app's modal does", async () => {
     const { button } = await open();
     expect(screen.getByRole("button", { name: "Close (Esc)" })).toHaveFocus();

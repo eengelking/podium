@@ -4,7 +4,7 @@ import { buildItems, firstLine, markWords, nextFailure, tailLines } from "./repl
 import type { RecordingRow } from "./types";
 
 let n = 0;
-const row = (over: Partial<RecordingRow>): RecordingRow => ({ n: ++n, loop: "@orchestrator", at: 1_000 * n, kind: "text", text: "", ...over });
+const row = (over: Partial<RecordingRow>): RecordingRow => ({ n: ++n, seq: n, loop: "@orchestrator", at: 1_000 * n, kind: "text", text: "", ...over });
 
 describe("buildItems", () => {
   it("puts a result under the call it answers", () => {
@@ -23,6 +23,38 @@ describe("buildItems", () => {
       row({ kind: "result", name: "Read", text: "result two" }),
     ]);
     expect(items.map((i) => i.result!.text)).toEqual(["result one", "result two"]);
+  });
+
+  it("pairs a result with the call it names by callSeq, however the calls overlap", () => {
+    const items = buildItems([
+      row({ kind: "tool", name: "Bash", seq: 1, text: "slow" }),
+      row({ kind: "tool", name: "Bash", seq: 2, text: "fast" }),
+      row({ kind: "result", name: "Bash", seq: 3, callSeq: 2, text: "fast done" }),
+      row({ kind: "result", name: "Bash", seq: 4, callSeq: 1, text: "slow done" }),
+    ]);
+    expect(items.map((i) => [i.row.text, i.result!.text])).toEqual([
+      ["slow", "slow done"],
+      ["fast", "fast done"],
+    ]);
+  });
+
+  it("pairs by callSeq within the result's own loop, and lets a result with no callSeq fall back to the oldest waiting call", () => {
+    const items = buildItems([
+      row({ kind: "tool", name: "Bash", seq: 1, loop: "a", text: "in a" }),
+      row({ kind: "tool", name: "Bash", seq: 1, loop: "b", text: "in b" }),
+      row({ kind: "result", name: "Bash", seq: 2, callSeq: 1, loop: "b", text: "b done" }),
+      row({ kind: "result", name: "Bash", seq: 2, loop: "a", text: "a done" }),
+    ]);
+    expect(items.map((i) => [i.row.text, i.result!.text])).toEqual([
+      ["in a", "a done"],
+      ["in b", "b done"],
+    ]);
+  });
+
+  it("stands a result whose named call is not loaded as a row, and does not take another call's place", () => {
+    const items = buildItems([row({ kind: "tool", name: "Bash", seq: 5 }), row({ kind: "result", name: "Bash", seq: 9, callSeq: 4, text: "orphan" })]);
+    expect(items.map((i) => i.kind)).toEqual(["tool", "result"]);
+    expect(items[0]!.result).toBeUndefined();
   });
 
   it("keeps a loop's results apart from another's", () => {

@@ -127,14 +127,22 @@ export function leaveReplay(id: string, live: boolean): void {
 /** What the picker says, from what the Record button knows. */
 export type PickerState = "ok" | "started" | "noown" | "adminoff" | "other" | "signin" | "ended";
 
-export function pickerState(opts: { flagOn: boolean; me: RespondMe | null; s: Pick<SessionView, "owner" | "status" | "recording">; grant: RecordingGrant | null }): PickerState {
+export function pickerState(opts: {
+  flagOn: boolean;
+  me: RespondMe | null;
+  s: Pick<SessionView, "owner" | "status" | "recording">;
+  grant: RecordingGrant | null;
+  /** What the server said before Start about the owner's `sessionRecording` option; null when it has not said (yet). */
+  ownerAllows?: boolean | null;
+}): PickerState {
   const { flagOn, me, s, grant } = opts;
   if (!flagOn) return "adminoff";
   if (!me?.signedIn) return "signin";
   if (!isMine(s, me)) return "other";
   if (!isLiveSession(s)) return "ended";
   if (grant && !grant.consent.owner) return "noown";
-  if (!grant && s.recording && s.recording.state === "recording" && !s.recording.ownerAllows) return "noown";
+  if (!grant && opts.ownerAllows === false) return "noown";
+  if (!grant && s.recording &&s.recording.state === "recording" && !s.recording.ownerAllows) return "noown";
   if (grant && grant.state === "recording") return "started";
   return "ok";
 }

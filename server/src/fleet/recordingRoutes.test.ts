@@ -591,3 +591,59 @@ describe('deleting the session', () => {
     expect(lines.join('\n')).toContain('could not remove the recordings of expired sessions');
   });
 });
+
+describe('what History and the picker learn (#353)', () => {
+  const dayOf = (t: number) => {
+    const d = new Date(t);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const ended = async (s: Awaited<ReturnType<typeof chosen>>) => {
+    expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(200);
+    expect((await send(s.app, s.ed.token, report(true, { status: 'done', endReason: 'clear' }))).status).toBe(200);
+    return `/api/fleet/history?day=${dayOf(T0)}`;
+  };
+
+  it('marks an ended session whose recording is kept for its owner and for an Admin, and for no one else', async () => {
+    const s = await chosen();
+    const url = await ended(s);
+    const keptUntil = T0 + 6 * 3_600_000;
+    expect((await s.a.get(url)).body.sessions[0].recording).toEqual({ keptUntil });
+    expect((await s.a.get(`${url}&page=1&pageSize=25`)).body.sessions[0].recording).toEqual({ keptUntil });
+    const boss = await signedIn(s.app, 'Boss', s.boss.token);
+    expect((await boss.get(url)).body.sessions[0].recording).toEqual({ keptUntil });
+    const alex = await signedIn(s.app, 'Alex', s.alex.token);
+    expect((await alex.get(url)).body.sessions[0]).not.toHaveProperty('recording');
+    expect((await request(s.app).get(url)).body.sessions[0]).not.toHaveProperty('recording');
+  });
+
+  it('marks nothing for a session with no recording', async () => {
+    const s = setup();
+    await send(s.app, s.ed.token, report(true, { status: 'done', endReason: 'clear' }));
+    const a = await signedIn(s.app, 'Ed', s.ed.token);
+    expect((await a.get(`/api/fleet/history?day=${dayOf(T0)}`)).body.sessions[0]).not.toHaveProperty('recording');
+  });
+
+  it("tells the owner and an Admin, before Start, whether the session's reporter allows recording", async () => {
+    const s = setup();
+    await send(s.app, s.ed.token, report(false));
+    const a = await signedIn(s.app, 'Ed', s.ed.token);
+    const no = await a.get(`${BASE}/consent`);
+    expect(no.status).toBe(200);
+    expect(no.body).toMatchObject({ ok: true, grant: { state: 'off', consent: { admin: true, chosen: false, owner: false } } });
+    expect(no.headers['cache-control']).toContain('no-store');
+    await send(s.app, s.ed.token, report(true));
+    const boss = await signedIn(s.app, 'Boss', s.boss.token);
+    expect((await boss.get(`${BASE}/consent`)).body.grant.consent.owner).toBe(true);
+  });
+
+  it('refuses the consent to anyone else, to a signed-out browser, and while the flag is off', async () => {
+    const s = setup();
+    await send(s.app, s.ed.token, report());
+    expect((await request(s.app).get(`${BASE}/consent`)).status).toBe(401);
+    const alex = await signedIn(s.app, 'Alex', s.alex.token);
+    expect((await alex.get(`${BASE}/consent`)).status).toBe(403);
+    const a = await signedIn(s.app, 'Ed', s.ed.token);
+    s.fleet.features.setFeature('session-recording', false);
+    expect((await a.get(`${BASE}/consent`)).status).toBe(404);
+  });
+});

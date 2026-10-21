@@ -2201,6 +2201,11 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - Body: `{ day, sessions, total, page, pageSize }`, where `total` counts the whole day.
 - Each row also carries `clearedFrom` (the session it continues after a `/clear`) and `clearedInto` (the
   session that continued it), each null when there is none (#206, [5.8](#58-session-identity-clear-restarts)).
+- A row also carries `recording: { keptUntil }` (#353) when a recording of the session is held and the request comes
+  from a signed-in viewer who is the session's owner or an Admin (the sign-in of [the browser routes for session
+  recording](#browser-routes-for-session-recording-353)); `keptUntil` is when the oldest part still held goes, as
+  `keptUntil` is everywhere else. For anyone else, and for a session with no recording, the field is absent, so
+  History tells nobody else that a recording exists.
 
 #### Mod routes for responding
 
@@ -2449,6 +2454,13 @@ as the Activity history, [7.7](#activity-history-432)): `401` without a sign-in,
   or an agent id). `loops` lists every loop of the session with its name and whether it is recorded. `404` when the
   session has no recording (never chosen, deleted or expired), `400` for a bad `before`, `limit` or `loop`. It works for
   a session that has ended and when capture has stopped.
+  Each row is a `RecordingRow`: `n` is the server's order, `seq` the entry's own number within its loop (the mod's, from
+  1; 0 and below for a mark the server wrote), and a `result`'s `callSeq` is the `seq` of the `tool` row it answers.
+- **`GET /api/fleet/respond/sessions/:id/recording/consent`**: the consent before anything is chosen, `200 { ok: true,
+  grant }`, where `grant` is the `RecordingGrant` the next report would get (state `off` and `consent.chosen` false when
+  no recording exists). The picker reads `grant.consent.owner` on open to say, before Start, that the owner has not
+  allowed recording. It carries no text and needs no recording to exist. The wall's `SessionView` is sent to everyone, so
+  the owner's option is not put there; this route is how the owner and an Admin learn it. Same access as the rest.
 - **`PUT /api/fleet/respond/sessions/:id/recording`**: start, or change which loops are recorded. Body:
   `RecordingStartRequest`, `{ loops }`, 1 or more loop ids of the session. `200 { ok: true, grant }`. Loops added
   later are recorded from that moment on; nothing before it is kept. `409` when the Admin's budget is reached or the
@@ -4245,7 +4257,8 @@ becomes a standard in the release-prep PR, not in the feature PR.
   neutral color and a ring in place of the filled dot, and it keeps **Open replay** and **Delete recording**.
   A recording that hit a limit reads the same way with the limit named.
 - An ended session shows its final state (the Done band, all agents done) plus that layer. It is reached from
-  History, whose row has a line under the name, "recording kept until <time>", and from Admin's Recordings table.
+  History, whose row has a line under the name, "recording kept until <time>" (shown to the session's owner and to an
+  Admin only, from the row's `recording`, [7.1](#71-endpoints)), and from Admin's Recordings table.
   Nothing is shown once the recording is deleted or has expired.
 
 **Replay**
@@ -4253,7 +4266,8 @@ becomes a standard in the release-prep PR, not in the feature PR.
   read it sees the refusal at the same address), reached from **Open replay**, with a back link to the orchestrator
   page. Read-only: a replay never runs anything or sends anything to the session.
 - It is the Activity feed's rows, oldest first, with the loop's name before each row, and a collapsed result under
-  each tool call. A loop filter, a position slider (`.scrub`) and **Jump to next failure** move through it. A failed
+  each tool call, the one its `callSeq` names (a stored row carries its own `seq`, so calls that overlap get their own
+  results; a result with no `callSeq` goes to the oldest call of the same loop and tool still waiting). A loop filter, a position slider (`.scrub`) and **Jump to next failure** move through it. A failed
   call uses the failure box. A compaction, a clear, a gap, a stop and a limit are marked rows (`.feed li.mark`). A
   prompt, a clear or a compact that came from Podium, and a `decision`, show who sent it as the Activity history marks
   a Podium entry ("You, from Podium" for the signed-in viewer's own, else the name). A `decision` is a row of its own

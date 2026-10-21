@@ -683,9 +683,14 @@ export interface RecordingStartRequest {
   loops: string[];
 }
 
-/** One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`. */
+/**
+ * One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`.
+ * `seq` is the entry's own number within its loop (the mod's, from 1; 0 and below for a mark the server wrote), which a result's
+ * `callSeq` names.
+ */
 export interface RecordingRow {
   n: number;
+  seq: number;
   loop: string;
   at: number;
   kind: RecordingKind;
@@ -1079,6 +1084,11 @@ export interface HistoryRow {
   /** The session this one continues after a /clear, and the one that continued it (#206). */
   clearedFrom: string | null;
   clearedInto: string | null;
+  /**
+   * A recording of the session is kept (#353): until when its oldest part goes. Present only for a viewer who may know of it (the
+   * session's owner or an Admin) and only while there is a recording; absent otherwise.
+   */
+  recording?: { keptUntil: number | null };
 }
 
 // ---------------------------------------------------------------------------------------------

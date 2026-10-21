@@ -66,6 +66,8 @@ export const respondApi = {
     const qs = q.toString();
     return callRespond<RecordingPage>("GET", `${sessionPath(sessionId)}/recording${qs ? `?${qs}` : ""}`);
   },
+  /** The consent as it stands before Start (#353): `grant.consent.owner` says whether the session's reporter allows recording. */
+  recordingConsent: (sessionId: string) => callRespond<{ ok: true; grant: RecordingGrant }>("GET", `${sessionPath(sessionId)}/recording/consent`),
   /** Chooses the loops to record from now on (#353). */
   recordingStart: (sessionId: string, loops: string[]) => callRespond<{ ok: true; grant: RecordingGrant }>("PUT", `${sessionPath(sessionId)}/recording`, { loops }),
   /** Ends capture and keeps what was recorded. */
@@ -75,7 +77,7 @@ export const respondApi = {
 };
 
 /** The recording routes (#353). Optional so a test's fake can leave them out; the real one has them. */
-type RecordingCalls = "recordingPage" | "recordingStart" | "recordingStop" | "recordingDelete";
+type RecordingCalls = "recordingPage" | "recordingConsent" | "recordingStart" | "recordingStop" | "recordingDelete";
 
 /** The browser's side of responding. `fileDiff`, `activityHistory` and the recording calls are optional so a test's fake can leave them out; the real one has them. */
 export type RespondApi = Omit<typeof respondApi, "fileDiff" | "activityHistory" | RecordingCalls> & Partial<Pick<typeof respondApi, "fileDiff" | "activityHistory" | RecordingCalls>>;

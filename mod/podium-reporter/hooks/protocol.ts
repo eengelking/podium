@@ -678,9 +678,14 @@ export interface RecordingStartRequest {
   loops: string[];
 }
 
-/** One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`. */
+/**
+ * One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`.
+ * `seq` is the entry's own number within its loop (the mod's, from 1; 0 and below for a mark the server wrote), which a result's
+ * `callSeq` names.
+ */
 export interface RecordingRow {
   n: number;
+  seq: number;
   loop: string;
   at: number;
   kind: RecordingKind;
