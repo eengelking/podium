@@ -565,3 +565,86 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(await screen.findByText(/this CA cannot be rotated that way/)).toBeInTheDocument();
   });
 });
+
+describe("Reporters over HTTP (#589)", () => {
+  const SWITCH = /Allow reporters to connect over HTTP/;
+  const WARN_ON = /^Not encrypted\. Over HTTP the name, the token and everything the reporter sends are not encrypted in transit/;
+  const WARN_OFF = /^Turning this on makes reporters send their name, their token and everything else without encryption/;
+  const warnbar = () => document.querySelector('[aria-labelledby="c-http"] .warnbar');
+
+  it("is on with a warning line and says how many reporters are on HTTP now", async () => {
+    await open();
+    const sw = await screen.findByRole("switch", { name: SWITCH });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(warnbar()).toHaveTextContent(WARN_ON);
+    expect(screen.getByText(/3 of 6 reporters are connected over HTTP now\./)).toBeInTheDocument();
+  });
+
+  it("asks before turning it off, names how many reporters are refused, and saves nothing until confirmed", async () => {
+    const srv = await open();
+    fireEvent.click(await screen.findByRole("switch", { name: SWITCH }));
+    const ask = await screen.findByRole("alert");
+    expect(within(ask).getByRole("heading", { name: "Stop allowing reporters over HTTP?" })).toBeInTheDocument();
+    expect(ask).toHaveTextContent("The 3 reporters connected over HTTP are refused at once, until their person saves a reporter config in ~/.podium/");
+    expect(ask).toHaveTextContent("The console on the loopback address keeps working over HTTP, so an Admin can always sign in.");
+    expect(within(ask).getByRole("button", { name: "Stop allowing HTTP" })).toHaveFocus();
+    expect(srv.certBodies).toEqual([]);
+    expect(screen.getByRole("switch", { name: SWITCH })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("turns it off on Stop allowing HTTP, and the warning line changes its words", async () => {
+    const srv = await open();
+    fireEvent.click(await screen.findByRole("switch", { name: SWITCH }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Stop allowing HTTP" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: SWITCH })).toHaveAttribute("aria-checked", "false"));
+    expect(srv.certBodies).toEqual([{ "tls.allowReportersOverHttp": false }]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(warnbar()).toHaveTextContent(WARN_OFF);
+    expect(screen.getByText("Reporters must use a reporter config over HTTPS. A reporter without one is refused until it has one.")).toBeInTheDocument();
+  });
+
+  it("keeps it on on Cancel and on Escape, and returns focus to the switch", async () => {
+    const srv = await open();
+    fireEvent.click(await screen.findByRole("switch", { name: SWITCH }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("switch", { name: SWITCH })).toHaveFocus();
+    fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
+    fireEvent.keyDown(await screen.findByRole("alert"), { key: "Escape" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("switch", { name: SWITCH })).toHaveAttribute("aria-checked", "true");
+    expect(srv.certBodies).toEqual([]);
+  });
+
+  it("turns it on at once, without asking", async () => {
+    const srv = await open(fakeCerts({ http: { allow: false, overHttp: 0, total: 4 } }));
+    const sw = await screen.findByRole("switch", { name: SWITCH });
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    expect(warnbar()).toHaveTextContent(WARN_OFF);
+    fireEvent.click(sw);
+    await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "true"));
+    expect(srv.certBodies).toEqual([{ "tls.allowReportersOverHttp": true }]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(warnbar()).toHaveTextContent(WARN_ON);
+  });
+
+  it("says no reporter is refused when none is on HTTP, and uses the singular for one", async () => {
+    await open(fakeCerts({ http: { allow: true, overHttp: 0, total: 2 } }));
+    fireEvent.click(await screen.findByRole("switch", { name: SWITCH }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No reporter is connected over HTTP now, so none is refused.");
+    cleanup();
+    await open(fakeCerts({ http: { allow: true, overHttp: 1, total: 2 } }));
+    expect(await screen.findByText(/1 of 2 reporters is connected over HTTP now\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: SWITCH }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The 1 reporter connected over HTTP is refused at once");
+  });
+
+  it("shows the server's reason when the save is refused, and leaves the switch where it was", async () => {
+    const srv = await open();
+    srv.certError = "could not save";
+    fireEvent.click(await screen.findByRole("switch", { name: SWITCH }));
+    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Stop allowing HTTP" }));
+    expect(await screen.findByText("could not save")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: SWITCH })).toHaveAttribute("aria-checked", "true");
+  });
+});

@@ -282,6 +282,11 @@ export class ReporterStore {
     };
   }
 
+  /** Whether any reporter has ever reported to this server: an existing install, for the TLS defaults (#589). */
+  hasAny(): boolean {
+    return this.stmt('SELECT 1 FROM reporters LIMIT 1').get() !== undefined;
+  }
+
   /** Moves `from`'s session links to `into`, keeps the earlier first-seen time, and drops `from`. */
   private merge(from: string, into: string): void {
     this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id) SELECT ?, session_id FROM reporter_sessions WHERE reporter_key = ?').run(into, from);

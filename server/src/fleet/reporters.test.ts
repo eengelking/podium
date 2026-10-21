@@ -25,6 +25,12 @@ const seen = (over: Partial<ReporterSeen> = {}): ReporterSeen => ({
 });
 
 describe('reporters', () => {
+  it('says whether any reporter has reported', () => {
+    expect(store.hasAny()).toBe(false);
+    store.record(seen(), START + MIN);
+    expect(store.hasAny()).toBe(true);
+  });
+
   it('records a reporter on its machine id and keeps its first and last seen times', () => {
     store.record(seen(), START + MIN);
     store.record(seen({ sessionId: 's2', version: '0.13.1' }), START + 5 * MIN);

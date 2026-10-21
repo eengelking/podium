@@ -21,6 +21,8 @@ export interface ServingSettings {
 }
 
 const COUNTDOWN_KEY = 'tls.header.countdown';
+/** `tls.allowReportersOverHttp` (#589): whether the HTTP listener serves the routes a reporter calls. */
+export const ALLOW_HTTP_KEY = 'tls.allowReportersOverHttp';
 
 /** The settings this issue owns, by the key SPEC 6 gives them. */
 const FIELDS = {
@@ -66,6 +68,17 @@ export class TlsSettingsStore {
     return out;
   }
 
+  /** `tls.allowReportersOverHttp`. A missing row reads as on, so nothing stops before the server has decided (SPEC 6). */
+  allowReportersOverHttp(): boolean {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(ALLOW_HTTP_KEY) as { value: string } | undefined;
+    return row?.value !== 'false';
+  }
+
+  /** The first time TLS runs: on for an install that already has reporters, off for a fresh one. A row that exists is left alone. */
+  seedAllowReportersOverHttp(existingInstall: boolean): void {
+    this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(ALLOW_HTTP_KEY, String(existingInstall));
+  }
+
   /** The two settings for a person's certificate, one `settings` row each. A missing or invalid row reads as its default. */
   getReporter(): ReporterSettings {
     const out: ReporterSettings = { lifetimeDays: REPORTER_FIELDS['tls.reporter.lifetimeDays'].def, graceDays: REPORTER_FIELDS['tls.reporter.graceDays'].def };
@@ -84,6 +97,10 @@ export class TlsSettingsStore {
     for (const k of given) {
       if (k === COUNTDOWN_KEY) {
         if (typeof patch[k] !== 'boolean') return { ok: false, error: 'The header countdown must be on or off' };
+        continue;
+      }
+      if (k === ALLOW_HTTP_KEY) {
+        if (typeof patch[k] !== 'boolean') return { ok: false, error: 'Allow reporters over HTTP must be on or off' };
         continue;
       }
       if (!(keys as string[]).includes(k) && !(reporterKeys as string[]).includes(k)) return { ok: false, error: `unknown setting: ${k}` };

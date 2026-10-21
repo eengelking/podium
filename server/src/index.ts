@@ -35,6 +35,7 @@ import { createReporterRenewRouter } from "./tlsReporterRenew.js";
 import { startTls, type TlsListener } from "./tlsServer.js";
 import { TlsSettingsStore } from "./tlsRenew.js";
 import { createTlsStatusRouter } from "./tlsStatus.js";
+import { reporterHttpGate, ReporterTransport } from "./tlsHttp.js";
 import { RESPOND } from "./fleet/featureFlags.js";
 import { startUpdateCheck } from "./fleet/updateCheck.js";
 
@@ -61,6 +62,8 @@ const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb
 const people = new PeopleStore(fleetDb.db);
 const tlsSettings = new TlsSettingsStore(fleetDb.db);
 let tlsListener: TlsListener | null = null;
+// Which reporters are on HTTP and which on HTTPS, for the Admin's switch and its count (#589).
+const reporterTransport = new ReporterTransport();
 // People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
 const personCerts = new PersonCertStore(fleetDb.db);
 const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
@@ -96,6 +99,8 @@ if (fs.existsSync(pagePath)) {
 // First, ahead of every route: a name that is not ours is a page on another site rebound to this address (#256).
 app.use(hostCheck({ bind: HOST, allowed: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }));
 app.use(securityHeaders({ scriptHashes: pageScripts }));
+// With TLS on and the Admin's switch off, the HTTP listener refuses the routes a reporter calls, except from loopback (#589).
+app.use(reporterHttpGate({ active: () => tlsListener !== null, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => reporters.rejected(source, reason, Date.now()) }));
 app.use(requestLog(logger));
 // Five wrong credentials from one address lock it out of Admin's unlock and the sign-in to respond together (#206).
 const lockout = new Lockout();
@@ -103,10 +108,10 @@ const lockout = new Lockout();
 const respondBridge = createRespondBridge();
 // Responding over plain HTTP beyond loopback sends the sign-in unencrypted: say so, never block (#306).
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
-app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers } }));
+app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
 app.use(createRouter());
@@ -150,6 +155,8 @@ const server = app.listen(PORT, HOST, () => {
 
 // Built-in TLS (#577): with PODIUM_TLS=on, HTTPS on a second port serves the same app. A failure is logged and HTTP stays up.
 void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dbPath: DB_PATH, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then((l) => {
+  // The first time TLS runs, an install that already has reporters keeps them working over HTTP; a fresh one does not (SPEC 6).
+  if (l) tlsSettings.seedAllowReportersOverHttp(reporters.hasAny());
   tlsListener = l;
   // A signal that arrived while the CA was being made has already started the shutdown.
   if (closing) l?.server.close();

@@ -14,6 +14,7 @@ import { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
 import { issuePersonCert } from '../tlsPeople.js';
 import { retireCa, rotateCa, TrustStore } from '../tlsRotation.js';
 import type { CaRotation } from '../tlsServer.js';
+import { ReporterTransport } from '../tlsHttp.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -33,13 +34,14 @@ async function setup(tlsOn = true, openssl?: string) {
   const people = new PeopleStore(db);
   const settings = new TlsSettingsStore(db);
   const swaps: unknown[] = [];
+  const transport = new ReporterTransport();
   const logger = createLogger({ format: 'json', write: () => {} });
   const renewer = new ServingRenewer({ dir, names, server: { setSecureContext: (o) => swaps.push(o) }, serving: material.serving, settings: () => settings.get(), logger, openssl, caCert: material.caCert }, material.cert);
   const app = express();
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, people, log: () => {}, certificates: { settings, renewer: () => (tlsOn ? renewer : null) } }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, people, log: () => {}, certificates: { settings, transport, renewer: () => (tlsOn ? renewer : null) } }));
   const agent = request.agent(app);
   expect((await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
-  return { agent, people, material, swaps, settings };
+  return { agent, people, material, swaps, settings, transport };
 }
 
 const logKinds = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 100 }).rows.map((r) => r.kind);
@@ -299,5 +301,52 @@ describe('rotating and retiring the CA (#588)', () => {
     await agent.post('/api/admin/lock').set(H);
     expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: true })).status).toBe(401);
     expect((await agent.post('/api/admin/certificates/retire-ca').set(H)).status).toBe(401);
+  });
+});
+
+describe('reporters over HTTP (#589)', () => {
+  it('reads the switch and how many reporters are on HTTP now', async () => {
+    const { agent, transport } = await setup();
+    transport.note('a', false, Date.now());
+    transport.note('b', false, Date.now());
+    transport.note('c', true, Date.now());
+    const res = await agent.get('/api/admin/certificates').set(H);
+    expect(res.body.http).toEqual({ allow: true, overHttp: 2, total: 3 });
+  });
+
+  it('turns it off, writes its own Admin log entry naming the count, and answers with the new state', async () => {
+    const { agent, people, settings, transport } = await setup();
+    transport.note('a', false, Date.now());
+    const res = await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': false });
+    expect(res.status).toBe(200);
+    expect(res.body.http).toEqual({ allow: false, overHttp: 1, total: 1 });
+    expect(settings.allowReportersOverHttp()).toBe(false);
+    const row = people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_http_changed');
+    expect(row?.detail).toBe('Stopped allowing reporters over HTTP; 1 reporter connected over HTTP is refused');
+    expect(logKinds(people)).not.toContain('tls_settings_changed');
+  });
+
+  it('turns it on again, and writes nothing when it did not change', async () => {
+    const { agent, people, settings } = await setup();
+    settings.set({ 'tls.allowReportersOverHttp': false });
+    await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': true });
+    expect(people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_http_changed')?.detail).toBe('Allowed reporters to connect over HTTP');
+    await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': true });
+    expect(logKinds(people).filter((k) => k === 'tls_http_changed')).toHaveLength(1);
+  });
+
+  it('refuses a value that is not on or off, and says "reporters" for a count that is not one', async () => {
+    const { agent, people, transport } = await setup();
+    expect((await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': 'no' })).status).toBe(400);
+    transport.note('a', false, Date.now());
+    transport.note('b', false, Date.now());
+    await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': false });
+    expect(people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_http_changed')?.detail).toContain('2 reporters connected over HTTP are refused');
+  });
+
+  it('writes the settings entry as well when the change carries another setting', async () => {
+    const { agent, people } = await setup();
+    await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': false, 'tls.header.countdown': false });
+    expect(logKinds(people)).toEqual(expect.arrayContaining(['tls_http_changed', 'tls_settings_changed']));
   });
 });

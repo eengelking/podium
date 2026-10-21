@@ -5,6 +5,7 @@ import { useState } from "react";
 import { IconWarn } from "../components/Icons";
 import { AdminError, type AdminApi } from "./adminApi";
 import { CertBadge } from "./CertIcons";
+import { CertHttp } from "./CertHttp";
 import { CertSettings, type SaveSetting } from "./CertSettings";
 import { CertStatusPanel } from "./CertStatusPanel";
 import { dateOf, stageOf, type CertsView } from "./certFormat";
@@ -99,6 +100,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
     <>
       <CertStatusPanel view={view} now={t} base={base} onRetire={retire} />
       <CertSettings view={view} save={save} />
+      <CertHttp view={view} save={save} />
       <Section id="c-h" title="Rotate by hand" help="For a change of host name, or if a private key may have been exposed.">
         <Panel>
           <div className="srow">

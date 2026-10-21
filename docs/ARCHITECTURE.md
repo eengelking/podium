@@ -611,7 +611,7 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
 certificate, the HTTPS listener (#581), the serving certificate's renewal (#582) and the person certificates with their
-revocation (#583) and the reporter's own renewal (#585). The rest is planned. The rules are in
+revocation (#583), the reporter's own renewal (#585) and the switch for reporters over HTTP (#589). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
@@ -620,7 +620,15 @@ listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and se
 (openssl missing, a half-present CA, a bad or busy port) logs `tls.failed` and leaves HTTP running. The Host check
 (`hostCheck.ts`) runs on both (33). The HTTPS server asks for a client certificate (`requestCert: true`,
 `rejectUnauthorized: false`, `ca` set to the Podium CA or CAs), so a request with no certificate still reaches the
-console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting.
+console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting (#589). `tlsHttp.ts`
+has `reporterHttpGate`, mounted in `index.ts` ahead of the routers. It acts only when the HTTPS listener is running, the
+socket is not encrypted (the socket, never a forwarded header), the route is one the mod calls (`isReporterRoute`: report,
+hook, and the peers and respond routes behind the reporter's credential), the setting is off and `req.ip` is not
+loopback (`req.ip` follows `X-Forwarded-For` only from a hop named in `PODIUM_TRUST_PROXY`). It answers `403`, logs
+`tls.http_refused` and adds the source to the Reporters page's refused list. The console is never gated. A missing
+setting row reads as on; `index.ts` writes it once when TLS first runs, on if any reporter has ever reported
+(`ReporterStore.hasAny`). `ReporterTransport` is a memory-only map from reporter key to the transport of its last report
+(set by `/report` and `/hook`), and gives the Admin the count of reporters heard from in the last 2 minutes over HTTP.
 
 **Serving certificate renewal (#582).** `tlsRenew.ts` has `ServingRenewer`, made by `startTls` for the listener it
 starts. It checks at start, before the first connection, and then every day on an unref'd timer; the check renews when

@@ -161,6 +161,7 @@ export function fakeCerts(over: Partial<CertsView> = {}): CertsView {
     previous: [fakeCert(-60, { serial: "0001" })],
     settings: { lifetimeDays: 365, renewBeforeDays: 30, headerCountdown: true },
     reporter: { lifetimeDays: 90, graceDays: 30 },
+    http: { allow: true, overHttp: 3, total: 6 },
     lastRenewed: null,
     lastFailure: null,
     ...over,
@@ -442,6 +443,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         if (state.certError) return json(400, { ok: false, error: state.certError });
         for (const [k, v] of Object.entries(b)) {
           if (k === "tls.header.countdown") c.settings.headerCountdown = v as boolean;
+          else if (k === "tls.allowReportersOverHttp") c.http.allow = v as boolean;
           else if (k === "tls.serving.lifetimeDays") c.settings.lifetimeDays = v as number;
           else if (k === "tls.serving.renewBeforeDays") c.settings.renewBeforeDays = v as number;
           else if (k === "tls.reporter.lifetimeDays") c.reporter.lifetimeDays = v as number;
