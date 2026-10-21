@@ -172,6 +172,32 @@ export interface ActivityEntry {
   at: number;
   kind: ActivityKind;
   text: string;
+  /**
+   * The tool call's id, so the output of a call that was running when its entry first went out can be matched to that entry
+   * later (#431). Sent with the fields below.
+   */
+  id?: string;
+  /**
+   * A Bash call's whole command, redacted, line breaks kept, cut to 20,000 characters with a "[cut off at 20,000 characters]"
+   * marker (#431). Rides the `activityFeed` option and is stored in the Activity history (#432). Only on a `tool` entry.
+   */
+  command?: string;
+  /** The mod cut the command at its limit. */
+  commandCut?: boolean;
+  /**
+   * The call's output, stdout then stderr, redacted and cut like `command` (#431). Sent only with the `activityOutput` option on
+   * and only while a viewer has the loop's feed open (the reply's `watchOutput`); the server holds it in memory and never stores
+   * it. Absent while the call runs and when the output was not captured; an empty string is a call that printed nothing.
+   */
+  output?: string;
+  /** The mod cut the output at its limit. */
+  outputCut?: boolean;
+  /** The call has finished. Sent with `output`; absent while it runs. */
+  done?: boolean;
+  /** The command's exit status, when the mod can read it. */
+  exitCode?: number;
+  /** The call failed. Sent with `output` when the exit status says so, whether or not `exitCode` is known. */
+  failed?: boolean;
 }
 
 export interface AgentReport {
@@ -270,6 +296,8 @@ export interface SessionReport {
   background?: BackgroundWait | null;
   /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
   activityFeed?: boolean;
+  /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
+  activityOutput?: boolean;
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
@@ -539,6 +567,13 @@ export interface ReportReply {
   reporterSupport: { min: string; max: string };
   reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
   watch: string[];
+  /**
+   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
+   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
+   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
+   * release that adds it, which asks for none.
+   */
+  watchOutput?: string[];
   /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
   respond: boolean;
   /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
@@ -1126,6 +1161,10 @@ export const LIMITS = {
   activityEntries: 20,
   activityText: 300,
   activityChars: 60_000,
+  /** A Bash entry's command and its output (#431): the 20,000-character cap plus room for the mod's cut-off marker, as `fullText`. */
+  activityDetail: 20_100,
+  /** Characters of commands and output over the whole report (#431), apart from `activityChars`. Under the 512 KB body limit with the summaries and full text. */
+  activityDetailChars: 200_000,
 } as const;
 
 /** Room past a respond limit for the reporter's "[cut off at N characters]" marker. */
@@ -1498,6 +1537,7 @@ function session(v: unknown, path: string): SessionReport {
     attached: o.attached === undefined || o.attached === null ? null : bool(o.attached, `${path}.attached`),
     ...(bg ? { background: bg } : {}),
     ...(o.activityFeed === undefined || o.activityFeed === null ? {} : { activityFeed: bool(o.activityFeed, `${path}.activityFeed`) }),
+    ...(o.activityOutput === undefined || o.activityOutput === null ? {} : { activityOutput: bool(o.activityOutput, `${path}.activityOutput`) }),
     ...(o.fileDiff === undefined || o.fileDiff === null ? {} : { fileDiff: bool(o.fileDiff, `${path}.fileDiff`) }),
     ...activity(o.activity, `${path}.activity`),
     ...respondInfo(o.respond, `${path}.respond`),
@@ -1614,12 +1654,52 @@ function activity(v: unknown, path: string): { activity?: ActivityEntry[] } {
     activity: arr(v, path, LIMITS.activityEntries).map((e, i) => {
       const p = `${path}[${i}]`;
       const o = obj(e, p);
-      return { at: num(o.at, `${p}.at`), kind: oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS), text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      const kind = oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS);
+      const entry: ActivityEntry = { at: num(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      if (o.id !== undefined && o.id !== null) entry.id = str(o.id, `${p}.id`, LIMITS.id);
+      // The command and output belong to a tool call; on any other entry they are dropped, not rejected.
+      const tool = kind === 'tool';
+      const detail = (key: 'command' | 'output') => {
+        const v = o[key];
+        if (v === undefined || v === null) return;
+        const t = text(v, `${p}.${key}`, LIMITS.activityDetail);
+        if (tool) entry[key] = t;
+      };
+      const flag = (key: 'commandCut' | 'outputCut' | 'done' | 'failed') => {
+        const v = o[key];
+        if (v === undefined || v === null) return;
+        const b = bool(v, `${p}.${key}`);
+        if (tool && b) entry[key] = true;
+      };
+      detail('command');
+      detail('output');
+      flag('commandCut');
+      flag('outputCut');
+      flag('done');
+      flag('failed');
+      if (o.exitCode !== undefined && o.exitCode !== null) {
+        const n = int(o.exitCode, `${p}.exitCode`);
+        if (tool) entry.exitCode = n;
+      }
+      return entry;
     }),
   };
 }
 
-/** Keeps the report's activity within LIMITS.activityChars: the orchestrator's first, then the agents' in order. A loop that does not fit loses its feed for this report. */
+/** What a Bash entry carries beyond its summary, apart from the command (#431): kept only when the session's `activityOutput` option is on. */
+const OUTPUT_FIELDS = ['output', 'outputCut', 'done', 'exitCode', 'failed'] as const;
+
+function detailChars(e: ActivityEntry): number {
+  return (e.command?.length ?? 0) + (e.output?.length ?? 0);
+}
+
+/**
+ * Keeps the report's activity within its two budgets. The summaries (`text`) take LIMITS.activityChars: the orchestrator's
+ * first, then the agents' in order, and a loop that does not fit loses its feed for this report. Commands and output take
+ * LIMITS.activityDetailChars (#431), in the same loop order and newest entry first: an entry that does not fit loses its
+ * output, and then its command, and keeps its summary. Output is dropped altogether unless the session says its
+ * `activityOutput` option is on.
+ */
 function withinActivityBudget(r: Report): void {
   let left: number = LIMITS.activityChars;
   const fits = (list: ActivityEntry[]) => {
@@ -1630,6 +1710,27 @@ function withinActivityBudget(r: Report): void {
   };
   if (r.session.activity && !fits(r.session.activity)) delete r.session.activity;
   for (const a of r.agents) if (a.activity && !fits(a.activity)) delete a.activity;
+
+  const outputOn = r.session.activityOutput === true;
+  let room: number = LIMITS.activityDetailChars;
+  const trim = (list: ActivityEntry[]) => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const e = list[i]!;
+      if (!outputOn) for (const k of OUTPUT_FIELDS) delete e[k];
+      if (detailChars(e) <= room) {
+        room -= detailChars(e);
+        continue;
+      }
+      for (const k of OUTPUT_FIELDS) delete e[k];
+      if (detailChars(e) <= room) room -= detailChars(e);
+      else {
+        delete e.command;
+        delete e.commandCut;
+      }
+    }
+  };
+  if (r.session.activity) trim(r.session.activity);
+  for (const a of r.agents) if (a.activity) trim(a.activity);
 }
 
 const BACKGROUND_KINDS = ['shell', 'agent', 'monitor', 'workflow', 'wakeup', 'other'] as const;

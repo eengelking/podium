@@ -167,6 +167,32 @@ export interface ActivityEntry {
   at: number;
   kind: ActivityKind;
   text: string;
+  /**
+   * The tool call's id, so the output of a call that was running when its entry first went out can be matched to that entry
+   * later (#431). Sent with the fields below.
+   */
+  id?: string;
+  /**
+   * A Bash call's whole command, redacted, line breaks kept, cut to 20,000 characters with a "[cut off at 20,000 characters]"
+   * marker (#431). Rides the `activityFeed` option and is stored in the Activity history (#432). Only on a `tool` entry.
+   */
+  command?: string;
+  /** The mod cut the command at its limit. */
+  commandCut?: boolean;
+  /**
+   * The call's output, stdout then stderr, redacted and cut like `command` (#431). Sent only with the `activityOutput` option on
+   * and only while a viewer has the loop's feed open (the reply's `watchOutput`); the server holds it in memory and never stores
+   * it. Absent while the call runs and when the output was not captured; an empty string is a call that printed nothing.
+   */
+  output?: string;
+  /** The mod cut the output at its limit. */
+  outputCut?: boolean;
+  /** The call has finished. Sent with `output`; absent while it runs. */
+  done?: boolean;
+  /** The command's exit status, when the mod can read it. */
+  exitCode?: number;
+  /** The call failed. Sent with `output` when the exit status says so, whether or not `exitCode` is known. */
+  failed?: boolean;
 }
 
 export interface AgentReport {
@@ -265,6 +291,8 @@ export interface SessionReport {
   background?: BackgroundWait | null;
   /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
   activityFeed?: boolean;
+  /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
+  activityOutput?: boolean;
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
@@ -534,6 +562,13 @@ export interface ReportReply {
   reporterSupport: { min: string; max: string };
   reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
   watch: string[];
+  /**
+   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
+   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
+   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
+   * release that adds it, which asks for none.
+   */
+  watchOutput?: string[];
   /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
   respond: boolean;
   /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */

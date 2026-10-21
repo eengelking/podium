@@ -43,7 +43,7 @@ describe('protocol', () => {
   it('fixture is a current-format report: supported reporter version and every optional field', () => {
     const f = loadFixture() as { reporter: { version: string }; session: Record<string, unknown>; agents: Record<string, unknown>[]; userName?: string; machine?: unknown };
     expect(checkReporter(f.reporter.version)).toBe('ok');
-    for (const k of ['activityFeed', 'activity', 'background', 'respond', 'asks', 'clearedFrom', 'usageByModel', 'peers']) expect(f.session).toHaveProperty(k);
+    for (const k of ['activityFeed', 'activityOutput', 'activity', 'background', 'respond', 'asks', 'clearedFrom', 'usageByModel', 'peers']) expect(f.session).toHaveProperty(k);
     expect(f.agents.some((a) => Array.isArray(a.activity))).toBe(true);
     expect(f.userName).toBeTruthy();
     expect(f.machine).toBeTruthy();
@@ -564,6 +564,123 @@ describe('protocol', () => {
       expect(chars).toBeLessThanOrEqual(LIMITS.activityChars);
       expect(r.report.session.activity).toHaveLength(LIMITS.activityEntries);
       expect(r.report.agents.at(-1)!.activity).toBeUndefined();
+    });
+  });
+
+  describe('a Bash command and its output (#431)', () => {
+    const base = { at: 1_800_000_000_000, kind: 'tool', text: 'Bash npm test' };
+    const full = { ...base, id: 'toolu_01bash', command: 'npm test -- --run\nnpm run build', output: 'ok\nall passed', done: true, exitCode: 0 };
+    const withEntries = (session: Record<string, unknown>, entries: unknown[], agentEntries?: unknown[]) => {
+      const f = loadFixture() as { session: Record<string, unknown>; agents: Record<string, unknown>[] };
+      Object.assign(f.session, { activityFeed: true }, session, { activity: entries });
+      if (agentEntries) f.agents[0]!.activity = agentEntries;
+      return f;
+    };
+    const first = (r: ReturnType<typeof validateReport>) => {
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error('invalid');
+      return r.report.session.activity![0]!;
+    };
+
+    it('keeps the command, the output and the exit status of an entry with the output option on', () => {
+      expect(first(validateReport(withEntries({ activityOutput: true }, [full])))).toEqual(full);
+    });
+    it('reads the new session option, and leaves it out when absent', () => {
+      const on = validateReport(withEntries({ activityOutput: true }, [base]));
+      expect(on.ok && on.report.session.activityOutput).toBe(true);
+      const f = withEntries({}, [base]);
+      delete (f.session as Record<string, unknown>).activityOutput;
+      const off = validateReport(f);
+      expect(off.ok && 'activityOutput' in off.report.session).toBe(false);
+      expect(validateReport(withEntries({ activityOutput: 'yes' }, [base]))).toMatchObject({ ok: false, path: '$.session.activityOutput' });
+    });
+    it('an entry from an older mod validates and looks as it did', () => {
+      expect(first(validateReport(withEntries({ activityOutput: true }, [base])))).toEqual(base);
+    });
+    it('drops the output, the exit status and the done mark unless the output option is on, and keeps the command', () => {
+      expect(first(validateReport(withEntries({ activityOutput: false }, [full])))).toEqual({ ...base, id: 'toolu_01bash', command: full.command });
+      const f = withEntries({}, [full]);
+      delete (f.session as Record<string, unknown>).activityOutput;
+      expect(first(validateReport(f))).toEqual({ ...base, id: 'toolu_01bash', command: full.command });
+    });
+    it('drops the command and output of an entry that is not a tool call', () => {
+      expect(first(validateReport(withEntries({ activityOutput: true }, [{ ...full, kind: 'text' }])))).toEqual({ ...base, kind: 'text', id: 'toolu_01bash' });
+    });
+    it('keeps a failed exit status, with or without a code', () => {
+      expect(first(validateReport(withEntries({ activityOutput: true }, [{ ...base, output: 'boom', done: true, failed: true, exitCode: 2 }])))).toMatchObject({ failed: true, exitCode: 2 });
+      expect(first(validateReport(withEntries({ activityOutput: true }, [{ ...base, output: '', done: true, failed: true }])))).toEqual({ ...base, output: '', done: true, failed: true });
+    });
+    it('keeps line breaks, strips other control characters and cuts each at its limit, keeping the cut flags', () => {
+      const long = `a\u0007b\n${'x'.repeat(LIMITS.activityDetail + 500)}`;
+      const e = first(validateReport(withEntries({ activityOutput: true }, [{ ...base, command: long, commandCut: true, output: long, outputCut: true }])));
+      expect(e.command).toHaveLength(LIMITS.activityDetail);
+      expect(e.command!.startsWith('a b\n')).toBe(true);
+      expect(e.output).toHaveLength(LIMITS.activityDetail);
+      expect(e.commandCut).toBe(true);
+      expect(e.outputCut).toBe(true);
+    });
+    it('allows a 20,000-character text with its cut marker', () => {
+      expect(LIMITS.activityDetail).toBe(20_100);
+    });
+    it('rejects a wrong type, with the path', () => {
+      const bad = (k: string, v: unknown) => validateReport(withEntries({ activityOutput: true }, [{ ...base, [k]: v }]));
+      expect(bad('command', 5)).toMatchObject({ ok: false, path: '$.session.activity[0].command' });
+      expect(bad('output', {})).toMatchObject({ ok: false, path: '$.session.activity[0].output' });
+      expect(bad('exitCode', 'zero')).toMatchObject({ ok: false, path: '$.session.activity[0].exitCode' });
+      expect(bad('exitCode', -1)).toMatchObject({ ok: false, path: '$.session.activity[0].exitCode' });
+      expect(bad('done', 'yes')).toMatchObject({ ok: false, path: '$.session.activity[0].done' });
+      expect(bad('failed', 1)).toMatchObject({ ok: false, path: '$.session.activity[0].failed' });
+      expect(bad('outputCut', 'x')).toMatchObject({ ok: false, path: '$.session.activity[0].outputCut' });
+      expect(bad('commandCut', 'x')).toMatchObject({ ok: false, path: '$.session.activity[0].commandCut' });
+      expect(bad('id', 7)).toMatchObject({ ok: false, path: '$.session.activity[0].id' });
+    });
+    it('does not let a command or output count toward the 60,000-character summary budget', () => {
+      const big = Array.from({ length: LIMITS.activityEntries }, (_, i) => ({ ...base, at: base.at + i, text: 'y'.repeat(LIMITS.activityText), command: 'c'.repeat(5000) }));
+      const r = validateReport(withEntries({ activityOutput: true }, big));
+      expect(r.ok && r.report.session.activity).toHaveLength(LIMITS.activityEntries);
+      expect(r.ok && r.report.session.activity!.every((e) => e.command)).toBe(true);
+    });
+    describe('the budget of commands and output', () => {
+      const entries = (n: number, size: number, at0 = base.at) => Array.from({ length: n }, (_, i) => ({ ...base, at: at0 + i, id: `t${i}`, command: 'c'.repeat(size), output: 'o'.repeat(size), done: true }));
+      const total = (list: { command?: string; output?: string }[]) => list.reduce((n, e) => n + (e.command?.length ?? 0) + (e.output?.length ?? 0), 0);
+      it('is 200,000 characters for the whole report', () => {
+        expect(LIMITS.activityDetailChars).toBe(200_000);
+      });
+      it('takes the newest entries first and drops the output, then the command, of the ones that do not fit', () => {
+        // 20 entries of 20,000 + 20,000 characters is 800,000: five whole entries fit, the sixth keeps nothing.
+        const r = validateReport(withEntries({ activityOutput: true }, entries(20, 20_000)));
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const list = r.report.session.activity!;
+        expect(list).toHaveLength(20);
+        expect(total(list)).toBeLessThanOrEqual(LIMITS.activityDetailChars);
+        expect(list.at(-1)!.output).toHaveLength(20_000);
+        expect(list.at(-5)!.output).toHaveLength(20_000);
+        expect(list.at(-6)).toEqual({ ...base, at: base.at + 14, id: 't14' });
+        expect(list[0]).toEqual({ ...base, id: 't0' });
+      });
+      it('keeps the command and drops only the output when the command alone fits', () => {
+        const list = [{ ...entries(1, 20_000)[0]!, at: base.at - 1, id: 'old', output: 'o'.repeat(20_100) }, ...entries(4, 20_000)];
+        const r = validateReport(withEntries({ activityOutput: true }, list));
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        const got = r.report.session.activity!;
+        expect(got[0]).toEqual({ ...base, at: base.at - 1, id: 'old', command: 'c'.repeat(20_000) });
+        expect(total(got)).toBe(180_000);
+      });
+      it('is shared across the orchestrator and the agents, the orchestrator first', () => {
+        const r = validateReport(withEntries({ activityOutput: true }, entries(5, 20_000), entries(5, 20_000, base.at + 100)));
+        expect(r.ok).toBe(true);
+        if (!r.ok) return;
+        expect(total(r.report.session.activity!)).toBe(200_000);
+        expect(total(r.report.agents[0]!.activity!)).toBe(0);
+        expect(r.report.agents[0]!.activity).toHaveLength(5);
+      });
+      it('leaves the summary budget alone', () => {
+        const f = withEntries({ activityOutput: true }, entries(5, 20_000));
+        const r = validateReport(f);
+        expect(r.ok && r.report.session.activity!.every((e) => e.text === base.text)).toBe(true);
+      });
     });
   });
 

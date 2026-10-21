@@ -42,6 +42,7 @@
     },
     "attached": true,
     "activityFeed": true,
+    "activityOutput": true,
     "fileDiff": true,
     "sessionRecording": true,
     "activity": [
@@ -105,7 +106,10 @@
       "usageByModel": [{"model": "claude-opus-5-5", "tier": "std", "tokens": {"input": 21000, "output": 9000, "cacheRead": 900000, "cacheWrite": 120000, "cacheWrite1h": 0}}],
       "steps": { "done": 9, "total": null },
       "promptExcerpt": "Port the invoice endpoints to the v2 schema.", "answerExcerpt": null,
-      "activity": [{ "at": 1791647860000, "kind": "tool", "text": "Edit src/invoice/export.ts" }],
+      "activity": [
+        { "at": 1791647860000, "kind": "tool", "text": "Edit src/invoice/export.ts" },
+        { "at": 1791647870000, "kind": "tool", "text": "Bash npm test -- invoice", "id": "toolu_01bash", "command": "npm test -- invoice", "output": "Tests  12 passed", "done": true, "exitCode": 0 }
+      ],
       "failure": null
     },
     {
