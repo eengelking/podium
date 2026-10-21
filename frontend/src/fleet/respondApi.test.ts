@@ -39,6 +39,16 @@ describe("respondApi.activityHistory (#432)", () => {
   });
 });
 
+describe("respondApi.recordingConsent (#353)", () => {
+  it("asks for the session's consent with the cookie and returns the grant as sent", async () => {
+    const body = { ok: true, grant: { state: "off", consent: { admin: true, chosen: false, owner: false } } };
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, body));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await respondApi.recordingConsent("sess/1")).toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith("/api/fleet/respond/sessions/sess%2F1/recording/consent", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+  });
+});
+
 describe("the respond and peers calls (#467)", () => {
   it("sends each call to its path with the right method, the respond header, and a JSON body only when it has one", async () => {
     const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, {}));

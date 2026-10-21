@@ -14,7 +14,7 @@ afterEach(() => {
 });
 
 const KEPT = new Date(2026, 9, 21, 3, 10).getTime();
-const row: HistoryRow & { recording?: { keptUntil: number | null } } = {
+const row: HistoryRow = {
   id: "s1", name: "api-refactor", project: "~/dev/billing", model: "claude-opus-5-5", modelFamily: "opus",
   startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: null, clearedInto: null,
 };

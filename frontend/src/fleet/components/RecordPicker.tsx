@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { fmtAt, pickerState, pickRows, type PickerState } from "../recording";
 import type { RecordingGrant, SessionView } from "../types";
 import { useRespond } from "../useRespond";
@@ -30,7 +30,21 @@ export function RecordPicker({ s, onClose }: { s: SessionView; onClose: () => vo
   const [grant, setGrant] = useState<RecordingGrant | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const state: PickerState = pickerState({ flagOn: respond?.recordingOn === true, me: respond?.me ?? null, s, grant });
+  // Whether the owner allows recording, asked of the server on open so the picker can say so before Start. A failed ask leaves it unknown.
+  const [ownerAllows, setOwnerAllows] = useState<boolean | null>(null);
+  const state: PickerState = pickerState({ flagOn: respond?.recordingOn === true, me: respond?.me ?? null, s, grant, ownerAllows });
+  const consentApi = state === "ok" ? respond?.api.recordingConsent : undefined;
+  useEffect(() => {
+    if (!consentApi) return;
+    let live = true;
+    consentApi(s.id).then(
+      (out) => live && setOwnerAllows(out.grant.consent.owner),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [consentApi, s.id]);
   const toggle = (loop: string, on: boolean) =>
     setPicked((cur) => {
       const next = new Set(cur);

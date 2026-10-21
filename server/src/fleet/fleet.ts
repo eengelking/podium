@@ -105,7 +105,10 @@ interface LiveEntry {
 }
 
 /** When a session ended: dropped, else ended, else last seen. */
-const endedAtOf = (row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
+/** Whether the viewer asking may know that a session has a recording (its owner or an Admin, signed in). */
+export type RecordingKnown = (row: SessionRow) => boolean;
+
+const endedAtOf =(row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
 
 export class Fleet {
   readonly hub = new SseHub();
@@ -488,18 +491,18 @@ export class Fleet {
   }
 
   /** Sessions that ended or were dropped in [from, to), as summary rows, newest first. */
-  history(from: number, to: number): HistoryRow[] {
-    return this.historyRows(from, to).map((row) => this.historyRow(row));
+  history(from: number, to: number, mayKnow?: RecordingKnown): HistoryRow[] {
+    return this.historyRows(from, to).map((row) => this.historyRow(row, mayKnow));
   }
 
   /**
    * One page of `history`, with the day's total. The filter and the sort use the session rows alone; the agents
    * query and the repricing run for the rows on the page only. A page past the end is the last page.
    */
-  historyPage(from: number, to: number, page: number, pageSize: number): { rows: HistoryRow[]; total: number; page: number } {
+  historyPage(from: number, to: number, page: number, pageSize: number, mayKnow?: RecordingKnown): { rows: HistoryRow[]; total: number; page: number } {
     const all = this.historyRows(from, to);
     const at = Math.min(page, Math.max(1, Math.ceil(all.length / pageSize)));
-    return { rows: all.slice((at - 1) * pageSize, at * pageSize).map((row) => this.historyRow(row)), total: all.length, page: at };
+    return { rows: all.slice((at - 1) * pageSize, at * pageSize).map((row) => this.historyRow(row, mayKnow)), total: all.length, page: at };
   }
 
   /** The day's sessions that did something, newest end first, with the id breaking ties so a row never moves between pages. */
@@ -510,7 +513,7 @@ export class Fleet {
       .sort((a, b) => endedAtOf(b) - endedAtOf(a) || (a.id < b.id ? -1 : 1));
   }
 
-  private historyRow(row: SessionRow): HistoryRow {
+  private historyRow(row: SessionRow, mayKnow?: RecordingKnown): HistoryRow {
     const agents = this.db.getAgents(row.id);
     const end = endedAtOf(row);
     return {
@@ -528,7 +531,15 @@ export class Fleet {
       endReason: row.dropped_at !== null ? 'heartbeat lost' : row.end_reason,
       clearedFrom: row.cleared_from ?? null,
       clearedInto: this.db.clearedInto(row.id),
+      ...this.keptMark(row, mayKnow),
     };
+  }
+
+  /** The History row's recording marker (#353): only for a viewer `mayKnow` says may know of the session's recording, and only while one is held. */
+  private keptMark(row: SessionRow, mayKnow?: RecordingKnown): Pick<HistoryRow, 'recording'> {
+    if (!mayKnow?.(row)) return {};
+    const keptUntil = this.recordings.keptUntilOf(row.id);
+    return keptUntil === null ? {} : { recording: { keptUntil } };
   }
 
   /** The wall's settings plus the update notice: a release newer than this server that nobody has closed the notice for (#499). */

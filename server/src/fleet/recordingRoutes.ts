@@ -147,6 +147,14 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     res.json(body);
   });
 
+  // The consent as it stands before anything is chosen, so the picker can say whether the owner allows recording (SPEC 7.1). It
+  // carries no text, and a recording need not exist.
+  browser.get('/sessions/:id/recording/consent', (req, res) => {
+    const got = access(req, res);
+    if (!got) return;
+    res.json({ ok: true, grant: fleet.recordings.grant(got.row.id) });
+  });
+
   browser.put('/sessions/:id/recording', (req, res) => {
     const got = access(req, res);
     if (!got) return;

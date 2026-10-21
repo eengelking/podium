@@ -496,7 +496,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     const from = start.getTime();
     const to = new Date(y, mo - 1, d + 1).getTime();
     // A page past the end is the last page, so a day that shrank under an open tab still shows rows.
-    const { rows, total, page: at } = fleet.historyPage(from, to, page ?? 1, pageSize);
+    // A row says its recording is kept only to the session's owner and an Admin (#353).
+    const { rows, total, page: at } = fleet.historyPage(from, to, page ?? 1, pageSize, (row) => respondAccess?.canRead(req, row) ?? false);
     res.json({ day, sessions: rows, total, page: at, pageSize });
   });
 

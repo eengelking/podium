@@ -209,10 +209,31 @@ describe('capture', () => {
       ),
     );
     const rows = m.rec.page('s1', null, 10, null).entries;
-    expect(rows[0]).toEqual({ n: 1, loop: MAIN_LOOP, at: T0 + 1, kind: 'tool', text: 'ls -la', name: 'Bash' });
-    expect(rows[1]).toEqual({ n: 2, loop: MAIN_LOOP, at: T0 + 2, kind: 'result', text: 'total 0', name: 'Bash', callSeq: 1, failed: true, cut: true });
+    expect(rows[0]).toEqual({ n: 1, seq: 1, loop: MAIN_LOOP, at: T0 + 1, kind: 'tool', text: 'ls -la', name: 'Bash' });
+    expect(rows[1]).toEqual({ n: 2, seq: 2, loop: MAIN_LOOP, at: T0 + 2, kind: 'result', text: 'total 0', name: 'Bash', callSeq: 1, failed: true, cut: true });
     expect(rows[2]).toMatchObject({ kind: 'gap', lost: 4, loop: 'a1' });
-    expect(rows[3]).toEqual({ n: 4, loop: 'a1', at: T0 + 2, kind: 'thinking', text: '' });
+    expect(rows[3]).toEqual({ n: 4, seq: 2, loop: 'a1', at: T0 + 2, kind: 'thinking', text: '' });
+  });
+
+  it('gives the server its own marks a seq at or below zero, apart from the mod range', () => {
+    const m = running();
+    m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1)));
+    m.rec.stop('s1', 'Ed');
+    expect(m.rec.page('s1', null, 10, null).entries.map((e) => [e.kind, e.seq])).toEqual([
+      ['tool', 1],
+      ['stopped', 0],
+    ]);
+  });
+
+  it('says when the oldest part of a recording goes, only for one that is held', () => {
+    const m = running();
+    expect(m.rec.keptUntilOf('nope')).toBeNull();
+    m.rec.ingest('s1', batch(entry(MAIN_LOOP, 1)));
+    expect(m.rec.keptUntilOf('s1')).toBe(T0 + 6 * HOUR_MS);
+    const open = make({ authOn: false });
+    open.rec.noteOption('s1', true);
+    open.rec.start('s1', [MAIN_LOOP], 'Ed', META);
+    expect(open.rec.keptUntilOf('s1')).toBeNull();
   });
 
   it("replaces Podium's own credentials in what the mod sent, and nothing else", () => {

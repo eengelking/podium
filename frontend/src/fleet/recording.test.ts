@@ -183,6 +183,15 @@ describe("what the picker says", () => {
     expect(pickerState({ ...on, s: s({ recording: makeRecording({ state: "stopped", ownerAllows: false }) }) })).toBe("ok");
   });
 
+  it("says the owner has not allowed it before Start, from the consent the server gave, until Start's own reply says otherwise", () => {
+    expect(pickerState({ ...on, ownerAllows: false })).toBe("noown");
+    expect(pickerState({ ...on, ownerAllows: true })).toBe("ok");
+    expect(pickerState({ ...on, ownerAllows: null })).toBe("ok");
+    expect(pickerState({ ...on, ownerAllows: false, grant: grant() })).toBe("started");
+    expect(pickerState({ ...on, ownerAllows: false, flagOn: false })).toBe("adminoff");
+    expect(pickerState({ ...on, ownerAllows: false, s: s({ status: "done" }) })).toBe("ended");
+  });
+
   it("says it started once Start was answered", () => {
     expect(pickerState({ ...on, grant: grant() })).toBe("started");
     expect(pickerState({ ...on, grant: grant({ state: "stopped" }) })).toBe("ok");

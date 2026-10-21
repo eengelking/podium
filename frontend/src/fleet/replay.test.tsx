@@ -29,7 +29,7 @@ const grant = (over: Partial<RecordingGrant> = {}): RecordingGrant => ({
 });
 
 let n = 0;
-const row = (over: Partial<RecordingRow>): RecordingRow => ({ n: ++n, loop: "@orchestrator", at: at(11, 42), kind: "text", text: "", ...over });
+const row = (over: Partial<RecordingRow>): RecordingRow => ({ n: ++n, seq: n, loop: "@orchestrator", at: at(11, 42), kind: "text", text: "", ...over });
 const LONG_RESULT = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n");
 
 const rows = (): RecordingRow[] => [

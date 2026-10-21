@@ -55,12 +55,9 @@ function hashFor(w: Where): string {
   return `#/history?${q.toString()}`;
 }
 
-/** A history row. `recording` says a recording of the session is kept and until when; the server adds it once it lists recordings with History (#353). */
-type Row = HistoryRow & { recording?: { keptUntil: number | null } | null };
-
 interface Paged {
   day: string;
-  rows: Row[];
+  rows: HistoryRow[];
   total: number;
   page: number;
   pageSize: number;
@@ -129,7 +126,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
     let live = true;
     // The table of the page being left stays up while the next one loads; another day's table does not.
     setRows((r) => (r.state === "ok" && r.data.day === day ? r : { state: "loading" }));
-    getJson<{ sessions: Row[]; total: number; page: number; pageSize: number }>(
+    getJson<{ sessions: HistoryRow[]; total: number; page: number; pageSize: number }>(
       `${base}/history?day=${encodeURIComponent(day)}&page=${page}&pageSize=${size}`,
     )
       .then((b) => {
