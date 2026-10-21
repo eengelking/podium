@@ -5022,9 +5022,16 @@ selected first and the choice is not saved). While Files is selected the left co
     and the new one on the right, level line for line, with a filler beside a line that has no partner (an
     untracked file has an empty left, a deleted one an empty right). In a modal narrower than 720 px it is one
     column with both line numbers. It is text nodes in a monospace face, line breaks kept; removed and added
-    lines carry a `−`/`+` gutter mark as well as color; hunk headers are set apart; long lines scroll inside
-    the modal, each side on its own with the other following. Each `[redacted]` in it is bold and in the
-    critical color, and a footer counts them ("3 values hidden as possible secrets").
+    lines carry a `−`/`+` gutter mark as well as color; hunk headers are set apart. Long lines wrap at the
+    pane's edge by default (#623, `mockup/podium-file-diff-wrap.html`): a line continues under its own text, its
+    number and mark appear once on its first visual line, and side by side each pair of lines sits on one grid
+    row, so the old and new halves stay level (the panes stay two elements in the same order, so keyboard and
+    screen reader order do not change). A **Wrap lines** switch (the `.sw` on/off switch, with its On or Off
+    word) at the lower right of the modal's bottom row turns wrapping off, and then long lines scroll inside the
+    modal, each side on its own with the other following. The choice is kept in the browser
+    (`podium.diffWrap`), and a failed read means wrapped. The note below (the cut and the count of hidden
+    values) is at the left of that row, and the row shows only where a diff is drawn. Each `[redacted]` in it
+    is bold and in the critical color, and a footer counts them ("3 values hidden as possible secrets").
     It shows a loading state (the word "Loading" at 18px with three dots that fill in on the console's shared
     beat, all three still when the reader prefers reduced motion), and for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
     untracked file, and a cut diff ("Showing the first N lines of M") a plain message. Close, Esc and the dimmed

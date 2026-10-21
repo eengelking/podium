@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
 import { FilesList, diffAccess } from "./components/FilesList";
-import { FileDiffModal } from "./components/FileDiffModal";
+import { FileDiffModal, WRAP_KEY } from "./components/FileDiffModal";
 import { RespondProvider, type RespondContext } from "./useRespond";
 import { RespondError, type RespondApi } from "./respondApi";
 import type { FileDiffReply, FilesReport, RespondMe, SessionView } from "./types";
@@ -258,5 +258,84 @@ describe("the modal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open diff of docs/GUIDE.md" }));
     await flush();
     expect(screen.getByRole("dialog").querySelector(".sub2")!.textContent).toContain("R · from docs/USER.md");
+  });
+});
+
+describe("the Wrap lines switch (#623)", () => {
+  afterEach(() => {
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+  });
+  async function open() {
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    await flush();
+    return screen.getByRole("dialog");
+  }
+  const sw = () => screen.getByRole("switch", { name: /Wrap lines/ });
+
+  it("is on by default: the modal is wrapped, and the switch says Wrap lines and On", async () => {
+    const dlg = await open();
+    expect(dlg.classList.contains("wrapped")).toBe(true);
+    expect(sw().getAttribute("aria-checked")).toBe("true");
+    expect(sw().getAttribute("aria-labelledby")).toBeTruthy();
+    expect(dlg.querySelector(".mf .sw")?.textContent).toBe("Wrap linesOn");
+  });
+  it("turns wrapping off and on, with the state in a word as well as aria-checked", async () => {
+    const dlg = await open();
+    fireEvent.click(sw());
+    expect(dlg.classList.contains("wrapped")).toBe(false);
+    expect(sw().getAttribute("aria-checked")).toBe("false");
+    expect(dlg.querySelector(".mf .sw")?.textContent).toBe("Wrap linesOff");
+    fireEvent.click(sw());
+    expect(dlg.classList.contains("wrapped")).toBe(true);
+  });
+  it("keeps the choice for the next diff and after a reload", async () => {
+    await open();
+    fireEvent.click(sw());
+    expect(window.localStorage.getItem(WRAP_KEY)).toBe("false");
+    cleanup();
+    const dlg = await open();
+    expect(dlg.classList.contains("wrapped")).toBe(false);
+    expect(sw().getAttribute("aria-checked")).toBe("false");
+  });
+  it("falls back to wrapped when the saved choice cannot be read", async () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const dlg = await open();
+    expect(dlg.classList.contains("wrapped")).toBe(true);
+  });
+  it("sits at the right of the bottom row, with the note at the left", async () => {
+    const api = fakeApi(vi.fn(async () => ok({ truncated: true, shownLines: 2000, totalLines: 10190 })));
+    await show({ api });
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    await flush();
+    const row = screen.getByRole("dialog").querySelector(".mf")!;
+    expect([...row.children].map((e) => e.className)).toEqual(["foot-note", "sw"]);
+  });
+  it("is not shown where no diff is drawn", async () => {
+    const api = fakeApi(vi.fn(async () => ok({ status: "binary", text: "" })));
+    await show({ api });
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    await flush();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+  it("places a changed line's two halves on the same grid row, in both views", async () => {
+    const dlg = await open();
+    const pairs = (side: number) => [...dlg.querySelectorAll(".sbs .pane")[side]!.querySelectorAll<HTMLElement>(".l")].map((e) => e.style.getPropertyValue("--r"));
+    const [left, right] = [pairs(0), pairs(1)];
+    expect(left.length).toBe(right.length);
+    expect(left).toEqual(left.map((_, i) => String(i + 1)));
+    expect(right).toEqual(left);
+    // the removed line and its replacement share a row, and each keeps its number and mark once
+    const del = dlg.querySelector<HTMLElement>(".sbs .l.r")!;
+    const add = dlg.querySelector<HTMLElement>(".sbs .l.a")!;
+    expect(del.style.getPropertyValue("--r")).toBe(add.style.getPropertyValue("--r"));
+    expect(del.querySelectorAll(".n, .m").length).toBe(2);
+    // the unified column has both numbers and one mark on the first visual line
+    const uni = dlg.querySelector(".uni .l.r")!;
+    expect(uni.querySelectorAll(".n").length).toBe(2);
+    expect(uni.querySelectorAll(".m").length).toBe(1);
   });
 });

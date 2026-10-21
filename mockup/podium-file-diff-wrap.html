@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium diff wrap switch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<!-- Mockup for issue #623. Links the app stylesheet (fleet.css, which imports tokens.css), so it has no :root block. The modal, header, panes, line rows, hunk bars, redaction marks and foot note are the app's own classes (see mockup/podium-file-diff.html, #319). New here: the .mf bottom row, .sw used inside a modal, and the wrapped layout of the diff. Light/dark and the narrow width are the buttons at the top. Each frame has its own working switch. -->
+<style>
+/* Page chrome only. */
+.podium.mock { height: auto; min-height: 100%; padding: 20px 16px 60px; }
+.mock .page { max-width: 1280px; margin: 0 auto; }
+.mock h1 { font-size: 17px; margin: 0 0 4px; }
+.mock h2.sect { font-size: 14px; margin: 34px 0 4px; }
+.mock p.note { color: var(--muted); font-size: 12.5px; margin: 4px 0 10px; max-width: 78ch; }
+.mock .bar { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin: 12px 0 0; }
+.mock .bar button { font-size: 12px; color: var(--ink2); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.mock .bar button[aria-pressed="true"] { color: var(--ink); background: var(--sel); }
+.mock :focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.mock .frames { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 12px; }
+.mock .frame h3 { margin: 0 0 6px; font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mock .stage { background: var(--raised); border: 1px dashed var(--axis); border-radius: 8px; padding: 14px; }
+.mock .stage .modal { max-height: 520px; }
+.mock.narrow .stage { max-width: 380px; }
+
+/* NEW (1): the bottom row. The note keeps its place at the left (its own text styling is unchanged), the switch sits at
+   the right. The row owns the top border the note had. With no note the switch is alone, still at the right. At a narrow
+   width the two stack, note first, and the switch is still right-aligned. */
+.podium .modal .mf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 8px 14px; border-top: 1px solid var(--grid); flex: none; }
+.podium .modal .mf .foot-note { flex: 1 1 24ch; min-width: 0; padding: 0; border: 0; }
+.podium .modal .mf .sw { margin-left: auto; }
+
+/* NEW (2): the app's .sw switch (admin.css, scoped to .adminv there) used in a modal. Same rules, same sizes; the knob is white in the app (as in Admin); the mockup uses --on-good, which is white in the default theme, since it carries no literal. See the note under "What is new". */
+.sw { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.sw button { width: 36px; height: 22px; border-radius: 999px; background: var(--axis); border: 1px solid var(--border); position: relative; flex: none; cursor: pointer; }
+.sw button::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); transition: transform .15s; }
+.sw button[aria-checked="true"] { background: var(--good); }
+.sw button[aria-checked="true"]::after { transform: translateX(14px); background: var(--on-good); }
+.sw > span { font-size: 12px; color: var(--ink2); min-width: 28px; }
+.sw > b { font-size: 12px; font-weight: 500; color: var(--ink2); }
+@media (prefers-reduced-motion: reduce) { .sw button::after { transition: none; } }
+
+/* NEW (3): wrapped layout. Off => today's rules from fleet.css. On (the default, class "wrapped" on .modal-diff). Every
+   selector starts with .podium .modal-diff.wrapped so it outranks fleet.css's .podium .modal-diff rules.
+
+   Side by side. The two panes stay two elements in the same order (all of Before, then all of After), so the keyboard
+   and screen reader order does not change. But .pane and its <pre> become display: contents, and every line is placed
+   on the one grid .sbs by its pair number (--r, from the line's index in the pane) and its side (column 1 or 2). A row
+   is as tall as the taller of its two cells, so the old and new halves of a line stay level when one wraps and the
+   other does not. Cells stretch, so an added or removed tint fills the whole row height. With no two scroll areas there
+   is nothing to keep in step: the sideways scroll code is not used while wrapped. */
+.podium .modal-diff.wrapped .sbs { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 6px; }
+.podium .modal-diff.wrapped .sbs .pane, .podium .modal-diff.wrapped .sbs .pane pre { display: contents; }
+.podium .modal-diff.wrapped .sbs .pane:first-child { --c: 1; }
+.podium .modal-diff.wrapped .sbs .pane:last-child { --c: 2; }
+.podium .modal-diff.wrapped .sbs .pane-h { grid-row: 1; grid-column: var(--c); }
+.podium .modal-diff.wrapped .sbs .pane:last-child .pane-h, .podium .modal-diff.wrapped .sbs .pane:last-child pre .l { border-left: 1px solid var(--border); }
+.podium .modal-diff.wrapped .sbs .pane pre .l { grid-row: calc(var(--r) + 1); grid-column: var(--c); }
+.podium .modal-diff.wrapped .l { grid-template-columns: 5ch 2ch minmax(0, 1fr); white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .modal-diff.wrapped .uni { min-width: 0; }
+.podium .modal-diff.wrapped .uni .l { grid-template-columns: 5ch 5ch 2ch minmax(0, 1fr); }
+/* Hunk bars and filler lines stay one text line tall (a filler holds one space) and stretch with their row. */
+
+.diffmsg { padding: 28px 20px; color: var(--ink); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="podium mock" id="wrap">
+<div class="page">
+  <h1>Wrap lines switch in the file diff modal</h1>
+  <p class="note">Issue #623, on top of #319. A switch in a new bottom row of the diff modal wraps or unwraps long lines. Wrapped is the default and the choice is kept in the browser. Every frame below has a working switch; flip it to see the other state. Dark and light, and a 340px width, are the buttons below.</p>
+  <div class="bar" role="group" aria-label="Preview">
+    <button type="button" data-t="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-t="light" aria-pressed="false">Light</button>
+    <button type="button" id="nar" aria-pressed="false">Narrow (340px)</button>
+  </div>
+
+  <h2 class="sect">Side by side, with the foot note</h2>
+  <p class="note">The wrapped default. The changed long line at the bottom breaks at the pane edge on both sides; its continuation sits under its own text, not under the line number, and the number and the − or + sit once, on the first visual line. The old and new halves stay level because they share one grid row. The note is at the left of the bottom row and the switch is at the right. Switched off, the panes are as they are today and scroll sideways.</p>
+  <div class="frames" id="f-sbs"></div>
+
+  <h2 class="sect">Side by side, without a note</h2>
+  <p class="note">No truncation and nothing redacted, so there is no note. The row is still there, so the modal does not jump between diffs, and the switch is at the right.</p>
+  <div class="frames" id="f-nonote"></div>
+
+  <h2 class="sect">Below 720px: one column</h2>
+  <p class="note">The unified view wraps the same way: both numbers and the mark on the first visual line, the continuation under its own text. At this width the note and the switch stack, note first, the switch still at the right.</p>
+  <div class="frames" id="f-uni"></div>
+
+  <h2 class="sect">What is new, what is reused, how it is built</h2>
+  <p class="note"><b>Reused:</b> the modal, its header, the panes, the line rows and colors, the hunk bars, the redaction marks and the <code>.foot-note</code> text. The switch is the <code>.sw</code> component: a <code>role="switch"</code> button with <code>aria-checked</code>, named by “Wrap lines” and by its state word (On or Off) through <code>aria-labelledby</code>, as in Admin &gt; Settings. The state is the word as well as the knob position and the green.</p>
+  <p class="note"><b>New:</b> (1) <code>.mf</code>, the modal’s bottom row, holding the note and the switch; the note’s border moves up onto it. (2) <code>.sw</code> is written under <code>.adminv</code> in <code>admin.css</code>, and the modal is rendered outside that, so the rules need to apply anywhere. That moves the existing rules out of the Admin scope with no change to how they look in Admin, . The knob is the same white as in Admin (the mockup draws it with <code>--on-good</code>, which is white in the default theme). A switch used outside Admin is recorded as a <code>Standards:</code> line. (3) The wrapped layout. The two panes stay two elements in the same order, so Tab and screen reader order are as today, but each line is placed on one shared grid by its pair number, so the halves of a row are always the same height. A very long line is one grid cell with <code>overflow-wrap: anywhere</code>, so a minified file wraps at the pane edge without widening anything.</p>
+  <p class="note"><b>Open for you:</b> (a) the label “Wrap lines” and the placement at the lower right as the issue says; (b) whether to keep the choice for unified and side by side as one setting (this mockup does); (c) the 340px unified frame stacks the note above the switch rather than shrinking the note.</p>
+</div>
+</div>
+<script>
+const LONG_OLD = '  const veryLongLineThatKeepsGoing = buildSomething(first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth, eleventh, twelfth, thirteenth);';
+const LONG_NEW = '  const veryLongLineThatKeepsGoing = buildSomethingElse(first, second, third, fourth, fifth, sixth, seventh, eighth, ninth, tenth, eleventh, twelfth, thirteenth, fourteenth);';
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+// Rows of a side-by-side diff: [oldCell, newCell]. A cell is [kind, no, text] or null for a filler.
+const PAIRS = [
+  [['h', '', '@@ -41,7 +41,9 @@ export function routes(deps: Deps) {'], ['hf']],
+  [['c', 41, '  const app = express();'], ['c', 41, '  const app = express();']],
+  [['d', 42, '  app.get("/files", filesRoute);'], ['a', 42, '  app.get("/files", filesRoute(deps));']],
+  [null, ['a', 43, '  app.get("/files/diff", fileDiffRoute(deps));']],
+  [['c', 43, '  return app;'], ['c', 44, '  return app;']],
+  [['h', '', '@@ -88,3 +90,3 @@ function filesRoute(deps: Deps) {'], ['hf']],
+  [['d', 88, LONG_OLD], ['a', 90, LONG_NEW]],
+  [['c', 89, '  return secret;'], ['c', 91, '  return apiKey: "' + 'x'.repeat(0) + '[redacted]";']],
+];
+const cell = (c, r) => {
+  const st = `style="--r:${r}"`;
+  if (!c) return `<span class="l f" ${st}><span class="n"></span><span class="m"></span><span> </span></span>`;
+  if (c[0] === 'h') return `<span class="l h" ${st}><span>${esc(c[2])}</span></span>`;
+  if (c[0] === 'hf') return `<span class="l h" ${st}><span> </span></span>`;
+  const cls = { c: '', a: ' a', d: ' r' }[c[0]], mk = { c: ' ', a: '+', d: '−' }[c[0]];
+  const text = esc(c[2]).replace('[redacted]', '<span class="rd">[redacted]</span>');
+  return `<span class="l${cls}" ${st}><span class="n">${c[1]}</span><span class="m">${mk}</span><span>${text}</span></span>`;
+};
+const uniRows = () => {
+  const out = [];
+  PAIRS.forEach(([o, n]) => {
+    if (o && o[0] === 'h') return out.push(`<span class="l h"><span>${esc(o[2])}</span></span>`);
+    if (o && o[0] === 'c') return out.push(`<span class="l"><span class="n">${o[1]}</span><span class="n">${n[1]}</span><span class="m"> </span><span>${esc(o[2])}</span></span>`);
+    if (o) out.push(`<span class="l r"><span class="n">${o[1]}</span><span class="n"></span><span class="m">−</span><span>${esc(o[2])}</span></span>`);
+    if (n) out.push(`<span class="l a"><span class="n"></span><span class="n">${n[1]}</span><span class="m">+</span><span>${esc(n[2]).replace('[redacted]', '<span class="rd">[redacted]</span>')}</span></span>`);
+  });
+  return out.join('');
+};
+let uid = 0;
+const modal = (note, path) => {
+  const id = 'sw' + (++uid);
+  const left = PAIRS.map(([o], i) => cell(o, i + 1)).join('');
+  const right = PAIRS.map(([, n], i) => cell(n, i + 1)).join('');
+  return `<div class="modal modal-diff wrapped" role="dialog" aria-label="Diff of ${path}">
+<div class="mh"><div class="ttl"><h2><bdi>${path}</bdi></h2><div class="sub2">M · <span class="cnt"><span class="add">+31</span><span class="del">−12</span></span> · against the starting commit 7eb90e8</div></div><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+<div class="mb diffmb"><div class="sbs" role="group" aria-label="Diff, old on the left and new on the right"><div class="pane"><div class="pane-h">Before</div><pre aria-label="Before">${left}</pre></div><div class="pane"><div class="pane-h">After</div><pre aria-label="After">${right}</pre></div></div><pre class="uni" aria-label="Diff">${uniRows()}</pre></div>
+<div class="mf">${note ? `<div class="foot-note">${note}</div>` : ''}<div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="${id}-n ${id}-s"></button><b id="${id}-n">Wrap lines</b><span id="${id}-s">On</span></div></div></div>`;
+};
+const NOTE = '1 value hidden as possible secrets. Hiding is best effort, so check the diff before you share it.';
+const frame = (h, html, wide) => `<div class="frame"><h3>${h}</h3><div class="stage">${html}</div></div>`;
+document.getElementById('f-sbs').innerHTML = frame('Wrapped (default), with a note', modal(NOTE, 'server/src/fleet/routes.ts'))
+  + frame('Same diff after switching off: today’s sideways scroll', modal(NOTE, 'server/src/fleet/routes.ts').replace('class="modal modal-diff wrapped"', 'class="modal modal-diff"').replace('aria-checked="true"', 'aria-checked="false"').replace(/>On<\/span>/, '>Off</span>'));
+document.getElementById('f-nonote').innerHTML = frame('Wrapped, no note', modal('', 'server/src/fleet/routes.ts'));
+document.getElementById('f-uni').innerHTML = `<div class="frame"><h3>340px, wrapped, with a note</h3><div class="stage" style="max-width:380px">${modal(NOTE, 'routes.ts')}</div></div><div class="frame"><h3>340px, unwrapped, no note</h3><div class="stage" style="max-width:380px">${modal('', 'routes.ts').replace('class="modal modal-diff wrapped"', 'class="modal modal-diff"').replace('aria-checked="true"', 'aria-checked="false"').replace(/>On<\/span>/, '>Off</span>')}</div></div>`;
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.sw button');
+  if (!b) return;
+  const on = b.getAttribute('aria-checked') !== 'true';
+  b.setAttribute('aria-checked', String(on));
+  b.closest('.sw').querySelector('span').textContent = on ? 'On' : 'Off';
+  b.closest('.modal').classList.toggle('wrapped', on);
+});
+const root = document.documentElement, wrapEl = document.getElementById('wrap');
+document.querySelectorAll('button[data-t]').forEach((b) => b.addEventListener('click', () => {
+  root.setAttribute('data-theme', b.dataset.t);
+  document.querySelectorAll('button[data-t]').forEach((o) => o.setAttribute('aria-pressed', String(o === b)));
+}));
+document.getElementById('nar').addEventListener('click', (e) => {
+  const on = wrapEl.classList.toggle('narrow');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+});
+</script>
+</body>
+</html>

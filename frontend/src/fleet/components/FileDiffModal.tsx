@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { parseDiff, sideBySide, splitRedacted, type SideCell } from "../diffRows";
 import { RespondError } from "../respondApi";
 import type { ChangedFile, FileDiffReply, FilesReport } from "../types";
+import { readJson, writeJson } from "../storage";
 import { useHeartbeat } from "../useHeartbeat";
 import { useRespond } from "../useRespond";
 import { Modal } from "./Modal";
@@ -9,7 +10,11 @@ import { Modal } from "./Modal";
 // One file's diff in the shared modal (#319, SPEC 6.4 and 8.1, mockup/podium-file-diff.html). The text comes from the
 // session's machine on request, already redacted, and is drawn as text nodes only. Side by side where the modal is wide,
 // one column where it is narrower than 720px (a container query in fleet.css picks which). Nothing is kept: closing
-// the modal drops it, and opening it again asks again.
+// the modal drops it, and opening it again asks again. Long lines wrap by default (#623, mockup/podium-file-diff-wrap.html):
+// each line sits on the side-by-side grid by its pair number (--r), so the two halves of a row stay level, and the choice
+// is kept in the browser.
+
+export const WRAP_KEY = "podium.diffWrap";
 
 const LETTER: Record<ChangedFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 const MINUS = "−";
@@ -48,12 +53,15 @@ function Line({ text }: { text: string }) {
 
 const MARK: Partial<Record<SideCell["kind"], string>> = { add: "+", del: MINUS };
 
-function Cell({ c }: { c: SideCell }) {
-  if (c.kind === "hunk") return <span className="l h"><span>{c.text}</span></span>;
-  if (c.kind === "hunk-fill") return <span className="l h"><span> </span></span>;
-  if (c.kind === "note") return <span className="l nt"><span>{c.text}</span></span>;
+/** The line's pair number, which places it on the shared grid while lines wrap. */
+const at = (r: number) => ({ "--r": r }) as CSSProperties;
+
+function Cell({ c, r }: { c: SideCell; r: number }) {
+  if (c.kind === "hunk") return <span className="l h" style={at(r)}><span>{c.text}</span></span>;
+  if (c.kind === "hunk-fill") return <span className="l h" style={at(r)}><span> </span></span>;
+  if (c.kind === "note") return <span className="l nt" style={at(r)}><span>{c.text}</span></span>;
   return (
-    <span className={`l${c.kind === "add" ? " a" : c.kind === "del" ? " r" : c.kind === "fill" ? " f" : ""}`}>
+    <span className={`l${c.kind === "add" ? " a" : c.kind === "del" ? " r" : c.kind === "fill" ? " f" : ""}`} style={at(r)}>
       <span className="n">{c.no ?? ""}</span>
       <span className="m">{MARK[c.kind] ?? " "}</span>
       <span>
@@ -83,7 +91,7 @@ function DiffView({ text }: { text: string }) {
             <div className="pane-h">{side === 0 ? "Before" : "After"}</div>
             <pre aria-label={side === 0 ? "Before" : "After"}>
               {cells.map((c, i) => (
-                <Cell key={i} c={c} />
+                <Cell key={i} c={c} r={i + 1} />
               ))}
             </pre>
           </div>
@@ -187,17 +195,41 @@ function Body({ path, load }: { path: string; load: Load }) {
   return <DiffView text={r.text} />;
 }
 
-function Foot({ reply }: { reply: FileDiffReply }) {
+function footNote(reply: FileDiffReply): string {
   const bits: string[] = [];
   if (reply.truncated) bits.push(`Showing the first ${reply.shownLines.toLocaleString("en-US")} lines of ${reply.totalLines.toLocaleString("en-US")}.`);
   if (reply.redactions > 0) bits.push(`${reply.redactions} ${reply.redactions === 1 ? "value" : "values"} hidden as possible secrets. Hiding is best effort, so check the diff before you share it.`);
-  return bits.length ? <div className="foot-note">{bits.join(" ")}</div> : null;
+  return bits.join(" ");
+}
+
+/** The modal's bottom row: the note at the left, when there is one, and the Wrap lines switch at the right (the Admin's .sw). */
+function Foot({ reply, wrap, onWrap }: { reply: FileDiffReply; wrap: boolean; onWrap: () => void }) {
+  const id = useId();
+  const note = footNote(reply);
+  const drawn = reply.status === "ok" && !!reply.text;
+  if (!drawn) return note ? <div className="foot-note">{note}</div> : null;
+  return (
+    <div className="mf">
+      {note ? <div className="foot-note">{note}</div> : null}
+      <div className="sw">
+        <button type="button" role="switch" aria-checked={wrap} aria-labelledby={`${id}-n ${id}-s`} onClick={onWrap} />
+        <b id={`${id}-n`}>Wrap lines</b>
+        <span id={`${id}-s`}>{wrap ? "On" : "Off"}</span>
+      </div>
+    </div>
+  );
 }
 
 export function FileDiffModal(props: { sessionId: string; file: ChangedFile; since: FilesReport["since"]; onClose: () => void }) {
   const ctx = useRespond();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const titleId = useId();
+  // Wrapped unless the saved choice is exactly false, so a failed or odd read falls back to wrapped.
+  const [wrap, setWrap] = useState(() => readJson<unknown>(WRAP_KEY, true) !== false);
+  const flipWrap = () => {
+    writeJson(WRAP_KEY, !wrap);
+    setWrap(!wrap);
+  };
   const { file, sessionId } = props;
   const api = ctx?.api;
 
@@ -239,9 +271,9 @@ export function FileDiffModal(props: { sessionId: string; file: ChangedFile; sin
     </>
   );
   return (
-    <Modal titleId={titleId} title={<bdi>{file.path}</bdi>} sub={sub} onClose={props.onClose} className="modal-diff">
+    <Modal titleId={titleId} title={<bdi>{file.path}</bdi>} sub={sub} onClose={props.onClose} className={wrap ? "modal-diff wrapped" : "modal-diff"}>
       <Body path={file.path} load={load} />
-      {load.state === "done" && <Foot reply={load.reply} />}
+      {load.state === "done" && <Foot reply={load.reply} wrap={wrap} onWrap={flipWrap} />}
     </Modal>
   );
 }
