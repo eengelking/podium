@@ -29,7 +29,8 @@ import { inlineScriptHashes, securityHeaders } from "./securityHeaders.js";
 import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
-import { warnIfTlsNotPersistent } from "./tlsStorage.js";
+import { tlsDir, warnIfTlsNotPersistent } from "./tlsStorage.js";
+import { PersonCertStore } from "./tlsClientAuth.js";
 import { startTls, type TlsListener } from "./tlsServer.js";
 import { TlsSettingsStore } from "./tlsRenew.js";
 import { RESPOND } from "./fleet/featureFlags.js";
@@ -58,6 +59,9 @@ const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb
 const people = new PeopleStore(fleetDb.db);
 const tlsSettings = new TlsSettingsStore(fleetDb.db);
 let tlsListener: TlsListener | null = null;
+// People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
+const personCerts = new PersonCertStore(fleetDb.db);
+const trustedIssuers = () => (tlsListener ? [tlsListener.material.ca.fingerprintSha256] : []);
 const reporters = new ReporterStore(fleetDb.db, Date.now());
 const stopSweeper = startSweeper(
   fleet,
@@ -95,8 +99,8 @@ const lockout = new Lockout();
 const respondBridge = createRespondBridge();
 // Responding over plain HTTP beyond loopback sends the sign-in unencrypted: say so, never block (#306).
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
-app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers } }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, renewer: () => tlsListener?.renewer ?? null, people: { store: personCerts, issuer: () => (tlsListener ? { dir: tlsDir(DB_PATH), port: tlsListener.port, caCerts: () => [tlsListener!.material.caCert] } : null) } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 app.use(createRouter());
 
 app.use(express.static(frontendDist));
