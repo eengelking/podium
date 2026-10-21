@@ -232,7 +232,10 @@ class Server {
     else rmSync(this.dir, { recursive: true, force: true });
   }
   async call(method, p, headers, body) {
-    const res = await fetch(new URL(p, this.url), { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const target = new URL(p, this.url);
+    // The tool carries its throwaway server's admin secret, so it only ever talks to that server on this machine.
+    if (target.hostname !== '127.0.0.1') throw new Error(`refusing a request to ${target.hostname}: this tool only talks to its own throwaway server`);
+    const res = await fetch(target, { method, headers: { 'content-type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
     const set = res.headers.getSetCookie?.() ?? [];
     const text = await res.text();
     return { status: res.status, set, body: text ? JSON.parse(text) : null };

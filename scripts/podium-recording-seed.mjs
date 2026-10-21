@@ -19,7 +19,7 @@ const HELP = `Usage: node scripts/podium-recording-seed.mjs --url <server> --sec
 Seeds session recording for looking at it in a browser. Never point it at a server you use: it changes the Admin's settings,
 adds a person and starts recordings.
 
-  --url     the throwaway Podium server, such as http://127.0.0.1:4392 (started with PODIUM_TOKEN set)
+  --url     the throwaway Podium server, such as http://127.0.0.1:4392 (started with PODIUM_TOKEN set); it must be on this machine
   --secret  its admin secret (PODIUM_TOKEN)
   --name    the person to make (default Ed; a suffix is added if taken)
   --keep    keep reporting every 8 seconds so the live sessions stay live, until stopped
@@ -38,6 +38,11 @@ if (!URL_ARG || !SECRET) {
   process.exit(2);
 }
 const URL_ = new URL(URL_ARG).origin;
+// The secret goes to this server in every request, so it must be a throwaway server on this machine.
+if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(URL_).hostname)) {
+  console.error(`refusing ${URL_}: --url must be a server on this machine (127.0.0.1, localhost or [::1])`);
+  process.exit(2);
+}
 const rid = () => randomBytes(6).toString('hex');
 const MAIN = '@orchestrator';
 
