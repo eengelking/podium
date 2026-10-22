@@ -263,7 +263,7 @@ export function listPrevious(dir: string): CertInfo[] {
     return [];
   }
   const out: CertInfo[] = [];
-  for (const n of names.sort().reverse()) {
+  for (const n of names.sort((a, b) => a.localeCompare(b)).reverse()) {
     try {
       out.push(describeCert(fs.readFileSync(file(previousDir(dir), n), 'utf8')));
     } catch {
@@ -295,7 +295,7 @@ export async function renewServing(opts: RenewServingOptions): Promise<RenewedSe
     fs.copyFileSync(file(dir, 'serving.crt'), file(prev, `${base}.crt`));
     fs.copyFileSync(file(dir, 'serving.key'), file(prev, `${base}.key`));
     fs.chmodSync(file(prev, `${base}.key`), 0o600);
-    for (const n of fs.readdirSync(prev).filter((f) => f.endsWith('.crt')).sort().reverse().slice(PREVIOUS_KEEP)) {
+    for (const n of fs.readdirSync(prev).filter((f) => f.endsWith('.crt')).sort((a, b) => a.localeCompare(b)).reverse().slice(PREVIOUS_KEEP)) {
       fs.rmSync(file(prev, n), { force: true });
       fs.rmSync(file(prev, n.replace(/\.crt$/, '.key')), { force: true });
     }

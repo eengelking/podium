@@ -368,7 +368,8 @@ function fail(code, message) {
 /** Makes a directory only this user can enter; refuses one that is someone else's or open to others. */
 function privateDir(dir) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const st = fs.statSync(dir);
+  const st = fs.lstatSync(dir);
+  if (!st.isDirectory()) throw new StartError('SOCKET_DIR', `${dir} is not a folder`);
   if (typeof process.getuid === 'function' && st.uid !== process.getuid()) throw new StartError('SOCKET_DIR', `${dir} belongs to another user`);
   if ((st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
 }

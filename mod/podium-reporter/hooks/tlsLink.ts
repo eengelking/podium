@@ -119,7 +119,7 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
   if (home) {
     places.push(`${home}/.volta/bin/node`, `${home}/.local/bin/node`);
     try {
-      const versions = (await $.fs.list(`${home}/.nvm/versions/node`)).map((v) => v.name).sort().reverse();
+      const versions = (await $.fs.list(`${home}/.nvm/versions/node`)).map((v) => v.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).reverse();
       for (const v of versions) places.push(`${home}/.nvm/versions/node/${v}/bin/node`);
     } catch {
       // no nvm
@@ -261,7 +261,8 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   }
 
   const home = env.home?.replace(/\/+$/, '');
-  const dirs = [home ? `${podiumHome(home)}/run` : null, `${(env.tmp ?? '/tmp').replace(/\/+$/, '')}/podium-run`, '/tmp/podium-run'];
+  // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
+  const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${env.tmp.replace(/\/+$/, '')}/podium-run` : null];
   const sessionKey = `${found.path}:${o.now()}`;
   const socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
   if (!socket) {
