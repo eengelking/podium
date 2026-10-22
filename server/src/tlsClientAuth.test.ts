@@ -148,7 +148,7 @@ describe('buildReporterConfig', () => {
   it('makes a file name from any name', () => {
     expect(fileSafe('../../etc/passwd')).toBe('etc-passwd');
     expect(fileSafe('Zoë  O\'Neil')).toBe('Zo-O-Neil');
-    expect(fileSafe('‮')).toBe('person');
+    expect(fileSafe('\u202e')).toBe('person');
     expect(fileSafe('x'.repeat(100))).toHaveLength(48);
   });
 });

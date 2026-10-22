@@ -5,7 +5,7 @@
 //   node helper.mjs <config path> <socket path> <server url>
 //
 // It prints `ready` on stdout once it listens, and `error <CODE> <why>` before exiting 1 when it cannot start.
-import { X509Certificate, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { X509Certificate, generateKeyPairSync, randomBytes, randomInt } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -263,7 +263,7 @@ export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LO
       }
     }
     if (Date.now() > until) return null;
-    await sleep(50 + Math.random() * 50);
+    await sleep(randomInt(50, 100));
   }
   for (const g of generations(lockFile)) {
     if (g.file === mine || g.gen > Number(mine.slice(mine.lastIndexOf('.') + 1))) continue;
@@ -319,7 +319,7 @@ export async function withLock(lockFile, fn, waitMs = LOCK_WAIT_MS, staleMs = LO
           continue;
         }
         if (Date.now() > until) return null; // the finally lets go of the numbered lock
-        await sleep(50 + Math.random() * 50);
+        await sleep(randomInt(50, 100));
       }
     }
     return { value: await fn() };

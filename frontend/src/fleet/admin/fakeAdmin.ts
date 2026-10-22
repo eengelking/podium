@@ -157,8 +157,8 @@ export function fakeCerts(over: Partial<CertsView> = {}): CertsView {
   return {
     ca: fakeCert(3650, { subject: "CN=Podium CA", serial: "CA01" }, 3650),
     serving: fakeCert(307),
-    names: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "10.40.8.12"] },
-    certificateNames: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "10.40.8.12"] },
+    names: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "192.0.2.12"] },
+    certificateNames: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "192.0.2.12"] },
     previous: [fakeCert(-60, { serial: "0001" })],
     settings: { lifetimeDays: 365, renewBeforeDays: 30, headerCountdown: true },
     reporter: { lifetimeDays: 90, graceDays: 30 },

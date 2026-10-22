@@ -205,7 +205,7 @@ describe("Admin > Server > Certificates (#586)", () => {
       expect(within(always).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["localhostName", "127.0.0.1Address"]);
       const added = within(dialog).getByRole("region", { name: /Allowed hosts and bind address/ });
       expect(added).toHaveTextContent("PODIUM_ALLOWED_HOSTS");
-      expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["podium.lanName", "10.40.8.12Address"]);
+      expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["podium.lanName", "192.0.2.12Address"]);
       expect(within(dialog).queryByText(/next renewal will use/)).toBeNull();
       // The X has focus first.
       expect(within(dialog).getByRole("button", { name: "Close (Esc)" })).toHaveFocus();
@@ -235,13 +235,13 @@ describe("Admin > Server > Certificates (#586)", () => {
       const copy = within(dialog).getByRole("button", { name: "Copy the names" });
       fireEvent.click(copy);
       await waitFor(() => expect(copy).toHaveTextContent("Copied"));
-      expect(write).toHaveBeenCalledWith("localhost\npodium.lan\n127.0.0.1\n10.40.8.12");
+      expect(write).toHaveBeenCalledWith("localhost\npodium.lan\n127.0.0.1\n192.0.2.12");
       fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
       expect(screen.queryByRole("dialog")).toBeNull();
     });
 
     it("does not say the names differ when only their order does", async () => {
-      await open(fakeCerts({ names: { dns: ["podium.lan", "localhost"], ip: ["10.40.8.12", "127.0.0.1"] } }));
+      await open(fakeCerts({ names: { dns: ["podium.lan", "localhost"], ip: ["192.0.2.12", "127.0.0.1"] } }));
       fireEvent.click(await screen.findByRole("button", { name: /and \d+ more/ }));
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).queryByText(/The next renewal will use a different list/)).toBeNull();
