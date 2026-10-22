@@ -115,7 +115,7 @@ The levels of `respond`:
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
 run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
-connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is not sent on it. Nothing is installed on your machine.
+connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is still sent, inside the TLS connection, and the server ignores it when your certificate is present. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
 file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
@@ -156,8 +156,11 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   that way, the status line says `check the clock` and shows this machine's date, and the server's too once it has answered once.
   It never says the clock is certainly wrong, because the certificate could be expired. Your own certificate is judged by the
   server's clock, so a server with a wrong clock can refuse a good one: that shows as `certificate refused`.
-- **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
-  helper running.
+- **When the file is read.** The session picks its file when it starts, so a new file saved beside the old one (a
+  reissued config has a new name) is used from the next session. The file the session uses is read again before a
+  request whenever it changes on disk, if it is still for the same person. That is how a renewal made by another
+  session reaches this one, and how a reissued config saved over the old file is used within seconds. The server
+  address stays the one read at start. `/clear` keeps the helper running.
 - Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.
 
 ## Messaging your other orchestrators

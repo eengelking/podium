@@ -1314,7 +1314,8 @@ one generated config file, `reporter-config-<name>-<epoch>.pem`, holding the ser
 and the certificate with its private key, the way `kubeadm` and `kubectl` do. `SPEC.md` 5.9, 6, 6.8, 7.1 and
 7.7 have the rules.
 
-- A reporter with the file stops sending a token. The server authenticates it from the certificate in the TLS
+- A reporter with the file is identified by its certificate, not a token. A token the person has set is still sent
+  inside the TLS connection and the server ignores it. The server authenticates the reporter from the certificate in the TLS
   handshake, mapped to a person by SHA-256 fingerprint, and the report's `userName` must still equal that person,
   as 20 requires. The console keeps its name and token, on plain HTTP (30, and the update below).
 - The reporter makes its TLS connection through a small Node helper, started per session, because the mod's
@@ -1390,7 +1391,7 @@ The maintainer decided to split the traffic by port.
 certificate skipped the hourly renewal limit and the in-flight guard and could renew repeatedly. A renewal answer, a
 new CA during a rotation included, now only travels over a connection both sides verified.
 
-*Cost.* A laptop that sleeps past its certificate's end, or a reporter that is off for longer than the 60 days
-between renewal and expiry, needs an Admin to reissue its config. Revocation is checked on every request and not in
+*Cost.* A laptop that sleeps past its certificate's end, or a reporter that does not run at any time in its certificate's last 30 days
+(it can lapse after a little over a month away, and always does after 90), needs an Admin to reissue its config. Revocation is checked on every request and not in
 the handshake, since the handshake cannot know it. The planned-rotation overlap stays at 120 days, which now leaves a
 margin over a default 90-day certificate and does not cover a certificate set to the 365-day maximum.

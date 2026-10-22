@@ -1325,9 +1325,11 @@ Everything it needs is in one file the Admin gives the person once. Designed in 
   when the URL was `https://`, and never falls back to HTTP unasked.
 - **Permissions.** The file holds a private key. The reporter refuses, or tightens, a file that is group- or
   world-readable, as `ssh` does, and the box that shows the file says `chmod 600`.
-- **Identity.** The file is read at `session.start`. When the helper opens a new upstream connection it re-reads
-  the file only if the name in it equals the session's name (DECISIONS 29), and it keeps the last good copy if a
-  read fails. A running session does not pick up a file saved after it started.
+- **Identity.** The file is read at `session.start`. Before each request the helper checks the file's modification
+  time, and when it changed it re-reads the file only if the name in it equals the session's name (DECISIONS 29),
+  then builds a new connection from it. It keeps the last good copy if a read fails. So a renewal made by another
+  session, or a reissued config saved over the same file, is used within seconds. A new file saved under another
+  name is used from the next session, and the server address stays the one read at start.
 
 **The helper.** The mod cannot give `$.http.fetch` a CA or a client certificate, so podium-reporter starts a small
 Node script, `hooks/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from
@@ -1345,14 +1347,21 @@ the file, and the mod sends its requests to it over a Unix socket with `$.http.f
   never read as a `200`.
 - It writes the config file atomically (a temporary file, then a rename) under a lock, because several sessions
   can renew at once, and keeps the mode 0600.
+- It forwards only the calls a reporter makes, the same list as the reporter port ([7.7](#77-hardening), Ports), kept
+  as a copy that a test compares with the server's. It builds the upstream request from the matched route, and
+  anything else is answered `403` with `X-Podium-Helper-Error: ROUTE_NOT_ALLOWED`, without going upstream.
+- When the certificate's end date has passed on this machine's clock it answers every request `502` with
+  `CERT_EXPIRED` and sends nothing upstream. The reporter treats that as any failed send: it keeps its reports and
+  retries with a back-off of at most 10 seconds, and `/podium` shows `offline, retrying` beside the reason.
 
 **Platforms.** macOS and Linux are in scope. Windows is out of scope and unsupported. The desktop app and VS Code
 are untested: `$.process` is CLI only per the engine types, so the helper may not start there.
 
-**Open: how the reporter finds `node`.** The helper needs `node`, and a Claude Code started from a desktop
-launcher often has no `nvm` or Homebrew `PATH` (measured: the spawn fails with `ENOENT`). Whether to look for it
-through an option, a `PODIUM_NODE` variable, a search of the usual places, or some mix is not decided, so this
-section does not say. Until it is, a missing `node` is reported plainly (below) and nothing else is promised.
+**How the reporter finds `node`.** The helper needs `node`, and a Claude Code started from a desktop launcher
+often has no `nvm` or Homebrew `PATH` (measured: the spawn fails with `ENOENT`). The reporter uses the file named
+by `PODIUM_NODE` if that is set. Otherwise it runs `node` on the `PATH` Claude Code started with, then looks in
+Homebrew's and `/usr/local`'s `bin`, `~/.volta/bin`, `~/.local/bin` and the newest version under `~/.nvm`. A missing
+`node` is reported plainly (below).
 
 ### 5.10 Alternatives and extras the implementer may use
 
@@ -2365,12 +2374,15 @@ with a valid certificate. The console is on the HTTP port.
   and the Podium CA(s) as `ca`, so a connection with no certificate, an expired one or one from another CA is dropped
   in the handshake and no route runs. The server then looks the certificate up by its SHA-256 fingerprint and checks it
   is not revoked, which the handshake cannot know. The report's `userName` must still equal that person (DECISIONS 20).
-- **The token.** A reporter that has a config file sends none. A reporter without one still sends its token, over
-  HTTP, while the Admin allows reporters over HTTP. The console signs in with a name and a token as before.
+- **The token.** A reporter that has a config file is identified by its certificate. A token set in the options or
+  in `PODIUM_TOKEN` is still sent with its requests, inside the TLS connection, and the server ignores it when a
+  certificate is present. A reporter without a file sends its token over HTTP, while the Admin allows reporters
+  over HTTP. The console signs in with a name and a token as before.
 - **Renewal.** `POST /api/reporter/renew` is authenticated by the person's current certificate. The body carries
   the reporter's new public key (no Node API builds a CSR), and the response carries a new certificate for it.
   The helper writes the new certificate and the CA(s) in one atomic write, so the file never holds one without
-  the other. The reporter renews when 30 days of the certificate are left. A renewal needs a certificate that is
+  the other. The reporter renews when 30 days of the certificate are left, or half its lifetime when that is shorter (a certificate
+  that lasts under 60 days). A renewal needs a certificate that is
   valid in the handshake, so its answer, a new CA included, only travels over a connection the reporter's side and
   the server both verified.
 - **Renewal limit.** A person's certificate is renewed at most once an hour. While the person's newest live
@@ -2710,6 +2722,7 @@ need the unlocked Admin session like the rest of the Admin API.
 
 | Method and path | Purpose |
 |---|---|
+| `GET /api/tls/status` | The header pill's data: `{ enabled: false }` when TLS is off, otherwise the first of the CA and the serving certificate to end (`subject`, `expiresAt`, `daysLeft`, `stage`), `renewalFailed` and `showCountdown`. No fingerprint, name or path, so it is open like the console's other reads. Reused for 30 seconds, never past the moment a certificate ends. |
 | `POST /api/reporter/renew` | The reporter renews its certificate ([6](#authenticating-by-certificate-577)). Authenticated by the client certificate. Body: the new public key. Reply: the new certificate, and for a planned CA rotation the added CA and its cross certificate. `429` with `Retry-After` when the person's certificate was renewed less than an hour ago. |
 | `GET /api/admin/certificates` | The CA, the serving certificate, their dates and fingerprint, the names, the settings, the last renewal failure and the previous certificates. |
 | `PUT /api/admin/certificates` | Change the `tls.*` settings ([7.7](#77-hardening)). A value outside its range is a `400` that names the range. |
@@ -3328,8 +3341,8 @@ log line and leaves HTTP working.
 Containerfile exposes both. The port a reporter config names is the one people reach, `PODIUM_TLS_PUBLIC_PORT` when it
 is set and the listening port otherwise; `podiumctl` sets it in container mode to the host's `PODIUM_TLS_PORT`, since
 the server listens on 4318 inside (#649). A value that is not a port is ignored. The reporter port serves only the
-routes a reporter calls (`POST /api/fleet/report` and `/hook`, the peers, diffs and asks routes under a session, and
-`POST /api/reporter/renew`); any other path on it is a `404` and the console is not reachable there. The Host check
+routes a reporter calls (`POST /api/fleet/report` and `/hook`, the peers, asks, diffs, deliveries and recording routes
+under a session, and `POST /api/reporter/renew`); any other path on it is a `404` and the console is not reachable there. The Host check
 applies to both ports (DECISIONS 33).
 
 **Keys and certificates.** The CA, the serving certificate and every person's certificate use EC P-256 keys, made
@@ -3958,7 +3971,8 @@ read the open routes.
 - Five *different* wrong values from one address throttle it for 15 minutes. The same wrong value sent again
   counts once, so a reporter with a stale credential, which always sends the same one, throttles nobody.
 - A person's token (`pdm_…`, 192 bits) is never counted or throttled, whether right, revoked or unknown, so
-  reporters with a person's token are unaffected whatever else the address sends.
+  reporters with a person's token are not counted or throttled by this counter, whatever else the address sends.
+  The per-address limit on failed requests (below) is separate and does apply to them.
 - While an address is throttled, any other value is answered `429 { ok: false, error: "too many wrong tries", retryAfterSec }`
   with a `Retry-After` header, even the right admin secret, since answering it would confirm a guess.
 - The refusal is logged as `auth.failed` (`reason: "too many wrong secrets"`, `status: 429`) and shown in the
@@ -3966,6 +3980,18 @@ read the open routes.
 - The counters are in memory only.
 - At start the server warns (`server.weak_token`, never the secret) when `PODIUM_TOKEN` is under 24
   characters.
+
+#### Failed requests per address (#667)
+
+- Ahead of every `/api` route, one address may make 300 requests a minute that end in a response of 400 or more.
+  `PODIUM_FAILURE_LIMIT` changes the number (a whole number of at least 1; anything else stops the server at start).
+- Successful requests are never counted. Every response of 400 or more counts, a `404` or `409` included.
+- Past the limit the next request gets `429 { ok: false, error: "too many failed requests", retryAfterSec }` with a
+  `Retry-After` header, until the minute is over. That includes a valid request from the same address, a reporter
+  with a person's token or a certificate included.
+- The first refusal for an address in a window is logged as `auth.throttled` (`warn`). The counters are in memory only.
+- The address is the one Express sees, so behind a proxy it follows `PODIUM_TRUST_PROXY` (7.7, reverse proxy).
+- It is separate from the wrong-secret throttle and the Admin and sign-in lockout, which are unchanged.
 
 #### Plain HTTP warnings (#306)
 
