@@ -271,8 +271,15 @@ podiumctl restart
 Alongside the lockouts for wrong secrets, one address may make 300 failed requests a minute (a response of 400 or
 more) to `/api`. The next one gets `429` with `Retry-After` until the minute is over, and the first refusal in a
 window is logged as `auth.throttled`. Successful requests are never counted, so a busy reporter or an open console
-does not trip it. The address is the one Express sees, so behind a proxy the limit follows `PODIUM_TRUST_PROXY`
-above: without it, every client behind the proxy shares one address.
+does not trip it. Any response of 400 or more counts, a `404` or `409` included.
+
+- Past the limit, that address's valid requests are refused too until the minute is over.
+- The address is the one Express sees, so behind a proxy the limit follows `PODIUM_TRUST_PROXY` above. Without it,
+  every client behind the proxy (and every local client on `127.0.0.1`) shares one address, and one scanner can
+  use up the limit for all of them.
+- To change the limit, set `PODIUM_FAILURE_LIMIT` to a whole number of failed requests a minute
+  (`podiumctl config set PODIUM_FAILURE_LIMIT=1200`, then `podiumctl restart`). A value that is not a whole number
+  of at least 1 stops the server at start.
 
 ### More settings
 

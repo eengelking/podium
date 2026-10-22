@@ -2,7 +2,7 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { failureLimiter } from './failureLimiter.js';
+import { FAILURE_LIMIT, failureLimiter, parseFailureLimit } from './failureLimiter.js';
 import { createLogger } from './logging/logger.js';
 
 function appWith(o: { max: number; windowMs?: number; logs?: unknown[] }) {
@@ -44,5 +44,37 @@ describe('failureLimiter', () => {
     const throttled = logs.filter((l) => l.event === 'auth.throttled');
     expect(throttled).toHaveLength(1);
     expect(JSON.stringify(throttled)).not.toContain('secret-value');
+  });
+
+  it('starts a new count when the window ends, and logs the next window again', async () => {
+    const logs: Array<Record<string, unknown>> = [];
+    const app = appWith({ max: 1, windowMs: 1000, logs });
+    await request(app).get('/no').expect(401);
+    await request(app).get('/ok').expect(429);
+    await new Promise((r) => setTimeout(r, 1100));
+    await request(app).get('/ok').expect(200);
+    await request(app).get('/no').expect(401);
+    await request(app).get('/ok').expect(429);
+    expect(logs.filter((l) => l.event === 'auth.throttled')).toHaveLength(2);
+  });
+
+  it('logs once for a burst of concurrent failures', async () => {
+    const logs: Array<Record<string, unknown>> = [];
+    const app = appWith({ max: 2, logs });
+    await Promise.all(Array.from({ length: 12 }, () => request(app).get('/no')));
+    await request(app).get('/ok').expect(429);
+    expect(logs.filter((l) => l.event === 'auth.throttled')).toHaveLength(1);
+  });
+});
+
+describe('parseFailureLimit', () => {
+  it('is the default when unset or blank, and a whole number when set', () => {
+    expect(parseFailureLimit(undefined)).toBe(FAILURE_LIMIT);
+    expect(parseFailureLimit('  ')).toBe(FAILURE_LIMIT);
+    expect(parseFailureLimit(' 1200 ')).toBe(1200);
+  });
+
+  it('refuses anything else, so a typo stops the server at start', () => {
+    for (const bad of ['0', '-5', '1.5', 'many', '12abc', '1234567890']) expect(() => parseFailureLimit(bad), bad).toThrow(/PODIUM_FAILURE_LIMIT/);
   });
 });
