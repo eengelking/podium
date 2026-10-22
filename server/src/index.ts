@@ -19,6 +19,7 @@ import { createAdminRouter } from "./admin/adminRouter.js";
 import { PeopleStore } from "./fleet/people.js";
 import { ReporterStore } from "./fleet/reporters.js";
 import { Lockout } from "./fleet/lockout.js";
+import { failureLimiter, parseFailureLimit } from "./failureLimiter.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
 import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
@@ -109,6 +110,8 @@ const lockout = new Lockout();
 const respondBridge = createRespondBridge();
 // Responding over plain HTTP beyond loopback sends the sign-in unencrypted: say so, never block (#306).
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
+// Failed requests from one address are limited ahead of every /api route; successful ones are never counted. PODIUM_FAILURE_LIMIT raises it.
+app.use("/api", failureLimiter({ logger, max: parseFailureLimit(process.env.PODIUM_FAILURE_LIMIT) }));
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));

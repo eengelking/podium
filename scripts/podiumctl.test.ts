@@ -358,6 +358,16 @@ describe("podiumctl trust proxy (#305)", () => {
   });
 });
 
+describe("podiumctl failed-request limit", () => {
+  it("passes PODIUM_FAILURE_LIMIT through to the server, in both modes, and documents it", () => {
+    expect(PASSTHROUGH).toContain("PODIUM_FAILURE_LIMIT");
+    const cfg = resolveConfig({ PODIUM_FAILURE_LIMIT: "1200" });
+    expect(serverEnv(cfg, true)).toMatchObject({ PODIUM_FAILURE_LIMIT: "1200" });
+    expect(serverEnv(cfg, false)).toMatchObject({ PODIUM_FAILURE_LIMIT: "1200" });
+    expect(fs.readFileSync(path.join(__dirname, "..", "bin", "podiumctl"), "utf8")).toContain("PODIUM_FAILURE_LIMIT  ");
+  });
+});
+
 describe("podiumctl logging settings (#140)", () => {
   const LOG_KEYS = ["PODIUM_LOG_LEVEL", "PODIUM_LOG_FORMAT", "PODIUM_LOG_SHIP_URL", "PODIUM_LOG_SHIP_HEADERS", "PODIUM_LOG_SHIP_BUFFER"];
   const file = {

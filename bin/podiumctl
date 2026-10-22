@@ -23,7 +23,7 @@ export const ENGINES = ['podman', 'docker'];
 export const PASSTHROUGH = [
   'STALE_AFTER_MS', 'HOOK_STALE_AFTER_MS', 'DROP_AFTER_MS', 'LINGER_MS', 'DETACHED_HIDE_AFTER_MS',
   'RETAIN_SAMPLES_MS', 'RETAIN_EVENTS_MS', 'RETAIN_SESSIONS_MS', 'RETAIN_ADMIN_LOG_MS', 'RETAIN_ROLLUP_MS',
-  'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY',
+  'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY', 'PODIUM_FAILURE_LIMIT',
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
 /** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. Container-only: PODIUMCTL_ENGINE. */
@@ -96,6 +96,9 @@ are shared by everyone and the session cookies are not marked Secure):
                         or ranges (10.0.0.5,172.16.0.0/12) or loopback, linklocal, uniquelocal. Off by default; "true" is
                         refused. Name only a proxy that overwrites those headers: a hop that passes a client's through
                         lets that client choose its source and defeats the lockouts. Then podiumctl restart
+  PODIUM_FAILURE_LIMIT  Failed requests (a response of 400 or more) one address may make a minute before its requests get 429
+                        until the minute is over. Default 300; a whole number of at least 1. Behind a proxy that is not named in
+                        PODIUM_TRUST_PROXY every client shares one address, so raise it. Then podiumctl restart
 
 Logging (server output; \`podiumctl logs\` shows it):
   PODIUM_LOG_LEVEL         debug, info (default), warn or error. debug adds one line per HTTP request
