@@ -114,14 +114,14 @@ The levels of `respond`:
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
 run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
-connects to the address in the file over HTTPS with your certificate, with no token and nothing installed on your machine.
+connects to the address in the file over HTTPS with your certificate, and the certificate is what proves who you are. A token you have set is still sent in the header, but the server does not need it. Nothing is installed on your machine.
 Set `userName` (or `PODIUM_USER`) to the name in the file's `# user:` line, since the reporter does not take the name
 from the file. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
 
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
-- **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left the helper asks the server
+- **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. An expired certificate can still renew for 30 days after it expired (the Admin sets
   the grace); the status line says "renewing certificate" meanwhile. Past that, or if an Admin revoked the certificate, it

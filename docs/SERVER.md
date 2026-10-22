@@ -166,12 +166,12 @@ steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#o
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
 a server that already had reporters when you turned TLS on, so nothing stops, and a warning line stays until you turn
 it off. A fresh server starts with it off. Turn it off once every reporter has its config: the HTTP port then refuses
-reporter traffic from anywhere but this machine. The console on loopback stays on HTTP either way, so an Admin can
+reporter traffic from anywhere but the server's own loopback address. A server in a container is the exception to "this machine": a reporter on the same host reaches it through the published port and arrives from the container network, so it needs its reporter config. The console on loopback stays on HTTP either way, so an Admin can
 always sign in.
 
 **When a certificate expires.**
 
-- **A person's certificate** renews itself at 30 days left, and for 30 days after it expires. Past that, or after a
+- **A person's certificate** renews itself at 30 days left (half its lifetime for a certificate that lasts under 60 days), and for 30 days after it expires. Past that, or after a
   revoke, open Admin > People, choose **Reissue config** for them and send them the new file.
 - **The serving certificate** renews itself 30 days before it expires and at every start. A failed renewal shows in
   red on the Certificates page and in the header pill. **Renew now** tries again.
