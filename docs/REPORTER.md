@@ -99,6 +99,7 @@ instead. Everything except `token` also has a row in the `/config` menu.
 | `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. Nothing is sent for a file nobody opens. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
 | `peers` | `false` | Message my other orchestrators: this machine's orchestrators can message your other orchestrators through Podium, within the rights you set on My reporters. See [Messaging your other orchestrators](#messaging-your-other-orchestrators). It needs a per-person token and `userName`, and the server's Orchestrator messaging switch in Admin > Settings > Feature flags (off by default). Set it on each machine that takes part |
+| `sessionRecording` | `false` | Allow session recording: this machine's sessions may be recorded whole when the Admin has turned on the server's Session recording switch and the session's owner or an Admin chooses to record. Off, nothing is recorded whatever the server says, and the terminal says so when a recording was chosen anyway. A recording holds whole prompts, file contents and command output, with anything that looks like a secret replaced on the machine (best effort, not a guarantee). See [REPLAY.md](REPLAY.md) |
 | `explainFailures` | `false` | Ask a small model (Haiku, low effort) for a two-sentence explanation of each failed agent, from the redacted failure record only. Costs a little; off by default |
 
 The levels of `respond`:
@@ -258,6 +259,17 @@ to keep Activity history, for every running agent and the orchestrator:
 - A request for access made with `podium_request_access`: the machine, the right and the reason, redacted.
 - Your answers to requests, and what became of each message or notice the session received (`took`, `queued`
   or `refused`).
+
+**Only with `sessionRecording`**, and only for the loops of a session that the Admin's switch and a person's choice have
+put on record:
+
+- That loop's prompts, what the model wrote, each tool call's whole input and whole result, and marks for `/clear`,
+  `/compact` and where the model thought (never the thinking text), redacted and cut at 100,000 characters each. Each
+  tool call's input and result goes out whole, so file contents and command output go too.
+- Answers and approvals sent from Podium, once Claude Code took them.
+- The server keeps it for 6 hours unless the Admin sets longer, and only the session's owner and an Admin can read it.
+  The owner's terminal says when recording starts and stops. What is and is not captured, and the limits of the
+  redaction, are in [REPLAY.md](REPLAY.md).
 
 **Only with `userName`:**
 

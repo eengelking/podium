@@ -172,6 +172,35 @@ export interface ActivityEntry {
   at: number;
   kind: ActivityKind;
   text: string;
+  /**
+   * The tool call's id, so the output of a call that was running when its entry first went out can be matched to that entry
+   * later (#431). Sent with the fields below.
+   */
+  id?: string;
+  /**
+   * A Bash call's whole command, redacted, line breaks kept, cut to 20,000 characters with a "[cut off at 20,000 characters]"
+   * marker (#431). Rides the `activityFeed` option and is stored in the Activity history (#432). Only on a `tool` entry.
+   */
+  command?: string;
+  /** The mod cut the command at its limit. */
+  commandCut?: boolean;
+  /**
+   * The call's output, stdout then stderr, redacted and cut like `command` (#431). Sent only with the `activityOutput` option on
+   * and only while a viewer has the loop's feed open (the reply's `watchOutput`); the server holds it in memory and never stores
+   * it. Absent while the call runs and when the output was not captured; an empty string is a call that printed nothing.
+   */
+  output?: string;
+  /** The mod cut the output at its limit. */
+  outputCut?: boolean;
+  /**
+   * The call has finished (#598). Sent with `activityFeed` on, with or without `output`; absent while it runs. It is not output:
+   * it needs neither the `activityOutput` option nor the Admin flag, and an older mod sends it only with `output`.
+   */
+  done?: boolean;
+  /** The command's exit status, when the mod can read it. Sent with `done`, never kept in the Activity history. */
+  exitCode?: number;
+  /** The call failed. Sent with `done` when the exit status says so, whether or not `exitCode` is known. */
+  failed?: boolean;
 }
 
 export interface AgentReport {
@@ -270,6 +299,8 @@ export interface SessionReport {
   background?: BackgroundWait | null;
   /** Whether the reporter's `activityFeed` option is on. Absent from a reporter older than 0.13.0. */
   activityFeed?: boolean;
+  /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
+  activityOutput?: boolean;
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
@@ -282,6 +313,8 @@ export interface SessionReport {
   clearedFrom?: string | null;
   /** Whether the reporter's `peers` option is on (#347). Absent from a reporter older than the release that adds it, whose sessions are never listed as peers. */
   peers?: boolean;
+  /** Whether the reporter's `sessionRecording` option is on (#353): the owner's consent to be recorded. Absent from a reporter older than the release that adds it. */
+  sessionRecording?: boolean;
 }
 
 export interface Report {
@@ -537,6 +570,13 @@ export interface ReportReply {
   reporterSupport: { min: string; max: string };
   reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
   watch: string[];
+  /**
+   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
+   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
+   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
+   * release that adds it, which asks for none.
+   */
+  watchOutput?: string[];
   /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
   respond: boolean;
   /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
@@ -547,6 +587,211 @@ export interface ReportReply {
   peerDeliveries?: PeerDelivery[];
   /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
   peerRequests?: PeerRequest[];
+  /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
+  recording?: RecordingGrant;
+}
+
+/**
+ * Session recording (#353, SPEC 6.4 "Session recording"). Everything an orchestrator and the agents under it do, whole, for
+ * troubleshooting. Three yes answers are needed before anything leaves the machine: the Admin's `session-recording` flag,
+ * a choice by the session's owner or an Admin, and the reporter's `sessionRecording` option (off by default).
+ */
+export const RECORDING_KINDS = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'decision', 'gap', 'stopped', 'limit'] as const;
+/**
+ * What one recorded entry is. The mod writes `prompt` (a task prompt, a person's prompt or a message from Podium), `text` (what the
+ * model wrote), `tool` (a call with its whole input), `result` (that call's whole output, `name` the tool, `failed` when it failed),
+ * `thinking` (a mark where the model thought; its text is not available, see SPEC 6.4), `clear` and `compact` (the transcript was
+ * emptied or compacted; `by` when Podium ran it), `decision` (an answer or approval sent from Podium and taken by Claude Code: `name`
+ * is `question`, `plan` or `permission`, `callSeq` the call it answers, `by` who sent it, `failed` when it refused: a deny, a plan sent
+ * back) and `gap` (`lost` entries never reached the server). The server writes `stopped` and `limit` itself.
+ */
+export type RecordingKind = (typeof RECORDING_KINDS)[number];
+
+/** One recorded entry, as the mod sends it. `(loop, seq)` is the entry's identity: a resend of an entry the server holds is dropped. */
+export interface RecordingEntry {
+  /** The loop it belongs to: `@orchestrator` (MAIN_LOOP) or an agent id. */
+  loop: string;
+  /** Counts up from 1 per session and loop, assigned by the mod when the entry happens. */
+  seq: number;
+  /** When it happened on the machine, epoch ms. */
+  at: number;
+  kind: RecordingKind;
+  /** The whole text, redacted on the machine and cut at RECORDING_LIMITS.text with a visible marker. An empty string for `thinking`, `clear`, `compact` and `gap`. */
+  text: string;
+  /** The tool's name, for `tool` and `result`. */
+  name?: string;
+  /** The `seq` of the `tool` entry a `result` answers, in the same loop. */
+  callSeq?: number;
+  /** A `result` of a call that failed. */
+  failed?: boolean;
+  /** The text was cut at the limit. */
+  cut?: boolean;
+  /** For `gap`: how many entries of this loop were dropped on the machine (the queue was full during an outage). */
+  lost?: number;
+  /** For `decision`, `clear` and `compact`: who sent it from Podium. Taken from the mod for these kinds only; a `prompt` is marked by the server (SPEC 6.4). */
+  by?: string;
+}
+
+/** What one request to the recording route carries. The mod splits a larger backlog so each request stays within RECORDING_LIMITS.bodyBytes. */
+export interface RecordingBatch {
+  v: 1;
+  sentAt: number;
+  /** Oldest first. At most RECORDING_LIMITS.entries. */
+  entries: RecordingEntry[];
+}
+
+/** The server's answer to a batch. A batch that was accepted is never sent again. */
+export interface RecordingBatchReply {
+  ok: true;
+  /** How many entries were new; the rest were already held. */
+  stored: number;
+  /** The state after this batch, so a cap reached by it stops the mod at once. */
+  recording: RecordingGrant;
+}
+
+export const RECORDING_STATES = ['off', 'recording', 'stopped', 'limit'] as const;
+/** `off`: nothing is chosen. `recording`: capturing. `stopped`: capture ended and what was recorded is kept. `limit`: the per-session cap or the disk budget stopped it. */
+export type RecordingState = (typeof RECORDING_STATES)[number];
+
+/** Which cap stopped a recording. */
+export type RecordingLimit = 'session' | 'budget';
+
+/** The three yes answers. Capture needs all three. */
+export interface RecordingConsent {
+  /** The Admin's `session-recording` flag is on and the server has authentication on. */
+  admin: boolean;
+  /** Someone with the right (the session's owner or an Admin) chose to record this session. */
+  chosen: boolean;
+  /** The session's last report said the `sessionRecording` option is on. */
+  owner: boolean;
+}
+
+/**
+ * The consent state in a report's reply (`recording`) and in a batch's. The mod captures only while `state` is `recording` and
+ * every `consent` answer is true, and only the loops in `loops`. When `chosen` is true but `owner` is false it captures nothing and
+ * tells the owner so in the terminal. It is sent in every reply while a recording is chosen or kept, and `state: "off"` otherwise.
+ */
+export interface RecordingGrant {
+  state: RecordingState;
+  consent: RecordingConsent;
+  /** The loops to capture (`@orchestrator` or agent ids). A loop that starts later under a recorded session is not in it until chosen. */
+  loops: string[];
+  limit: RecordingLimit | null;
+  /** Who chose it (a person's name, or `Admin`), for the terminal text and the notice. */
+  startedBy: string | null;
+  startedAt: number | null;
+  /** Who stopped it and when, once `state` is `stopped`. */
+  stoppedBy: string | null;
+  stoppedAt: number | null;
+  /** When the oldest part still kept goes, epoch ms; null when nothing is kept. */
+  keptUntil: number | null;
+  /** The recording's size so far, in bytes. */
+  bytes: number;
+}
+
+/** Limits for session recording. Sizes were set from a simulated-traffic measurement (#353, SPEC 6.4 "Measured write load"); the Admin's values are in RECORDING_DEFAULTS. */
+export const RECORDING_LIMITS = {
+  /** Entries in one batch. */
+  entries: 200,
+  /** Characters of one entry's text; the mod's cut-off marker comes on top (room for it is added on the server). */
+  text: 100_000,
+  /** Serialized bytes of one batch, below the 512 KB body limit with room for JSON escaping. */
+  bodyBytes: 480_000,
+  /** Bytes the mod queues while the server cannot be reached. Past it the oldest entries go and a `gap` entry says how many. */
+  queueBytes: 8_000_000,
+  /** Rows of one replay page, and the most a request may ask for. */
+  page: 200,
+} as const;
+
+/** What the Admin sets, one JSON row `recording_settings` in `settings`. Defaults set from measurement (#353). */
+export interface RecordingSettings {
+  /** How long each part is kept, counted from when it was recorded. */
+  keepHours: number;
+  /** Disk budget for all recordings, in megabytes. At this size every recording stops, and a new one needs room for one more request (SPEC 7.7). */
+  budgetMb: number;
+  /** Limit for one session, in megabytes. A recording stops when its session reaches it. */
+  sessionMb: number;
+}
+export const RECORDING_DEFAULTS: RecordingSettings = { keepHours: 6, budgetMb: 4096, sessionMb: 512 };
+/** Whole numbers. `keepHours` is at most 7 days. */
+export const RECORDING_RANGES = { keepHours: { min: 1, max: 168 }, budgetMb: { min: 64, max: 102_400 }, sessionMb: { min: 8, max: 4096 } } as const;
+
+/** What a person with the right sends to start (or change) a recording: the loops to record from now on. Nothing before it is kept. */
+export interface RecordingStartRequest {
+  loops: string[];
+}
+
+/**
+ * One stored entry as the replay reads it. `n` is the server's order; the server's own `stopped` and `limit` entries carry `by`.
+ * `seq` is the entry's own number within its loop (the mod's, from 1; 0 and below for a mark the server wrote), which a result's
+ * `callSeq` names.
+ */
+export interface RecordingRow {
+  n: number;
+  seq: number;
+  loop: string;
+  at: number;
+  kind: RecordingKind;
+  text: string;
+  name?: string;
+  callSeq?: number;
+  failed?: boolean;
+  cut?: boolean;
+  lost?: number;
+  by?: string | null;
+}
+
+/** A loop the layer and the replay's loop filter name, with whether it is recorded. */
+export interface RecordingLoopInfo {
+  loop: string;
+  name: string;
+  recorded: boolean;
+}
+
+/** One page of a replay, oldest first: the newest `RECORDING_LIMITS.page` rows, then older ones with `before` = `olderBefore`. */
+export interface RecordingPage {
+  entries: RecordingRow[];
+  /** The `n` to pass as `before` for the next older page, or null. */
+  olderBefore: number | null;
+  total: number;
+  grant: RecordingGrant;
+  loops: RecordingLoopInfo[];
+  /** The session's owner, for the refusal a viewer who may not read it is shown. */
+  owner: string | null;
+}
+
+/** A row of the Admin's Recordings table. */
+export interface RecordingAdminRow {
+  sessionId: string;
+  name: string;
+  owner: string | null;
+  startedBy: string | null;
+  state: RecordingState;
+  limit: RecordingLimit | null;
+  /** How many loops are recorded, and a short label such as "orchestrator and 3 agents". */
+  loops: number;
+  label: string;
+  bytes: number;
+  keptUntil: number | null;
+}
+
+/**
+ * What everyone sees of a recording (#353): the card's band and the orchestrator page's layer. State, who started it, which loops
+ * and when it goes; never any text. `SessionView.recording` is this, or null when nothing is chosen or kept.
+ */
+export interface RecordingView {
+  state: Exclude<RecordingState, 'off'>;
+  limit: RecordingLimit | null;
+  startedBy: string | null;
+  startedAt: number | null;
+  stoppedBy: string | null;
+  stoppedAt: number | null;
+  keptUntil: number | null;
+  bytes: number;
+  /** Every loop of the session, with whether it is recorded; the layer names both groups in words. */
+  loops: RecordingLoopInfo[];
+  /** Whether the reporter's `sessionRecording` option is on. False while the recording is chosen means nothing is being captured. */
+  ownerAllows: boolean;
 }
 
 // <protocol:end>
@@ -711,6 +956,8 @@ export interface SessionView {
    * than 0.13.0, a settings-hooks session, or no report since the server started. Held in memory, not stored.
    */
   activityFeed: boolean | null;
+  /** Whether the reporter's activityOutput option is on (#431); null as for `activityFeed`. Held in memory. */
+  activityOutput: boolean | null;
   /** Whether the reporter's fileDiff option is on (#319); null as for `activityFeed`. Held in memory. */
   fileDiff: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */
@@ -719,6 +966,8 @@ export interface SessionView {
   asks: AskSummary[];
   /** The session this one continues after a /clear. */
   clearedFrom: string | null;
+  /** The session's recording, for the notice everyone sees (#353): absent or null when nothing is chosen or kept. Carries no text. */
+  recording?: RecordingView | null;
   agents: AgentView[];
   series: { tokensPerSec: number[]; peakContext: number[]; running: number[]; blowoutSecondsAgo: number[] };
 }
@@ -875,6 +1124,11 @@ export interface HistoryRow {
   /** The session this one continues after a /clear, and the one that continued it (#206). */
   clearedFrom: string | null;
   clearedInto: string | null;
+  /**
+   * A recording of the session is kept (#353): until when its oldest part goes. Present only for a viewer who may know of it (the
+   * session's owner or an Admin) and only while there is a recording; absent otherwise.
+   */
+  recording?: { keptUntil: number | null };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -912,6 +1166,10 @@ export const LIMITS = {
   activityEntries: 20,
   activityText: 300,
   activityChars: 60_000,
+  /** A Bash entry's command and its output (#431): the 20,000-character cap plus room for the mod's cut-off marker, as `fullText`. */
+  activityDetail: 20_100,
+  /** Characters of commands and output over the whole report (#431), apart from `activityChars`. Under the 512 KB body limit with the summaries and full text. */
+  activityDetailChars: 200_000,
 } as const;
 
 /** Room past a respond limit for the reporter's "[cut off at N characters]" marker. */
@@ -1284,12 +1542,14 @@ function session(v: unknown, path: string): SessionReport {
     attached: o.attached === undefined || o.attached === null ? null : bool(o.attached, `${path}.attached`),
     ...(bg ? { background: bg } : {}),
     ...(o.activityFeed === undefined || o.activityFeed === null ? {} : { activityFeed: bool(o.activityFeed, `${path}.activityFeed`) }),
+    ...(o.activityOutput === undefined || o.activityOutput === null ? {} : { activityOutput: bool(o.activityOutput, `${path}.activityOutput`) }),
     ...(o.fileDiff === undefined || o.fileDiff === null ? {} : { fileDiff: bool(o.fileDiff, `${path}.fileDiff`) }),
     ...activity(o.activity, `${path}.activity`),
     ...respondInfo(o.respond, `${path}.respond`),
     ...(o.asks === undefined || o.asks === null ? {} : { asks: asks(o.asks, `${path}.asks`) }),
     ...(o.clearedFrom === undefined ? {} : { clearedFrom: strOrNull(o.clearedFrom, `${path}.clearedFrom`, LIMITS.id) }),
     ...(o.peers === undefined || o.peers === null ? {} : { peers: bool(o.peers, `${path}.peers`) }),
+    ...(o.sessionRecording === undefined || o.sessionRecording === null ? {} : { sessionRecording: bool(o.sessionRecording, `${path}.sessionRecording`) }),
   };
 }
 
@@ -1399,12 +1659,56 @@ function activity(v: unknown, path: string): { activity?: ActivityEntry[] } {
     activity: arr(v, path, LIMITS.activityEntries).map((e, i) => {
       const p = `${path}[${i}]`;
       const o = obj(e, p);
-      return { at: num(o.at, `${p}.at`), kind: oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS), text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      const kind = oneOf(o.kind, `${p}.kind`, ACTIVITY_KINDS);
+      const entry: ActivityEntry = { at: num(o.at, `${p}.at`), kind, text: str(o.text, `${p}.text`, LIMITS.activityText) };
+      if (o.id !== undefined && o.id !== null) entry.id = str(o.id, `${p}.id`, LIMITS.id);
+      // The command and output belong to a tool call; on any other entry they are dropped, not rejected.
+      const tool = kind === 'tool';
+      const detail = (key: 'command' | 'output') => {
+        const v = o[key];
+        if (v === undefined || v === null) return;
+        const t = text(v, `${p}.${key}`, LIMITS.activityDetail);
+        if (tool) entry[key] = t;
+      };
+      const flag = (key: 'commandCut' | 'outputCut' | 'done' | 'failed') => {
+        const v = o[key];
+        if (v === undefined || v === null) return;
+        const b = bool(v, `${p}.${key}`);
+        if (tool && b) entry[key] = true;
+      };
+      detail('command');
+      detail('output');
+      flag('commandCut');
+      flag('outputCut');
+      flag('done');
+      flag('failed');
+      if (o.exitCode !== undefined && o.exitCode !== null) {
+        const n = int(o.exitCode, `${p}.exitCode`);
+        if (tool) entry.exitCode = n;
+      }
+      return entry;
     }),
   };
 }
 
-/** Keeps the report's activity within LIMITS.activityChars: the orchestrator's first, then the agents' in order. A loop that does not fit loses its feed for this report. */
+/**
+ * What a Bash entry carries that is a call's output (#431): kept only when the session's `activityOutput` option is on. `done`,
+ * `failed` and `exitCode` are not output; they say how the call ended, ride with `activityFeed` alone (#598), and are never
+ * dropped here, whatever the budget.
+ */
+const OUTPUT_FIELDS = ['output', 'outputCut'] as const;
+
+function detailChars(e: ActivityEntry): number {
+  return (e.command?.length ?? 0) + (e.output?.length ?? 0);
+}
+
+/**
+ * Keeps the report's activity within its two budgets. The summaries (`text`) take LIMITS.activityChars: the orchestrator's
+ * first, then the agents' in order, and a loop that does not fit loses its feed for this report. Commands and output take
+ * LIMITS.activityDetailChars (#431), in the same loop order and newest entry first: an entry that does not fit loses its
+ * output, and then its command, and keeps its summary and how the call ended (`done`, `failed`, `exitCode`: a few bytes that
+ * do not count). Output is dropped altogether unless the session says its `activityOutput` option is on.
+ */
 function withinActivityBudget(r: Report): void {
   let left: number = LIMITS.activityChars;
   const fits = (list: ActivityEntry[]) => {
@@ -1415,6 +1719,27 @@ function withinActivityBudget(r: Report): void {
   };
   if (r.session.activity && !fits(r.session.activity)) delete r.session.activity;
   for (const a of r.agents) if (a.activity && !fits(a.activity)) delete a.activity;
+
+  const outputOn = r.session.activityOutput === true;
+  let room: number = LIMITS.activityDetailChars;
+  const trim = (list: ActivityEntry[]) => {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const e = list[i]!;
+      if (!outputOn) for (const k of OUTPUT_FIELDS) delete e[k];
+      if (detailChars(e) <= room) {
+        room -= detailChars(e);
+        continue;
+      }
+      for (const k of OUTPUT_FIELDS) delete e[k];
+      if (detailChars(e) <= room) room -= detailChars(e);
+      else {
+        delete e.command;
+        delete e.commandCut;
+      }
+    }
+  };
+  if (r.session.activity) trim(r.session.activity);
+  for (const a of r.agents) if (a.activity) trim(a.activity);
 }
 
 const BACKGROUND_KINDS = ['shell', 'agent', 'monitor', 'workflow', 'wakeup', 'other'] as const;
@@ -1483,5 +1808,72 @@ export function validateReport(body: unknown): ValidateResult {
   } catch (err) {
     if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };
     return { ok: false, error: 'invalid report', path: '$' };
+  }
+}
+
+/** The kinds the mod may send; the server writes `stopped` and `limit` itself. */
+const RECORDING_MOD_KINDS: readonly RecordingKind[] = ['prompt', 'text', 'tool', 'result', 'thinking', 'clear', 'compact', 'decision', 'gap'];
+/** The kinds whose sender (`by`) the mod names itself, because only the mod knows what it took from Podium. A prompt is marked by the server. */
+const RECORDING_BY_KINDS: readonly RecordingKind[] = ['decision', 'clear', 'compact'];
+
+function recordingEntry(v: unknown, path: string): RecordingEntry {
+  const o = obj(v, path);
+  const kind = oneOf(o.kind, `${path}.kind`, RECORDING_MOD_KINDS);
+  const seq = int(o.seq, `${path}.seq`);
+  if (seq < 1) throw new Invalid(`${path}.seq`, 'expected a number from 1');
+  const entry: RecordingEntry = {
+    loop: str(o.loop, `${path}.loop`, LIMITS.id),
+    seq,
+    at: num(o.at, `${path}.at`),
+    kind,
+    text: o.text === undefined || o.text === null ? '' : text(o.text, `${path}.text`, RECORDING_LIMITS.text + CUT_MARKER_ROOM),
+  };
+  if (!entry.loop) throw new Invalid(`${path}.loop`, 'expected a loop');
+  const name = strOrNull(o.name, `${path}.name`, LIMITS.short);
+  if (name !== null) entry.name = name;
+  if (o.callSeq !== undefined && o.callSeq !== null) entry.callSeq = int(o.callSeq, `${path}.callSeq`);
+  if (o.failed !== undefined && o.failed !== null) entry.failed = bool(o.failed, `${path}.failed`);
+  if (o.cut !== undefined && o.cut !== null) entry.cut = bool(o.cut, `${path}.cut`);
+  if (RECORDING_BY_KINDS.includes(kind)) {
+    const by = strOrNull(o.by, `${path}.by`, LIMITS.short);
+    if (by) entry.by = by;
+  }
+  if (kind === 'gap') {
+    const lost = int(o.lost, `${path}.lost`);
+    if (lost < 1) throw new Invalid(`${path}.lost`, 'a gap needs the number of entries lost');
+    entry.lost = lost;
+  }
+  return entry;
+}
+
+/** Validates one batch of recorded entries (POST …/recording, #353). Text keeps its line breaks. Never throws. */
+export function validateRecordingBatch(body: unknown): { ok: true; batch: RecordingBatch } | { ok: false; error: string; path: string } {
+  try {
+    const o = obj(body, '$');
+    if (o.v !== 1) throw new Invalid('$.v', 'unsupported protocol version');
+    return {
+      ok: true,
+      batch: {
+        v: 1,
+        sentAt: num(o.sentAt, '$.sentAt'),
+        entries: arr(o.entries, '$.entries', RECORDING_LIMITS.entries).map((e, i) => recordingEntry(e, `$.entries[${i}]`)),
+      },
+    };
+  } catch (err) {
+    if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };
+    return { ok: false, error: 'invalid recording batch', path: '$' };
+  }
+}
+
+/** Validates the loops a person chose to record (#353): 1 to 201 distinct loop ids. Never throws. */
+export function validateRecordingStart(body: unknown): { ok: true; request: RecordingStartRequest } | { ok: false; error: string; path: string } {
+  try {
+    const o = obj(body, '$');
+    const loops = [...new Set(arr(o.loops, '$.loops', LIMITS.agents + 1).map((l, i) => str(l, `$.loops[${i}]`, LIMITS.id)))];
+    if (loops.length === 0 || loops.includes('')) throw new Invalid('$.loops', 'choose at least one loop');
+    return { ok: true, request: { loops } };
+  } catch (err) {
+    if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };
+    return { ok: false, error: 'invalid recording request', path: '$' };
   }
 }

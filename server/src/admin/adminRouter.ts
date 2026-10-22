@@ -34,6 +34,9 @@ import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords
 import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
 import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
+import type { SessionRecordings } from '../fleet/recordings.js';
+import type { RecordingSettingsStore } from '../fleet/recordingSettings.js';
+import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
 
 export interface AdminRouterOptions {
@@ -63,6 +66,8 @@ export interface AdminRouterOptions {
     /** Which reporters are on HTTP now (#589), for the count the switch names. */
     transport?: ReporterTransport;
   };
+  /** Session recording (#353): the store, the Admin's limits and a way to tell open consoles a recording changed. Without it the recording routes answer 404. */
+  recordings?: { service: SessionRecordings; settings: RecordingSettingsStore; changed: (sessionId: string) => void };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -656,6 +661,9 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const history = opts.activityHistory;
   const activityState = (h: NonNullable<typeof history>): ActivityHistoryState => ({ settings: h.settings.get(), totals: h.history.totals(), lastPurge: h.history.lastPurge, authOn: opts.secret !== null });
 
+  const rec = opts.recordings;
+  const recordingState = (r: NonNullable<typeof rec>) => ({ settings: r.settings.get(), totals: r.service.totals(), authOn: opts.secret !== null });
+
   const featureList = () => FEATURES.map(({ defaultOn, ...f }) => ({ ...f, on: features ? features.featureOn(f.id) : defaultOn }));
   const noticeList = () => NOTICES.map((n) => ({ ...n, on: wall ? wall.noticeOn(n.id) : true }));
 
@@ -670,6 +678,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       forgetReporters: reporters?.forgetSetting() ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: peers.settings.get() } : {}),
       ...(history ? { activityHistory: activityState(history) } : {}),
+      ...(rec ? { recording: recordingState(rec) } : {}),
     });
   });
 
@@ -714,6 +723,22 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       audit(req, ACTIVITY_LOG_KINDS.changed, `Activity history set to ${policyWords(out.settings)}, ${capWords(out.settings)}`, { ...out.settings });
       opts.onActivityHistoryChanged?.();
       return void res.json({ ok: true, activityHistory: activityState(history) });
+    }
+    if ('recording' in body) {
+      const p = body.recording;
+      if (!rec || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'recording must give keepHours, budgetMb and/or sessionMb' });
+      const out = rec.settings.set(p);
+      if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
+      const { before: b, settings: a } = out;
+      audit(req, 'recording_settings_changed', `Session recording limits: kept ${b.keepHours} to ${a.keepHours} hours, disk budget ${b.budgetMb} to ${a.budgetMb} MB, one session ${b.sessionMb} to ${a.sessionMb} MB`, {
+        keep_hours_before: b.keepHours,
+        keep_hours: a.keepHours,
+        budget_mb_before: b.budgetMb,
+        budget_mb: a.budgetMb,
+        session_mb_before: b.sessionMb,
+        session_mb: a.sessionMb,
+      });
+      return void res.json({ ok: true, recording: recordingState(rec) });
     }
     if ('showBackgroundSessions' in body) {
       const v = body.showBackgroundSessions;
@@ -801,22 +826,48 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   router.get('/stored-activity', (req, res) => {
-    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     const q = req.query as Record<string, unknown>;
     const paging = parsePaging(q);
     if (!paging.ok) return void res.status(400).json({ ok: false, error: paging.error });
     const filter = parseFilter(q);
     if (!filter.ok) return void res.status(400).json({ ok: false, error: filter.error });
+    // Source = Recordings (#353): the same page over the recordings, in the same file.
+    if (filter.value.source === 'recordings') {
+      if (!rec) return void res.status(404).json({ ok: false, error: 'not available' });
+      const out = rec.service.listStored(filter.value, paging.value.page, paging.value.pageSize);
+      return void res.json({ ...out, totals: { ...out.totals, fileBytes: history?.history.totals().fileBytes ?? 0 } });
+    }
+    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     history.history.list(filter.value, paging.value.page, paging.value.pageSize).then((out) => void res.json(out), storeFailed(res));
   });
 
   const how = (b: StoredDeleteBody) => ('ids' in b ? 'ticked sessions' : 'match' in b ? 'a filter' : 'everything');
   const deletedWords = (r: StoredDeleteResult, b: StoredDeleteBody) => `Deleted ${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) from ${countWords(r.sessions, 'session', 'sessions')}, chosen: ${how(b)}`;
 
+  /** A recording removed by the Admin, written to the Admin log with the Admin as the one who did it and never any text. */
+  const recordingDeleted = (req: Request, g: { sessionId: string; name: string; entries: number; bytes: number }) =>
+    audit(req, 'recording_deleted', `Deleted the recording of ${g.name} (${g.sessionId.slice(0, 8)}): ${countWords(g.entries, 'entry', 'entries')}, ${sizeText(g.bytes)}`, { session_id: g.sessionId, entries: g.entries, bytes: g.bytes });
+  /** Who the mark of a recording the Admin stopped names: the administrator, or `Admin` for the admin secret. */
+  const adminName = (req: Request): string => {
+    const who = actorOf(req);
+    return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
+  };
+
   router.post(STORED_DELETE, express.json({ limit: '64kb' }), (req, res) => {
-    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
+    if (('match' in body.value ? body.value.match.source : body.value.source) === 'recordings') {
+      if (!rec) return void res.status(404).json({ ok: false, error: 'not available' });
+      rec.service.removeMany(rec.service.idsFor(body.value)).then((out) => {
+        for (const g of out.each) {
+          recordingDeleted(req, g);
+          rec.changed(g.sessionId);
+        }
+        res.json({ entries: out.entries, sessions: out.sessions, bytes: out.bytes, freed: out.freed });
+      }).catch(storeFailed(res));
+      return;
+    }
+    if (!history) return void res.status(404).json({ ok: false, error: 'not available' });
     history.history.deleteBy(body.value).then((out) => {
       audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
       res.json(out);
@@ -914,6 +965,44 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       audit(req, 'tls_ca_retired', `Retired the old certificate authority; ${refused} reporter${refused === 1 ? '' : 's'} still used it and now need a reissued config`, { reporters_refused: refused, connections_closed: out.closed });
       res.json({ ok: true, refused, connectionsClosed: out.closed, ...certificatesView(r), reporter: certs?.settings.getReporter() });
     }).catch(() => void res.status(500).json({ ok: false, error: 'could not retire the old certificate authority' }));
+  });
+
+  // ---- Session recording (#353) ---------------------------------------------------------------
+
+  const RECORDING_STATES_LISTED = ['recording', 'stopped', 'limit'] as const;
+
+  router.get('/recordings', (req, res) => {
+    if (!rec) return void res.status(404).json({ ok: false, error: 'not available' });
+    const q = req.query as Record<string, unknown>;
+    const paging = parsePaging(q);
+    if (!paging.ok) return void res.status(400).json({ ok: false, error: paging.error });
+    const state = q.state === undefined || q.state === '' ? undefined : (RECORDING_STATES_LISTED as readonly unknown[]).find((s) => s === q.state);
+    if (q.state !== undefined && q.state !== '' && state === undefined) return void res.status(400).json({ ok: false, error: `state must be one of ${RECORDING_STATES_LISTED.join(', ')}` });
+    if (q.q !== undefined && (typeof q.q !== 'string' || q.q.length > 200)) return void res.status(400).json({ ok: false, error: 'q must be text of at most 200 characters' });
+    res.json(rec.service.adminList({ ...paging.value, state: state as Exclude<RecordingState, 'off'> | undefined, q: q.q as string | undefined }));
+  });
+
+  router.post('/recordings/:sessionId/stop', (req, res) => {
+    if (!rec) return void res.status(404).json({ ok: false, error: 'not available' });
+    const sid = req.params.sessionId;
+    const out = rec.service.stop(sid, adminName(req));
+    if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
+    if (out.changed) {
+      audit(req, 'recording_stopped', `Stopped the recording of ${sid.slice(0, 8)}`, { session_id: sid });
+      rec.changed(sid);
+    }
+    res.json({ ok: true, grant: out.grant });
+  });
+
+  router.delete('/recordings/:sessionId', (req, res) => {
+    if (!rec) return void res.status(404).json({ ok: false, error: 'not available' });
+    const sid = req.params.sessionId;
+    if (!rec.service.has(sid)) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
+    rec.service.removeMany([sid]).then((out) => {
+      for (const g of out.each) recordingDeleted(req, g);
+      rec.changed(sid);
+      res.json({ ok: true, entries: out.entries, bytes: out.bytes });
+    }).catch(storeFailed(res));
   });
 
   if (opts.reports) router.use('/reports', createReportRouter(opts.reports));

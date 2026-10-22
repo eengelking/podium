@@ -1,6 +1,7 @@
 // Lifecycle timers (SPEC 7.5): the sweep every second, the KPI tick every 2 s, retention hourly.
 // Each timer body is guarded so a failing sweep is logged and the next one still runs.
 import type { ActivityHistory } from './activityHistory.js';
+import type { SessionRecordings } from './recordings.js';
 import { sizeText } from './sizeText.js';
 import { capWords, countWords, policyWords } from './activityHistoryWords.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
@@ -41,6 +42,32 @@ export async function purgeActivityHistory(history: ActivityHistory, people: Peo
   } finally {
     purging.delete(history);
   }
+}
+
+const purgingRecordings = new WeakSet<SessionRecordings>();
+
+/**
+ * One run of the session recordings' purge (#353): each part older than the Admin's keep time goes, so a short time is honored
+ * within a few minutes. A run that removed something writes one Admin log row and one log line, with counts and sizes and never
+ * any text; a run that removed nothing is silent. A run that starts while the last is still going is skipped.
+ */
+export async function purgeRecordings(recordings: SessionRecordings, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+  if (purgingRecordings.has(recordings)) return;
+  purgingRecordings.add(recordings);
+  try {
+    const r = await recordings.purge(now);
+    if (r.entries === 0) return;
+    people.log('recording_purged', `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed from ${countWords(r.sessions, 'recording', 'recordings')}`, 'sweeper', now);
+    logger.info('recording.purged', `podium: recording purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed });
+  } finally {
+    purgingRecordings.delete(recordings);
+  }
+}
+
+/** The 5-minute run: the Activity history's purge and the recordings', each finishing even if the other fails; the first failure is thrown after both. */
+export async function purgeStored(history: ActivityHistory, recordings: SessionRecordings, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+  const results = await Promise.allSettled([purgeActivityHistory(history, people, logger, now), purgeRecordings(recordings, people, logger, now)]);
+  for (const r of results) if (r.status === 'rejected') throw r.reason;
 }
 
 /**

@@ -56,6 +56,20 @@ describe('transport', () => {
     expect(await run(ok())).toEqual([])
   })
 
+  test('reads which loops have a viewer on the feed from watchOutput, and nothing from a server that does not say (#431)', async () => {
+    const reply = (watchOutput: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, watch: ['a1'], watchOutput }) })
+    const run = async (r: HttpResult) => {
+      const t = new Transport(fake([r]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.13.0' })
+      await t.send(build, 0)
+      return t.watchOutput
+    }
+    expect(await run(reply(['a1', '@orchestrator']))).toEqual(['a1', '@orchestrator'])
+    expect(await run(reply(['a1', 7, null]))).toEqual(['a1'])
+    expect(await run(reply('a1'))).toEqual([])
+    expect(await run(ok())).toEqual([])
+    expect(await run({ status: 200, ok: true, text: 'not json' })).toEqual([])
+  })
+
   test('reads whether the server takes answers, and the messages it hands over, and nothing from an older server (#206)', async () => {
     const d = { id: 'dlv_1', askId: null, by: 'Ed', at: 1, kind: 'message', text: 'hi' }
     const run = async (body: unknown) => {
@@ -79,6 +93,18 @@ describe('transport', () => {
     expect(await run({ ok: true, diffs: [1, 2, 3, 4, 5, 6].map(r) })).toEqual([1, 2, 3, 4].map(r))
     expect(await run({ ok: true, diffs: 'nope' })).toEqual([])
     expect(await run({ ok: true })).toEqual([])
+  })
+
+  test('reads the session recording grant from the reply, and nothing from a server that does not send one (#353)', async () => {
+    const run = async (body: unknown) => {
+      const t = new Transport(fake([{ status: 200, ok: true, text: JSON.stringify(body) }]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '1.3.0' })
+      await t.send(build, 0)
+      return t.recording
+    }
+    const g = { state: 'recording', consent: { admin: true, chosen: true, owner: true }, loops: ['@orchestrator'], limit: null, startedBy: 'Ed', startedAt: 1, stoppedBy: null, stoppedAt: null, keptUntil: 2, bytes: 0 }
+    expect(await run({ ok: true, recording: g })).toEqual(g)
+    expect(await run({ ok: true, recording: { ...g, state: 'bogus' } })).toBeNull()
+    expect(await run({ ok: true })).toBeNull()
   })
 
   test('reads whether the session takes part in messaging, its messages and notices, and its requests, and nothing from an older server (#414)', async () => {

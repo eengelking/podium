@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { activityDbPath, openActivityDb } from './activityDb.js';
+import { ACTIVITY_SCHEMA_STEPS, activityDbPath, openActivityDb } from './activityDb.js';
 import { ActivityHistory, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from './activityHistoryTypes.js';
-import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
+import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
+const sqlite = process.getBuiltinModule('node:sqlite');
 const T0 = 1_800_000_000_000;
 const DAY = ACTIVITY_UNIT_MS.days;
 const META: SessionMeta = { name: 'invoice-v2', project: 'acme/billing', owner: 'Ed' };
@@ -57,11 +58,11 @@ describe('openActivityDb', () => {
     const db = openActivityDb(file);
     expect((db.prepare('PRAGMA auto_vacuum').get() as { auto_vacuum: number }).auto_vacuum).toBe(2);
     expect((db.prepare('PRAGMA journal_mode').get() as { journal_mode: string }).journal_mode).toBe('wal');
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
     db.close();
     // opening again runs no migration and keeps the version
     const again = openActivityDb(file);
-    expect((again.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((again.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
     again.close();
   });
 
@@ -507,5 +508,100 @@ describe('compaction', () => {
     expect(statSync(file).size).toBeLessThan(sizeBefore / 2);
     expect((db.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count).toBe(0);
     h.close();
+  });
+});
+
+describe('a Bash command and its output (#431)', () => {
+  const SECRET = 'sk-live-OUTPUT-SECRET-9f3a';
+  const bash = (at: number, extra: Partial<ActivityEntry> = {}): ActivityEntry => ({
+    at,
+    kind: 'tool',
+    text: 'Bash npm test',
+    id: `c${at}`,
+    command: 'npm test -- --run\necho done',
+    ...extra,
+  });
+
+  it('stores the whole command and its cut flag, and reads them back for stored entries', () => {
+    const { h } = setup();
+    const r = report([bash(T0 + 1), bash(T0 + 2, { command: 'x'.repeat(100), commandCut: true })]);
+    h.ingest(r, 0, META);
+    const got = h.page(r.session.id, MAIN_LOOP, null, 20).entries;
+    expect(got[0]).toEqual({ seq: 1, at: T0 + 1, kind: 'tool', text: 'Bash npm test', command: 'npm test -- --run\necho done' });
+    expect(got[1]).toMatchObject({ command: 'x'.repeat(100), commandCut: true });
+  });
+
+  it('never stores output, done, exitCode, failed or the call id, in any column of the file', () => {
+    const { h, db } = setup();
+    const r = report([bash(T0 + 1, { output: SECRET, outputCut: true, done: true, exitCode: 2, failed: true })]);
+    h.ingest(r, 0, META);
+    const got = h.page(r.session.id, MAIN_LOOP, null, 20).entries[0]!;
+    expect(got).not.toHaveProperty('output');
+    expect(got).not.toHaveProperty('outputCut');
+    expect(got).not.toHaveProperty('done');
+    expect(got).not.toHaveProperty('exitCode');
+    expect(got).not.toHaveProperty('failed');
+    expect(got).not.toHaveProperty('id');
+    const raw = JSON.stringify(db.prepare('SELECT * FROM entries').all());
+    expect(raw).not.toContain(SECRET);
+    expect(Object.keys(db.prepare('SELECT * FROM entries').get() as object)).not.toEqual(expect.arrayContaining(['output']));
+  });
+
+  it('a later snapshot that adds output to a stored entry changes nothing in the file', () => {
+    const { h, db } = setup();
+    const sid = report([]).session.id;
+    h.ingest(report([bash(T0 + 1)]), 0, META);
+    const before = JSON.stringify(db.prepare('SELECT * FROM entries').all());
+    expect(h.ingest(report([bash(T0 + 1, { output: SECRET, done: true })]), 0, META)).toBe(0);
+    expect(JSON.stringify(db.prepare('SELECT * FROM entries').all())).toBe(before);
+    expect(h.page(sid, MAIN_LOOP, null, 20).entries).toHaveLength(1);
+  });
+
+  it('an older mod entry (no new fields) is stored and read back as before', () => {
+    const { h } = setup();
+    const r = report([tool(T0 + 1)]);
+    h.ingest(r, 0, META);
+    expect(h.page(r.session.id, MAIN_LOOP, null, 20).entries).toEqual([{ seq: 1, at: T0 + 1, kind: 'tool', text: 'Read f' + (T0 + 1) }]);
+  });
+
+  it('bounds a command that arrives over its limit', () => {
+    const { h } = setup();
+    const r = report([bash(T0 + 1, { command: 'y'.repeat(30_000) })]);
+    h.ingest(r, 0, META);
+    expect(h.page(r.session.id, MAIN_LOOP, null, 20).entries[0]!.command).toHaveLength(LIMITS.activityDetail);
+  });
+
+  it('keeps the command on a tool entry only', () => {
+    const { h } = setup();
+    const r = report([{ at: T0 + 1, kind: 'text', text: 'hi', command: 'ls' }]);
+    h.ingest(r, 0, META);
+    expect(h.page(r.session.id, MAIN_LOOP, null, 20).entries[0]).not.toHaveProperty('command');
+  });
+
+  it('counts the command in the stored size, and a purge removes it and settles the count', async () => {
+    const { h, db } = setup({ policy: 'after', n: 1, unit: 'days' });
+    const small = setup().h;
+    small.ingest(report([bash(T0 + 1, { command: undefined })]), 0, META);
+    h.ingest(report([bash(T0 + 1, { command: 'z'.repeat(1000) })]), 0, META);
+    expect(h.totals().bytes - small.totals().bytes).toBe(1000);
+    expect((db.prepare('SELECT bytes FROM stored_sessions').get() as { bytes: number }).bytes).toBe(h.totals().bytes);
+    expect((await h.purge(T0 + 2 * DAY)).entries).toBe(1);
+    expect(h.totals()).toMatchObject({ entries: 0, bytes: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM entries').get()).toEqual({ n: 0 });
+  });
+
+  it('migrates a v4 file: the entries keep their text and gain empty command columns', () => {
+    const file = tmpFile();
+    mkdirSync(path.dirname(file), { recursive: true });
+    const raw = new sqlite.DatabaseSync(file);
+    raw.exec('PRAGMA auto_vacuum = INCREMENTAL');
+    for (let v = 0; v < 4; v++) raw.exec(ACTIVITY_SCHEMA_STEPS[v]!);
+    raw.exec('PRAGMA user_version = 4');
+    raw.prepare('INSERT INTO entries (session_id, loop, seq, at, t, kind, text) VALUES (?, ?, ?, ?, ?, ?, ?)').run('s1', MAIN_LOOP, 1, T0, T0, 'tool', 'Read a');
+    raw.close();
+    const db = openActivityDb(file);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
+    expect(db.prepare('SELECT text, command, command_cut FROM entries').get()).toEqual({ text: 'Read a', command: null, command_cut: null });
+    db.close();
   });
 });

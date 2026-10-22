@@ -65,7 +65,13 @@
     "activityFeed": {
       "type": "boolean",
       "title": "Send an agent's recent activity",
-      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep activity history: then every running agent's activity is sent and stored on the server until the Admin's period ends, and only you and the Admin can read it. Off by default.",
+      "description": "While someone has an agent's panel open in Podium, send that agent's recent tool calls and the text it writes between them (the last 20, each cut to 300 characters, secrets redacted). A Bash call also carries its whole command (up to 20,000 characters, secrets redacted), and the server stores it with the history when the Admin keeps one. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep activity history: then every running agent's activity is sent and stored on the server until the Admin's period ends, and only you and the Admin can read it. Off by default.",
+      "default": false
+    },
+    "activityOutput": {
+      "type": "boolean",
+      "title": "Send a Bash command's output",
+      "description": "Needs 'Send an agent's recent activity' on too. While someone has a Bash command's row open in Podium, send what the command printed (stdout then stderr, up to 20,000 characters, ANSI codes removed) and whether it failed. Output is only sent while the Podium server's Admin has turned this on and someone is looking at that agent's feed, and the server holds it in memory and never stores it. Secrets that look like secrets are replaced with [redacted], but command output can hold what the redactor does not recognize: file contents, environment dumps, tokens of an unfamiliar shape. Off by default.",
       "default": false
     },
     "fileDiff": {
@@ -90,6 +96,12 @@
       "type": "boolean",
       "title": "Message my other orchestrators",
       "description": "Let this machine's orchestrators message your other orchestrators through Podium, within the rights you set in Podium > My reporters. Gives the main loop three tools (podium_peers, podium_send, podium_request_access); a subagent's call is refused. A message is sent with secrets replaced by [redacted], and one that arrives starts a new turn once this session is idle, marked as another agent's text that cannot approve anything. Needs the Podium server's Orchestrator messaging switch. Off by default.",
+      "default": false
+    },
+    "sessionRecording": {
+      "type": "boolean",
+      "title": "Allow session recording",
+      "description": "Let this machine's sessions be recorded whole when the Podium Admin has turned recording on and someone with the right (you or an Admin) chooses to record a session. A recording keeps every prompt, what the model wrote, each tool call with its whole input, and each tool's whole result (file contents, command output), for the orchestrator and every agent under it, until the Admin's retention period ends. Anything that looks like a secret is replaced with [redacted] before it leaves this machine, and .env, key and credentials files are never sent, but this is best effort and not a guarantee: a secret of a shape the rules do not know, or personal data, is kept. The model's thinking text is never sent. Turning this off ends any recording of this machine at once. Off by default.",
       "default": false
     }
   }

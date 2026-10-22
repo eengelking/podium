@@ -1,0 +1,217 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Pane Collapse Control</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #626, for approval. The left and right panes' collapse buttons (.pane-tab, #33) become the pill the top bar (.tbar-tab, #402), the Kanban KPI rows (.kpi-tab, #538)
+   and the folded Plan / Files column (.fold-tab, #604) already use.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. The rail, the activity panel, the top bar and the KPI tiles are the app's real markup
+   (from docs/standards/components.html; Rail.tsx and SidePanel.tsx are unchanged on development). Classes prefixed mk- are demo chrome.
+   PROPOSED NEW CLASS for the standards: .edge-tab, one definition that replaces .pane-tab and that .tbar-tab, .kpi-tab and .fold-tab become (size, border, hover, focus ring and tip are theirs,
+   unchanged). It sits in the .cols grid beside the pane, not inside it, because the pane scrolls and clips what straddles its edge.
+   With it gone from inside the panes, the padding that made room for .pane-tab (.rail-head padding-right: 34px; #podium-side-body padding-top: 32px) is no longer needed. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.mk-demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo b { color: var(--ink); }
+.mk-demo .mk-grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.mk-page { max-width: 1120px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mk-cap { color: var(--muted); font-size: 12px; max-width: 90ch; }
+.mk-list { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.mk-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 12px; }
+.mk-state { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mk-state > b { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mk-frame { padding: 10px; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); overflow-x: auto; }
+.mk-frame.mk-narrow { max-width: 420px; }
+.mk-decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mk-decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.mk-decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+
+/* The console at 1440 px wide, shrunk to a fixed height: the real .cols grid, panes, handles and main column. */
+.mk-frame .cols { height: 360px; min-width: 900px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mk-frame .cols.mk-visible { overflow: visible; }
+.mk-frame .cols.l-shut { --rail-w: 24px; }
+.mk-frame .cols.r-shut { --side-w: 24px; }
+.mk-frame .main { overflow: hidden; }
+.mk-hold { position: relative; }
+
+/* PROPOSED: the one collapse control. Size, border, hover, focus ring and tip are .tbar-tab's, turned to a vertical edge (as .fold-tab already is). */
+.podium .edge-tab { position: absolute; z-index: 7; width: 16px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .edge-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .edge-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .edge-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .edge-tab::after { content: attr(data-tip); position: absolute; top: 50%; transform: translateY(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .edge-tab:hover::after, .podium .edge-tab:focus-visible::after, .podium .edge-tab.mk-tip::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .edge-tab::after { transition: none; } }
+/* Left pane: open, the pill straddles the rail's right edge; collapsed, it sits inside the 24 px strip. The tip opens toward the page. */
+.podium .edge-tab-left { top: 14px; left: var(--rail-w); transform: translateX(-50%); }
+.podium .edge-tab-left::after { left: calc(100% + 6px); }
+.podium .cols.l-shut .edge-tab-left { left: 4px; transform: none; }
+/* Right pane: the mirror. */
+.podium .edge-tab-right { top: 14px; right: var(--side-w); transform: translateX(50%); }
+.podium .edge-tab-right::after { right: calc(100% + 6px); }
+.podium .cols.r-shut .edge-tab-right { right: 4px; transform: none; }
+/* Option B: centered along the edge, and the collapsed strip is the button, full height. */
+.podium .opt-b .edge-tab-left, .podium .opt-b .edge-tab-right { top: calc(50% - 16px); }
+.podium .opt-b .l-shut .edge-tab-left, .podium .opt-b .r-shut .edge-tab-right { top: 0; bottom: 0; width: 24px; height: auto; left: 0; border: 0; border-radius: 0; background: transparent; }
+.podium .opt-b .r-shut .edge-tab-right { left: auto; right: 0; }
+
+/* Narrow: what the stacked layout (the max-width: 1040px block) would do. The pill becomes a full-width 28 px bar in both states, the size of the .pane-tab it replaces. */
+.mk-narrow .cols { display: flex; flex-direction: column; height: auto; min-width: 0; overflow: visible; }
+.mk-narrow .mid { display: contents; }
+.mk-narrow .rail { order: 1; } .mk-narrow .edge-tab-left { order: 1; } .mk-narrow .mid > .main { order: 2; flex: none; }
+.mk-narrow .edge-tab-right { order: 3; } .mk-narrow .side { order: 3; }
+.mk-narrow .rz { display: none; }
+.mk-narrow .rail, .mk-narrow .side { border: 0; border-top: 1px solid var(--border); max-height: 260px; overflow: auto; }
+.mk-narrow .rail.collapsed, .mk-narrow .side.collapsed { max-height: none; overflow: visible; }
+.mk-narrow .main { overflow: visible; }
+.mk-narrow .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mk-narrow .edge-tab, .podium .mk-narrow .cols.l-shut .edge-tab-left, .podium .mk-narrow .cols.r-shut .edge-tab-right { position: relative; inset: auto; transform: none; display: flex; width: 100%; height: 28px; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: var(--surface); }
+.mk-narrow .edge-tab::after { top: auto; bottom: calc(100% + 6px); left: 50%; right: auto; transform: translateX(-50%); }
+
+/* Comparison frames. */
+.mk-cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.mk-cmp > div { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mk-cmp > div > b { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mk-cmp .mk-frame { min-height: 150px; position: relative; overflow: hidden; padding-bottom: 20px; }
+.mk-cmp .top { position: relative; min-width: 700px; }
+.mk-cmp .kpi-block { margin-bottom: 0; }
+.mk-cmp .fold-demo { position: relative; height: 110px; }
+</style>
+
+<div class="mk-demo" role="group" aria-label="Review controls">
+  <span class="mk-grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="mk-grp"><b>Try it</b> click any pill; every frame is live. Tab to a pill to see its tip.</span>
+</div>
+
+<main class="mk-page podium">
+  <header>
+    <h1>Pane collapse control</h1>
+    <p>Issue #626. The left and right panes' edge buttons become the pill the top bar, the Kanban KPI rows and the folded Plan / Files column already use: bordered, 10 px chevron, a styled tip on hover and keyboard focus, the Sonnet focus ring. The chevron points the way the pane will move. The tip keeps the shortcut ("Collapse the left pane ([)"). Names, <code>aria-expanded</code>, <code>aria-controls</code>, the shortcuts, the saved state and wall mode are unchanged.</p>
+  </header>
+
+  <section class="mk-spec" aria-labelledby="cmp">
+    <h2 id="cmp">What exists today</h2>
+    <div class="mk-cmp" id="mk-cmp"></div>
+    <div class="mk-cap">Left: the pane button being replaced (24 x 26, native tooltip, hover fill only). The others are the controls it should match: the top bar's pill, the KPI rows' pill and the Plan / Files fold, which is already the 16 x 32 vertical shape.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="a">
+    <h2 id="a">Option A: pill near the top of the edge, in both states (recommended)</h2>
+    <div class="mk-list" id="mk-a"></div>
+    <div class="mk-cap">14 px below the top, where <code>.fold-tab</code> sits, so it stays clear of the middle of the resize handle. Open, the pill straddles the pane's inner edge. Collapsed, it sits in the 24 px strip the pane leaves behind with the chevron turned, so a collapsed pane is reachable at the edge it left. The tip opens toward the page.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="b">
+    <h2 id="b">Option B: pill centered on the edge, the collapsed strip is the button</h2>
+    <div class="mk-list" id="mk-b"></div>
+    <div class="mk-cap">Open, the pill is centered along the edge, over the resize handle's midpoint. Collapsed, the whole 24 px strip is the button and hover fills it: the biggest target of the two.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="n">
+    <h2 id="n">Narrow (400 px, the panes stack)</h2>
+    <div class="mk-pair" id="mk-n"></div>
+    <div class="mk-cap">At 1040 px and below the handles are gone and the panes stack: rail, page, activity. The pill becomes a 28 px full-width bar, the size of the <code>.pane-tab</code> it replaces and bigger than the 16 px pill. It closes the rail below it and opens the activity panel above it; chevrons point up and down. Same border, hover, focus ring and tip (opening upward on the activity bar).</div>
+  </section>
+
+  <section class="mk-decisions" aria-label="Decisions for the maintainer">
+    <div><b>Which option</b>A keeps the pill small, matches <code>.fold-tab</code> and leaves the handle's midpoint free. B gives a bigger collapsed target. Recommendation: A.</div>
+    <div><b>One implementation</b><code>.edge-tab</code> is the single definition; <code>.tbar-tab</code>, <code>.kpi-tab</code>, <code>.fold-tab</code> and <code>.pane-tab</code> become it, with placement per use, as one <code>EdgeTab</code> component. This replaces a documented component, so the change needs a <code>Standards:</code> line under [Unreleased].</div>
+    <div><b>Accessibility</b>Real button, <code>aria-expanded</code>, <code>aria-controls</code> (<code>podium-rail-body</code>, <code>podium-side-body</code>), a name that says what happens, the tip with the shortcut on hover and focus, the focus ring, no motion beyond the tip fade. The tip replaces the native <code>title</code>.</div>
+    <div><b>Unchanged</b><code>[</code> and <code>]</code>, the saved state, wall mode, Board, My reporters and Traffic starting collapsed, the 24 px collapsed width.</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var REAL = {"rail": "<div id=\"podium-rail-body\"><div class=\"rail-head\"><h2>Orchestrators</h2><span class=\"mono\" style=\"color: var(--muted);\">7</span></div><button type=\"button\" class=\"ritem all\" aria-current=\"true\"><div class=\"l1\"><span class=\"nm\">All orchestrators</span></div><div class=\"l2\"><span>3 running · 2 waiting · 1 stale</span></div></button><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot running\" aria-hidden=\"true\"></i><span class=\"nm\">api-refactor</span><span class=\"vh\">running</span><span class=\"chip\" style=\"--c: var(--opus);\" title=\"claude-opus-5-5\"><i></i>Opus 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">1/1</span></div></button></div><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem risk\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot running\" aria-hidden=\"true\"></i><span class=\"nm\">context-risk</span><span class=\"vh\">running</span><span class=\"blow l2\" title=\"Context window exceeded 3 times. Earlier work was compacted away; output may be unreliable.\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M8 2.5l6 10.5H2z\"></path><path d=\"M8 7v2.8M8 11.6v.1\"></path></svg>3×<span class=\"vh\"> context blowouts</span></span><span class=\"chip\" style=\"--c: var(--opus);\" title=\"claude-opus-5-5\"><i></i>Opus 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">1/1</span></div></button></div><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot running\" aria-hidden=\"true\"></i><span class=\"nm\">hooks-only</span><span class=\"vh\">running</span><span class=\"chip\" style=\"--c: var(--opus);\" title=\"claude-opus-5-5\"><i></i>Opus 5.5</span></div><div class=\"l2\"><span style=\"color: var(--muted);\">no plan reported</span><span style=\"flex: 1 1 0%;\"></span><span class=\"mono\" title=\"running / total agents\">1/1</span></div></button></div><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot waiting\" aria-hidden=\"true\"></i><span class=\"nm\">docs-rewrite</span><span class=\"vh\">waiting</span><span class=\"chip\" style=\"--c: var(--sonnet);\" title=\"claude-sonnet-5-5\"><i></i>Sonnet 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">1/1</span></div></button></div><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot waiting\" aria-hidden=\"true\"></i><span class=\"nm\">permission-prompt</span><span class=\"vh\">waiting</span><span class=\"blow\" title=\"Context window exceeded 1 time\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M8 2.5l6 10.5H2z\"></path><path d=\"M8 7v2.8M8 11.6v.1\"></path></svg>1×<span class=\"vh\"> context blowouts</span></span><span class=\"chip\" style=\"--c: var(--opus);\" title=\"claude-opus-5-5\"><i></i>Opus 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">1/1</span></div></button></div><div class=\"ritem-slot has-remove\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot stale\" aria-hidden=\"true\"></i><span class=\"nm\">spare-session</span><span class=\"vh\">stale</span><span class=\"chip\" style=\"--c: var(--opus);\" title=\"claude-opus-5-5\"><i></i>Opus 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">0/1</span></div></button><button type=\"button\" class=\"rx\" title=\"Remove from the fleet now\" aria-label=\"Remove spare-session from the fleet\">×</button></div><div class=\"ritem-slot\"><button type=\"button\" class=\"ritem\" aria-current=\"false\"><div class=\"l1\"><i class=\"dot done\" aria-hidden=\"true\"></i><span class=\"nm\">release-prep</span><span class=\"vh\">done</span><span class=\"chip\" style=\"--c: var(--haiku);\" title=\"claude-haiku-5-5\"><i></i>Haiku 5.5</span></div><div class=\"l2\"><div class=\"bar plan\" aria-hidden=\"true\"><i style=\"width: 25%;\"></i></div><span class=\"mono\">1/4</span><span class=\"mono\" title=\"running / total agents\">0/2</span></div></button></div><div class=\"vh\" role=\"status\"></div><footer class=\"rail-foot\"><span><a href=\"https://github.com/eengelking/podium/blob/main/docs/THIRD_PARTY_NOTICES.md\" target=\"_blank\" rel=\"noreferrer\">Theme credits</a> · <a href=\"https://github.com/eengelking/podium/blob/main/LICENSE\" target=\"_blank\" rel=\"noreferrer\">License</a></span><span>Podium v0.3.0</span><span>© 2026 Ed Engelking</span></footer></div>", "side": "<div id=\"podium-side-body\"><div class=\"sh\"><h2>Activity · all orchestrators</h2><span class=\"kpi-cap\">newest first</span></div><ul class=\"ev\"><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Session started<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Launched Explore<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open agent</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Used frontend-design<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Plan updated: 2 of 5 done<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Waiting on you<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li class=\"blowev\"><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Context exceeded 3 times<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Show context history</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Compacted to 12%<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li class=\"bad\"><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>npm test failed<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Show root cause</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Agent finished<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open agent</span></div></button></li><li class=\"gone\"><div class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>old-session </b>Session ended<span class=\"go\">Session ended</span></div></div></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>A note from the session<span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open orchestrator</span></div></button></li><li><button type=\"button\" class=\"evb\"><time class=\"mono\">00:33:10</time><i class=\"ed\" style=\"--c: var(--opus);\" aria-hidden=\"true\"></i><div class=\"tt\"><b>api-refactor </b>Launched Read the schema<span class=\"by\"> · launched by Explore</span><span class=\"go\"><svg class=\"i\" viewBox=\"0 0 16 16\" aria-hidden=\"true\" focusable=\"false\"><path d=\"M6 3h7v7M13 3L5 11\"></path></svg>Open agent</span></div></button></li></ul><div class=\"more\"><span>Showing 12 of 12</span><span style=\"display: flex; gap: 6px;\"></span></div><div class=\"foot-note\">Only the latest 150 events are kept in memory.</div></div>", "top": "<header class=\"top\" id=\"podium-top\"><a class=\"logo\" href=\"#/\" aria-label=\"Podium, fleet\"><svg viewBox=\"0 0 20 20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" aria-hidden=\"true\" focusable=\"false\"><circle cx=\"10\" cy=\"4\" r=\"2\"></circle><circle cx=\"4\" cy=\"15\" r=\"2\"></circle><circle cx=\"10\" cy=\"15\" r=\"2\"></circle><circle cx=\"16\" cy=\"15\" r=\"2\"></circle><path d=\"M10 6v3M10 9H4v4M10 9h6v4M10 9v4\"></path></svg>Podium</a><span class=\"pill\">Fleet</span><span class=\"pill\" role=\"status\"><span class=\"dot running\" aria-hidden=\"true\"></span>3 reporters live</span><span class=\"spacer\"></span><a class=\"btn\" href=\"#/board\">Board</a><a class=\"btn\" href=\"#/history\">History</a><button type=\"button\" class=\"btn wall-enter\" data-wall-control=\"true\" aria-label=\"Enter wall mode\" title=\"Collapse everything for a wall display (w)\">Wall mode</button><span class=\"tb-sep\" aria-hidden=\"true\"></span><span class=\"tb-me\"><span class=\"tb-who\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"5.5\" r=\"2.7\"></circle><path d=\"M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4\"></path></svg>Signed in as <b>Ed</b></span><button type=\"button\" class=\"btn\">Sign out</button></span><button type=\"button\" class=\"tbar-tab\" aria-expanded=\"true\" aria-controls=\"podium-top\" aria-label=\"Hide top bar\" data-tip=\"Hide top bar\"><svg viewBox=\"0 0 10 10\" aria-hidden=\"true\"><path d=\"M1.5 6.5 5 3l3.5 3.5\"></path></svg></button></header>", "tiles": "<div class=\"kpi\"><div class=\"k\">Orchestrators live</div><div class=\"v mono\">7</div><div class=\"kpi-cap\">3 running · 2 waiting · 1 stale</div></div><div class=\"kpi\"><div class=\"k\">Subagents running</div><div class=\"v mono\"><span>2</span></div></div><div class=\"kpi\"><div class=\"k\">Context blowouts</div><div class=\"v mono\"><span>5</span></div><div class=\"kpi-cap\">1 session repeatedly over the limit</div></div><div class=\"kpi\"><div class=\"k\">Plan steps done</div><div class=\"v mono\">5/12</div><div class=\"kpi-cap\">across all plans</div></div>"};
+  var root = document.documentElement;
+  function mode(m) {
+    root.setAttribute('data-theme', m);
+    document.querySelectorAll('[data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+  }
+  document.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.mode); }); });
+  mode('dark');
+
+  var LEFT = 'M6.5 1.5 3 5l3.5 3.5', RIGHT = 'M3.5 1.5 7 5 3.5 8.5', UP = 'M1.5 6.5 5 3l3.5 3.5', DOWN = 'M1.5 3.5 5 7l3.5-3.5';
+  var uid = 0;
+  function tab(side, id) {
+    return '<button type="button" class="edge-tab edge-tab-' + side + '" aria-controls="' + id + '"><svg viewBox="0 0 10 10" aria-hidden="true"><path/></svg></button>';
+  }
+  /* a console frame: real rail, main column and activity panel in the real .cols grid */
+  function frame(o) {
+    var f = document.createElement('div');
+    f.className = 'mk-frame' + (o.narrow ? ' mk-narrow' : '');
+    var shut = { left: !!o.l, right: !!o.r };
+    var pin = o.pin;
+    var rail = '<nav class="rail" aria-label="Orchestrators">' + REAL.rail + '</nav>';
+    var side = '<aside class="side" aria-label="Activity and agent detail">' + REAL.side + '</aside>';
+    var main = '<div class="mid"><main class="main"><div class="kpis">' + REAL.tiles + '</div></main></div>';
+    var hi = '<div class="rz rz-rail" role="separator" aria-orientation="vertical" aria-label="Resize the orchestrator list"></div><div class="rz rz-side" role="separator" aria-orientation="vertical" aria-label="Resize the activity panel"></div>';
+    f.innerHTML = '<div class="' + (o.opt || '') + '"><div class="cols">' + rail + tab('left', 'podium-rail-body') + hi + main + tab('right', 'podium-side-body') + side + '</div></div>';
+    var cols = f.querySelector('.cols');
+    f.querySelectorAll('[id]').forEach(function (e) { if (/^podium-(rail|side)-body$/.test(e.id)) e.id = e.id + '-' + uid; });
+    f.querySelectorAll('.edge-tab').forEach(function (b) { b.setAttribute('aria-controls', b.getAttribute('aria-controls') + '-' + uid); });
+    uid++;
+    function paint() {
+      ['left', 'right'].forEach(function (s) {
+        var b = f.querySelector('.edge-tab-' + s), pane = f.querySelector(s === 'left' ? '.rail' : '.side'), body = pane.firstElementChild, c = shut[s];
+        var key = s === 'left' ? '[' : ']';
+        b.setAttribute('aria-expanded', String(!c));
+        b.setAttribute('aria-label', (c ? 'Expand' : 'Collapse') + ' the ' + s + ' pane');
+        b.setAttribute('data-tip', (c ? 'Expand' : 'Collapse') + ' the ' + s + ' pane (' + key + ')');
+        var d;
+        if (o.narrow) d = (s === 'left') === !c ? DOWN : UP;   /* rail: closes upward; activity: closes downward */
+        else d = (s === 'left') === !c ? LEFT : RIGHT;          /* points the way the pane moves */
+        if (o.narrow) d = s === 'left' ? (c ? DOWN : UP) : (c ? UP : DOWN);
+        b.querySelector('path').setAttribute('d', d);
+        body.hidden = c;
+        pane.classList.toggle('collapsed', c);
+        cols.classList.toggle(s === 'left' ? 'l-shut' : 'r-shut', c);
+      });
+    }
+    paint();
+    if (pin) f.querySelector('.edge-tab-' + pin).classList.add('mk-tip');
+    f.querySelectorAll('.edge-tab').forEach(function (b) {
+      b.addEventListener('click', function () { var s = b.classList.contains('edge-tab-left') ? 'left' : 'right'; shut[s] = !shut[s]; paint(); });
+    });
+    return f;
+  }
+  function labeled(title, f) {
+    var d = document.createElement('div'); d.className = 'mk-state';
+    d.innerHTML = '<b>' + title + '</b>'; d.appendChild(f); return d;
+  }
+  var A = document.getElementById('mk-a'), B = document.getElementById('mk-b'), N = document.getElementById('mk-n');
+  A.appendChild(labeled('Both panes open, tip shown on the left pill', frame({ opt: 'opt-a', pin: 'left' })));
+  A.appendChild(labeled('Left collapsed, right open, tip shown on the right pill', frame({ opt: 'opt-a', l: 1, pin: 'right' })));
+  A.appendChild(labeled('Both panes collapsed', frame({ opt: 'opt-a', l: 1, r: 1 })));
+  B.appendChild(labeled('Both panes open', frame({ opt: 'opt-b' })));
+  B.appendChild(labeled('Both panes collapsed', frame({ opt: 'opt-b', l: 1, r: 1 })));
+  N.appendChild(labeled('Open', frame({ narrow: 1 })));
+  N.appendChild(labeled('Collapsed', frame({ narrow: 1, l: 1, r: 1 })));
+
+  /* comparison: today's pane button, then the two pills and the fold it should match, all in the app's own markup */
+  var C = document.getElementById('mk-cmp');
+  function cmp(title, html) { var d = document.createElement('div'); d.innerHTML = '<b>' + title + '</b><div class="mk-frame">' + html + '</div>'; C.appendChild(d); }
+  var old = '<div class="cols" style="height:120px;min-width:0"><nav class="rail" aria-label="Orchestrators"><button type="button" class="pane-tab pane-tab-left" aria-expanded="true" aria-controls="podium-rail-body-x" aria-label="Collapse left pane" title="Collapse the left pane ([)"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"></path></svg></button><div id="podium-rail-body-x"><div class="rail-head"><h2>Orchestrators</h2><span class="mono" style="color: var(--muted);">7</span></div></div></nav><div class="mid"><main class="main"></main></div></div>';
+  cmp('Today: pane button (.pane-tab)', old);
+  cmp('Top bar (.tbar-tab)', REAL.top);
+  cmp('KPI rows (.kpi-tab)', '<div class="kpi-block"><div class="kpis">' + REAL.tiles + '</div><button type="button" class="kpi-tab" aria-expanded="true" aria-label="Hide KPI rows" data-tip="Hide KPI rows"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 6.5 5 3l3.5 3.5"/></svg></button></div>');
+  cmp('Plan / Files fold (.fold-tab)', '<div class="fold-demo"><div class="fold-col" style="height:100px"><div class="fold-clip"><section class="sec" style="padding:10px"><h2>Plan</h2></section></div><button type="button" class="fold-tab" aria-expanded="true" aria-label="Hide plan and files" data-tip="Hide plan and files"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 1.5 3 5l3.5 3.5"/></svg></button></div></div>');
+  document.querySelectorAll('#mk-cmp .tbar-tab').forEach(function (b) { b.style.top = 'calc(100% - 8px)'; });
+})();
+</script>

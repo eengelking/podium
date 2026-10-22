@@ -13,7 +13,7 @@ export function loadFixture(): Record<string, unknown> {
 }
 
 /** The 0.14 fields that change what the server does with a report: they open asks, name an owner and a machine, hold an idle session. */
-const SITUATIONAL_SESSION = ['clearedFrom', 'activityFeed', 'fileDiff', 'activity', 'background', 'respond', 'asks', 'peers'] as const;
+const SITUATIONAL_SESSION = ['clearedFrom', 'activityFeed', 'activityOutput', 'fileDiff', 'activity', 'background', 'respond', 'asks', 'peers', 'sessionRecording'] as const;
 
 /**
  * The shared fixture without the fields that start behavior of their own (open asks, an owner, a machine, background work,

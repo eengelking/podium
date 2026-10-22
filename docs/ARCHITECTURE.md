@@ -26,6 +26,8 @@ with the default view at `#/`. An earlier usage dashboard lived here until it wa
   - [Known reporters](#known-reporters)
   - [Prompt and answer modal](#prompt-and-answer-modal)
   - [Activity feed](#activity-feed)
+  - [Activity history](#activity-history)
+  - [Session recording](#session-recording)
   - [Responding](#responding)
   - [File diff](#file-diff)
   - [Orchestrator messaging](#orchestrator-messaging)
@@ -354,6 +356,35 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
   pass (`activityText`). Both go through `addActivity`, which does nothing for a loop that is not watched.
 - `report.ts` sends `session.activityFeed` always, and a loop's `activity` only when the option is on and the
   ring is not empty, within a 60,000-character budget per report.
+- Since #431 an entry may also carry a Bash call's `id`, whole `command` and, with the `activityOutput` option and the
+  reply's `watchOutput` listing the loop, its `output` and exit status. They have a separate 200,000-character budget
+  per report, enforced by `withinActivityBudget` in `protocol.ts`, which also drops output the session's option does
+  not allow. DECISIONS 41 has the reasoning.
+- The mod (#431): `activityDetail.ts` builds the pieces. `tool.call` adds a Bash entry with its `id` and `commandDetail`
+  (control characters stripped, `redactBounded` from `recording.ts`, cut at 20,000 characters with the marker). When the call
+  returns, `finishActivity` adds `done`, `failed` and `exitCode` to the entry with that `id` (#598; the exit line is read from
+  the result and no output is kept), and, only with both options on and the loop in `watchOutput` (`setWatchedOutput`, from the
+  transport's `watchOutput`, never wider than `watch`), `output` and `outputCut` as well, so the next report carries it again. `bashOutput` reads the result record's `stdout` and `stderr`, else the text
+  the model reads; the types have no numeric exit code, so `exitCode` is parsed only from an "Exit code N" in that text.
+  `report.ts` keeps commands and output to 200,000 characters (`withinDetailBudget`) and the body to 480,000 bytes
+  (`withinSize`), output first, then commands, oldest first.
+- The server (#431): `ActivityStore` merges an entry that carries an `id` into the one it already holds, so output that
+  arrives after the entry first went out attaches to it. It holds `output` and `outputCut` on the lease
+  only, takes them only while the `activity-output` and `activity-feed` flags and the session's `activityOutput` option are
+  on, serves them only while the flags are on, and drops them with the lease, the session, a flag turned off, and a
+  restart (`dropOutput`). `done`, `exitCode` and `failed` (`statusOf`) are not output (#598): they are held and served with the
+  entry under `activity-feed` alone, survive `dropOutput`, and are dropped with the lease like the entry. `watchedOutput` is the reply's `watchOutput`: the lease loops, never the loops the history lists.
+  The Activity history (schema version 5) stores `command` and `command_cut`, and has no column for output, status or id.
+- The console (#431): `BashRow.tsx` is the one Bash row, shared by the feed's `Entry` (panel, Expand modal and Respond modal) and the
+  replay's `Row`. Only Bash rows open; the open state is the row's own React state, so it follows the entry's key across the refresh.
+  `useRowAnchor` keeps the list's place when a row opens or closes. `useActivityFeed` takes a changed `output`, `done`, `failed` or
+  `exitCode` on a seq it already has, and lays a live twin's output over a stored row. A row with no `output` says why in order: stored
+  history, the Admin's flag (`ActivityOutputFlag`, from the state's features), the session's `activityOutput`, then "Running." or "not
+  collected" (`missingOutput`). Since #598 the mod sends `done` without output too, so a finished call shows its status mark whatever the
+  reason it has no output, and a call with no `done` is told by the loop: `FeedList` takes `active` and marks running only the newest
+  entry, when it is a Bash call with no `done` and no output and the loop is active. An older mod's earlier calls, a call a later entry
+  follows and every call of a loop that has ended read as not collected, with no mark. The replay knows from the recording whether a call
+  has a result and keeps its own wording, "No output was recorded."; it never says running.
 
 **UI**
 
@@ -398,7 +429,7 @@ reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `s
   report's clock skew), which the purge and the filters use. Entries sent from Podium are written through the
   respond bridge with their ref, sender and note.
 - **Aggregates, so nothing scans the table.** `stored_sessions` also holds each session's `entries`, `bytes` (an
-  estimate: text and labels plus 48 bytes a row) and `oldest_t` (schema version 2), and a `loops` table
+  estimate: text, a Bash command and labels plus 48 bytes a row) and `oldest_t` (schema version 2), and a `loops` table
   holds each loop's entry count and its first and last times (schema version 3), kept in step in the same
   transaction as every insert, Podium-entry change and removal chunk. The live feed's `history` note and a history page
   therefore cost one indexed read, whatever the loop's size. `totals()` and a `list` that filters only on a
@@ -439,6 +470,40 @@ reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `s
 - **Limits.** It is not a complete record: the mod keeps 20 entries per loop and one report carries 60,000
   characters, so a busy session can lose entries, and nothing is replayed after an outage. The size cap compares an
   estimate of the entries' bytes, not the file's size, because freed pages stay in the file until vacuum.
+
+### Session recording
+
+Files: `server/src/fleet/recordings.ts` (the store), `recordingRoutes.ts` (the mod's and the browser's routes),
+`recordingSettings.ts` (the Admin's three limits), `sweeper.ts` (`purgeRecordings`), `mod/podium-reporter/hooks/recording.ts`
+(the capture), `frontend/src/fleet/components/ReplayPage.tsx`, `RecordPicker.tsx` and `RecordingLayer.tsx`, and
+`frontend/src/fleet/admin/RecordingAdmin.tsx`. Issue #353; the reasoning is DECISIONS 40, and the feature end to end is
+[REPLAY.md](REPLAY.md). This section keeps only the structure.
+
+- **Tables.** `rec_sessions` (one row per recording: state, limit, who started and stopped it, loops, counters) and
+  `rec_entries` (one row per entry, numbered `n` in the server's order, with the mod's `loop` and `seq` and a stored time
+  `t`) in `activity.sqlite`, added as schema steps of `activityDb.ts`. Indexes are `(session_id, n)` and `t`. Nothing in
+  the main database references them; code removes a session's rows. The Admin's three limits are one JSON row,
+  `recording_settings`, in the main `settings` table.
+- **Capture path.** The mod's `Recorder` redacts, numbers (`seq` per loop), cuts and queues entries, and `register.ts`
+  sends them every 5 seconds (early at 256 KB) to `POST /api/fleet/sessions/:id/recording`. The server validates the
+  batch, drops an entry it holds by `(loop, seq)`, enforces the per-session cap and the disk budget as it stores, and
+  answers with the grant, which the mod reads as its on and off switch. A decision, `clear` or `compact` entry is written
+  by the mod, never the server, which only adds the sender of a delivered message to the mod's prompt entry.
+- **The grant.** Every reply to a report carries `recording.consent` (the Admin's flag, a choice, the reporter's option).
+  The report carries `session.sessionRecording`. An older mod sends none and is read as not allowing; an older server
+  sends none and a newer mod reads that as off (SPEC 6.8).
+- **Purge.** `purgeStored` runs the Activity history's purge and `purgeRecordings` together every 5 minutes. Expiry is per
+  part (each row goes `keepHours` after it was stored), removal runs in short chunks that yield to the event loop and share
+  the Activity history's turn-taking, and the file is compacted afterwards.
+- **`/clear` carry-over.** A `/clear` gives the session a new id. When the first report of the new session names the old
+  one in `clearedFrom`, the server moves the running recording's choice, starter and start time to the new session, for the
+  orchestrator's loop, and stops the old one without a `stopped` row.
+- **Reads.** The wall's `SessionView.recording` carries state and times, never text. The text is read through
+  `GET /api/fleet/respond/sessions/:id/recording` (paged, newest 200 first) by the owner or an Admin. A separate
+  `GET .../recording/consent` exists because `SessionView` goes to everyone and so cannot carry whether the owner allowed
+  recording; the picker reads it on open.
+- **UI.** The History marker and the Recording cell read the session's `recording`; the replay is a route of its own
+  (`#/?open=<id>&replay`, `frontend/src/route.ts`) that pairs each result with its call by `callSeq` (`replayItems.ts`).
 
 ### Responding
 
@@ -612,7 +677,7 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
 certificate, the HTTPS listener (#581), the serving certificate's renewal (#582) and the person certificates with their
 revocation (#583), the reporter's own renewal (#585) and the switch for reporters over HTTP (#589). The rest is planned. The rules are in
-`SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 40.
+`SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 42.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
 starts `https.createServer` on the HTTPS port (`4318`, `PODIUM_TLS_PORT`) with the same Express app, next to the HTTP
@@ -791,7 +856,7 @@ mod's logs stay on its machine.
 
 | `PODIUM_LOG_FORMAT` | Output |
 |---|---|
-| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `auth.failed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. |
+| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. `auth.failed` and the `tls.*` events are the exception (#602): they print at their own level (warn) so an Admin sees why a reporter is refused. `foldedInText` folds them: the first line for one event, route, source and reason prints, repeats inside 60 seconds do not, and the next line after the window carries `(N more in the last minute not printed)`. The memory is 1000 kinds, oldest dropped first. Folding is for the text output only; `json` and the shipper get every line. |
 | `json` | The whole record as one line, every event at its own level. The shipper always gets this JSON record. |
 
 **Redaction** (`redact.ts`)
@@ -839,7 +904,7 @@ The shipper runs only when `PODIUM_LOG_SHIP_URL` is set. Request paths never awa
 |---|---|
 | `index.ts` | `server.start` (with the settings, never the token), `server.stop` (then up to 1 s to send what is left) |
 | `requestLog.ts` | `http.request` at debug (method, path without query, route pattern, status, duration, source); `http.aborted` the same for a request the client dropped first |
-| `fleet/routes.ts` | `auth.failed`, `report.rejected`, `report.accepted` at debug, `report.conflict`, `hook.rejected`, `ingest.failed`, `request.failed` |
+| `fleet/routes.ts` | `auth.failed` (printed in text, folded), `report.rejected`, `report.accepted` at debug, `report.conflict`, `hook.rejected`, `ingest.failed`, `request.failed` |
 | `admin/adminRouter.ts` | `admin.<kind>` for each Admin Log entry, with the action, source address and ids, never the entry's text |
 | `fleet/fleet.ts` | `session.started`, `session.ended`, `session.deleted`, `reporter.connected` (the first time an owner, machine and reporter kind is heard, or after a silence longer than `STALE_AFTER_MS`), `reporter.silent` (when a session goes stale), `sweep.removed` |
 | `fleet/sweeper.ts` | `sweeper.failed` |

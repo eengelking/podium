@@ -2,6 +2,7 @@
 import { vi } from "vitest";
 import type { CertInfo, CertsView } from "./certFormat";
 import type { ActivityHistoryPreview, ActivityHistoryState, StoredDeleteResult, StoredSessionRow } from "./adminApi";
+import type { RecordingAdminRow, RecordingSettings } from "../types";
 
 interface PriceSet {
   input: number;
@@ -255,6 +256,11 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     storedError: "",
     /** While set, a delete is refused with this message and a 400. */
     storedBadRequest: "",
+    /** Session recording (#353): off unless a test sets it. `recordings` are the Admin table's rows, `storedRecordings` what Source = Recordings lists. */
+    recording: null as { settings: RecordingSettings; totals: { recordings: number; bytes: number; running: number }; authOn: boolean } | null,
+    recordings: [] as RecordingAdminRow[],
+    storedRecordings: [] as StoredSessionRow[],
+    recordingError: "",
     reporters: [
       { key: "9f3a1c7d2e40", state: "reporting", name: "studio-m2", named: true, who: "Dana", credential: "pdm_3f9a1c07b2e4", adminSecret: false, version: "0.13.0", compat: "ok", firstSeenAt: 1_000, lastSeenAt: 40_000, sessions: 142, live: 3 },
       { key: "addr:10.4.0.52", state: "silent", name: "10.4.0.52", named: false, who: "Admin", credential: "admin secret", adminSecret: true, version: "0.9.2", compat: "outdated", firstSeenAt: 1_000, lastSeenAt: 1_000, sessions: 9, live: 0 }, // NOSONAR S1313: a made-up private address in a fake server, never connected to
@@ -471,6 +477,10 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
         if (state.activityError) return json(400, { ok: false, error: state.activityError });
         state.activity = { ...state.activity, settings: b.activityHistory };
       }
+      if (b.recording) {
+        if (state.recordingError) return json(400, { ok: false, error: state.recordingError });
+        if (state.recording) state.recording = { ...state.recording, settings: { ...state.recording.settings, ...b.recording } };
+      }
       if (b.modelPrice) {
         if (state.priceError) return json(400, { ok: false, error: state.priceError });
         state.prices[b.modelPrice.key] = { std: b.modelPrice.std, ...(b.modelPrice.long ? { long: b.modelPrice.long } : {}) };
@@ -485,25 +495,49 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       state.previewBodies.push(JSON.parse(String(init?.body)));
       return state.previewError ? json(400, { ok: false, error: state.previewError }) : json(200, state.preview);
     }
+    if (path === "/recordings" && method === "GET") {
+      if (state.storedError) return json(500, { ok: false, error: state.storedError });
+      const size = Number(url.searchParams.get("pageSize") ?? 25);
+      const page = Number(url.searchParams.get("page") ?? 1);
+      return json(200, { total: state.recordings.length, page, pageSize: size, rows: state.recordings.slice((page - 1) * size, page * size), totals: state.recording?.totals });
+    }
+    const recStop = path.match(/^\/recordings\/([^/]+)\/stop$/);
+    if (recStop && method === "POST") {
+      if (state.recordingError) return json(500, { ok: false, error: state.recordingError });
+      const r = state.recordings.find((x) => x.sessionId === decodeURIComponent(recStop[1]!));
+      if (!r) return json(404, { ok: false, error: "this session has no recording" });
+      r.state = "stopped";
+      return json(200, { ok: true });
+    }
+    const recOne = path.match(/^\/recordings\/([^/]+)$/);
+    if (recOne && method === "DELETE") {
+      if (state.recordingError) return json(500, { ok: false, error: state.recordingError });
+      state.recordings = state.recordings.filter((x) => x.sessionId !== decodeURIComponent(recOne[1]!));
+      return json(200, { ok: true, entries: 1, bytes: 1 });
+    }
     if (path === "/stored-activity" && method === "GET") {
       if (state.storedError) return json(500, { ok: false, error: state.storedError });
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       const project = url.searchParams.get("project");
       const owner = url.searchParams.get("owner");
-      const hit = state.stored.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!project || r.project === project) && (!owner || r.owner === owner));
+      const source = url.searchParams.get("source") === "recordings" ? state.storedRecordings : state.stored;
+      const hit = source.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!project || r.project === project) && (!owner || r.owner === owner));
       const sum = (rows: StoredSessionRow[]) => ({ entries: rows.reduce((n, r) => n + r.entries, 0), bytes: rows.reduce((n, r) => n + r.bytes, 0), sessions: rows.length });
       const size = Number(url.searchParams.get("pageSize") ?? 25);
       const page = Number(url.searchParams.get("page") ?? 1);
-      return json(200, { total: hit.length, page, pageSize: size, rows: hit.slice((page - 1) * size, page * size), totals: { ...sum(state.stored), fileBytes: sum(state.stored).bytes + 1_048_576 }, match: sum(hit), projects: [...new Set(state.stored.map((r) => r.project).filter(Boolean))], owners: [...new Set(state.stored.map((r) => r.owner).filter(Boolean))] });
+      return json(200, { total: hit.length, page, pageSize: size, rows: hit.slice((page - 1) * size, page * size), totals: { ...sum(source), fileBytes: sum(source).bytes + 1_048_576 }, match: sum(hit), projects: [...new Set(source.map((r) => r.project).filter(Boolean))], owners: [...new Set(source.map((r) => r.owner).filter(Boolean))] });
     }
     if (path === "/stored-activity/delete" && method === "POST") {
-      const b = JSON.parse(String(init?.body)) as { ids?: string[]; all?: true; match?: { q?: string; project?: string; owner?: string } };
+      const b = JSON.parse(String(init?.body)) as { ids?: string[]; all?: true; source?: string; match?: { q?: string; project?: string; owner?: string; source?: string } };
       state.storedDeleteBodies.push(b);
       if (state.storedError) return json(500, { ok: false, error: state.storedError });
       if (state.storedBadRequest) return json(400, { ok: false, error: state.storedBadRequest });
       const m = b.match;
-      const gone = state.stored.filter((r) => b.all || b.ids?.includes(r.sessionId) || (m && (!m.q || r.name.toLowerCase().includes(m.q.toLowerCase())) && (!m.project || r.project === m.project) && (!m.owner || r.owner === m.owner)));
-      state.stored = state.stored.filter((r) => !gone.includes(r));
+      const recs = (b.source ?? m?.source) === "recordings";
+      const pool = recs ? state.storedRecordings : state.stored;
+      const gone = pool.filter((r) => b.all || b.ids?.includes(r.sessionId) || (m && (!m.q || r.name.toLowerCase().includes(m.q.toLowerCase())) && (!m.project || r.project === m.project) && (!m.owner || r.owner === m.owner)));
+      if (recs) state.storedRecordings = pool.filter((r) => !gone.includes(r));
+      else state.stored = pool.filter((r) => !gone.includes(r));
       const result = state.storedDeleteResult ?? { entries: gone.reduce((n, r) => n + r.entries, 0), sessions: gone.length, bytes: gone.reduce((n, r) => n + r.bytes, 0), freed: 1_048_576 };
       return json(200, result);
     }
@@ -526,9 +560,13 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const features = Object.entries(state.features).map(([id, on]) =>
         id === "peer-messaging"
           ? { id, name: "Orchestrator messaging", description: "Lets a person's orchestrators find and message each other, on the machines they choose, through this server.", on }
-          : { id, name: "Agent activity feed", description: "Shows an agent's recent tool calls and text in its panel while someone watches.", on },
+          : id === "activity-output"
+            ? { id, name: "Bash output in the activity feed", description: "Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited.", on }
+            : id === "session-recording"
+            ? { id, name: "Session recording", description: "Lets a session's owner, or an Admin, record everything an orchestrator and its agents do, so a run can be replayed to see what happened and why.", on }
+            : { id, name: "Agent activity feed", description: "Shows an agent's recent tool calls and text in its panel while someone watches.", on },
       );
-      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, cardTitleMachine: state.cardTitleMachine, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, activityHistory: state.activity, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}) });
+      return json(200, { allowAdminSecretReporting: true, features, notices, showBackgroundSessions: state.showBackground, cardTitleMachine: state.cardTitleMachine, forgetReporters: state.forget, modelPrices: { asOf: "2026-10-13", models }, activityHistory: state.activity, ...(state.peerLimits ? { peerMessaging: state.peerLimits } : {}), ...(state.recording ? { recording: state.recording } : {}) });
     }
     return json(404, { ok: false, error: "nope" });
   });

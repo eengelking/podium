@@ -197,6 +197,8 @@ export interface SessionState {
   dirty: boolean;
   /** The loops the server last said someone is watching (agent ids, MAIN_LOOP for the main loop); always empty with the activityFeed option off. */
   watched: string[];
+  /** The loops of `watched` the server's reply says a viewer has the feed open on (#431); a Bash call's output is read only for these. Empty with the activityOutput option off. */
+  watchedOutput: string[];
 }
 
 export function emptyLoop(model: string | null = null): LoopStats {
@@ -254,6 +256,7 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     evSeq: 0,
     dirty: true,
     watched: [],
+    watchedOutput: [],
   };
 }
 
@@ -838,7 +841,50 @@ export function setWatched(s: SessionState, ids: readonly string[]): SessionStat
   for (const [id, a] of Object.entries(s.agents)) {
     if (!keep.has(id) && a.activity.length) agents = { ...agents, [id]: { ...a, activity: [] } };
   }
-  return { ...s, watched: next, main, agents };
+  // A loop that is no longer watched has no output lease either.
+  return setWatchedOutput({ ...s, watched: next, main, agents }, s.watchedOutput.filter((id) => keep.has(id)));
+}
+
+/** Whether the server last said a viewer has this loop's feed open (no agent id: the main loop): its Bash output may be read (#431). */
+export function isWatchedOutput(s: SessionState, agentId: string | null | undefined): boolean {
+  return s.watchedOutput.includes(agentId || MAIN_LOOP);
+}
+
+/** The output an entry holds (#431): it goes when the loop's output lease ends. How the call ended (`done`, `failed`, `exitCode`) is not output and stays (#598). */
+const OUTPUT_KEYS = ['output', 'outputCut'] as const;
+
+function withoutOutput(list: ActivityEntry[]): ActivityEntry[] {
+  return list.map((e) => {
+    if (!OUTPUT_KEYS.some((k) => k in e)) return e;
+    const rest = { ...e };
+    for (const k of OUTPUT_KEYS) delete rest[k];
+    return rest;
+  });
+}
+
+/**
+ * The loops the server's reply says a viewer has the feed open on (`watchOutput`, #431). A loop that drops off the list forgets
+ * the output its entries held, so nothing a viewer left behind stays in memory; the commands stay.
+ */
+export function setWatchedOutput(s: SessionState, ids: readonly string[]): SessionState {
+  const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  if (next.length === s.watchedOutput.length && next.every((id, i) => id === s.watchedOutput[i])) return s;
+  const keep = new Set(next);
+  const main = keep.has(MAIN_LOOP) ? s.main : { ...s.main, activity: withoutOutput(s.main.activity) };
+  let agents = s.agents;
+  for (const [id, a] of Object.entries(s.agents)) {
+    if (!keep.has(id)) agents = { ...agents, [id]: { ...a, activity: withoutOutput(a.activity) } };
+  }
+  return { ...s, watchedOutput: next, main, agents };
+}
+
+/** Adds what a finished call produced to its entry in the loop's feed (the one with that id). No such entry, nothing changes. */
+export function finishActivity(s: SessionState, agentId: string | null | undefined, id: string, patch: Partial<ActivityEntry>): SessionState {
+  const loop = loopOf(s, agentId);
+  const at = loop ? loop.activity.findIndex((e) => e.id === id) : -1;
+  if (!loop || at < 0) return s;
+  const activity = loop.activity.map((e, i) => (i === at ? { ...e, ...patch } : e));
+  return putLoop(s, agentId, { ...loop, activity });
 }
 
 /** Adds an entry to a watched loop's feed, keeping the last 20. A loop nobody watches keeps nothing. */

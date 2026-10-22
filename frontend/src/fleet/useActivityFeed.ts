@@ -49,7 +49,7 @@ export function writeEvery(every: number): void {
 export type FetchHistory = (sessionId: string, loop: string, before?: number | null, limit?: number) => Promise<ActivityHistoryPage>;
 
 /** A shown entry. Stored ones carry a `key` of their own, since their `seq` counts apart from the live feed's. */
-export type FeedEntry = ActivityEntryView & { key?: string };
+export type FeedEntry = ActivityEntryView & { key?: string; live?: true };
 
 /** What the window says about the stored history of its loop; null under the default policy. */
 export interface StoredInfo {
@@ -90,6 +90,27 @@ const NO_OLDER = async () => {};
 /** What a stored page holds, keyed apart from the live feed. */
 const keyed = (list: ActivityEntryView[]): FeedEntry[] => list.map((e) => ({ ...e, key: `h${e.seq}` }));
 const sig = (e: ActivityEntryView) => `${e.at}|${e.kind}|${e.text}`;
+
+/**
+ * A stored entry the live window also holds (#431): the live one knows what the stored one does not, the call's id, whole command and
+ * output with how it ended. Output is never stored, so it is taken from the live twin; the stored entry keeps its key, so a row a
+ * person opened stays open.
+ */
+function withLive(stored: FeedEntry, live: ActivityEntryView | undefined): FeedEntry {
+  if (!live) return stored;
+  const { output, outputCut, done, exitCode, failed, id, command, commandCut } = live;
+  return {
+    ...stored,
+    live: true,
+    ...(id !== undefined && stored.id === undefined ? { id } : {}),
+    ...(command !== undefined && stored.command === undefined ? { command, ...(commandCut ? { commandCut } : {}) } : {}),
+    ...(output !== undefined ? { output } : {}),
+    ...(outputCut ? { outputCut } : {}),
+    ...(done ? { done } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(failed ? { failed } : {}),
+  };
+}
 
 interface Store {
   note: ActivityHistoryNote;
@@ -216,10 +237,11 @@ export function useActivityFeed(opts: {
         const fresh = r.entries.filter((e) => e.seq > c.seq);
         cursor.current = { since: r.since, seq: Math.max(c.seq, top) };
         // An entry sent from Podium can change after it arrives (its note) or go (discarded, or never taken): follow
-        // the server for those still in its window.
+        // the server for those still in its window. So can a tool call's: the output and the exit status arrive after the
+        // entry did (#431), on the seq it already has.
         const bySeq = new Map(r.entries.map((e) => [e.seq, e]));
         const low = r.entries.length ? r.entries[0]!.seq : Infinity;
-        const synced = (list: ActivityEntryView[]) => list.filter((e) => e.kind !== "podium" || e.seq < low || bySeq.has(e.seq)).map((e) => (e.kind === "podium" ? (bySeq.get(e.seq) ?? e) : e));
+        const synced = (list: ActivityEntryView[]) => list.filter((e) => e.kind !== "podium" || e.seq < low || bySeq.has(e.seq)).map((e) => (e.kind === "podium" || e.kind === "tool" ? (bySeq.get(e.seq) ?? e) : e));
         setState((st) => ({
           // With stored history the cap is far wider: what is trimmed is still stored, and stays one page away.
           entries: [...synced(st.entries), ...fresh].slice(-(loaded.current === "done" ? LIVE_KEPT : FEED_KEPT)),
@@ -279,6 +301,7 @@ export function useActivityFeed(opts: {
     if (!canRead) return { ...state, entries: [], stored, loadOlder: NO_OLDER };
     // A live entry the page already holds (it arrived while the page was loading) is shown once.
     const have = new Set(store.entries.map(sig));
-    return { ...state, entries: [...store.entries, ...state.entries.filter((e) => !have.has(sig(e)))], stored, loadOlder };
+    const liveBySig = new Map(state.entries.map((e) => [sig(e), e]));
+    return { ...state, entries: [...store.entries.map((e) => withLive(e, liveBySig.get(sig(e)))), ...state.entries.filter((e) => !have.has(sig(e)))], stored, loadOlder };
   }, [state, store, loadOlder]);
 }

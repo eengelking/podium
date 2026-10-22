@@ -11,6 +11,7 @@ Contents:
   - [Admin and per-person tokens](#admin-and-per-person-tokens)
   - [Several people on one Podium](#several-people-on-one-podium)
   - [Orchestrator messaging](#orchestrator-messaging)
+  - [Session recording](#session-recording)
   - [The release check](#the-release-check)
   - [A page on another site](#a-page-on-another-site)
   - [Behind a reverse proxy](#behind-a-reverse-proxy)
@@ -117,7 +118,7 @@ names, machines, paths, branches, plan steps, commands from failed calls and the
 
 Podium can serve HTTPS itself, with its own certificate authority (CA), so tokens, reports and answers are encrypted
 on the network. It is off until you turn it on. The design is in [SPEC.md](SPEC.md#77-hardening) (*Built-in TLS*) and
-DECISIONS 40. This section is the walk-through, in the order you do it.
+DECISIONS 42. This section is the walk-through, in the order you do it.
 
 **1. Turn it on.**
 
@@ -215,6 +216,26 @@ on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
 [MESSAGING.md](MESSAGING.md) walks through the whole setup, with the ranges in [Limits](MESSAGING.md#limits); the
 Admin's screens are under "Admin" in [USER_GUIDE.md](USER_GUIDE.md#settings).
 
+### Session recording
+
+A session can be recorded whole and replayed later. It is off until an Admin turns on **Session recording**
+(`session-recording`) in Admin > Settings > Feature flags; the change is written to the Admin log as `feature_changed`.
+It needs the server's auth on (the switch is unavailable with no token), a choice by the session's owner or an Admin,
+and the reporter's `sessionRecording` option on the machine. The rules are in
+[SPEC.md](SPEC.md#session-recording-opt-in-353) and the whole feature is in [REPLAY.md](REPLAY.md).
+
+- While the flag is on, Admin > Settings has a **Session recording** section with three limits: how long a recording is
+  kept (6 hours, 1 hour to 7 days), the disk budget for all recordings (4 GB) and the limit for one session (512 MB).
+  Each change is written to the Admin log as `recording_settings_changed`. A shorter keep time removes recordings that
+  are already older.
+- Recordings are stored in `activity.sqlite`, beside the main database. Reporters send a batch every 5 seconds per
+  recorded session, so the server's disk use follows the number of recorded sessions: about 9.5 MB an hour for each
+  busy loop in simulated traffic, 38 MB an hour for a busy session of four loops. The disk budget is a safety stop:
+  reaching it stops every recording.
+- The **Recordings** table on the same page lists every recording with its owner, who started it, state and size, and
+  stops, opens or deletes any of them. Stored activity lists them with Source set to Recordings.
+- Turning the flag off stops every recording and keeps what is stored until it expires.
+
 ### The release check
 
 Once a day the server asks `api.github.com` for the latest Podium release, and the wall shows a notice when it is newer
@@ -288,7 +309,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | SQLite database file (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history |
+| `PODIUM_DB` | `data/podium.sqlite` | SQLite database file (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_TLS` | `off` | `on` makes the server create a CA and serve HTTPS beside HTTP. `podiumctl start --tls` sets it. Container mode keeps the CA in `~/.podium/tls` on your machine (standalone: `data/tls` beside the database): back that folder up and keep it private, because it holds the CA key. `podiumctl rm` keeps it unless you add `--purge-tls --yes`. Under rootless Podman on Linux the folder belongs to the container's user, so read or delete it with `podman unshare` |
@@ -307,8 +328,8 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `RETAIN_SESSIONS_MS` | 30 days | Ended sessions kept |
 | `RETAIN_ADMIN_LOG_MS` | 90 days | Admin log entries kept; the newest 100 are always kept |
 | `RETAIN_ROLLUP_MS` | 395 days | Daily reporting summaries kept (Admin > Reporting). They hold counts, tokens, cost and names, never session content |
-| `PODIUM_LOG_LEVEL` | `info` | Lowest log level printed and shipped: `debug`, `info`, `warn` or `error`. `debug` adds one line per HTTP request, and in the text format the session, reporter, sweep and Admin lines |
-| `PODIUM_LOG_FORMAT` | `text` | `text` prints each line's message, as before; `json` prints one JSON object per line |
+| `PODIUM_LOG_LEVEL` | `info` | Lowest log level printed and shipped: `debug`, `info`, `warn` or `error`. `debug` adds one line per HTTP request, and in the text format the session, reporter, sweep and Admin lines. A refused credential prints at `warn` without it, folded to one line a minute per route, source and reason |
+| `PODIUM_LOG_FORMAT` | `text` | `text` prints each line's message, as before; `json` prints one JSON object per line, with no folding |
 | `PODIUM_LOG_SHIP_URL` | empty | Also push every log line to this endpoint, such as a VictoriaLogs server (`http://HOST:9428`; `/insert/jsonline` is added). Empty means nothing leaves the machine |
 | `PODIUM_LOG_SHIP_HEADERS` | empty | Headers for that endpoint, `Name=Value;Name2=Value2` (for example `Authorization=Bearer ...;AccountID=1`). Never printed or logged |
 | `PODIUM_LOG_SHIP_BUFFER` | `2000` | Log lines kept while the endpoint is down; past that the oldest are dropped |

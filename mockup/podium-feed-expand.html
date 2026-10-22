@@ -1,0 +1,372 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Expandable Command Rows</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #431 (H3 of #530). This file has no :root block and no color of its own: every color is a token from
+   tokens.css, reached through fleet.css. The markup is the Activity feed's as it is on development (ActivityFeed.tsx):
+   the agent panel (the side pane, AgentDetail.tsx), the agent's Expand modal, the orchestrator's Expand modal (the Respond modal, Respond.tsx, with its message box), and the replay's rows (ReplayPage.tsx, with .who and the .res result block).
+   Proposed for the standards, each defined below with its name in a comment:
+     .feed li .tgl      the row's own button: the click target for a row with more to show, with a chevron
+     .feed li .xp       the opened part of a row: the whole command, then the output
+     .xp .xh            a label line over a block, with its Copy button on the right
+     .exit.ok / .bad    exit status as a shape, a word and a color
+   The demo chrome (.demo, .stage, .frame, .notes, .decisions) belongs to this review page only. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+[hidden] { display: none !important; }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 780px; max-width: 100%; background: var(--bg); transform: translateZ(0); position: relative; }
+.frame.wide { width: 1000px; }
+.frame.narrow { width: 400px; }
+.frame > .podium { height: 100%; overflow: auto; }
+.frame .scrim { position: absolute; }
+.notes { min-width: 0; max-width: 1000px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.notes .tw3 { overflow-x: auto; }
+.decisions { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.paneframe { display: flex; justify-content: center; height: 100%; }
+.paneframe .side { width: 400px; max-width: 100%; height: 100%; overflow: auto; border-right: 1px solid var(--border); }
+.paneframe .det { padding-top: 16px; }
+.replay { display: grid; gap: 12px; padding: 12px; align-content: start; }
+.replay .feed { margin: 0; padding: 0; list-style: none; height: auto; overflow: visible; flex: none; }
+.replay .feed li .who { overflow-wrap: anywhere; }
+.replay .tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.replay .feedfoot { margin: 0; padding: 8px 12px; border-top: 1px solid var(--border); }
+.stateslist { padding: 20px 16px; display: grid; gap: 22px; max-width: 760px; margin: 0 auto; }
+.stateslist section { display: grid; gap: 8px; }
+.stateslist h2 { margin: 0; font-size: 13px; }
+.stateslist p { margin: 0; color: var(--ink2); font-size: 12.5px; }
+.stateslist .feed { height: auto; overflow: visible; }
+
+/* The replay's .feed li.cur, .feed li .who and .res are on development (#353) and still proposed for the standards by
+   a Standards: line in [Unreleased]; the rules below are copied from fleet.css only so this page reads without them. */
+
+/* PROPOSED .feed li .tgl. A tool row with more to show (a command cut at 300 characters, or output) is one button
+   around the tool name and the line: the whole row opens and closes, not only a small control. It is a plain block
+   in the feed's own mono text, with a chevron before the name that turns when the row is open. A row with nothing
+   more to show has no button and no chevron. */
+.podium .feed li .tgl { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.podium .feed li .tgl:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .tgl .chev { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; color: var(--muted); transition: transform 0.12s ease-out; }
+.podium .feed li .tgl[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.podium .feed li .tgl .cut { color: var(--muted); }
+/* The whole row is the click target, not only the line: the time, the icon and the empty space open and close it. The
+   button inside stays the keyboard and screen-reader control. The opened part (.xp) is not a target, so text in it can
+   be selected and copied without closing the row. */
+.podium .feed li.can { cursor: pointer; }
+.podium .feed li.can:hover { background: var(--hover); }
+.podium .feed li.open { background: var(--raised); }
+.podium .feed li.open:hover { background: var(--raised); }
+.podium .feed li .tgl .state { margin-left: 6px; color: var(--muted); font-family: var(--font-ui); font-size: 11px; white-space: nowrap; }
+/* A row that is cut and has no whole command to open (an older reporter): it says so in words, with no chevron. */
+.podium .feed li .nofull { color: var(--ink); font-family: var(--font-ui); font-size: 11px; margin-left: 4px; }
+/* PROPOSED .feed li .xp: the opened part of a row, under the line and inside the body column. */
+.podium .feed li .xp { margin: 6px 0 2px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; font-family: var(--font-ui); }
+.podium .feed li .xp > div { min-width: 0; }
+.podium .feed li .xp .xh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 3px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+.podium .feed li .xp .xh .exit { margin-right: auto; margin-left: 8px; }
+.podium .feed li .xp .xh .btn { padding: 2px 8px; font-size: 11.5px; }
+.podium .feed li .xp .code { max-height: none; overflow: visible; cursor: text; }
+/* Command and output both wrap. Nothing scrolls sideways, and the block takes the height its text needs: the list scrolls. */
+.podium .feed li .xp .code.xcmd, .podium .feed li .xp .code.xout { white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .feed li .xp .foot { display: flex; justify-content: flex-end; }
+.podium .feed li .xp .code .mark { color: var(--muted); }
+.podium .feed li .xp .feedoff { cursor: default; }
+/* PROPOSED .exit: exit status as a shape, a word and a color. */
+.podium .exit { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.podium .exit.ok { color: var(--good-text); }
+.podium .exit.bad { color: var(--crit-text); }
+.podium .exit svg { flex: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media print { .demo, .notes { display: none; } .frame { height: auto; border: 0; } }
+</style>
+
+<div class="demo">
+  <b>Expandable command rows (#431)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-s="panel" aria-pressed="true">Agent panel</button>
+    <button type="button" data-s="modal" aria-pressed="false">Agent Expand modal</button>
+    <button type="button" data-s="orch" aria-pressed="false">Orchestrator modal</button>
+    <button type="button" data-s="replay" aria-pressed="false">Replay</button>
+    <button type="button" data-s="states" aria-pressed="false">Rows without output</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+
+  <div class="podium scr" id="s-panel">
+    <div class="paneframe"><div class="side"><div class="det">
+      <h3>Port invoice endpoints</h3>
+      <div class="sub2">general-purpose · running 4:12</div>
+      <div class="lab feedlab"><span class="tools"><span>Activity</span><button type="button" class="expand" aria-haspopup="dialog"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5 9 7M2.5 13.5 7 9"/></svg>Expand</button></span><span class="live"><label for="ev-p" class="sub">Refresh every</label><select id="ev-p" aria-label="Refresh interval"><option>5s</option><option>10s</option><option selected>20s</option><option>30s</option><option>60s</option></select></span></div>
+      <div class="feedwrap"><ol class="feed" id="feed-panel" style="height:520px" aria-label="Activity"></ol></div>
+      <div class="feedfoot stat"><span class="count" title="Showing the newest 9 of 9">Showing the newest 9 of 9</span><span class="when">updated 17:04:12</span></div>
+      <div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>
+    </div></div></div>
+  </div>
+
+  <div class="podium scr" id="s-modal" hidden>
+    <div class="scrim">
+      <div class="modal modal-feed" role="dialog" aria-modal="true" aria-labelledby="mt">
+        <div class="mh"><div class="ttl"><h2 id="mt">Activity</h2><div class="sub2">Port invoice endpoints · general-purpose</div></div><span class="live"><label for="ev-m" class="sub">Refresh every</label><select id="ev-m" aria-label="Refresh interval"><option>5s</option><option>10s</option><option selected>20s</option><option>30s</option><option>60s</option></select></span><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+        <div class="mb feedmb">
+          <div class="feedwrap"><ol class="feed" id="feed-modal" aria-label="Activity"></ol></div>
+          <div class="feedfoot stat"><span class="count" title="Showing the newest 9 of 9">Showing the newest 9 of 9</span><span class="when">updated 17:04:12</span></div>
+          <div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="podium scr" id="s-orch" hidden>
+    <div class="scrim">
+      <div class="modal modal-feed modal-respond" role="dialog" aria-modal="true" aria-labelledby="ot">
+        <div class="mh"><div class="ttl"><h2 id="ot">Activity</h2><div class="sub2">Silverbolt · orchestrator · Opus 5.5</div></div><span class="live"><label for="ev-o" class="sub">Refresh every</label><select id="ev-o" aria-label="Refresh interval"><option>5s</option><option>10s</option><option selected>20s</option><option>30s</option><option>60s</option></select></span><button type="button" class="x" aria-label="Close (Esc)">✕</button></div>
+        <div class="mb feedmb respondmb">
+          <div class="feedwrap"><ol class="feed" id="feed-orch" aria-label="Activity"></ol></div>
+          <div class="feedfoot stat"><span class="count" title="Showing the newest 9 of 9">Showing the newest 9 of 9</span><span class="when">updated 17:04:12</span></div>
+          <div class="feedfoot"><span>Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session.</span></div>
+          <div class="compose">
+            <div class="crow"><textarea rows="1" placeholder="Message Silverbolt, or type / for a command" aria-label="Message to Silverbolt"></textarea><button class="btn pri" type="button" disabled>Send</button></div>
+            <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="podium scr" id="s-replay" hidden>
+    <div class="replay">
+      <div class="card">
+        <div class="tools"><b>Replay</b><span class="hint">Silverbolt and 2 agents, recorded 16:58 to 17:04</span></div>
+        <ol class="feed" id="feed-replay" aria-label="Replay"></ol>
+        <div class="feedfoot"><span>Kept until 17:42 today, then deleted. Only the owner and an Admin can open it.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="podium scr" id="s-states" hidden>
+    <div class="stateslist">
+      <section>
+        <h2>A row that was cut but has no whole command</h2>
+        <p>An older reporter sends only the 300 characters. The row ends where it was cut and says why. It has no chevron because there is nothing more to open.</p>
+        <ol class="feed" id="feed-old" aria-label="Older reporter"></ol>
+      </section>
+      <section>
+        <h2>A command that is still running</h2>
+        <p>The row opens, shows the whole command, and says the output arrives when the command finishes.</p>
+        <ol class="feed" id="feed-run" aria-label="Running"></ol>
+      </section>
+      <section>
+        <h2>A command that finished before the panel was open</h2>
+        <p>Output is collected only while the panel is open, so a call that finished earlier has its command and no output. The mod still reports that the call finished and how, so the row shows its status mark on the line and beside Output, and says the output was not collected. It does not claim the command is running. Three rows: exit 0, exit 2, and a failure with no code.</p>
+        <ol class="feed" id="feed-nc" aria-label="Finished, output not collected"></ol>
+      </section>
+      <section>
+        <h2>A call that never reported finishing</h2>
+        <p>No finish report and the session's loop is no longer active, so the call is not running any more and nothing says how it ended. The row reads as not collected and shows no status mark. An older reporter sends no finish report without output, so its rows read the same way.</p>
+        <ol class="feed" id="feed-stale" aria-label="Stale call"></ol>
+      </section>
+      <section>
+        <h2>A failed command with no exit code</h2>
+        <p>Claude Code does not always give a code. The row shows a cross and the single word Failed, with no number.</p>
+        <ol class="feed" id="feed-unk" aria-label="Failed, code unknown"></ol>
+      </section>
+      <section>
+        <h2>The Admin has output turned off</h2>
+        <p>The command is whole and opens; the output block says in words why it is missing. If the call finished, its status mark still shows on the line and beside Output (exit 0 here), the same as when output was not collected. The machine's own option, off, reads the same way with its own wording on the Admin mockup (podium-feed-expand-admin.html).</p>
+        <ol class="feed" id="feed-off" aria-label="Output off"></ol>
+      </section>
+      <section>
+        <h2>A row from stored history</h2>
+        <p>The command is kept with the history, so it opens whole. Output is never kept, and the row says so.</p>
+        <ol class="feed" id="feed-hist" aria-label="History"></ol>
+      </section>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this changes</h2>
+  <ul>
+    <li><b>Click a row to open it, click again to close it.</b> Every row starts closed. Anywhere on a row that has more to show is the target: the time, the icon, the line and the empty space beside it. Only a Bash row has this: the mod sends the whole command and the output for Bash and for no other tool, so a Read or Grep row stays as it is today, even when its line was cut at 300 characters. The chevron turns, the row takes the raised surface while open, and the opened part ends with a Collapse button, so there is always a visible way back. Opened, it shows the whole command, then the output with its exit status. Closed, it goes back to the one-line summary it is today. Clicking inside the opened command or output does not close the row, so text can be selected and copied.</li>
+    <li><b>Which rows open.</b> A Bash row opens when it has more to show: a cut command, or output. A short Read or Grep row that was not cut has nothing more and stays plain text, with no chevron. Opening a row never scrolls the list away from where the person is reading, and a list that is following the newest row keeps following it.</li>
+    <li><b>Keyboard and screen readers.</b> Under the whole-row click, the line is a real button with <span class="mono">aria-expanded</span> and <span class="mono">aria-controls</span>. Its name is the tool and the line, and it adds the size ("whole command, 1,842 characters") for a screen reader. Enter and Space toggle it.</li>
+    <li><b>Failed, code unknown.</b> When Claude Code reports a failure without a code, the row shows the cross and the single word "Failed", with no number.</li>
+    <li><b>Output was not collected.</b> Output is gathered only while the panel is open, so a Bash call that finished earlier shows its command and "Output was not collected. Output is only collected while this panel is open."</li>
+    <li><b>How the row tells the cases apart (#598).</b> While the activity feed is on, the mod reports that a Bash call finished (<span class="mono">done</span>, with <span class="mono">failed</span> and <span class="mono">exitCode</span>), with or without output. The row then reads: no <span class="mono">done</span> and the loop active, "Running." and the word running on the line; <span class="mono">done</span> with no output, "Output was not collected." plus the status mark; no <span class="mono">done</span> and the loop not active, "Output was not collected." with no mark (a stale call). A finished row's status shows whenever the call finished, on the line and beside Output, whatever the reason its output is missing: not collected, turned off by the Admin, or turned off for the machine. Only a call that never reported finishing has no mark. An older reporter sends no <span class="mono">done</span> without output, so its rows keep today's wording. Activity history keeps none of the three; stored rows are as on the history screen.</li>
+    <li><b>Exit status.</b> A command that succeeded shows only a check in the good color; a screen reader hears "Succeeded, exit 0" and the check has a "Succeeded" tooltip. Any other exit shows a cross, the words "Exit 2, failed" and the critical color, so a failure is never missed.</li>
+    <li><b>Redaction.</b> Secrets the mod redacted show as the existing red <span class="mono">[redacted]</span> mark, in the command and in the output. Everything from a session is a text node, never HTML. ANSI color codes are stripped.</li>
+    <li><b>Cut-off is said in words.</b> A command or output cut at the limit ends with "[cut off at 20,000 characters]". Nothing is cut silently.</li>
+    <li><b>Copy command</b> and <b>Copy output</b> copy the text exactly as shown (redacted), and the button shows Copied with a check for 1.6 seconds, as the copy pattern says.</li>
+    <li><b>Replay.</b> The replay's tool call row follows the same pattern. For a Bash call it replaces the "Whole input" and "Result" disclosures with this one row, so a call, its whole command and its output open together. Other tools keep today's disclosure.</li>
+    <li><b>The state of open rows survives the refresh.</b> Rows are keyed by entry, not position, so the 5 to 60 s refresh does not close what a person opened. An entry that scrolls out of the newest 20 goes with the open state.</li>
+    <li>Everything on this page uses the app's classes and tokens. The new pieces are named in the stylesheet comment above and are proposed for the standards by a <span class="mono">Standards:</span> line, with the replay's classes from #353 that are not on <span class="mono">docs/standards/</span> yet.</li>
+  </ul>
+  <h2>Checked against the standards</h2>
+  <ul>
+    <li>Colors are tokens only (no hex or rgb in this file, no <span class="mono">:root</span> block). Status is a shape and a color, and a failure adds its words; a success has its word for screen readers and a tooltip (the maintainer chose a bare check for success). A note about something cut or missing is plain text in the ink color. Text from a session is a text node. The page does not scroll sideways at 400 px; the command and output wrap, so nothing scrolls sideways.</li>
+    <li><b>Not covered by the standards, proposed here:</b> a whole feed row as a disclosure button; Copy as a small labelled button (the standard's copy control is a whole-cell value); a cross for a failed exit (a check already means done). The chevron reuses the Blowouts cell's <span class="mono">.chev</span> idea. The failure box is not reused because a failed call's output opens inside its own row; say if you would rather a failed row open as the failure box.</li>
+    <li>This page has no chart, so the data-visualization rules apply only to status: exit status is never color alone.</li>
+  </ul>
+  <h2>Decisions for review</h2>
+  <div class="tw3"><table class="decisions">
+    <thead><tr><th>Question</th><th>This mockup</th></tr></thead>
+    <tbody>
+      <tr><td>Wrap or scroll</td><td>Both wrap, and nothing scrolls sideways. The opened row takes the height its text needs and the list scrolls, so there is no scroll box inside the scroll list. A very long output makes a tall row; Collapse sits at its end.</td></tr>
+      <tr><td>Whole command in history</td><td>Stored in the Activity history (maintainer's decision), redacted, and cut at a stated limit with a visible marker. Output is not stored.</td></tr>
+      <tr><td>Output in history</td><td>Not kept. The issue says output is never in the database; a stored row says "Output is not kept in history." Confirm this stays.</td></tr>
+      <tr><td>Which rows open</td><td>A row with a cut command or with output. Plain short rows are not buttons.</td></tr>
+      <tr><td>Output switch</td><td>The "Output is off" wording assumes output has its own on/off switch, or rides the activity-feed one. The words change if it rides the existing one. To be decided and written to <span class="mono">docs/DECISIONS.md</span> before the build.</td></tr>
+      <tr><td>Very large output</td><td>Claude Code replaces a result of about 90 KB with a short stub before the mod sees it, so the row shows what the mod got. Not shown here; it needs a real session to see what the stub reads as.</td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  var CHEV = '<svg class="chev" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5"/></svg>';
+  var OK = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg>';
+  var BAD = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>';
+  var TOOL = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4 4 4-4 4M8.5 12.5H13"/></svg>';
+  var TEXT = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>';
+  var CUT_AT = 300, uid = 0;
+
+  function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  // Text with each [redacted] marked, as text nodes (the app's Redacted component).
+  function redacted(parent, text) {
+    text.split("[redacted]").forEach(function (p, i, a) {
+      parent.appendChild(document.createTextNode(p));
+      if (i < a.length - 1) parent.appendChild(el("span", "rd", "[redacted]"));
+    });
+  }
+  function num(n) { return n.toLocaleString("en-US"); }
+
+  var CMD_LONG = "gh api graphql -f query='query { repository(owner:\"eengelking\", name:\"claude-dashboard\") { issues(first: 50, states: OPEN, labels: [\"ui\",\"protocol\"], orderBy:{field: UPDATED_AT, direction: DESC}) { nodes { number title labels(first: 10) { nodes { name } } comments { totalCount } updatedAt } } } }' --jq '.data.repository.issues.nodes[] | select(.comments.totalCount > 2) | \"\\(.number)\\t\\(.title)\\t\\(.updatedAt)\"' | sort -k3 -r | head -20";
+  var CMD_CURL = "curl -sS -X POST https://api.example.internal/v2/deployments -H \"Authorization: Bearer [redacted]\" -H \"Content-Type: application/json\" -d '{\"service\":\"podium\",\"ref\":\"issue/431-expand-command\",\"environment\":\"staging\",\"strategy\":\"rolling\",\"healthCheck\":{\"path\":\"/api/health\",\"timeoutSeconds\":30},\"notify\":[\"#podium-releases\"]}' --max-time 60 --retry 2";
+  var OUT_LONG = (function () {
+    var a = ["#  title                                              updated"]; for (var i = 0; i < 18; i++) a.push((431 + i * 7) + "  " + ["Show a Bash command's output in the Activity feed", "Replay: jump to next failure", "Rail pager keeps its place on refresh", "TLS: certificate list wraps at 400 px"][i % 4] + "  2026-10-" + (21 - (i % 9)));
+    a.push("... 2 more rows ...", "[cut off at 20,000 characters]"); return a.join("\n");
+  })();
+  var OUT_TEST = " RUN  v2.1.4 /Users/eengelking/dev/claude-dashboard/server\n\n ✓ src/fleet/activity.test.ts (41 tests) 212ms\n ✓ src/fleet/activityHistory.test.ts (28 tests) 340ms\n ✓ src/fleet/protocol.test.ts (96 tests) 188ms\n\n Test Files  3 passed (3)\n      Tests  165 passed (165)\n   Duration  1.94s";
+  var OUT_FAIL = "> frontend@0.14.3 build\n> tsc -b && vite build\n\nsrc/fleet/components/ActivityFeed.tsx(112,9): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\nsrc/fleet/components/ActivityFeed.tsx(131,24): error TS2339: Property 'output' does not exist on type 'FeedEntry'.\n\nFound 2 errors in 1 file.";
+  var OUT_CURL = "{\"id\":\"dep_7f3a\",\"status\":\"queued\",\"url\":\"https://staging.example.internal/podium\",\"token\":\"[redacted]\"}";
+
+  // One feed row. d: {at, kind: "tool"|"text", name, cmd, out, exit, open, state, full: false when the reporter sent only 300 characters}
+  function row(d) {
+    var li = el("li", d.kind === "text" ? "txt" : "tool");
+    li.appendChild(el("span", "at", d.at));
+    var k = el("span", "k"); k.setAttribute("role", "img"); k.setAttribute("aria-label", d.kind === "text" ? "Text" : "Tool call"); k.innerHTML = d.kind === "text" ? TEXT : TOOL; li.appendChild(k);
+    var body = el("span", "body"); li.appendChild(body);
+    if (d.who) body.appendChild(el("span", "who", d.who));
+    if (d.kind === "text") { redacted(body, d.cmd); return li; }
+    var cmd = d.cmd, cut = cmd.length > CUT_AT, shown = cut ? cmd.slice(0, CUT_AT) : cmd;
+    var hasFull = d.full !== false, hasOut = d.out != null || d.outNote || d.state === "running";
+    var more = (cut && hasFull) || hasOut;
+    var head = more ? el("button", "tgl") : el("span");
+    if (more) { head.type = "button"; head.setAttribute("aria-expanded", "false"); head.insertAdjacentHTML("beforeend", CHEV); }
+    head.appendChild(el("span", "name", d.name || "Bash")); head.appendChild(document.createTextNode(" "));
+    var arg = el("span", "arg"); redacted(arg, shown); head.appendChild(arg);
+    if (cut) head.appendChild(el("span", "cut", "…"));
+    if (d.state === "running") head.appendChild(el("span", "state", "running"));
+    else if (d.exit != null && more) { var ex = el("span", "state"); ex.innerHTML = d.exit === "unknown" ? '<span class="exit bad">' + BAD + "Failed</span>" : d.exit === 0 ? '<span class="exit ok" title="Succeeded">' + OK + '<span class="sr">Succeeded, exit 0</span></span>' : '<span class="exit bad">' + BAD + "Exit " + d.exit + ", failed</span>"; head.appendChild(ex); }
+    if (cut && !hasFull) head.appendChild(el("span", "nofull", "cut at 300 characters; this reporter sends no more"));
+    if (more) { var s = el("span", "sr", cut && hasFull ? " Show whole command, " + num(cmd.length) + " characters" : " Show output"); head.appendChild(s); }
+    body.appendChild(head);
+    if (!more) return li;
+    var id = "xp" + (++uid), xp = el("div", "xp"); xp.id = id; xp.hidden = true; head.setAttribute("aria-controls", id);
+    var c = el("div"); var ch = el("div", "xh"); ch.appendChild(el("span", "", "Command" + (cut ? ", " + num(cmd.length) + " characters" : "")));
+    ch.appendChild(copyBtn("Copy command")); c.appendChild(ch); var pre = el("pre", "code xcmd"); pre.setAttribute("aria-label", "Whole command"); redacted(pre, cmd); c.appendChild(pre); xp.appendChild(c);
+    var o = el("div"); var oh = el("div", "xh");
+    var lab = el("span"); lab.textContent = "Output"; oh.appendChild(lab);
+    if (d.exit != null && d.state !== "running") { var st = el("span", "exit " + (d.exit === 0 ? "ok" : "bad")); st.innerHTML = (d.exit === 0 ? OK + '<span class="sr">Succeeded, exit 0</span>' : BAD + (d.exit === "unknown" ? "Failed" : "Exit " + d.exit + ", failed")); if (d.exit === 0) st.title = "Succeeded"; oh.appendChild(st); }
+    if (d.out != null) oh.appendChild(copyBtn("Copy output"));
+    o.appendChild(oh);
+    if (d.out != null) { var po = el("pre", "code xout"); po.setAttribute("aria-label", "Output"); d.out.split("\n").forEach(function (l, i, a) { var t = l.indexOf("[cut off") === 0 ? el("span", "mark", l) : null; if (t) po.appendChild(t); else redacted(po, l); if (i < a.length - 1) po.appendChild(document.createTextNode("\n")); }); o.appendChild(po); }
+    else { var fo = el("div", "feedoff"); fo.appendChild(el("b", "", d.state === "running" ? "Running." : d.outNote[0])); fo.appendChild(el("div", "ghost", d.state === "running" ? "The output appears here when the command finishes." : d.outNote[1])); o.appendChild(fo); }
+    xp.appendChild(o);
+    var ft = el("div", "foot"), cb = el("button", "btn", "Collapse"); cb.type = "button"; cb.addEventListener("click", function () { toggle(head, li, xp, false); head.focus(); }); ft.appendChild(cb); xp.appendChild(ft);
+    li.classList.add("can"); body.appendChild(xp);
+    if (d.open) toggle(head, li, xp, true);
+    return li;
+  }
+  function copyBtn(label) { var b = el("button", "btn", label); b.type = "button"; b.addEventListener("click", function (e) { e.stopPropagation(); b.innerHTML = OK + "Copied"; setTimeout(function () { b.textContent = label; }, 1600); }); return b; }
+  function toggle(head, li, xp, on) { head.setAttribute("aria-expanded", String(on)); xp.hidden = !on; li.classList.toggle("open", on); }
+  function fill(id, rows) { var ol = document.getElementById(id); rows.forEach(function (r) { var li = row(r); ol.appendChild(li); var h = li.querySelector(".tgl"), xp = li.querySelector(".xp");
+      if (h) li.addEventListener("click", function (e) { if (xp.contains(e.target) || (window.getSelection && String(window.getSelection()))) return; toggle(h, li, xp, h.getAttribute("aria-expanded") !== "true"); }); }); }
+
+  function feed(open) {
+    return [
+      { at: "03:41", kind: "text", cmd: "The history store copies at, kind and text, so the new field has to be added there too. Running the server tests first." },
+      { at: "03:49", kind: "tool", name: "Read", cmd: "server/src/fleet/activityHistory.ts" },
+      { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", out: OUT_TEST, exit: 0, open: open },
+      { at: "04:02", kind: "tool", cmd: "git status --short", out: " M server/src/fleet/protocol.ts\n M server/src/fleet/activity.ts\n?? mockup/podium-feed-expand.html", exit: 0 },
+      { at: "04:07", kind: "tool", cmd: CMD_LONG, out: OUT_LONG, exit: 0, open: open },
+      { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", out: OUT_FAIL, exit: 2, open: open },
+      { at: "04:19", kind: "tool", cmd: CMD_CURL, out: OUT_CURL, exit: 0 },
+      { at: "04:26", kind: "tool", name: "Grep", cmd: "protocol:begin server/src mod/podium-reporter" },
+      { at: "04:31", kind: "tool", cmd: "node scripts/podium-peers-seed.mjs --db /tmp/podium-test.sqlite", state: "running", open: false }
+    ];
+  }
+  fill("feed-panel", feed(false));
+  fill("feed-modal", feed(false));
+  fill("feed-orch", feed(false));
+
+  fill("feed-replay", [
+    { at: "00:00", kind: "text", who: "Silverbolt,", cmd: "Checking the failing build first." },
+    { at: "01:12", kind: "tool", who: "Silverbolt,", cmd: "npm run build -w frontend", out: OUT_FAIL, exit: 2 },
+    { at: "01:40", kind: "tool", who: "Reviewer,", name: "Read", cmd: "frontend/src/fleet/components/ActivityFeed.tsx" },
+    { at: "02:03", kind: "tool", who: "Reviewer,", cmd: CMD_LONG, out: OUT_LONG, exit: 0 },
+    { at: "02:30", kind: "tool", who: "Silverbolt,", cmd: "npm test -w server -- activity", out: OUT_TEST, exit: 0 }
+  ]);
+
+  fill("feed-old", [ { at: "04:07", kind: "tool", cmd: CMD_LONG, full: false } ]);
+  fill("feed-run", [ { at: "04:31", kind: "tool", cmd: CMD_CURL, state: "running", open: true } ]);
+  var NC = ["Output was not collected.", "Output is only collected while this panel is open."];
+  fill("feed-nc", [
+    { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: NC, exit: 0, open: true },
+    { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", outNote: NC, exit: 2, open: true },
+    { at: "04:15", kind: "tool", cmd: "npm run lint -w frontend", outNote: NC, exit: "unknown", open: true }
+  ]);
+  fill("feed-stale", [ { at: "03:20", kind: "tool", cmd: "node scripts/podium-peers-seed.mjs --db /tmp/podium-test.sqlite", outNote: NC, open: true } ]);
+  fill("feed-unk", [ { at: "04:12", kind: "tool", cmd: "npm run build -w frontend", out: OUT_FAIL, exit: "unknown", open: true } ]);
+  fill("feed-off", [ { at: "03:58", kind: "tool", cmd: "npm test -w server -- activity", outNote: ["Output is turned off by the Admin.", "Someone with Admin access can turn it on in Admin > Settings > Feature flags."], exit: 0, open: true } ]);
+  fill("feed-hist", [ { at: "00:58", kind: "tool", cmd: CMD_LONG, outNote: ["Output is not kept in history.", "Only the command is stored. Output is shown while someone is watching the session and is gone after."], open: true } ]);
+
+  // Demo chrome.
+  function press(sel, attr, val) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === val)); }); }
+  document.querySelectorAll("[data-s]").forEach(function (b) { b.addEventListener("click", function () { var s = b.getAttribute("data-s"); document.querySelectorAll(".scr").forEach(function (x) { x.hidden = x.id !== "s-" + s; }); press("[data-s]", "data-s", s); }); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>

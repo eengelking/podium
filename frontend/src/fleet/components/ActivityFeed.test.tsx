@@ -699,3 +699,95 @@ describe("stored history (#432)", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("a Bash call's output arriving after its entry (#431)", () => {
+  const bash = (seq: number, over: Partial<ActivityReply["entries"][number]> = {}) => entry(seq, { text: "Bash npm test", command: "npm test", id: `t${seq}`, ...over });
+  const li = (i = 0) => document.querySelectorAll<HTMLLIElement>(".feed li")[i]!;
+
+  it("picks up the output, the exit status and done on a seq it already has, and keeps the row open", async () => {
+    const { container } = show({ session: { activityOutput: true }, fetch: fetcher(reply([]), reply([bash(1)]), reply([bash(1, { output: "ok\n", done: true, exitCode: 0 })])) });
+    await flush();
+    await wait(5000);
+    expect(li().classList.contains("can")).toBe(true);
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Running.");
+    await wait(5000);
+    expect(li().classList.contains("open")).toBe(true);
+    expect(li().querySelector("pre.xout")!.textContent).toBe("ok\n");
+    expect(li().querySelector(".xh .exit.ok")).not.toBeNull();
+    expect(container.querySelectorAll(".feed li")).toHaveLength(1);
+  });
+
+  it("takes done, failed and an exit code with no output on a seq the row already has (#598)", async () => {
+    show({ session: { activityOutput: true }, fetch: fetcher(reply([]), reply([bash(1)]), reply([bash(1, { done: true, failed: true, exitCode: 2 })])) });
+    await flush();
+    await wait(5000);
+    expect(li().querySelector(".state")!.textContent).toBe("running");
+    await wait(5000);
+    expect(li().querySelector(".state .exit.bad")!.textContent).toBe("Exit 2, failed");
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output was not collected.");
+    expect(li().querySelector(".xh .exit.bad")).not.toBeNull();
+  });
+
+  it("takes a changed failed status and exit code the same way", async () => {
+    show({ fetch: fetcher(reply([]), reply([bash(1, { output: "x", done: true })]), reply([bash(1, { output: "x", done: true, failed: true, exitCode: 3 })])) });
+    await flush();
+    await wait(5000);
+    expect(li().querySelector(".state .exit.ok")).not.toBeNull();
+    await wait(5000);
+    expect(li().querySelector(".state .exit.bad")!.textContent).toBe("Exit 3, failed");
+  });
+
+  it("drops the output when the server stops sending it (the flag went off), and keeps the command", async () => {
+    show({ fetch: fetcher(reply([]), reply([bash(1, { output: "secret", done: true })]), reply([bash(1)])) });
+    await flush();
+    await wait(5000);
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector("pre.xout")!.textContent).toBe("secret");
+    await wait(5000);
+    expect(li().querySelector("pre.xout")).toBeNull();
+    expect(li().querySelector("pre.xcmd")!.textContent).toBe("npm test");
+  });
+
+  it("reads the machine option off the session: not on, the row says it is off for this machine", async () => {
+    show({ session: { activityOutput: false }, fetch: fetcher(reply([]), reply([bash(1)])) });
+    await flush();
+    await wait(5000);
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output is turned off for this machine.");
+  });
+
+  it("gives a stored row the live twin's output once the viewer has it, under the stored row's own key", async () => {
+    const stored = (n: number) => ({ seq: n, at: T0 + n * 1000, kind: "tool" as const, text: "Bash npm test", command: "npm test" });
+    const h = vi.fn<FetchHistory>(async () => ({ entries: [stored(1)], olderBefore: null, total: 1, since: T0, keptUntil: null }));
+    const hist: ActivityHistoryNote = { policy: "all", total: 1, since: T0, keptUntil: null, canRead: true, owner: "Ed" };
+    const s = makeSession({ reporterVersion: "0.13.0", activityFeed: true, activityOutput: true });
+    const f = fetcher(reply([], { history: hist }), reply([bash(1, { at: T0 + 1000 })], { history: hist }), reply([bash(1, { at: T0 + 1000, output: "fine", done: true })], { history: hist }));
+    render(
+      <RespondProvider flagsOn={false} historyOn api={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed", admin: false }) } as unknown as RespondApi}>
+        <ActivityFeed s={s} loop="a1" title="t" startedAt={T0} active now={T0} adminOn fetchActivity={f} fetchHistory={h} />
+      </RespondProvider>,
+    );
+    await flush();
+    expect(li().querySelector(".feedoff")).toBeNull();
+    fireEvent.click(li().querySelector("button.tgl")!);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Output is not kept in history.");
+    await wait(5000);
+    expect(document.querySelectorAll(".feed li")).toHaveLength(1);
+    expect(li().querySelector(".feedoff b")!.textContent).toBe("Running.");
+    await wait(5000);
+    expect(li().classList.contains("open")).toBe(true);
+    expect(li().querySelector("pre.xout")!.textContent).toBe("fine");
+  });
+
+  it("opens the same row in the Expand modal", async () => {
+    show({ fetch: fetcher(reply([]), reply([bash(1, { output: "ok", done: true })])) });
+    await flush();
+    await wait(5000);
+    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /Bash/ }));
+    expect(within(dialog).getByText("ok")).toBeInTheDocument();
+  });
+});

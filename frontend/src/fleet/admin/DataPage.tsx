@@ -367,6 +367,9 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
         </span>
       </div>
       <div className="note-line">
+        <b>What is kept.</b> Each entry&apos;s time, kind and text. For a Bash call the text is now the whole command, redacted, up to 20,000 characters (it was cut at 300). A command&apos;s output is never kept, whatever this setting says.
+      </div>
+      <div className="note-line">
         <b>Last purge</b>{" "}
         {state.lastPurge
           ? `${when(state.lastPurge.at)} removed ${removed(state.lastPurge.entries, state.lastPurge.bytes)}. It runs every few minutes, and each run that removes something is written to the Admin log as one entry with the count, the size and the policy.`

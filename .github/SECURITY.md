@@ -68,7 +68,7 @@ If you think you have found something like this, please report it rather than op
 
 ## Built-in TLS
 
-Podium can serve HTTPS itself (#577, DECISIONS 40). It is off until the Admin turns it on with `PODIUM_TLS=on` or
+Podium can serve HTTPS itself (#577, DECISIONS 42). It is off until the Admin turns it on with `PODIUM_TLS=on` or
 `podiumctl start --tls`. The server then makes a CA and a serving certificate, and gives each person a reporter
 config file with their client certificate and key, shown once. The reporter proves who it is with that certificate
 instead of a token. Not built yet: this is the planned behavior in `docs/SPEC.md` 7.7.
@@ -121,7 +121,7 @@ a limit, or a way to read a conversation's text as anyone but its owner or an Ad
 | The rules the server and the mod follow | `docs/SPEC.md` 7.7 "Hardening": "Who a report is from", "Who", "The browser's credential", "The mod never trusts the server" and "The admin log" |
 | How a person turns responding on and uses it | `docs/USER_GUIDE.md`, "Answering a session from Podium" |
 | How orchestrator messaging is set up, and what is kept | `docs/MESSAGING.md`, with the reasoning in `docs/DECISIONS.md` 37 |
-| Why Podium makes its own CA, and the rules for it | `docs/DECISIONS.md` 40, `docs/SPEC.md` 5.9, 6 and 7.7 "Built-in TLS" |
+| Why Podium makes its own CA, and the rules for it | `docs/DECISIONS.md` 42, `docs/SPEC.md` 5.9, 6 and 7.7 "Built-in TLS" |
 | What is open by design | `docs/GOTCHAS.md` and [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") |
 
 ## Reporting a vulnerability

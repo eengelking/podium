@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openDb } from './db.js';
-import { ACTIVITY_FEED, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
+import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
 
 describe('FeatureFlags', () => {
   it('lists the activity feed first, on by default, and Respond from Podium after it, off by default (#206)', () => {
     expect(FEATURES[0]).toMatchObject({ id: ACTIVITY_FEED, name: 'Agent activity feed', defaultOn: true });
-    expect(FEATURES[1]).toMatchObject({
+    expect(FEATURES[2]).toMatchObject({
       id: RESPOND,
       name: 'Respond from Podium',
       description: 'Lets people answer and message the sessions they own. Each answer is written to the admin log with who sent it.',
@@ -14,7 +14,19 @@ describe('FeatureFlags', () => {
     expect(ACTIVITY_FEED).toBe('activity-feed');
     expect(RESPOND).toBe('respond');
     const flags = new FeatureFlags(openDb(':memory:'));
-    expect(flags.view()).toEqual({ 'activity-feed': true, respond: false, 'file-diff': false, 'peer-messaging': false, 'update-check': true });
+    expect(flags.view()).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true });
+  });
+
+  it('lists Bash output in the activity feed under the feed, off by default, worded as the mockup says (#431)', () => {
+    expect(ACTIVITY_OUTPUT).toBe('activity-output');
+    expect(FEATURES[1]).toEqual({
+      id: ACTIVITY_OUTPUT,
+      name: 'Bash output in the activity feed',
+      description:
+        "Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited. Needs the Agent activity feed on, and the reporter's activityOutput option on the machine as well. Output is held in memory while the panel is open and is never stored. Off, no output is captured or sent.",
+      defaultOn: false,
+    });
+    expect(new FeatureFlags(openDb(':memory:')).featureOn(ACTIVITY_OUTPUT)).toBe(false);
   });
 
   it('lists the Release check last, on by default, named as the mockup says (#499)', () => {

@@ -1,0 +1,253 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Output Admin Controls</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #431 (H3 of #530): the Admin side of expandable Bash rows, with mockup/podium-feed-expand.html for the rows
+   themselves. This file has no :root block and no color of its own: every color is a token from tokens.css, reached
+   through fleet.css and admin.css. Admin > Settings > Feature flags and Admin > Server > Data are copied from
+   podium-activity-history.html and podium-recording.html. What is new here: one switch row, its warning, one added line on
+   Data, and the two ways the output block says it is off. The rules under "PROPOSED" are the feed-expand mockup's, repeated
+   so the third screen reads on its own. The demo chrome (.demo, .stage, .frame, .notes, .decisions) is this page's only own CSS. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+[hidden] { display: none !important; }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; height: 780px; max-width: 100%; background: var(--bg); transform: translateZ(0); position: relative; }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.frame > .podium { height: 100%; overflow: auto; }
+.notes { min-width: 0; max-width: 1000px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.stateslist { padding: 20px 16px; display: grid; gap: 22px; max-width: 760px; margin: 0 auto; }
+.stateslist section { display: grid; gap: 8px; }
+.stateslist h2 { margin: 0; font-size: 13px; }
+.stateslist p { margin: 0; color: var(--ink2); font-size: 12.5px; }
+.stateslist .feed { height: auto; overflow: visible; }
+.replay-none { display: none; }
+/* PROPOSED .feed li .tgl. A tool row with more to show (a command cut at 300 characters, or output) is one button
+   around the tool name and the line: the whole row opens and closes, not only a small control. It is a plain block
+   in the feed's own mono text, with a chevron before the name that turns when the row is open. A row with nothing
+   more to show has no button and no chevron. */
+.podium .feed li .tgl { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.podium .feed li .tgl:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .tgl .chev { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; color: var(--muted); transition: transform 0.12s ease-out; }
+.podium .feed li .tgl[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.podium .feed li .tgl .cut { color: var(--muted); }
+/* The whole row is the click target, not only the line: the time, the icon and the empty space open and close it. The
+   button inside stays the keyboard and screen-reader control. The opened part (.xp) is not a target, so text in it can
+   be selected and copied without closing the row. */
+.podium .feed li.can { cursor: pointer; }
+.podium .feed li.can:hover { background: var(--hover); }
+.podium .feed li.open { background: var(--raised); }
+.podium .feed li.open:hover { background: var(--raised); }
+.podium .feed li .tgl .state { margin-left: 6px; color: var(--muted); font-family: var(--font-ui); font-size: 11px; white-space: nowrap; }
+/* A row that is cut and has no whole command to open (an older reporter): it says so in words, with no chevron. */
+.podium .feed li .nofull { color: var(--ink); font-family: var(--font-ui); font-size: 11px; margin-left: 4px; }
+/* PROPOSED .feed li .xp: the opened part of a row, under the line and inside the body column. */
+.podium .feed li .xp { margin: 6px 0 2px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; font-family: var(--font-ui); }
+.podium .feed li .xp > div { min-width: 0; }
+.podium .feed li .xp .xh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 3px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+.podium .feed li .xp .xh .exit { margin-right: auto; margin-left: 8px; }
+.podium .feed li .xp .xh .btn { padding: 2px 8px; font-size: 11.5px; }
+.podium .feed li .xp .code { max-height: none; overflow: visible; cursor: text; }
+/* Command and output both wrap. Nothing scrolls sideways, and the block takes the height its text needs: the list scrolls. */
+.podium .feed li .xp .code.xcmd, .podium .feed li .xp .code.xout { white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .feed li .xp .foot { display: flex; justify-content: flex-end; }
+.podium .feed li .xp .code .mark { color: var(--muted); }
+.podium .feed li .xp .feedoff { cursor: default; }
+/* PROPOSED .exit: exit status as a shape, a word and a color. */
+.podium .exit { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.podium .exit.ok { color: var(--good-text); }
+.podium .exit.bad { color: var(--crit-text); }
+.podium .exit svg { flex: none; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="demo">
+  <b>Output controls for Admin (#431)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-s="settings" aria-pressed="true">Settings</button>
+    <button type="button" data-s="data" aria-pressed="false">Data</button>
+    <button type="button" data-s="seen" aria-pressed="false">What people see</button>
+  </span>
+  <span class="grp" role="group" aria-label="Output switch" id="swgrp">Output switch
+    <button type="button" data-o="off" aria-pressed="true">Off (default)</button>
+    <button type="button" data-o="on" aria-pressed="false">On</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+<div class="frame wide" id="frame">
+
+  <div class="podium scr" id="s-settings"><main class="adminv" aria-label="Admin"><div class="shell">
+    <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn" data-nav="settings" aria-current="page">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+        <button type="button" class="navbtn" data-nav="kept">Data</button>
+        <button type="button" class="navbtn" data-nav="stored">Stored activity<span class="n">52</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+    <div class="apage"><div class="apage-in">
+      <div class="page-h"><div><h1>Settings</h1><p class="lead">Server-wide choices. A change applies to everyone on this server.</p></div></div>
+      <section class="asec" aria-labelledby="a-ff"><div class="asec-h"><div><h2 id="a-ff">Feature flags</h2><p class="hint">Turn a feature off for everyone on this server. A flag that is off hides the feature in the console and stops its data. New features that can be switched off appear here.</p></div></div>
+        <div class="panel"><div class="srow"><div class="setname"><b id="set-feature-activity-feed-n">Agent activity feed</b><span class="fid">activity-feed</span><p class="hint ink2">Shows an agent's recent tool calls and text in its panel while someone watches. Needs the reporter's activityFeed option on the machine as well. Nothing is kept after the panel closes unless the Admin chooses to keep activity in Admin &gt; Server &gt; Data. Off, nothing is captured or kept.</p></div><div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="set-feature-activity-feed-n set-feature-activity-feed-s"></button><span id="set-feature-activity-feed-s">On</span></div></div><div class="srow"><div class="setname"><b id="set-feature-activity-output-n">Bash output in the activity feed</b><span class="fid">activity-output</span><p class="hint ink2">Lets a person open a Bash row in the Activity feed to see what the command printed and how it exited. Needs the Agent activity feed on, and the reporter's activityOutput option on the machine as well. Output is held in memory while the panel is open and is never stored. Off, no output is captured or sent.</p></div><div class="sw"><button type="button" role="switch" aria-checked="false" aria-labelledby="set-feature-activity-output-n set-feature-activity-output-s" id="outsw"></button><span id="set-feature-activity-output-s">Off</span></div></div><div class="warnbar" id="outwarn" role="note" hidden><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">Output holds whatever a command printed: file contents, environment dumps and tokens the redactor does not know. Podium hides the secrets it recognizes, but it cannot promise to catch all of them. Anyone who can open the Activity panel of a session can read its output while the panel is open.</span></div><div class="srow"><div class="setname"><b id="set-feature-respond-n">Respond from Podium</b><span class="fid">respond</span><p class="hint ink2">Lets people answer and message the sessions they own. Each answer is written to the admin log with who sent it.</p></div><div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="set-feature-respond-n set-feature-respond-s"></button><span id="set-feature-respond-s">On</span></div></div><div class="srow"><div class="setname"><b id="set-feature-file-diff-n">File diff</b><span class="fid">file-diff</span><p class="hint ink2">Lets the owner of a session, and only the owner, open a changed file's diff in the console. The diff is source code, read from the machine only when asked, with secrets hidden, and never stored. Needs the reporter's fileDiff option on the machine as well.</p></div><div class="sw"><button type="button" role="switch" aria-checked="false" aria-labelledby="set-feature-file-diff-n set-feature-file-diff-s"></button><span id="set-feature-file-diff-s">Off</span></div></div></div>
+      </section>
+    </div></div>
+  </div></main></div>
+
+  <div class="podium scr" id="s-data" hidden><main class="adminv" aria-label="Admin"><div class="shell">
+    <nav class="nav" aria-label="Admin sections">
+    <div class="navin">
+      <div class="ngroup" role="group" aria-label="People and access">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg><span class="gt">People and access</span></span>
+        <button type="button" class="navbtn">People<span class="n">14</span></button>
+        <button type="button" class="navbtn">Groups<span class="n">3</span></button>
+        <button type="button" class="navbtn">Reporters<span class="n">19</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Server">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1"/><rect x="2.5" y="9" width="11" height="4" rx="1"/></svg><span class="gt">Server</span></span>
+        <button type="button" class="navbtn" data-nav="settings">Settings</button>
+        <button type="button" class="navbtn">Model prices</button>
+        <button type="button" class="navbtn">Security</button>
+        <button type="button" class="navbtn" data-nav="kept" aria-current="page">Data</button>
+        <button type="button" class="navbtn" data-nav="stored">Stored activity<span class="n">52</span></button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Reporting">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13V8M7 13V4M11 13V6M2 13.5h12"/></svg><span class="gt">Reporting</span></span>
+        <button type="button" class="navbtn">Usage</button>
+        <button type="button" class="navbtn">Spend</button>
+        <button type="button" class="navbtn">People and groups</button>
+        <button type="button" class="navbtn">Sessions</button>
+        <button type="button" class="navbtn">Failures</button>
+        <button type="button" class="navbtn">Admin activity</button>
+      </div>
+      <div class="ngroup" role="group" aria-label="Activity">
+        <span class="gh" aria-hidden="true"><svg class="gi" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 8h3l2-5 3 10 2-5h3"/></svg><span class="gt">Activity</span></span>
+        <button type="button" class="navbtn">Admin log<span class="n">212</span></button>
+      </div>
+      <div class="navfoot">
+        <button type="button" class="btn">Lock Admin</button>
+        <span class="hint">Locks after 10 minutes without activity.</span>
+      </div>
+    </div>
+  </nav>
+    <div class="apage"><div class="apage-in">
+      <div class="page-h"><div><h1>Data</h1><p class="lead">What this server keeps, and for how long.</p></div></div>
+      <section class="asec" aria-labelledby="k-a"><div class="asec-h"><div><h2 id="k-a">Activity history</h2><p class="hint">How long an Activity window&#39;s entries are kept after a viewer leaves. Off by default.</p></div></div><form class="panel" id="polform" aria-label="Activity history retention">
+        <div class="srow"><div class="setname"><b>Keep activity history</b><p class="hint ink2">Not stored: a window shows the last 20 entries while someone watches, and drops them when they leave.</p></div>
+          <select class="field" id="pol" aria-label="Keep activity history"><option value="default">Not stored (default)</option><option value="after" selected>Purge after a set time</option><option value="end">Purge when the session ends</option><option value="all">Keep everything</option></select></div>
+        <div class="srow" id="row-after"><div class="setname"><b>Purge after</b><p class="hint ink2">Entries older than this are removed at the next purge, which runs every few minutes. A shorter time removes older entries that are already stored.</p></div>
+          <span class="row2"><input class="field mono daysbox" id="pol-n" inputmode="numeric" value="30" aria-label="Number"><select class="field" id="pol-u" aria-label="Unit"><option>hours</option><option selected>days</option><option>weeks</option><option>months</option></select></span></div>
+        <div class="srow" id="row-cap"><div class="setname"><b>Size cap</b><p class="hint ink2">Stop at a total size and remove the oldest entries first.</p></div>
+          <span class="row2"><input type="checkbox" id="cap-on" aria-label="Use a size cap"><input class="field mono daysbox" id="cap-n" inputmode="numeric" value="2" aria-label="Size in gigabytes" disabled><span class="hint">GB</span></span></div>
+        <div class="warnbar" id="polwarn" role="note"><svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6L8 2.2z"/><path d="M8 6.6v3"/><path d="M8 11.4v.1"/></svg><span class="tx">Podium will ask every reporter to send the activity of each running loop, not only the loops someone is watching. Expect more reporter traffic and more disk and server load. A reporter whose owner has turned off <span class="mono">activityFeed</span> still sends nothing. Only the session's owner and the Admin can read what is stored.</span></div>
+        <div id="polconfirm" hidden></div>
+        <div class="srow"><span class="hint" id="polhint">Saving is written to the Admin log.</span><span class="formacts"><button type="reset" class="btn">Cancel</button><button type="submit" class="btn pri" id="polsave">Save</button></span></div>
+        <div class="note-line"><b>What is kept.</b> Each entry&#39;s time, kind and text. For a Bash call the text is now the whole command, redacted, up to 20,000 characters (it was cut at 300). A command&#39;s output is never kept, whatever this setting says.</div><div class="note-line" id="k-last"><b>Last purge</b> 11:02 today removed 214 entries (96 KB). It runs every few minutes, and each run that removes something is written to the Admin log as one entry with the count, the size and the policy.</div>
+        <div class="note-line"><b class="mono" id="k-sum">18,402 entries, 7.9 MB</b> <span id="k-sum2">stored now, in 52 sessions.</span> Totals per session, filters and delete are on <a class="klink" href="#" data-go="stored">Stored activity</a>.</div>
+      </form></section>
+    </div></div>
+  </div></main></div>
+
+  <div class="podium scr" id="s-seen" hidden>
+    <div class="stateslist">
+      <section><h2>The Admin has output turned off</h2><p>The feature flag is off. A person who opens a Bash row still sees the whole command, and the output block says who can change it.</p>
+        <ol class="feed" aria-label="Admin off"><li class="tool can open"><span class="at">03:58</span><span class="k" role="img" aria-label="Tool call"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4 4 4-4 4M8.5 12.5H13"/></svg></span><span class="body"><button type="button" class="tgl" aria-expanded="true" aria-controls="xp1"><svg class="chev" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5"/></svg><span class="name">Bash</span> <span class="arg">npm test -w server -- activity</span><span class="state"><span class="exit ok" title="Succeeded"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg><span class="sr">Succeeded, exit 0</span></span></span></button>
+<div class="xp" id="xp1"><div><div class="xh"><span>Command</span><button type="button" class="btn">Copy command</button></div><pre class="code xcmd" aria-label="Whole command">npm test -w server -- activity</pre></div>
+<div><div class="xh"><span>Output</span><span class="exit ok" title="Succeeded"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg><span class="sr">Succeeded, exit 0</span></span></div><div class="feedoff"><b>Output is turned off by the Admin.</b><div class="ghost">Someone with Admin access can turn it on in Admin &gt; Settings &gt; Feature flags.</div></div></div>
+<div class="foot"><button type="button" class="btn">Collapse</button></div></div></span></li></ol></section>
+      <section><h2>The Admin has it on, the machine does not</h2><p>The flag is on, but the reporter on that machine has not turned on its option. The block names the option, in the same words the feed already uses for activityFeed.</p>
+        <ol class="feed" aria-label="Machine off"><li class="tool can open"><span class="at">03:58</span><span class="k" role="img" aria-label="Tool call"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m3 4 4 4-4 4M8.5 12.5H13"/></svg></span><span class="body"><button type="button" class="tgl" aria-expanded="true" aria-controls="xp2"><svg class="chev" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.5 6.5 5 3 8.5"/></svg><span class="name">Bash</span> <span class="arg">npm test -w server -- activity</span><span class="state"><span class="exit ok" title="Succeeded"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg><span class="sr">Succeeded, exit 0</span></span></span></button>
+<div class="xp" id="xp2"><div><div class="xh"><span>Command</span><button type="button" class="btn">Copy command</button></div><pre class="code xcmd" aria-label="Whole command">npm test -w server -- activity</pre></div>
+<div><div class="xh"><span>Output</span><span class="exit ok" title="Succeeded"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 8.5 3.2 3.2L13 5"/></svg><span class="sr">Succeeded, exit 0</span></span></div><div class="feedoff"><b>Output is turned off for this machine.</b><div class="ghost">Turn on the <code>activityOutput</code> option (Send a Bash command’s output) of podium-reporter, then run /reload-plugins in that session.</div></div></div>
+<div class="foot"><button type="button" class="btn">Collapse</button></div></div></span></li></ol></section>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="notes">
+  <h2>What this adds to Admin</h2>
+  <ul>
+    <li><b>One new switch</b> in Admin &gt; Settings &gt; Feature flags, <span class="mono">Bash output in the activity feed</span> (<span class="mono">activity-output</span>), <b>off by default</b>. It sits under Agent activity feed, which it needs. Same row, same switch, same Admin-log entry as the others (<span class="mono">SwitchRow</span>).</li>
+    <li><b>A caution when it is on.</b> The warning box the Session recording flag already uses: output can hold secrets the redactor does not know, and who can read it. It shows only while the switch is on. Turn the switch on in the bar above to see it.</li>
+    <li><b>Admin &gt; Server &gt; Data</b> says what history now keeps: the whole command (up to 20,000 characters, redacted) instead of the first 300, and never output. One added line; the controls are unchanged. The existing warning about more reporter traffic is not changed by this.</li>
+    <li><b>What people see</b> when output is missing now has two reasons, each in words: the Admin has it off, or the machine has it off. In both the call finished, so its status mark shows on the line and beside Output, as it does whenever a call finished. The machine's text names the reporter option, <span class="mono">activityOutput</span> (Send a Bash command&#39;s output), the way the feed already names <span class="mono">activityFeed</span>. An older reporter says it sends no output.</li>
+    <li>No new Admin page, table or setting beyond the switch. The Stored activity page lists sessions, not entries, so it has no rows to open.</li>
+    <li>Everything here is an existing piece: <span class="mono">.srow</span>, <span class="mono">.sw</span>, <span class="mono">.warnbar</span>, <span class="mono">.note-line</span>, <span class="mono">.feedoff</span>. The flag's id, name and description are proposed and live in <span class="mono">server/src/fleet/featureFlags.ts</span>. The reporter option name is proposed and lives in the mod's <span class="mono">plugin.json</span>.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById("frame");
+  function press(sel, attr, val) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === val)); }); }
+  function screen(s) { document.querySelectorAll(".scr").forEach(function (x) { x.hidden = x.id !== "s-" + s; }); press("[data-s]", "data-s", s); document.getElementById("swgrp").hidden = s !== "settings"; }
+  function output(on) {
+    var sw = document.getElementById("outsw"); sw.setAttribute("aria-checked", String(on)); document.getElementById("set-feature-activity-output-s").textContent = on ? "On" : "Off";
+    document.getElementById("outwarn").hidden = !on; press("[data-o]", "data-o", on ? "on" : "off");
+  }
+  document.querySelectorAll("[data-s]").forEach(function (b) { b.addEventListener("click", function () { screen(b.getAttribute("data-s")); }); });
+  document.querySelectorAll("[data-o]").forEach(function (b) { b.addEventListener("click", function () { output(b.getAttribute("data-o") === "on"); }); });
+  document.getElementById("outsw").addEventListener("click", function () { output(this.getAttribute("aria-checked") !== "true"); });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; press("[data-w]", "data-w", w); }); });
+  document.querySelectorAll("[data-nav]").forEach(function (b) { b.addEventListener("click", function () { var n = b.getAttribute("data-nav"); if (n === "settings" || n === "kept") screen(n === "kept" ? "data" : "settings"); }); });
+  document.querySelectorAll(".feed li.can").forEach(function (li) { li.addEventListener("click", function (e) { if (li.querySelector(".xp").contains(e.target)) return; var h = li.querySelector(".tgl"), x = li.querySelector(".xp"), on = h.getAttribute("aria-expanded") !== "true"; h.setAttribute("aria-expanded", String(on)); x.hidden = !on; li.classList.toggle("open", on); }); });
+  document.querySelectorAll(".xp .foot .btn").forEach(function (b) { b.addEventListener("click", function () { var li = b.closest("li"); li.querySelector(".tgl").setAttribute("aria-expanded", "false"); li.querySelector(".xp").hidden = true; li.classList.remove("open"); }); });
+  root.setAttribute("data-theme", "dark");
+})();
+</script>

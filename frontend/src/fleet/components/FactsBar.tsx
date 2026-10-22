@@ -1,4 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { cellWords } from "../recording";
+import { useRespond } from "../useRespond";
+import { RecordPicker } from "./RecordPicker";
 import { fmtDur, fmtTok } from "../format";
 import { AGENT_TIME_HINT, AGENTS_HINT, COST_HINT_SESSION, sessionAgentSec, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT } from "../logic";
 import { systemKind } from "../peers";
@@ -143,42 +146,99 @@ const NO_MACHINE_TIP = (
   </>
 );
 
-/** The machine the session runs on, as its reporter named it; Not reported when the session sent no machine (no user name, #427). */
+/**
+ * The machine the session runs on and its system, joined in one cell (#353): `Silverbolt | macOS 26.0`. Each half says Not reported when
+ * the session did not send it (no user name, an older reporter, or a failed read, #427). The popup holds the whole text, which the cell
+ * cuts with an ellipsis.
+ */
 function MachineFact({ s }: { s: SessionView }) {
   const name = s.machine?.name;
-  if (!name) return <PopCell label="Machine" value={NOT_REPORTED} valueClass="soft" tip={NO_MACHINE_TIP} />;
-  return <PopCell label="Machine" value={name} valueClass="mono" tip={<><b>The machine this session runs on.</b> As its reporter named it.</>} />;
-}
-
-/** The machine's OS and version, with the same icon and wording as My reporters and Admin > Reporters (#427). The popup holds the whole text, which the cell cuts with an ellipsis. */
-function SystemFact({ s }: { s: SessionView }) {
   const os = s.machine?.os;
   const kind = systemKind(os ?? null);
-  if (!os || !kind) {
-    const tip = s.machine ? (
-      <>
-        <b>Not reported.</b> This reporter did not send the machine's system. It is an older podium-reporter, or the command to read it failed on the machine. Updating podium-reporter fills it in.
-      </>
-    ) : (
-      NO_MACHINE_TIP
-    );
-    return <PopCell label="System" value={NOT_REPORTED} valueClass="soft" tip={tip} />;
-  }
+  if (!name && !(os && kind)) return <PopCell label="Machine" value={NOT_REPORTED} valueClass="soft" tip={NO_MACHINE_TIP} />;
+  const system = os && kind ? kind : null;
   return (
     <PopCell
-      label="System"
+      label="Machine"
+      valueClass="mono"
       value={
         <>
-          <span className="sysi">{SYSTEM_ICON[kind]}</span>
-          <span className="sys-t">{os}</span>
+          {name ? <span className="mname">{name}</span> : <span className="soft">{NOT_REPORTED}</span>}
+          <span className="sep" aria-hidden="true">
+            |
+          </span>
+          {system ? (
+            <>
+              <span className="sysi">{SYSTEM_ICON[system]}</span>
+              <span className="sys-t">{os}</span>
+            </>
+          ) : (
+            <span className="soft">{NOT_REPORTED}</span>
+          )}
         </>
       }
       tip={
         <>
-          <b>The system on this machine.</b> {os}
+          <b>The machine this session runs on, and its system.</b> {name ? `Machine: ${name}.` : "The machine is not reported: Podium learns it only from a reporter that has a user name."}{" "}
+          {system ? `System: ${os}.` : "The system is not reported: it is an older podium-reporter, or the command to read it failed on the machine."}
         </>
       }
     />
+  );
+}
+
+/**
+ * Recording (#353): the last cell. Not recorded, it is a button like Resume and Fork that opens the picker, for a session that
+ * runs while the Admin's flag is on. Otherwise it states the recording's state in shape, word and color; the buttons for Stop, Open
+ * replay and Delete stay in the layer above the band. The record mark is a ring with a disc: the disc is neutral when idle, absent
+ * when the recording is only kept, and red and pulsing on the app's shared beat only while it records.
+ */
+function RecordingFact({ s, now }: { s: SessionView; now: number }) {
+  const respond = useRespond();
+  const [open, setOpen] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
+  const v = s.recording;
+  const mark = (kind: "idle" | "live" | "kept") => (
+    <span className={`rec-i${kind === "idle" ? "" : ` ${kind}`}`} aria-hidden="true">
+      <i />
+    </span>
+  );
+  if (v) {
+    const w = cellWords(v, now);
+    const live = v.state === "recording" && v.ownerAllows;
+    return (
+      <div className="fact rec" title={w.title}>
+        <div className="k">Recording</div>
+        <div className={`v${live ? " recording" : ""}`}>
+          {w.text}
+          {mark(live ? "live" : v.state === "recording" ? "idle" : "kept")}
+        </div>
+      </div>
+    );
+  }
+  if (!respond?.recordingOn || s.status === "done") {
+    return (
+      <div className="fact rec" title={s.status === "done" ? "This session ended without being recorded." : "Session recording is off on this server."}>
+        <div className="k">Recording</div>
+        <div className="v soft">Not recorded</div>
+      </div>
+    );
+  }
+  const close = () => {
+    setOpen(false);
+    opener.current?.focus();
+  };
+  return (
+    <div className="fact copy rec">
+      <button type="button" className="cellbtn" ref={opener} aria-haspopup="dialog" aria-label="Record this session" onClick={() => setOpen(true)}>
+        <span className="k">Recording</span>
+        <span className="v">
+          <span>Record</span>
+          {mark("idle")}
+        </span>
+      </button>
+      {open && <RecordPicker s={s} onClose={close} />}
+    </div>
   );
 }
 
@@ -249,7 +309,7 @@ export interface BlowControl {
 
 /**
  * Twelve cells in fixed places, six to a row (#165, #352, #427). Row one: Agents, Est. cost, Tokens, Running for, Agent time, Blowouts.
- * Row two: Machine, System, Reporter, Session, Resume, Fork. A cell never moves because another has nothing to say.
+ * Row two: Machine and System (joined in one cell, #353), Reporter, Session, Resume, Fork, Recording. A cell never moves because another has nothing to say.
  */
 export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: number; onAgent: (id: string) => void; blow?: BlowControl }) {
   const c = sessionCounts(s);
@@ -287,11 +347,11 @@ export function FactsBar({ s, now, onAgent, blow }: { s: SessionView; now: numbe
       </div>
       <BlowoutsFact s={s} blow={blow} />
       <MachineFact s={s} />
-      <SystemFact s={s} />
       <ReporterFact s={s} />
       <SessionCell id={s.id} />
       <CopyCell label="Resume" name="Copy resume command" text={s.resumeCommand} tip={RESUME_TIP} />
       <CopyCell label="Fork" name="Copy fork command" text={s.forkCommand} tip={FORK_TIP} />
+      <RecordingFact s={s} now={now} />
     </div>
   );
 }

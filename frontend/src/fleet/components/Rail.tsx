@@ -4,7 +4,6 @@ import type { SessionView } from "../types";
 import { backgroundOf, BlowBadge, ModelChip, PlanBar, sessionDot, stateKind } from "./Chips";
 import { backgroundStatus } from "../waiting";
 import { COPYRIGHT, LICENSE_URL, NOTICES_URL } from "../types";
-import { PaneTab } from "./PaneTab";
 import { Monogram, YouTag } from "./People";
 import { ADMIN, isFlat, type GroupBy, type Unit } from "../people";
 import { PageNav } from "./PageNav";
@@ -93,7 +92,6 @@ export function Rail(props: {
   /** The commit hash when the server is a dev build; null for a release (#400). */
   build?: string | null;
   collapsed?: boolean;
-  onToggle?: () => void;
   people?: RailPeople;
 }) {
   const pv = props.people;
@@ -222,7 +220,6 @@ export function Rail(props: {
   const r = range(at);
   return (
     <nav ref={nav} className={`rail${props.collapsed ? " collapsed" : ""}`} aria-label="Orchestrators">
-      {props.onToggle && <PaneTab side="left" collapsed={!!props.collapsed} controls="podium-rail-body" onToggle={props.onToggle} shortcut="[" />}
       <div id="podium-rail-body" hidden={props.collapsed}>
       <div className="rail-head">
         <h2>Orchestrators</h2>

@@ -35,6 +35,10 @@ interface World {
   ran: string[][]
   /** The loops the server's reply says someone is watching (#118). */
   watch: { value: string[] }
+  /** The loops the reply says a viewer has the feed open on (#431); null leaves the field out, as an older server does. */
+  watchOutput: { value: string[] | null }
+  /** What a Bash call returns, by a word in its command (#431); the default is the plain mock. */
+  bash: { results: Record<string, unknown> }
   /** What each model request streams before it ends. */
   chunks: { value: TurnStepChunk[] }
   /** The files the plugin reads and writes by path, from memory; `broken` makes every access fail. */
@@ -92,6 +96,8 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const fetched: World['fetched'] = []
   const toasts: string[] = []
   const watch: World['watch'] = { value: [] }
+  const watchOutput: World['watchOutput'] = { value: null }
+  const bash: World['bash'] = { results: {} }
   const chunks: World['chunks'] = { value: [] }
   on('session.id', () => ({ value: sessionId.value }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
@@ -146,7 +152,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     if (fetchMode.mode === 'hang') return new Promise(() => {})
     posts.push(body)
     headers.push(e.init?.headers ?? {})
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value, serverVersion: '1.1.0', serverBuild: serverBuild.value }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value, ...(watchOutput.value ? { watchOutput: watchOutput.value } : {}), serverVersion: '1.1.0', serverBuild: serverBuild.value }) } }
   })
   on('session.start', () => ({ cwd: CWD }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -159,6 +165,11 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     toolUseId = e.tool_use_id
     if (e.tool === 'TaskCreate') return { result: { task: { id: '1', subject: e.subject } } }
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
+    if (e.tool === 'Bash') {
+      const hit = Object.keys(bash.results).find((k) => e.command.includes(k))
+      if (hit && (bash.results[hit] as { throws?: boolean }).throws) throw new Error('tool blew up')
+      if (hit) return bash.results[hit] as never
+    }
     if (e.tool === 'Bash' && e.command.startsWith('npm test')) return { isError: true, result: 'Exit code 1\nFAIL src/a.test.ts', text: 'Exit code 1\nFAIL src/a.test.ts' }
     return { result: { ok: true }, text: 'ok' }
   })
@@ -178,7 +189,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -811,6 +822,235 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)
     expect(w.posts[0]!.session.name).toBe('from-option')
+  })
+
+  describe('activity command and output (#431)', () => {
+    const SECRET = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+    const ESC = String.fromCharCode(27)
+    const inAgent = <const T extends object>(input: T, agentId = 'a-sub'): T => ({ ...input, agentId })
+    /** A session with one subagent, the loops the reply lists as watched and as watched for output, and one report taken in. */
+    async function started($: Engine, on: On, watch: string[], watchOutput: string[] | null) {
+      const w = world(on)
+      w.watch.value = watch
+      w.watchOutput.value = watchOutput
+      await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+      await $.agent.spawn(spawnInput({ tool_use_id: 'f1' }))
+      await w.clock.advance(1000)
+      return w
+    }
+    const sent = (w: World) => JSON.stringify(w.posts)
+    const last = (w: World) => w.posts.at(-1)!
+    const subFeed = (w: World) => last(w).agents.find((a) => a.id === 'a-sub')!.activity!
+    const ON = { options: { activityFeed: true, activityOutput: true } }
+
+    test('the whole command rides activityFeed alone: id, redacted, line breaks kept, with the 300-character summary beside it', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      await $.tool.call(inAgent({ tool: 'Bash', command: `echo one\ncurl -H "x-api-key: ${SECRET}" http://localhost\necho three` }))
+      await w.clock.advance(1000)
+      const [e] = subFeed(w)
+      expect(e!.kind).toBe('tool')
+      expect(e!.id).toBe(w.lastToolUseId())
+      expect(e!.command).toMatch(/^echo one\ncurl -H "x-api-key: \[redacted\]/)
+      expect(e!.command).toMatch(/\necho three$/)
+      expect(e!.text).toMatch(/^Bash echo one curl/)
+      expect(e!.output).toBeUndefined()
+      expect(last(w).session.activityOutput).toBe(false)
+      expect(sent(w)).not.toContain(SECRET)
+    })
+
+    test('a command over 20,000 characters is cut with the marker and commandCut', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'a'.repeat(25_000) }))
+      await w.clock.advance(1000)
+      const [e] = subFeed(w)
+      expect(e!.commandCut).toBe(true)
+      expect(e!.command!.endsWith('\n\n[cut off at 20,000 characters]')).toBe(true)
+      expect(e!.text).toHaveLength(300)
+    })
+
+    test('a call that is not Bash has no id or command, and a command is not sent for an unwatched loop', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      await $.tool.call(inAgent({ tool: 'Read', file_path: '/x' }))
+      await $.tool.call({ tool: 'Bash', command: 'ls main' }) // the orchestrator is not watched
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toEqual({ at: expect.any(Number), kind: 'tool', text: 'Read /x' })
+      expect('activity' in last(w).session).toBe(false)
+      expect(sent(w)).not.toContain('ls main')
+    })
+
+    test('output goes only with activityOutput on, the loop in watchOutput: the same entry is sent again carrying it, redacted', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub', MAIN_LOOP], ['a-sub'])
+      w.bash.results['printenv'] = { result: { stdout: `HOME=/Users/x\nANTHROPIC_API_KEY=${SECRET}\n${ESC}[32mok${ESC}[0m\n`, stderr: `warn ghp_${'a1B2'.repeat(10)}`, interrupted: false }, text: 'ignored' }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'printenv' }))
+      await w.clock.advance(1000)
+      const feed = subFeed(w)
+      expect(feed).toHaveLength(1)
+      expect(feed[0]!.id).toBe(w.lastToolUseId())
+      expect(feed[0]!.command).toBe('printenv')
+      expect(feed[0]!.done).toBe(true)
+      expect(feed[0]!.output).toMatch(/^HOME=\/Users\/x\nANTHROPIC_API_KEY=\[redacted\]\nok\nwarn /)
+      expect(feed[0]!.output).not.toContain(ESC)
+      expect(feed[0]!.failed).toBeUndefined()
+      expect(feed[0]!.exitCode).toBeUndefined()
+      expect(last(w).session.activityOutput).toBe(true)
+      expect(sent(w)).not.toContain(SECRET)
+      expect(sent(w)).not.toContain('ghp_a1B2')
+      // the orchestrator is watched for its feed but not for output: its command and done go, its output does not
+      w.bash.results['whoami'] = { result: { stdout: 'root', stderr: '', interrupted: false }, text: 'root' }
+      await $.tool.call({ tool: 'Bash', command: 'whoami' })
+      await w.clock.advance(1000)
+      expect(last(w).session.activity).toEqual([{ at: expect.any(Number), kind: 'tool', text: 'Bash whoami', id: w.lastToolUseId(), command: 'whoami', done: true }])
+    })
+
+    test('a secret in a long output (past the bounded redaction pieces) never leaves the mod', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      const long = `${'some build output line '.repeat(80)}\nexport AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\ntoken ${SECRET}\n${'more output '.repeat(200)}`
+      w.bash.results['dump'] = { result: { stdout: long, stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: `dump # ${'x'.repeat(1500)} ${SECRET}` }))
+      await w.clock.advance(1000)
+      const e = subFeed(w)[0]!
+      expect(e.output).toContain('some build output line')
+      expect(e.output).toContain('[redacted]')
+      expect(sent(w)).not.toContain(SECRET)
+      expect(sent(w)).not.toContain('wJalrXUtnFEMI')
+    })
+
+    test('output over 20,000 characters is cut with the marker and outputCut', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['big'] = { result: { stdout: 'z'.repeat(60_000), stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'big' }))
+      await w.clock.advance(1000)
+      const e = subFeed(w)[0]!
+      expect(e.outputCut).toBe(true)
+      expect(e.output!.endsWith('\n\n[cut off at 20,000 characters]')).toBe(true)
+      expect(e.output).toHaveLength(20_000 + '\n\n[cut off at 20,000 characters]'.length)
+    })
+
+    test('a failing call sets failed and done, with the exit code only when its text says it', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'npm test -- x' }))
+      w.bash.results['nocode'] = { isError: true, result: 'it broke', text: 'it broke' }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'nocode' }))
+      await w.clock.advance(1000)
+      const [a, b] = subFeed(w)
+      expect(a).toMatchObject({ done: true, failed: true, exitCode: 1, output: 'FAIL src/a.test.ts' })
+      expect(b).toMatchObject({ done: true, failed: true, output: 'it broke' })
+      expect(b!.exitCode).toBeUndefined()
+    })
+
+    test('a denied call is done and failed with the reason as its output (#431)', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['nope'] = { deny: 'Permission denied by a rule' }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'nope' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toMatchObject({ done: true, failed: true, output: 'Permission denied by a rule' })
+    })
+
+    test('a call that printed nothing is done with an empty output', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['quiet'] = { result: { stdout: '', stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'quiet' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toMatchObject({ done: true, output: '' })
+    })
+
+    test('a result with nothing to read gets no output and is done', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['odd'] = { result: { ok: true } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'odd' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]!.output).toBeUndefined()
+      expect(subFeed(w)[0]!.done).toBe(true)
+    })
+
+    test('the option off: the command goes with done and how it ended, but no output, even in watchOutput (#598)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['secretsout'] = { isError: true, result: `Exit code 2\nprivate stuff ${SECRET}`, text: `Exit code 2\nprivate stuff ${SECRET}` }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'secretsout' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toMatchObject({ command: 'secretsout', done: true, failed: true, exitCode: 2 })
+      expect(subFeed(w)[0]!.output).toBeUndefined()
+      expect(sent(w)).not.toContain('private stuff')
+      expect(sent(w)).not.toContain(SECRET)
+      expect(last(w).session.activityOutput).toBe(false)
+    })
+
+    test('the loop not in watchOutput: done and no output (#598)', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], [])
+      w.bash.results['secretsout'] = { result: { stdout: 'private stuff', stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'secretsout' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]!.command).toBe('secretsout')
+      expect(subFeed(w)[0]!.done).toBe(true)
+      expect(subFeed(w)[0]!.failed).toBeUndefined()
+      expect(sent(w)).not.toContain('private stuff')
+    })
+
+    test('a reply with no watchOutput (an older server): done and no output (#598)', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      w.bash.results['secretsout'] = { result: { stdout: 'private stuff', stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'secretsout' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]!.done).toBe(true)
+      expect(sent(w)).not.toContain('private stuff')
+      expect(last(w).session.activityOutput).toBe(true)
+    })
+
+    test('a denied call without output is done and failed, with no reason sent (#598)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      w.bash.results['nope'] = { deny: 'Permission denied by a rule' }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'nope' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toMatchObject({ done: true, failed: true })
+      expect(sent(w)).not.toContain('Permission denied by a rule')
+    })
+
+    test('a call that throws is not marked done: its status is unknown (#598)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      w.bash.results['explode'] = { throws: true }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'explode' })).catch(() => undefined)
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]).toMatchObject({ command: 'explode' })
+      expect(subFeed(w)[0]!.done).toBeUndefined()
+    })
+
+    test('an unwatched loop and a non-Bash call get no status (#598)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      await $.tool.call(inAgent({ tool: 'Read', file_path: '/x' }))
+      await $.tool.call({ tool: 'Bash', command: 'ls main' })
+      await w.clock.advance(1000)
+      expect(subFeed(w)).toEqual([{ at: expect.any(Number), kind: 'tool', text: 'Read /x' }])
+      expect('activity' in last(w).session).toBe(false)
+    })
+
+    test('a loop in watchOutput that is not in watch gets no output', ON, async ($, on) => {
+      const w = await started($, on, [], ['a-sub'])
+      w.bash.results['secretsout'] = { result: { stdout: 'private stuff', stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'secretsout' }))
+      await w.clock.advance(1000)
+      expect(sent(w)).not.toContain('private stuff')
+    })
+
+    test('a loop that leaves watchOutput forgets the output it held but keeps the command', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      w.bash.results['secretsout'] = { result: { stdout: 'private stuff', stderr: '', interrupted: false } }
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'secretsout' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)[0]!.output).toBe('private stuff')
+      w.watchOutput.value = []
+      await w.clock.advance(5000) // the heartbeat's reply takes it off the list
+      await w.clock.advance(5000)
+      expect(subFeed(w)[0]!.command).toBe('secretsout')
+      expect(subFeed(w)[0]!.output).toBeUndefined()
+      expect(subFeed(w)[0]!.done).toBe(true)
+    })
+
+    test('older entries are unchanged: a text entry and a non-Bash call keep their shape with the option on', ON, async ($, on) => {
+      const w = await started($, on, ['a-sub'], ['a-sub'])
+      await $.tool.call(inAgent({ tool: 'Read', file_path: '/x' }))
+      await w.clock.advance(1000)
+      expect(subFeed(w)).toEqual([{ at: expect.any(Number), kind: 'tool', text: 'Read /x' }])
+    })
   })
 
   describe('activity feed (#118)', () => {

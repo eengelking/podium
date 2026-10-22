@@ -65,12 +65,12 @@ function aggregatesMatch(db: ReturnType<typeof openActivityDb>) {
   const loopsKept = db.prepare('SELECT session_id AS sid, loop, entries AS n, first_at AS f, last_t AS l FROM loops ORDER BY session_id, loop').all();
   expect(loopsKept).toEqual(loopsFromRows);
 }
-const entryBytes = () => '(length(text) + length(kind) + length(loop) + COALESCE(length("by"), 0) + COALESCE(length(note), 0) + COALESCE(length(ref), 0) + 48)';
+const entryBytes = () => '(length(text) + length(kind) + length(loop) + COALESCE(length("by"), 0) + COALESCE(length(note), 0) + COALESCE(length(ref), 0) + COALESCE(length(command), 0) + 48)';
 
 describe('schema v2', () => {
   it('is the current version', () => {
-    expect(ACTIVITY_SCHEMA_VERSION).toBe(3);
-    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(3);
+    expect(ACTIVITY_SCHEMA_VERSION).toBe(5);
+    expect(ACTIVITY_SCHEMA_STEPS).toHaveLength(5);
   });
 
   it('migrates a file made with the v1 schema: the aggregates are filled from its rows and the indexes change', () => {
@@ -90,7 +90,7 @@ describe('schema v2', () => {
     raw.close();
 
     const db = openActivityDb(file);
-    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(3);
+    expect((db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(5);
     aggregatesMatch(db);
     expect(db.prepare('SELECT session_id AS sid, loop, entries AS n, first_at AS f, last_t AS l FROM loops ORDER BY session_id, loop').all()).toEqual([
       { sid: 's1', loop: '@orchestrator', n: 2, f: T0 + 5, l: T0 + 8 },

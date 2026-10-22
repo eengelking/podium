@@ -111,6 +111,15 @@ describe("Data, the Activity history section", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Stored activity" })).toBeInTheDocument();
   });
 
+  it("says what the history keeps: the whole command, and never output (#431)", async () => {
+    kept();
+    await openData();
+    const note = screen.getByText("What is kept.").closest(".note-line")!;
+    expect(note.textContent).toBe("What is kept. Each entry's time, kind and text. For a Bash call the text is now the whole command, redacted, up to 20,000 characters (it was cut at 300). A command's output is never kept, whatever this setting says.");
+    // Above the last purge line, as the mockup has it.
+    expect(note.nextElementSibling).toHaveTextContent(/^Last purge/);
+  });
+
   it("says no purge has run, and one session in the singular", async () => {
     kept(1, { totals: { entries: 1, bytes: 100, sessions: 1, fileBytes: 100 } });
     await openData();

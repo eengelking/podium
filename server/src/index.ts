@@ -20,7 +20,7 @@ import { PeopleStore } from "./fleet/people.js";
 import { ReporterStore } from "./fleet/reporters.js";
 import { Lockout } from "./fleet/lockout.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
-import { forgetReporters, purgeActivityHistory, startSweeper } from "./fleet/sweeper.js";
+import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
 import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
 import { REPORTER_SUPPORT } from "./fleet/compat.js";
 import { createServerLogging } from "./logging/setup.js";
@@ -58,7 +58,7 @@ const fleetDb = new FleetDb(openDb(DB_PATH));
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
 // The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
 const activityDb = openActivityDb(activityDbPath(DB_PATH));
-const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null });
+const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null, secret: TOKEN });
 const people = new PeopleStore(fleetDb.db);
 const tlsSettings = new TlsSettingsStore(fleetDb.db);
 let tlsListener: TlsListener | null = null;
@@ -75,7 +75,8 @@ const stopSweeper = startSweeper(
   undefined,
   logger,
   () => forgetReporters(reporters, people, logger, Date.now()),
-  () => purgeActivityHistory(fleet.activityHistory, people, logger, Date.now()),
+  // The same 5-minute run purges session recordings (#353), each on its own so one failing does not stop the other.
+  () => purgeStored(fleet.activityHistory, fleet.recordings, people, logger, Date.now()),
 );
 // The release check (#499): once a day, and only while the Admin's Release check switch is on.
 const stopUpdateCheck = startUpdateCheck(fleet.updates);
@@ -111,7 +112,7 @@ const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.feat
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
 app.use(createRouter());

@@ -39,6 +39,49 @@ describe("respondApi.activityHistory (#432)", () => {
   });
 });
 
+describe("respondApi.recordingConsent (#353)", () => {
+  it("asks for the session's consent with the cookie and returns the grant as sent", async () => {
+    const body = { ok: true, grant: { state: "off", consent: { admin: true, chosen: false, owner: false } } };
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, body));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await respondApi.recordingConsent("sess/1")).toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith("/api/fleet/respond/sessions/sess%2F1/recording/consent", expect.objectContaining({ method: "GET", credentials: "same-origin" }));
+  });
+});
+
+describe("the recording calls (#353)", () => {
+  it("builds the page query from only the options given", async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const base = "/api/fleet/respond/sessions/s1/recording";
+    await respondApi.recordingPage("s1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(base);
+    await respondApi.recordingPage("s1", { before: null, loop: null });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(base);
+    await respondApi.recordingPage("s1", { before: 0, loop: "a 1", limit: 50 });
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(`${base}?before=0&loop=a+1&limit=50`);
+    await respondApi.recordingPage("s1", { loop: "", limit: 0 });
+    expect(fetchMock.mock.calls[3]?.[0]).toBe(`${base}?limit=0`);
+  });
+
+  it("sends start, stop and delete to their paths with the right method and body", async () => {
+    const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, { ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const base = "/api/fleet/respond/sessions/s%2F1/recording";
+    await respondApi.recordingStart("s/1", ["@orchestrator", "a1"]);
+    await respondApi.recordingStop("s/1");
+    await respondApi.recordingDelete("s/1");
+    const [start, stop, del] = fetchMock.mock.calls as [string, RequestInit][];
+    expect(start[0]).toBe(base);
+    expect(start[1]).toMatchObject({ method: "PUT" });
+    expect(JSON.parse(start[1].body as string)).toEqual({ loops: ["@orchestrator", "a1"] });
+    expect(stop[0]).toBe(`${base}/stop`);
+    expect(stop[1]).toMatchObject({ method: "POST" });
+    expect(del[0]).toBe(base);
+    expect(del[1]).toMatchObject({ method: "DELETE" });
+  });
+});
+
 describe("the respond and peers calls (#467)", () => {
   it("sends each call to its path with the right method, the respond header, and a JSON body only when it has one", async () => {
     const fetchMock = vi.fn(async (..._args: unknown[]) => reply(200, {}));

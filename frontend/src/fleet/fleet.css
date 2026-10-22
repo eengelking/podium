@@ -57,25 +57,30 @@ body.podium-resizing .podium .cols { transition: none; }
 
 /* collapsible panes and wall mode (#33) */
 .podium { position: relative; }
-.podium .pane-tab { position: absolute; top: 6px; z-index: 6; width: 24px; height: 26px; display: grid; place-items: center; color: var(--ink2); border-radius: 4px; text-align: center; }
-.podium .pane-tab:hover { background: var(--hover); color: var(--ink); }
-.podium .pane-tab-left { right: 0; }
-.podium .pane-tab-right { left: 0; }
-.podium .rail:not(.collapsed) .rail-head { padding-right: 34px; }
-.podium .side:not(.collapsed) #podium-side-body { padding-top: 32px; }
 .podium .rail.collapsed, .podium .side.collapsed { overflow: hidden; }
 .podium .strip { height: 8px; background: var(--axis); position: relative; z-index: 6; }
 .podium .strip.bad { background: var(--crit); }
-/* The top bar's icon tab (#402). Open, it straddles the bar's bottom border at the middle: 8px sits in the bar's own bottom padding, 8px over the banner's. Hidden, it hangs from the strip at the screen's top edge, transparent and always shown. */
-.podium .tbar-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
-.podium .top .tbar-tab { top: calc(100% - 8px); }
-.podium .strip .tbar-tab { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
-.podium .tbar-tab:hover { background: var(--sel); color: var(--ink); }
-.podium .tbar-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
-.podium .tbar-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium .tbar-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
-.podium .tbar-tab:hover::after, .podium .tbar-tab:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .podium .tbar-tab::after { transition: none; } }
+/* The collapse control, one for the whole app (#402, #538, #604, #626): a bordered pill with a 10 px chevron and a tip from data-tip that shows on hover and keyboard focus. 32 x 16 on a horizontal edge, 16 x 32 on a vertical one. Placement is the -top, -kpi, -fold, -left and -right class. */
+.podium .edge-tab { position: absolute; z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .edge-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .edge-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .edge-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .edge-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .edge-tab:hover::after, .podium .edge-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .edge-tab::after { transition: none; } }
+/* The top bar's tab (#402). Open, it straddles the bar's bottom border at the middle: 8px sits in the bar's own bottom padding, 8px over the banner's. Hidden, it hangs from the strip at the screen's top edge, transparent and always shown. */
+.podium .edge-tab-top, .podium .edge-tab-kpi { left: 50%; transform: translateX(-50%); }
+.podium .top .edge-tab-top { top: calc(100% - 8px); }
+.podium .strip .edge-tab-top { top: 0; border-top: 0; border-radius: 0 0 8px 8px; background: transparent; color: var(--ink); border-color: var(--axis); }
+/* A vertical edge: the pill is 16 x 32 and its tip opens toward the page. */
+.podium .edge-tab-left, .podium .edge-tab-right, .podium .edge-tab-fold { width: 16px; height: 32px; }
+.podium .edge-tab-left::after, .podium .edge-tab-right::after, .podium .edge-tab-fold::after { top: 50%; left: calc(100% + 6px); transform: translateY(-50%); }
+.podium .edge-tab-right::after { left: auto; right: calc(100% + 6px); }
+/* The panes' tabs (#33, #626) sit in the .cols grid beside the pane, because the pane scrolls and clips what straddles its edge. Open, the pill straddles the pane's inner edge, 14 px from the top; collapsed, it sits inside the 24 px strip the pane leaves. */
+.podium .edge-tab-left { top: 14px; left: var(--rail-w); transform: translateX(-50%); }
+.podium .edge-tab-right { top: 14px; right: var(--side-w); transform: translateX(50%); }
+.podium .edge-tab-left.edge-tab-shut { left: 4px; transform: none; }
+.podium .edge-tab-right.edge-tab-shut { right: 4px; transform: none; }
 .podium .wall-ctl { position: absolute; top: 6px; right: 10px; z-index: 20; display: flex; gap: 6px; transition: opacity .25s; }
 .podium.idle .wall-ctl { opacity: 0; pointer-events: none; }
 .podium.idle, .podium.idle * { cursor: none !important; }
@@ -357,6 +362,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .fact.pop { position: relative; }
 .podium .fact .sysi { display: inline-flex; flex: none; }
 .podium .fact .sysi svg { width: 14px; height: 14px; }
+.podium .fact .mname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .fact .sys-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .podium .fact.pop:focus-visible { outline: 2px solid var(--deleg-text); outline-offset: -2px; }
 .podium .fact.pop > .tip { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5; width: min(320px, calc(100cqw - 32px)); box-sizing: border-box; padding: 10px 12px 11px; text-align: left; white-space: normal; font-size: 12.5px; line-height: 1.45; color: var(--ink); background: var(--raised); border: 1px solid var(--axis); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); visibility: hidden; opacity: 0; transition: opacity .12s; pointer-events: none; }
@@ -683,10 +689,12 @@ body.modal-open #root { filter: blur(5px); }
   .podium .legend { order: 4; padding: 20px 24px 28px; gap: 10px 20px; }
   .podium .rz { display: none; }
   .podium .wall-enter { display: none; }
-  .podium .pane-tab { position: static; width: 100%; height: 28px; display: flex; align-items: center; justify-content: flex-start; padding-left: 14px; }
+  /* The pane controls become a 28 px full-width bar in both states (#626), the size of the button they replace: the rail's closes it upward, the activity panel's downward. */
+  .podium .edge-tab-left { order: 1; } .podium .edge-tab-right { order: 3; }
+  .podium .edge-tab-left, .podium .edge-tab-right, .podium .edge-tab-left.edge-tab-shut, .podium .edge-tab-right.edge-tab-shut { position: relative; inset: auto; transform: none; display: flex; width: 100%; height: 28px; border: 0; border-radius: 0; background: var(--surface); }
+  .podium .edge-tab-left svg, .podium .edge-tab-right svg { transform: rotate(90deg); }
+  .podium .edge-tab-left::after, .podium .edge-tab-right::after { top: auto; bottom: calc(100% + 6px); left: 50%; right: auto; transform: translateX(-50%); }
   .podium .rail.collapsed, .podium .side.collapsed { overflow: visible; }
-  .podium .rail:not(.collapsed) .rail-head { padding-right: 14px; }
-  .podium .side:not(.collapsed) #podium-side-body { padding-top: 0; }
   .podium .rail, .podium .side { border: 0; border-top: 1px solid var(--border); max-height: none; overflow: visible; }
   .podium .rail { border-bottom: 1px solid var(--border); }
   .podium .main { overflow: visible; }
@@ -816,6 +824,35 @@ body.modal-open #root { filter: blur(5px); }
 
 /* Plan and Files tabs, and the file list */
 .podium .two.wide { grid-template-columns: 400px minmax(0, 1fr); }
+/* Folding the Plan / Files column (#604). The control is the shared .edge-tab pill on a vertical edge: on the column's right edge when open, on a 28 px rail when folded.
+   Folded, the panel keeps its open width, hidden and clipped by the narrow track, so the rail is as tall as the panel was and follows it. */
+.podium .two.folded { grid-template-columns: 28px minmax(0, 1fr); }
+.podium .fold-col { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.podium .fold-col > * { grid-area: 1 / 1; }
+.podium .fold-clip { min-width: 0; }
+.podium .fold-col.shut > .fold-clip { overflow: hidden; }
+.podium .fold-col.shut .fold-clip > .sec { visibility: hidden; width: 300px; }
+.podium .fold-col.shut.files .fold-clip > .sec { width: 400px; }
+.podium .edge-tab-fold { top: 14px; right: -8px; }
+.podium .fold-col.shut .edge-tab-fold { right: auto; left: 6px; }
+.podium .fold-rail { display: none; }
+.podium .fold-col.shut .fold-rail { display: flex; justify-content: center; align-items: flex-start; padding-top: 54px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.podium .fold-rail span { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+/* Stacked (the two columns in one): the same control hides the panel in the stack. Open, the pill straddles the panel's bottom edge; folded, it is a 16 px bar across the width. */
+@container (max-width: 700px) {
+  .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
+  .podium .edge-tab-fold { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+  .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
+  .podium .fold-col.shut .edge-tab-fold { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
+  .podium .fold-col.shut .edge-tab-fold svg { transform: rotate(90deg); }
+}
+@media (max-width: 1040px) {
+  .podium .two.folded { grid-template-columns: minmax(0, 1fr); }
+  .podium .edge-tab-fold { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+  .podium .fold-col.shut > .fold-clip, .podium .fold-col.shut .fold-rail { display: none; }
+  .podium .fold-col.shut .edge-tab-fold { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
+  .podium .fold-col.shut .edge-tab-fold svg { transform: rotate(90deg); }
+}
 .podium .tabs { display: flex; gap: 2px; padding: 0 4px; border-bottom: 1px solid var(--grid); align-items: stretch; }
 .podium .tabs [role="tab"] { font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 9px 10px 8px; cursor: pointer; display: inline-flex; gap: 4px; align-items: baseline; }
 .podium .tabs [role="tab"]:hover { color: var(--ink2); }
@@ -875,6 +912,34 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal-diff .l.nt span { grid-column: 1 / -1; padding-left: 2ch; }
 .podium .modal-diff .uni { display: none; }
 @container (max-width: 720px) { .podium .modal-diff .sbs { display: none; } .podium .modal-diff .uni { display: block; } }
+.podium .sw { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.podium .sw button { width: 36px; height: 22px; border-radius: 999px; background: var(--axis); border: 1px solid var(--border); position: relative; flex: none; cursor: pointer; }
+.podium .sw button::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ink); transition: transform .15s; }
+.podium .sw button[aria-checked="true"] { background: var(--good); }
+.podium .sw button[aria-checked="true"]::after { transform: translateX(14px); }
+.podium .sw > span { font-size: 12px; color: var(--ink2); min-width: 28px; }
+@media (prefers-reduced-motion: reduce) { .podium .sw button::after { transition: none; } }
+.podium .sw > b { font-size: 12px; font-weight: 500; color: var(--ink2); }
+
+/* The diff modal's bottom row (#623): the note at the left, the Wrap lines switch at the right. The row owns the top border the note had. */
+.podium .modal .mf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 8px 14px; border-top: 1px solid var(--grid); flex: none; }
+.podium .modal .mf .foot-note { flex: 1 1 24ch; min-width: 0; padding: 0; border: 0; }
+.podium .modal .mf .sw { margin-left: auto; }
+/* Previous and Next (#630, mockup/podium-file-diff-step.html): the Files tab's pager at the left of the row, with its own border and
+   padding off because the row has them. At a narrow width the switch comes up beside it and the note takes a line of its own below. */
+.podium .modal .mf .pager { padding: 0; border: 0; flex: none; justify-content: flex-start; gap: 8px 12px; }
+@media (max-width: 480px) { .podium .modal .mf .sw { order: 1; } .podium .modal .mf .foot-note { order: 2; flex-basis: 100%; } }
+/* Wrapped (the default): each line goes on the one side-by-side grid by its pair number, so the two halves of a row share a height. The panes stay two elements in the same order, so keyboard and screen reader order is as when unwrapped. */
+.podium .modal-diff.wrapped .sbs { padding-bottom: 6px; }
+.podium .modal-diff.wrapped .sbs .pane, .podium .modal-diff.wrapped .sbs .pane pre { display: contents; }
+.podium .modal-diff.wrapped .sbs .pane:first-child { --c: 1; }
+.podium .modal-diff.wrapped .sbs .pane:last-child { --c: 2; }
+.podium .modal-diff.wrapped .sbs .pane-h { grid-row: 1; grid-column: var(--c); }
+.podium .modal-diff.wrapped .sbs .pane:last-child .pane-h, .podium .modal-diff.wrapped .sbs .pane:last-child pre .l { border-left: 1px solid var(--border); }
+.podium .modal-diff.wrapped .sbs .pane pre .l { grid-row: calc(var(--r) + 1); grid-column: var(--c); }
+.podium .modal-diff.wrapped .l { grid-template-columns: 5ch 2ch minmax(0, 1fr); white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .modal-diff.wrapped .uni { min-width: 0; }
+.podium .modal-diff.wrapped .uni .l { grid-template-columns: 5ch 5ch 2ch minmax(0, 1fr); }
 /* A value the mod hid: the feed's [redacted] mark, in bold. */
 .podium .modal .diffmb .rd { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit-text); border-radius: 3px; padding: 0 3px; font-weight: 700; }
 .podium .modal .diffmsg { padding: 28px 20px; color: var(--ink); font-size: 13px; }
@@ -1095,19 +1160,12 @@ body.modal-open #root { filter: blur(5px); }
 .podium .kb-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .podium .kb .kpi-block > .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @container (max-width: 640px) { .podium .kb .kpi-block > .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-/* The KPI rows' collapse control (#538). It borrows .tbar-tab's size, border, hover, focus ring and tip. Open, the pill straddles the block's bottom edge; collapsed, it is the whole bar. */
+/* The KPI rows' block (#538). Its collapse control is the shared .edge-tab. Open, the pill straddles the block's bottom edge; collapsed, it is the whole bar. */
 .podium .kpi-block { position: relative; margin-bottom: 14px; }
 .podium .kpi-block .kpis { margin-bottom: 0; }
 .podium .kpi-block .kpis[hidden] { display: none; }
-.podium .kpi-tab { position: absolute; left: 50%; transform: translateX(-50%); z-index: 7; width: 32px; height: 16px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
-.podium .kpi-block:not(.shut) .kpi-tab { top: calc(100% - 8px); }
-.podium .kpi-block.shut .kpi-tab { position: relative; left: auto; transform: none; display: flex; width: 100%; }
-.podium .kpi-tab:hover { background: var(--sel); color: var(--ink); }
-.podium .kpi-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
-.podium .kpi-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.podium .kpi-tab::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
-.podium .kpi-tab:hover::after, .podium .kpi-tab:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .podium .kpi-tab::after { transition: none; } }
+.podium .kpi-block:not(.shut) .edge-tab-kpi { top: calc(100% - 8px); }
+.podium .kpi-block.shut .edge-tab-kpi { position: relative; left: auto; transform: none; display: flex; width: 100%; }
 .podium .kb-head h2 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
 .podium .kb-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .podium .kb-seg button { padding: 4px 10px; font-size: 12px; color: var(--ink2); }
@@ -1256,3 +1314,100 @@ body.modal-open #root { filter: blur(5px); }
   .podium .pm-split { grid-template-columns: minmax(0, 1fr); }
   .podium .pm-left { border-right: 0; border-bottom: 1px solid var(--grid); }
 }
+
+/* ---- Session recording (#353, mockup/podium-recording.html) ----
+   The notice is not a wall notice: a band on the card and a layer on the orchestrator page, with no X and no switch, because
+   consent cannot be dismissed. The replay is a page of the Activity feed's own rows, oldest first. */
+/* .band.recording: the card's band in the critical color, a filled dot, the words and who started it. */
+.podium .band.recording { --c: var(--crit); --c-text: var(--crit-text); }
+.podium .band.recording .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); flex: none; }
+.podium .band.recording .bl small { display: block; font-weight: 400; color: var(--ink2); font-size: 12px; }
+/* .rec-bar: the orchestrator page's recording layer, above the status band. .rec-bar.kept is the same layer once capture has
+   ended and the recording is only kept: a ring, the neutral color, Open replay and Delete recording. */
+.podium .rec-bar { display: flex; gap: 10px 14px; align-items: flex-start; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--crit) 12%, var(--surface)); box-shadow: inset 4px 0 0 var(--crit); }
+.podium .rec-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--crit); margin-top: 4px; flex: none; }
+.podium .rec-bar .tx { flex: 1 1 240px; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.podium .rec-bar .tx b { font-weight: 650; }
+.podium .rec-bar .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.podium .rec-bar .confirm { flex: 1 1 100%; }
+.podium .rec-bar.kept { background: var(--raised); box-shadow: inset 4px 0 0 var(--muted); }
+.podium .rec-bar.kept .dot { background: none; border: 2px solid var(--muted); box-sizing: border-box; }
+/* .fact.rec: the Recording cell, last in the facts. The record mark is a ring with a disc inside. The ring is always neutral. The
+   disc is neutral when idle, absent when the recording is only kept, and red and pulsing on the app's shared beat (data-beat) only
+   while it is recording. */
+.podium .osum .facts .fact.rec .v.recording { color: var(--crit-text); }
+.podium .fact.rec .rec-i { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; border: 1.5px solid currentColor; border-radius: 50%; color: var(--ink2); box-sizing: border-box; }
+.podium .fact.rec .rec-i i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; position: relative; }
+.podium .fact.rec .rec-i.kept i { display: none; }
+.podium .fact.rec .rec-i.live i { background: var(--crit); }
+.podium .fact.rec .rec-i.live i::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--crit); opacity: 0; pointer-events: none; }
+.podium[data-beat="0"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: .55; }
+.podium[data-beat="1"] .fact.rec .rec-i.live i::after { transform: scale(1.6); opacity: .35; }
+.podium[data-beat="2"] .fact.rec .rec-i.live i::after { transform: scale(2.3); opacity: .12; }
+.podium[data-beat="3"] .fact.rec .rec-i.live i::after { transform: scale(1); opacity: 0; }
+.podium .fact .v .sep { color: var(--axis); }
+.podium .fact .v .soft { color: var(--muted); font-weight: 400; }
+/* The picker: the app's modal with the Respond modal's option rows. */
+.podium .modal .mb.recmb { padding: 12px 16px 16px; display: grid; gap: 12px; }
+.podium .modal .mb.recmb p { margin: 0; color: var(--ink2); }
+.podium .modal .mb.recmb p b { color: var(--ink); }
+.podium .opt[aria-disabled="true"] { opacity: .6; cursor: default; }
+.podium .opt[aria-disabled="true"]:hover { background: none; }
+.podium .recmb .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* The replay: a page of its own. .feed li.mark is a compaction or a stop, .feed li.cur the row the slider is on, .who the loop's
+   name and .res a collapsed result around the existing .code block. */
+.podium .replay { display: grid; gap: 12px; padding: 12px; align-content: start; }
+.podium .replay .osum .fh { padding: 12px 16px; }
+.podium .replay .osum p { margin: 0; }
+.podium .replay .tools { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.podium .replay .loading { color: var(--muted); padding: 16px; }
+.podium .replay .feed { height: auto; max-height: 60vh; border: 0; border-radius: 0; }
+.podium .replay .feedfoot { margin: 0; padding: 8px 12px; border-top: 1px solid var(--border); }
+.podium .replay .feedfoot.stat { height: auto; }
+.podium .replay .errbox { color: var(--crit-text); font-size: 12.5px; border: 1px solid color-mix(in srgb, var(--crit-text) 40%, transparent); border-radius: 8px; padding: 12px 16px; }
+.podium .replay .formacts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* A prompt is a .you row, as the feed draws one sent from Podium; the owner tag's own .you rule (a bordered, unbreakable chip) is taken off it here. */
+.podium .replay .feed li.you { white-space: normal; border-width: 0 0 1px; border-radius: 0; }
+.podium .replay .feed li:last-child { border-bottom: 0; }
+.podium .feed li.mark { box-shadow: inset 3px 0 0 var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.podium .feed li.cur { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.podium .feed li .who { font-weight: 600; margin-right: 4px; overflow-wrap: anywhere; }
+.podium .feed li .res { margin-top: 6px; }
+.podium .feed li .res summary { cursor: pointer; color: var(--ink2); width: fit-content; }
+.podium .feed li .res summary:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .res .code { max-height: 6.5em; overflow: hidden; margin: 6px 0 0; }
+.podium .feed li .res[open] .code { max-height: none; }
+.podium .feed li .failbox { margin: 6px 0 0; }
+/* A Bash row opens to its whole command and output (#431, mockup/podium-feed-expand.html). .tgl is the row's own button, .chev
+   turns when it is open, .xp is the opened part (.xh a label line with its Copy button, .xcmd and .xout the two blocks), .exit the
+   status as a shape, a word and a color. The whole row is the click target; the opened part is not, so its text can be selected. */
+.podium .feed li .tgl { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; border-radius: 4px; }
+.podium .feed li .tgl:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .feed li .tgl .chev { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; color: var(--muted); transition: transform 0.12s ease-out; }
+.podium .feed li .tgl[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.podium .feed li .tgl .cut { color: var(--muted); }
+.podium .feed li.can { cursor: pointer; }
+.podium .feed li.can:hover { background: var(--hover); }
+.podium .feed li.open, .podium .feed li.open:hover { background: var(--raised); }
+.podium .feed li .tgl .state { margin-left: 6px; color: var(--muted); font-family: var(--font-ui); font-size: 11px; white-space: nowrap; }
+.podium .feed li .nofull { color: var(--ink); font-family: var(--font-ui); font-size: 11px; margin-left: 4px; }
+.podium .feed li .xp { margin: 6px 0 2px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; font-family: var(--font-ui); cursor: default; }
+.podium .feed li .xp > div { min-width: 0; }
+.podium .feed li .xp .xh { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 3px; color: var(--muted); font-size: 11.5px; flex-wrap: wrap; }
+.podium .feed li .xp .xh .exit { margin-right: auto; margin-left: 8px; }
+.podium .feed li .xp .xh .btn { padding: 2px 8px; font-size: 11.5px; }
+.podium .feed li .xp .code { max-height: none; overflow: visible; cursor: text; }
+.podium .feed li .xp .code.xcmd, .podium .feed li .xp .code.xout { white-space: pre-wrap; overflow-wrap: anywhere; }
+.podium .feed li .xp .foot { display: flex; justify-content: flex-end; }
+.podium .feed li .xp .code .mark { color: var(--muted); }
+.podium .feed li .xp .feedoff { cursor: default; }
+.podium .exit { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
+.podium .exit.ok { color: var(--good-text); }
+.podium .exit.bad { color: var(--crit-text); }
+.podium .exit svg { flex: none; }
+@media (prefers-reduced-motion: reduce) { .podium .feed li .tgl .chev { transition: none; } }
+/* .scrub: the replay's position slider, a labelled range input in the ink color. */
+.podium .scrub { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.podium .scrub input[type="range"] { flex: 1 1 200px; min-width: 120px; accent-color: var(--ink); }
+.podium .scrub input[type="range"]:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.podium .scrub .hint { white-space: nowrap; color: var(--muted); }

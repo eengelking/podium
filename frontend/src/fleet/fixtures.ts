@@ -1,5 +1,26 @@
 // View fixtures for the UI tests.
-import type { ActivityView, AgentView, Kpis, SessionView, StateBody } from "./types";
+import type { ActivityView, AgentView, Kpis, RecordingView, SessionView, StateBody } from "./types";
+
+/** A session's recording as the server shows it to everyone (#353): three loops, two of them recorded, started at 11:42 local time on 2026-10-20. */
+export function makeRecording(over: Partial<RecordingView> = {}): RecordingView {
+  return {
+    state: "recording",
+    limit: null,
+    startedBy: "Maya Okafor",
+    startedAt: new Date(2026, 9, 20, 11, 42).getTime(),
+    stoppedBy: null,
+    stoppedAt: null,
+    keptUntil: new Date(2026, 9, 20, 17, 42).getTime(),
+    bytes: 18 * 1024 * 1024,
+    loops: [
+      { loop: "@orchestrator", name: "api-refactor", recorded: true },
+      { loop: "p", name: "schema-writer", recorded: true },
+      { loop: "c", name: "docs-agent", recorded: false },
+    ],
+    ownerAllows: true,
+    ...over,
+  };
+}
 
 export function makeAgent(over: Partial<AgentView> = {}): AgentView {
   return {
@@ -66,6 +87,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     ownerGroup: null,
     machine: null,
     activityFeed: null,
+    activityOutput: null,
     fileDiff: null,
     respond: null,
     asks: [],

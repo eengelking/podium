@@ -132,3 +132,48 @@ describe("the open orchestrator in the address", () => {
     expect(screen.getByRole("button", { name: "Back to activity" })).toBeInTheDocument();
   });
 });
+
+// The logo is one shared link to the fleet page (#133). These cover it on an orchestrator's page, however that page was reached (#576).
+describe("the logo on an orchestrator's page", () => {
+  const withPlan = () => stateFrom({ sessions: [makeSession({ plan: { title: "t", source: "TaskCreate", steps: [{ id: "1", text: "Port endpoints", state: "active", activeText: null, ownerAgentId: null, ownerLabel: null }] } })] });
+  const openOnWall = (id: string) => {
+    window.history.replaceState(null, "", "#/");
+    const view = render(<FleetView state={two()} />);
+    fireEvent.click(view.container.querySelector(`.wall .card[data-session="${id}"]`)!);
+  };
+  const fromBoard = () => {
+    window.history.replaceState(null, "", "#/board");
+    const { rerender } = render(<FleetView board state={withPlan()} />);
+    fireEvent.click(screen.getByRole("link", { name: "Port endpoints, active, api-refactor" }));
+    // The app's route change drops the board flag; the selection the click made survives it.
+    rerender(<FleetView state={withPlan()} />);
+  };
+  const opened: Record<string, () => void> = {
+    "a card": () => openOnWall("s2"),
+    "the rail": () => {
+      openOnWall("s1");
+      fireEvent.click(railItem("docs-pass"));
+    },
+    "a shared link or a reload": () => {
+      window.history.replaceState(null, "", "#/?open=s2");
+      render(<FleetView state={two()} />);
+    },
+    "the board": fromBoard,
+  };
+
+  it.each(Object.keys(opened))("opens the wall from a page opened from %s", async (how) => {
+    opened[how]();
+    expect(pageName()).toBe("Orchestrator");
+    fireEvent.click(screen.getByRole("link", { name: "Podium, fleet" }));
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    expect(window.location.hash).toBe("#/");
+  });
+
+  it("Back from the wall returns to the orchestrator", async () => {
+    opened["a shared link or a reload"]();
+    fireEvent.click(screen.getByRole("link", { name: "Podium, fleet" }));
+    await waitFor(() => expect(pageName()).toBe("Fleet"));
+    act(() => window.history.back());
+    await waitFor(() => expect(pageName()).toBe("Orchestrator"));
+  });
+});

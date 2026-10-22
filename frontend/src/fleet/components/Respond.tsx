@@ -382,7 +382,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
           <AdminOffNote />
         ) : (
           <>
-            <FeedList feed={feed} startedAt={s.startedAt} empty={empty} />
+            <FeedList feed={feed} startedAt={s.startedAt} empty={empty} machineOutput={s.activityOutput} active={active} />
             <OlderRow feed={feed} />
             <FeedStatus count={count} when={when} />
             {feed.stored && (

@@ -1,0 +1,163 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Plan and Files Fold</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #604, for approval. On the orchestrator page the Plan / Files column folds away so the Agents section gets the width.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. Classes prefixed mk- are demo chrome.
+   PROPOSED NEW CLASSES for the standards if accepted: .fold-col (wrapper of the left column, position: relative), .fold-tab (the control),
+   .fold-rail (what is left of the column while it is folded). The control is built on .tbar-tab / .kpi-tab: same size, border, hover, focus ring and tip, turned 90 degrees. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.mk-demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo b { color: var(--ink); }
+.mk-demo .mk-grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.mk-page { max-width: 1120px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.mk-cap { color: var(--muted); font-size: 12px; }
+.mk-frame { container-type: inline-size; padding: 14px; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); }
+.mk-frame.mk-narrow { max-width: 400px; }
+.mk-decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mk-decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.mk-decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+
+/* PROPOSED. The column's own width: it is the grid track, so folding is a track change, nothing else moves. */
+.mk-frame .two { grid-template-columns: 300px minmax(0, 1fr); }
+.mk-frame .two.wide { grid-template-columns: 400px minmax(0, 1fr); }
+.mk-frame .two.folded { grid-template-columns: 28px minmax(0, 1fr); }
+.podium .fold-col { position: relative; min-width: 0; display: grid; }
+.podium .fold-col > * { grid-area: 1 / 1; }
+/* The control: a vertical pill on the column's right edge, the .tbar-tab pill turned 90 degrees. */
+.podium .fold-tab { position: absolute; top: 14px; right: -8px; z-index: 7; width: 16px; height: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--ink2); cursor: pointer; }
+.podium .fold-tab:hover { background: var(--sel); color: var(--ink); }
+.podium .fold-tab:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; color: var(--ink); }
+.podium .fold-tab svg { width: 10px; height: 10px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.podium .fold-tab::after { content: attr(data-tip); position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); z-index: 30; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--ink); color: var(--bg); font-size: 12px; line-height: 1.3; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.podium .fold-tab:hover::after, .podium .fold-tab:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .podium .fold-tab::after { transition: none; } }
+/* Folded: the panel stays mounted but hidden (so its tab and scroll survive), and a 28 px rail holds the control and the name sideways. */
+/* Folded: the panel keeps its open width and place, hidden and clipped by the 28 px track, so the rail is exactly as tall as the open panel was and follows it as the content changes. */
+.podium .fold-col.shut { overflow: hidden; }
+.podium .fold-col.shut > .sec { visibility: hidden; width: 300px; }
+.podium .fold-col.shut.files > .sec { width: 400px; }
+.podium .fold-col.shut .fold-tab { right: auto; left: 6px; }
+.podium .fold-rail { display: none; }
+.podium .fold-col.shut .fold-rail { display: flex; justify-content: center; align-items: flex-start; height: auto; padding-top: 54px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.podium .fold-rail span { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+/* Narrow (the two columns stacked): the same control hides the panel in the stack. The rail becomes a 16 px bar and the pill the whole bar, as the Board's KPI bar does (#538). */
+@container (max-width: 700px) {
+  .mk-frame .two, .mk-frame .two.wide, .mk-frame .two.folded { grid-template-columns: minmax(0, 1fr); }
+  .podium .fold-tab { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+  .podium .fold-col.shut .fold-tab { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; height: 16px; }
+  .podium .fold-col.shut .fold-tab svg { transform: rotate(90deg); }
+  .podium .fold-col.shut .fold-rail { display: none; }
+  .podium .fold-col.shut > .sec { display: none; }
+}
+</style>
+
+<div class="mk-demo" role="group" aria-label="Review controls">
+  <span class="mk-grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="mk-grp"><b>Try it</b> click any control below; every state is live and the Plan / Files tabs work.</span>
+</div>
+
+<main class="mk-page podium">
+  <header>
+    <h1>Orchestrator page: fold the Plan / Files column</h1>
+    <p>Issue #604. A control on the left column folds the Plan / Files panel away so the Agents section takes the full width of the work area. The choice is saved per browser and applies to every orchestrator's page.</p>
+  </header>
+
+  <section class="mk-spec" aria-labelledby="a">
+    <h2 id="a">Open and folded (wide)</h2>
+    <div class="mk-frame" data-shut="0"></div>
+    <div class="mk-frame" data-shut="1"></div>
+    <div class="mk-cap">Open: a 16 x 32 px vertical pill sits on the column's right edge, chevron pointing left, tip "Hide plan and files". Folded: the column shrinks to a 28 px rail with the pill and the name "Plan and files" set sideways; the pill points right, tip "Show plan and files". The rail is the visible, screen-reader-reachable way back. The Agents table gets the width, so its columns are not squeezed.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="b">
+    <h2 id="b">Files tab selected (400 px column)</h2>
+    <div class="mk-frame" data-shut="0" data-files="1"></div>
+    <div class="mk-cap">The column keeps growing on the Files tab, as today. Fold it, then show it again, and the Files tab, its scroll position and the plan's page come back, because the panel is hidden, not unmounted.</div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="c">
+    <h2 id="c">Narrow (400 px, stacked)</h2>
+    <div class="mk-frame mk-narrow" data-shut="0"></div>
+    <div class="mk-frame mk-narrow" data-shut="1"></div>
+    <div class="mk-cap">The control still works and hides the panel in the stack, so Agents moves up. Open: the pill straddles the bottom edge of the panel, turned to point up. Folded: a 16 px bar across the width with a down chevron, the same shape the Board's KPI bar has when it is folded.</div>
+  </section>
+
+  <section class="mk-decisions" aria-label="Decisions for the maintainer">
+    <div><b>Component</b>New: <code>.fold-tab</code> with <code>.fold-col</code> and <code>.fold-rail</code>, built on <code>.tbar-tab</code> / <code>.kpi-tab</code> (same size, border, hover, focus ring and tip, turned 90 degrees). Added to the standards in the release-prep PR, not this one. Nothing existing fits a side column exactly.</div>
+    <div><b>Narrow</b>The control hides the panel in the stack rather than doing nothing. Why: stacked, the plan sits above the Agents table and pushes it a screen down, so folding is more useful there than at full width. The saved flag is the same one at every width.</div>
+    <div><b>Links into the panel</b>None exist today. Nothing on the page (header, facts, status band, waiting items, notices) links or scrolls to the Plan or Files panel; I read <code>FocusView</code>, <code>FocusHeader</code>, <code>FactsBar</code> and <code>StatusBand</code>. So the build has no link to reopen the panel for. If a later feature adds one, it must open the panel first.</div>
+    <div><b>Accessibility</b>A real button with <code>aria-expanded</code>, <code>aria-controls</code> naming the panel, a name that says what it will do ("Hide plan and files" / "Show plan and files"), a visible focus ring, tip on hover and focus. While folded the panel is <code>display: none</code> so a screen reader does not read it, and the rail's name tells it where the panel went. Focus stays on the button when it is pressed.</div>
+    <div><b>Persistence</b>One <code>localStorage</code> key, <code>podium.planFiles.collapsed</code>, read with <code>readJson</code>. Default: open. Not tied to the Fleet page's panes, wall mode or a session.</div>
+    <div><b>Shortcut</b>None proposed. Say if you want one.</div>
+  </section>
+</main>
+
+<template id="mk-two"><div class="two"><section class="sec" aria-label="Plan and files"><div class="tabs" role="tablist" aria-label="Plan and files"><button type="button" role="tab" id=":s3:-plan" aria-selected="true" aria-controls=":s3:-plan-panel" tabindex="0">Plan</button><button type="button" role="tab" id=":s3:-files" aria-selected="false" aria-controls=":s3:-files-panel" tabindex="-1">Files<span class="ct"> 3</span></button><span class="meta mono">1/4</span></div><div role="tabpanel" id=":s3:-plan-panel" aria-labelledby=":s3:-plan"><div class="plan-title">Migrate invoices to v2 schema</div><div class="plan-prog"><div class="bar plan" aria-hidden="true"><i style="width: 25%;"></i></div></div><ol class="steps"><li class="step active"><span class="mk" aria-hidden="true"><svg data-shape="active" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--ink)" stroke-width="1.6"></circle><circle class="pdot" cx="7" cy="7" r="2.6" fill="var(--ink)"></circle></svg></span><div class="tx">Port invoice endpoints<span class="vh"> (in progress)</span><div class="ow">Porting</div></div></li><li class="step blocked"><span class="mk" aria-hidden="true"><svg data-shape="blocked" viewBox="0 0 14 14" fill="none" stroke="var(--serious-text)" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5.5"></circle><path d="M3.2 10.8l7.6-7.6"></path></svg></span><div class="tx">Run staging backfill<span class="vh"> (blocked)</span><div class="ow">blocked by an unfinished step</div></div></li><li class="step pending"><span class="mk" aria-hidden="true"><svg data-shape="pending" viewBox="0 0 14 14" fill="none" stroke="var(--muted)" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"></circle></svg></span><div class="tx">Write rollout notes<span class="vh"> (not started)</span><div class="ow">not started</div></div></li><li class="step done"><span class="mk" aria-hidden="true"><svg data-shape="done" viewBox="0 0 14 14" fill="none" stroke="var(--good-text)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="5.5"></circle><path d="M4.4 7.2l1.8 1.8 3.4-3.7"></path></svg></span><div class="tx">Map invoice call sites<span class="vh"> (done)</span><div class="ow">Explore · Haiku low</div></div></li></ol><span class="vh" role="status" aria-live="polite"></span></div><div role="tabpanel" id=":s3:-files-panel" aria-labelledby=":s3:-files" hidden=""><div class="sumline">3 files · <span class="cnt"><span class="add">+69</span><span class="del">−25</span></span></div><ul class="files"><li class="modified"><span class="st M" aria-hidden="true" title="modified">M</span><span class="fn" title="frontend/src/fleet/components/PlanPanel.tsx"><b>PlanPanel.tsx</b><span class="vh"> (modified)</span><i><bdi>frontend/src/fleet/components/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+17</span><span class="del">−22</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="r"></i><i class="r"></i><i class="r"></i></span></span></li><li class="added"><span class="st A" aria-hidden="true" title="added">A</span><span class="fn" title="mod/podium-reporter/hooks/git.test.ts"><b>git.test.ts</b><span class="vh"> (added)</span><i><bdi>mod/podium-reporter/hooks/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+38</span><span class="del">−0</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i></span></span></li><li class="modified"><span class="st M" aria-hidden="true" title="modified">M</span><span class="fn" title="server/src/fleet/protocol.ts"><b>protocol.ts</b><span class="vh"> (modified)</span><i><bdi>server/src/fleet/</bdi></i></span><span class="df"><span class="cnt"><span class="add">+14</span><span class="del">−3</span></span><span class="bars" aria-hidden="true"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="r"></i></span></span></li></ul><div class="pager"><span>Showing 1–3 of 3</span><span>20 per page</span></div></div></section><section class="sec" aria-label="Agents"><div class="sh"><h2>Agents</h2><span class="src">3 launched, 1 by other agents · click a header to sort</span></div><div class="tw" style="--deep: 0;"><div class="trow hd" role="row"><div>Task</div><div><button type="button" aria-pressed="false" title="Sort by model">Model</button></div><div><button type="button" aria-pressed="false" title="Sort by effort">Effort</button></div><div><button type="button" aria-pressed="false" title="Sort by context">Context</button></div><div class="num c-tok"><button type="button" aria-pressed="false" title="Sort by tokens. Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">Tokens</button></div><div class="num"><button type="button" aria-pressed="false" title="Sort by cost. An agent's row is its own estimated cost. The orchestrator's row is its own share, the session's cost less the agents', so the rows add up to the session figure.">Cost</button></div><div class="num"><button type="button" aria-pressed="false" title="Sort by time">Time</button></div><div><button type="button" aria-pressed="false" title="Sort by status">Status</button></div></div><button type="button" class="trow root" aria-current="false" data-agent="@orchestrator"><div class="nm"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="4" r="2"></circle><path d="M8 6v3M3 13v-2.5a1.5 1.5 0 0 1 1.5-1.5h7a1.5 1.5 0 0 1 1.5 1.5V13M8 9v4"></path></svg><span class="tx"><b>api-refactor</b><em>orchestrator</em></span></div><div class="cell"><span class="chip" style="--c: var(--opus);" title="claude-opus-5-5"><i></i>Opus 5.5</span></div><div class="cell"><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 41%"><i style="width: 41%;"></i></div><span>41%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">410k</div><div class="num" title="The orchestrator's own share: the session's cost less each agent's estimate. With the agents' rows it adds up to the session figure, unless the estimates overshoot it (then this is $0) or an agent has no price (it counts as $0, so its cost lands here).">$12.48</div><div class="num">16:40</div><div class="cell"><span class="st deleg" title="Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you."><i class="dot ring" aria-hidden="true"></i>delegating<span class="vh">. Waiting on 2 agents: Port the invoice endpoints, Try the second approach. Not waiting on you.</span></span></div></button><button type="button" class="trow" id="row-p" aria-current="false" data-agent="p"><div class="nm"><span class="indent" aria-hidden="true"><s class="tee"></s></span><span class="a running" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Port the invoice endpoints · general-purpose"><b>Port the invoice endpoints</b><em>general-purpose</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b class=""></b><b class=""></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">16:40</div><div class="cell"><span class="st running"><i class="dot running" aria-hidden="true"></i>running</span></div></button><button type="button" class="trow" id="row-c" aria-current="false" data-agent="c"><div class="nm"><span class="indent" aria-hidden="true"><s class=""></s><s class="last"></s></span><span class="a done" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Update the schema tests · general-purpose"><b>Update the schema tests</b><em>general-purpose</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b class=""></b><b class=""></b><b class=""></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">15:00</div><div class="cell"><span class="st done"><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"></path></svg>done</span></div></button><button type="button" class="trow" id="row-f" aria-current="false" data-agent="f"><div class="nm"><span class="indent" aria-hidden="true"><s class="last"></s></span><span class="a running fork" style="--c: var(--sonnet);" aria-hidden="true"></span><span class="tx" title="Try the second approach · fork"><b>Try the second approach</b><em>fork</em><em class="rowerr">command failed</em></span></div><div class="cell"><span class="chip" style="--c: var(--sonnet);" title="claude-sonnet-5-5"><i></i>Sonnet 5.5</span></div><div class="cell"><span class="eff eff-max" role="img" aria-label="Effort: max" title="Effort: max"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b></span></div><div class="ctxc"><div class="bar ctx" role="img" aria-label="Context 10%"><i style="width: 10%;"></i></div><span>10%</span></div><div class="num c-tok" title="Tokens in the context window now: input, cache read and cache write of the latest request. The same figure Claude Code shows. A running total is in the side panel.">100k</div><div class="num" title="This agent's own estimated cost. The agents it launched are not included; their total is in the side panel.">$0.12</div><div class="num">16:40</div><div class="cell"><span class="st running"><i class="dot running" aria-hidden="true"></i>running</span></div></button></div></section></div></template>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function mode(m) {
+    root.setAttribute('data-theme', m);
+    document.querySelectorAll('[data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+  }
+  document.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.mode); }); });
+  mode('dark');
+
+  var left = 'M6.5 1.5 3 5l3.5 3.5', right = 'M3.5 1.5 7 5 3.5 8.5';
+  var tpl = document.getElementById('mk-two').innerHTML;
+  var n = 0;
+  document.querySelectorAll('.mk-frame').forEach(function (f) {
+    var k = 'mk' + (n++);
+    var shut = f.dataset.shut === '1', files = f.dataset.files === '1';
+    f.innerHTML = tpl.split(':s3:').join(k);
+    var two = f.firstChild, plan = two.firstChild;
+    var col = document.createElement('div');
+    col.className = 'fold-col';
+    two.insertBefore(col, plan);
+    col.appendChild(plan);
+    col.insertAdjacentHTML('beforeend', '<div class="fold-rail" aria-hidden="true"><span>Plan and files</span></div>' +
+      '<button type="button" class="fold-tab" aria-controls="' + k + '-plan-panel ' + k + '-files-panel"><svg viewBox="0 0 10 10" aria-hidden="true"><path/></svg></button>');
+    var btn = col.querySelector('.fold-tab'), path = btn.querySelector('path');
+    var tabs = plan.querySelectorAll('[role=tab]');
+    function pick(t) {
+      tabs.forEach(function (b) {
+        var on = b.id === k + '-' + t;
+        b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1;
+        document.getElementById(b.getAttribute('aria-controls')).hidden = !on;
+      });
+      two.classList.toggle('wide', t === 'files' && !shut);
+      two.dataset.tab = t;
+      col.classList.toggle('files', t === 'files');
+    }
+    function paint() {
+      col.classList.toggle('shut', shut);
+      two.classList.toggle('folded', shut);
+      var name = shut ? 'Show plan and files' : 'Hide plan and files';
+      btn.setAttribute('aria-expanded', String(!shut)); btn.setAttribute('aria-label', name); btn.setAttribute('data-tip', name);
+      path.setAttribute('d', shut ? right : left);
+      pick(two.dataset.tab || (files ? 'files' : 'plan'));
+    }
+    tabs.forEach(function (b) { b.addEventListener('click', function () { pick(b.id.slice(k.length + 1)); }); });
+    btn.addEventListener('click', function () { shut = !shut; paint(); });
+    paint();
+  });
+})();
+</script>

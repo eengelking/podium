@@ -82,7 +82,7 @@ describe("kanban board", () => {
 
   it("remembers the board's panels apart from the fleet page's", () => {
     board([makeSession()]);
-    fireEvent.click(screen.getByRole("button", { name: "Expand left pane" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand the left pane" }));
     expect(JSON.parse(localStorage.getItem("podium.collapsed.board")!).left).toBe(false);
     expect(localStorage.getItem("podium.collapsed")).toBeNull();
   });
@@ -98,7 +98,7 @@ describe("kanban board", () => {
     expect(document.getElementById(hide.getAttribute("aria-controls")!)).toHaveAttribute("hidden");
     const show = screen.getByRole("button", { name: "Show KPI rows" });
     expect(show).toHaveAttribute("aria-expanded", "false");
-    expect(show).toHaveClass("kpi-tab");
+    expect(show).toHaveClass("edge-tab", "edge-tab-kpi");
     expect(JSON.parse(localStorage.getItem("podium.collapsed.board.kpis")!)).toBe(true);
     // The header's flags and the fleet page's are not touched.
     expect(localStorage.getItem("podium.collapsed.board")).toBeNull();

@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Ask, Delivery, Report } from './protocol.ts'
-import { answersMap, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers, thousands } from './respond.ts'
+import { answersMap, decisionRecord, planApproval, respondInfo, respondLevel, toolDecision, toolDenied, toolInput, planRejection, cut, terminalAnswers, thousands } from './respond.ts'
 
 // Responding to a waiting session from Podium (#206, SPEC 5.3). The world beneath the plugin is a fake Podium server
 // and a terminal whose dialogs the test answers by hand.
@@ -206,6 +206,29 @@ describe('respond: the pure parts', () => {
   test('turns answers by position back into Claude Code’s map, by the questions as asked', async () => {
     expect(answersMap(QUESTIONS, [{ options: [1] }, { options: [0, 2] }])).toEqual({ 'How many rows per page?': 'Fixed 50', 'What should Back restore?': 'The page, The scroll' })
     expect(answersMap(QUESTIONS, [{ text: '50, and remember it' }, null])).toEqual({ 'How many rows per page?': '50, and remember it' })
+  })
+
+  test('words each decision from Podium for a recording: what was chosen, as Claude Code received it', async () => {
+    const rec = (d: Delivery, kind: Ask['kind'], qs?: typeof QUESTIONS) => decisionRecord(d, kind, qs)
+    expect(rec(by('question', 'q', { answers: [{ options: [1] }, { options: [0, 2] }] }), 'question', QUESTIONS)).toEqual({
+      name: 'question',
+      text: 'How many rows per page?: Fixed 50\nWhat should Back restore?: The page, The scroll',
+      by: 'Ed',
+    })
+    expect(rec(by('question', 'q', { answers: [null, { text: 'just the rows' }] }), 'question', QUESTIONS).text).toBe('What should Back restore?: just the rows')
+    expect(rec(by('question', 'q', { answers: [null] }), 'question').text).toBe('')
+    expect(rec(by('reply', 'q', { text: 'How busy is a busy day?' }), 'question')).toEqual({ name: 'question', text: 'Replied in place of an answer: How busy is a busy day?', by: 'Ed' })
+    expect(rec(by('plan-approve', 'p', { mode: 'auto' }), 'plan').text).toBe('Approved the plan (and use auto mode)')
+    expect(rec(by('plan-approve', 'p', { mode: 'acceptEdits' }), 'plan').text).toBe('Approved the plan (auto-accept edits)')
+    expect(rec(by('plan-approve', 'p', { mode: 'default' }), 'plan')).toEqual({ name: 'plan', text: 'Approved the plan (manually approve edits)', by: 'Ed' })
+    expect(rec(by('plan-approve', 'p'), 'plan').text).toBe('Approved the plan (and use auto mode)')
+    expect(rec(by('plan-feedback', 'p', { text: 'Make it one step.' }), 'plan')).toEqual({ name: 'plan', text: 'Sent the plan back: Make it one step.', failed: true, by: 'Ed' })
+    expect(rec(by('plan-feedback', 'p'), 'plan').text).toBe('Sent the plan back: No, keep planning')
+    expect(rec(by('reply', 'p', { text: 'later' }), 'plan')).toEqual({ name: 'plan', text: 'Replied in place of approving the plan: later', failed: true, by: 'Ed' })
+    expect(rec(by('allow-once', 't'), 'permission')).toEqual({ name: 'permission', text: 'Allowed once', by: 'Ed' })
+    expect(rec(by('deny', 't', { text: 'Not on main.' }), 'permission')).toEqual({ name: 'permission', text: 'Denied: Not on main.', failed: true, by: 'Ed' })
+    expect(rec(by('deny', 't'), 'permission').text).toBe('Denied: Denied from Podium.')
+    expect(rec(by('reply', 't', { text: 'ask me first' }), 'permission')).toEqual({ name: 'permission', text: 'Denied: ask me first', failed: true, by: 'Ed' })
   })
 
   test('tells a terminal plan feedback from Esc, and a denial from a tool that ran and failed', async () => {

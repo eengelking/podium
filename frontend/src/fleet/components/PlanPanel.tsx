@@ -64,7 +64,7 @@ function filesHint(s: Pick<SessionView, "files" | "reporter" | "reporterVersion"
   return `This session's reporter is ${s.reporterVersion ?? "an older version"} and does not send files. Update podium-reporter to ${FILES_MIN_REPORTER} to see them.`;
 }
 
-export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab) => void }) {
+export function PlanPanel({ s, onTab, panelId }: { s: SessionView; onTab?: (tab: PlanTab) => void; panelId?: string }) {
   const [tab, setTab] = useState<PlanTab>("plan");
   const id = useId();
   const { plan, files } = s;
@@ -115,7 +115,7 @@ export function PlanPanel({ s, onTab }: { s: SessionView; onTab?: (tab: PlanTab)
   };
   const count = files?.total ?? 0;
   return (
-    <section className="sec" aria-label="Plan and files">
+    <section className="sec" id={panelId} aria-label="Plan and files">
       <div className="tabs" role="tablist" aria-label="Plan and files">
         {TABS.map((t, i) => (
           <button

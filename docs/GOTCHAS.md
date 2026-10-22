@@ -18,6 +18,7 @@ This is the short, practical list. The full list of known limitations is under "
 - [Running the server](#running-the-server)
 - [What the dashboard shows](#what-the-dashboard-shows)
 - [Orchestrator messaging](#orchestrator-messaging)
+- [Session recording](#session-recording)
 - [Developing](#developing)
 
 ## Connecting the mod
@@ -518,6 +519,43 @@ reporters to show and cannot take part.
 
 **Do:** Sign in with your own name and token, the ones your reporters use.
 
+## Session recording
+
+The feature is in [REPLAY.md](REPLAY.md).
+
+### Record says "This session's reporter does not allow recording"
+
+**You see:** you chose a session and pressed Start recording, and the dialog or the layer says the reporter does not
+allow recording. Nothing is recorded.
+
+**Why:** the third yes answer is the reporter's `sessionRecording` option on the machine the session runs on, and it is
+off by default. The browser cannot turn it on, on purpose.
+
+**Do:** on that machine, run `/plugin configure podium-reporter@eengelking-marketplace` and turn on **Allow session
+recording**, then start the recording again. Capture begins at the next reply, so allow a few seconds.
+
+### A permission prompt or question I answered in the terminal is not in the replay
+
+**You see:** the replay shows the tool call and its result, but no "Allowed a tool once" or "Answered a question" row.
+
+**Why:** the replay marks only answers and approvals sent from Podium. The mod cannot see a permission prompt that was
+answered in the terminal, and a question's result arrives as an object it cannot read as text.
+
+**Do:** read the tool's result: it shows what ran and whether it was refused. A decision row means someone answered from
+Podium.
+
+### After `/clear` the recording is on a different session
+
+**You see:** after `/clear` the old session's recording reads stopped, with no one named, and the new session shows it
+recording.
+
+**Why:** `/clear` gives the session a new id. The server carries a running recording over to the new session, with the same
+starter and start time, and stops the old one. The owner's consent is not carried: the new session's own report must state
+that `sessionRecording` is on.
+
+**Do:** replay the first part from the old session's page and the rest from the new one. If the new session says the
+reporter does not allow recording, turn the option on for that machine.
+
 ## Developing
 
 ### An Admin style does nothing, or looks like the fleet page's
@@ -530,6 +568,22 @@ picks up its rules.
 
 **Do:** Before you add a class to `admin.css`, search `fleet.css` for it. Prefix a layout class that collides (Admin
 uses `asec` and `apage` for this reason).
+
+### A mockup of the Expand modal looks nothing like the real one, or its layout breaks
+
+**You see:** A mockup of the Activity modal is rejected as unlike production, or a new piece of it lays out wrong
+as soon as it links `fleet.css`.
+
+**Why:** Expand opens two different modals. An agent's Expand opens the plain Activity modal
+(`ActivityFeed.tsx`). The orchestrator's Expand opens the Respond modal (`Respond.tsx`): the title "Activity" with
+the sub "name · orchestrator · model", the refresh select in the header, the feed, the status row, the feed's footer
+note, then the message box (`Compose`). A mockup drawn from `ActivityFeed.tsx` alone is the wrong modal for an
+orchestrator. Separately, a class name you invent can already exist in `fleet.css`. A new `.out` and `.cmd` in the
+#431 mockup collided with Respond's own `.out` and `.cmd` and broke its layout.
+
+**Do:** Copy the component the screen really opens: `Respond.tsx` for an orchestrator, `ActivityFeed.tsx` for an
+agent. Before you use a class name in a mockup, search `fleet.css` and `admin.css` for it, and pick another name if
+it is taken.
 
 ### `npm run test:mod` and `npm run typecheck:mod` fail on a clean machine
 

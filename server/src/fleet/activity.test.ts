@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import { ACTIVITY_LEASE_SLACK_MS, ActivityStore, everyOf } from './activity.js';
-import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
+import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
 const T0 = 1_800_000_000_000;
@@ -227,5 +227,158 @@ describe('ActivityStore with the Activity history (#432)', () => {
     const r = report([]);
     store.ingest(r, 0);
     expect(store.watched(r.session.id)).toEqual([]);
+  });
+});
+
+describe('ActivityStore with a Bash command and its output (#431)', () => {
+  const SECRET = 'sk-live-OUTPUT-SECRET-9f3a';
+  let outputOn = true;
+  let t = T0;
+  const make = (historyLoops: string[] = []) => new ActivityStore(() => t, () => true, () => historyLoops, () => outputOn);
+  const bash = (at: number, extra: Partial<ActivityEntry> = {}): ActivityEntry => ({ at, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test', ...extra });
+  const rep = (agent: ActivityEntry[], opt: boolean | 'absent' = true): Report => {
+    const r = report(agent);
+    if (opt === 'absent') delete r.session.activityOutput;
+    else r.session.activityOutput = opt;
+    return r;
+  };
+  const sid = report([]).session.id;
+  const aid = report([]).agents[0]!.id;
+  const got = (s: ActivityStore) => s.watch(sid, aid, 5).entries;
+  beforeEach(() => {
+    outputOn = true;
+    t = T0;
+  });
+
+  it('keeps the command and attaches output that arrives later to the entry it belongs to', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    t += 100;
+    s.ingest(rep([bash(T0 + 10)]), 0);
+    expect(got(s)).toEqual([{ seq: 1, at: T0 + 10, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test' }]);
+    s.ingest(rep([bash(T0 + 10, { output: 'ok\n', done: true, exitCode: 0 })]), 0);
+    expect(got(s)).toEqual([{ seq: 1, at: T0 + 10, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test', output: 'ok\n', done: true, exitCode: 0 }]);
+    s.ingest(rep([bash(T0 + 10, { output: 'bad', outputCut: true, done: true, failed: true, exitCode: 1 })]), 0);
+    expect(got(s)).toHaveLength(1);
+    expect(got(s)[0]).toMatchObject({ output: 'bad', outputCut: true, failed: true, exitCode: 1 });
+  });
+
+  it('an update does not move the entry or hide a newer one', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([bash(T0 + 10, { id: 'c1' })]), 0);
+    s.ingest(rep([bash(T0 + 10, { id: 'c1', output: 'a', done: true }), bash(T0 + 20, { id: 'c2', text: 'Bash ls' })]), 0);
+    expect(got(s).map((e) => [e.seq, e.id, e.output])).toEqual([
+      [1, 'c1', 'a'],
+      [2, 'c2', undefined],
+    ]);
+  });
+
+  it('an entry without an id behaves exactly as before (an older mod)', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([tool(T0 + 1), tool(T0 + 1)], 'absent'), 0);
+    s.ingest(rep([tool(T0 + 1)], 'absent'), 0);
+    expect(got(s)).toEqual([{ seq: 1, at: T0 + 1, kind: 'tool', text: `Read f${T0 + 1}` }]);
+  });
+
+  it('discards output while the Admin flag is off or the reporter option is not on, and keeps the command and how the call ended (#598)', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    outputOn = false;
+    s.ingest(rep([bash(T0 + 1, { output: SECRET, done: true, exitCode: 0, failed: false })]), 0);
+    expect(got(s)[0]).toEqual({ seq: 1, at: T0 + 1, kind: 'tool', text: 'Bash npm test', id: 'c1', command: 'npm test', done: true, exitCode: 0 });
+    outputOn = true;
+    for (const opt of [false, 'absent'] as const) {
+      const s2 = make();
+      s2.watch(sid, aid, 5);
+      s2.ingest(rep([bash(T0 + 1, { output: SECRET, done: true })], opt), 0);
+      expect(JSON.stringify(got(s2))).not.toContain(SECRET);
+    }
+  });
+
+  it('serves no output while the flag is off, even for output held before, and does not bring it back when the flag returns', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([bash(T0 + 1, { output: SECRET, done: true })]), 0);
+    outputOn = false;
+    expect(JSON.stringify(got(s))).not.toContain(SECRET);
+    s.dropOutput();
+    outputOn = true;
+    expect(JSON.stringify(got(s))).not.toContain(SECRET);
+  });
+
+  it('forgets a session output when its reporter says the option is off', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([bash(T0 + 1, { output: SECRET, done: true })]), 0);
+    s.ingest(rep([bash(T0 + 1)], false), 0);
+    expect(got(s)[0]).toMatchObject({ command: 'npm test' });
+    expect(JSON.stringify(got(s))).not.toContain(SECRET);
+  });
+
+  it('watchedOutput lists only the loops under a live lease, never a loop the history lists, and nothing while a flag is off', () => {
+    const s = make([MAIN_LOOP, aid]);
+    s.ingest(rep([], true), 0);
+    expect(s.watched(sid).sort()).toEqual([MAIN_LOOP, aid].sort());
+    expect(s.watchedOutput(sid)).toEqual([]);
+    s.watch(sid, aid, 5);
+    expect(s.watchedOutput(sid)).toEqual([aid]);
+    expect(s.watched(sid)).toContain(aid);
+    outputOn = false;
+    expect(s.watchedOutput(sid)).toEqual([]);
+    outputOn = true;
+    t += 5000 + ACTIVITY_LEASE_SLACK_MS + 1;
+    expect(s.watchedOutput(sid)).toEqual([]);
+  });
+
+  it('with the activity-feed flag off nothing is listed for output', () => {
+    let feedOn = true;
+    const s = new ActivityStore(() => t, () => feedOn, () => [], () => outputOn);
+    s.watch(sid, aid, 5);
+    feedOn = false;
+    expect(s.watchedOutput(sid)).toEqual([]);
+  });
+
+  it('output is gone after the lease lapses, the session leaves, the flag goes off and in a new store', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([bash(T0 + 1, { output: SECRET, done: true })]), 0);
+    t += 5000 + ACTIVITY_LEASE_SLACK_MS + 1;
+    s.expire();
+    expect(s.watch(sid, aid, 5).entries).toEqual([]);
+
+    const s2 = make();
+    s2.watch(sid, aid, 5);
+    s2.ingest(rep([bash(T0 + 1_000_000, { output: SECRET })]), 0);
+    s2.dropSession(sid);
+    expect(s2.watch(sid, aid, 5).entries).toEqual([]);
+
+    const s3 = make();
+    s3.watch(sid, aid, 5);
+    s3.ingest(rep([bash(T0 + 1_000_000, { output: SECRET })]), 0);
+    s3.clear();
+    expect(s3.watch(sid, aid, 5).entries).toEqual([]);
+
+    expect(make().watch(sid, aid, 5).entries).toEqual([]);
+  });
+
+  it('bounds what it holds: a command or output over the protocol limit is cut, over the 20-entry window the oldest go', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([bash(T0 + 1, { command: 'c'.repeat(30_000), output: 'o'.repeat(30_000), done: true })]), 0);
+    expect(got(s)[0]!.command).toHaveLength(LIMITS.activityDetail);
+    expect(got(s)[0]!.output).toHaveLength(LIMITS.activityDetail);
+    for (let i = 0; i < 25; i++) s.ingest(rep([bash(T0 + 10 + i, { id: `n${i}`, text: `Bash ${i}`, output: 'x', done: true })]), 0);
+    expect(got(s)).toHaveLength(LIMITS.activityEntries);
+  });
+
+  it('does not match a call id across entries of another kind, and takes no command on a non-tool entry', () => {
+    const s = make();
+    s.watch(sid, aid, 5);
+    s.ingest(rep([{ at: T0 + 1, kind: 'text', text: 'hello', id: 'c1', command: 'ls', output: SECRET }]), 0);
+    expect(got(s)[0]).toEqual({ seq: 1, at: T0 + 1, kind: 'text', text: 'hello', id: 'c1' });
+    s.ingest(rep([bash(T0 + 2, { output: 'x', done: true })]), 0);
+    expect(got(s).map((e) => [e.kind, e.output])).toEqual([['text', undefined], ['tool', 'x']]);
   });
 });

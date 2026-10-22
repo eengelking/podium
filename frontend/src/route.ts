@@ -19,6 +19,18 @@ export function openIn(hash: string): string | null {
   return q < 0 ? null : new URLSearchParams(hash.slice(q + 1)).get("open") || null;
 }
 
+/** The session whose recording is open as a replay (`#/?open=<id>&replay`, #353), or null: built on the open orchestrator's address. */
+export function replayIn(hash: string): string | null {
+  const id = openIn(hash);
+  if (id === null) return null;
+  return new URLSearchParams(hash.slice(hash.indexOf("?") + 1)).has("replay") ? id : null;
+}
+
+/** The address of a session's replay. It survives a reload, and a viewer who may not open it sees the refusal at the same address. */
+export function replayHash(id: string): string {
+  return `#/?${new URLSearchParams({ open: id }).toString()}&replay`;
+}
+
 /** The fleet console's address with an orchestrator open, or the wall's when none is. */
 export function fleetHash(open: string | null): string {
   return open ? `#/?${new URLSearchParams({ open }).toString()}` : "#/";

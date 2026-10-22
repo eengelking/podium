@@ -66,3 +66,15 @@ export function usePanes(page: PanesPage = "fleet"): Panes {
 
   return { collapsed: wall ? ALL : saved, wall, toggle, enterWall, exitWall };
 }
+
+const PLAN_FOLD_KEY = "podium.planFiles.collapsed";
+
+/** Whether the orchestrator page's Plan / Files column is folded away (#604). One flag for every orchestrator, kept apart from the panes'; only a stored true folds it. */
+export function usePlanFolded(): [boolean, () => void] {
+  const [folded, setFolded] = useState(() => readJson<unknown>(PLAN_FOLD_KEY, false) === true);
+  const toggle = useCallback(() => {
+    setFolded(!folded);
+    writeJson(PLAN_FOLD_KEY, !folded);
+  }, [folded]);
+  return [folded, toggle];
+}

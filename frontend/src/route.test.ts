@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fleetHash, openIn, routeFor } from "./route";
+import { fleetHash, openIn, routeFor, replayHash, replayIn } from "./route";
 
 describe("routeFor", () => {
   it("opens the history view for #/history, with or without a query", () => {
@@ -59,5 +59,21 @@ describe("the open orchestrator in the address", () => {
     expect(fleetHash("s1")).toBe("#/?open=s1");
     expect(routeFor(fleetHash("a b/c&d"))).toBe("fleet");
     expect(openIn(fleetHash("a b/c&d"))).toBe("a b/c&d");
+  });
+});
+
+describe("the replay in the address (#353)", () => {
+  it("is #/?open=<id>&replay, still the fleet console and still the open orchestrator", () => {
+    expect(replayHash("s1")).toBe("#/?open=s1&replay");
+    expect(routeFor(replayHash("s1"))).toBe("fleet");
+    expect(openIn(replayHash("s1"))).toBe("s1");
+    expect(replayIn(replayHash("a b/c&d"))).toBe("a b/c&d");
+  });
+
+  it("is none without the flag, without a session, and on another page", () => {
+    expect(replayIn("#/?open=s1")).toBeNull();
+    expect(replayIn("#/?replay")).toBeNull();
+    expect(replayIn("#/")).toBeNull();
+    expect(replayIn("#/history?open=s1&replay")).toBeNull();
   });
 });
