@@ -1148,7 +1148,7 @@ with an optional size cap that removes the oldest entries first (`SPEC.md` 6.4).
 **Context.** Podium's traffic is plain HTTP. A reporter sends its token, its reports and the answers it holds
 over HTTP, and the browser signs in with a name and a token over HTTP, so anyone on the path can read and
 change them. The only advice was a TLS proxy (20, 28, 31). #323 designed the fix over 17 comments and #577
-builds it. This entry records why it has this shape. Nothing here is built yet.
+builds it. This entry records why it has this shape. It is built (#577 and its sub-issues).
 
 **Decision.** With TLS turned on (`PODIUM_TLS=on`, `podiumctl start --tls`), the server makes its own CA and
 serving certificate in `/data/tls` and serves HTTPS on a second port. Each person gets a client certificate in
@@ -1200,7 +1200,7 @@ and the certificate with its private key, the way `kubeadm` and `kubectl` do. `S
 
 **Cost.**
 
-- The reporter needs `node` on the person's `PATH`. How it finds `node` is still open.
+- The reporter needs `node`. It looks at `PODIUM_NODE`, then the `PATH` Claude Code started with, then Homebrew, `/usr/local`, nvm and Volta, and says so in the status line when it finds none.
 - `$.process` is CLI only per the engine types, so the desktop app and VS Code are untested.
 - A stolen `/data/tls` holds the CA key, which is everything the CA signed. It needs an emergency rotation and a
   reissue, and the folder must be backed up and permissioned like a secret.

@@ -114,13 +114,14 @@ The levels of `respond`:
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
 run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
-connects to the address in the file over HTTPS with your certificate, with no token and nothing installed on your machine.
-Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
+connects to the address in the file over HTTPS with your certificate, and the certificate is what proves who you are. A token you have set is still sent in the header, but the server does not need it. Nothing is installed on your machine.
+Set `userName` (or `PODIUM_USER`) to the name in the file's `# user:` line, since the reporter does not take the name
+from the file. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
 
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
-- **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left the helper asks the server
+- **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. An expired certificate can still renew for 30 days after it expired (the Admin sets
   the grace); the status line says "renewing certificate" meanwhile. Past that, or if an Admin revoked the certificate, it
@@ -128,6 +129,24 @@ Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing
 - **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.
+- **What the status line is telling you.** The server's side of this (turning TLS on, trusting the CA in a browser) is in
+  [SERVER.md](SERVER.md#built-in-tls).
+
+  | Status line says | What it means and what to do |
+  |---|---|
+  | `config too open` | Others can read the file. Run `chmod 600` on it |
+  | `config unreadable` | The file is missing or is not a Podium reporter config. Check `PODIUM_REPORTER_CONFIG` and ask the Admin for a new file |
+  | `wrong config for this name` | The file is for another person than this session's `userName`. Use that person's file, or change the name |
+  | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
+  | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
+  | `certificate refused` | The server would not renew it: it was revoked, or is not one this server issued. Ask an Admin to reissue your config |
+  | `token refused` | The server answered 401 to a report. After an Admin revokes your certificate this is what you see. Ask an Admin to reissue your config |
+  | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
+  | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |
+  | `wrong server name` | The address in the file is not a name the server's certificate carries |
+  | `helper cannot start`, `helper not ready` | The helper could not start. Check that `node` runs, then start a new session |
+
+  A skewed clock on either machine can make a good certificate look expired or not yet valid, so check the date first.
 - **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
   helper running.
 - Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.

@@ -88,7 +88,8 @@ report to it:
 2. Allow the port (4317 by default) in the firewall for the people who need it and no one else.
 3. The server refuses a request whose `Host` is a name it does not expect (see
    [A page on another site](#a-page-on-another-site)). With `0.0.0.0` an address typed in the bar
-   (`http://192.168.1.5:4317`) works as is. To reach it by a name, list the name, then restart:
+   (`http://192.168.1.5:4317`) works as is. With [built-in TLS](#built-in-tls) on, a wildcard bind adds nothing to the
+   serving certificate, so list the address people type here too. To reach it by a name, list the name, then restart:
 
    ```sh
    podiumctl config set PODIUM_ALLOWED_HOSTS=box.lan
@@ -104,12 +105,91 @@ report to it:
 names, machines, paths, branches, plan steps, commands from failed calls and the excerpts listed under
 [What leaves the session](REPORTER.md#what-leaves-the-session).
 
-- Tokens and reports cross the network in plain HTTP, so use a network you trust or put a TLS proxy in front.
+- Tokens and reports cross the network in plain HTTP, so use a network you trust, turn on [built-in TLS](#built-in-tls)
+  or put a TLS proxy in front.
 - Anyone with a valid token can delete any session.
 - The name shown on a session comes from the token that sent it. With the shared admin secret every session
   shows as Admin, and with the server's auth turned off every session is Unassigned, because then anyone
   could claim any name.
 - Per-person read permissions are not part of Podium.
+
+### Built-in TLS
+
+Podium can serve HTTPS itself, with its own certificate authority (CA), so tokens, reports and answers are encrypted
+on the network. It is off until you turn it on. The design is in [SPEC.md](SPEC.md#77-hardening) (*Built-in TLS*) and
+DECISIONS 40. This section is the walk-through, in the order you do it.
+
+**1. Turn it on.**
+
+```sh
+podiumctl start --tls          # or: podiumctl config set PODIUM_TLS=on, then podiumctl restart
+podiumctl status               # the "tls:" line shows the HTTPS port
+```
+
+The first start makes a CA and a serving certificate. HTTP stays on `4317` and HTTPS is on `4318` (change it with
+`PODIUM_TLS_PORT`). If people reach the server by a name, set `PODIUM_ALLOWED_HOSTS=box.lan` before the first start, since
+the serving certificate carries `localhost`, the bind address and those names. List each name or address people type. Adding a name later needs **Renew now**
+on Admin > Server > Certificates. The CA lives in `~/.podium/tls` (container mode) or `data/tls` beside the database
+(standalone). It holds the CA key, so back it up and keep it private. `podiumctl rm` keeps it; `podiumctl rm --purge-tls
+--yes` deletes it, and then every reporter config must be reissued.
+
+**2. Let your browser trust it.** A browser trusts only its own or your operating system's store, so the console on
+`https://<host>:4318` shows a warning until you install the CA or click through once. Either way, first check you have
+the right CA: open Admin > Server > Certificates, copy the CA's SHA-256 fingerprint, and compare it with the one your
+machine reports.
+
+- **Get the file.** On the Certificates page press **Download CA** (it saves `ca.pem`, no key in it). Print its
+  fingerprint to compare: `openssl x509 -in ca.pem -noout -fingerprint -sha256`.
+- **Just this once.** Click through the warning (Advanced, then Proceed). The browser asks again later. Do this only
+  after the fingerprint matches, and only on a network you trust.
+- **macOS (Safari, Chrome, Edge).** Open Keychain Access, drag `ca.pem` into **System** (or **login** for just you),
+  double-click it, open **Trust** and set **When using this certificate** to **Always Trust**.
+- **Windows (Chrome, Edge).** Rename the file to `ca.crt`, double-click it, choose **Install Certificate**, then
+  **Place all certificates in the following store** and pick **Trusted Root Certification Authorities**.
+- **Linux (Chrome, Edge, curl).** Debian and Ubuntu: copy it to `/usr/local/share/ca-certificates/podium-ca.crt` and run
+  `sudo update-ca-certificates`. Fedora: copy it to `/etc/pki/ca-trust/source/anchors/` and run
+  `sudo update-ca-trust`. Chrome on Linux keeps its own list:
+  `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "Podium CA" -i ca.pem`.
+- **Firefox (any system).** Settings, Privacy & Security, **View Certificates**, **Authorities**, **Import**, and tick
+  **Trust this CA to identify websites**.
+
+The reporter never needs this. It reads the CA from its own config file and installs nothing on your machine.
+
+**3. Give each person a reporter config.** In Admin > People, **Create user** (or **Reissue config** on an existing
+person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
+person puts it in `~/.podium/`, runs `chmod 600` on it, sets the reporter's `userName` option (or the `PODIUM_USER`
+environment variable) to the same name, and starts Claude Code on a machine that has `node`. The name is not read from the
+file: without it the status line says "wrong config for this name". The server address in the file is the one your
+browser used when you created the person, plus the HTTPS port, so create people from the address they will reach. The
+steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
+
+**4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
+a server that already had reporters when you turned TLS on, so nothing stops, and a warning line stays until you turn
+it off. A fresh server starts with it off. Turn it off once every reporter has its config: the HTTP port then refuses
+reporter traffic from anywhere but the server's own loopback address. A server in a container is the exception to "this machine": a reporter on the same host reaches it through the published port and arrives from the container network, so it needs its reporter config. The console on loopback stays on HTTP either way, so an Admin can
+always sign in.
+
+**When a certificate expires.**
+
+- **A person's certificate** renews itself at 30 days left (half its lifetime for a certificate that lasts under 60 days), and for 30 days after it expires. Past that, or after a
+  revoke, open Admin > People, choose **Reissue config** for them and send them the new file.
+- **The serving certificate** renews itself 30 days before it expires and at every start. A failed renewal shows in
+  red on the Certificates page and in the header pill. **Renew now** tries again.
+- **The CA** lasts 10 years. Rotate it before then with **Rotate CA…**, which keeps old reporters working through an
+  overlap. If the CA expired or its key leaked, use **Rotate CA and end the overlap now**, then reissue every config.
+- **You cannot sign in because the certificate expired.** Open the console on the loopback address over HTTP
+  (`http://127.0.0.1:4317`), which does not need the certificate, and sign in with the name `Admin` and the admin
+  secret. Or open the HTTPS address and click through the warning once.
+
+**What TLS stops, and what it does not.** It stops snooping on tokens, reports and answers, a person in the middle, a
+host that pretends to be the server, replayed traffic, a stolen database giving up usable reporter credentials, and an
+expired or revoked certificate being used. It does not stop a stolen config file (the key is in it, so revoke the
+certificate), a stolen console token, anything running as the same user on a reporter's machine, plain HTTP while
+reporters are allowed over it, or a stolen `/data/tls`, which holds the CA key and means an emergency rotation and a
+reissue for everyone. [.github/SECURITY.md](../.github/SECURITY.md#built-in-tls) has the full list.
+
+**A real name.** A server with a public name can already sit behind a TLS proxy ([Behind a reverse proxy](#behind-a-reverse-proxy)).
+Uploading your own certificate to Podium, and ACME, are not supported.
 
 ### Orchestrator messaging
 
