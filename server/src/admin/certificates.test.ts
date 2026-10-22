@@ -12,7 +12,8 @@ import { ensureTls, serverNames } from '../tlsCa.js';
 import { PersonCertStore } from '../tlsClientAuth.js';
 import { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
 import { issuePersonCert } from '../tlsPeople.js';
-import { retireCa, rotateCa, TrustStore } from '../tlsRotation.js';
+import { caCanOverlap, retireCa, rotateCa, TrustStore } from '../tlsRotation.js';
+import { writeLegacyCa } from '../tlsTesting.js';
 import type { CaRotation } from '../tlsServer.js';
 import { ReporterTransport } from '../tlsHttp.js';
 import { createAdminRouter } from './adminRouter.js';
@@ -204,11 +205,12 @@ describe('a failure while answering', () => {
 });
 
 describe('rotating and retiring the CA (#588)', () => {
-  async function rotatable(tlsOn = true) {
+  async function rotatable(tlsOn = true, legacy = false) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-carot-'));
     dirs.push(root);
     const dir = path.join(root, 'tls');
     const names = serverNames('127.0.0.1', []);
+    if (legacy) writeLegacyCa(dir);
     const material = await ensureTls({ dir, names });
     const db = openDb(':memory:');
     const people = new PeopleStore(db);
@@ -219,6 +221,7 @@ describe('rotating and retiring the CA (#588)', () => {
     const logger = createLogger({ format: 'json', write: () => {} });
     const renewer = new ServingRenewer({ dir, names, server: { setSecureContext: (o) => swaps.push(o) }, serving: material.serving, settings: () => settings.get(), logger, trust, key: material.key }, material.cert);
     const rotation: CaRotation = {
+      canOverlap: () => caCanOverlap(dir),
       rotate: (endOverlap) => renewer.exclusive(async () => {
         const out = await rotateCa({ dir, names, servingDays: 365, endOverlap });
         trust.reload();
@@ -244,6 +247,20 @@ describe('rotating and retiring the CA (#588)', () => {
     const { agent } = await rotatable(false);
     expect((await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false })).status).toBe(404);
     expect((await agent.post('/api/admin/certificates/retire-ca').set(H)).status).toBe(404);
+  });
+
+  it('says whether the CA can take a planned rotation, and what the refusal is for one that cannot', async () => {
+    const fresh = await rotatable();
+    expect((await fresh.agent.get('/api/admin/certificates').set(H)).body.canOverlap).toBe(true);
+    const legacy = await rotatable(true, true);
+    expect((await legacy.agent.get('/api/admin/certificates').set(H)).body.canOverlap).toBe(false);
+    const planned = await legacy.agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false });
+    expect(planned.status).toBe(409);
+    expect(planned.body.error).toMatch(/end the overlap/i);
+    // The hard cutover still works, and makes a CA that can take a planned rotation next time.
+    const hard = await legacy.agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: true });
+    expect(hard.status).toBe(200);
+    expect(hard.body.canOverlap).toBe(true);
   });
 
   it('wants endOverlap to be said, and refuses anything else', async () => {

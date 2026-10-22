@@ -7,9 +7,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureTls, serverNames, TlsError } from './tlsCa.js';
-import { CROSS_DAYS, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
+import { caCanOverlap, CROSS_DAYS, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { opensslStamp } from './tlsTesting.js';
+import { opensslStamp, writeLegacyCa } from './tlsTesting.js';
 
 const dirs: string[] = [];
 const scratch = (): string => {
@@ -62,6 +62,29 @@ describe('a new CA has room for a cross certificate under it', () => {
   });
 });
 
+describe('caCanOverlap', () => {
+  it('is true for a CA made with pathlen 1', async () => {
+    const { dir } = await setup();
+    expect(caCanOverlap(dir)).toBe(true);
+  });
+
+  it('is false for a CA made with pathlen 0, the one T3 made', async () => {
+    const dir = scratch();
+    writeLegacyCa(dir);
+    await ensureTls({ dir, names });
+    expect(caCanOverlap(dir)).toBe(false);
+  });
+
+  it('is true when openssl is missing, so the page does not fail on a flag; rotateCa still refuses in its own words', async () => {
+    const { dir } = await setup();
+    expect(caCanOverlap(dir, 'openssl-does-not-exist')).toBe(true);
+  });
+
+  it('is true when there is no CA to look at, so the page does not claim a refusal it cannot explain', () => {
+    expect(caCanOverlap(scratch())).toBe(true);
+  });
+});
+
 describe('rotateCa, planned', () => {
   it('makes a new CA, a cross certificate signed by the old one, and a leaf from the new one', async () => {
     const { dir, oldCa } = await setup();
@@ -111,12 +134,7 @@ describe('rotateCa, planned', () => {
 
   it('is refused for a CA with pathlen 0, which cannot sit above a cross certificate', async () => {
     const dir = scratch();
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    // The CA that T3 made: pathlen 0.
-    fs.writeFileSync(path.join(dir, 'x.cnf'), '[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=Podium CA\nO=podium\n[v3]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n');
-    execFileSync('openssl', ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'ca.key'], { cwd: dir });
-    execFileSync('openssl', ['req', '-new', '-x509', '-key', 'ca.key', '-config', 'x.cnf', '-extensions', 'v3', '-days', '3650', '-out', 'ca.crt'], { cwd: dir });
-    fs.rmSync(path.join(dir, 'x.cnf'));
+    writeLegacyCa(dir);
     await ensureTls({ dir, names });
     const before = fs.readdirSync(dir).sort();
     await expect(rotateCa({ dir, names, servingDays: 365, endOverlap: false })).rejects.toThrow(/end the overlap/i);

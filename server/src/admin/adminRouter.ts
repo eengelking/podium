@@ -827,7 +827,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   /** The renewer's view with the overlap's count of reporters still on the old CA (#588). */
   const certificatesView = (r: ServingRenewer) => {
-    const v = { ...r.view(), overlapDays: CROSS_DAYS, http: httpView() };
+    const v = { ...r.view(), overlapDays: CROSS_DAYS, canOverlap: certs?.rotation?.()?.canOverlap() ?? true, http: httpView() };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
     const counts = certs?.people?.store.reportersByIssuer(now() - certs.settings.getReporter().graceDays * 86_400_000);

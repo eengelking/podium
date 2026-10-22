@@ -33,3 +33,12 @@ export function makeForgerCa(dir: string): { caCrt: string; caKey: string } {
   run('req', '-new', '-x509', '-key', 'fca.key', '-config', 'fca.cnf', '-extensions', 'v3_ca', '-days', '3650', '-out', 'fca.crt');
   return { caCrt: path.join(dir, 'fca.crt'), caKey: path.join(dir, 'fca.key') };
 }
+
+/** A CA folder as T3 made it, with `pathlen:0`, which cannot sit above a cross certificate. Writes `ca.crt` and `ca.key` into `dir`. */
+export function writeLegacyCa(dir: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, 'x.cnf'), '[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=Podium CA\nO=podium\n[v3]\nbasicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid:always\n');
+  execFileSync('openssl', ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'ca.key'], { cwd: dir });
+  execFileSync('openssl', ['req', '-new', '-x509', '-key', 'ca.key', '-config', 'x.cnf', '-extensions', 'v3', '-days', '3650', '-out', 'ca.crt'], { cwd: dir });
+  fs.rmSync(path.join(dir, 'x.cnf'));
+}

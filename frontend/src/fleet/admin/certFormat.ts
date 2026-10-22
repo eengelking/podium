@@ -23,6 +23,8 @@ export interface CertsView {
   lastFailure: { at: string; reason: string; trigger: string } | null;
   /** How long a planned rotation's overlap lasts, for the confirmation's words. */
   overlapDays?: number;
+  /** False for a CA made before #588 (`pathlen:0`): a planned rotation is refused for it, so the page offers only the hard cutover (#638). */
+  canOverlap?: boolean;
   /** An overlap that is under way after a planned CA rotation (#588). */
   rotation?: { previousCa: CertInfo; cross: CertInfo; startedAt: number; reporters: { onOldCa: number; total: number } } | null;
 }
