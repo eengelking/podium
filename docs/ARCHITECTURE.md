@@ -674,9 +674,8 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 
 ### Built-in TLS (#577)
 
-Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
-certificate, the reporter listener (#581, and mutual-TLS only since #665), the serving certificate's renewal (#582) and the person certificates with their
-revocation (#583), the reporter's own renewal (#585) and the switch for reporters over HTTP (#589). The rest is planned. The rules are in
+Built (#578 to #590, then #665, #667 and #668). #591, a CA option on `$.http.fetch` that would retire the helper, is
+blocked on the engine. This records the structure so the sub-issues agree. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 42.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
@@ -691,7 +690,7 @@ console and Admin are not reachable on it. Nothing sets `rejectUnauthorized: fal
 `js/disabling-certificate-validation` flagged before #665. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting (#589). `tlsHttp.ts`
 has `reporterHttpGate`, mounted in `index.ts` ahead of the routers. It acts only when the HTTPS listener is running, the
 socket is not encrypted (the socket, never a forwarded header), the route is one the mod calls (`isReporterRoute`: report,
-hook, and the peers and respond routes behind the reporter's credential), the setting is off and `req.ip` is not
+hook, and the peers, asks, deliveries, diffs and recording routes under a session), the setting is off and `req.ip` is not
 loopback (`req.ip` follows `X-Forwarded-For` only from a hop named in `PODIUM_TRUST_PROXY`). It answers `403`, logs
 `tls.http_refused` and adds the source to the Reporters page's refused list. The console is never gated. A missing
 setting row reads as on; `index.ts` writes it once when TLS first runs, on if any reporter has ever reported
@@ -722,7 +721,7 @@ counts people for the Admin page's "N of M reporters still use the old CA".
 **The CA and `/data/tls`.** The server makes and renews certificates by calling `openssl` with `execFile`.
 `ensureTls` works in a `.new-*` folder inside the directory and renames the finished files in, so a failure leaves no
 half-made CA; a CA that exists is read and checked (key matches certificate, serving certificate signed by it), never
-rewritten. A serving certificate that exists is kept as it is until renewal (T4) is built. Dates and fingerprints are
+rewritten. A serving certificate that exists is kept until `ServingRenewer` renews it (below). Dates and fingerprints are
 read from the certificates (`describeCert`) and logged as `tls.listening`, not stored twice.
 `/data/tls` holds `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and `previous/`, keys at mode 0600. In container
 mode `podiumctl` keeps this folder on durable storage, and its remove path leaves it unless asked. Person
@@ -769,6 +768,9 @@ nothing goes upstream: every request gets `X-Podium-Helper-Error: CERT_EXPIRED` 
 Unix socket. The seam in the mod is the one `FetchLike` at `register.ts` (`const fetch: FetchLike = ...`): with a
 config file it sends through the helper with `$.http.fetch(url, { ...init, socketPath })`, so `Transport` and its
 callers do not change. The held answer request keeps the engine's 30 second limit, now on the leg to the helper.
+The helper forwards only the calls in `REPORTER_ROUTES`, a copy of `REPORTER_ROUTE_TEMPLATES` in `tlsHttp.ts` that
+`reporterHelper.test.ts` compares. It builds the upstream request from the matched route, and anything else gets `403` with
+`X-Podium-Helper-Error: ROUTE_NOT_ALLOWED` (#668).
 
 **Admin.** New routes under `/api/admin/certificates` and on `people/:id/certificate/...` live in `adminRouter.ts`.
 `POST /people` returns the config file with the token, once; if the certificate cannot be made the person and the
@@ -859,7 +861,7 @@ mod's logs stay on its machine.
 
 | `PODIUM_LOG_FORMAT` | Output |
 |---|---|
-| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. `auth.failed` and the `tls.*` events are the exception (#602): they print at their own level (warn) so an Admin sees why a reporter is refused. `foldedInText` folds them: the first line for one event, route, source and reason prints, repeats inside 60 seconds do not, and the next line after the window carries `(N more in the last minute not printed)`. The memory is 1000 kinds, oldest dropped first. Folding is for the text output only; `json` and the shipper get every line. |
+| `text` (default) | The message alone, which is what the server always printed. The events added in #140 (`quietInText`: `session.*`, `reporter.*`, `admin.*`, `sweep.removed`, `report.conflict`, `report.accepted`, `http.request`, `http.aborted`) print only at debug, so the default text output is unchanged. `auth.failed`, and `tls.*` events at warn or error, are the exception (#602): they print at their own level so an Admin sees why a reporter is refused. The info-level `tls.*` lines (`tls.listening`, `tls.ca_created`) stay quiet in text, so the default output has no line for the reporter port. `foldedInText` folds them: the first line for one event, route, source and reason prints, repeats inside 60 seconds do not, and the next line after the window carries `(N more in the last minute not printed)`. The memory is 1000 kinds, oldest dropped first. Folding is for the text output only; `json` and the shipper get every line. |
 | `json` | The whole record as one line, every event at its own level. The shipper always gets this JSON record. |
 
 **Redaction** (`redact.ts`)
@@ -950,7 +952,7 @@ server's file. `docs/fixtures/report.sample.json` is the shared fixture.
   five minutes (not while the tab is hidden) and links to `#/admin/certificates`. The route answers from memory
   (`ServingRenewer.statusView()`) and reuses its answer for 30 seconds, never past the moment a certificate ends;
   its stage is `expired` only once the certificate has ended, and the last day reads critical.
-- **Mounts.** The server mounts `/api/fleet` and `/api/admin`, then `/api/health` and a 404 for any other `/api`
+- **Mounts.** Ahead of the routers, `failureLimiter` covers all of `/api` (#667). The server mounts `/api/fleet`, `/api/reporter` (renewal), `/api/admin` and `/api/tls` (the pill's status), then `/api/health` and a 404 for any other `/api`
   path, then serves the built frontend with `*` falling back to `index.html`.
 
 ## Spec questions
@@ -1326,7 +1328,7 @@ Validating hooks: mod/podium-reporter/hooks/hooks.json
 
 ## Dependencies added
 
-None at run time. `@types/node` in `server/` went from 20 to 24 so `node:sqlite` is declared.
+`express-rate-limit` at run time, for the failure limiter (#667). `@types/node` in `server/` went from 20 to 24 so `node:sqlite` is declared.
 
 ## Phase log
 

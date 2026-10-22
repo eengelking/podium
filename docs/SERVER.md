@@ -10,11 +10,13 @@ Contents:
   - [Auth token](#auth-token)
   - [Admin and per-person tokens](#admin-and-per-person-tokens)
   - [Several people on one Podium](#several-people-on-one-podium)
+  - [Built-in TLS](#built-in-tls)
   - [Orchestrator messaging](#orchestrator-messaging)
   - [Session recording](#session-recording)
   - [The release check](#the-release-check)
   - [A page on another site](#a-page-on-another-site)
   - [Behind a reverse proxy](#behind-a-reverse-proxy)
+    - [Failed requests are limited](#failed-requests-are-limited)
   - [More settings](#more-settings)
   - [Start on boot](#start-on-boot)
 - [Server settings](#server-settings)
@@ -131,7 +133,7 @@ podiumctl status               # the "tls:" line shows the reporter port
 The first start makes a CA and a serving certificate. HTTP stays on `4317` for the console, Admin and any reporter that uses
 a token. The reporter port is `4318` (change it with `PODIUM_TLS_PORT`): HTTPS that accepts only a valid reporter
 certificate, and serves only what a reporter calls. If people reach the server by a name, set `PODIUM_ALLOWED_HOSTS=box.lan` before the first start, since
-the serving certificate carries `localhost`, the bind address and those names. List each name or address people type. Adding a name later needs **Renew now**
+the serving certificate carries `localhost`, `127.0.0.1` and those names, plus the bind address in standalone mode. In container mode the server binds `0.0.0.0` inside, so `--bind` adds nothing: list every name or address people type. Adding a name later needs **Renew now**
 on Admin > Server > Certificates. The CA lives in `~/.podium/tls` (container mode) or `data/tls` beside the database
 (standalone). It holds the CA key, so back it up and keep it private. `podiumctl rm` keeps it; `podiumctl rm --purge-tls
 --yes` deletes it, and then every reporter config must be reissued.
@@ -165,7 +167,7 @@ the person can still sign in to the console. **Revoke token** (which revokes the
   There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line says the
   certificate expired on a date and that an Admin must generate a new one. Admin > People warns before that happens, with
   a *lapses soon* badge. After an expiry or a revoke, choose **Reissue config** for the person and send them the new file.
-- **The serving certificate** renews itself 30 days before it expires and at every start. A failed renewal shows in
+- **The serving certificate** renews itself when 30 days are left (Admin > Server > Certificates changes that), checking at every start and once a day. A failed renewal shows in
   red on the Certificates page and in the header pill. **Renew now** tries again.
 - **The CA** lasts 10 years. Rotate it before then with **Rotate CA…**, which keeps old reporters working through an
   overlap. If the CA expired or its key leaked, use **Rotate CA and end the overlap now**, then reissue every config.
@@ -318,6 +320,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_TLS_PORT` | `4318` | The reporter port on your machine (`podiumctl` maps it to 4318 inside the container and tells the server the port on your machine, so a reporter config names that one) |
 | `PODIUM_TLS_PUBLIC_PORT` | the listening reporter port | The reporter port people reach the server on, which goes into each reporter config. `podiumctl` sets it in container mode to your `PODIUM_TLS_PORT`. Set it yourself only when something else maps the port (a forwarder or a container you run by hand) |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |
+| `PODIUM_FAILURE_LIMIT` | `300` | Failed requests (a response of 400 or more) one address may make to `/api` in a minute before its requests get `429` (see [Failed requests are limited](#failed-requests-are-limited)). A value that is not a whole number of at least 1 stops the server at start |
 | `PODIUM_TRUST_PROXY` | off | The reverse-proxy hops whose `X-Forwarded-For` and `X-Forwarded-Proto` the server believes (see [Behind a reverse proxy](#behind-a-reverse-proxy)) |
 | `TZ` | the server's own zone | Timezone whose midnight starts "today" for "Est. cost today". `podiumctl` gives the container your host's zone; set it with `podiumctl config set TZ=Europe/Berlin` to override |
 | `STALE_AFTER_MS` | `15000` | A session not heard from this long shows as stale |

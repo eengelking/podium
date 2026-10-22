@@ -147,7 +147,8 @@ Find what you see, then follow the fix. [GOTCHAS.md](GOTCHAS.md) has more.
 | A card turned stale | The session stopped reporting (closed, crashed or lost the connection). It goes away by itself, or press Remove |
 | I changed the config and nothing happened | Run `podiumctl restart` |
 | The status line names a certificate, the config file or `node` | Your server uses built-in TLS. See [what each message means](REPORTER.md#over-tls) |
-| The browser warns that the connection is not private on the `https://` address | The browser does not trust Podium's own CA. Compare the fingerprint, then install the CA or click through once. See [Built-in TLS](SERVER.md#built-in-tls) |
+| The browser cannot open the `https://…:4318` address | That port is for reporters only and needs a reporter certificate. Open the console at `http://<host>:4317`. See [Built-in TLS](SERVER.md#built-in-tls) |
+| `/podium` says `offline, retrying` with `Last error: HTTP 502` and a `TLS:` line | The reporter's connection helper answered, not the server. The `TLS:` line gives the reason, such as an expired certificate. See [what each message means](REPORTER.md#over-tls) |
 | A card shows `reporter 0.1.0 · update`, the top bar says reporters need an update, or the status line ends in `· update mod` | The mod in that session is older than the server supports. It keeps reporting meanwhile. See [Updating the mod](#updating-the-mod) |
 | The status line ends in `· update available` | Your mod works, but the server supports a newer one. See [Updating the mod](#updating-the-mod) |
 | A card or the status line shows `· upgrade server` | The mod is newer than the server supports. Upgrade the server (see [Updating the mod](#updating-the-mod)) |
@@ -1103,7 +1104,7 @@ console stays on plain HTTP, so a browser needs nothing from this page. With TLS
   now, since they are refused at once; a reporter with a reporter config keeps working on the reporter port, and so
   does the console, so an Admin can always sign in. Each change is written to the Admin log.
 - **Rotate by hand.** **Renew now** issues a new serving certificate from the same CA and keeps the old one as a backup.
-  **Rotate CA…** is not available yet.
+  **Rotate CA…** asks first, then makes a new CA that reporters pick up when they renew, while the old one keeps working through an overlap (120 days). A blue band counts the reporters still on the old CA, and **Retire old CA…** ends the overlap when none are left. **Rotate CA and end the overlap now** is for a CA key that may have leaked: every reporter then needs a reissued config, and open connections are closed.
 - **Previous certificates.** The last three serving certificates Podium replaced, kept in `/data/tls/previous`.
 
 **The header pill.** Whichever of the CA and the serving certificate expires first shows as a pill after the
@@ -1264,6 +1265,8 @@ repeats it held back. The other events below (sessions, reporters, sweeps, Admin
 | `server.start`, `server.stop` | info | The server started or stopped. In the JSON format and in VictoriaLogs, `server.start` also carries the port, database, whether auth is on, and the log and lifecycle settings |
 | `report.rejected`, `hook.rejected` | warn | A report or hook payload failed validation; `reason` and `path` say why |
 | `auth.failed` | warn | A request had no token, a wrong or revoked one, or a token that does not belong to the report's name |
+| `auth.throttled` | warn | One address made more failed `/api` requests in a minute than `PODIUM_FAILURE_LIMIT` allows; logged once per address and minute |
+| `tls.*` | info, warn, error | Built-in TLS. Warnings and errors (`tls.failed`, `tls.renew_failed`, `tls.handshake_failed`, `tls.http_refused`, `tls.client_refused`) print folded like `auth.failed`. Info lines (`tls.listening`, `tls.ca_created`, renewals, rotations) print in text only at `debug` |
 | `report.conflict` | warn | A report for a session that belongs to someone else |
 | `reporter.connected` | info | A reporter (owner, machine, mod or settings hooks) was heard for the first time, or again after a silence |
 | `reporter.silent` | warn | A session stopped reporting and turned stale |

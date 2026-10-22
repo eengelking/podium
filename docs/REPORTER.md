@@ -127,7 +127,7 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
   connects, and the status line and `/podium` say the certificate expired on that date and that an Admin must generate a new
-  reporter config. If an Admin revoked it, the same applies. You save the new file in `~/.podium/`.
+  reporter config. The session keeps its reports and tries again every few seconds without sending anything: `/podium` shows `offline, retrying` and `Last error: HTTP 502`, and its `TLS:` line gives the reason. If an Admin revoked it, the same applies. You save the new file in `~/.podium/`.
 - **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.
