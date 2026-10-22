@@ -851,7 +851,7 @@ Under **Create user**, type a name and choose Create user.
 - **Revoke token** refuses their console sign-in from the next request, and with TLS on their certificate too, so a
   person who is cut off cannot go on with the other credential. A revoked person's row offers **Issue new token**, which
   brings back the console sign-in only: with TLS on, their reporter stays refused until you choose **Reissue config**.
-- **Revoke certificate** stops their reporter at the next report and leaves the console sign-in. **Revoke all** does both.
+- **Revoke certificate** stops the reporter that uses the certificate and leaves the console sign-in; their token still works until it is revoked. **Revoke token** or **Revoke all** cuts the person off.
   **Reissue config** makes a new certificate and key, stops the old certificate, and shows the new file once. Each asks
   first, in a row under the person that says what will happen.
 - **Download certificate** gives the public certificate and the CA, never a key, so it cannot replace the file.

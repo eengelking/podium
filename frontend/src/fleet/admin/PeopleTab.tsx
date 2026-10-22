@@ -33,7 +33,7 @@ function wording(kind: Ask, name: string, tls: boolean, admin: boolean, certRevo
     case "revoke-token":
       return { title: `Revoke ${name}’s token?`, body: `They can no longer sign in to the console.${tls ? " Their reporter is refused too, because revoking the token revokes the certificate." : " Their reporter is refused at once."}${locks}`, button: "Revoke token", danger: true };
     case "revoke-cert":
-      return { title: `Revoke ${name}’s certificate?`, body: "Their reporter is refused at once. They can still sign in to the console.", button: "Revoke certificate", danger: true };
+      return { title: `Revoke ${name}’s certificate?`, body: "This stops the reporter that uses the certificate. Their token still works until you revoke it, and they can still sign in to the console. Revoke token or Revoke all cuts them off.", button: "Revoke certificate", danger: true };
     case "revoke-all":
       return { title: `Revoke all for ${name}?`, body: `Their reporter and their console sign-in stop at once. Their open sessions stay on the wall until they end.${locks}`, button: "Revoke all", danger: true };
     case "reissue":
@@ -213,7 +213,7 @@ export function PeopleTab(props: {
           )}
         </Panel>
       </Section>
-      <Section id="admin-people-h" title="Reporting people" help="Revoking a token stops the person’s console sign-in on the next request, and with it their certificate. Revoking a certificate stops their reporter on the next report and leaves the console. Revoke all does both. People in the Administrators group can also open Admin with their token; moving one out of it, or revoking their token, locks their open Admin session.">
+      <Section id="admin-people-h" title="Reporting people" help="Revoking a token stops the person’s console sign-in on the next request, and with it their certificate. Revoking a certificate stops the reporter that uses it and leaves the console; the token still works until it is revoked. Revoke token or Revoke all cuts the person off. People in the Administrators group can also open Admin with their token; moving one out of it, or revoking their token, locks their open Admin session.">
         <Panel>
           <div className="tool">
             <div className="f grow inline">

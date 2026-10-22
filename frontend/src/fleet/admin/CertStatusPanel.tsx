@@ -221,7 +221,7 @@ export function CertStatusPanel({ view, now, base, onRetire }: { view: CertsView
         )}
         {ca && (
           <div className="note-line">
-            <b>CA fingerprint</b> A browser trusts the CA only when a person installs it. Compare this with the fingerprint the browser shows before trusting it.
+            <b>CA fingerprint</b> A browser trusts the CA only when a person installs it. Compare this with the fingerprint the browser shows before trusting it. The CA has no name constraints, so download it only for a browser you choose to trust it in: that browser then trusts anything the CA key signs, for every site.
             <span className="row2">
               <Fingerprint value={ca.fingerprintSha256} />
               <a className="btn sm" href={`${base}/certificates/ca.pem`} download="podium-ca.pem">

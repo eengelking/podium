@@ -85,6 +85,8 @@ instead of a token. Not built yet: this is the planned behavior in `docs/SPEC.md
 |---|---|
 | **A compromised machine, or a stolen config file.** The private key is in the file. | Revoke the person's certificate and keep the file mode 0600. |
 | **A stolen console token.** | Revoke the token. |
+| **A token after only the certificate is revoked.** Revoke certificate stops the reporter that uses the certificate; the token stays a valid credential, over HTTPS without a certificate and over HTTP from loopback. A stolen config file holds no token. | Use Revoke token or Revoke all to cut a person off. |
+| **A browser that installs the Podium CA trusts anything its key signs.** The CA has no name constraints, so it can vouch for any site, not only Podium. | Install the CA only in a browser you choose to trust it in, and compare the fingerprint first. A stolen CA key is the emergency in the next row. |
 | **A stolen `/data/tls`.** It holds the CA key, so it holds everything the CA signed. | Treat it as an emergency: rotate the CA with no overlap and reissue every config. Back the folder up and set its permissions like a secret. |
 | **Any process running as the same user.** It can read the config file and use the helper's socket. | The same as for any file in that account. |
 | **Plain HTTP while "Allow reporters to connect over HTTP" is on.** Name, token and reports are not encrypted. Admin says so in a warning line. | Turn the switch off when every reporter has a config. The console on loopback stays on HTTP so an Admin can always sign in. |

@@ -138,7 +138,8 @@ on Admin > Server > Certificates. The CA lives in `~/.podium/tls` (container mod
 the right CA: open Admin > Server > Certificates, copy the CA's SHA-256 fingerprint, and compare it with the one your
 machine reports.
 
-- **Get the file.** On the Certificates page press **Download CA** (it saves `ca.pem`, no key in it). Print its
+- **Get the file.** On the Certificates page press **Download CA** (it saves `ca.pem`, no key in it). Do it only for a browser you choose to
+  trust it in: the CA has no name constraints, so that browser then trusts anything the CA key signs, for every site. Print its
   fingerprint to compare: `openssl x509 -in ca.pem -noout -fingerprint -sha256`.
 - **Just this once.** Click through the warning (Advanced, then Proceed). The browser asks again later. Do this only
   after the fingerprint matches, and only on a network you trust.
@@ -168,6 +169,10 @@ a server that already had reporters when you turned TLS on, so nothing stops, an
 it off. A fresh server starts with it off. Turn it off once every reporter has its config: the HTTP port then refuses
 reporter traffic from anywhere but the server's own loopback address. A server in a container is the exception to "this machine": a reporter on the same host reaches it through the published port and arrives from the container network, so it needs its reporter config. The console on loopback stays on HTTP either way, so an Admin can
 always sign in.
+
+**Revoking.** **Revoke certificate** stops the reporter that uses the certificate. The person's token still works until you
+revoke it: over HTTPS a reporter with no certificate, and over HTTP from loopback, are let in by the token, and the person
+can still sign in to the console. **Revoke token** (which revokes the certificate too) or **Revoke all** cuts the person off.
 
 **When a certificate expires.**
 

@@ -193,7 +193,7 @@ describe("the confirmation row", () => {
     return s;
   }
   it.each([
-    ["Revoke certificate", "Revoke person-000’s certificate?", "Their reporter is refused at once. They can still sign in to the console.", "POST /people/1/certificate/revoke"],
+    ["Revoke certificate", "Revoke person-000’s certificate?", "This stops the reporter that uses the certificate. Their token still works until you revoke it, and they can still sign in to the console. Revoke token or Revoke all cuts them off.", "POST /people/1/certificate/revoke"],
     ["Revoke token", "Revoke person-000’s token?", "They can no longer sign in to the console. Their reporter is refused too, because revoking the token revokes the certificate.", "POST /people/1/revoke"],
     ["Revoke all…", "Revoke all for person-000?", "Their reporter and their console sign-in stop at once. Their open sessions stay on the wall until they end.", "POST /people/1/revoke-all"],
   ])("%s names what will happen in a full-width row, and does it only on the button", async (item, title, body, call) => {
@@ -209,6 +209,11 @@ describe("the confirmation row", () => {
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: item.replace("…", "") }));
     await waitFor(() => expect(s.calls).toContain(call));
     await waitFor(() => expect(confirmRow()).toBeNull());
+  });
+
+  it("says in the Reporting people help that a revoked certificate leaves the token working", async () => {
+    await open();
+    expect(document.body).toHaveTextContent("Revoking a certificate stops the reporter that uses it and leaves the console; the token still works until it is revoked. Revoke token or Revoke all cuts the person off.");
   });
 
   it("Cancel closes it and does nothing", async () => {
