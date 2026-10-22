@@ -48,12 +48,23 @@ export interface TlsListener {
   rotation: CaRotation;
 }
 
+const isPort = (n: number): boolean => Number.isInteger(n) && n >= 1 && n <= 65535;
+
 /** The HTTPS port from `PODIUM_TLS_PORT`, or an error that names what is wrong with it. */
 export function tlsPortFrom(raw: string | undefined, httpPort: number): { port: number } | { error: string } {
   const port = raw === undefined || raw === '' ? DEFAULT_TLS_PORT : Number(raw);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: `PODIUM_TLS_PORT "${raw}" is not a port` };
+  if (!isPort(port)) return { error: `PODIUM_TLS_PORT "${raw}" is not a port` };
   if (port === httpPort) return { error: `PODIUM_TLS_PORT is ${port}, the same as the HTTP port` };
   return { port };
+}
+
+/**
+ * The HTTPS port people reach the server on, which a reporter config names. It differs from the listening port when the
+ * port is mapped, as `podiumctl` does for a container (`PODIUM_TLS_PUBLIC_PORT`); a value that is not a port is ignored.
+ */
+export function publicTlsPort(raw: string | undefined, listenPort: number): number {
+  const port = raw === undefined || raw === '' ? listenPort : Number(raw);
+  return isPort(port) ? port : listenPort;
 }
 
 /** Starts HTTPS when `PODIUM_TLS=on`. Resolves to null when it is off or could not start; HTTP is never touched. */

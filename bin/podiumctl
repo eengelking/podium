@@ -179,7 +179,8 @@ export function serverEnv(cfg, inContainer) {
   if (inContainer) Object.assign(env, { TZ: cfg.extra.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone, HOST: '0.0.0.0', PORT: String(INNER_PORT), PODIUM_DB: '/data/podium.sqlite', PODIUM_HOST_HOME: os.homedir() });
   else Object.assign(env, { HOST: cfg.bind, PORT: String(cfg.port), PODIUM_DB: cfg.db ?? '' });
   // Inside the container the HTTPS port is always the image's; the host side is mapped by containerRunArgs.
-  if (cfg.tls) Object.assign(env, { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(inContainer ? INNER_TLS_PORT : cfg.tlsPort) });
+  // The server writes the port people reach it on into each reporter config, which in a container is the host's (#649).
+  if (cfg.tls) Object.assign(env, { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(inContainer ? INNER_TLS_PORT : cfg.tlsPort), ...(inContainer ? { PODIUM_TLS_PUBLIC_PORT: String(cfg.tlsPort) } : {}) });
   return env;
 }
 
