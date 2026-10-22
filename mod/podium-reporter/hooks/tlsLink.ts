@@ -129,8 +129,36 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
   return null;
 }
 
+/** Clocks closer than this are not the reason a certificate looks expired or not yet valid. */
+export const CLOCK_SKEW_MS = 5 * 60_000;
+
+/** The two clocks a certificate date is judged by: this machine's now, and the server's when a reply has told us (epoch ms). */
+export interface ClockView {
+  now: number;
+  serverNow?: number;
+}
+
+const stamp = (ms: number): string => `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+
+/**
+ * A server certificate that looks expired or not yet valid says the clock may be wrong when the server's time is unknown
+ * (the handshake failed before any reply) or differs from this machine's by more than CLOCK_SKEW_MS (#650). It never says
+ * the clock is wrong for certain: the certificate could be expired. Null when the clock is not in question.
+ */
+function clockProblem(code: string, clock: ClockView | undefined): Problem | null {
+  if (!clock || (code !== 'CERT_HAS_EXPIRED' && code !== 'CERT_NOT_YET_VALID')) return null;
+  const look = code === 'CERT_HAS_EXPIRED' ? 'expired' : 'not yet valid';
+  if (clock.serverNow === undefined) {
+    return { code, status: 'check the clock', text: `The server's certificate looks ${look} from here. This machine's clock says it is ${stamp(clock.now)}; if that is not right, a wrong clock is the likely cause. Check the system date and time. If it is right, tell whoever runs the Podium server.` };
+  }
+  if (Math.abs(clock.serverNow - clock.now) <= CLOCK_SKEW_MS) return null;
+  return { code, status: 'check the clock', text: `The server's certificate looks ${look} from here. This machine's clock says it is ${stamp(clock.now)}, and the server's says ${stamp(clock.serverNow)}. Clocks that far apart can make a good certificate look wrong. Check the system date and time. If this machine's is right, the server's clock may be the wrong one: tell whoever runs the Podium server.` };
+}
+
 /** What a helper error code means to the person. Null for a network failure, which is an outage the reporter retries as today. */
-export function problemFor(code: string, host: string): Problem | null {
+export function problemFor(code: string, host: string, clock?: ClockView): Problem | null {
+  const skewed = clockProblem(code, clock);
+  if (skewed) return skewed;
   switch (code) {
     case 'CLIENT_CERT_REJECTED':
       return { code, status: 'certificate refused', text: 'The server did not accept your certificate: it was revoked, has expired, or the server was reset. Ask an Admin to reissue your reporter config.' };
@@ -250,6 +278,8 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   let lastStart = 0;
   let iterator: AsyncIterator<{ stream: string; text: string }> | null = null;
   let stopped = false;
+  // The server's clock minus this machine's, from the Date header of the last reply the server itself sent; undefined until one comes.
+  let serverOffsetMs: number | undefined;
 
   const start = (): Promise<boolean> => {
     if (starting) return starting;
@@ -329,8 +359,13 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
       const code = res.headers?.[HELPER_ERROR_HEADER];
       if (code) {
         // An outage has no words of its own: it must not wipe a standing certificate problem.
-        problem = problemFor(code, host) ?? problem;
-      } else if (res.status === 401) {
+        problem = problemFor(code, host, { now: o.now(), serverNow: serverOffsetMs === undefined ? undefined : o.now() + serverOffsetMs }) ?? problem;
+        return res;
+      }
+      // A reply without the helper's error header came from the server and carries its Date (#650).
+      const sent = Date.parse(res.headers?.date ?? '');
+      if (Number.isFinite(sent)) serverOffsetMs = sent - o.now();
+      if (res.status === 401) {
         // The server read the certificate and turned it away (revoked, expired, not one it issued). A person with a config file has no token to blame (#646).
         problem = problemFor('CLIENT_CERT_REJECTED', host) ?? problem;
       } else if (res.ok) {

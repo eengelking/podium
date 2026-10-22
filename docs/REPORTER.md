@@ -146,12 +146,16 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
   | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |
   | `server certificate expired` | The server's own certificate has expired. It is not your file: tell whoever runs the Podium server |
+  | `check the clock` | The server's certificate looks expired or not yet valid from here, and either this machine's clock disagrees with the server's by more than 5 minutes (the message gives both times), or the connection failed before the server could say what time it is (the message gives this machine's date and says a wrong clock is the likely cause). Check the system date and time. If they are right, tell whoever runs the Podium server |
   | `server certificate refused` | Your machine refused the server's certificate for a reason not listed here (the message gives the code). Tell whoever runs the Podium server |
   | `wrong server name` | The address in the file is not a name the server's certificate carries |
   | `helper cannot start`, `helper not ready` | The helper could not start. Check that `node` runs, then start a new session |
   | `helper stopped` | The helper exited and the message says why. It restarts on the next session |
 
-  A skewed clock on either machine can make a good certificate look expired or not yet valid, so check the date first.
+  A skewed clock on either machine can make a good certificate look expired or not yet valid. When the server's certificate looks
+  that way, the status line says `check the clock` and shows this machine's date, and the server's too once it has answered once.
+  It never says the clock is certainly wrong, because the certificate could be expired. Your own certificate is judged by the
+  server's clock, so a server with a wrong clock can refuse a good one: that shows as `certificate refused`.
 - **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
   helper running.
 - Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.

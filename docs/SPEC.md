@@ -2818,7 +2818,10 @@ loopback as the default bind. A CA that exists is never overwritten. A missing o
 log line and leaves HTTP working.
 
 **Ports.** HTTP keeps `4317`. HTTPS is `4318`, changed with `PODIUM_TLS_PORT`. `podiumctl` publishes both and the
-Containerfile exposes both. The routes are the same on both. The Host check applies to both (DECISIONS 33).
+Containerfile exposes both. The port a reporter config names is the one people reach, `PODIUM_TLS_PUBLIC_PORT` when it
+is set and the listening port otherwise; `podiumctl` sets it in container mode to the host's `PODIUM_TLS_PORT`, since
+the server listens on 4318 inside (#649). A value that is not a port is ignored. The routes are the same on both. The
+Host check applies to both (DECISIONS 33).
 
 **Keys and certificates.** The CA, the serving certificate and every person's certificate use EC P-256 keys, made
 with `openssl` (called with `execFile`, no shell).
@@ -2905,8 +2908,12 @@ the grace needs a reissue.
   no `node`; no config file; a config file that is group- or world-readable; an expired certificate (inside the
   grace it says it is renewing, past it it says to ask an Admin to reissue); a revoked certificate; a name in the
   file that does not match the session's; an unreachable server (it retries as today); a server certificate that
-  is expired, not for this name or not signed by the CA in the file; and a skewed clock. It never sends a
-  credential over `http://` when the URL was `https://`, and never falls back to HTTP unasked. Wording follows
+  is expired, not for this name or not signed by the CA in the file; and a skewed clock. When a server certificate
+  looks expired or not yet valid, the status line is `check the clock` if the server's time is unknown (the handshake
+  failed before any reply) or differs from the machine's by more than 5 minutes, and it shows this machine's date (and
+  the server's, from the `Date` header of its last reply, when known). It does not claim the clock is certainly wrong. A
+  server time within 5 minutes of the machine's leaves the message that the server certificate expired (#650). It never
+  sends a credential over `http://` when the URL was `https://`, and never falls back to HTTP unasked. Wording follows
   `docs/standards/voice.html`.
 - *The helper* returns a structured error and aborts the response on a mid-body upstream error ([5.9](#59-mod-configuration-userconfig)).
 - *The server* logs `tls.*` events (handshake failures, use of a revoked or expired certificate, renewals) and
