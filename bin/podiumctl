@@ -291,6 +291,8 @@ const logPath = () => path.join(homeDir(), 'podium.log');
 const pidPath = () => path.join(homeDir(), 'podium.pid');
 
 const say = (m) => console.log(m);
+/** Prints a secret the person asked for (`token`, `config --show-token`). Kept apart from `say` so nothing else can route a secret into the log (CodeQL js/clear-text-logging). */
+const sayRequested = (m) => { process.stdout.write(`${m}\n`); };
 class Fail extends Error {}
 const fail = (m) => { throw new Fail(m); };
 
@@ -332,6 +334,9 @@ const dashUrl = (cfg) => `http://${cfg.bind === '0.0.0.0' ? '127.0.0.1' : cfg.bi
 
 async function healthy(cfg, timeoutMs = 2000) {
   try {
+    // Only ever the machine's own server: a wildcard or loopback bind is called on 127.0.0.1, any other bind must be an IP address (CodeQL js/file-access-to-http).
+    const host = ['0.0.0.0', '::', ''].includes(cfg.bind) ? '127.0.0.1' : cfg.bind;
+    if (net.isIP(host.replace(/^\[|\]$/g, '')) === 0 && host !== 'localhost') return false;
     const r = await fetch(`${dashUrl(cfg)}/api/fleet/state`, { signal: AbortSignal.timeout(timeoutMs) });
     return r.ok;
   } catch { return false; }
@@ -596,11 +601,11 @@ function cmdToken(flags) {
   if (flags.rotate) {
     const token = randomBytes(24).toString('hex');
     writeConfigFile({ ...file, PODIUM_TOKEN: token });
-    say(token);
+    sayRequested(token);
     console.error('New admin secret saved. Restart the server (podiumctl restart). Only reporters that send the admin secret need the new value; people\'s own tokens keep working.');
   } else if (file.PODIUM_TOKEN === undefined) fail('no token yet; it is generated on the first `podiumctl start`');
   else if (file.PODIUM_TOKEN === '') fail('auth is off (PODIUM_TOKEN is empty)');
-  else say(file.PODIUM_TOKEN);
+  else sayRequested(file.PODIUM_TOKEN);
 }
 
 function cmdConfig(cfg, args, flags) {
@@ -630,7 +635,9 @@ function cmdConfig(cfg, args, flags) {
   }
   const shown = flags['show-token'] ? { ...file } : maskConfig(file);
   say(`# ${configPath()}\n# resolved: mode=${cfg.mode}${cfg.mode === 'container' ? ` engine=${cfg.engine ?? 'none'}` : ''} port=${cfg.port} bind=${cfg.bind}`);
-  say(Object.entries(shown).map(([k, v]) => `${k}=${v}`).join('\n') || '(no settings saved yet)');
+  const lines = Object.entries(shown).map(([k, v]) => `${k}=${v}`).join('\n') || '(no settings saved yet)';
+  if (flags['show-token']) sayRequested(lines);
+  else say(lines);
 }
 
 function servicePaths() {
