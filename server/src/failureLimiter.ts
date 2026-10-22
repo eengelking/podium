@@ -17,6 +17,8 @@ export interface FailureLimiterOptions {
 
 export const FAILURE_LIMIT = 300;
 export const FAILURE_WINDOW_MS = 60_000;
+/** Page fetches one address may make in a window; far above a person reloading, and no API call counts. */
+export const PAGE_LIMIT = 600;
 
 /** Reads PODIUM_FAILURE_LIMIT: a whole number of at least 1, or the default when unset. Throws on anything else, so a typo stops the server at start. */
 export function parseFailureLimit(raw: string | undefined): number {
@@ -24,6 +26,17 @@ export function parseFailureLimit(raw: string | undefined): number {
   if (value === '') return FAILURE_LIMIT;
   if (!/^\d{1,9}$/.test(value) || Number(value) < 1) throw new Error(`PODIUM_FAILURE_LIMIT: "${value}" is not a whole number of at least 1`);
   return Number(value);
+}
+
+/** A cap on page fetches from one address for the route that serves index.html, successful or not (CodeQL js/missing-rate-limiting). */
+export function pageLimiter(o: { max?: number; windowMs?: number } = {}): RequestHandler {
+  return rateLimit({
+    windowMs: o.windowMs ?? FAILURE_WINDOW_MS,
+    limit: o.max ?? PAGE_LIMIT,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: 'too many requests',
+  });
 }
 
 export function failureLimiter(o: FailureLimiterOptions = {}): RequestHandler {

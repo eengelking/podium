@@ -243,7 +243,10 @@ export function hookToReport(payload: unknown, stored: { session?: SessionRow; a
       if (agentId) {
         const a = agents.get(agentId) ?? storedAgentLike(agentId, agentType, now);
         const finished = event !== 'PreToolUse';
-        const toolCounts = finished && tool && a.toolCounts ? { ...a.toolCounts, [tool]: (Object.hasOwn(a.toolCounts, tool) ? a.toolCounts[tool]! : 0) + 1 } : a.toolCounts;
+        // A Map holds the tool name, so a name like __proto__ or constructor is only ever a key (CodeQL js/remote-property-injection).
+        const counted = new Map(Object.entries(a.toolCounts ?? {}));
+        if (finished && tool) counted.set(tool, (counted.get(tool) ?? 0) + 1);
+        const toolCounts = finished && tool && a.toolCounts ? Object.fromEntries(counted) : a.toolCounts;
         agents.set(agentId, { ...a, lastTool: tool ?? a.lastTool, toolCalls: a.toolCalls + (finished ? 1 : 0), toolCounts });
       } else if (session.waitReason === 'permission') {
         session.waitReason = null;

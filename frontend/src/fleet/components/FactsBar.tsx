@@ -84,7 +84,7 @@ export function CopyCell({ label, name, text, tip }: { label: string; name: stri
 function PopCell({ label, value, valueClass, tip }: { label: string; value: ReactNode; valueClass?: string; tip: ReactNode }) {
   const { props, tipEl, tipId } = usePopup();
   return (
-    <div {...props} role="group" aria-label={label} tabIndex={0} aria-describedby={tipId} className={`fact start ${props.className}`}>
+    <div {...props} role="group" aria-label={label} tabIndex={0} aria-describedby={tipId} className={`fact start ${props.className}`} /* NOSONAR S6845: focusable so its popup opens from the keyboard (#427) */>
       <div className="k">{label}</div>
       <div className={`v${valueClass ? ` ${valueClass}` : ""}`}>{value}</div>
       <div className="tip" role="tooltip" id={tipId} ref={tipEl}>

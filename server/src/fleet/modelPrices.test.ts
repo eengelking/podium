@@ -90,6 +90,11 @@ describe('ModelPriceStore', () => {
     expect(store.set('constructor', { std: S })).toBeNull();
     expect(store.pricing().costOf([usage('constructor', M)])).toBeCloseTo(3, 9);
     expect(store.set('__proto__', { std: S })).toMatch(/\w/);
+    expect(store.set('prototype', { std: S })).toBeNull();
+    expect(Object.getPrototypeOf(store.overrides())).toBe(Object.prototype);
+    expect(Object.keys(store.overrides())).toEqual(['constructor', 'prototype']);
+    store.reset('constructor');
+    expect(Object.keys(store.overrides())).toEqual(['prototype']);
   });
 
   it('resetting an inherited object name that was never saved changes nothing', () => {

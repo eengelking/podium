@@ -182,7 +182,7 @@ export function FeedList(props: { feed: FeedState; startedAt: number; empty: str
 
   return (
     <div className="feedwrap">
-      <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recent activity, newest last" tabIndex={0} onScroll={onScroll}>
+      <ol className={needsHours ? "feed hours" : "feed"} ref={list} aria-label="Recent activity, newest last" tabIndex={0} onScroll={onScroll} /* NOSONAR S6845: a focusable scroll region, by design */>
         {entries.length ? entries.map((e) => <Entry key={e.key ?? e.seq} running={props.active === true && e === newest} e={e} startedAt={props.startedAt} fresh={!e.key && e.seq > lastSeq.current && lastSeq.current > 0} machineOutput={props.machineOutput} anchor={anchor} />) : <li className="empty">{props.empty}</li>}
       </ol>
       {!following && (

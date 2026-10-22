@@ -1,4 +1,5 @@
 // Response headers that keep the console from being framed, sniffed or fed outside script (#249).
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import express from 'express';
@@ -46,6 +47,12 @@ describe('inlineScriptHashes', () => {
     const hashes = inlineScriptHashes(html);
     expect(hashes).toHaveLength(1);
     expect(hashes[0]).toMatch(/^sha256-[A-Za-z0-9+/]{43}=$/);
+  });
+
+  it('ends a script at a closing tag with trailing whitespace, so its hash is of that script alone (CodeQL js/bad-tag-filter)', () => {
+    const html = '<script>var a=1;</script ><p>x</p><script>var b=2;</script\n>';
+    const hash = (body: string) => `sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}`;
+    expect(inlineScriptHashes(html)).toEqual([hash('var a=1;'), hash('var b=2;')]);
   });
 
   it('finds exactly the one inline script in the real page, so an edit to it cannot be blocked unnoticed', () => {

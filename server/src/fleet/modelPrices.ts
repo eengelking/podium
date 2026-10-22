@@ -80,9 +80,11 @@ export class ModelPriceStore {
     const row: Partial<ModelPrice> = {};
     if (!base || !same(body.std!, base.std)) row.std = body.std!;
     if (body.long && (!base?.long || !same(body.long, base.long))) row.long = body.long;
-    const next: PriceOverrides = { ...current };
-    if (row.std || row.long) next[key] = row;
-    else delete next[key];
+    // A Map holds the model id, so no id can reach an inherited property (CodeQL js/remote-property-injection).
+    const rows = new Map(Object.entries(current));
+    if (row.std || row.long) rows.set(key, row);
+    else rows.delete(key);
+    const next: PriceOverrides = Object.fromEntries(rows);
     if (JSON.stringify(next) !== JSON.stringify(current)) this.save(next);
     return null;
   }
@@ -92,9 +94,9 @@ export class ModelPriceStore {
     const key = rawKey.trim().toLowerCase();
     const current = this.overrides();
     if (!Object.hasOwn(current, key)) return;
-    const next = { ...current };
-    delete next[key];
-    this.save(next);
+    const rows = new Map(Object.entries(current));
+    rows.delete(key);
+    this.save(Object.fromEntries(rows));
   }
 
   view(): ModelPricesView {

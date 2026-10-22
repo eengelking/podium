@@ -2,7 +2,7 @@
 import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { FAILURE_LIMIT, failureLimiter, parseFailureLimit } from './failureLimiter.js';
+import { FAILURE_LIMIT, failureLimiter, pageLimiter, parseFailureLimit } from './failureLimiter.js';
 import { createLogger } from './logging/logger.js';
 
 function appWith(o: { max: number; windowMs?: number; logs?: unknown[] }) {
@@ -14,6 +14,18 @@ function appWith(o: { max: number; windowMs?: number; logs?: unknown[] }) {
   app.get('/no', (_req, res) => void res.status(401).json({ ok: false }));
   return app;
 }
+
+describe('pageLimiter', () => {
+  it('lets a page be fetched until the limit, then answers 429 with Retry-After', async () => {
+    const app = express();
+    app.get('*', pageLimiter({ max: 2 }), (_req, res) => res.send('page'));
+    expect((await request(app).get('/a')).status).toBe(200);
+    expect((await request(app).get('/b')).status).toBe(200);
+    const res = await request(app).get('/c');
+    expect(res.status).toBe(429);
+    expect(res.headers['retry-after']).toMatch(/^\d+$/);
+  });
+});
 
 describe('failureLimiter', () => {
   it('lets successful requests through however many there are', async () => {

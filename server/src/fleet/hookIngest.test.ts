@@ -29,6 +29,18 @@ function setup(token: string | null = null) {
 }
 
 describe('POST /api/fleet/hook', () => {
+  it('counts a tool named like an inherited property as an ordinary tool, and never changes the counts object', async () => {
+    const { app, fleet, tick } = setup();
+    for (const p of [P.start, P.subStart, ...['__proto__', 'constructor', 'constructor'].map((tool_name) => ({ ...P.tool, tool_name }))]) {
+      tick(1000);
+      expect((await request(app).post('/api/fleet/hook').send(p)).status).toBe(200);
+    }
+    const counts = fleet.view('hk-1')!.agents[0]!.toolCounts!;
+    expect(Object.getPrototypeOf(counts)).toBe(Object.prototype);
+    expect(Object.keys(counts).sort()).toEqual(['__proto__', 'constructor']);
+    expect(Object.getOwnPropertyDescriptor(counts, 'constructor')!.value).toBe(2);
+  });
+
   it('builds a reduced session from SessionStart, SubagentStart/Stop, Notification and SessionEnd', async () => {
     const { app, fleet, tick } = setup();
     const send = async (p: object) => {

@@ -19,7 +19,7 @@ import { createAdminRouter } from "./admin/adminRouter.js";
 import { PeopleStore } from "./fleet/people.js";
 import { ReporterStore } from "./fleet/reporters.js";
 import { Lockout } from "./fleet/lockout.js";
-import { failureLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
 import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
@@ -121,7 +121,7 @@ app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.sta
 app.use(createRouter());
 
 app.use(express.static(frontendDist));
-app.get("*", (_req, res) => {
+app.get("*", pageLimiter(), (_req, res) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
