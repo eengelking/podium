@@ -50,9 +50,9 @@ describe('inlineScriptHashes', () => {
   });
 
   it('ends a script at a closing tag with trailing whitespace, so its hash is of that script alone (CodeQL js/bad-tag-filter)', () => {
-    const html = '<script>var a=1;</script ><p>x</p><script>var b=2;</script\n>';
+    const html = '<script>var a=1;</script ><p>x</p><script>var b=2;</script\n><script>var c=3;</script foo="1">';
     const hash = (body: string) => `sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}`;
-    expect(inlineScriptHashes(html)).toEqual([hash('var a=1;'), hash('var b=2;')]);
+    expect(inlineScriptHashes(html)).toEqual([hash('var a=1;'), hash('var b=2;'), hash('var c=3;')]);
   });
 
   it('finds exactly the one inline script in the real page, so an edit to it cannot be blocked unnoticed', () => {
