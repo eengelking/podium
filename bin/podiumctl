@@ -79,8 +79,8 @@ send the secret itself as X-Podium-Token. Find it any time with \`podiumctl toke
 without Admin): \`podiumctl config set PODIUM_TOKEN=\` (empty on purpose).
 
 Built-in TLS (off by default; \`podiumctl start --tls\` or \`podiumctl config set PODIUM_TLS=on\`, then restart):
-  PODIUM_TLS            on or off. On: the server makes its own CA and serves HTTPS next to HTTP
-  PODIUM_TLS_PORT       Port for HTTPS on this machine (default 4318); the HTTP port is unchanged
+  PODIUM_TLS            on or off. On: the server makes its own CA and opens a second port for reporters (mutual TLS only); the console stays on HTTP
+  PODIUM_TLS_PORT       Reporter port on this machine (mutual TLS, default 4318); the HTTP port is unchanged
                         Container mode publishes it on the --bind address and keeps the CA in ~/.podium/tls
 
 Host names (a page on another site can rebind its name to this machine, so the server refuses a request whose
@@ -519,7 +519,7 @@ async function cmdStart(cfg) {
   }
   if (!up) fail(`started, but the server did not answer at ${dashUrl(cfg)}. See: podiumctl logs`);
   say(`Podium is up at ${dashUrl(cfg)}  (${cfg.mode} mode${cfg.mode === 'container' ? `, ${cfg.engine}` : ''})`);
-  if (cfg.tls) say(`TLS is on: HTTPS on port ${cfg.tlsPort}. The CA is kept in ${cfg.mode === 'container' ? tlsDirPath() : path.join(path.dirname(standaloneEnv(cfg).PODIUM_DB), 'tls')}; back it up and keep it private.`);
+  if (cfg.tls) say(`TLS is on: reporters connect on port ${cfg.tlsPort} with their certificate (mutual TLS only); the console stays on HTTP port ${cfg.port}. The CA is kept in ${cfg.mode === 'container' ? tlsDirPath() : path.join(path.dirname(standaloneEnv(cfg).PODIUM_DB), 'tls')}; back it up and keep it private.`);
 }
 
 async function cmdStop(cfg) {
@@ -566,7 +566,7 @@ async function cmdStatus(cfg) {
   const ok = running && (await healthy(cfg));
   lines.push(`health:   ${running ? (ok ? 'answering' : 'not answering') : '-'}`);
   lines.push(`url:      ${dashUrl(cfg)}`);
-  lines.push(`tls:      ${cfg.tls ? `on (HTTPS port ${cfg.tlsPort})` : 'off'}`);
+  lines.push(`tls:      ${cfg.tls ? `on (reporter port ${cfg.tlsPort}, mutual TLS)` : 'off'}`);
   lines.push(`token:    ${cfg.token === undefined ? 'not generated yet (created on first start)' : cfg.token === '' ? 'none (auth off)' : 'set (podiumctl token)'}`);
   lines.push(`on boot:  ${bootState()}`);
   lines.push(`config:   ${configPath()}`);

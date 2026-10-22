@@ -33,9 +33,9 @@ export function CertHttp({ view, save }: { view: CertsView; save: SaveSetting })
     );
   const description = allow
     ? `A reporter uses its name and token, with no certificate. It also keeps a reporter working that has no reporter config yet. ${overHttp} of ${plural(total, "reporter")} ${overHttp === 1 ? "is" : "are"} connected over HTTP now.`
-    : "Reporters must use a reporter config over HTTPS. A reporter without one is refused until it has one.";
+    : "Reporters must use a reporter config on the reporter port. A reporter without one is refused until it has one.";
   return (
-    <Section id="c-http" title="Reporters over HTTP" help="A reporter can still connect with its name and token, with no certificate. This is how reporters work today.">
+    <Section id="c-http" title="Reporters over HTTP" help="A reporter can still connect to the console port with its name and token, with no certificate. This is how reporters work today. With this off, reporters must use the reporter port.">
       <Panel>
         <div ref={root}>
           <SwitchRow id="sw-http" name="Allow reporters to connect over HTTP" description={description} on={allow} onFlip={() => (allow ? setAsking(true) : void apply(true))} />

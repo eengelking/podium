@@ -879,7 +879,10 @@ Under **Create user**, type a name and choose Create user.
   certificate, so the file is shown once.
 - The list has a **Reporter certificate** cell and a **Console token** cell, each with its own badge. Hover a badge (or
   tab to it) for the note: the certificate's date and what happens next, or the token's `pdm_` key id. The Group select
-  is under the name, and "created" is under Last report. With TLS off the certificate cell says so.
+  is under the name, and "created" is under Last report. With TLS off the certificate cell says so. The certificate badge
+  reads *valid*, *renewal due* (30 days or fewer left; the reporter renews it itself), *lapses soon* (10 days or fewer
+  and not renewed, so reissue the config in time), *expired* (the reporter is refused and cannot renew: reissue the
+  config), *revoked* or *none*.
 - Each row has one **Actions** menu, grouped Console token, Reporter certificate and Person. Arrow keys, Home and End
   move in it and Escape closes it; an action that does not apply is greyed out.
 - **Rotate token** gives a person a new token and stops the old one, and shows it once. Their reporter keeps working.
@@ -1081,23 +1084,24 @@ refused. Sessions that report with the secret show under the owner **Admin**.
 ### Certificates
 
 With built-in TLS on (`podiumctl start --tls`), this page shows Podium's own certificate authority (CA) and the
-serving certificate it signs. With TLS off it says so and has nothing else.
+serving certificate it signs. Reporters connect on their own port, which accepts only a valid reporter certificate; the
+console stays on plain HTTP, so a browser needs nothing from this page. With TLS off it says so and has nothing else.
 
 - **Status.** The CA and the serving certificate, each with its expiry date, how the certificate renews and a status
   that is a shape, a word and a color. A band at the top is blue at 30 days or fewer, orange at 10 and red at 5, and red
   again once the first of them has expired. If the last renewal failed, its reason shows in red under the table. The CA's
-  fingerprint has a copy control, and **Download CA** saves `ca.pem`. "localhost and 3 more" opens the list of names the
+  fingerprint has a copy control, to compare with the CA in a reporter config. "localhost and 3 more" opens the list of names the
   running serving certificate carries.
 - **Renewal and lifetimes.** The serving certificate's lifetime (30 to 825 days) and how many days before it expires it
-  renews (7 to 90), and a person's certificate lifetime (30 to 365) and the grace after it expires (0 to 90). A number
+  renews (7 to 90), and a person's certificate lifetime (30 to 365). A certificate that has expired is not renewed, so there is no grace. A number
   saves when you leave the field; a value the server refuses stays in the box with the reason under it. Each change is
   written to the Admin log. The last switch turns the header countdown on or off.
 - **Reporters over HTTP.** One switch, **Allow reporters to connect over HTTP**. While it is on, a reporter that has
   only its name and token (no reporter config) still reports over plain HTTP, and a warning line says that is not
   encrypted. It is on for a server that already had reporters when TLS was first turned on, and off for a fresh one.
   Turning it on takes effect at once. Turning it off asks first and names how many reporters are connected over HTTP
-  now, since they are refused at once; a reporter with a reporter config keeps working, and so does the console on the
-  loopback address, so an Admin can always sign in. Each change is written to the Admin log.
+  now, since they are refused at once; a reporter with a reporter config keeps working on the reporter port, and so
+  does the console, so an Admin can always sign in. Each change is written to the Admin log.
 - **Rotate by hand.** **Renew now** issues a new serving certificate from the same CA and keeps the old one as a backup.
   **Rotate CA…** is not available yet.
 - **Previous certificates.** The last three serving certificates Podium replaced, kept in `/data/tls/previous`.

@@ -163,7 +163,7 @@ describe('creating a person with TLS on', () => {
 });
 
 describe('the People list (#587)', () => {
-  const list = async (s: Awaited<ReturnType<typeof setup>>) => (await s.admin.get('/api/admin/people').set(H)).body as { tls: boolean; graceDays: number; rows: { name: string; certificate: { notAfter: string; revoked: boolean } | null }[] };
+  const list = async (s: Awaited<ReturnType<typeof setup>>) => (await s.admin.get('/api/admin/people').set(H)).body as { tls: boolean; rows: { name: string; certificate: { notAfter: string; revoked: boolean } | null }[] };
 
   it('says each person\'s certificate: its expiry while live, revoked after, and none for a person without one', async () => {
     const s = await setup();
@@ -173,7 +173,7 @@ describe('the People list (#587)', () => {
     s.people.createPerson('Cy', null, Date.now());
     const out = await list(s);
     expect(out.tls).toBe(true);
-    expect(out.graceDays).toBe(30);
+    expect(out).not.toHaveProperty('graceDays');
     const by = Object.fromEntries(out.rows.map((r) => [r.name, r.certificate]));
     expect(by.Alma).toEqual({ notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
     expect(by.Bo).toMatchObject({ revoked: true });
@@ -208,7 +208,7 @@ describe('a reporter with the config file', () => {
     expect((await request(s.app).get('/api/fleet/state')).body.sessions).toHaveLength(0);
   });
 
-  it('is refused, even with a valid token in the header, when the certificate is forged', async () => {
+  it('is dropped at the handshake, even with a valid token in the header, when the certificate is forged', async () => {
     const s = await setup();
     const body = await create(s, 'Dana');
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-forge-'));
@@ -216,11 +216,8 @@ describe('a reporter with the config file', () => {
     const keyId = s.people.getPerson(body.person.id)!.keyId;
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '30', '-subj', `/CN=pdm_${keyId}/O=podium`], { cwd: work, stdio: 'ignore' });
     const forged = { cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') };
-    const res = await s.reportWith(forged, 'Dana', { 'x-podium-token': body.token });
-    expect(res.status).toBe(401);
-    expect(res.body.error).toBe('client certificate refused');
-    // The same token with no certificate is fine, so it is the certificate that was refused and not the token.
-    expect((await s.reportWith({ cert: undefined as never, key: undefined as never }, 'Dana', { 'x-podium-token': body.token })).status).toBe(200);
+    // The reporter port drops it at the handshake (#665), so the token never gets a say.
+    await expect(s.reportWith(forged, 'Dana', { 'x-podium-token': body.token })).rejects.toBeDefined();
   });
 });
 

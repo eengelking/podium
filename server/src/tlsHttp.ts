@@ -13,6 +13,7 @@ const REPORTER_ROUTES: Array<[string, RegExp]> = [
   ['POST', new RegExp(`^${SESSION}/peers/(messages|access|requests/[^/]+|deliveries/[^/]+/result)$`)],
   ['PUT', new RegExp(`^${SESSION}/(diffs|asks)/[^/]+$`)],
   ['GET', new RegExp(`^${SESSION}/asks/[^/]+/answer$`)],
+  ['POST', new RegExp(`^${SESSION}/recording$`)],
   ['POST', new RegExp(`^${SESSION}/(asks/[^/]+/close|deliveries/[^/]+/result)$`)],
 ];
 
@@ -21,6 +22,9 @@ export const isReporterRoute = (method: string, path: string): boolean => {
   const p = path.toLowerCase().replace(/\/+$/, '');
   return REPORTER_ROUTES.some(([m, re]) => m === method && re.test(p));
 };
+
+/** `POST /api/reporter/renew`, matched the way Express does (case-insensitive, one trailing slash ignored). */
+export const isRenewRoute = (path: string): boolean => path.toLowerCase().replace(/\/+$/, '') === '/api/reporter/renew';
 
 /** Whether a request came in over the HTTPS listener (the socket, never a forwarded header). */
 export const isEncrypted = (req: Pick<Request, 'socket'>): boolean => (req.socket as { encrypted?: boolean }).encrypted === true;

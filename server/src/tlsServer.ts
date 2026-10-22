@@ -1,11 +1,13 @@
-// Built-in TLS (#577, T3): the HTTPS listener beside the HTTP one. The same express app serves both, so the routes and the
-// Host check (DECISIONS 33) are the same. Any failure to make or read the CA is logged and leaves HTTP working.
+// Built-in TLS (#577, T3): the reporter listener beside the HTTP one. It is mutual TLS only (#665): a client without a valid
+// certificate is dropped in the handshake, and only the reporter routes and the renewal route reach the express app, so the
+// Host check (DECISIONS 33) is the same as on HTTP. Any failure to make or read the CA is logged and leaves HTTP working.
 import { X509Certificate } from 'node:crypto';
 import https from 'node:https';
 import type { RequestListener } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import type { Logger } from './logging/logger.js';
 import { ensureTls, serverNames, type CertInfo, type TlsMaterial } from './tlsCa.js';
+import { isRenewRoute, isReporterRoute } from './tlsHttp.js';
 import { ServingRenewer, SERVING_DEFAULTS, type ServingSettings } from './tlsRenew.js';
 import { caCanOverlap, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { tlsDir } from './tlsStorage.js';
@@ -67,6 +69,16 @@ export function publicTlsPort(raw: string | undefined, listenPort: number): numb
   return isPort(port) ? port : listenPort;
 }
 
+/** The app, but only for the calls a reporter makes and its certificate renewal; any other path is refused as if it were not there. */
+function reporterPortOnly(app: RequestListener): RequestListener {
+  return (req, res) => {
+    const path = (req.url ?? '').split('?')[0] ?? '';
+    if (isReporterRoute(req.method ?? '', path) || (req.method === 'POST' && isRenewRoute(path))) return app(req, res);
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end('{"ok":false,"error":"not served on the reporter port"}');
+  };
+}
+
 /** Starts HTTPS when `PODIUM_TLS=on`. Resolves to null when it is off or could not start; HTTP is never touched. */
 export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> {
   if (o.env.PODIUM_TLS !== 'on') return null;
@@ -92,10 +104,11 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
   if (material.createdServing) {
     o.logger.info('tls.serving_created', 'podium: made a serving certificate', { fingerprint_sha256: material.serving.fingerprintSha256, not_after: material.serving.notAfter });
   }
-  // A client certificate is asked for but not required (a browser has none), and `ca` is what makes `socket.authorized`
-  // mean "signed by Podium": without it Node verifies against the public roots (#583).
+  // This port is for `podium-reporter` only (#665): a client certificate is required and checked in the handshake, so a
+  // connection without a valid one never reaches a route. `ca` is what makes it mean "signed by Podium": without it Node
+  // verifies against the public roots (#583). The console is plain HTTP on the other port.
   const trust = new TrustStore(dir, o.now);
-  const server = https.createServer({ cert: trust.chain(material.cert), key: material.key, ca: trust.caCerts(), requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.2' }, o.app);
+  const server = https.createServer({ cert: trust.chain(material.cert), key: material.key, ca: trust.caCerts(), requestCert: true, rejectUnauthorized: true, minVersion: 'TLSv1.2' }, reporterPortOnly(o.app));
   const renewer = new ServingRenewer({ dir, names, server, serving: material.serving, settings, logger: o.logger, openssl: o.openssl, now: o.now, checkEveryMs: o.checkEveryMs, trust, key: material.key }, material.cert);
   // Renew at start if it is due, before the first connection is accepted; a failure is logged and the current certificate serves.
   await renewer.start();

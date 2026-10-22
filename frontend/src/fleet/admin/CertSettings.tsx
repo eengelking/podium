@@ -66,8 +66,7 @@ export function CertSettings({ view, save }: { view: CertsView; save: SaveSettin
       <Panel>
         <DaysRow id="n-sv" name="Serving certificate lifetime" hint="Default 365 days. From 30 to 825." value={settings.lifetimeDays} min={30} max={825} settingKey="tls.serving.lifetimeDays" save={save} />
         <DaysRow id="n-rn" name="Renew when this many days remain" hint="Also the day the header pill would first appear if a renewal does not happen. From 7 to 90." value={settings.renewBeforeDays} min={7} max={90} settingKey="tls.serving.renewBeforeDays" save={save} />
-        <DaysRow id="n-rp" name="Reporter certificate lifetime" hint="Default 90 days. From 30 to 365." value={reporter.lifetimeDays} min={30} max={365} settingKey="tls.reporter.lifetimeDays" save={save} />
-        <DaysRow id="n-gr" name="Grace after a reporter certificate expires" hint="Inside this time an expired reporter certificate can still renew itself. After it, an Admin reissues the bundle. From 0 to 90." value={reporter.graceDays} min={0} max={90} settingKey="tls.reporter.graceDays" save={save} />
+        <DaysRow id="n-rp" name="Reporter certificate lifetime" hint="Default 90 days. A reporter renews its own certificate when 30 days remain. One that expires cannot connect, and an Admin generates a new config for its person. From 30 to 365." value={reporter.lifetimeDays} min={30} max={365} settingKey="tls.reporter.lifetimeDays" save={save} />
         <SwitchRow
           id="sw-hdr"
           name="Show the expiry countdown in the header"

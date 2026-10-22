@@ -111,8 +111,8 @@ export class PersonCertStore {
   }
 
   /**
-   * How many people are on each CA: a person counts once, by their newest certificate that is not revoked and has not run
-   * past `cutoff` (its end, less the grace). Used to say how many reporters still depend on the old CA (#588).
+   * How many people are on each CA: a person counts once, by their newest certificate that is not revoked and has not ended
+   * by `cutoff`. Used to say how many reporters still depend on the old CA (#588).
    */
   reportersByIssuer(cutoff: number): { total: number; byIssuer: Record<string, number> } {
     const rows = this.stmt(

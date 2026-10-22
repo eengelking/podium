@@ -144,7 +144,7 @@ DECISIONS 20 and 30.
 - The Admin page (`frontend/src/fleet/admin/`, route `#/admin`) holds a new token, and a person's reporter config
   file, in component state only until the owner says it is saved (`OnceBox.tsx`). Neither is written to browser storage,
   and the file cannot be fetched again: the server keeps the certificate and never the key.
-- Admin > People (`PeopleTab.tsx`, #587) reads `GET /api/admin/people`, which adds `tls`, `graceDays` and each row's
+- Admin > People (`PeopleTab.tsx`, #587) reads `GET /api/admin/people`, which adds `tls` and each row's
   `certificate` (`notAfter`, `revoked`) while TLS is on. `peopleCert.ts` turns that into the Reporter certificate badge
   and its note; `RowMenu.tsx` is the per-row Actions menu (a details disclosure placed from its button).
 
@@ -675,17 +675,20 @@ checks and `--dry-run`, since a real run costs model usage ([MESSAGING.md](MESSA
 ### Built-in TLS (#577)
 
 Partly built. This records the structure so the sub-issues (#578 to #591) agree. Built so far: the CA, the serving
-certificate, the HTTPS listener (#581), the serving certificate's renewal (#582) and the person certificates with their
+certificate, the reporter listener (#581, and mutual-TLS only since #665), the serving certificate's renewal (#582) and the person certificates with their
 revocation (#583), the reporter's own renewal (#585) and the switch for reporters over HTTP (#589). The rest is planned. The rules are in
 `SPEC.md` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 42.
 
 **Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
-starts `https.createServer` on the HTTPS port (`4318`, `PODIUM_TLS_PORT`) with the same Express app, next to the HTTP
-listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and serving certificate. Any failure there
+starts `https.createServer` on the reporter port (`4318`, `PODIUM_TLS_PORT`) with the same Express app behind
+`reporterPortOnly`, next to the HTTP listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and serving certificate. Any failure there
 (openssl missing, a half-present CA, a bad or busy port) logs `tls.failed` and leaves HTTP running. The Host check
-(`hostCheck.ts`) runs on both (33). The HTTPS server asks for a client certificate (`requestCert: true`,
-`rejectUnauthorized: false`, `ca` set to the Podium CA or CAs), so a request with no certificate still reaches the
-console. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting (#589). `tlsHttp.ts`
+(`hostCheck.ts`) runs on both (33). The reporter server requires a client certificate (`requestCert: true`,
+`rejectUnauthorized: true`, `ca` set to the Podium CA or CAs), so Node drops a connection without a valid one in the
+handshake (the `tlsClientError` log line is `tls.handshake_failed`). `reporterPortOnly` lets through only the paths
+`isReporterRoute` names and `POST /api/reporter/renew` (`isRenewRoute`), and answers any other path with a `404`, so the
+console and Admin are not reachable on it. Nothing sets `rejectUnauthorized: false`, which is what CodeQL's
+`js/disabling-certificate-validation` flagged before #665. Whether the HTTP listener serves reporter routes is the `tls.allowReportersOverHttp` setting (#589). `tlsHttp.ts`
 has `reporterHttpGate`, mounted in `index.ts` ahead of the routers. It acts only when the HTTPS listener is running, the
 socket is not encrypted (the socket, never a forwarded header), the route is one the mod calls (`isReporterRoute`: report,
 hook, and the peers and respond routes behind the reporter's credential), the setting is off and `req.ip` is not
@@ -747,19 +750,19 @@ a revoke reaches a keep-alive connection that is still open and no socket has to
 **Renewing a person's certificate (#585).** `tlsReporterRenew.ts` serves `POST /api/reporter/renew`, mounted at
 `/api/reporter` in `index.ts` ahead of the token check, because it is answered to a certificate only. `authorizeRenewal`
 takes the certificate's bytes from the socket (`getPeerCertificate().raw`), recomputes the fingerprint from them and looks
-it up. A live certificate must be `socket.authorized`. An expired one is accepted only when Node's error was
-`CERT_HAS_EXPIRED`, the bytes equal the stored certificate, its signature verifies under the public key of the CA whose
-fingerprint is on the row, and it expired no more than `tls.reporter.graceDays` ago; the error code alone is what a
-forgery with the same subject and serial also shows. The body is the new public key (EC P-256 only);
+it up. The certificate must be `socket.authorized`, which on the reporter port is always true by the time a route runs.
+Anything else, an expired certificate included, is refused as `NOT_TRUSTED`; there is no grace and no expired-certificate
+branch (#665), so there is nothing to forge. The body is the new public key (EC P-256 only);
 `issueForPublicKey` signs it with `openssl x509 -new -force_pubkey` through `signClientCert` (`tlsPeople.ts`), the one function that makes the work folder, writes the `clientAuth` extension file, picks the serial, signs and reads the dates back for both it and `issuePersonCert`, which differ only in how the public key reaches `openssl x509`, and `PersonCertStore.add` stores it without revoking
 the old row, so both work until the old one expires (`replace`, used by an Admin reissue, still revokes). The helper
 (`helper.mjs`) renews at start, before a request, and on a 10 minute timer, one renewal at a time per process and one at a
 time per file through a numbered lock, `<file>.lock.<n>`: an O_EXCL file naming its owner, held by the highest number and free when there is none or it is older than a minute; a waiter takes it by creating the next number, which only one of several can do, so no stale file is ever removed from under a waiter, and a number is never used twice (a holder lets go by aging its file, not removing it, and only the newest file is kept); a holder refreshes its file's time every 20 s while it runs. While it holds the numbered lock it also takes the plain `<file>.lock` that the first version of the code used (lock scheme 1), and refreshes and releases that too, so a session on the older helper is excluded; only the numbered lock's holder ever removes a stale plain lock. `<file>.lock.scheme` records the scheme (2); a helper that reads a higher number refuses to renew (`LOCK_SCHEME`) instead of ignoring a lock it does not understand. Under the lock it re-reads the file first and takes a
 newer certificate another session wrote instead of renewing again, checks the answer is for its own key and signed by a CA
 the file already holds, and replaces the file with `writeAtomic` (a temporary file in the same folder, fsync, rename, mode
-0600). A refusal is remembered until the file changes, and a request made with an expired certificate then gets
-`X-Podium-Helper-Error: CERT_PAST_GRACE` (or `CERT_RENEWAL_REFUSED`) without going upstream; a failure that may pass is retried
-after a minute. `authenticate` also limits renewal to once an hour per person (`MIN_RENEW_INTERVAL_MS`): while the newest live certificate was issued less than an hour ago it answers 429 with `Retry-After` and `TOO_SOON` before any signing, except for an expired certificate inside its grace. The helper sets its next try from `Retry-After` (`retryDelayMs`). The two settings are `TlsSettingsStore.getReporter()`.
+0600). A refusal is remembered until the file changes; a failure that may pass is retried after a minute. Before it
+connects, the helper compares the certificate's `notAfter` with its clock. An expired certificate is never renewed and
+nothing goes upstream: every request gets `X-Podium-Helper-Error: CERT_EXPIRED` with the date in its message, which
+`tlsLink.ts` words in the status line and in `/podium`, from the config's `expires` line at start too. `authenticate` also limits renewal to once an hour per person (`MIN_RENEW_INTERVAL_MS`): while the newest live certificate was issued less than an hour ago it answers 429 with `Retry-After` and `TOO_SOON` before any signing, with no exception. The helper sets its next try from `Retry-After` (`retryDelayMs`). The one setting, the lifetime, is `TlsSettingsStore.getReporter()`.
 
 **The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
 `$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a
@@ -1571,7 +1574,7 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
   default OCI image format).
 - It also passes the host's time zone as `TZ`, so the day for "Est. cost today" is the host's.
 - Inside, the server binds `0.0.0.0:4317`. The host-side bind is where access is limited. With built-in TLS on it
-  also binds `0.0.0.0:4318`, published the same way, and the image carries the `openssl` package (#580). `podiumctl`
+  also binds `0.0.0.0:4318` for reporters (mutual TLS only), published the same way, and the image carries the `openssl` package (#580). `podiumctl`
   publishes `4318` and mounts the host folder `~/.podium/tls` at `/data/tls` (`:U` under Podman, so the `node` user owns
   it) only when TLS is on, so the CA outlives the container and the volume. After `run` it reads the container's mounts
   and warns when `/data/tls` is missing; the server checks `/proc/self/mountinfo` and logs `tls.storage_not_persistent`

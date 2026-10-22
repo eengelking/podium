@@ -165,7 +165,6 @@ export function PeopleTab(props: {
 
   const rows = list.data?.rows ?? [];
   const tls = list.data?.tls ?? false;
-  const graceDays = list.data?.graceDays ?? 30;
   const now = Date.now();
   const groups = list.data?.groups ?? [];
   const adminIds = new Set(groups.filter((g) => g.builtIn).map((g) => g.id));
@@ -275,7 +274,7 @@ export function PeopleTab(props: {
                       const revoked = p.revokedAt !== null;
                       const isAdmin = adminIds.has(p.groupId ?? -1) && !revoked;
                       const pend = pending && pending.id === p.id ? pending : null;
-                      const cert = certCell(p, tls, graceDays, now);
+                      const cert = certCell(p, tls, now);
                       // A person with neither credential in use reads as gone, as a revoked person did.
                       const dead = revoked && (!tls || !cert?.live);
                       const w = pend ? wording(pend.kind, p.name, tls, adminIds.has(p.groupId ?? -1), p.certificate?.revoked === true) : null;

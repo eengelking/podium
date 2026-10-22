@@ -24,6 +24,7 @@ describe('isReporterRoute', () => {
       ['GET', '/api/fleet/sessions/s1/asks/a1/answer'],
       ['POST', '/api/fleet/sessions/s1/asks/a1/close'],
       ['POST', '/api/fleet/sessions/s1/deliveries/d1/result'],
+      ['POST', '/api/fleet/sessions/s1/recording'],
     ]) {
       expect(isReporterRoute(m, p), `${m} ${p}`).toBe(true);
     }

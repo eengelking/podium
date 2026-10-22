@@ -115,7 +115,7 @@ The levels of `respond`:
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
 run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
-connects to the address in the file over HTTPS with your certificate, and the certificate is what proves who you are. A token you have set is still sent in the header, but the server does not need it. Nothing is installed on your machine.
+connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is not sent on it. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
 file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
@@ -125,13 +125,13 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
-  several sessions at once are fine. An expired certificate can still renew for 30 days after it expired (the Admin sets
-  the grace); the status line says "renewing certificate" meanwhile. Past that, or if an Admin revoked the certificate, it
-  says to ask an Admin to reissue your reporter config, and you save the new file in `~/.podium/`.
+  several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
+  connects, and the status line and `/podium` say the certificate expired on that date and that an Admin must generate a new
+  reporter config. If an Admin revoked it, the same applies. You save the new file in `~/.podium/`.
 - **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.
-- **What the status line is telling you.** The server's side of this (turning TLS on, trusting the CA in a browser) is in
+- **What the status line is telling you.** The server's side of this (turning TLS on and the reporter port) is in
   [SERVER.md](SERVER.md#built-in-tls).
 
   | Status line says | What it means and what to do |
@@ -141,8 +141,7 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
   | `config unreadable` | The file is missing or is not a Podium reporter config. When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
-  | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
-  | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
+  | `certificate expired` | Your certificate expired on the date the message gives, and an expired certificate is not renewed. Ask an Admin to generate a new reporter config |
   | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |
   | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
   | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |

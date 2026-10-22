@@ -42,21 +42,25 @@ const choose = (name: string, item: string) => fireEvent.click(within(rowOf(name
 
 describe("the Reporter certificate cell", () => {
   it("says nothing while TLS is off", () => {
-    expect(certCell(person(null), false, 30, NOW)).toBeNull();
+    expect(certCell(person(null), false, NOW)).toBeNull();
   });
-  it("reads none, revoked, valid, renewal due, in grace and expired", () => {
-    expect(certCell(person(null), true, 30, NOW)).toMatchObject({ stage: "off", text: "none", live: false, downloadable: false });
-    expect(certCell(person({ notAfter: day(40), revoked: true }), true, 30, NOW)).toMatchObject({ stage: "off", text: "revoked", live: false, downloadable: false });
-    expect(certCell(person({ notAfter: day(71), revoked: false }), true, 30, NOW)).toMatchObject({ stage: "ok", text: "valid", live: true, downloadable: true });
-    const due = certCell(person({ notAfter: day(23), revoked: false }), true, 30, NOW)!;
+  it("reads none, revoked, valid, renewal due, lapses soon and expired", () => {
+    expect(certCell(person(null), true, NOW)).toMatchObject({ stage: "off", text: "none", live: false, downloadable: false });
+    expect(certCell(person({ notAfter: day(40), revoked: true }), true, NOW)).toMatchObject({ stage: "off", text: "revoked", live: false, downloadable: false });
+    expect(certCell(person({ notAfter: day(71), revoked: false }), true, NOW)).toMatchObject({ stage: "ok", text: "valid", live: true, downloadable: true });
+    const due = certCell(person({ notAfter: day(23), revoked: false }), true, NOW)!;
     expect(due).toMatchObject({ stage: "soon", text: "renewal due", live: true });
     expect(due.note).toContain("renews it itself");
-    const grace = certCell(person({ notAfter: day(-8), revoked: false }), true, 30, NOW)!;
-    expect(grace).toMatchObject({ stage: "serious", text: "expired, in grace", live: true });
-    expect(grace.note).toContain("22 more days");
-    const dead = certCell(person({ notAfter: day(-51), revoked: false }), true, 30, NOW)!;
+    // Ten days or fewer with no renewal: the reporter has not connected in weeks, so an Admin should reissue in time (#665).
+    const soon = certCell(person({ notAfter: day(6), revoked: false }), true, NOW)!;
+    expect(soon).toMatchObject({ stage: "serious", text: "lapses soon", live: true, downloadable: true });
+    expect(soon.note).toBe(`Expires ${day(6).slice(0, 10)}, 6 days left, and the reporter has not renewed it. Reissue the config before then.`);
+    expect(certCell(person({ notAfter: day(3), revoked: false }), true, NOW)).toMatchObject({ stage: "critical", text: "lapses soon", live: true });
+    // No grace: a certificate past its end is refused and cannot renew, so there is no in-grace state.
+    const dead = certCell(person({ notAfter: day(-8), revoked: false }), true, NOW)!;
     expect(dead).toMatchObject({ stage: "expired", text: "expired", live: false, downloadable: true });
-    expect(dead.note).toContain("past the 30-day grace");
+    expect(dead.note).toBe(`Expired ${day(-8).slice(0, 10)}. The reporter is refused and cannot renew. Reissue the config.`);
+    expect(certCell(person({ notAfter: day(-51), revoked: false }), true, NOW)).toMatchObject({ stage: "expired", text: "expired" });
   });
 });
 

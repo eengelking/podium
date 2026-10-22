@@ -30,10 +30,9 @@ const FIELDS = {
   'tls.serving.renewBeforeDays': { field: 'renewBeforeDays', label: 'Renew the serving certificate before expiry', def: 30, min: 7, max: 90 },
 } as const;
 
-/** A person's certificate (#585): how long it lasts, and how long after expiry the reporter may still renew it. */
+/** A person's certificate (#585): how long it lasts. */
 const REPORTER_FIELDS = {
   'tls.reporter.lifetimeDays': { field: 'lifetimeDays', label: 'A person’s certificate lifetime', def: REPORTER_DAYS, min: 30, max: 365 },
-  'tls.reporter.graceDays': { field: 'graceDays', label: 'The grace after a person’s certificate expires', def: 30, min: 0, max: 90 },
 } as const;
 
 type ReporterKey = keyof typeof REPORTER_FIELDS;
@@ -79,9 +78,9 @@ export class TlsSettingsStore {
     this.db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(ALLOW_HTTP_KEY, String(existingInstall));
   }
 
-  /** The two settings for a person's certificate, one `settings` row each. A missing or invalid row reads as its default. */
+  /** The setting for a person's certificate, one `settings` row.  A missing or invalid row reads as its default. */
   getReporter(): ReporterSettings {
-    const out: ReporterSettings = { lifetimeDays: REPORTER_FIELDS['tls.reporter.lifetimeDays'].def, graceDays: REPORTER_FIELDS['tls.reporter.graceDays'].def };
+    const out: ReporterSettings = { lifetimeDays: REPORTER_FIELDS['tls.reporter.lifetimeDays'].def };
     for (const k of reporterKeys) {
       const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(k) as { value: string } | undefined;
       const n = row ? Number(row.value) : Number.NaN;

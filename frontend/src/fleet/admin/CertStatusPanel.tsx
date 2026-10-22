@@ -28,7 +28,7 @@ function bandOf(v: CertsView, now: number): Band | null {
   const stage = stageOf(cert.notAfter, now);
   if (v.rotation && stage === "ok") {
     const { onOldCa } = v.rotation.reporters;
-    return { role: "status", cls: "deleg", icon: <IconClock />, title: "Certificate authority rotation is in progress.", detail: `${plural(onOldCa, "reporter")} still ${onOldCa === 1 ? "uses" : "use"} the old CA. Podium accepts it, and presents a chain the old CA verifies, until ${dateOf(v.rotation.cross.notAfter)} or until you retire it. A reporter that does not connect before then, and before its own ${v.reporter.graceDays}-day grace ends, is refused, and its person needs a reissued reporter config. Retire it when none are left.` };
+    return { role: "status", cls: "deleg", icon: <IconClock />, title: "Certificate authority rotation is in progress.", detail: `${plural(onOldCa, "reporter")} still ${onOldCa === 1 ? "uses" : "use"} the old CA. Podium accepts it, and presents a chain the old CA verifies, until ${dateOf(v.rotation.cross.notAfter)} or until you retire it. A reporter that does not connect before then, or whose own certificate expires first, is refused, and its person needs a reissued reporter config. Retire it when none are left.` };
   }
   if (stage === "ok") return null;
   const what = caFirst ? "The certificate authority" : "The serving certificate";
@@ -38,7 +38,7 @@ function bandOf(v: CertsView, now: number): Band | null {
       cls: "crit hot",
       icon: <IconCertCross />,
       title: `${what} expired on ${dateOf(cert.notAfter)}.`,
-      detail: caFirst ? "Reporters can no longer verify this server, and browsers show a warning. Rotate the CA, then give each person a new reporter config." : "Reporters and browsers are refused until it is renewed.",
+      detail: caFirst ? "Reporters can no longer verify this server. Rotate the CA, then give each person a new reporter config." : "Reporters are refused until it is renewed.",
     };
   }
   const detail = caFirst ? "The CA is rotated by hand. Reporters stop trusting this server when it expires." : v.lastFailure ? "Podium renews it automatically, but the last renewal did not work." : "Podium renews it automatically.";
@@ -62,7 +62,7 @@ function Fingerprint({ value }: { value: string }) {
   );
 }
 
-export function CertStatusPanel({ view, now, base, onRetire }: { view: CertsView; now: number; base: string; onRetire: () => Promise<void> }) {
+export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now: number; onRetire: () => Promise<void> }) {
   const [names, setNames] = useState(false);
   const [asking, setAsking] = useState(false);
   const rot = view.rotation ?? null;
@@ -221,12 +221,9 @@ export function CertStatusPanel({ view, now, base, onRetire }: { view: CertsView
         )}
         {ca && (
           <div className="note-line">
-            <b>CA fingerprint</b> A browser trusts the CA only when a person installs it. Compare this with the fingerprint the browser shows before trusting it. The CA has no name constraints, so download it only for a browser you choose to trust it in: that browser then trusts anything the CA key signs, for every site.
+            <b>CA fingerprint</b> Every reporter config carries this CA. Compare it with the fingerprint of the CA in a config to check which CA signed it.
             <span className="row2">
               <Fingerprint value={ca.fingerprintSha256} />
-              <a className="btn sm" href={`${base}/certificates/ca.pem`} download="podium-ca.pem">
-                Download CA (ca.pem)
-              </a>
             </span>
           </div>
         )}

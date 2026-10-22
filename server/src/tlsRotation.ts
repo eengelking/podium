@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { caConfig, checkExisting, describeCert, file, genKey, installServing, issueServing, loadExisting, openssl, randomSerial, TlsError, type CertInfo, type RenewedServing, type ServerNames } from './tlsCa.js';
 
-/** How long the cross certificate lasts, and so how long the overlap does: a reporter's 90 days plus its 30-day grace. */
+/** How long the cross certificate lasts, and so how long the overlap does: a reporter's 90-day certificate and a margin. */
 export const CROSS_DAYS = 120;
 
 const PREVIOUS = 'previous-ca.crt';
@@ -51,6 +51,10 @@ export class TrustStore {
   private previous: string | null = null;
   private crossPem: string | null = null;
   private started = 0;
+  /** Read from the PEMs once per `reload()`: `trustedIssuers()` runs on every reporter request. */
+  private currentFp = '';
+  private previousFp: string | null = null;
+  private crossEnd = 0;
 
   constructor(private readonly dir: string, private readonly now: () => number = Date.now) {
     this.reload();
@@ -58,8 +62,11 @@ export class TrustStore {
 
   reload(): void {
     this.current = fs.readFileSync(file(this.dir, 'ca.crt'), 'utf8');
+    this.currentFp = new X509Certificate(this.current).fingerprint256;
     this.previous = null;
+    this.previousFp = null;
     this.crossPem = null;
+    this.crossEnd = 0;
     const prev = readPem(file(this.dir, PREVIOUS));
     const cross = readPem(file(this.dir, CROSS));
     if (!prev || !cross) return;
@@ -69,12 +76,16 @@ export class TrustStore {
       // part-way leaves the old ca.crt in place and these two files beside it, and that is not an overlap.
       if (!x.verify(new X509Certificate(prev).publicKey) || !x.publicKey.equals(new X509Certificate(this.current).publicKey)) return;
       this.previous = prev;
+      this.previousFp = new X509Certificate(prev).fingerprint256;
       this.crossPem = cross;
+      this.crossEnd = Date.parse(x.validTo);
       const mark = JSON.parse(readPem(file(this.dir, MARK)) ?? '{}') as { startedAt?: unknown };
       this.started = typeof mark.startedAt === 'number' ? mark.startedAt : Date.parse(x.validFrom);
     } catch {
       this.previous = null;
+      this.previousFp = null;
       this.crossPem = null;
+      this.crossEnd = 0;
     }
   }
 
@@ -93,11 +104,11 @@ export class TrustStore {
 
   /** SHA-256 fingerprints of `caCerts()`, the form a stored certificate's issuer is kept in. */
   trustedIssuers(): string[] {
-    return this.caCerts().map((p) => new X509Certificate(p).fingerprint256);
+    return this.previousFp && this.crossLive() ? [this.currentFp, this.previousFp] : [this.currentFp];
   }
 
   private crossLive(): boolean {
-    return this.crossPem !== null && Date.parse(new X509Certificate(this.crossPem).validTo) > this.now();
+    return this.crossPem !== null && this.crossEnd > this.now();
   }
 
   /** What the listener presents: the leaf, then the cross certificate while it is valid, and nothing else. */

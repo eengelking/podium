@@ -16,7 +16,7 @@ import { failText, useList } from "./useList";
 /** What GET /certificates answers while TLS is off. */
 const TLS_OFF = "TLS is off";
 
-export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date.now }: { api: AdminApi; base?: string; onLocked: () => void; now?: () => number }) {
+export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminApi; onLocked: () => void; now?: () => number }) {
   const list = useList<CertsView>(api, "/certificates", onLocked);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -99,7 +99,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
   const caExpired = !!view.ca && stageOf(view.ca.notAfter, t) === "expired";
   return (
     <>
-      <CertStatusPanel view={view} now={t} base={base} onRetire={retire} />
+      <CertStatusPanel view={view} now={t} onRetire={retire} />
       <CertSettings view={view} save={save} />
       <CertHttp view={view} save={save} />
       <Section id="c-h" title="Rotate by hand" help="For a change of host name, or if a private key may have been exposed.">
@@ -107,7 +107,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
           <div className="srow">
             <div className="setname">
               <b>Renew the serving certificate now</b>
-              <p className="hint ink2">Issues a new one from the same CA. The old one is kept as a backup. Reporters and browsers need nothing.</p>
+              <p className="hint ink2">Issues a new one from the same CA. The old one is kept as a backup. Reporters need nothing.</p>
             </div>
             <button type="button" className={servingExpired && !caExpired ? "btn pri" : "btn"} disabled={busy} onClick={() => void renew()}>
               Renew now
@@ -133,7 +133,7 @@ export function CertificatesTab({ api, base = "/api/admin", onLocked, now = Date
                 </p>
               ) : (
               <p>
-                Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working {view.overlapDays ? `for ${view.overlapDays} days, until ${dateOf(new Date(t + view.overlapDays * 86_400_000).toISOString())}` : "through the overlap"}. Each reporter picks up the new CA when it renews. A reporter that does not connect before then, and before its own {view.reporter.graceDays}-day grace ends (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin &gt; People.
+                Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working {view.overlapDays ? `for ${view.overlapDays} days, until ${dateOf(new Date(t + view.overlapDays * 86_400_000).toISOString())}` : "through the overlap"}. Each reporter picks up the new CA when it renews. A reporter that does not connect before then, or whose own certificate expires first (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin &gt; People.
                 {view.rotation && " A rotation is already in progress: retire the old CA first, or end the overlap now."}
               </p>
               )}

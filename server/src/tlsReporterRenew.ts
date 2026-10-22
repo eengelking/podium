@@ -3,10 +3,9 @@
 // new certificate and the CA(s), which the helper writes to the config file in one atomic write (SPEC 6, *Authenticating by
 // certificate*). The old certificate stays live until it expires, since another session may still hold it.
 //
-// An expired certificate may renew inside `tls.reporter.graceDays`. The TLS layer reports `CERT_HAS_EXPIRED` for a genuine
-// expired certificate and for every forgery that is expired (self-signed, or from a fake CA with the same subject and
-// serial), so that error and a serial prove nothing. The certificate is accepted only when its exact bytes are the ones
-// Podium stored and its signature verifies under the CA key it was issued by.
+// A certificate is renewed only while it is valid (#665). The reporter port is mutual TLS with `rejectUnauthorized: true`, so
+// an expired, untrusted or missing certificate never gets as far as this route, and a renewal answer (a new CA included)
+// only travels over a connection Node verified. A certificate that lapsed is not renewed: an Admin generates a new config.
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 import { X509Certificate, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
@@ -17,18 +16,15 @@ import { TlsError } from './tlsCa.js';
 import type { ClientSocket, PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
 import { personSubject, REPORTER_DAYS, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
-const DAY_MS = 86_400_000;
-/** A person's certificate is renewed at most once in this long (#612), unless the one presented has expired. */
+/** A person's certificate is renewed at most once in this long (#612). */
 export const MIN_RENEW_INTERVAL_MS = 3_600_000;
 
 export interface ReporterSettings {
   /** `tls.reporter.lifetimeDays`: how long a person's certificate lasts. */
   lifetimeDays: number;
-  /** `tls.reporter.graceDays`: how long after expiry a certificate may still renew itself. */
-  graceDays: number;
 }
 
-export const REPORTER_DEFAULTS: ReporterSettings = { lifetimeDays: REPORTER_DAYS, graceDays: 30 };
+export const REPORTER_DEFAULTS: ReporterSettings = { lifetimeDays: REPORTER_DAYS };
 
 export interface IssueForKeyOptions {
   dir: string;
@@ -70,28 +66,23 @@ export interface RenewSocket extends Omit<ClientSocket, 'getPeerCertificate'> {
   getPeerCertificate?: () => { fingerprint256?: string; raw?: Buffer };
 }
 
-export type RenewRefusal = 'NO_CERTIFICATE' | 'NOT_TRUSTED' | 'NOT_RECOGNISED' | 'REVOKED' | 'PAST_GRACE';
+export type RenewRefusal = 'NO_CERTIFICATE' | 'NOT_TRUSTED' | 'NOT_RECOGNISED' | 'REVOKED';
 
-export type RenewAuth = { ok: true; person: PersonRow; cert: PersonCertRow; expired: boolean } | { ok: false; code: RenewRefusal; reason: string };
+export type RenewAuth = { ok: true; person: PersonRow; cert: PersonCertRow } | { ok: false; code: RenewRefusal; reason: string };
 
 export interface RenewAuthDeps {
   certs: PersonCertStore;
   people: PeopleStore;
   /** SHA-256 fingerprints of the CA certificate(s) a client certificate may have been issued by. */
   trustedIssuers: () => string[];
-  /** The CA certificate(s) in PEM; the signature of an expired certificate is checked against the one that issued it. */
-  caCerts: () => string[];
-  graceDays: () => number;
   now: () => number;
 }
 
 const refuse = (code: RenewRefusal, reason: string): RenewAuth => ({ ok: false, code, reason });
 
 /**
- * Who may renew, from the certificate on the connection. A live certificate that Node verified against the Podium CA(s)
- * is looked up by its fingerprint. An expired one gets the same lookup and two more checks, because the error code does not tell a
- * genuine certificate from a forgery: its bytes must equal the stored certificate and its signature must verify under the
- * CA key that issued it.
+ * Who may renew, from the certificate on the connection: one that Node verified against the Podium CA(s), looked up by its
+ * fingerprint. Anything Node did not verify, an expired certificate included, is refused (there is no grace).
  */
 export function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): RenewAuth {
   if (!socket.encrypted || typeof socket.getPeerCertificate !== 'function') return refuse('NO_CERTIFICATE', 'no client certificate');
@@ -105,33 +96,18 @@ export function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): RenewAu
   }
   // The fingerprint is computed from the bytes and not taken on the socket's word.
   if (x.fingerprint256 !== peer.fingerprint256) return refuse('NOT_RECOGNISED', 'the client certificate does not match its fingerprint');
-  const verified = socket.authorized === true;
-  if (!verified) {
+  if (socket.authorized !== true) {
     const why = socket.authorizationError instanceof Error ? socket.authorizationError.message : socket.authorizationError;
-    if (why !== 'CERT_HAS_EXPIRED') return refuse('NOT_TRUSTED', `client certificate not accepted: ${why ?? 'unverified'}`);
+    return refuse('NOT_TRUSTED', `client certificate not accepted: ${why ?? 'unverified'}`);
   }
   const row = d.certs.find(x.fingerprint256);
   if (!row) return refuse('NOT_RECOGNISED', 'client certificate is not one Podium issued');
   if (row.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
   if (!d.trustedIssuers().includes(row.issuerFingerprint)) return refuse('NOT_TRUSTED', 'client certificate was issued by a CA that is not trusted');
-  const now = d.now();
-  const expired = row.notAfter < now;
-  if (!verified && !expired) return refuse('NOT_TRUSTED', 'client certificate not accepted: CERT_HAS_EXPIRED but the clock disagrees');
-  if (expired) {
-    const issuer = d.caCerts().map((p) => new X509Certificate(p)).find((c) => c.fingerprint256 === row.issuerFingerprint);
-    let genuine = false;
-    try {
-      genuine = !!issuer && x.raw.equals(new X509Certificate(row.certPem).raw) && x.verify(issuer.publicKey);
-    } catch {
-      genuine = false;
-    }
-    if (!genuine) return refuse('NOT_RECOGNISED', 'client certificate is not one Podium issued');
-    if (now - row.notAfter > d.graceDays() * DAY_MS) return refuse('PAST_GRACE', `client certificate expired more than ${d.graceDays()} days ago`);
-  }
   const person = d.people.getPerson(row.personId);
   if (!person) return refuse('NOT_RECOGNISED', 'client certificate belongs to a person who no longer exists');
   if (person.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
-  return { ok: true, person, cert: row, expired };
+  return { ok: true, person, cert: row };
 }
 
 const WORDS: Record<RenewRefusal, string> = {
@@ -139,7 +115,6 @@ const WORDS: Record<RenewRefusal, string> = {
   NOT_TRUSTED: 'your certificate was not accepted',
   NOT_RECOGNISED: 'your certificate is not one this server issued',
   REVOKED: 'your certificate was revoked; ask an Admin to reissue your reporter config',
-  PAST_GRACE: 'your certificate expired too long ago to renew itself; ask an Admin to reissue your reporter config',
 };
 
 export interface ReporterRenewDeps {
@@ -161,13 +136,10 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
   const inFlight = new Set<number>();
 
   const authenticate = (req: Request, res: Response, next: NextFunction): void => {
-    const issuer = d.issuer();
     const auth = authorizeRenewal(req.socket as unknown as RenewSocket, {
       certs: d.certs,
       people: d.people,
       trustedIssuers: d.trustedIssuers,
-      caCerts: () => issuer?.caCerts() ?? [],
-      graceDays: () => d.settings().graceDays,
       now: d.now,
     });
     if (!auth.ok) {
@@ -175,21 +147,18 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
       res.status(401).json({ ok: false, code: auth.code, error: WORDS[auth.code] });
       return;
     }
-    // One renewal an hour per person, so a looping client cannot fill the table or keep openssl busy. A certificate that has
-    // expired inside its grace is never held back: it has no other way in.
-    if (!auth.expired) {
-      const newest = d.certs.current(auth.person.id);
-      const waitMs = inFlight.has(auth.person.id) ? 1000 : newest ? Math.min(newest.issuedAt + MIN_RENEW_INTERVAL_MS - d.now(), MIN_RENEW_INTERVAL_MS) : 0;
-      if (waitMs > 0) {
-        const retryAfter = Math.ceil(waitMs / 1000);
-        d.logger.warn('tls.reporter_renew_refused', `podium: refused a certificate renewal from ${req.ip ?? 'unknown'}: ${auth.person.name} renewed less than an hour ago`, { code: 'TOO_SOON', reason: 'renewed less than an hour ago', status: 429, source: req.ip, retry_after: retryAfter });
-        res.set('Retry-After', String(retryAfter));
-        res.status(429).json({ ok: false, code: 'TOO_SOON', error: 'your certificate was renewed less than an hour ago; try again later', retryAfterSec: retryAfter });
-        return;
-      }
-      inFlight.add(auth.person.id);
-      res.once('close', () => inFlight.delete(auth.person.id));
+    // One renewal an hour per person, so a looping client cannot fill the table or keep openssl busy.
+    const newest = d.certs.current(auth.person.id);
+    const waitMs = inFlight.has(auth.person.id) ? 1000 : newest ? Math.min(newest.issuedAt + MIN_RENEW_INTERVAL_MS - d.now(), MIN_RENEW_INTERVAL_MS) : 0;
+    if (waitMs > 0) {
+      const retryAfter = Math.ceil(waitMs / 1000);
+      d.logger.warn('tls.reporter_renew_refused', `podium: refused a certificate renewal from ${req.ip ?? 'unknown'}: ${auth.person.name} renewed less than an hour ago`, { code: 'TOO_SOON', reason: 'renewed less than an hour ago', status: 429, source: req.ip, retry_after: retryAfter });
+      res.set('Retry-After', String(retryAfter));
+      res.status(429).json({ ok: false, code: 'TOO_SOON', error: 'your certificate was renewed less than an hour ago; try again later', retryAfterSec: retryAfter });
+      return;
     }
+    inFlight.add(auth.person.id);
+    res.once('close', () => inFlight.delete(auth.person.id));
     res.locals.renewal = auth;
     next();
   };
@@ -208,12 +177,11 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
           return void res.status(401).json({ ok: false, code: 'REVOKED', error: WORDS.REVOKED });
         }
         d.certs.add(auth.person.id, issued, d.now());
-        d.logger.info('tls.reporter_renewed', `podium: renewed ${auth.person.name}'s certificate${auth.expired ? ' (it had expired, inside the grace)' : ''}`, {
+        d.logger.info('tls.reporter_renewed', `podium: renewed ${auth.person.name}'s certificate`, {
           person: auth.person.name,
           previous_fingerprint_sha256: auth.cert.fingerprint,
           fingerprint_sha256: issued.info.fingerprintSha256,
           not_after: issued.info.notAfter,
-          within_grace: auth.expired,
         });
         // Only during a planned rotation; the reporter takes it as an addition and only if the cross certificate verifies under a CA it holds.
         const rotation = issuer.rotation?.();

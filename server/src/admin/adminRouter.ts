@@ -293,7 +293,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     // With TLS on each row also says its person's certificate (#587): the expiry the badge needs, never the key. Podium has none.
     const on = Boolean(certs?.people?.issuer());
     const rows = page.rows.map((r) => ({ ...r, certificate: on ? certificateOf(r.id) : null }));
-    res.json({ ...page, rows, tls: on, graceDays: certs?.settings.getReporter().graceDays ?? 30, groups: people.allGroups() });
+    res.json({ ...page, rows, tls: on, groups: people.allGroups() });
   });
 
   /** The person's live certificate, or the latest revoked one, or null when they never had one. */
@@ -884,7 +884,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const v = { ...r.view(), overlapDays: CROSS_DAYS, canOverlap: certs?.rotation?.()?.canOverlap() ?? true, http: httpView() };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
-    const counts = certs?.people?.store.reportersByIssuer(now() - certs.settings.getReporter().graceDays * 86_400_000);
+    const counts = certs?.people?.store.reportersByIssuer(now());
     return { ...v, rotation: { ...v.rotation, reporters: { onOldCa: counts?.byIssuer[oldFp] ?? 0, total: counts?.total ?? 0 } } };
   };
 
@@ -918,7 +918,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (out.changed.includes(ALLOW_HTTP_KEY) && http.allow !== wasAllowed) {
       audit(req, 'tls_http_changed', http.allow ? 'Allowed reporters to connect over HTTP' : `Stopped allowing reporters over HTTP; ${http.overHttp} reporter${http.overHttp === 1 ? '' : 's'} connected over HTTP ${http.overHttp === 1 ? 'is' : 'are'} refused`, { allow: http.allow, reporters_on_http: http.overHttp });
     }
-    if (out.changed.some((k) => k !== ALLOW_HTTP_KEY)) audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days, grace ${rep.graceDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, reporter_grace_days: rep.graceDays, header_countdown: s.headerCountdown });
+    if (out.changed.some((k) => k !== ALLOW_HTTP_KEY)) audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, header_countdown: s.headerCountdown });
     res.json({ ok: true, ...r.view(), reporter: rep, http });
   });
 
