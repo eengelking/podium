@@ -167,7 +167,8 @@ export interface Link {
   /** The name in the config file. */
   user: string;
   configPath: string;
-  headers: ConfigHeaders;
+  /** Null for a link that stands in for a file that could not be read. */
+  headers: ConfigHeaders | null;
   fetch: FetchLike;
   /** What is wrong right now, or null. */
   problem: () => Problem | null;
@@ -186,6 +187,11 @@ function brokenLink(found: FoundConfig, problem: Problem): Link {
     problem: () => problem,
     stop: () => {},
   };
+}
+
+/** Stands in for a config file that was named and cannot be used: nothing is sent, over https or http, and the status line says why (#645). */
+export function unusableLink(configPath: string, serverUrl: string, problem: Problem): Link {
+  return { serverUrl, user: '', configPath, headers: null, fetch: () => Promise.reject(new Error(problem.text)), problem: () => problem, stop: () => {} };
 }
 
 export interface LinkOptions {

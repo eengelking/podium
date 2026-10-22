@@ -970,6 +970,17 @@ describe('podium-reporter over the TLS helper (#584)', () => {
     expect(w.statuses.at(-1)).toContain('wrong config for this name')
   })
 
+  test('a PODIUM_REPORTER_CONFIG naming a missing file says config unreadable and sends nothing over http (#645)', async ($, on) => {
+    const { w, spawned } = helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONFIG: '/nowhere/mine.pem' } })
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(spawned).toEqual([])
+    expect(w.fetched).toEqual([])
+    expect(w.statuses.at(-1)).toContain('config unreadable')
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('/nowhere/mine.pem')
+  })
+
   test('a /clear (session.end with reason clear, then session.start) keeps the helper that is running', async ($, on) => {
     const { w, spawned } = helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node' })
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
