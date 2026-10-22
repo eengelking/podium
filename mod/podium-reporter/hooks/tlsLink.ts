@@ -326,6 +326,9 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
       if (code) {
         // An outage has no words of its own: it must not wipe a standing certificate problem.
         problem = problemFor(code, host) ?? problem;
+      } else if (res.status === 401) {
+        // The server read the certificate and turned it away (revoked, expired, not one it issued). A person with a config file has no token to blame (#646).
+        problem = problemFor('CLIENT_CERT_REJECTED', host) ?? problem;
       } else if (res.ok) {
         problem = null;
       }

@@ -192,6 +192,17 @@ describe('starting the helper (#584)', () => {
     expect(link.problem()).toBeNull()
   })
 
+  test('a 401 over the certificate connection is a certificate problem, not a token one (#646)', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 401 }, { status: 200 }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'POST', headers: {}, body: '{}' })
+    expect(link.problem()?.code).toBe('CLIENT_CERT_REJECTED')
+    expect(link.problem()?.status).toBe('certificate refused')
+    expect(link.problem()?.text).toContain('reissue')
+    await link.fetch('https://podium.lan:4318/a', { method: 'POST', headers: {}, body: '{}' })
+    expect(link.problem()).toBeNull()
+  })
+
   test('an outage (connection refused) is not a problem the person must fix', async () => {
     const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'ECONNREFUSED' } }] })
     const link = await startLink(f.$, found(), env, opts)
