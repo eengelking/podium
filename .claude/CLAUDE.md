@@ -24,7 +24,7 @@ The operator uses shorthand in place of typing a full request out. Case-insensit
 |---|---|
 | `plmk` | "Please let me know if you have any questions or if I can provide any further context and/or information." |
 | `wni` | "What is the next GitHub issue to resolve?" |
-| `prm` | "Project has been merged to its parent branch." |
+| `prm` | "PR has been merged into its base branch." |
 | `cii` | "Please review outstanding docs/ISSUES.md and create GitHub issues for anything not yet tracked. Let me know when done." |
 | `pnb` | "Please process the next batch of queued items." |
 
