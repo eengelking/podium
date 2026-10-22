@@ -127,7 +127,7 @@ podiumctl status               # the "tls:" line shows the HTTPS port
 
 The first start makes a CA and a serving certificate. HTTP stays on `4317` and HTTPS is on `4318` (change it with
 `PODIUM_TLS_PORT`). If people reach the server by a name, set `PODIUM_ALLOWED_HOSTS=box.lan` before the first start, since
-the serving certificate carries `localhost`, the bind address and those names. Adding a name later needs **Renew now**
+the serving certificate carries `localhost`, the bind address and those names. List each name or address people type. Adding a name later needs **Renew now**
 on Admin > Server > Certificates. The CA lives in `~/.podium/tls` (container mode) or `data/tls` beside the database
 (standalone). It holds the CA key, so back it up and keep it private. `podiumctl rm` keeps it; `podiumctl rm --purge-tls
 --yes` deletes it, and then every reporter config must be reissued.
@@ -156,8 +156,11 @@ The reporter never needs this. It reads the CA from its own config file and inst
 
 **3. Give each person a reporter config.** In Admin > People, **Create user** (or **Reissue config** on an existing
 person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
-person puts it in `~/.podium/`, runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. The steps
-and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
+person puts it in `~/.podium/`, runs `chmod 600` on it, sets the reporter's `userName` option (or the `PODIUM_USER`
+environment variable) to the same name, and starts Claude Code on a machine that has `node`. The name is not read from the
+file: without it the status line says "wrong config for this name". The server address in the file is the one your
+browser used when you created the person, plus the HTTPS port, so create people from the address they will reach. The
+steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
 
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
 a server that already had reporters when you turned TLS on, so nothing stops, and a warning line stays until you turn
