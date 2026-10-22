@@ -143,6 +143,27 @@ describe('what a helper error means to the person (#584)', () => {
     expect(problemFor('ECONNREFUSED', 'h')).toBeNull()
   })
 
+  test('an expired or not-yet-valid server certificate with the server\'s time unknown says the clock may be wrong, with this machine\'s date (#650)', () => {
+    const clock = { now: NOW }
+    for (const code of ['CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID']) {
+      const p = problemFor(code, 'h', clock)
+      expect(p).toMatchObject({ code, status: 'check the clock' })
+      expect(p?.text).toContain('2026-02-01 00:00 UTC')
+      expect(p?.text).toMatch(/check the system (date|clock)/i)
+      expect(p?.text).not.toMatch(/is wrong\b|is certainly/i)
+    }
+  })
+
+  test('with the server\'s time known, only a clock that disagrees with it is blamed (#650)', () => {
+    const apart = problemFor('CERT_HAS_EXPIRED', 'h', { now: NOW, serverNow: NOW - 2 * 86_400_000 })
+    expect(apart?.status).toBe('check the clock')
+    expect(apart?.text).toContain('2026-02-01 00:00 UTC')
+    expect(apart?.text).toContain('2026-01-30 00:00 UTC')
+    // Within a few minutes the clock is not the cause: the certificate really is expired.
+    expect(problemFor('CERT_HAS_EXPIRED', 'h', { now: NOW, serverNow: NOW - 60_000 })?.status).toBe('server certificate expired')
+    expect(problemFor('CERT_NOT_YET_VALID', 'h', { now: NOW, serverNow: NOW })?.status).toBe('server certificate refused')
+  })
+
   test('a certificate too old to renew, or a renewal the server refused, asks for a reissue (#585)', () => {
     expect(problemFor('CERT_PAST_GRACE', 'h')).toMatchObject({ status: 'certificate expired' })
     expect(problemFor('CERT_PAST_GRACE', 'h')?.text).toContain('Admin')
@@ -190,6 +211,29 @@ describe('starting the helper (#584)', () => {
     expect(link.problem()?.code).toBe('CLIENT_CERT_REJECTED')
     await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
     expect(link.problem()).toBeNull()
+  })
+
+  test('a certificate valid at the server\'s time and not at this machine\'s shows the clock message (#650)', async () => {
+    const serverTime = new Date(NOW - 2 * 86_400_000).toUTCString()
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 200, headers: { date: serverTime } }, { status: 502, headers: { 'x-podium-helper-error': 'CERT_HAS_EXPIRED' } }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()?.status).toBe('check the clock')
+    expect(link.problem()?.text).toContain('2026-02-01 00:00 UTC')
+    expect(link.problem()?.text).toContain('2026-01-30 00:00 UTC')
+  })
+
+  test('a handshake that fails before any reply says the clock may be wrong, and a server that agrees on the time is blamed (#650)', async () => {
+    const f = fake({ pathNode: '/p/node', answers: [{ status: 502, headers: { 'x-podium-helper-error': 'CERT_HAS_EXPIRED' } }] })
+    const link = await startLink(f.$, found(), env, opts)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(link.problem()?.status).toBe('check the clock')
+    const g = fake({ pathNode: '/p/node', answers: [{ status: 200, headers: { date: new Date(NOW).toUTCString() } }, { status: 502, headers: { 'x-podium-helper-error': 'CERT_HAS_EXPIRED' } }] })
+    const agreed = await startLink(g.$, found(), env, opts)
+    await agreed.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    await agreed.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(agreed.problem()?.status).toBe('server certificate expired')
   })
 
   test('a 401 over the certificate connection is a certificate problem, not a token one (#646)', async () => {
