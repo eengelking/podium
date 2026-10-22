@@ -277,7 +277,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     var a = ["#  title                                              updated"]; for (var i = 0; i < 18; i++) a.push((431 + i * 7) + "  " + ["Show a Bash command's output in the Activity feed", "Replay: jump to next failure", "Rail pager keeps its place on refresh", "TLS: certificate list wraps at 400 px"][i % 4] + "  2026-10-" + (21 - (i % 9)));
     a.push("... 2 more rows ...", "[cut off at 20,000 characters]"); return a.join("\n");
   })();
-  var OUT_TEST = " RUN  v2.1.4 /Users/eengelking/dev/claude-dashboard/server\n\n ✓ src/fleet/activity.test.ts (41 tests) 212ms\n ✓ src/fleet/activityHistory.test.ts (28 tests) 340ms\n ✓ src/fleet/protocol.test.ts (96 tests) 188ms\n\n Test Files  3 passed (3)\n      Tests  165 passed (165)\n   Duration  1.94s";
+  var OUT_TEST = " RUN  v2.1.4 /Users/dev/claude-dashboard/server\n\n ✓ src/fleet/activity.test.ts (41 tests) 212ms\n ✓ src/fleet/activityHistory.test.ts (28 tests) 340ms\n ✓ src/fleet/protocol.test.ts (96 tests) 188ms\n\n Test Files  3 passed (3)\n      Tests  165 passed (165)\n   Duration  1.94s";
   var OUT_FAIL = "> frontend@0.14.3 build\n> tsc -b && vite build\n\nsrc/fleet/components/ActivityFeed.tsx(112,9): error TS2322: Type 'string | undefined' is not assignable to type 'string'.\nsrc/fleet/components/ActivityFeed.tsx(131,24): error TS2339: Property 'output' does not exist on type 'FeedEntry'.\n\nFound 2 errors in 1 file.";
   var OUT_CURL = "{\"id\":\"dep_7f3a\",\"status\":\"queued\",\"url\":\"https://staging.example.internal/podium\",\"token\":\"[redacted]\"}";
 
