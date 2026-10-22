@@ -136,15 +136,20 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   | Status line says | What it means and what to do |
   |---|---|
   | `config too open` | Others can read the file. Run `chmod 600` on it |
-  | `config unreadable` | The file is missing or is not a Podium reporter config. Check `PODIUM_REPORTER_CONFIG` and ask the Admin for a new file |
+  | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
+  | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
+  | `config unreadable` | The file is missing or is not a Podium reporter config. When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
   | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
   | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
   | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |
   | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
   | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |
+  | `server certificate expired` | The server's own certificate has expired. It is not your file: tell whoever runs the Podium server |
+  | `server certificate refused` | Your machine refused the server's certificate for a reason not listed here (the message gives the code). Tell whoever runs the Podium server |
   | `wrong server name` | The address in the file is not a name the server's certificate carries |
   | `helper cannot start`, `helper not ready` | The helper could not start. Check that `node` runs, then start a new session |
+  | `helper stopped` | The helper exited and the message says why. It restarts on the next session |
 
   A skewed clock on either machine can make a good certificate look expired or not yet valid, so check the date first.
 - **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
