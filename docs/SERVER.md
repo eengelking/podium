@@ -266,6 +266,14 @@ podiumctl restart
 - In container mode the proxy reaches Podium through the published port, so its address inside the container may
   be the network's gateway rather than the proxy's own; check the `source` in Admin's log after turning it on.
 
+#### Failed requests are limited
+
+Alongside the lockouts for wrong secrets, one address may make 300 failed requests a minute (a response of 400 or
+more) to `/api`. The next one gets `429` with `Retry-After` until the minute is over, and the first refusal in a
+window is logged as `auth.throttled`. Successful requests are never counted, so a busy reporter or an open console
+does not trip it. The address is the one Express sees, so behind a proxy the limit follows `PODIUM_TRUST_PROXY`
+above: without it, every client behind the proxy shares one address.
+
 ### More settings
 
 Other settings (`STALE_AFTER_MS`, `RETAIN_*`, the `PODIUM_LOG_*` logging settings, and so on, see
