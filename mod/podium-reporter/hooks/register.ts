@@ -433,7 +433,9 @@ function toastOnce($: Engine, r: Runtime, ok: boolean): void {
 }
 
 function toastRefusalOnce($: Engine, r: Runtime): void {
-  const notice = r.transport.refusalNotice() ?? r.transport.ownerNotice();
+  // With a config file there is no token to blame: the link's certificate message stands in for the token one (#646).
+  const refusal = r.transport.refused && link?.problem() ? link.problem()?.text : r.transport.refusalNotice();
+  const notice = refusal ?? r.transport.ownerNotice();
   if (!notice || notice === r.toastedRefusal) return;
   r.toastedRefusal = notice;
   try {

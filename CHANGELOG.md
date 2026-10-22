@@ -94,7 +94,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
-- **A revoked certificate shows `certificate refused`, not `token refused` (#646, part of #577).** When a reporter that uses a config file gets a 401, the status line and `/podium` now say the server turned the certificate away and to ask an Admin to reissue the reporter config; `token refused` stays for a session with no config file. `docs/REPORTER.md`'s status table drops the `token refused` row for a revoked certificate and says what `certificate refused` covers.
+- **A revoked certificate shows `certificate refused`, not `token refused` (#646, part of #577).** When a reporter that uses a config file gets a 401, the status line, `/podium` and the toast now say the server turned the certificate away and to ask an Admin to reissue the reporter config; `token refused` stays for a session with no config file. `docs/REPORTER.md`'s status table drops the `token refused` row for a revoked certificate and says what `certificate refused` covers.
 
 - **The reporter no longer falls back to plain HTTP when `PODIUM_REPORTER_CONFIG` names a file it cannot use (#645, part of #577).** A missing file, or one that is not a reporter config, now shows `config unreadable` in the status line and in `/podium` with the path, and the session sends nothing, over HTTPS or HTTP, instead of reporting over the plain address and showing `token refused`. With the variable unset and no file in `~/.podium/`, nothing changes.
 

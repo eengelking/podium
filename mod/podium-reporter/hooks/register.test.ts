@@ -28,7 +28,7 @@ interface World {
   clock: ReturnType<typeof mock.clock>
   lastToolUseId: () => string
   sessionId: { value: string }
-  fetchMode: { mode: 'ok' | 'down' | 'hang' }
+  fetchMode: { mode: 'ok' | 'down' | 'hang' | 'denied' }
   /** The clients attached to the session, as `$.session.surfaces()` answers. */
   surfaces: { value: ('terminal' | 'desktop' | 'vscode' | 'mobile')[]; fail: boolean }
   /** Every command the plugin ran, as its argument vector. */
@@ -51,6 +51,8 @@ interface World {
   serverBuild: { value: string | null }
   /** Where each request went: the URL, and the socket when it was sent through the TLS helper (#584). */
   fetched: { url: string; socketPath?: string }[]
+  /** Every toast the plugin showed. */
+  toasts: string[]
 }
 
 const GIT: Record<string, string> = {
@@ -88,6 +90,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
   const fetched: World['fetched'] = []
+  const toasts: string[] = []
   const watch: World['watch'] = { value: [] }
   const chunks: World['chunks'] = { value: [] }
   on('session.id', () => ({ value: sessionId.value }))
@@ -113,7 +116,10 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     statuses.push(e.text)
     return { value: undefined }
   })
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
   on('ui.log', () => ({ value: undefined }))
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
@@ -135,6 +141,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('http.fetch', (_$, e) => {
     if (fetchMode.mode === 'down') throw new Error('ECONNREFUSED')
     fetched.push({ url: e.url, socketPath: e.init?.socketPath })
+    if (fetchMode.mode === 'denied') return { value: { status: 401, ok: false, headers: {}, text: '{"ok":false,"error":"client certificate refused"}' } }
     const body = JSON.parse(e.init?.body ?? '{}') as Report
     if (fetchMode.mode === 'hang') return new Promise(() => {})
     posts.push(body)
@@ -171,7 +178,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild, fetched }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -979,6 +986,18 @@ describe('podium-reporter over the TLS helper (#584)', () => {
     expect(w.statuses.at(-1)).toContain('config unreadable')
     const info = await $.command.run(podium(''))
     expect(info.text).toContain('/nowhere/mine.pem')
+  })
+
+  test('a 401 over the helper says certificate refused in the status line, /podium and the toast, never the token (#646)', async ($, on) => {
+    const { w } = helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node' })
+    w.fetchMode.mode = 'denied'
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.statuses.at(-1)).toContain('certificate refused')
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('TLS: The server did not accept your certificate')
+    expect(w.toasts.some((t) => t.includes('did not accept your certificate'))).toBe(true)
+    expect(w.toasts.some((t) => t.includes('token'))).toBe(false)
   })
 
   test('a /clear (session.end with reason clear, then session.start) keeps the helper that is running', async ($, on) => {
