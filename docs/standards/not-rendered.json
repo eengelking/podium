@@ -62,11 +62,6 @@
       "kind": "pointer"
     },
     {
-      "class": "xh",
-      "reason": "Drawn only while the pointer is over a chart: the crosshair line.",
-      "kind": "pointer"
-    },
-    {
       "class": "below",
       "reason": "Set on a copy cell's tip only when the page has no room above it, which depends on the window size.",
       "kind": "measured"
@@ -85,11 +80,6 @@
       "class": "jump",
       "reason": "Shown only when the feed is scrolled up away from its latest entry.",
       "kind": "scroll"
-    },
-    {
-      "class": "cur",
-      "reason": "Marks an activity row for the selected agent; the panel shows that agent's detail instead of the list while one is selected.",
-      "kind": "state"
     },
     {
       "class": "dragging",

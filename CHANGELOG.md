@@ -14,6 +14,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-22
+
 ### Added
 
 - **The reporter helper forwards only reporter routes, and no regex can be made to backtrack on a long input (#668, part of #577).** The helper that carries the mod's calls over mutual TLS now answers `403` to any path or method that is not one of the reporter calls, and builds the request it sends from the matched route. Twelve regexes that could take quadratic time on a long run of slashes or blanks (a trailing-slash trim on a request path took 3.4 s on 100,000 slashes) are replaced with string handling, and the four confirmation buttons on Admin > Certificates and People take focus in code instead of with `autoFocus`.
@@ -109,6 +111,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - Standards: a new Admin feature-flag row, **Bash output in the activity feed** (`activity-output`, off by default, under Agent activity feed) with a warning bar, and two wordings for a row that has no output, "Output is turned off by the Admin." and "Output is turned off for this machine." (naming the `activityOutput` option, "Send a Bash command's output"). They use the existing `.srow`, `.sw`, `.warnbar` and `.feedoff`. Approved by the maintainer with the mockup on #431 (`mockup/podium-feed-expand-admin.html`).
 
 ### Changed
+
+- **The design standards match the app again (#664).** `docs/standards/` is regenerated for everything added since 1.2.2: the Certificates, Data, Stored activity and Reporting pages, session recording and its replay, the Plan / Files fold, the certificate pill, the update notice, pinned cards and the opened Bash row. Every component file has a section and every class in the stylesheets is rendered by a sample or listed in `not-rendered.json` with its reason.
 
 - **Reporters connect on their own mutual-TLS port, the console gets no HTTPS, and an expired certificate is not renewed (#665, part of #577).** With TLS on, port 4317 stays plain HTTP for the console, Admin and reporters that use a token, and a second port (4318, `PODIUM_TLS_PORT`) is HTTPS with `requestCert: true` and `rejectUnauthorized: true`. It serves only the routes a reporter calls and `POST /api/reporter/renew`; a connection with no certificate, an expired one or one from an untrusted CA is dropped in the handshake, and any other path is a `404`. Nothing in Podium sets `rejectUnauthorized: false` now, which is what CodeQL's `js/disabling-certificate-validation` flagged in the review of #663. The 30-day grace is gone: `tls.reporter.graceDays`, the expired-certificate branch of the renewal check and its forgery checks, the `PAST_GRACE` refusal and the `graceDays` field of `GET /api/admin/people` are removed (a stored `tls.reporter.graceDays` row is ignored, and a request to set it is a `400`), and an expired certificate can no longer skip the hourly renewal limit. The reporter helper compares the certificate's end date with its clock before it connects and sends nothing; the status line and `/podium` say "Your Podium certificate expired on 2026-08-30. Ask an Admin to generate a new reporter config." (`CERT_EXPIRED`, replacing `CERT_PAST_GRACE` and "renewing certificate"). `podiumctl` and `docs/SERVER.md` call 4318 the reporter port, and the walk-through no longer tells a person to trust the CA in a browser. SPEC 5.9, 6, 7.1 and 7.7, DECISIONS 42, SERVER, REPORTER, ARCHITECTURE and SECURITY are updated. The Admin pages follow it: Download CA, the browser-trust text and the grace setting are gone, and Admin > People shows a *lapses soon* badge before a certificate ends.
 
@@ -769,7 +773,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.2.2...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/eengelking/podium/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/eengelking/podium/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/eengelking/podium/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/eengelking/podium/compare/v1.1.0...v1.2.0

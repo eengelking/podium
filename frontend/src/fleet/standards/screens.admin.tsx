@@ -1,9 +1,10 @@
 // The Admin screens (#354): the real AdminView against the same in-memory stand-in for /api/admin that the Admin tests use.
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { AdminView } from "../admin/AdminView";
-import { fakeServer, type FakePeerRef, type FakePeers } from "../admin/fakeAdmin";
+import { fakeCert, fakeCerts, fakeServer, type FakePeerRef, type FakePeers } from "../admin/fakeAdmin";
 import { makeKpis, makeSession, makeState } from "../fixtures";
+import type { RecordingAdminRow } from "../types";
 import type { FleetSource } from "../useFleet";
 import type { Screen } from "./screens";
 
@@ -132,6 +133,49 @@ export const ADMIN_SCREENS: Record<string, Screen> = {
   "admin-prices-tags": admin(/^Model prices/, {}, undefined, (srv) => {
     srv.prices["my-local-model"] = { std: { input: 0.2, output: 0.6, cacheRead: 0.02, cacheWrite: 0.25, cacheWrite1h: 0.4 } };
     srv.prices["sonnet-5-5"].std.input = 3;
+  }),
+  "admin-certs": admin(/^Certificates/, {}, undefined, (srv) => { srv.certs = fakeCerts(); }),
+  "admin-certs-expiring": admin(/^Certificates/, {}, undefined, (srv) => { srv.certs = fakeCerts({ serving: fakeCert(10), lastFailure: { at: new Date(Date.now() - 3_600_000).toISOString(), reason: "Could not write the new certificate.", trigger: "scheduled" } }); }),
+  "admin-certs-off": admin(/^Certificates/, {}, undefined, (srv) => { srv.certs = null; }),
+  "admin-certs-names": admin(/^Certificates/, {}, async () => {
+    fireEvent.click(await screen.findByRole("button", { name: /and \d+ more/ }));
+    await settle();
+  }, (srv) => { srv.certs = fakeCerts(); }),
+  "admin-data": admin(/^Data/),
+  "admin-stored": admin(/^Stored activity/),
+  "admin-report-usage": admin(/^Usage/),
+  "admin-report-people": admin(/^People and groups/),
+  "admin-report-sessions": admin(/^Sessions/),
+  "admin-report-failures": admin(/^Failures/),
+  "admin-report-activity": admin(/^Admin activity/),
+  "admin-people-menu": admin(null, {}, async () => {
+    fireEvent.click(await screen.findByLabelText("Actions for person-000"));
+    await settle();
+  }),
+  "admin-settings-recording": admin(/^Settings/, {}, undefined, (srv) => {
+    const rec = (over: Partial<RecordingAdminRow> = {}): RecordingAdminRow => ({ sessionId: "s1", name: "api-refactor", owner: "person-000", startedBy: "person-000", state: "recording", limit: null, loops: 4, label: "orchestrator and 3 agents", bytes: 18 * 1024 * 1024, keptUntil: 1_900_000_000_000, ...over });
+    const rows = [rec(), rec({ sessionId: "s2", name: "flaky-tests", state: "stopped", owner: null, startedBy: "Admin", bytes: 21 * 1024 * 1024 }), rec({ sessionId: "s3", name: "docs-sweep", state: "limit", limit: "session", keptUntil: null }), rec({ sessionId: "s4", name: "big", state: "limit", limit: "budget" })];
+    srv.features["session-recording"] = true;
+    srv.recording = { settings: { keepHours: 6, budgetMb: 4096, sessionMb: 512 }, totals: { recordings: rows.length, bytes: 41 * 1024 * 1024, running: 1 }, authOn: true };
+    srv.recordings = rows;
+  }),
+  "admin-certs-soon": admin(/^Certificates/, {}, undefined, (srv) => { srv.certs = fakeCerts({ serving: fakeCert(20) }); }),
+  "admin-settings-recording-saved": admin(/^Settings/, {}, async () => {
+    fireEvent.change(await screen.findByRole("combobox", { name: "Unit" }), { target: { value: "days" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await settle();
+  }, (srv) => {
+    srv.features["session-recording"] = true;
+    srv.recording = { settings: { keepHours: 6, budgetMb: 4096, sessionMb: 512 }, totals: { recordings: 0, bytes: 0, running: 0 }, authOn: true };
+  }),
+  "admin-report-partial": admin(/^Usage/, {}, undefined, (srv) => {
+    srv.reports.usage = { report: "usage", from: "2026-01-01", to: "2026-03-31", by: "day", tz: "UTC", basedOn: "daily rollups", oldestDay: "2026-03-02", partial: true, columns: [{ key: "period", label: "Day" }, { key: "sessions", label: "Sessions" }], rows: [{ period: "2026-03-02", sessions: 4 }], total: null };
+  }),
+  "admin-people-confirm": admin(null, {}, async () => {
+    const opener = await screen.findByLabelText("Actions for person-000");
+    fireEvent.click(opener);
+    fireEvent.click(within(opener.closest("details")!).getByRole("menuitem", { name: "Rotate token" }));
+    await settle();
   }),
   "admin-locked": {
     make: () => {
