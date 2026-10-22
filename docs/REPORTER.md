@@ -115,8 +115,9 @@ The levels of `respond`:
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
 run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
 connects to the address in the file over HTTPS with your certificate, and the certificate is what proves who you are. A token you have set is still sent in the header, but the server does not need it. Nothing is installed on your machine.
-Set `userName` (or `PODIUM_USER`) to the name in the file's `# user:` line, since the reporter does not take the name
-from the file. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
+A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
+set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
+file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
 
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
@@ -136,7 +137,7 @@ from the file. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With n
   |---|---|
   | `config too open` | Others can read the file. Run `chmod 600` on it |
   | `config unreadable` | The file is missing or is not a Podium reporter config. Check `PODIUM_REPORTER_CONFIG` and ask the Admin for a new file |
-  | `wrong config for this name` | The file is for another person than this session's `userName`. Use that person's file, or change the name |
+  | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
   | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
   | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
   | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |

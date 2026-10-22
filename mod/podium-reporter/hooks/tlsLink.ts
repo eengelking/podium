@@ -197,6 +197,10 @@ export function unusableLink(configPath: string, serverUrl: string, problem: Pro
 export interface LinkOptions {
   /** The name this session reports as; empty when it has none, and then the file's name is taken. */
   sessionName: string;
+  /** Where that name came from, in words for the message (#647); empty when unknown. */
+  nameSource?: string;
+  /** True when that name is a setting the person can empty; false when it is the identity the session holds (change it with `/podium name`). */
+  nameIsSetting?: boolean;
   /** Epoch milliseconds now. */
   now: () => number;
   log?: (line: string) => void;
@@ -210,7 +214,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   const { headers } = found;
   const log = o.log ?? (() => {});
   if (o.sessionName && o.sessionName !== headers.user) {
-    return brokenLink(found, { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${headers.user}", but this session reports as "${o.sessionName}". Use the file for that name, or change the name.` });
+    return brokenLink(found, { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${headers.user}", but this session reports as "${o.sessionName}"${o.nameSource ? `, and "${o.sessionName}" comes from ${o.nameSource}` : ''}. Use the file for "${o.sessionName}", or ${o.nameSource && o.nameIsSetting ? `leave that empty so the session takes the file's name` : 'change the name'}.` });
   }
   // An expired certificate is not the end: inside the grace the helper renews it with the expired one, and past the grace it says so
   // (CERT_PAST_GRACE) on the first request. Until then the status line says it is renewing.

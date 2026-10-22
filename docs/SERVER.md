@@ -157,9 +157,9 @@ The reporter never needs this. It reads the CA from its own config file and inst
 
 **3. Give each person a reporter config.** In Admin > People, **Create user** (or **Reissue config** on an existing
 person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
-person puts it in `~/.podium/`, runs `chmod 600` on it, sets the reporter's `userName` option (or the `PODIUM_USER`
-environment variable) to the same name, and starts Claude Code on a machine that has `node`. The name is not read from the
-file: without it the status line says "wrong config for this name". The server address in the file is the one your
+person puts it in `~/.podium/`, runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. A session with no name of its own takes the file's name, so
+nothing else needs setting. A name the session already has (the `userName` option or `PODIUM_USER`) must be the file's
+name, or the status line says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
 browser used when you created the person, plus the HTTPS port, so create people from the address they will reach. The
 steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
 
