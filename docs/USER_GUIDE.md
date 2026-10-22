@@ -144,6 +144,8 @@ Find what you see, then follow the fix. [GOTCHAS.md](GOTCHAS.md) has more.
 | A session I closed is still on the wall | It moved to the background. `claude agents` lists it and `claude stop <id>` ends it. See [Closing a background session](#closing-a-background-session) |
 | A card turned stale | The session stopped reporting (closed, crashed or lost the connection). It goes away by itself, or press Remove |
 | I changed the config and nothing happened | Run `podiumctl restart` |
+| The status line names a certificate, the config file or `node` | Your server uses built-in TLS. See [what each message means](REPORTER.md#over-tls) |
+| The browser warns that the connection is not private on the `https://` address | The browser does not trust Podium's own CA. Compare the fingerprint, then install the CA or click through once. See [Built-in TLS](SERVER.md#built-in-tls) |
 | A card shows `reporter 0.1.0 · update`, the top bar says reporters need an update, or the status line ends in `· update mod` | The mod in that session is older than the server supports. It keeps reporting meanwhile. See [Updating the mod](#updating-the-mod) |
 | The status line ends in `· update available` | Your mod works, but the server supports a newer one. See [Updating the mod](#updating-the-mod) |
 | A card or the status line shows `· upgrade server` | The mod is newer than the server supports. Upgrade the server (see [Updating the mod](#updating-the-mod)) |

@@ -128,6 +128,23 @@ Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing
 - **It says what is wrong.** The status line and `/podium` name the problem: no `node`, a file others can read, a file for
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.
+- **What the status line is telling you.** The server's side of this (turning TLS on, trusting the CA in a browser) is in
+  [SERVER.md](SERVER.md#built-in-tls).
+
+  | Status line says | What it means and what to do |
+  |---|---|
+  | `config too open` | Others can read the file. Run `chmod 600` on it |
+  | `config unreadable` | The file is missing or is not a Podium reporter config. Check `PODIUM_REPORTER_CONFIG` and ask the Admin for a new file |
+  | `wrong config for this name` | The file is for another person than this session's `userName`. Use that person's file, or change the name |
+  | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
+  | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
+  | `certificate refused` | The server revoked it, or does not know it. Ask an Admin to reissue your config |
+  | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
+  | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |
+  | `wrong server name` | The address in the file is not a name the server's certificate carries |
+  | `helper cannot start`, `helper not ready` | The helper could not start. Check that `node` runs, then start a new session |
+
+  A skewed clock on either machine can make a good certificate look expired or not yet valid, so check the date first.
 - **The file is read when the session starts.** A file saved later is not picked up until a new session. `/clear` keeps the
   helper running.
 - Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.
