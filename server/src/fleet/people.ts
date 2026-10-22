@@ -183,6 +183,11 @@ export class PeopleStore {
     return { person: this.getPerson(id)!, token: t.token };
   }
 
+  /** Lifts a revocation without touching the token, as a certificate reissue does. True if the person was revoked. */
+  restore(id: number): boolean {
+    return Number(this.stmt('UPDATE people SET revoked_at = NULL WHERE id = ? AND revoked_at IS NOT NULL').run(id).changes) > 0;
+  }
+
   revoke(id: number, now = Date.now()): boolean {
     return Number(this.stmt('UPDATE people SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(now, id).changes) > 0;
   }

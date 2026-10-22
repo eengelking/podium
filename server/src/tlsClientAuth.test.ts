@@ -273,6 +273,14 @@ describe('certAuth on a real HTTPS listener', () => {
     expect(await s.get(client, agent)).toEqual({ kind: 'refused', reason: 'client certificate was revoked' });
   });
 
+  it('refuses a live certificate whose person is revoked, even when its row was not', async () => {
+    const s = await setup();
+    const { person, issued } = await s.issueFor('Dana');
+    expect(s.people.revoke(person.id, NOW())).toBe(true);
+    expect(s.certs.current(person.id)).toBeDefined();
+    expect(await s.get({ cert: issued.cert, key: issued.key })).toEqual({ kind: 'refused', reason: 'client certificate was revoked' });
+  });
+
   it('keeps accepting client certificates after the serving certificate is renewed', async () => {
     const s = await setup();
     const { issued } = await s.issueFor('Dana');

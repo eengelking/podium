@@ -2296,7 +2296,7 @@ need the unlocked Admin session like the rest of the Admin API.
 | `GET /api/admin/certificates/ca.pem` | The CA certificate, for a browser or a person who wants to check it. No key. |
 | `GET /api/admin/people` | Also answers `tls` (whether TLS is on), `graceDays` (`tls.reporter.graceDays`) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
 | `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
-| `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. |
+| `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. A revoked person is restored (their token is unchanged), since a certificate for a revoked person is refused. |
 | `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
 | `GET /api/admin/people/:id/certificate.pem` | The person's public certificate and the CA. Never a key. |
 | `POST /api/admin/people/:id/revoke-all` | Revoke the certificate and the token. Refused for the last active Administrator. |

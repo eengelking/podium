@@ -423,6 +423,16 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
   });
 
+  it('refuses a live certificate whose person is revoked, even when its row was not', async () => {
+    const s = await setup();
+    const { person, issued } = await s.issueFor('Dana');
+    expect(s.people.revoke(person.id, Date.now())).toBe(true);
+    const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
+    expect(s.certs.listFor(person.id)).toHaveLength(1);
+  });
+
   it('refuses a connection with no certificate', async () => {
     const s = await setup();
     const res = await s.post(null, { publicKey: pubPem(newKey().publicKey) });

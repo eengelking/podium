@@ -154,7 +154,7 @@ export interface CertAuthDeps {
 /**
  * Who a connection's client certificate says it is. `none` is a connection that presented nothing (plain HTTP, or HTTPS
  * without a certificate); `refused` is one that presented a certificate that must not be trusted, and the caller must not
- * fall back to a token for it. Revoking a person's token revokes their certificate rows too (the Admin route does it), so this reads only the row.
+ * fall back to a token for it. Revoking a person's token revokes their certificate rows too (the Admin route does it); the person's own revocation is checked as well, in case a path forgets.
  */
 export function certAuth(socket: ClientSocket, d: CertAuthDeps): CertAuth {
   if (!socket.encrypted || typeof socket.getPeerCertificate !== 'function') return { kind: 'none' };
@@ -171,5 +171,7 @@ export function certAuth(socket: ClientSocket, d: CertAuthDeps): CertAuth {
   if (!d.trustedIssuers().includes(cert.issuerFingerprint)) return { kind: 'refused', reason: 'client certificate was issued by a CA that is not trusted' };
   const person = d.people.getPerson(cert.personId);
   if (!person) return { kind: 'refused', reason: 'client certificate belongs to a person who no longer exists' };
+  // Defense in depth: a token revoked without the certificate rows must not leave the certificate working.
+  if (person.revokedAt !== null) return { kind: 'refused', reason: 'client certificate was revoked' };
   return { kind: 'person', person, cert };
 }

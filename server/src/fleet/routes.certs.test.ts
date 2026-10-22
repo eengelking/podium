@@ -314,6 +314,16 @@ describe('reissue', () => {
     expect(s.people.getPerson(body.person.id)!.revokedAt).toBeNull();
   });
 
+  it('brings a revoked person back, and the new certificate works', async () => {
+    const s = await setup();
+    const body = await create(s, 'Dana');
+    s.people.revoke(body.person.id, Date.now());
+    const res = await s.admin.post(`/api/admin/people/${body.person.id}/certificate/reissue`).set(H);
+    expect(res.status).toBe(200);
+    expect(s.people.getPerson(body.person.id)!.revokedAt).toBeNull();
+    expect((await s.reportWith(partsOf(res.body.config.content), 'Dana')).status).toBe(200);
+  });
+
   it('leaves the earlier certificate valid when the new one cannot be made', async () => {
     const s = await setup();
     const body = await create(s, 'Dana');
