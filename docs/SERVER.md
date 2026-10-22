@@ -88,7 +88,8 @@ report to it:
 2. Allow the port (4317 by default) in the firewall for the people who need it and no one else.
 3. The server refuses a request whose `Host` is a name it does not expect (see
    [A page on another site](#a-page-on-another-site)). With `0.0.0.0` an address typed in the bar
-   (`http://192.168.1.5:4317`) works as is. To reach it by a name, list the name, then restart:
+   (`http://192.168.1.5:4317`) works as is. With [built-in TLS](#built-in-tls) on, a wildcard bind adds nothing to the
+   serving certificate, so list the address people type here too. To reach it by a name, list the name, then restart:
 
    ```sh
    podiumctl config set PODIUM_ALLOWED_HOSTS=box.lan
