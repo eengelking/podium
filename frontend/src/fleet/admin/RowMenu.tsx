@@ -96,7 +96,7 @@ export function RowMenu({ label, groups, onChoose }: { label: string; groups: Me
         Actions
         <IconChevron />
       </summary>
-      <div ref={box} className="menubox" role="menu" onKeyDown={key}>
+      <div ref={box} className="menubox" role="menu" tabIndex={-1} onKeyDown={key}>
         {groups.map((g, gi) => (
           <div key={g.heading} role="group" aria-label={g.heading} className="mgroup">
             {gi > 0 && <div className="msep" role="separator" />}

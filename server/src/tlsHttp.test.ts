@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createLogger } from './logging/logger.js';
-import { isReporterRoute, reporterHttpGate, ReporterTransport } from './tlsHttp.js';
+import { isRenewRoute, isReporterRoute, reporterHttpGate, ReporterTransport, trimTrailingSlashes } from './tlsHttp.js';
 
 const logger = createLogger({ format: 'json', write: () => {} });
 
@@ -101,5 +101,29 @@ describe('ReporterTransport', () => {
     t.note('a', false, 1_000);
     t.note('a', true, 2_000);
     expect(t.count(3_000)).toEqual({ overHttp: 0, total: 1 });
+  });
+});
+
+describe('trailing slashes (S8786)', () => {
+  // `/\/+$/` took 3.4 s on 100000 slashes and a final character, and 13.8 s on 200000 (quadratic); the loop takes well under a millisecond.
+  const ms = (run: () => void): number => {
+    const t = process.hrtime.bigint();
+    run();
+    return Number(process.hrtime.bigint() - t) / 1e6;
+  };
+
+  it('trims a long run of slashes in linear time, followed by another character', () => {
+    const path = `${'/'.repeat(100000)}x`;
+    expect(ms(() => isReporterRoute('POST', path))).toBeLessThan(250);
+    expect(ms(() => isRenewRoute(path))).toBeLessThan(250);
+  });
+
+  it('trims every trailing slash and only those', () => {
+    expect(trimTrailingSlashes('/a//')).toBe('/a');
+    expect(trimTrailingSlashes('//')).toBe('');
+    expect(trimTrailingSlashes('/a/b')).toBe('/a/b');
+    expect(trimTrailingSlashes('')).toBe('');
+    expect(isRenewRoute('/API/reporter/renew//')).toBe(true);
+    expect(isRenewRoute('/api/reporter/renew/x')).toBe(false);
   });
 });

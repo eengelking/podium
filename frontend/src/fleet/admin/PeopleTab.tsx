@@ -76,6 +76,11 @@ export function PeopleTab(props: {
   const [name, setName] = useState("");
   const [addErr, setAddErr] = useState("");
   const [pending, setPending] = useState<Pending>(null);
+  const confirmBtn = useRef<HTMLButtonElement>(null);
+  // The confirmation row takes focus on its button when it opens or moves to another person: moved in code, not with autoFocus, which Sonar flags (S9379).
+  useEffect(() => {
+    if (pending) confirmBtn.current?.focus();
+  }, [pending]);
   const [rowErr, setRowErr] = useState("");
   // What the last menu choice did that no row shows, such as a download starting (a status line, not an error).
   const [note, setNote] = useState("");
@@ -350,7 +355,7 @@ export function PeopleTab(props: {
                                   <h3>{w.title}</h3>
                                   <p>{w.body}</p>
                                   <p className="formacts">
-                                    <button type="button" className={w.danger ? "btn dng" : "btn"} autoFocus onClick={() => confirm(p, pend.kind)}>
+                                    <button ref={confirmBtn} type="button" className={w.danger ? "btn dng" : "btn"} onClick={() => confirm(p, pend.kind)}>
                                       {w.button}
                                     </button>
                                     <button type="button" className="btn" onClick={() => setPending(null)}>

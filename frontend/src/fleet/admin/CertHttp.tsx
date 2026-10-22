@@ -1,6 +1,6 @@
 // Admin > Server > Certificates, Reporters over HTTP (#589, T11; mockup/podium-tls-certificates.html, decision 23). One switch,
 // a warning line in both states, and a question before it is turned off, since that refuses the reporters still on HTTP.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconWarn } from "../components/Icons";
 import { plural } from "../tlsStatus";
 import { Panel, Section, SwitchRow } from "./Page";
@@ -15,6 +15,11 @@ const OFF_WARNING = "Turning this on makes reporters send their name, their toke
 export function CertHttp({ view, save }: { view: CertsView; save: SaveSetting }) {
   const { allow, overHttp, total } = view.http;
   const [asking, setAsking] = useState(false);
+  const stopBtn = useRef<HTMLButtonElement>(null);
+  // The confirmation takes focus when it opens: moved in code, not with autoFocus, which Sonar flags (S9379).
+  useEffect(() => {
+    if (asking) stopBtn.current?.focus();
+  }, [asking]);
   const [err, setErr] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const toggle = () => root.current?.querySelector<HTMLButtonElement>('[role="switch"]')?.focus();
@@ -52,7 +57,7 @@ export function CertHttp({ view, save }: { view: CertsView; save: SaveSetting })
               {refused} The console on the loopback address keeps working over HTTP, so an Admin can always sign in.
             </p>
             <p className="formacts">
-              <button type="button" className="btn dng" autoFocus onClick={() => void apply(false)}>
+              <button ref={stopBtn} type="button" className="btn dng" onClick={() => void apply(false)}>
                 Stop allowing HTTP
               </button>
               <button type="button" className="btn" onClick={() => (setAsking(false), toggle())}>

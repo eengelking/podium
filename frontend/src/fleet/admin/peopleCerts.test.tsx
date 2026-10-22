@@ -107,6 +107,8 @@ describe("the Actions menu", () => {
     await screen.findByText("person-000");
     const row = rowOf("person-000");
     const menu = within(row).getByRole("menu");
+    // A menu role must be focusable (S6852); -1 keeps it out of the Tab order, and the items take focus when it opens.
+    expect(menu).toHaveAttribute("tabindex", "-1");
     expect(within(menu).getAllByRole("group").map((g) => g.getAttribute("aria-label"))).toEqual(["Console token", "Reporter certificate", "Person"]);
     const summary = within(row).getByText("Actions", { selector: "summary" });
     const details = summary.closest("details")!;
@@ -209,6 +211,8 @@ describe("the confirmation row", () => {
     expect(within(row as HTMLElement).getByRole("alert")).toHaveTextContent(title);
     expect(row).toHaveTextContent(body);
     expect(row.previousElementSibling).toBe(rowOf("person-000"));
+    // Focus moves to the confirming button in code, not with autoFocus (#668).
+    expect(within(row as HTMLElement).getByRole("button", { name: item.replace("…", "") })).toHaveFocus();
     expect(s.calls).not.toContain(call);
     fireEvent.click(within(row as HTMLElement).getByRole("button", { name: item.replace("…", "") }));
     await waitFor(() => expect(s.calls).toContain(call));

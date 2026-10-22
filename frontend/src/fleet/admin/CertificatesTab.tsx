@@ -1,7 +1,7 @@
 // Admin > Server > Certificates (#586, T8; mockup/podium-tls-certificates.html, accepted on #573). The status of the CA and the
 // serving certificate, the renewal settings, Renew now, rotating the CA with an overlap and retiring the old one (#588, T10),
 // and the certificates Podium kept. The HTTP switch of the same mockup belongs to a later issue (T11).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IconWarn } from "../components/Icons";
 import { AdminError, type AdminApi } from "./adminApi";
 import { CertBadge } from "./CertIcons";
@@ -22,6 +22,11 @@ export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminA
   const [msg, setMsg] = useState("");
   const [renewErr, setRenewErr] = useState("");
   const [asking, setAsking] = useState(false);
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  // The safe choice takes focus when the question opens: moved in code, not with autoFocus, which Sonar flags (S9379).
+  useEffect(() => {
+    if (asking) cancelBtn.current?.focus();
+  }, [asking]);
   const view = list.data;
 
   const save: SaveSetting = async (key, value) => {
@@ -144,7 +149,7 @@ export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminA
                 <button type="button" className="btn dng" onClick={() => void rotate(true)}>
                   Rotate CA and end the overlap now
                 </button>
-                <button type="button" className="btn" autoFocus onClick={() => setAsking(false)}>
+                <button ref={cancelBtn} type="button" className="btn" onClick={() => setAsking(false)}>
                   Cancel
                 </button>
               </p>

@@ -85,8 +85,18 @@ export function issuePersonCert(o: IssueOptions): Promise<IssuedPersonCert> {
   });
 }
 
+/** `s` without the `-` and `.` characters at both ends. Loops, not `/^[-.]+|[-.]+$/g`, which backtracks on a long run of them. */
+const trimDashesAndDots = (s: string): string => {
+  const edge = (c: number) => c === 45 || c === 46;
+  let start = 0;
+  let end = s.length;
+  while (start < end && edge(s.charCodeAt(start))) start++;
+  while (end > start && edge(s.charCodeAt(end - 1))) end--;
+  return s.slice(start, end);
+};
+
 /** A person's name as it appears in a file name: letters, digits, dot, underscore and dash; anything else becomes a dash. */
-export const fileSafe = (name: string): string => name.replaceAll(/[^A-Za-z0-9._-]+/g, '-').replaceAll(/^[-.]+|[-.]+$/g, '').slice(0, 48) || 'person';
+export const fileSafe = (name: string): string => trimDashesAndDots(name.replaceAll(/[^A-Za-z0-9._-]+/g, '-')).slice(0, 48) || 'person';
 
 export interface ConfigFile {
   filename: string;

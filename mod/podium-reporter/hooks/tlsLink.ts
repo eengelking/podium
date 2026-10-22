@@ -114,7 +114,7 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
   } catch {
     // not on this PATH
   }
-  const home = env.home?.replace(/\/+$/, '');
+  const home = env.home === undefined ? undefined : trimTrailingSlashes(env.home);
   const places = [...NODE_PLACES];
   if (home) {
     places.push(`${home}/.volta/bin/node`, `${home}/.local/bin/node`);
@@ -181,12 +181,22 @@ export function problemFor(code: string, host: string, clock?: ClockView, expire
   }
 }
 
-function problemFromStartup(line: string, path: string): Problem {
-  const m = /^error (\S+)\s*(.*)$/.exec(line.trim());
-  const code = m?.[1] ?? 'HELPER_EXITED';
+/** The helper's first line of output when it cannot start: `error CODE message`. Split by hand: one regex over the line could backtrack. */
+function startupWords(line: string): [string, string] | null {
+  const t = line.trim();
+  if (!t.startsWith('error ')) return null;
+  const rest = t.slice(6);
+  const space = rest.search(/\s/);
+  const code = space < 0 ? rest : rest.slice(0, space);
+  return code ? [code, space < 0 ? '' : rest.slice(space).trim()] : null;
+}
+
+export function problemFromStartup(line: string, path: string): Problem {
+  const w = startupWords(line);
+  const code = w?.[0] ?? 'HELPER_EXITED';
   if (code === 'CONFIG_PERMISSIONS') return { code, status: 'config too open', text: `The reporter config file ${path} can be read by other people, and it holds your private key. Run: chmod 600 ${path}` };
-  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: 'config unreadable', text: `The reporter config file ${path} cannot be used: ${m?.[2] ?? code}.` };
-  return { code, status: 'helper stopped', text: `The Podium connection helper stopped${m ? `: ${m[2] || code}` : ''}. It restarts on the next session.` };
+  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: 'config unreadable', text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
+  return { code, status: 'helper stopped', text: `The Podium connection helper stopped${w ? `: ${w[1] || code}` : ''}. It restarts on the next session.` };
 }
 
 export interface Link {
@@ -257,9 +267,9 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
     });
   }
 
-  const home = env.home?.replace(/\/+$/, '');
+  const home = env.home === undefined ? undefined : trimTrailingSlashes(env.home);
   // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
-  const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${env.tmp.replace(/\/+$/, '')}/podium-run` : null];
+  const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${trimTrailingSlashes(env.tmp)}/podium-run` : null];
   const sessionKey = `${found.path}:${o.now()}`;
   const socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
   if (!socket) {
