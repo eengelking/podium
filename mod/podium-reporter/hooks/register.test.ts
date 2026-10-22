@@ -977,6 +977,31 @@ describe('podium-reporter over the TLS helper (#584)', () => {
     expect(w.statuses.at(-1)).toContain('wrong config for this name')
   })
 
+  test('a name from the userName option that the file is not for is named as the cause, with what to change (#647)', { options: { userName: 'Ed', token: 't' } }, async ($, on) => {
+    helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node' })
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('"Ed" comes from the userName option')
+    expect(info.text).toContain('empty')
+  })
+
+  test('a name from PODIUM_USER that the file is not for is named as the cause (#647)', async ($, on) => {
+    helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node', env: { PODIUM_USER: 'Ed' } })
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('"Ed" comes from PODIUM_USER')
+  })
+
+  test('a name the session already holds is named as the cause, and is not called something to empty (#647)', async ($, on) => {
+    on('state.get', () => ({ value: { value: { userName: 'Ed', token: 't' }, version: 1 } }))
+    helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node' })
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    const info = await $.command.run(podium(''))
+    expect(info.text).toContain('"Ed" comes from the identity this session already holds')
+    expect(info.text).toContain('or change the name')
+    expect(info.text).not.toContain('leave that empty')
+  })
+
   test('a PODIUM_REPORTER_CONFIG naming a missing file says config unreadable and sends nothing over http (#645)', async ($, on) => {
     const { w, spawned } = helperWorld(on, { files: { [CONFIG_PATH]: configText('Dana') }, node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONFIG: '/nowhere/mine.pem' } })
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })

@@ -206,6 +206,10 @@ let opts: Options = readOptions({});
 let who: Identity = { userName: '', token: '' };
 const IDENTITY = { plugin: 'podium-reporter', key: 'identity' } as const;
 let rt: Runtime | null = null;
+/** Where the name in `who` came from, for the wrong-config message (#647); empty when `who` has none. */
+let nameSource = '';
+/** True when that name is a setting the person can empty (the option or PODIUM_USER), false for the held identity. */
+let nameIsSetting = false;
 /** The helper that makes the TLS connection, when a reporter config file exists (#584); null sends reports as before, through `$.http.fetch`. */
 let link: Link | null = null;
 /** The start of `link` that is under way, so two overlapping session.start events share it. */
@@ -1534,6 +1538,8 @@ async function answerRequest($: Engine, answer: 'allow' | 'decline' | 'deliver',
  * else the shared options. Held for the rest of the session once it has a token.
  */
 async function takeIdentity($: Engine): Promise<Identity> {
+  nameSource = '';
+  nameIsSetting = false;
   let held: Identity | undefined;
   let readable = true;
   try {
@@ -1544,6 +1550,13 @@ async function takeIdentity($: Engine): Promise<Identity> {
   }
   const env = { user: await attempt(() => $.env.get('PODIUM_USER'), undefined), token: await attempt(() => $.env.get('PODIUM_TOKEN'), undefined) };
   const picked = pickIdentity({ held, env, options: { userName: opts.userName, token: opts.token } });
+  if (picked.userName.trim()) {
+    if (held && worthHolding(held)) nameSource = 'the identity this session already holds';
+    else {
+      nameSource = (env.user ?? '').trim() || (env.token ?? '').trim() ? 'PODIUM_USER' : 'the userName option';
+      nameIsSetting = true;
+    }
+  }
   // When the held identity could not be read, do not overwrite what may be there.
   if (readable && worthHolding(picked) && (!held || held.userName !== picked.userName || held.token !== picked.token)) {
     await attempt(() => $.state.set(IDENTITY, picked), undefined);
@@ -1582,7 +1595,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
       const found = await findConfig($ as never).catch(() => null);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
       if (found?.problem) link = unusableLink(found.env.config ?? '', opts.serverUrl, found.problem);
-      else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), now: nowMs, log: (line) => void remember('tls', line) });
+      else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), nameSource, nameIsSetting, now: nowMs, log: (line) => void remember('tls', line) });
     })().finally(() => {
       linking = null;
     });
