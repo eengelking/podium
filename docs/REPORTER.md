@@ -139,8 +139,7 @@ from the file. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With n
   | `wrong config for this name` | The file is for another person than this session's `userName`. Use that person's file, or change the name |
   | `renewing certificate` | Yours expired, but is inside the grace. Nothing to do unless it stays |
   | `certificate expired` | Too long ago to renew. Ask an Admin to reissue your config |
-  | `certificate refused` | The server would not renew it: it was revoked, or is not one this server issued. Ask an Admin to reissue your config |
-  | `token refused` | The server answered 401 to a report. After an Admin revokes your certificate this is what you see. Ask an Admin to reissue your config |
+  | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |
   | `server closed connection` | The server restarted, or it refused the certificate. If it goes on, ask for a reissue |
   | `server not trusted` | The server's certificate is not from the CA in your file. The CA may have been rotated: ask for a new file |
   | `wrong server name` | The address in the file is not a name the server's certificate carries |
