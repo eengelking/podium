@@ -179,6 +179,7 @@ describe("Admin > Server > Certificates (#586)", () => {
       await waitFor(() => expect(fp).toHaveTextContent("Copied"));
       expect(write).toHaveBeenCalledWith("3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E");
       const dl = screen.getByRole("link", { name: "Download CA (ca.pem)" });
+      expect(screen.getByText(/only for a browser you choose to trust it in/)).toBeInTheDocument();
       expect(dl).toHaveAttribute("href", "/api/admin/certificates/ca.pem");
       expect(dl).toHaveAttribute("download");
     });
