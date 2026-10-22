@@ -70,3 +70,30 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
     expect(utf8Length('/Users/😀')).toBe(11)
   })
 })
+
+// S8786: `/\/+$/` took 3.4 s on 100000 slashes and a final character (quadratic); string methods take well under a millisecond.
+const ms = (run: () => void): number => {
+  const t = performance.now()
+  run()
+  return performance.now() - t
+}
+
+describe('long runs of one character (S8786)', () => {
+  test('a folder name made of a long run of slashes is trimmed in linear time', () => {
+    const slashes = `${'/'.repeat(100000)}x`
+    expect(ms(() => podiumHome(slashes))).toBeLessThan(250)
+    expect(ms(() => socketPathFor(slashes, 'id'))).toBeLessThan(250)
+    expect(podiumHome('/home/dana//')).toBe('/home/dana/.podium')
+    expect(socketPathFor('/run///', 'id').startsWith('/run/')).toBe(true)
+  })
+
+  test('a header line with a long run of blanks is read in linear time, and headers keep their meaning', () => {
+    const long = ['# podium-reporter-config v1', `#${' '.repeat(100000)}x`, '#   user:   Dana Lee  ', '# server: https://podium.lan:4318', '# issued-at: t 1700000000', '# Bad Key: ignored', '#:nope', '# user: second wins nothing']
+    const t = ms(() => parseConfigHeaders(long.join('\n')))
+    expect(t).toBeLessThan(250)
+    const h = parseConfigHeaders(long.join('\n'))
+    expect(h?.user).toBe('Dana Lee')
+    expect(h?.server).toBe('https://podium.lan:4318')
+  })
+})
+

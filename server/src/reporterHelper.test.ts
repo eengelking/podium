@@ -14,6 +14,7 @@ import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { openDb } from './fleet/db.js';
 import { PeopleStore } from './fleet/people.js';
 import { createLogger } from './logging/logger.js';
+import { REPORTER_ROUTE_TEMPLATES } from './tlsHttp.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
 import { PersonCertStore } from './tlsClientAuth.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
@@ -21,6 +22,10 @@ import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
 
 const HELPER = fileURLToPath(new URL('../../mod/podium-reporter/hooks/helper.mjs', import.meta.url));
+
+/** Reporter routes the helper forwards (#668), for the tests that only need some request to go through. */
+const PEERS = '/api/fleet/sessions/s1/peers';
+const SLOW = '/api/fleet/sessions/s1/asks/slow/answer';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -137,10 +142,10 @@ describe('helper.mjs: the connection', () => {
     expect(h.out()).toContain('ready');
     expect(fs.statSync(h.socket).mode & 0o777).toBe(0o600);
     expect(fs.statSync(path.dirname(h.socket)).mode & 0o077).toBe(0);
-    const a = await viaHelper(h, 'GET', '/api/fleet/ping?x=1');
+    const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers?x=1');
     expect(a.status).toBe(201);
     expect(a.headers['x-extra']).toBe('kept');
-    expect(JSON.parse(a.body)).toEqual({ path: '/api/fleet/ping?x=1', method: 'GET' });
+    expect(JSON.parse(a.body)).toEqual({ path: '/api/fleet/sessions/s1/peers?x=1', method: 'GET' });
     expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256]);
   });
 
@@ -166,7 +171,7 @@ describe('helper.mjs: the connection', () => {
     const other = await pki();
     const url = await upstream(p, (_req, res) => res.end('ok'));
     const h = await runHelper(configFor(p, url, 'Dana Lee', [other.caCert, p.caCert]), url);
-    expect((await viaHelper(h, 'GET', '/')).body).toBe('ok');
+    expect((await viaHelper(h, 'GET', PEERS)).body).toBe('ok');
   });
 
   it('forces verification on even when the environment says NODE_TLS_REJECT_UNAUTHORIZED=0', async () => {
@@ -174,7 +179,7 @@ describe('helper.mjs: the connection', () => {
     const stranger = await pki();
     const url = await upstream(stranger, (_req, res) => res.end('should never be read'), { requireClient: false });
     const h = await runHelper(configFor(p, url), url, { NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_OPTIONS: '' });
-    const a = await viaHelper(h, 'GET', '/');
+    const a = await viaHelper(h, 'GET', PEERS);
     expect(a.status).toBe(502);
     expect(a.body).not.toContain('should never');
     expect(a.headers['x-podium-helper-error']).toMatch(/^(UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN|DEPTH_ZERO_SELF_SIGNED_CERT)$/);
@@ -190,7 +195,7 @@ describe('helper.mjs: a structured error for each kind of failure', () => {
     await new Promise<void>((r) => probe.close(() => r()));
     const url = `https://127.0.0.1:${port}`;
     const h = await runHelper(configFor(p, url), url);
-    const a = await viaHelper(h, 'GET', '/');
+    const a = await viaHelper(h, 'GET', PEERS);
     expect(a.status).toBe(502);
     expect(a.headers['x-podium-helper-error']).toBe('ECONNREFUSED');
   });
@@ -201,7 +206,7 @@ describe('helper.mjs: a structured error for each kind of failure', () => {
     const url = await upstream(other, (_req, res) => res.end('no'));
     // The server's CA is `other`'s, but the file's CA is `other`'s too, so only the client certificate is wrong.
     const h = await runHelper(configFor(p, url, 'Dana Lee', [other.caCert]), url);
-    const a = await viaHelper(h, 'GET', '/');
+    const a = await viaHelper(h, 'GET', PEERS);
     expect(a.status).toBe(502);
     expect(a.headers['x-podium-helper-error']).toMatch(/^(CLOSED_AFTER_HANDSHAKE|CLIENT_CERT_REJECTED)$/);
   });
@@ -214,7 +219,7 @@ describe('helper.mjs: a structured error for each kind of failure', () => {
       setTimeout(() => res.socket?.destroy(), 30);
     });
     const h = await runHelper(configFor(p, url), url);
-    const a = await viaHelper(h, 'GET', '/');
+    const a = await viaHelper(h, 'GET', PEERS);
     expect(a.aborted).toBe(true);
   });
 
@@ -255,12 +260,12 @@ describe('helper.mjs: identity and lifetime', () => {
     });
     const h = await runHelper(configFor(p, url), url);
     const file = (h.proc.spawnargs[2] as string);
-    await viaHelper(h, 'GET', '/');
+    await viaHelper(h, 'GET', PEERS);
     const renewed = buildReporterConfig({ user: 'Dana Lee', server: url, issuedAt: Date.now() + 5000, cert: second.cert, key: second.key, info: second.info, caCerts: [p.caCert] }).content;
     fs.writeFileSync(file, renewed, { mode: 0o600 });
-    await viaHelper(h, 'GET', '/');
+    await viaHelper(h, 'GET', PEERS);
     fs.writeFileSync(file, 'broken', { mode: 0o600 });
-    await viaHelper(h, 'GET', '/');
+    await viaHelper(h, 'GET', PEERS);
     expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256, new X509Certificate(second.cert).fingerprint256, new X509Certificate(second.cert).fingerprint256]);
   });
 
@@ -270,15 +275,15 @@ describe('helper.mjs: identity and lifetime', () => {
     let release: () => void = () => {};
     const held = new Promise<void>((r) => (release = r));
     const url = await upstream(p, (req, res) => {
-      if (req.url === '/slow') void held.then(() => res.end('finished'));
+      if (req.url === SLOW) void held.then(() => res.end('finished'));
       else res.end('ok');
     });
     const h = await runHelper(configFor(p, url), url);
-    const slow = viaHelper(h, 'GET', '/slow');
+    const slow = viaHelper(h, 'GET', SLOW);
     await new Promise((r) => setTimeout(r, 100));
     const file = h.proc.spawnargs[2] as string;
     fs.writeFileSync(file, buildReporterConfig({ user: 'Dana Lee', server: url, issuedAt: Date.now() + 5000, cert: second.cert, key: second.key, info: second.info, caCerts: [p.caCert] }).content, { mode: 0o600 });
-    expect((await viaHelper(h, 'GET', '/')).body).toBe('ok');
+    expect((await viaHelper(h, 'GET', PEERS)).body).toBe('ok');
     release();
     const a = await slow;
     expect(a.body).toBe('finished');
@@ -297,7 +302,7 @@ describe('helper.mjs: identity and lifetime', () => {
     const file = h.proc.spawnargs[2] as string;
     const someoneElse = buildReporterConfig({ user: 'Ed', server: url, issuedAt: Date.now() + 5000, cert: second.cert, key: second.key, info: second.info, caCerts: [p.caCert] }).content;
     fs.writeFileSync(file, someoneElse, { mode: 0o600 });
-    await viaHelper(h, 'GET', '/');
+    await viaHelper(h, 'GET', PEERS);
     expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256]);
   });
 
@@ -349,6 +354,83 @@ describe('helper.mjs: identity and lifetime', () => {
   }, 20_000);
 });
 
+describe('helper.mjs: it forwards the reporter routes and nothing else (#668)', () => {
+  type Target = { method: string; path: string } | null;
+  const load = async () => (await import(/* @vite-ignore */ HELPER)) as { REPORTER_ROUTES: Array<[string, string]>; reporterTarget: (method: string | undefined, url: string | undefined) => Target };
+
+  it('holds the same list of routes as the server, so one cannot change without the other', async () => {
+    const { REPORTER_ROUTES } = await load();
+    expect(REPORTER_ROUTES).toEqual(REPORTER_ROUTE_TEMPLATES.map(([m, p]) => [m, p]));
+  });
+
+  it('rebuilds the request target from the matched route: its method and fixed parts, the person’s ids, and a plain query', async () => {
+    const { reporterTarget } = await load();
+    expect(reporterTarget('POST', '/api/fleet/report')).toEqual({ method: 'POST', path: '/api/fleet/report' });
+    expect(reporterTarget('POST', '/API/Fleet/Report//')).toEqual({ method: 'POST', path: '/api/fleet/report' });
+    expect(reporterTarget('GET', '/api/fleet/sessions/Ab%20c-1/asks/a1/answer?wait=25')).toEqual({ method: 'GET', path: '/api/fleet/sessions/Ab%20c-1/asks/a1/answer?wait=25' });
+    expect(reporterTarget('PUT', '/api/fleet/sessions/s1/diffs/d.1')).toEqual({ method: 'PUT', path: '/api/fleet/sessions/s1/diffs/d.1' });
+  });
+
+  it('says no to every other route, method, address form and id that could change where the request goes', async () => {
+    const { reporterTarget } = await load();
+    for (const [m, u] of [
+      ['GET', '/api/fleet/ping'],
+      ['GET', '/api/fleet/report'],
+      ['DELETE', '/api/fleet/report'],
+      ['POST', '/api/reporter/renew'],
+      ['POST', '/api/admin/people'],
+      ['POST', '//evil.example/api/fleet/report'],
+      ['POST', 'http://evil.example/api/fleet/report'],
+      ['POST', '*'],
+      ['POST', '/api//fleet/report'],
+      ['POST', '/api/fleet/report/x'],
+      ['GET', '/api/fleet/sessions//peers'],
+      ['GET', '/api/fleet/sessions/../peers'],
+      ['GET', '/api/fleet/sessions/./peers'],
+      ['GET', '/api/fleet/sessions/%2e%2E/peers'],
+      ['GET', '/api/fleet/sessions/a%2Fb/peers'],
+      ['GET', '/api/fleet/sessions/a%5cb/peers'],
+      ['GET', '/api/fleet/sessions/a\\b/peers'],
+      ['GET', '/api/fleet/sessions/a b/peers'],
+      ['GET', '/api/fleet/sessions/s1/peers?a=b#frag'],
+      ['GET', '/api/fleet/sessions/s1/peers?a=\r\nHost: x'],
+      [undefined, '/api/fleet/report'],
+      ['POST', undefined],
+    ] as Array<[string | undefined, string | undefined]>) expect(reporterTarget(m, u), `${m} ${u}`).toBeNull();
+  });
+
+  it('answers 403 to a route that is not a reporter route, and sends nothing upstream', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push(`${req.method} ${req.url}`);
+      res.end('{}');
+    });
+    const h = await runHelper(configFor(p, url), url);
+    for (const [m, u] of [['GET', '/api/fleet/ping'], ['POST', '//evil.example/api/fleet/report'], ['POST', '/api/reporter/renew'], ['GET', '/api/fleet/sessions/%2e%2e/peers']]) {
+      const r = await viaHelper(h, m, u, m === 'POST' ? '{}' : undefined);
+      expect(r.status, `${m} ${u}`).toBe(403);
+      expect(JSON.parse(r.body)).toMatchObject({ error: 'ROUTE_NOT_ALLOWED' });
+    }
+    expect((await viaHelper(h, 'POST', '/api/fleet/report', '{}')).status).toBe(200);
+    expect(seen).toEqual(['POST /api/fleet/report']);
+  });
+});
+
+describe('helper.mjs: headerUser', () => {
+  it('reads the name from the user line, line by line, however many blanks surround it', async () => {
+    const { headerUser } = (await import(/* @vite-ignore */ HELPER)) as { headerUser: (t: string) => string };
+    expect(headerUser('# podium-reporter-config v1\n# user: Dana Lee \n# server: x\n')).toBe('Dana Lee');
+    expect(headerUser('#user:Dana\r\n')).toBe('Dana');
+    expect(headerUser('# user:\n#   user:   Second   \n')).toBe('Second');
+    expect(headerUser('x # user: no\n# users: no\n')).toBe('');
+    expect(headerUser('')).toBe('');
+    const t = process.hrtime.bigint();
+    headerUser(`${'#'.repeat(100000)}\n${'#' + ' \n'.repeat(50000)}#${' '.repeat(100000)}!`);
+    expect(Number(process.hrtime.bigint() - t) / 1e6).toBeLessThan(250);
+  });
+});
+
 describe('helper.mjs: classifyError', () => {
   it('names the failures a person can act on', async () => {
     const { classifyError } = (await import(/* @vite-ignore */ HELPER)) as { classifyError: (e: { code?: string; message?: string }) => string };
@@ -396,7 +478,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     res.status(o.renewStatus).json({ ok: false, code: o.renewStatus === 429 ? 'TOO_SOON' : undefined });
   });
   app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
-  app.get('/api/fleet/ping', (req, res) => {
+  app.get('/api/fleet/sessions/s1/peers', (req, res) => {
     const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
     seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');
     res.json({ ok: true });
@@ -441,7 +523,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(f.text).toContain(`# expires: ${new Date(person.validTo).toISOString()}`);
     expect(r.live()).toHaveLength(2);
     // the next request is made with the new certificate
-    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(a.status).toBe(200);
     expect(r.seen.at(-1)).toBe(person.fingerprint256);
     // the old certificate still works until it expires
@@ -452,7 +534,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const r = await renewing({ days: 60 });
     const h = await runHelper(configFor(r.p, r.url), r.url);
     const before = fs.readFileSync(h.config, 'utf8');
-    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
     expect(r.live()).toHaveLength(1);
@@ -463,7 +545,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const r = await renewing({ days: 30 });
     const original = configFor(r.p, r.url);
     const h = await runHelper(original, r.url);
-    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
     expect(r.live()).toHaveLength(1);
@@ -477,7 +559,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const h = await runHelper(configFor(r.p, r.url), r.url);
     const before = fs.readFileSync(h.config, 'utf8');
     const expiredOn = new Date(Date.now() - to * DAY).toISOString().slice(0, 10);
-    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(a.status).toBe(502);
     expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
     expect(a.body).toContain(expiredOn);
@@ -487,7 +569,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
     expect(r.live()).toHaveLength(1);
     // it says the same on every request, and still asks the server for nothing
-    const b = await viaHelper(h, 'GET', '/api/fleet/ping');
+    const b = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(b.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
     expect(r.calls()).toBe(0);
   }, 30_000);
@@ -498,7 +580,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const forged = signClientDated({ ...makeForgerCa(work), keyId: r.person.keyId, from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY, serial: `0x${new X509Certificate(r.p.person.cert).serialNumber}` });
     const h = await runHelper(configFor({ ...r.p, person: { ...forged, info: describeCert(forged.cert) } }, r.url), r.url);
     const before = fs.readFileSync(h.config, 'utf8');
-    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
+    const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(a.status).toBe(502);
     expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
     expect(r.calls()).toBe(0);
@@ -510,7 +592,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const r = await renewing({ days: 1 }, { renewStatus: 503 });
     const h = await runHelper(configFor(r.p, r.url), r.url, DUE);
     const before = fs.readFileSync(h.config, 'utf8');
-    expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
   }, 30_000);
@@ -520,7 +602,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const original = configFor(r.p, r.url);
     const h = await runHelper(original, r.url, DUE);
     await until(() => r.calls() >= 1, 'it asked once');
-    for (let i = 0; i < 3; i++) expect((await viaHelper(h, 'GET', '/api/fleet/ping')).status).toBe(200);
+    for (let i = 0; i < 3; i++) expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(r.calls()).toBe(1);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
@@ -532,7 +614,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     const a = await runHelper(original, r.url, DUE);
     const b = await runHelper('', r.url, DUE, 0o600, a.config);
     const before = original;
-    const [ra, rb] = await Promise.all([viaHelper(a, 'GET', '/api/fleet/ping'), viaHelper(b, 'GET', '/api/fleet/ping')]);
+    const [ra, rb] = await Promise.all([viaHelper(a, 'GET', '/api/fleet/sessions/s1/peers'), viaHelper(b, 'GET', '/api/fleet/sessions/s1/peers')]);
     expect([ra.status, rb.status]).toEqual([200, 200]);
     await until(() => fs.readFileSync(a.config, 'utf8') !== before, 'the file is rewritten');
     await new Promise((res) => setTimeout(res, 500));
@@ -546,8 +628,8 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(fs.readdirSync(path.dirname(a.config)).filter((n) => n.includes('.tmp'))).toEqual([]);
     // both sessions now use the file's certificate
     r.seen.length = 0;
-    await viaHelper(a, 'GET', '/api/fleet/ping');
-    await viaHelper(b, 'GET', '/api/fleet/ping');
+    await viaHelper(a, 'GET', '/api/fleet/sessions/s1/peers');
+    await viaHelper(b, 'GET', '/api/fleet/sessions/s1/peers');
     expect(r.seen).toEqual([person.fingerprint256, person.fingerprint256]);
   }, 40_000);
 

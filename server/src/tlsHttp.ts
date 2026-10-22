@@ -5,26 +5,43 @@ import type { Logger } from './logging/logger.js';
 import { isLoopback } from './hostCheck.js';
 import { REPORTING_MS } from './fleet/reporters.js';
 
-const SESSION = '/api/fleet/sessions/[^/]+';
-/** The calls the mod makes, each behind the reporter's credential: reports, hooks, and the held requests for peers and answers. */
-const REPORTER_ROUTES: Array<[string, RegExp]> = [
-  ['POST', /^\/api\/fleet\/(report|hook)$/],
-  ['GET', new RegExp(`^${SESSION}/peers$`)],
-  ['POST', new RegExp(`^${SESSION}/peers/(messages|access|requests/[^/]+|deliveries/[^/]+/result)$`)],
-  ['PUT', new RegExp(`^${SESSION}/(diffs|asks)/[^/]+$`)],
-  ['GET', new RegExp(`^${SESSION}/asks/[^/]+/answer$`)],
-  ['POST', new RegExp(`^${SESSION}/recording$`)],
-  ['POST', new RegExp(`^${SESSION}/(asks/[^/]+/close|deliveries/[^/]+/result)$`)],
+/**
+ * The calls the mod makes, each behind the reporter's credential: reports, hooks, and the held requests for peers and answers.
+ * `:id` stands for one path segment. The mod's helper (`mod/podium-reporter/hooks/helper.mjs`) forwards only these and keeps a copy
+ * of the list; `reporterHelper.test.ts` fails if the two differ, the way `protocol.test.ts` does for the protocol block (#668).
+ */
+export const REPORTER_ROUTE_TEMPLATES: ReadonlyArray<readonly [method: string, path: string]> = [
+  ['POST', '/api/fleet/report'],
+  ['POST', '/api/fleet/hook'],
+  ['GET', '/api/fleet/sessions/:id/peers'],
+  ['POST', '/api/fleet/sessions/:id/peers/messages'],
+  ['POST', '/api/fleet/sessions/:id/peers/access'],
+  ['POST', '/api/fleet/sessions/:id/peers/requests/:id'],
+  ['POST', '/api/fleet/sessions/:id/peers/deliveries/:id/result'],
+  ['PUT', '/api/fleet/sessions/:id/diffs/:id'],
+  ['PUT', '/api/fleet/sessions/:id/asks/:id'],
+  ['GET', '/api/fleet/sessions/:id/asks/:id/answer'],
+  ['POST', '/api/fleet/sessions/:id/recording'],
+  ['POST', '/api/fleet/sessions/:id/asks/:id/close'],
+  ['POST', '/api/fleet/sessions/:id/deliveries/:id/result'],
 ];
+const REPORTER_ROUTES: Array<[string, RegExp]> = REPORTER_ROUTE_TEMPLATES.map(([method, path]) => [method, new RegExp(`^${path.replaceAll(':id', '[^/]+')}$`)]);
+
+/** `s` without the `/` characters at its end. A loop, not `/\/+$/`, which is quadratic on a long run of slashes followed by another character. */
+export const trimTrailingSlashes = (s: string): string => {
+  let end = s.length;
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+  return s.slice(0, end);
+};
 
 /** Express routes case-insensitively and ignores one trailing slash, so the match must too, or `/API/fleet/report/` would slip past the gate. */
 export const isReporterRoute = (method: string, path: string): boolean => {
-  const p = path.toLowerCase().replace(/\/+$/, '');
+  const p = trimTrailingSlashes(path.toLowerCase());
   return REPORTER_ROUTES.some(([m, re]) => m === method && re.test(p));
 };
 
 /** `POST /api/reporter/renew`, matched the way Express does (case-insensitive, one trailing slash ignored). */
-export const isRenewRoute = (path: string): boolean => path.toLowerCase().replace(/\/+$/, '') === '/api/reporter/renew';
+export const isRenewRoute = (path: string): boolean => trimTrailingSlashes(path.toLowerCase()) === '/api/reporter/renew';
 
 /** Whether a request came in over the HTTPS listener (the socket, never a forwarded header). */
 export const isEncrypted = (req: Pick<Request, 'socket'>): boolean => (req.socket as { encrypted?: boolean }).encrypted === true;

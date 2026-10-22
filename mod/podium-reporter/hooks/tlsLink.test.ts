@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { findConfig, findNode, problemFor, startLink, type FoundConfig, type LinkEngine } from './tlsLink.ts'
+import { findConfig, findNode, problemFor, problemFromStartup, startLink, type FoundConfig, type LinkEngine } from './tlsLink.ts'
 
 const NOW = Date.parse('2026-02-01T00:00:00Z')
 
@@ -344,3 +344,25 @@ describe('starting the helper (#584)', () => {
     await expect(link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })).rejects.toThrow()
   })
 })
+
+describe('S8786: no regex that backtracks on a long input', () => {
+  test('a home folder ending in a long run of slashes is trimmed in linear time', async () => {
+    const t = performance.now()
+    await findNode(fake({}).$, { home: `${'/'.repeat(100000)}x` } as never)
+    expect(performance.now() - t).toBeLessThan(250)
+  })
+
+  test('the helper’s startup line gives its code and message, and anything else is the helper having stopped', () => {
+    expect(problemFromStartup('error CONFIG_PERMISSIONS', '/p').code).toBe('CONFIG_PERMISSIONS')
+    expect(problemFromStartup('  error CONFIG_INVALID   no key here ', '/p').text).toContain('cannot be used: no key here.')
+    expect(problemFromStartup('error CONFIG_MISSING', '/p').code).toBe('CONFIG_MISSING')
+    expect(problemFromStartup('error X boom', '/p').text).toBe('The Podium connection helper stopped: boom. It restarts on the next session.')
+    expect(problemFromStartup('error X', '/p').text).toContain('stopped: X.')
+    expect(problemFromStartup('what', '/p').code).toBe('HELPER_EXITED')
+    expect(problemFromStartup('error ', '/p').code).toBe('HELPER_EXITED')
+    const t = performance.now()
+    problemFromStartup(`error ${'a'.repeat(100000)}${' '.repeat(100000)}!`, '/p')
+    expect(performance.now() - t).toBeLessThan(250)
+  })
+})
+

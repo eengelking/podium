@@ -494,6 +494,8 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(ask).toHaveTextContent("Retire the old CA?");
     expect(ask).toHaveTextContent("The 2 reporters still on the old CA are refused at once, and open connections are closed.");
     expect(ask).toHaveTextContent("The 4 that already renewed are not affected.");
+    // Focus moves to the confirming button in code, not with autoFocus (#668).
+    expect(within(ask).getByRole("button", { name: "Retire old CA" })).toHaveFocus();
     fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Retire the old CA?")).toBeNull();
     expect(srv.certBodies).toEqual([]);
@@ -545,6 +547,8 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(ask).toHaveTextContent("Rotate the certificate authority?");
     expect(ask).toHaveTextContent("keep working for 120 days");
     expect(within(ask).getByRole("button", { name: "Rotate CA and end the overlap now" })).toBeEnabled();
+    // The safe choice takes focus, moved in code rather than with autoFocus (#668).
+    expect(within(ask).getByRole("button", { name: "Cancel" })).toHaveFocus();
     fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(srv.certBodies).toEqual([]);
   });

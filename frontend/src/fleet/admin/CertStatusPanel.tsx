@@ -1,6 +1,6 @@
 // Admin > Server > Certificates, the Status section (#586): the alert band, the CA and serving rows, the CA fingerprint and
 // the names dialog. The markup is the accepted mockup's (mockup/podium-tls-certificates.html).
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { IconCertCross, IconCheck, IconClock, IconCopy, IconWarn } from "../components/Icons";
 import { useCopy } from "../components/SessionId";
 import { CertBadge } from "./CertIcons";
@@ -65,6 +65,11 @@ function Fingerprint({ value }: { value: string }) {
 export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now: number; onRetire: () => Promise<void> }) {
   const [names, setNames] = useState(false);
   const [asking, setAsking] = useState(false);
+  const retireBtn = useRef<HTMLButtonElement>(null);
+  // The confirmation takes focus when it opens: moved in code, not with autoFocus, which Sonar flags (S9379).
+  useEffect(() => {
+    if (asking) retireBtn.current?.focus();
+  }, [asking]);
   const rot = view.rotation ?? null;
   const { ca, serving } = view;
   const band = bandOf(view, now);
@@ -188,9 +193,9 @@ export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now:
             </p>
             <p className="formacts">
               <button
+                ref={retireBtn}
                 type="button"
                 className="btn dng"
-                autoFocus
                 onClick={() => {
                   setAsking(false);
                   void onRetire();

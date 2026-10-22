@@ -347,3 +347,13 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     expect(certs.reportersByIssuer(now - 30 * 86_400_000)).toEqual({ total: 1, byIssuer: { old: 1 } });
   });
 });
+
+describe('fileSafe edges (S8786)', () => {
+  it('trims leading and trailing dashes and dots without backtracking', () => {
+    const t = process.hrtime.bigint();
+    fileSafe(`${'-'.repeat(100000)}x${'-'.repeat(100000)}!`);
+    expect(Number(process.hrtime.bigint() - t) / 1e6).toBeLessThan(250);
+    expect(fileSafe('..-a.b-..')).toBe('a.b');
+    expect(fileSafe('---')).toBe('person');
+  });
+});

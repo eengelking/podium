@@ -1,6 +1,7 @@
 // Finding and reading the header of the reporter config file (SPEC 5.9, #577). Only the header lines are read here: the
 // helper (helper.mjs) parses the PEM blocks by role and checks the file's mode, because only Node can tell a CA certificate
 // from a person's and stat a mode.
+import { trimTrailingSlashes } from './machine.ts';
 
 export const CONFIG_HEADER = '# podium-reporter-config v1';
 /** macOS holds a Unix socket path to 104 bytes including the terminator, Linux to 108. */
@@ -23,8 +24,11 @@ export function parseConfigHeaders(text: string): ConfigHeaders | null {
   const h = new Map<string, string>();
   for (const line of lines.slice(1)) {
     if (!line.startsWith('#')) break;
-    const m = /^#\s*([a-z-]+):\s*(.*)$/.exec(line);
-    if (m?.[1] && !h.has(m[1])) h.set(m[1], (m[2] ?? '').trim());
+    // `# key: value`: the name is lowercase letters and dashes up to the first colon. String methods, not one regex, so a long run of spaces cannot backtrack.
+    const body = line.slice(1).trimStart();
+    const colon = body.indexOf(':');
+    const key = colon > 0 ? body.slice(0, colon) : '';
+    if (/^[a-z-]+$/.test(key) && !h.has(key)) h.set(key, body.slice(colon + 1).trim());
   }
   const user = h.get('user');
   const server = h.get('server');
@@ -57,7 +61,7 @@ export function newestConfig(files: ConfigCandidate[]): { path: string; headers:
 
 /** `~/.podium/`, also podiumctl's home. */
 export function podiumHome(home: string): string {
-  return `${home.replace(/\/+$/, '')}/.podium`;
+  return `${trimTrailingSlashes(home)}/.podium`;
 }
 
 /** A short, stable name for a session id: the id can be long and a socket path cannot. */
@@ -69,7 +73,7 @@ function shortId(id: string): string {
 
 /** One socket per session inside the helper's private directory. */
 export function socketPathFor(dir: string, sessionId: string): string {
-  return `${dir.replace(/\/+$/, '')}/${shortId(sessionId)}.sock`;
+  return `${trimTrailingSlashes(dir)}/${shortId(sessionId)}.sock`;
 }
 
 /** The length of a string in UTF-8 bytes: a socket path is limited in bytes, and a home folder can hold any character. */
