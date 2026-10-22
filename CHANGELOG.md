@@ -14,12 +14,6 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
-### Fixed
-
-- **`podiumctl` prints a secret through its own helper, and its health check only calls the machine's own server (#676).** `podiumctl token` and `config --show-token` write the secret they were asked for with `process.stdout.write`, so no other message can route one into `console.log` (`js/clear-text-logging`). The health check calls `127.0.0.1` for a wildcard bind (`0.0.0.0`, `::` or empty, which used to produce an unusable `http://::` address) and brackets an IPv6 bind. It refuses a bind that is neither an IP address nor a plain host name (`js/file-access-to-http`). Output is unchanged.
-
-- **Open CodeQL alerts are resolved in code (#676).** A tool name from a hook payload and a model id from the Admin are held in a `Map`, so none can reach an inherited property (`js/remote-property-injection`). The route that serves `index.html` is limited to 600 page fetches a minute per address (`js/missing-rate-limiting`). The inline-script finder ends a script at `</script >` as well as `</script>`, so a page that uses one still gets the right CSP hashes (`js/bad-tag-filter`). The two `typescript:S6845` warnings on the activity feed and the Facts bar are annotated.
-
 ## [1.3.0] - 2026-10-22
 
 ### Added
@@ -166,6 +160,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - The Markdown linearity test is less sensitive to a contended CI runner: it takes the best of five measurements, allows a ratio below 10, remeasures a case once only if the first ratio exceeds the limit, and cleans up each render outside the timed interval so large DOM trees do not accumulate. A quadratic renderer still measures near 16 and fails (#514).
 
 - The three SonarCloud issues that held Security and Reliability at C on `main` are fixed in code (#515). The machine id no longer falls back to `Math.random()` when the sandbox has no `crypto`; `/podium name` uses a pattern whose parts cannot overlap; and the wall button's fullscreen request no longer sits in a `try` that Sonar flagged. The id is still 12 hex characters, and a refused or missing fullscreen still leaves wall mode on and fullscreen off.
+
+- **`podiumctl` prints a secret through its own helper, and its health check only calls the machine's own server (#676).** `podiumctl token` and `config --show-token` write the secret they were asked for with `process.stdout.write`, so no other message can route one into `console.log` (`js/clear-text-logging`). The health check calls `127.0.0.1` for a wildcard bind (`0.0.0.0`, `::` or empty, which used to produce an unusable `http://::` address) and brackets an IPv6 bind. It refuses a bind that is neither an IP address nor a plain host name (`js/file-access-to-http`). Output is unchanged.
+
+- **Open CodeQL alerts are resolved in code (#676).** A tool name from a hook payload and a model id from the Admin are held in a `Map`, so none can reach an inherited property (`js/remote-property-injection`). The route that serves `index.html` is limited to 600 page fetches a minute per address (`js/missing-rate-limiting`). The inline-script finder ends a script at `</script >` as well as `</script>`, so a page that uses one still gets the right CSP hashes (`js/bad-tag-filter`). The two `typescript:S6845` warnings on the activity feed and the Facts bar are annotated.
 
 ## [1.2.2] - 2026-10-19
 
