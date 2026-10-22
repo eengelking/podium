@@ -330,13 +330,17 @@ function ensureToken(cfg) {
   return { ...cfg, token };
 }
 
-const dashUrl = (cfg) => `http://${cfg.bind === '0.0.0.0' ? '127.0.0.1' : cfg.bind}:${cfg.port}`;
+/** The address this machine calls to reach its own server: a wildcard bind is called on loopback, an IPv6 address is bracketed. */
+const callHost = (bind) => {
+  if (['0.0.0.0', '::', ''].includes(bind)) return '127.0.0.1';
+  return net.isIPv6(bind) ? `[${bind}]` : bind;
+};
+const dashUrl = (cfg) => `http://${callHost(cfg.bind)}:${cfg.port}`;
 
 async function healthy(cfg, timeoutMs = 2000) {
   try {
-    // Only ever the machine's own server: a wildcard or loopback bind is called on 127.0.0.1, any other bind must be an IP address (CodeQL js/file-access-to-http).
-    const host = ['0.0.0.0', '::', ''].includes(cfg.bind) ? '127.0.0.1' : cfg.bind;
-    if (net.isIP(host.replace(/^\[|\]$/g, '')) === 0 && host !== 'localhost') return false;
+    // Only the address the server was told to bind: a wildcard is called on 127.0.0.1, and a bind that is neither an IP address nor a plain host name is refused (CodeQL js/file-access-to-http).
+    if (!net.isIP(cfg.bind.replace(/^\[|\]$/g, '')) && !/^[A-Za-z0-9.-]+$/.test(cfg.bind)) return false;
     const r = await fetch(`${dashUrl(cfg)}/api/fleet/state`, { signal: AbortSignal.timeout(timeoutMs) });
     return r.ok;
   } catch { return false; }
@@ -354,7 +358,7 @@ async function waitHealthy(cfg, seconds = 30, abort = () => false) {
 /** True if something accepts TCP connections on the configured bind address and port. */
 function portInUse(cfg, timeoutMs = 1000) {
   return new Promise((resolve) => {
-    const sock = net.connect({ host: cfg.bind === '0.0.0.0' ? '127.0.0.1' : cfg.bind, port: cfg.port });
+    const sock = net.connect({ host: callHost(cfg.bind).replace(/^\[|\]$/g, ''), port: cfg.port });
     const done = (used) => { sock.destroy(); resolve(used); };
     sock.setTimeout(timeoutMs, () => done(false));
     sock.once('connect', () => done(true));

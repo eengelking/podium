@@ -14,6 +14,17 @@ function ctl(home: string, ...args: string[]) {
   return spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8", env: { ...process.env, PODIUMCTL_HOME: home } });
 }
 
+describe("podiumctl url (#676)", () => {
+  it.each([["0.0.0.0", "http://127.0.0.1:4391"], ["::", "http://127.0.0.1:4391"], ["::1", "http://[::1]:4391"], ["myhost.local", "http://myhost.local:4391"]])("calls a %s bind on %s", (bind, url) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-"));
+    try {
+      expect(ctl(home, "url", "--mode", "standalone", "--bind", bind, "--port", "4391").stdout.trim()).toBe(url);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("podiumctl parsing", () => {
   it("splits command, args and flags", () => {
     expect(parseArgs(["logs", "-f", "--tail", "5", "--mode=standalone"])).toEqual({
