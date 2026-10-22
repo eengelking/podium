@@ -1,5 +1,5 @@
 // Built-in TLS (#577, T10): rotating the CA. A planned rotation makes a new CA, signs a cross certificate for it with the old
-// one, and for the length of the overlap trusts both CAs for client certificates and presents [new leaf, cross certificate],
+// one, and for the length of the overlap (until the cross certificate expires or the old CA is retired) trusts both CAs for client certificates and presents [new leaf, cross certificate],
 // so a reporter that holds only the old CA still verifies the server. The old CA's key is not kept: it is overwritten by the
 // new one, and nothing after the cross certificate is signed with it. Ending the overlap (a leaked key, or the Admin retiring
 // the old CA) removes the old CA, and the cross certificate with it.
@@ -86,9 +86,9 @@ export class TrustStore {
     return this.previous;
   }
 
-  /** The CAs a client certificate may come from: the current one, then the previous one during an overlap. */
+  /** The CAs a client certificate may come from: the current one, then the previous one while the cross certificate is valid (#657). */
   caCerts(): string[] {
-    return this.previous ? [this.current, this.previous] : [this.current];
+    return this.previous && this.crossLive() ? [this.current, this.previous] : [this.current];
   }
 
   /** SHA-256 fingerprints of `caCerts()`, the form a stored certificate's issuer is kept in. */

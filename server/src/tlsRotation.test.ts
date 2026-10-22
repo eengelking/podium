@@ -162,6 +162,20 @@ describe('two CAs, one source of trust', () => {
     expect(fs.existsSync(path.join(dir, 'previous-ca.crt'))).toBe(false);
   });
 
+  it('stops trusting the old CA for client certificates the day after the cross certificate expires (#657)', async () => {
+    const { dir, oldCa } = await setup();
+    await rotateCa({ dir, names, servingDays: 365, endOverlap: false });
+    let clock = Date.now();
+    const trust = new TrustStore(dir, () => clock);
+    const nextFp = new X509Certificate(trust.currentCa()).fingerprint256;
+    const notAfter = Date.parse(new X509Certificate(fs.readFileSync(path.join(dir, 'cross.crt'), 'utf8')).validTo);
+    clock = notAfter - DAY;
+    expect(trust.caCerts()).toEqual([trust.currentCa(), oldCa]);
+    clock = notAfter + DAY;
+    expect(trust.caCerts()).toEqual([trust.currentCa()]);
+    expect(trust.trustedIssuers()).toEqual([nextFp]);
+  });
+
   it('describes the overlap for the Admin page', async () => {
     const { dir, oldCa } = await setup();
     const startedAt = Date.parse('2026-10-21T12:00:00Z');

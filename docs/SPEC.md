@@ -2894,7 +2894,7 @@ CA cannot be rotated with an overlap, **Rotate CA** is disabled with that reason
 and end the overlap now** is open. The cutover makes a `pathlen:1` CA, so the next rotation can be planned (#638). A new CA's subject is `CN=Podium CA <date>`, so two
 CAs in one overlap can be told apart. Only one overlap is open at a time. The old CA's key is not kept: the planned
 rotation replaces `ca.key` and nothing is signed with the old key afterwards. The listener, the serving renewer, the
-check on each request and the CA(s) in a new config all read one list of trusted CAs, so they cannot disagree. It trusts both CAs for client certificates, and the new CA
+check on each request and the CA(s) in a new config all read one list of trusted CAs, so they cannot disagree. It trusts both CAs for client certificates until the cross certificate expires (its 120 days end the overlap by themselves) or the Admin retires the old CA, whichever comes first, and the new CA
 reaches reporters in the renewal response ([6](#authenticating-by-certificate-577)). The Admin retires the old CA
 when none are left; the page counts the reporters still on it (each person once, by their newest live certificate), and
 retiring refuses them at once and closes the open connections that came in on a certificate the old CA signed. After a leaked CA key there is no overlap (**Rotate CA and end the overlap now**): a hard cutover, no

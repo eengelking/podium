@@ -527,7 +527,7 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
       if (!el) throw new Error("no band");
       return el as HTMLElement;
     });
-    expect(b).toHaveTextContent(`verifies until ${view.rotation!.cross.notAfter.slice(0, 10)}. A reporter that does not connect before then, and before its own 30-day grace ends, is refused, and its person needs a reissued reporter config.`);
+    expect(b).toHaveTextContent(`verifies, until ${view.rotation!.cross.notAfter.slice(0, 10)} or until you retire it. A reporter that does not connect before then, and before its own 30-day grace ends, is refused, and its person needs a reissued reporter config.`);
   });
 
   it("uses the grace period the server reports in that sentence (#637)", async () => {
