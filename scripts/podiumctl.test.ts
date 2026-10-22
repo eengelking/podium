@@ -491,7 +491,7 @@ describe("podiumctl CLI", () => {
 
 describe("podiumctl covers every server setting (#157)", () => {
   // Read by the server but not a user setting: podiumctl sets it itself in the container (PODIUM_BUILD comes from the image build, #400).
-  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD"];
+  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD", "PODIUM_TLS_PUBLIC_PORT"];
   const serverSrc = path.join(__dirname, "..", "server", "src");
   function sources(dir: string): string[] {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -603,6 +603,9 @@ describe("podiumctl built-in TLS (#580)", () => {
     expect(args).toContain(`${tlsDir}:/data/tls`);
     expect(serverEnv(docker, true)).toMatchObject({ PODIUM_TLS: "on", PODIUM_TLS_PORT: "4318" });
     expect(serverEnv(docker, false)).toMatchObject({ PODIUM_TLS: "on", PODIUM_TLS_PORT: "8443" });
+    // The container listens on 4318, but a person reaches it on the host's port, and that is what a config file must name (#649).
+    expect(serverEnv(docker, true)).toMatchObject({ PODIUM_TLS_PUBLIC_PORT: "8443" });
+    expect(serverEnv(docker, false)).not.toHaveProperty("PODIUM_TLS_PUBLIC_PORT");
     expect(serverEnv(resolveConfig({}), true)).not.toHaveProperty("PODIUM_TLS");
   });
 

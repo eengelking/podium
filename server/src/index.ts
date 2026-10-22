@@ -32,7 +32,7 @@ import { parseTrustProxy } from "./trustProxy.js";
 import { tlsDir, warnIfTlsNotPersistent } from "./tlsStorage.js";
 import { PersonCertStore } from "./tlsClientAuth.js";
 import { createReporterRenewRouter } from "./tlsReporterRenew.js";
-import { startTls, type TlsListener } from "./tlsServer.js";
+import { publicTlsPort, startTls, type TlsListener } from "./tlsServer.js";
 import { TlsSettingsStore } from "./tlsRenew.js";
 import { createTlsStatusRouter } from "./tlsStatus.js";
 import { reporterHttpGate, ReporterTransport } from "./tlsHttp.js";
@@ -68,7 +68,7 @@ const reporterTransport = new ReporterTransport();
 const personCerts = new PersonCertStore(fleetDb.db);
 const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
-const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: tlsListener.port, caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
+const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsListener.port), caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
 const reporters = new ReporterStore(fleetDb.db, Date.now());
 const stopSweeper = startSweeper(
   fleet,

@@ -56,6 +56,15 @@ export function tlsPortFrom(raw: string | undefined, httpPort: number): { port: 
   return { port };
 }
 
+/**
+ * The HTTPS port people reach the server on, which a reporter config names. It differs from the listening port when the
+ * port is mapped, as `podiumctl` does for a container (`PODIUM_TLS_PUBLIC_PORT`); a value that is not a port is ignored.
+ */
+export function publicTlsPort(raw: string | undefined, listenPort: number): number {
+  const port = raw === undefined || raw === '' ? listenPort : Number(raw);
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : listenPort;
+}
+
 /** Starts HTTPS when `PODIUM_TLS=on`. Resolves to null when it is off or could not start; HTTP is never touched. */
 export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> {
   if (o.env.PODIUM_TLS !== 'on') return null;

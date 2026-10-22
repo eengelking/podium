@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { startTls, tlsPortFrom, type TlsListener } from './tlsServer.js';
+import { publicTlsPort, startTls, tlsPortFrom, type TlsListener } from './tlsServer.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -54,6 +54,18 @@ describe('tlsPortFrom', () => {
     expect(tlsPortFrom('abc', 4317)).toMatchObject({ error: expect.stringContaining('not a port') });
     expect(tlsPortFrom('70000', 4317)).toHaveProperty('error');
     expect(tlsPortFrom('4317', 4317)).toMatchObject({ error: expect.stringContaining('same as the HTTP port') });
+  });
+});
+
+describe('publicTlsPort', () => {
+  it('is the port people reach the server on: the public one when set, else the listening one', () => {
+    expect(publicTlsPort(undefined, 4318)).toBe(4318);
+    expect(publicTlsPort('', 4318)).toBe(4318);
+    expect(publicTlsPort('5318', 4318)).toBe(5318);
+  });
+  it('ignores a value that is not a port', () => {
+    expect(publicTlsPort('abc', 4318)).toBe(4318);
+    expect(publicTlsPort('70000', 4318)).toBe(4318);
   });
 });
 

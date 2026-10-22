@@ -13,7 +13,7 @@ import { createAdminRouter } from '../admin/adminRouter.js';
 import { createLogger } from '../logging/logger.js';
 import { PersonCertStore } from '../tlsClientAuth.js';
 import { TlsSettingsStore } from '../tlsRenew.js';
-import { startTls, type TlsListener } from '../tlsServer.js';
+import { publicTlsPort, startTls, type TlsListener } from '../tlsServer.js';
 import { openDb, FleetDb } from './db.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { ADMINISTRATORS_GROUP, PeopleStore } from './people.js';
@@ -35,7 +35,7 @@ const freePort = (): Promise<number> =>
     });
   });
 
-async function setup(opts: { tlsOn?: boolean; openssl?: string } = {}) {
+async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: string } = {}) {
   const tlsOn = opts.tlsOn ?? true;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-certe2e-'));
   cleanup.push(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -58,7 +58,7 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string } = {}) {
       certificates: {
         settings: new TlsSettingsStore(db),
         renewer: () => listener?.renewer ?? null,
-        people: { store, issuer: () => (tlsOn && listener ? { dir: path.join(root, 'tls'), port: listener.port, caCerts: () => [listener!.material.caCert], openssl } : null) },
+        people: { store, issuer: () => (tlsOn && listener ? { dir: path.join(root, 'tls'), port: publicTlsPort(opts.publicPort, listener.port), caCerts: () => [listener!.material.caCert], openssl } : null) },
       },
     }),
   );
@@ -106,6 +106,13 @@ const create = async (s: Awaited<ReturnType<typeof setup>>, name: string, groupI
 const logRows = (s: Awaited<ReturnType<typeof setup>>) => s.people.listLog({ page: 1, pageSize: 100 }).rows;
 
 describe('creating a person with TLS on', () => {
+  it('writes the public port, not the listening one, when the port is mapped (#649)', async () => {
+    const s = await setup({ publicPort: '5318' });
+    const body = await create(s, 'Dana Lee');
+    expect(body.config!.content.split('\n')[2]).toBe('# server: https://127.0.0.1:5318');
+    expect(s.port).not.toBe(5318);
+  });
+
   it('returns the config file once, in the format SPEC 5.9 gives, and keeps the certificate but never the key', async () => {
     const s = await setup();
     const body = await create(s, 'Dana Lee');

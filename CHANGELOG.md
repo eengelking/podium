@@ -94,6 +94,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **A reporter config names the HTTPS port people reach the server on, not the container's (#649, part of #577).** In container mode `podiumctl` always runs the server on 4318 inside and maps the host's `PODIUM_TLS_PORT` to it, so with `PODIUM_TLS_PORT=5318` every new config said `https://<host>:4318`, which nothing listens on. `podiumctl` now also sets `PODIUM_TLS_PUBLIC_PORT` to the host port in the container, and the server writes it into a person's config, in the Admin's Create user and in a reporter's renewal. Standalone is unchanged. Configs already issued with the wrong port need reissuing.
+
 - **The reporter says where a name that does not match its config file came from (#647, part of #577).** A session with no name already took the config file's name; "wrong config for this name" appears only when the session holds another one. The message now says whether that name is from the `userName` option, `PODIUM_USER` or the identity the session already holds, and to empty it so the session takes the file's name. `docs/SERVER.md` and `docs/REPORTER.md` no longer tell the person to set the name.
 
 - **A revoked certificate shows `certificate refused`, not `token refused` (#646, part of #577).** When a reporter that uses a config file gets a 401, the status line, `/podium` and the toast now say the server turned the certificate away and to ask an Admin to reissue the reporter config; `token refused` stays for a session with no config file. `docs/REPORTER.md`'s status table drops the `token refused` row for a revoked certificate and says what `certificate refused` covers.
