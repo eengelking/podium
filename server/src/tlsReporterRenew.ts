@@ -130,6 +130,7 @@ export function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): RenewAu
   }
   const person = d.people.getPerson(row.personId);
   if (!person) return refuse('NOT_RECOGNISED', 'client certificate belongs to a person who no longer exists');
+  if (person.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
   return { ok: true, person, cert: row, expired };
 }
 
@@ -202,7 +203,8 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
     void issueForPublicKey({ dir: issuer.dir, keyId: auth.person.keyId, publicKey: publicKey as string, days: d.settings().lifetimeDays, openssl: issuer.openssl })
       .then((issued) => {
         // Revoked, or the person removed, while OpenSSL was signing: do not hand a live certificate to someone who lost theirs.
-        if (d.certs.find(auth.cert.fingerprint)?.revokedAt !== null || !d.people.getPerson(auth.person.id)) {
+        const person = d.people.getPerson(auth.person.id);
+        if (d.certs.find(auth.cert.fingerprint)?.revokedAt !== null || !person || person.revokedAt !== null) {
           return void res.status(401).json({ ok: false, code: 'REVOKED', error: WORDS.REVOKED });
         }
         d.certs.add(auth.person.id, issued, d.now());

@@ -388,7 +388,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const t = certTarget(req, res);
     if (!t) return;
     try {
-      res.json({ ok: true, config: await issueAndLog(req, t.person, t.store, t.issuer) });
+      const config = await issueAndLog(req, t.person, t.store, t.issuer);
+      // A reissue brings a revoked person back; without it certAuth would refuse the new certificate.
+      if (people.restore(t.person.id)) audit(req, 'person_restored', `Restored ${t.person.name} by reissuing their certificate`, { person_id: t.person.id });
+      res.json({ ok: true, config });
     } catch (err) {
       logger.error('tls.issue_failed', `podium: could not issue a certificate: ${(err as Error).message}`, { person_id: t.person.id, reason: (err as Error).message });
       res.status(500).json({ ok: false, error: 'Podium could not make the certificate. The earlier one is still valid.' });
