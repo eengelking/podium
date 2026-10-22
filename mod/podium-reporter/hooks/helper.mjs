@@ -78,24 +78,32 @@ export function parseConfig(text) {
   return { ca, cert, key, user, notAfter: Date.parse(new X509Certificate(cert).validTo), notBefore: Date.parse(new X509Certificate(cert).validFrom) };
 }
 
-/** Reads the file, refusing one that group or others can read (the key is in it, as `ssh` does with a private key). */
+/**
+ * Reads the file, refusing one that group or others can read (the key is in it, as `ssh` does with a private key). The mode is
+ * read from the open file, not from its path, so the file checked is the file read.
+ */
 function readConfig(file) {
-  let st;
+  let fd;
   try {
-    st = fs.statSync(file);
+    fd = fs.openSync(file, 'r');
   } catch (err) {
     throw new StartError('CONFIG_MISSING', `cannot read ${file}: ${err.code ?? err.message}`);
   }
-  if (process.platform !== 'win32' && (st.mode & 0o077) !== 0) {
-    throw new StartError('CONFIG_PERMISSIONS', `${file} is readable by others (mode ${(st.mode & 0o777).toString(8)}); run: chmod 600 ${file}`);
-  }
-  let text;
   try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch (err) {
-    throw new StartError('CONFIG_MISSING', `cannot read ${file}: ${err.code ?? err.message}`);
+    const st = fs.fstatSync(fd);
+    if (process.platform !== 'win32' && (st.mode & 0o077) !== 0) {
+      throw new StartError('CONFIG_PERMISSIONS', `${file} is readable by others (mode ${(st.mode & 0o777).toString(8)}); run: chmod 600 ${file}`);
+    }
+    let text;
+    try {
+      text = fs.readFileSync(fd, 'utf8');
+    } catch (err) {
+      throw new StartError('CONFIG_MISSING', `cannot read ${file}: ${err.code ?? err.message}`);
+    }
+    return { ...parseConfig(text), mtimeMs: st.mtimeMs };
+  } finally {
+    fs.closeSync(fd);
   }
-  return { ...parseConfig(text), mtimeMs: st.mtimeMs };
 }
 
 /** One keep-alive agent per config; verification is forced on, whatever the environment says. */

@@ -4,13 +4,25 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-/** `20260404183519Z`: the form `openssl x509 -not_before` and `-not_after` take. */
+/** `20260404183519Z`: the form `openssl ca -startdate` and `-enddate` take. */
 export const opensslStamp = (ms: number): string => new Date(ms).toISOString().replaceAll(/[-:T]|\.\d{3}/g, '');
 
 /**
- * A client certificate with the dates given, signed by the CA files named (the real CA, or a forger's). Needs OpenSSL 3.4 or
- * later for `-not_before` and `-not_after`. Returns the certificate and its key.
+ * Signs a request with the dates given, for a test that needs a certificate the server would never issue (an expired one).
+ * `openssl ca` does this on any OpenSSL; `x509 -not_before` and `-not_after` need 3.4 or later, which a CI runner may not have.
+ * The paths are relative to `work` or absolute, and the certificate is written to `out`.
  */
+export function signDated(work: string, o: { csr: string; caCrt: string; caKey: string; extFile: string; ext: string; from: number; to: number; serial?: string; out: string }): void {
+  const at = (f: string) => path.resolve(work, f);
+  const db = fs.mkdtempSync(path.join(work, 'ca-db-'));
+  const serial = (o.serial ?? '1').replace(/^0x/i, '');
+  fs.writeFileSync(path.join(db, 'index.txt'), '');
+  fs.writeFileSync(path.join(db, 'serial'), `${serial.length % 2 ? '0' : ''}${serial}\n`);
+  fs.writeFileSync(path.join(db, 'ca.cnf'), `[ca]\ndefault_ca=c\n[c]\ndatabase=${db}/index.txt\nnew_certs_dir=${db}\nserial=${db}/serial\ndefault_md=sha256\npolicy=pol\nunique_subject=no\n[pol]\ncommonName=optional\norganizationName=optional\n`);
+  execFileSync('openssl', ['ca', '-batch', '-notext', '-preserveDN', '-config', path.join(db, 'ca.cnf'), '-cert', at(o.caCrt), '-keyfile', at(o.caKey), '-in', at(o.csr), '-startdate', opensslStamp(o.from), '-enddate', opensslStamp(o.to), '-extfile', at(o.extFile), '-extensions', o.ext, '-out', at(o.out)], { cwd: work, stdio: 'pipe' });
+}
+
+/** A client certificate with the dates given, signed by the CA files named (the real CA, or a forger's). Returns the certificate and its key. */
 export function signClientDated(o: { caCrt: string; caKey: string; keyId: string; from: number; to: number; serial?: string }): { cert: string; key: string } {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-dated-'));
   try {
@@ -18,7 +30,7 @@ export function signClientDated(o: { caCrt: string; caKey: string; keyId: string
     fs.writeFileSync(path.join(work, 'c.cnf'), '[v3]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
     run('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'k.pem');
     run('req', '-new', '-key', 'k.pem', '-subj', `/CN=pdm_${o.keyId}/O=podium`, '-out', 'c.csr');
-    run('x509', '-req', '-in', 'c.csr', '-CA', o.caCrt, '-CAkey', o.caKey, '-not_before', opensslStamp(o.from), '-not_after', opensslStamp(o.to), ...(o.serial ? ['-set_serial', o.serial] : []), '-extfile', 'c.cnf', '-extensions', 'v3', '-out', 'c.pem');
+    signDated(work, { csr: 'c.csr', caCrt: o.caCrt, caKey: o.caKey, extFile: 'c.cnf', ext: 'v3', from: o.from, to: o.to, serial: o.serial, out: 'c.pem' });
     return { cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });

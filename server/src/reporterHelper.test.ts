@@ -17,7 +17,7 @@ import { createLogger } from './logging/logger.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
 import { PersonCertStore } from './tlsClientAuth.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
-import { makeForgerCa, opensslStamp, signClientDated } from './tlsTesting.js';
+import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
 
 const HELPER = fileURLToPath(new URL('../../mod/podium-reporter/hooks/helper.mjs', import.meta.url));
@@ -588,8 +588,8 @@ async function rotating(variant: Variant) {
   run('req', '-new', '-key', 'new.key', '-subj', subj, '-out', 'new.csr');
   // the cross certificate: the new CA's name and key, signed by the old CA (or by a stranger's)
   const signer = variant === 'stranger-cross' ? makeForgerCa(work) : { caCrt: path.join(p.dir, 'ca.crt'), caKey: path.join(p.dir, 'ca.key') };
-  const dates = variant === 'expired-cross' ? ['-not_before', opensslStamp(Date.now() - 20 * DAY), '-not_after', opensslStamp(Date.now() - 10 * DAY)] : ['-days', '365'];
-  run('x509', '-req', '-in', 'new.csr', '-CA', signer.caCrt, '-CAkey', signer.caKey, ...dates, '-extfile', 'ca.cnf', '-extensions', 'v3_ca', '-out', 'cross.crt');
+  if (variant === 'expired-cross') signDated(work, { csr: 'new.csr', caCrt: signer.caCrt, caKey: signer.caKey, extFile: 'ca.cnf', ext: 'v3_ca', from: Date.now() - 20 * DAY, to: Date.now() - 10 * DAY, out: 'cross.crt' });
+  else run('x509', '-req', '-in', 'new.csr', '-CA', signer.caCrt, '-CAkey', signer.caKey, '-days', '365', '-extfile', 'ca.cnf', '-extensions', 'v3_ca', '-out', 'cross.crt');
   // a second CA with the same name but another key, to put in the rotation in place of the one the cross certificate vouches for
   run('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'other.key');
   run('req', '-new', '-x509', '-key', 'other.key', '-subj', subj, '-config', 'ca.cnf', '-extensions', 'v3_ca', '-days', '3650', '-out', 'other.crt');

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ensureTls, serverNames, TlsError } from './tlsCa.js';
 import { caCanOverlap, CROSS_DAYS, retireCa, rotateCa, TrustStore } from './tlsRotation.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { opensslStamp, writeLegacyCa } from './tlsTesting.js';
+import { signDated, writeLegacyCa } from './tlsTesting.js';
 
 const dirs: string[] = [];
 const scratch = (): string => {
@@ -269,7 +269,7 @@ describe('real handshakes', () => {
     // The cross certificate carries the new CA's subject and key.
     const subject = new X509Certificate(trust.currentCa()).subject.replaceAll('\n', '/');
     sh('req', '-new', '-key', path.join(dir, 'ca.key'), '-subj', `/${subject}`, '-out', 'cross.csr');
-    sh('x509', '-req', '-in', 'cross.csr', '-CA', 'old.crt', '-CAkey', 'old.key', '-not_before', opensslStamp(Date.now() - 200 * DAY), '-not_after', opensslStamp(Date.now() - 80 * DAY), '-set_serial', '9', '-extfile', 'c.cnf', '-extensions', 'x', '-out', 'cross.crt');
+    signDated(work, { csr: 'cross.csr', caCrt: 'old.crt', caKey: 'old.key', extFile: 'c.cnf', ext: 'x', from: Date.now() - 200 * DAY, to: Date.now() - 80 * DAY, serial: '9', out: 'cross.crt' });
     const expiredCross = fs.readFileSync(path.join(work, 'cross.crt'), 'utf8');
     const oldOnly = fs.readFileSync(path.join(work, 'old.crt'), 'utf8');
     const base = { cert: out.cert + expiredCross, key: out.key, ca: trust.caCerts() };

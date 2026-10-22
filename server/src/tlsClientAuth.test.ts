@@ -14,6 +14,7 @@ import { ensureTls, serverNames } from './tlsCa.js';
 import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
 import { buildReporterConfig, fileSafe, issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
 import { startTls, type TlsListener } from './tlsServer.js';
+import { signDated } from './tlsTesting.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -233,13 +234,13 @@ describe('certAuth on a real HTTPS listener', () => {
   it('refuses a genuine certificate once it has expired', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
-    // Signed by the real CA and stored, so only its dates are wrong. (-not_before/-not_after need OpenSSL 3.4 or later.)
+    // Signed by the real CA and stored, so only its dates are wrong.
     const work = tmp();
     const run = (...a: string[]) => execFileSync('openssl', a, { cwd: work });
     fs.writeFileSync(path.join(work, 'c.cnf'), '[v3]\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
     run('genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'k.pem');
     run('req', '-new', '-key', 'k.pem', '-subj', `/CN=pdm_${person.keyId}/O=podium`, '-out', 'c.csr');
-    run('x509', '-req', '-in', 'c.csr', '-CA', path.join(s.dir, 'ca.crt'), '-CAkey', path.join(s.dir, 'ca.key'), '-not_before', '20200101000000Z', '-not_after', '20200102000000Z', '-extfile', 'c.cnf', '-extensions', 'v3', '-out', 'c.pem');
+    signDated(work, { csr: 'c.csr', caCrt: path.join(s.dir, 'ca.crt'), caKey: path.join(s.dir, 'ca.key'), extFile: 'c.cnf', ext: 'v3', from: Date.UTC(2020, 0, 1), to: Date.UTC(2020, 0, 2), out: 'c.pem' });
     const pem = fs.readFileSync(path.join(work, 'c.pem'), 'utf8');
     const x = new X509Certificate(pem);
     s.certs.replace(person.id, { cert: pem, info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
