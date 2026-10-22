@@ -1569,7 +1569,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (!same) state = addEvent(state, 'start', null, `session.start · ${shortName(model)}`, now, { surface: e.surface });
   // A /clear starts the session again under a new id; the helper goes on (#584). A file saved since this one was read is not taken up.
   // A name the identity now holds that the file is not for ends that link, so the check runs again below.
-  if (link?.headers && who.userName.trim() && who.userName.trim() !== link.user) {
+  // A stand-in for an unusable file (no headers) is dropped on every start so a file fixed since is found.
+  if (link && (!link.headers || (who.userName.trim() && who.userName.trim() !== link.user))) {
     link.stop();
     link = null;
   }
