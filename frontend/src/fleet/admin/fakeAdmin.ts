@@ -161,7 +161,7 @@ export function fakeCerts(over: Partial<CertsView> = {}): CertsView {
     certificateNames: { dns: ["localhost", "podium.lan"], ip: ["127.0.0.1", "192.0.2.12"] },
     previous: [fakeCert(-60, { serial: "0001" })],
     settings: { lifetimeDays: 365, renewBeforeDays: 30, headerCountdown: true },
-    reporter: { lifetimeDays: 90, graceDays: 30 },
+    reporter: { lifetimeDays: 90 },
     http: { allow: true, overHttp: 3, total: 6 },
     lastRenewed: null,
     lastFailure: null,
@@ -205,9 +205,8 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
     forget: { enabled: false, days: 30 },
     /** Certificates (#586): null while TLS is off, which answers 404 "TLS is off". A test replaces it with `fakeCerts()`. */
     certs: null as CertsView | null,
-    /** People's certificates (#587): whether TLS is on for the People list, the grace it reports, and the reporter config a new person or a reissue gets. */
+    /** People's certificates (#587): whether TLS is on for the People list, and the reporter config a new person or a reissue gets. */
     tls: false,
-    graceDays: 30,
     certBodies: [] as Record<string, unknown>[],
     /** While set, saving a certificate setting is refused with this message and a 400; a renewal fails with it and a 500. */
     certError: "",
@@ -304,7 +303,7 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
       const size = Number(url.searchParams.get("pageSize") ?? 50);
       const q = (url.searchParams.get("q") ?? "").toLowerCase();
       const all = state.people.filter((p) => p.name.toLowerCase().includes(q));
-      return json(200, { total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size).map(row), groups: state.groups, tls: state.tls, graceDays: state.graceDays });
+      return json(200, { total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size).map(row), groups: state.groups, tls: state.tls });
     }
     const grp = /^\/people\/(\d+)\/group$/.exec(path);
     if (grp && method === "PUT") {
@@ -453,7 +452,6 @@ export function fakeServer(opts: { people?: number; enabled?: boolean; unlocked?
           else if (k === "tls.serving.lifetimeDays") c.settings.lifetimeDays = v as number;
           else if (k === "tls.serving.renewBeforeDays") c.settings.renewBeforeDays = v as number;
           else if (k === "tls.reporter.lifetimeDays") c.reporter.lifetimeDays = v as number;
-          else c.reporter.graceDays = v as number;
         }
         return json(200, { ok: true, ...c });
       }

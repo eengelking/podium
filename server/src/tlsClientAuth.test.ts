@@ -37,7 +37,7 @@ const freePort = (): Promise<number> =>
 
 const NOW = () => Date.now();
 
-/** A real HTTPS listener whose `/whoami` answers with what `certAuth` makes of the connection's certificate. */
+/** A real mutual-TLS listener (#665) whose reporter route answers with what `certAuth` makes of the connection's certificate. */
 async function setup() {
   const root = tmp();
   const db = openDb(':memory:');
@@ -48,7 +48,7 @@ async function setup() {
   let issuers: string[] = [];
   let clock = NOW;
   const app = express();
-  app.get('/whoami', (req, res) => {
+  app.get('/api/fleet/sessions/s1/peers', (req, res) => {
     const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => issuers, now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
@@ -66,7 +66,7 @@ async function setup() {
   };
   const get = (client?: { cert: string; key: string }, agent?: https.Agent) =>
     new Promise<Record<string, unknown>>((resolve, reject) => {
-      const req = https.get({ host: '127.0.0.1', port, ca: l.material.caCert, servername: 'localhost', path: '/whoami', agent, ...client }, (res) => {
+      const req = https.get({ host: '127.0.0.1', port, ca: l.material.caCert, servername: 'localhost', path: '/api/fleet/sessions/s1/peers', agent, ...client }, (res) => {
         let body = '';
         res.on('data', (c) => (body += c));
         res.on('end', () => resolve(JSON.parse(body) as Record<string, unknown>));
@@ -193,15 +193,15 @@ describe('PersonCertStore', () => {
   });
 });
 
-describe('certAuth on a real HTTPS listener', () => {
-  it('attributes a genuine certificate to its person, and a connection with none to nobody', async () => {
+describe('certAuth on a real mutual-TLS listener', () => {
+  it('attributes a genuine certificate to its person, and drops a connection with none at the handshake', async () => {
     const s = await setup();
     const { issued } = await s.issueFor('Dana');
     expect(await s.get({ cert: issued.cert, key: issued.key })).toEqual({ kind: 'person', name: 'Dana' });
-    expect(await s.get()).toEqual({ kind: 'none' });
+    await expect(s.get()).rejects.toBeDefined();
   });
 
-  it('refuses a certificate with the same subject and serial made by another CA', async () => {
+  it('drops a certificate with the same subject and serial made by another CA at the handshake', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
     const other = path.join(tmp(), 'tls');
@@ -217,21 +217,18 @@ describe('certAuth on a real HTTPS listener', () => {
     const forged = new X509Certificate(fs.readFileSync(path.join(work, 'c.pem')));
     expect(forged.subject).toBe(new X509Certificate(issued.cert).subject);
     expect(forged.serialNumber).toBe(new X509Certificate(issued.cert).serialNumber);
-    const res = await s.get({ cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') });
-    expect(res).toMatchObject({ kind: 'refused' });
-    expect(String(res.reason)).toMatch(/not accepted/);
+    await expect(s.get({ cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') })).rejects.toBeDefined();
   });
 
-  it('refuses a self-signed certificate that copies the subject', async () => {
+  it('drops a self-signed certificate that copies the subject at the handshake', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
     const work = tmp();
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '30', '-subj', `/CN=pdm_${person.keyId}/O=podium`], { cwd: work });
-    const res = await s.get({ cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') });
-    expect(res).toMatchObject({ kind: 'refused' });
+    await expect(s.get({ cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') })).rejects.toBeDefined();
   });
 
-  it('refuses a genuine certificate once it has expired', async () => {
+  it('drops a genuine certificate once it has expired at the handshake', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
     // Signed by the real CA and stored, so only its dates are wrong.
@@ -244,16 +241,13 @@ describe('certAuth on a real HTTPS listener', () => {
     const pem = fs.readFileSync(path.join(work, 'c.pem'), 'utf8');
     const x = new X509Certificate(pem);
     s.certs.replace(person.id, { cert: pem, info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
-    const res = await s.get({ cert: pem, key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') });
-    expect(res).toMatchObject({ kind: 'refused' });
-    expect(String(res.reason)).toMatch(/CERT_HAS_EXPIRED/);
+    await expect(s.get({ cert: pem, key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') })).rejects.toBeDefined();
   });
 
-  it('refuses the serving certificate used as a client certificate', async () => {
+  it('drops the serving certificate used as a client certificate at the handshake', async () => {
     const s = await setup();
     await s.issueFor('Dana');
-    const res = await s.get({ cert: fs.readFileSync(path.join(s.dir, 'serving.crt'), 'utf8'), key: fs.readFileSync(path.join(s.dir, 'serving.key'), 'utf8') });
-    expect(res).toMatchObject({ kind: 'refused' });
+    await expect(s.get({ cert: fs.readFileSync(path.join(s.dir, 'serving.crt'), 'utf8'), key: fs.readFileSync(path.join(s.dir, 'serving.key'), 'utf8') })).rejects.toBeDefined();
   });
 
   it('refuses a certificate the CA signed that Podium has no record of', async () => {
@@ -339,7 +333,7 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     expect(certs.reportersByIssuer(Date.now())).toEqual({ total: 3, byIssuer: { old: 1, new: 2 } });
   });
 
-  it('leaves out a revoked certificate and one that ended before the cutoff, and keeps one inside the grace', () => {
+  it('leaves out a revoked certificate and one that ended before the cutoff', () => {
     const { people, certs } = store();
     const a = people.createPerson('A').person;
     const b = people.createPerson('B').person;
@@ -349,7 +343,7 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     certs.revokeFor(a.id, 'revoked', 2000);
     certs.replace(b.id, issued('old', '2', now - 40 * 86_400_000), 1000);
     certs.replace(c.id, issued('old', '3', now - 10 * 86_400_000), 1000);
-    // a 30-day grace: the cutoff is 30 days ago
+    // the cutoff is 30 days ago
     expect(certs.reportersByIssuer(now - 30 * 86_400_000)).toEqual({ total: 1, byIssuer: { old: 1 } });
   });
 });

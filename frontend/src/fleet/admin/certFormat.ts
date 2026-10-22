@@ -16,7 +16,7 @@ export interface CertsView {
   certificateNames: { dns: string[]; ip: string[] };
   previous: CertInfo[];
   settings: { lifetimeDays: number; renewBeforeDays: number; headerCountdown: boolean };
-  reporter: { lifetimeDays: number; graceDays: number };
+  reporter: { lifetimeDays: number };
   /** Reporters over HTTP (#589): the switch, how many reporters are on HTTP now, and how many reported lately. */
   http: { allow: boolean; overHttp: number; total: number };
   lastRenewed: { at: string; trigger: string } | null;

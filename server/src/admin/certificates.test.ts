@@ -63,12 +63,12 @@ describe('GET /api/admin/certificates', () => {
     expect(Object.keys(res.body.ca).sort()).toEqual(['fingerprintSha256', 'notAfter', 'notBefore', 'serial', 'subject']);
   });
 
-  it('also returns a person\'s certificate lifetime and grace, so the page can show them (T8)', async () => {
+  it('also returns a person\'s certificate lifetime, so the page can show it (T8), and no grace (#665)', async () => {
     const { agent } = await setup();
-    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 90, graceDays: 30 });
-    const put = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.graceDays': 10 });
-    expect(put.body.reporter).toEqual({ lifetimeDays: 90, graceDays: 10 });
-    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 90, graceDays: 10 });
+    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 90 });
+    const put = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.lifetimeDays': 120 });
+    expect(put.body.reporter).toEqual({ lifetimeDays: 120 });
+    expect((await agent.get('/api/admin/certificates').set(H)).body.reporter).toEqual({ lifetimeDays: 120 });
   });
 
   it('answers 404 when TLS is off, on all the routes', async () => {
@@ -125,13 +125,15 @@ describe('PUT /api/admin/certificates', () => {
     expect(logKinds(people)).toContain('tls_settings_changed');
   });
 
-  it('saves the reporter lifetime and grace, and the log line names them (#585)', async () => {
+  it('saves the reporter lifetime, the log line names it, and the old grace setting is refused (#585, #665)', async () => {
     const { agent, people, settings } = await setup();
-    const res = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.lifetimeDays': 60, 'tls.reporter.graceDays': 10 });
+    const res = await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.lifetimeDays': 60 });
     expect(res.status).toBe(200);
-    expect(settings.getReporter()).toEqual({ lifetimeDays: 60, graceDays: 10 });
-    expect(people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_settings_changed')?.detail).toMatch(/lifetime 60 days, grace 10 days/);
-    expect((await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.graceDays': 120 })).status).toBe(400);
+    expect(settings.getReporter()).toEqual({ lifetimeDays: 60 });
+    const detail = people.listLog({ page: 1, pageSize: 20 }).rows.find((r) => r.kind === 'tls_settings_changed')?.detail;
+    expect(detail).toMatch(/a person's certificate lifetime 60 days;/);
+    expect(detail).not.toMatch(/grace/);
+    expect((await agent.put('/api/admin/certificates').set(H).send({ 'tls.reporter.graceDays': 10 })).status).toBe(400);
   });
 
   it('refuses a number outside its range with a message that names the range, and logs nothing', async () => {

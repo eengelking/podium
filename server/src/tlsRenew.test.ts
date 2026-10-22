@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb } from './fleet/db.js';
 import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
+import { issuePersonCert } from './tlsPeople.js';
 import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, TlsSettingsStore, type ServingSettings } from './tlsRenew.js';
 import { startTls } from './tlsServer.js';
 
@@ -90,20 +91,21 @@ describe('TlsSettingsStore', () => {
 
   it('reads and saves the settings for a person’s certificate, checking their ranges (#585)', () => {
     const s = new TlsSettingsStore(openDb(':memory:'));
-    expect(s.getReporter()).toEqual({ lifetimeDays: 90, graceDays: 30 });
-    expect(s.set({ 'tls.reporter.lifetimeDays': 365, 'tls.reporter.graceDays': 0 })).toMatchObject({ ok: true, changed: ['tls.reporter.lifetimeDays', 'tls.reporter.graceDays'] });
-    expect(s.getReporter()).toEqual({ lifetimeDays: 365, graceDays: 0 });
-    expect(s.set({ 'tls.reporter.graceDays': 90 })).toMatchObject({ ok: true });
-    expect(s.set({ 'tls.reporter.graceDays': 91 })).toMatchObject({ ok: false, error: expect.stringContaining('0 to 90') });
+    expect(s.getReporter()).toEqual({ lifetimeDays: 90 });
+    expect(s.set({ 'tls.reporter.lifetimeDays': 365 })).toMatchObject({ ok: true, changed: ['tls.reporter.lifetimeDays'] });
+    expect(s.getReporter()).toEqual({ lifetimeDays: 365 });
     expect(s.set({ 'tls.reporter.lifetimeDays': 29 })).toMatchObject({ ok: false, error: expect.stringContaining('30 to 365') });
-    expect(s.getReporter()).toEqual({ lifetimeDays: 365, graceDays: 90 });
+    // There is no grace after a certificate expires (#665), so its setting is gone.
+    expect(s.set({ 'tls.reporter.graceDays': 10 })).toMatchObject({ ok: false, error: 'unknown setting: tls.reporter.graceDays' });
+    expect(s.getReporter()).toEqual({ lifetimeDays: 365 });
   });
 
   it('reads an invalid stored row for a person’s certificate as its default', () => {
     const db = openDb(':memory:');
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.reporter.lifetimeDays', '5');
-    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.reporter.graceDays', 'x');
-    expect(new TlsSettingsStore(db).getReporter()).toEqual({ lifetimeDays: 90, graceDays: 30 });
+    // A row an earlier version wrote for the grace is ignored.
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('tls.reporter.graceDays', '10');
+    expect(new TlsSettingsStore(db).getReporter()).toEqual({ lifetimeDays: 90 });
   });
 });
 
@@ -281,9 +283,10 @@ describe('the swap on a running listener', () => {
       });
     });
   };
+  let client: { cert: string; key: string } | undefined;
   const get = (port: number, ca: string, agent: https.Agent) =>
     new Promise<{ serial: string; socket: unknown }>((resolve, reject) => {
-      const req = https.get({ host: '127.0.0.1', port, ca, servername: 'localhost', headers: { host: 'localhost' }, path: '/ping', agent }, (res) => {
+      const req = https.get({ host: '127.0.0.1', port, ca, servername: 'localhost', headers: { host: 'localhost' }, path: '/api/fleet/sessions/s1/peers', agent, ...(client ?? {}) }, (res) => {
         const serial = (res.socket as import('node:tls').TLSSocket).getPeerCertificate().serialNumber;
         res.resume();
         res.on('end', () => resolve({ serial, socket: res.socket }));
@@ -296,7 +299,7 @@ describe('the swap on a running listener', () => {
     const lines: Array<Record<string, unknown>> = [];
     const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
     const app = express();
-    app.get('/ping', (_q, r) => void r.json({ ok: true }));
+    app.get('/api/fleet/sessions/s1/peers', (_q, r) => void r.json({ ok: true }));
     const dbPath = path.join(root, 'podium.sqlite');
     const port = await freePort();
     const base = { env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger };
@@ -305,6 +308,7 @@ describe('the swap on a running listener', () => {
     const settings: ServingSettings = { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true };
     const first = (await startTls({ ...base, settings: () => settings }))!;
     const created = first.renewer.view().serving;
+    client = await issuePersonCert({ dir: path.join(root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     await new Promise((r) => first.server.close(r));
     expect(lines.some((l) => l.event === 'tls.serving_renewed')).toBe(false);
 

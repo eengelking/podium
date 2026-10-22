@@ -24,8 +24,6 @@ const RENEW_BEFORE_MS = RENEW_BEFORE_OVERRIDDEN ? Number(process.env.PODIUM_RENE
 const RENEW_CHECK_MS = Number(process.env.PODIUM_RENEW_CHECK_SECONDS) > 0 ? Number(process.env.PODIUM_RENEW_CHECK_SECONDS) * 1000 : 10 * 60_000;
 /** After a renewal fails for a reason that may pass (the server is down), wait this long before asking again. */
 const RENEW_RETRY_MS = 60_000;
-/** A request that finds its certificate expired waits this long for the renewal under way. */
-const RENEW_WAIT_MS = 10_000;
 const LOCK_STALE_MS = 60_000;
 const LOCK_WAIT_MS = 15_000;
 
@@ -455,7 +453,7 @@ function main(configPath, socketPath, serverUrl) {
       const spki = publicKey.export({ type: 'spki', format: 'pem' }).toString();
       const answer = await postJson(agent, target, '/api/reporter/renew', { publicKey: spki }, UPSTREAM_TIMEOUT_MS);
       if (answer.status === 401 && answer.json?.code) {
-        refused = { code: answer.json.code === 'PAST_GRACE' ? 'CERT_PAST_GRACE' : 'CERT_RENEWAL_REFUSED', message: String(answer.json.error ?? answer.json.code) };
+        refused = { code: 'CERT_RENEWAL_REFUSED', message: String(answer.json.error ?? answer.json.code) };
         return;
       }
       if (answer.status === 429) {
@@ -488,7 +486,8 @@ function main(configPath, socketPath, serverUrl) {
   /** Starts a renewal if the certificate is due and none is under way; resolves when it ends. Never rejects. */
   const maybeRenew = () => {
     if (renewing) return renewing;
-    if (refused || Date.now() < retryAt || !dueSoon()) return Promise.resolve();
+    // An expired certificate is never renewed (#665): the server's reporter port drops it at the handshake, so there is nobody to ask.
+    if (refused || expired() || Date.now() < retryAt || !dueSoon()) return Promise.resolve();
     renewing = renewOnce()
       .catch((err) => {
         retryAt = Date.now() + RENEW_RETRY_MS;
@@ -502,19 +501,14 @@ function main(configPath, socketPath, serverUrl) {
 
   const server = http.createServer(async (req, res) => {
     refresh();
-    if (dueSoon()) {
-      const renewal = maybeRenew();
-      // An expired certificate cannot be used for the request, so wait for the renewal; one that is only due goes on as it is.
-      if (expired()) {
-        await Promise.race([renewal, sleep(RENEW_WAIT_MS)]);
-        refresh();
-      }
-    }
-    if (expired() && refused) {
-      res.writeHead(502, { 'content-type': 'application/json', 'x-podium-helper-error': refused.code });
-      res.end(JSON.stringify({ error: refused.code, message: refused.message }));
+    // The date is compared with this machine's clock before connecting, so the person is told it expired and nothing goes upstream (#665).
+    if (expired()) {
+      const on = new Date(cfg.notAfter).toISOString().slice(0, 10);
+      res.writeHead(502, { 'content-type': 'application/json', 'x-podium-helper-error': 'CERT_EXPIRED' });
+      res.end(JSON.stringify({ error: 'CERT_EXPIRED', message: `Your Podium certificate expired on ${on}. Ask an Admin to generate a new reporter config.` }));
       return;
     }
+    if (dueSoon()) void maybeRenew();
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(k) && v !== undefined) headers[k] = v;
     const up = https.request(

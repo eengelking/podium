@@ -166,7 +166,8 @@ view early ([7.5](#75-lifecycle-timers)). Neither sends anything to a session.
   default. In the container image it listens on all interfaces inside the container, and the port is published
   only on the host's `127.0.0.1` ([4.4](#44-packaging-running-and-distribution)). Reaching it from other
   machines is an explicit choice (`--bind`). Over plain HTTP it needs a trusted network or a TLS proxy. With
-  built-in TLS turned on ([7.7](#77-hardening), *Built-in TLS*) the server serves HTTPS itself.
+  built-in TLS turned on ([7.7](#77-hardening), *Built-in TLS*) the server opens a second port, for reporters only, that
+  needs a client certificate. The console stays on plain HTTP.
 - No hosted deployment, accounts, or cloud sync. A container on the same machine is not a hosted deployment.
 
 **Cost.** No billing accuracy. Cost is an estimate from token counts and a price table. The UI always labels
@@ -375,7 +376,7 @@ Container mode uses Podman when it is installed and Docker otherwise; `--engine 
 - `--mode`, `--engine`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
   `PODIUMCTL_HOME`).
 - `--tls` (saved as `PODIUM_TLS=on`; `config set PODIUM_TLS=off` turns it off again) enables built-in TLS
-  ([7.7](#77-hardening)). With it, container mode also publishes the HTTPS port (`PODIUM_TLS_PORT`, default 4318) on
+  ([7.7](#77-hardening)). With it, container mode also publishes the reporter port (`PODIUM_TLS_PORT`, default 4318, mutual TLS) on
   the `--bind` address and bind-mounts the host folder `~/.podium/tls` (mode 0700) at `/data/tls`, so the CA survives
   a restart, a rebuild and a removed volume, and a person can find it and back it up. After the container starts,
   `podiumctl` checks that the mount is there and warns when it is not; the server logs `tls.storage_not_persistent`
@@ -2355,28 +2356,35 @@ reporter, and the reporter's own check above still covers the mod.
 #### Authenticating by certificate (#577)
 
 Designed in DECISIONS 42. With TLS on ([7.7](#77-hardening), *Built-in TLS*), `POST /api/fleet/report` and every
-other route the mod calls can be made over mutual TLS, through the helper ([5.9](#59-mod-configuration-userconfig)).
+other route the mod calls can be made over mutual TLS, through the helper ([5.9](#59-mod-configuration-userconfig)), on
+the reporter port (4318 by default). That port serves only those routes and the renewal route, and only to a client
+with a valid certificate. The console is on the HTTP port.
 
 - **Who is calling.** The server authenticates the person from the certificate in the handshake and not from
-  `X-Podium-Token`. It accepts a client only when `socket.authorized` is true against the Podium CA(s) it was given
-  as `ca`, looks the certificate up by its SHA-256 fingerprint, and checks it is not revoked. The report's
-  `userName` must still equal that person (DECISIONS 20).
+  `X-Podium-Token`. The reporter port is `https.createServer` with `requestCert: true` and `rejectUnauthorized: true`
+  and the Podium CA(s) as `ca`, so a connection with no certificate, an expired one or one from another CA is dropped
+  in the handshake and no route runs. The server then looks the certificate up by its SHA-256 fingerprint and checks it
+  is not revoked, which the handshake cannot know. The report's `userName` must still equal that person (DECISIONS 20).
 - **The token.** A reporter that has a config file sends none. A reporter without one still sends its token, over
   HTTP, while the Admin allows reporters over HTTP. The console signs in with a name and a token as before.
 - **Renewal.** `POST /api/reporter/renew` is authenticated by the person's current certificate. The body carries
   the reporter's new public key (no Node API builds a CSR), and the response carries a new certificate for it.
   The helper writes the new certificate and the CA(s) in one atomic write, so the file never holds one without
-  the other. The reporter renews when 30 days of the certificate are left.
+  the other. The reporter renews when 30 days of the certificate are left. A renewal needs a certificate that is
+  valid in the handshake, so its answer, a new CA included, only travels over a connection the reporter's side and
+  the server both verified.
 - **Renewal limit.** A person's certificate is renewed at most once an hour. While the person's newest live
   certificate was issued less than an hour ago, the server answers `429` with a `Retry-After` header (seconds, at
   most 3600) and the code `TOO_SOON`, before it signs anything or stores a row, and a second request that arrives
-  while one is being signed counts the same way. The window is fixed and is not a setting. An expired certificate
-  inside its grace is never limited, since it has no other way in. The reporter treats a `429` as a wait and not a
-  refusal: it goes on with the old certificate and asks again after `Retry-After`, and never sooner than a minute.
-- **Grace.** A certificate that expired no more than `tls.reporter.graceDays` ago can still renew. The server
-  verifies its signature against the CA key (`X509Certificate.verify`) and matches its exact fingerprint to a
-  stored one. It never trusts `authorizationError === 'CERT_HAS_EXPIRED'` with a serial, since forged
-  certificates report the same error. Past the grace, an Admin reissues the config.
+  while one is being signed counts the same way. The window is fixed and is not a setting. The reporter treats a
+  `429` as a wait and not a refusal: it goes on with the old certificate and asks again after `Retry-After`, and
+  never sooner than a minute.
+- **No grace (#665).** A certificate that has expired is not renewed. It cannot reach the reporter port, so there is
+  no renewal to answer and nothing for a forged expired certificate to pass for. An Admin generates a new config
+  for the person (Reissue config). The helper compares the certificate's `notAfter` with its clock before it
+  connects, sends nothing, and answers every request with `CERT_EXPIRED`, which the mod words as "Your Podium
+  certificate expired on 2026-08-30. Ask an Admin to generate a new reporter config." in the status line and in
+  `/podium`.
 - **A new CA in the response.** The renewal response adds `rotation: { ca, cross }` (the new CA and its cross
   certificate) while a planned overlap is open, and leaves the field out at every other time. Only for a planned CA rotation, as an addition, with a cross certificate that
   verifies under the CA the reporter already holds. After an emergency rotation the server does not offer it
@@ -2708,8 +2716,8 @@ need the unlocked Admin session like the rest of the Admin API.
 | `POST /api/admin/certificates/renew` | Renew the serving certificate now. |
 | `POST /api/admin/certificates/rotate-ca` | Rotate the CA. Body `{ endOverlap }`: false is a planned rotation with an overlap, true is the hard cutover. |
 | `POST /api/admin/certificates/retire-ca` | Retire the old CA after a planned rotation. Answers `409` when there is none. The reply names how many reporters were still on it (`refused`) and how many connections it closed. |
-| `GET /api/admin/certificates/ca.pem` | The CA certificate, for a browser or a person who wants to check it. No key. |
-| `GET /api/admin/people` | Also answers `tls` (whether TLS is on), `graceDays` (`tls.reporter.graceDays`) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
+| `GET /api/admin/certificates/ca.pem` | The CA certificate, for a person who wants to check it. No key. The page no longer links it (#665). |
+| `GET /api/admin/people` | Also answers `tls` (whether TLS is on) and, on each row, `certificate`: `{ notAfter, revoked }` for the person's live certificate, or the newest revoked one, and null when TLS is off or they never had one. Never a key. |
 | `POST /api/admin/people` | Also returns the reporter config file, once, with the token. It cannot be fetched again. |
 | `POST /api/admin/people/:id/certificate/reissue` | A new config file, once. The earlier certificate is revoked. A revoked person is restored (their token is unchanged), since a certificate for a revoked person is refused. |
 | `POST /api/admin/people/:id/certificate/revoke` | Revoke the person's certificate. Their token and console sign-in are unchanged. |
@@ -3298,26 +3306,31 @@ The registry removes a client on `close`/`error`, and a write that throws never 
 - If `PODIUM_TOKEN` is set, `POST /report`, `DELETE` and `POST /hook` require `X-Podium-Token`. Reads and the
   `drop` route stay open on localhost.
 - Over plain HTTP, tokens and the admin secret travel in a header, so a server reachable over a network needs
-  a trusted network or a TLS proxy. With built-in TLS on, the server serves HTTPS itself, and a reporter with a
-  certificate sends no token (*Built-in TLS*, below). Plain HTTP stays for the console on loopback and, while the
-  Admin allows it, for reporters.
+  a trusted network or a TLS proxy. With built-in TLS on, the server opens a second port for reporters, which needs a
+  client certificate, and a reporter with a certificate sends no token (*Built-in TLS*, below). The console stays on
+  plain HTTP, and plain HTTP also serves reporters while the Admin allows it. Podium does not serve HTTPS to browsers;
+  a person who wants it puts a proxy in front (#305).
 
 #### Built-in TLS (#577)
 
 Designed in DECISIONS 42, on #323 and #577. Podium makes its own CA, signs a serving certificate, and gives each
 person a client certificate in one generated config file ([5.9](#59-mod-configuration-userconfig)), the way
-`kubeadm` and `kubectl` do. A person's machine trusts nothing new and installs nothing.
+`kubeadm` and `kubectl` do. A person's machine trusts nothing new and installs nothing. The certificates are for
+`podium-reporter` only: the TLS port serves no console and no browser (#665).
 
 **Enabling.** TLS is opt-in and off by default. `PODIUM_TLS=on`, or `podiumctl start --tls`, makes the first start
 create a CA and a serving certificate when none exist. A fresh install without it stays on plain HTTP, with
 loopback as the default bind. A CA that exists is never overwritten. A missing or unreadable key stops TLS with a
 log line and leaves HTTP working.
 
-**Ports.** HTTP keeps `4317`. HTTPS is `4318`, changed with `PODIUM_TLS_PORT`. `podiumctl` publishes both and the
+**Ports.** HTTP keeps `4317` and serves the console, Admin and any reporter that uses a token. The reporter port is
+`4318`, changed with `PODIUM_TLS_PORT`, and is HTTPS with mutual TLS. `podiumctl` publishes both and the
 Containerfile exposes both. The port a reporter config names is the one people reach, `PODIUM_TLS_PUBLIC_PORT` when it
 is set and the listening port otherwise; `podiumctl` sets it in container mode to the host's `PODIUM_TLS_PORT`, since
-the server listens on 4318 inside (#649). A value that is not a port is ignored. The routes are the same on both. The
-Host check applies to both (DECISIONS 33).
+the server listens on 4318 inside (#649). A value that is not a port is ignored. The reporter port serves only the
+routes a reporter calls (`POST /api/fleet/report` and `/hook`, the peers, diffs and asks routes under a session, and
+`POST /api/reporter/renew`); any other path on it is a `404` and the console is not reachable there. The Host check
+applies to both ports (DECISIONS 33).
 
 **Keys and certificates.** The CA, the serving certificate and every person's certificate use EC P-256 keys, made
 with `openssl` (called with `execFile`, no shell).
@@ -3349,7 +3362,6 @@ the Admin log.
 | `tls.serving.lifetimeDays` | 365 | 30 to 825 |
 | `tls.serving.renewBeforeDays` | 30 | 7 to 90 |
 | `tls.reporter.lifetimeDays` | 90 | 30 to 365 |
-| `tls.reporter.graceDays` | 30 | 0 to 90 |
 | `tls.header.countdown` | true | on or off |
 | `tls.allowReportersOverHttp` | see below | on or off |
 
@@ -3360,14 +3372,16 @@ whichever expires first, and never a person's certificate. A failed renewal and 
 **Reporters over HTTP.** `tls.allowReportersOverHttp` defaults to **off** on a fresh install that enables TLS and
 to **on** for an existing install, so nothing stops when TLS is turned on. While it is on, the Admin page shows a
 warning that name, token and everything the reporter sends are not encrypted. Turning it off asks first, names how
-many reporters it will refuse, and says the console on loopback keeps working. With it off, the HTTP listener
-refuses reporter routes except on loopback. The console on loopback stays on HTTP so an Admin can always sign in,
+many reporters it will refuse, and says the console on loopback keeps working. With it off, the HTTP port (4317)
+refuses reporter routes except on loopback, so reporters must use the reporter port (4318) with a reporter config. The console on loopback stays on HTTP so an Admin can always sign in,
 and the Administrators group always keeps a member, so a server whose certificate expired can be recovered.
 
-**Mapping a certificate to a person.** The server runs `https.createServer` with `requestCert: true`,
-`rejectUnauthorized: false` and `ca` set to the Podium CA(s). It accepts a client only when `socket.authorized` is
-true, since without `ca` Node verifies against the public roots. It looks the certificate up by SHA-256
-fingerprint, never by subject or serial. Extended key usage is enforced both ways.
+**Mapping a certificate to a person.** The reporter port runs `https.createServer` with `requestCert: true`,
+`rejectUnauthorized: true` and `ca` set to the Podium CA(s), so Node drops a client without a valid certificate in the
+handshake. `ca` matters: without it Node verifies against the public roots. Nothing in Podium sets
+`rejectUnauthorized: false`, so a safety check does not rest on application code (#665). A certificate that passed the
+handshake is looked up by SHA-256 fingerprint, never by subject or serial, and its revocation and issuer are checked
+on every request. Extended key usage is enforced both ways.
 
 **Revocation.** An Admin can revoke a person's certificate, their token, or both (Revoke all). Revoking only the
 certificate stops the reporter and leaves the token and the console sign-in. Revoking the token also revokes the
@@ -3381,7 +3395,7 @@ keep-alive connection stays authorized after the client `ca` list is narrowed.
 
 **CA rotation.** Planned rotation has an overlap. The server makes a new CA, signs a cross certificate for it with
 the old one (`CA:TRUE`, `keyCertSign`, SKID and AKID, no `pathlen:0`, a lifetime of 120 days that ends the overlap: a
-reporter's 90 days and its 30-day grace), and presents `[new leaf, cross certificate]` in that order, leaving the
+reporter's 90-day certificate and a margin), and presents `[new leaf, cross certificate]` in that order, leaving the
 cross certificate out once it has expired. A CA is made with `pathlen:1`, because OpenSSL refuses the chain `[leaf, cross]`
 under a root with `pathlen:0`; a CA made before that (`pathlen:0`) cannot take a planned rotation and is refused with
 a message that points to **Rotate CA and end the overlap now**. `GET /api/admin/certificates` says so in `canOverlap`
@@ -3396,13 +3410,14 @@ when none are left; the page counts the reporters still on it (each person once,
 retiring refuses them at once and closes the open connections that came in on a certificate the old CA signed. After a leaked CA key there is no overlap (**Rotate CA and end the overlap now**): a hard cutover, no
 in-band delivery, and every reporter needs a reissued config; every open connection that held a client certificate is
 closed. A reporter asleep past both the cross certificate and
-the grace needs a reissue.
+its own certificate's end needs a reissue.
 
 **Failure behavior** (written from #577, pending the maintainer's confirmation in the review of #578).
 
 - *The reporter* says what is wrong in the status line and in `/podium`, never a bare "offline", for each of:
-  no `node`; no config file; a config file that is group- or world-readable; an expired certificate (inside the
-  grace it says it is renewing, past it it says to ask an Admin to reissue); a revoked certificate; a name in the
+  no `node`; no config file; a config file that is group- or world-readable; an expired certificate (it says it
+  expired on a named date and that an Admin must generate a new config, from the certificate's `notAfter` and the
+  machine's clock, with no connection attempt); a revoked certificate; a name in the
   file that does not match the session's; an unreachable server (it retries as today); a server certificate that
   is expired, not for this name or not signed by the CA in the file; and a skewed clock. When a server certificate
   looks expired or not yet valid, the status line is `check the clock` if the server's time is unknown (the handshake
@@ -3426,11 +3441,11 @@ the grace needs a reissue.
   certificate and keep the file mode 0600); a stolen console token (revoke it); **a stolen `/data/tls`**, which
   holds the CA key and so everything it signs (an emergency rotation, a hard cutover and a reissue, and the folder
   must be backed up and permissioned like a secret); any process running as the same user (it can read the config
-  and use the helper's socket); plain HTTP while reporters are allowed over HTTP; and a browser that trusts a CA it
-  should not (Admin shows the fingerprint so a person can compare it).
+  and use the helper's socket); and plain HTTP while reporters are allowed over HTTP.
 
-**Browsers.** A browser trusts the CA only when a person installs it. Admin shows the fingerprint and a Download CA
-button. The console keeps its name-and-token sign-in behind the same TLS.
+**Browsers.** Browsers do not use this TLS (#665). The console and Admin are plain HTTP on the console port, with the
+name-and-token sign-in, and a person who wants HTTPS for them puts a proxy in front. No browser needs the CA, so the
+Certificates page has no Download CA and no browser-trust text.
 
 **Platforms and limits.** macOS and Linux are in scope, Windows is unsupported ([5.9](#59-mod-configuration-userconfig)).
 A public certificate authority and ACME are out of scope: a server with a real name can sit behind a TLS proxy
@@ -4452,8 +4467,8 @@ menu and the page scroll on their own.
   page ever shows any of the secret (#218). There is no Status column. The Group select sits under the person's
   name and "created" under Last report (#587).
 - **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left; the reporter renews it itself),
-  *expired, in grace* (the reporter can still renew it, for the days the note gives), *expired* (past the grace:
-  reissue the config), *revoked* or *none*. With TLS off the cell says "TLS is off" and the certificate actions
+  *lapses soon* (the certificate is close to its end and the reporter has not renewed it, so reissue the config in
+  time), *expired* (the reporter is refused and cannot renew: reissue the config), *revoked* or *none*. With TLS off the cell says "TLS is off" and the certificate actions
   are disabled.
 - **The Actions menu**: each row has one menu, grouped Console token (Rotate token, Revoke token, or Issue new
   token for a revoked token), Reporter certificate (Download certificate, Reissue config…, Revoke certificate) and

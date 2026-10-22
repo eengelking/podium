@@ -368,7 +368,7 @@ describe('helper.mjs: classifyError', () => {
 const DAY = 86_400_000;
 
 /** A real Podium renewal route behind a real mutual-TLS listener, and a person whose certificate has the dates given. */
-async function renewing(dates: { from: number; to: number } | { days: number }, o: { graceDays?: number; renewStatus?: number; retryAfter?: string } = {}) {
+async function renewing(dates: { from: number; to: number } | { days: number }, o: { renewStatus?: number; retryAfter?: string } = {}) {
   const p = await pki();
   const db = openDb(':memory:');
   const people = new PeopleStore(db);
@@ -395,7 +395,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     if (o.retryAfter) res.set('retry-after', o.retryAfter);
     res.status(o.renewStatus).json({ ok: false, code: o.renewStatus === 429 ? 'TOO_SOON' : undefined });
   });
-  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90, graceDays: o.graceDays ?? 30 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
+  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
   app.get('/api/fleet/ping', (req, res) => {
     const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
     seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');
@@ -469,34 +469,30 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(r.live()).toHaveLength(1);
   });
 
-  it('renews an expired certificate inside the grace before the request that found it expired goes out', async () => {
-    const r = await renewing({ from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY });
-    const h = await runHelper(configFor(r.p, r.url), r.url);
-    const a = await viaHelper(h, 'GET', '/api/fleet/ping');
-    expect(a.status).toBe(200);
-    const f = partsOfFile(h.config);
-    const renewed = new X509Certificate(f.certs.at(-1)!);
-    expect(renewed.fingerprint256).not.toBe(r.original);
-    expect(Date.parse(renewed.validTo)).toBeGreaterThan(Date.now());
-    expect(r.seen.at(-1)).toBe(renewed.fingerprint256);
-  }, 30_000);
-
-  it('past the grace it says so, changes nothing and sends nothing upstream', async () => {
-    const r = await renewing({ from: Date.now() - 200 * DAY, to: Date.now() - 40 * DAY });
+  it.each([
+    ['a few days after it expired', 100, 5],
+    ['long after it expired', 200, 40],
+  ])('an expired certificate is not renewed, %s: it names the date, changes nothing and sends nothing upstream (#665)', async (_when, from, to) => {
+    const r = await renewing({ from: Date.now() - from * DAY, to: Date.now() - to * DAY });
     const h = await runHelper(configFor(r.p, r.url), r.url);
     const before = fs.readFileSync(h.config, 'utf8');
+    const expiredOn = new Date(Date.now() - to * DAY).toISOString().slice(0, 10);
     const a = await viaHelper(h, 'GET', '/api/fleet/ping');
     expect(a.status).toBe(502);
-    expect(a.headers['x-podium-helper-error']).toBe('CERT_PAST_GRACE');
+    expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
+    expect(a.body).toContain(expiredOn);
+    expect(a.body).toMatch(/Admin/);
     expect(r.seen).toEqual([]);
+    expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
     expect(r.live()).toHaveLength(1);
-    // it does not ask again on every request
+    // it says the same on every request, and still asks the server for nothing
     const b = await viaHelper(h, 'GET', '/api/fleet/ping');
-    expect(b.headers['x-podium-helper-error']).toBe('CERT_PAST_GRACE');
+    expect(b.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
+    expect(r.calls()).toBe(0);
   }, 30_000);
 
-  it('a forged expired certificate with a stolen serial is refused and the file is not rewritten', async () => {
+  it('a forged expired certificate with a stolen serial is not sent upstream or renewed, and the file is not rewritten', async () => {
     const r = await renewing({ days: 90 });
     const work = tmp();
     const forged = signClientDated({ ...makeForgerCa(work), keyId: r.person.keyId, from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY, serial: `0x${new X509Certificate(r.p.person.cert).serialNumber}` });
@@ -504,7 +500,8 @@ describe('helper.mjs: renewing its own certificate', () => {
     const before = fs.readFileSync(h.config, 'utf8');
     const a = await viaHelper(h, 'GET', '/api/fleet/ping');
     expect(a.status).toBe(502);
-    expect(a.headers['x-podium-helper-error']).toBe('CERT_RENEWAL_REFUSED');
+    expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
+    expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
     expect(r.live()).toHaveLength(1);
   }, 30_000);

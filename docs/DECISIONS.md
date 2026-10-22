@@ -1308,14 +1308,15 @@ change them. The only advice was a TLS proxy (20, 28, 31). #323 designed the fix
 builds it. This entry records why it has this shape. It is built (#577 and its sub-issues).
 
 **Decision.** With TLS turned on (`PODIUM_TLS=on`, `podiumctl start --tls`), the server makes its own CA and
-serving certificate in `/data/tls` and serves HTTPS on a second port. Each person gets a client certificate in
+serving certificate in `/data/tls` and opens a second port for reporters, HTTPS with mutual TLS (see the update
+below). Each person gets a client certificate in
 one generated config file, `reporter-config-<name>-<epoch>.pem`, holding the server address, the CA, the name
 and the certificate with its private key, the way `kubeadm` and `kubectl` do. `SPEC.md` 5.9, 6, 6.8, 7.1 and
 7.7 have the rules.
 
 - A reporter with the file stops sending a token. The server authenticates it from the certificate in the TLS
   handshake, mapped to a person by SHA-256 fingerprint, and the report's `userName` must still equal that person,
-  as 20 requires. The console keeps its name and token, behind the same TLS (30).
+  as 20 requires. The console keeps its name and token, on plain HTTP (30, and the update below).
 - The reporter makes its TLS connection through a small Node helper, started per session, because the mod's
   `$.http.fetch` accepts no CA or certificate. The mod sends its requests to the helper over a Unix socket.
 - Revoking the certificate, the token, or both are separate actions. The server checks revocation on every
@@ -1362,6 +1363,34 @@ and the certificate with its private key, the way `kubeadm` and `kubectl` do. `S
 - A stolen `/data/tls` holds the CA key, which is everything the CA signed. It needs an emergency rotation and a
   reissue, and the folder must be backed up and permissioned like a secret.
 - A stolen config file holds a person's private key until it is revoked.
-- A browser trusts the CA only when a person installs it.
-- A laptop asleep past both the cross certificate and the grace needs a reissue.
+- A laptop asleep past both the cross certificate and its own certificate's end needs a reissue.
 - Podium now holds a CA, a renewal schedule and a rotation procedure, which is more to run and more to explain.
+
+**Update (#665): reporters get their own mutual-TLS port, the console gets no HTTPS, and there is no grace.** The review
+of #663 raised CodeQL `js/disabling-certificate-validation` on the one HTTPS listener, which asked for a client
+certificate but did not require one (`rejectUnauthorized: false`) so that a browser could use it too. Every place that
+trusts a certificate checked `socket.authorized`, so it was safe as built, but the safety lived in application code.
+The maintainer decided to split the traffic by port.
+
+- Port 4317 stays plain HTTP. It serves the console, Admin and any reporter that uses a token. Podium does not serve
+  HTTPS to browsers; a person who wants it puts a proxy in front (35).
+- Port 4318 (`PODIUM_TLS_PORT`) is HTTPS with `requestCert: true` and `rejectUnauthorized: true`, and serves only the
+  routes a reporter calls and `POST /api/reporter/renew`. A connection without a valid certificate is dropped in the
+  handshake, and any other path is a `404`. Nothing in Podium sets `rejectUnauthorized: false`.
+- A certificate that has expired is not renewed. A reporter renews while the certificate is valid, 30 days before it
+  ends. If it lapses, the reporter cannot reach 4318 and an Admin generates a new config for the person. The 30-day
+  grace and `tls.reporter.graceDays` are gone.
+- The reporter says in the status line and in `/podium` that the certificate expired on a named date and that an
+  Admin must generate a new one. Admin > People warns before it lapses.
+- Admin > Server > Certificates keeps the CA and the serving certificate. It no longer offers Download CA or any
+  text about trusting the CA in a browser, since no browser uses this TLS.
+
+*Why.* The grace was the one flow that needed an unverified client: a renewal with an expired certificate
+(`CERT_HAS_EXPIRED`). Dropping it lets the listener verify every client, and it removes the gap where an expired
+certificate skipped the hourly renewal limit and the in-flight guard and could renew repeatedly. A renewal answer, a
+new CA during a rotation included, now only travels over a connection both sides verified.
+
+*Cost.* A laptop that sleeps past its certificate's end, or a reporter that is off for longer than the 60 days
+between renewal and expiry, needs an Admin to reissue its config. Revocation is checked on every request and not in
+the handshake, since the handshake cannot know it. The planned-rotation overlap stays at 120 days, which now leaves a
+margin over a default 90-day certificate and does not cover a certificate set to the 365-day maximum.

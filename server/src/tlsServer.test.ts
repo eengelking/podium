@@ -9,6 +9,7 @@ import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
 import { issuePersonCert } from './tlsPeople.js';
 import { publicTlsPort, startTls, tlsPortFrom, type TlsListener } from './tlsServer.js';
+import { makeForgerCa, signClientDated } from './tlsTesting.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -22,7 +23,7 @@ function setup() {
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
   const app = express();
   app.use(hostCheck({ bind: '127.0.0.1', allowed: ['podium.lan'] }));
-  app.get('/ping', (req, res) => res.json({ proto: req.protocol }));
+  app.get('/api/fleet/sessions/s1/peers', (req, res) => res.json({ proto: req.protocol }));
   return { root, dbPath: path.join(root, 'podium.sqlite'), lines, logger, app };
 }
 
@@ -34,9 +35,9 @@ const freePort = (): Promise<number> =>
     });
   });
 
-const get = (port: number, ca: string, host: string, servername = 'localhost') =>
+const get = (port: number, ca: string, host: string, servername = 'localhost', client?: { cert: string; key: string }) =>
   new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = https.get({ host: '127.0.0.1', port, ca, servername, headers: { host }, path: '/ping' }, (res) => {
+    const req = https.get({ host: '127.0.0.1', port, ca, servername, headers: { host }, path: '/api/fleet/sessions/s1/peers', ...(client ?? {}) }, (res) => {
       let body = '';
       res.on('data', (c) => (body += c));
       res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
@@ -85,13 +86,14 @@ describe('startTls', () => {
     const base = { env, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: ['podium.lan'], logger: s.logger };
     const first = (await startTls(base)) as TlsListener;
     expect(first).not.toBeNull();
+    const person = await issuePersonCert({ dir: path.join(s.root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     try {
-      await expect(get(port, first.material.caCert, 'localhost')).resolves.toEqual({ status: 200, body: '{"proto":"https"}' });
-      await expect(get(port, first.material.caCert, 'podium.lan', 'podium.lan')).resolves.toMatchObject({ status: 200 });
+      await expect(get(port, first.material.caCert, 'localhost', 'localhost', person)).resolves.toEqual({ status: 200, body: '{"proto":"https"}' });
+      await expect(get(port, first.material.caCert, 'podium.lan', 'podium.lan', person)).resolves.toMatchObject({ status: 200 });
       // The Host check applies on this listener too: a name that is not ours is refused.
-      await expect(get(port, first.material.caCert, 'evil.example')).resolves.toMatchObject({ status: 403 });
+      await expect(get(port, first.material.caCert, 'evil.example', 'localhost', person)).resolves.toMatchObject({ status: 403 });
       // A name that is not on the certificate fails verification.
-      await expect(get(port, first.material.caCert, 'evil.example', 'evil.example')).rejects.toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
+      await expect(get(port, first.material.caCert, 'evil.example', 'evil.example', person)).rejects.toMatchObject({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' });
     } finally {
       await new Promise((r) => first.server.close(r));
     }
@@ -146,11 +148,71 @@ describe('startTls', () => {
   });
 });
 
+describe('the reporter port is mutual TLS only (#665)', () => {
+  const DAY = 86_400_000;
+  type Client = { cert: string; key: string } | undefined;
+  const call = (port: number, ca: string, client: Client, method: string, p: string) =>
+    new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = https.request({ host: '127.0.0.1', port, ca, servername: 'localhost', method, path: p, agent: false, ...(client ?? {}) }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+
+  async function start() {
+    const s = setup();
+    s.app.post('/api/fleet/report', (_req, res) => res.json({ ok: true }));
+    s.app.post('/api/reporter/renew', (_req, res) => res.json({ ok: true }));
+    s.app.get('/api/fleet/sessions', (_req, res) => res.json({ console: true }));
+    const port = await freePort();
+    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
+    cleanup.push(() => l.server.close());
+    const dir = path.join(s.root, 'tls');
+    const person = await issuePersonCert({ dir, keyId: 'aaaaaaaaaaaa' });
+    return { s, l, port, dir, ca: l.trust.currentCa(), person };
+  }
+
+  it('answers a client certificate Podium issued, on the reporter routes and the renewal route', async () => {
+    const { port, ca, person } = await start();
+    await expect(call(port, ca, person, 'POST', '/api/fleet/report')).resolves.toEqual({ status: 200, body: '{"ok":true}' });
+    await expect(call(port, ca, person, 'POST', '/api/reporter/renew')).resolves.toEqual({ status: 200, body: '{"ok":true}' });
+  });
+
+  it('refuses every other route, the console included, even to a valid client certificate', async () => {
+    const { port, ca, person } = await start();
+    const refused = await call(port, ca, person, 'GET', '/api/fleet/sessions');
+    expect(refused.status).toBe(404);
+    expect(refused.body).not.toContain('console');
+    await expect(call(port, ca, person, 'GET', '/ping')).resolves.toMatchObject({ status: 404 });
+  });
+
+  it('drops a client with no certificate at the handshake, so no route is reached', async () => {
+    const { s, port, ca } = await start();
+    await expect(call(port, ca, undefined, 'POST', '/api/fleet/report')).rejects.toBeDefined();
+    expect(s.lines.find((x) => x.event === 'tls.handshake_failed')).toBeDefined();
+  });
+
+  it('drops an expired certificate at the handshake', async () => {
+    const { port, ca, dir } = await start();
+    const expired = signClientDated({ caCrt: path.join(dir, 'ca.crt'), caKey: path.join(dir, 'ca.key'), keyId: 'bbbbbbbbbbbb', from: Date.now() - 100 * DAY, to: Date.now() - 10 * DAY });
+    await expect(call(port, ca, expired, 'POST', '/api/reporter/renew')).rejects.toBeDefined();
+  });
+
+  it('drops a certificate from a CA Podium does not trust at the handshake', async () => {
+    const { port, ca, dir } = await start();
+    const stranger = signClientDated({ ...makeForgerCa(dir), keyId: 'cccccccccccc', from: Date.now() - DAY, to: Date.now() + 30 * DAY });
+    await expect(call(port, ca, stranger, 'POST', '/api/fleet/report')).rejects.toBeDefined();
+  });
+});
+
 describe('rotating the CA on a running listener (#588)', () => {
   type Auth = { authorized: boolean };
   const authed = (port: number, ca: string, agent: https.Agent, client?: { cert: string; key: string }) =>
     new Promise<Auth>((resolve, reject) => {
-      const req = https.get({ host: '127.0.0.1', port, ca, agent, servername: 'localhost', path: '/auth', ...(client ?? {}) }, (res) => {
+      const req = https.get({ host: '127.0.0.1', port, ca, agent, servername: 'localhost', path: '/api/fleet/sessions/s2/peers', ...(client ?? {}) }, (res) => {
         let body = '';
         res.on('data', (c) => (body += c));
         res.on('end', () => resolve(JSON.parse(body) as Auth));
@@ -160,7 +222,7 @@ describe('rotating the CA on a running listener (#588)', () => {
 
   async function start() {
     const s = setup();
-    s.app.get('/auth', (req, res) => res.json({ authorized: (req.socket as unknown as { authorized: boolean }).authorized }));
+    s.app.get('/api/fleet/sessions/s2/peers', (req, res) => res.json({ authorized: (req.socket as unknown as { authorized: boolean }).authorized }));
     const port = await freePort();
     const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
     cleanup.push(() => l.server.close());
@@ -204,8 +266,8 @@ describe('rotating the CA on a running listener (#588)', () => {
     const out = await l.rotation.retire();
     expect(out).toEqual({ closed: 1 });
     await closed;
-    // The new CA's client is untouched and the old CA's certificate is no longer authorized.
-    expect(await authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).toEqual({ authorized: false });
+    // The new CA's client is untouched and the old CA's certificate is dropped at the handshake.
+    await expect(authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).rejects.toBeDefined();
     expect(await authed(port, l.trust.currentCa(), freshAgent, fresh)).toEqual({ authorized: true });
     expect(l.trust.trustedIssuers()).toHaveLength(1);
     expect(await l.rotation.retire()).toBeNull();
@@ -223,7 +285,7 @@ describe('rotating the CA on a running listener (#588)', () => {
     expect(out).toMatchObject({ overlap: false, closed: 1 });
     await closed;
     expect(l.trust.previousCa()).toBeNull();
-    expect(await authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).toEqual({ authorized: false });
+    await expect(authed(port, l.trust.currentCa(), new https.Agent({ keepAlive: false }), person)).rejects.toBeDefined();
     // A client that held only the old CA no longer verifies the server.
     await expect(authed(port, oldCa, new https.Agent({ keepAlive: false }))).rejects.toBeDefined();
   });

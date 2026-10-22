@@ -26,8 +26,6 @@ export interface PersonRow {
 export interface PeopleList extends Paged<PersonRow> {
   groups: GroupChoice[];
   tls?: boolean;
-  /** `tls.reporter.graceDays`: how long after expiry the reporter may still renew itself. */
-  graceDays?: number;
 }
 /** The reporter config file the server makes for a person, shown once (SPEC 5.9). */
 export interface ConfigFile {

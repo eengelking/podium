@@ -121,7 +121,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     await open(fakeCerts({ serving: fakeCert(-2) }));
     await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveClass("crit", "hot");
-    expect(band()).toHaveTextContent(/^The serving certificate expired on \d{4}-\d{2}-\d{2}\.Reporters and browsers are refused until it is renewed\.$/);
+    expect(band()).toHaveTextContent(/^The serving certificate expired on \d{4}-\d{2}-\d{2}\.Reporters are refused until it is renewed\.$/);
     expect(within(table("Certificate status")).getByText("expired 2 days ago", { selector: ".badge" })).toHaveClass("badge", "bad");
     expect(screen.getByRole("button", { name: "Renew now" })).toHaveClass("pri");
     expect(screen.getByRole("button", { name: "Rotate CA…" })).not.toHaveClass("pri");
@@ -169,7 +169,7 @@ describe("Admin > Server > Certificates (#586)", () => {
   });
 
   describe("the CA fingerprint", () => {
-    it("shows the whole value, copies it, and offers the CA to download", async () => {
+    it("shows the whole value and copies it, with no browser-trust text and no CA download (#665)", async () => {
       const write = vi.fn(() => Promise.resolve());
       vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText: write } });
       await open();
@@ -178,10 +178,10 @@ describe("Admin > Server > Certificates (#586)", () => {
       fireEvent.click(fp);
       await waitFor(() => expect(fp).toHaveTextContent("Copied"));
       expect(write).toHaveBeenCalledWith("3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E");
-      const dl = screen.getByRole("link", { name: "Download CA (ca.pem)" });
-      expect(screen.getByText(/only for a browser you choose to trust it in/)).toBeInTheDocument();
-      expect(dl).toHaveAttribute("href", "/api/admin/certificates/ca.pem");
-      expect(dl).toHaveAttribute("download");
+      expect(screen.queryByRole("link", { name: /Download CA/ })).toBeNull();
+      expect(screen.queryByText(/Download CA/)).toBeNull();
+      expect(screen.queryByText(/browser/i)).toBeNull();
+      expect(screen.getByText(/Every reporter config carries this CA\. Compare it with the fingerprint of the CA in a config to check which CA signed it\./)).toBeInTheDocument();
     });
 
     it("says so when the copy fails", async () => {
@@ -264,17 +264,13 @@ describe("Admin > Server > Certificates (#586)", () => {
       expect(field("Serving certificate lifetime").value).toBe("365");
       expect(field("Renew when this many days remain").value).toBe("30");
       expect(field("Reporter certificate lifetime").value).toBe("90");
-      expect(field("Grace after a reporter certificate expires").value).toBe("30");
+      expect(screen.queryByLabelText(/Grace after a reporter certificate expires/)).toBeNull();
       expect(screen.queryByRole("switch", { name: /Renew the serving certificate automatically/ })).toBeNull();
     });
 
     it("saves a number when the field is left, with the flat key, and keeps what the server answers", async () => {
       const srv = await open();
       await screen.findByRole("table", { name: "Certificate status" });
-      fireEvent.change(field("Grace after a reporter certificate expires"), { target: { value: "10" } });
-      fireEvent.blur(field("Grace after a reporter certificate expires"));
-      await waitFor(() => expect(srv.certBodies).toEqual([{ "tls.reporter.graceDays": 10 }]));
-      await waitFor(() => expect(srv.certs?.reporter.graceDays).toBe(10));
       for (const [label, key, v] of [
         ["Serving certificate lifetime", "tls.serving.lifetimeDays", 90],
         ["Renew when this many days remain", "tls.serving.renewBeforeDays", 14],
@@ -520,7 +516,7 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(await screen.findByText("No reporter still uses the old CA. Open connections that came in on it are closed.")).toBeInTheDocument();
   });
 
-  it("says in the band that a reporter that misses the cross certificate and its grace needs a reissued config (#637)", async () => {
+  it("says in the band that a reporter that misses the cross certificate, or whose own certificate expires first, needs a reissued config (#637, #665)", async () => {
     const view = rotating();
     await open(view);
     const b = await waitFor(() => {
@@ -528,17 +524,8 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
       if (!el) throw new Error("no band");
       return el as HTMLElement;
     });
-    expect(b).toHaveTextContent(`verifies, until ${view.rotation!.cross.notAfter.slice(0, 10)} or until you retire it. A reporter that does not connect before then, and before its own 30-day grace ends, is refused, and its person needs a reissued reporter config.`);
-  });
-
-  it("uses the grace period the server reports in that sentence (#637)", async () => {
-    await open({ ...rotating(), reporter: { lifetimeDays: 90, graceDays: 14 } });
-    const b = await waitFor(() => {
-      const el = document.querySelector(".band");
-      if (!el) throw new Error("no band");
-      return el as HTMLElement;
-    });
-    expect(b).toHaveTextContent("before its own 14-day grace ends");
+    expect(b).toHaveTextContent(`verifies, until ${view.rotation!.cross.notAfter.slice(0, 10)} or until you retire it. A reporter that does not connect before then, or whose own certificate expires first, is refused, and its person needs a reissued reporter config.`);
+    expect(b).not.toHaveTextContent(/grace/);
   });
 
   it("says the same before the Admin starts a rotation, with the date the cross certificate ends (#637)", async () => {
@@ -547,7 +534,8 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     const ask = await screen.findByRole("alert");
     const ends = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
     expect(ask).toHaveTextContent(`keep working for 120 days, until ${ends}.`);
-    expect(ask).toHaveTextContent("A reporter that does not connect before then, and before its own 30-day grace ends (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin > People.");
+    expect(ask).toHaveTextContent("A reporter that does not connect before then, or whose own certificate expires first (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin > People.");
+    expect(ask).not.toHaveTextContent(/grace/);
   });
 
   it("asks before rotating, with the overlap in days and the two choices", async () => {
@@ -646,7 +634,7 @@ describe("Reporters over HTTP (#589)", () => {
     expect(srv.certBodies).toEqual([{ "tls.allowReportersOverHttp": false }]);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(warnbar()).toHaveTextContent(WARN_OFF);
-    expect(screen.getByText("Reporters must use a reporter config over HTTPS. A reporter without one is refused until it has one.")).toBeInTheDocument();
+    expect(screen.getByText("Reporters must use a reporter config on the reporter port. A reporter without one is refused until it has one.")).toBeInTheDocument();
   });
 
   it("keeps it on on Cancel and on Escape, and returns focus to the switch", async () => {

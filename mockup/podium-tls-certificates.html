@@ -210,7 +210,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
   <!-- Admin > Server > Certificates -->
   <div class="mk-view" id="pg-certs">
-    <div class="page-h"><div><h1>Certificates</h1><p class="lead">Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA. The serving certificate secures the console and every report.</p></div></div>
+    <div class="page-h"><div><h1>Certificates</h1><p class="lead">Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA and connect on the reporter port (4318), which accepts only a valid reporter certificate. The console is served over HTTP on port 4317; put a proxy in front of it for HTTPS.</p></div></div>
 
     <section class="asec" aria-labelledby="c-s"><div class="asec-h"><div><h2 id="c-s">Status</h2><p class="hint">The header shows a pill when the CA or the serving certificate is close to expiring, or a renewal has failed.</p></div></div>
       <div class="panel">
@@ -247,15 +247,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
           <p class="formacts"><button type="button" class="btn dng" data-hide="retire-confirm">Retire old CA</button><button type="button" class="btn" data-hide="retire-confirm">Cancel</button></p>
         </div>
         <div class="note-line" id="c-steps" hidden></div>
-        <div class="note-line"><b>CA fingerprint</b> A browser trusts the CA only when a person installs it. Compare this with the fingerprint the browser shows before trusting it.
-          <span class="row2"><button type="button" class="sid" id="fp" aria-label="Copy the CA fingerprint"><span id="fp-t">SHA-256 3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg></button><button type="button" class="btn sm" id="ca-dl">Download CA (ca.pem)</button></span></div>
+        <div class="note-line"><b>CA fingerprint</b> Every reporter config carries this CA. Compare it with the fingerprint of the CA in a config to check which CA signed it.
+          <span class="row2"><button type="button" class="sid" id="fp" aria-label="Copy the CA fingerprint"><span id="fp-t">SHA-256 3F:9A:C4:1D:7E:52:B8:06:A1:EE:90:4B:D3:68:2C:F7:0B:5D:E1:93:4A:8C:27:BE:61:D0:F5:39:AC:12:84:6E</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6"/><path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5"/></svg></button></span></div>
         <div class="note-line">Keys and certificates are stored in <span class="mono">/data/tls</span> (keys mode 0600). Keep that folder on a volume or host folder that survives a rebuild: without the CA key, every reporter config must be reissued.</div>
       </div>
     </section>
 
     <section class="asec" aria-labelledby="c-r"><div class="asec-h"><div><h2 id="c-r">Renewal and lifetimes</h2><p class="hint">The serving certificate renews itself by default and keeps the one it replaced as a backup. Reporters renew their own certificates. A change saves when you leave the field or flip the switch, and is written to the Admin log.</p></div></div>
       <div class="panel">
-        <div class="srow"><div class="setname"><b id="sw-auto-n">Renew the serving certificate automatically</b><p class="hint ink2">Podium issues a new one before the old expires and swaps it in with no restart. Reporters and browsers need nothing, because they trust the CA.</p></div>
+        <div class="srow"><div class="setname"><b id="sw-auto-n">Renew the serving certificate automatically</b><p class="hint ink2">Podium issues a new one before the old expires and swaps it in on the reporter port with no restart. Reporters need nothing, because they trust the CA.</p></div>
           <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-auto-n sw-auto-s" id="auto"></button><span id="sw-auto-s">On</span></div></div>
         <div class="srow"><div class="setname"><b><label for="n-sv">Serving certificate lifetime</label></b><p class="hint ink2">Default 365 days. From 30 to 825.</p></div>
           <span class="row2"><input class="field mono daysbox" id="n-sv" type="number" min="30" max="825" step="1" value="365"><span class="hint">days</span></span></div>
@@ -263,18 +263,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
         <div class="srow"><div class="setname"><b><label for="n-rn">Renew when this many days remain</label></b><p class="hint ink2">Also the day the header pill would first appear if a renewal does not happen. From 7 to 90.</p></div>
           <span class="row2"><input class="field mono daysbox" id="n-rn" type="number" min="7" max="90" step="1" value="30"><span class="hint">days</span></span></div>
         <div class="err" id="n-rn-e" role="alert" hidden></div>
-        <div class="srow"><div class="setname"><b><label for="n-rp">Reporter certificate lifetime</label></b><p class="hint ink2">Default 90 days. A reporter renews its own certificate when 30 days remain. From 30 to 365.</p></div>
+        <div class="srow"><div class="setname"><b><label for="n-rp">Reporter certificate lifetime</label></b><p class="hint ink2">Default 90 days. A reporter renews its own certificate when 30 days remain. One that expires cannot connect, and an Admin generates a new config for its person. From 30 to 365.</p></div>
           <span class="row2"><input class="field mono daysbox" id="n-rp" type="number" min="30" max="365" step="1" value="90"><span class="hint">days</span></span></div>
         <div class="err" id="n-rp-e" role="alert" hidden></div>
-        <div class="srow"><div class="setname"><b><label for="n-gr">Grace after a reporter certificate expires</label></b><p class="hint ink2">Inside this time an expired reporter certificate can still renew itself. After it, an Admin reissues the bundle. From 0 to 90.</p></div>
-          <span class="row2"><input class="field mono daysbox" id="n-gr" type="number" min="0" max="90" step="1" value="30"><span class="hint">days</span></span></div>
-        <div class="err" id="n-gr-e" role="alert" hidden></div>
         <div class="srow"><div class="setname"><b id="sw-hdr-n">Show the expiry countdown in the header</b><p class="hint ink2">Turn this off if you rely on automatic renewal. A failed renewal and an expired certificate are always shown.</p></div>
           <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-hdr-n sw-hdr-s" id="hdr"></button><span id="sw-hdr-s">On</span></div></div>
       </div>
     </section>
 
-    <section class="asec" aria-labelledby="c-http"><div class="asec-h"><div><h2 id="c-http">Reporters over HTTP</h2><p class="hint">A reporter can still connect with its name and token, with no certificate. This is how reporters work today.</p></div></div>
+    <section class="asec" aria-labelledby="c-http"><div class="asec-h"><div><h2 id="c-http">Reporters over HTTP</h2><p class="hint">A reporter can still connect to the console port (4317) with its name and token, with no certificate. This is how reporters work today. With this off, reporters must use the reporter port (4318).</p></div></div>
       <div class="panel">
         <div class="srow"><div class="setname"><b id="sw-http-n">Allow reporters to connect over HTTP</b><p class="hint ink2" id="http-desc"></p></div>
           <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="sw-http-n sw-http-s" id="http"></button><span id="sw-http-s">On</span></div></div>
@@ -293,14 +290,14 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
 
     <section class="asec" aria-labelledby="c-h"><div class="asec-h"><div><h2 id="c-h">Rotate by hand</h2><p class="hint">For a change of host name, or if a private key may have been exposed.</p></div></div>
       <div class="panel">
-        <div class="srow"><div class="setname"><b>Renew the serving certificate now</b><p class="hint ink2">Issues a new one from the same CA. The old one is kept as a backup. Reporters and browsers need nothing.</p></div>
+        <div class="srow"><div class="setname"><b>Renew the serving certificate now</b><p class="hint ink2">Issues a new one from the same CA. The old one is kept as a backup. Reporters need nothing.</p></div>
           <button type="button" class="btn" id="renew">Renew now</button></div>
         <div class="srow"><div class="setname"><b>Rotate the certificate authority</b><p class="hint ink2">Creates a new CA. Reporters keep working through an overlap while they pick up the new CA when they renew. You retire the old CA when none are left.</p></div>
           <button type="button" class="btn dng" id="rotate">Rotate CA…</button></div>
         <div class="callout" id="ca-confirm" role="alert" hidden>
           <svg class="wicon" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.2L14.4 13H1.6z"/><path d="M8 6.8v3M8 11.6v.1"/></svg>
           <h3>Rotate the certificate authority?</h3>
-          <p>Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working for <b>120 days</b>, until 2027-02-18. Each reporter picks up the new CA when it renews. A reporter that does not connect before then, and before its own 30-day grace ends (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin &gt; People.</p>
+          <p>Podium creates a new CA and serves a certificate that chains to both, so reporters that still hold the old CA keep working for <b>120 days</b>, until 2027-02-18. Each reporter picks up the new CA when it renews. A reporter that does not connect before then, or whose own certificate expires first (a laptop asleep that long, for example), is refused. Its person needs a reissued reporter config from Admin &gt; People.</p>
           <p class="formacts"><button type="button" class="btn dng" data-hide="ca-confirm">Rotate CA</button><button type="button" class="btn dng" data-hide="ca-confirm">Rotate CA and end the overlap now</button><button type="button" class="btn" data-hide="ca-confirm">Cancel</button></p>
           <p class="hint">End the overlap now if the old CA key was exposed. Every reporter then needs a new reporter config, and open connections are closed.</p>
         </div>
@@ -402,10 +399,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     <li><b>The Certificates page</b> is built from the Admin page parts: the status table, the settings box with the on/off switch rows and the number rows, a box for the two actions, and the warning-bordered confirmation. A number saves when the field is left and shows a rejected value in place (leave a lifetime field with a value outside its range to see it); a switch flips at once. It sits in the Server group, beside Security.</li>
     <li><b>Automatic renewal is the default.</b> The serving certificate renews itself, keeps the one it replaced as a backup, and swaps in with no restart. The pill appears for it when a renewal fails, with the reason in the critical color and what to try.</li>
     <li><b>The alert is a band row</b>, the same row the orchestrator page uses: a tinted full-width row with an icon, a bold line and a detail line. It is blue at 30 days (the existing blue band), orange at 10 (the existing orange band) and red at 5 and when expired (a new red band). It sits at the top of the Status panel. The app has no red band today, so <span class="mk-mono">.band.crit</span> is a proposal.</li>
-    <li><b>The expired states.</b> A serving certificate that expired needs one action, Renew now, and nobody else has to do anything because reporters trust the CA. An expired CA is the worst case: the page lists three steps (rotate the CA, reissue each bundle on People, each person replaces theirs). The Admin signs in with their name and token, over the loopback address or past the browser's warning. The recovery button becomes the one primary button on the page.</li>
+    <li><b>The expired states.</b> A serving certificate that expired needs one action, Renew now, and nobody else has to do anything because reporters trust the CA. An expired CA is the worst case: the page lists three steps (rotate the CA, reissue each bundle on People, each person replaces theirs). The Admin signs in with their name and token, over HTTP on the console port (4317). The recovery button becomes the one primary button on the page.</li>
     <li><b>The serving certificate's names</b> can be a long list, so the row shows the first name and "and 5 more" as a link: click it and the app's small modal opens. The modal lists the names under the place each one comes from (always included, <span class="mk-mono">PODIUM_ALLOWED_HOSTS</span>, the bind address), marks each as a name or an address, wraps a long name inside its row, and offers Copy names.</li>
     <li><b>People</b> is the real page with its columns reworked. The two credentials are now two cells, <b>Reporter certificate</b> and <b>Console token</b>, each with its own status badge (the certificate's badge has the app's tooltip with the date and what happens next). The old Status column is gone because each badge now says it, and the token's id (<span class="mk-mono">pdm_&lt;key id&gt;</span>) is in the tooltip of its badge. The Group select sits under the person's name and "created" under Last report, so the table loses a column and fits the page. All the actions are in one <b>Actions</b> menu per row, grouped as Console token, Reporter certificate and Person; an action that does not apply is disabled. Choosing a revoke, a rotate or a reissue opens the warning-bordered confirmation in a full-width row under the person, so the text has room. Delete opens the app's existing dialog.</li>
-    <li><b>After Create user</b> (the third Screen button, or press Create user) the page shows the app's show-once box with two parts. The token is for the console sign-in. The reporter config is one file, <span class="mk-mono">reporter-config-&lt;name&gt;-&lt;epoch&gt;.pem</span>, that holds everything the reporter needs: the server address, the CA, the name, and the certificate with its private key. The only step is to save it in <span class="mk-mono">~/.podium/</span> on the machine where Claude Code runs; every new Claude Code session there uses it and podium-reporter finds it. A person who keeps it elsewhere sets <span class="mk-mono">PODIUM_REPORTER_CONFIG</span> to its path. Nothing is installed on the machine, as with a kubeconfig. A session that is already running does not pick the file up, so the person starts a new one, and podium-reporter needs Node.js on the machine's PATH. Podium keeps only the certificate, so the file cannot be downloaded again: Reissue config makes a new certificate and key and shows the box once more. An Admin can download any person's public certificate from their row. The Certificates page keeps the CA with its fingerprint and a Download CA button, for installing it in a browser.</li>
+    <li><b>After Create user</b> (the third Screen button, or press Create user) the page shows the app's show-once box with two parts. The token is for the console sign-in. The reporter config is one file, <span class="mk-mono">reporter-config-&lt;name&gt;-&lt;epoch&gt;.pem</span>, that holds everything the reporter needs: the server address, the CA, the name, and the certificate with its private key. The only step is to save it in <span class="mk-mono">~/.podium/</span> on the machine where Claude Code runs; every new Claude Code session there uses it and podium-reporter finds it. A person who keeps it elsewhere sets <span class="mk-mono">PODIUM_REPORTER_CONFIG</span> to its path. Nothing is installed on the machine, as with a kubeconfig. A session that is already running does not pick the file up, so the person starts a new one, and podium-reporter needs Node.js on the machine's PATH. Podium keeps only the certificate, so the file cannot be downloaded again: Reissue config makes a new certificate and key and shows the box once more. An Admin can download any person's public certificate from their row. The Certificates page keeps the CA with its fingerprint. Download CA and the browser-trust text are gone, since browsers no longer use TLS here (#665).</li>
     <li><b>Reporters over HTTP</b> is a switch under the renewal settings. While it is on, a warning-colored line says it is not encrypted, that anyone on the network can read and change the name, the token and what the reporter sends, and when it is acceptable. Turning it on is immediate. Turning it off asks first in the warning-bordered box, names how many reporters it will refuse, and says the loopback console keeps working.</li>
     <li><b>Storage.</b> The note under the status table says where keys live and that they must survive a rebuild.</li>
   </ul>
@@ -417,10 +414,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       <tr><td>2. Orange and red share a shape</td><td>Keep the triangle for both, told apart by color and the day count.</td><td>A third icon is a new shape to design. The standards want a shape per state, so this is an exception.</td><td>Approved</td></tr>
       <tr><td>3. Not a wall notice, and the switch</td><td>A header status with no X. The switch is an Admin on/off switch that hides only the healthy countdown.</td><td>A failing or expired certificate is an error and cannot be closed.</td><td>Approved</td></tr>
       <tr><td>4. The thresholds</td><td>30, 10 and 5 days, fixed.</td><td>As the maintainer set them. They could become settings later.</td><td>Approved</td></tr>
-      <tr><td>5. Grace after a reporter certificate expires</td><td>30 days, a setting.</td><td>A reporter renews itself by sending its new public key over its client-certificate TLS connection, and the server signs it. An expired certificate cannot connect that way, so within the grace the server checks its signature against the CA key and its exact fingerprint instead. A short grace keeps laptops that sat idle from needing an Admin.</td><td>Approved</td></tr>
+      <tr><td>5. No grace after a reporter certificate expires (#665, replaces the 30-day grace)</td><td>None. A reporter renews while its certificate is valid (30 days before it ends). One that expired cannot connect, and an Admin generates a new config. The People page warns before that happens (the orange "lapses soon" badge).</td><td>Reporters connect on their own port (4318) that drops any connection without a valid client certificate at the handshake, so an expired certificate cannot reach it, and a renewal answer only travels over a verified connection. The reporter says "Your certificate expired on 2026-08-30. Ask an Admin to generate a new reporter config." in its status line and in /podium.</td><td>Decided by the maintainer in the review of PR #663</td></tr>
       <tr><td>6. Lifetime bounds</td><td>Serving 30 to 825 days, default 365. Reporter 30 to 365, default 90. CA 10 years, fixed at creation.</td><td>The issue asks for a default, a minimum and a maximum. 825 days is the longest lifetime most browsers accept for a private CA's certificates.</td><td>Approved</td></tr>
       <tr><td>7. Backups</td><td>Keep the last 3 replaced serving certificates in <span class="mk-mono">/data/tls/previous</span>.</td><td>The maintainer asked for a backup of the certificate it rotated from. Three covers a bad renewal without growing without bound.</td><td>Approved</td></tr>
-      <tr><td>8. Recovery when the CA expired</td><td>Sign in with name and token past the browser warning, or on loopback.</td><td>Plain HTTP on loopback stays available, and the Administrators group always keeps a member, so an Admin can always recover.</td><td>Approved</td></tr>
+      <tr><td>8. Recovery when the CA expired</td><td>Sign in with name and token over HTTP on the console port.</td><td>The console never depends on a certificate, and the Administrators group always keeps a member, so an Admin can always recover.</td><td>Approved</td></tr>
       <tr><td>9. A pill that is a link</td><td>Add it, as a plain link whose text carries the meaning.</td><td>The app's status pills are plain spans today.</td><td>Approved</td></tr>
       <tr><td>10. Where the pill sits</td><td>After the connection pill, with the "need an update" pills.</td><td>A comment in TopBar.tsx says to leave the space right of the connection pill empty, and the update pills already sit there.</td><td>Approved</td></tr>
       <tr><td>11. Revoke wording</td><td>Keep Revoke (token). Add Revoke certificate, Revoke all (token and certificate), and Reissue config.</td><td>One name per action. Revoke all is the "disable the person" idea in a word the page already uses.</td><td>Approved</td></tr>
@@ -444,7 +441,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   </table></div>
   <h2>Not drawn</h2>
   <ul>
-    <li>The status line the reporter shows on a certificate error, and the Admin screen for browser trust. They follow in the implementation issues.</li>
+    <li>The status line the reporter shows on a certificate error. It follows in the implementation issues.</li>
     <li>The theme picker in the Admin banner, the selection bar on People, and the empty and loading states, which follow patterns.html. An empty Previous certificates list reads "No earlier certificate has been replaced yet." in a dashed-border box.</li>
     <li>The 400 px frame only narrows the content. The Admin menu collapses by the browser window's width, not the frame's, so check the collapsed menu by narrowing the browser window itself.</li>
     <li>At exactly 0 days the pill reads "Certificate expires today" and counts as red.</li>
@@ -530,15 +527,15 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     function setBand(cls, icon, title, detail, role) { band.className = "band " + cls; band.setAttribute("role", role || "alert"); band.hidden = false; $("c-bi").innerHTML = ICON[icon]; $("c-bl").textContent = title; $("c-bd").textContent = detail; }
     var rf = "The last automatic renewal failed on " + dateIn(-1) + ": openssl was not found in the container. Podium tries again every day. Install openssl in the image, then choose Renew now.";
     if (state === "caexp") {
-      setBand("crit hot", "cross", "The certificate authority expired on " + dateIn(s.ca) + ".", "Reporters can no longer verify this server, and browsers show a warning. Rotate the CA, then give each person a new reporter config.");
+      setBand("crit hot", "cross", "The certificate authority expired on " + dateIn(s.ca) + ".", "Reporters can no longer verify this server. Rotate the CA, then give each person a new reporter config.");
       steps.hidden = false;
       var ol = node("ol"); ["Choose Rotate CA… below.", "Reissue each person's reporter config on Admin > People (Reissue config).", "Each person saves the new reporter config in ~/.podium/ and starts a new Claude Code session."].forEach(function (x) { ol.appendChild(node("li", "", x)); });
       steps.appendChild(node("b", "", "To restore access")); steps.appendChild(ol);
     } else if (state === "srvexp") {
-      setBand("crit hot", "cross", "The serving certificate expired on " + dateIn(s.sv) + ".", "Reporters and browsers are refused until it is renewed.");
+      setBand("crit hot", "cross", "The serving certificate expired on " + dateIn(s.sv) + ".", "Reporters are refused until it is renewed.");
       cerr.hidden = false; cerr.textContent = rf;
     } else if (s.rotating) {
-      setBand("deleg", "clock", "Certificate authority rotation is in progress.", "2 of 6 reporters still use the old CA. Podium accepts it until you retire it, and presents a chain the old CA verifies until 2027-02-18. A reporter that does not connect before then, and before its own 30-day grace ends, is refused, and its person needs a reissued reporter config. Retire it when none are left.", "status");
+      setBand("deleg", "clock", "Certificate authority rotation is in progress.", "2 of 6 reporters still use the old CA. Podium accepts it until you retire it, and presents a chain the old CA verifies until 2027-02-18. A reporter that does not connect before then, or whose own certificate expires first, is refused, and its person needs a reissued reporter config. Retire it when none are left.", "status");
     } else if (s.fail) {
       setBand(st === "red" ? "crit hot" : st === "orange" ? "stale" : "deleg", st === "blue" ? "clock" : "warn", "The serving certificate expires " + left(s.sv) + ".", "Podium renews it automatically, but the last renewal did not work.");
       cerr.hidden = false; cerr.textContent = rf;
@@ -568,7 +565,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       : "Turning this on makes reporters send their name, their token and everything else without encryption. Anyone on the network can read it, and can change it.";
     $("http-desc").textContent = onNow
       ? "A reporter uses its name and token, with no certificate. It also keeps a reporter working that has no reporter config yet. 3 of 6 reporters are connected over HTTP now."
-      : "Reporters must use a reporter config over HTTPS. The 3 reporters that were connected over HTTP are refused until they have one.";
+      : "Reporters must use a reporter config on the reporter port (4318). The 3 reporters that were connected over HTTP are refused until they have one.";
   }
   $("http").addEventListener("click", function () {
     if (on("http")) { $("http-confirm").hidden = false; $("http-off").focus(); return; }
@@ -579,7 +576,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   httpState();
 
   /* A number commits when the field is left and shows a rejected value in place */
-  [["n-sv", 30, 825], ["n-rn", 7, 90], ["n-rp", 30, 365], ["n-gr", 0, 90]].forEach(function (p) {
+  [["n-sv", 30, 825], ["n-rn", 7, 90], ["n-rp", 30, 365]].forEach(function (p) {
     var inp = $(p[0]), msg = $(p[0] + "-e"); inp.setAttribute("aria-describedby", p[0] + "-e");
     inp.addEventListener("blur", function () {
       var n = Number(inp.value), ok = inp.value.trim() !== "" && Number.isInteger(n) && n >= p[1] && n <= p[2];
@@ -604,8 +601,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
   $("retire").addEventListener("click", function () { $("retire-confirm").hidden = false; });
 
   /* Copy the fingerprint: the quiet whole-cell control, Copied with a check for 1.6 s */
-  var cd = $("ca-dl"), cdT = null;
-  cd.addEventListener("click", function () { cd.textContent = "Downloaded"; clearTimeout(cdT); cdT = setTimeout(function () { cd.textContent = "Download CA (ca.pem)"; }, 1600); });
   var fp = $("fp"), fpHTML = fp.innerHTML, fpTimer = null;
   fp.addEventListener("click", function () {
     fp.innerHTML = '<span>Copied</span><svg class="i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3.5 8.5l3 3 6-7"/></svg>';
@@ -668,7 +663,7 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
       : kind === "reissued" ? "This is the only time this reporter config is shown. It replaces " + name + "'s old certificate, which stops working now. It holds the new private key, and Podium keeps only the certificate."
       : "This is the only time the new token is shown. " + name + "'s old token stops working now.";
     $("once-code").hidden = !tok;
-    $("once-code").textContent = "userName: " + name + "\ntoken: pdm_9f2c41a07be3_5d1e8a37c0b94f62a1d7e3b85c490f26d8a1e7b3c5094f12\nserverUrl: https://podium.lan:4318";
+    $("once-code").textContent = "userName: " + name + "\ntoken: pdm_<key id>_<48 hex characters>\nserverUrl: http://podium.lan:4317";
     $("once-cfg").hidden = !cfg; $("once-dl").hidden = !cfg;
     $("once-file").textContent = file;
     $("once-line").textContent = '{ "env": { "PODIUM_REPORTER_CONFIG": "/full/path/to/' + file + '" } }';
@@ -689,8 +684,8 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(-
     { n: "Maya Okafor", g: "Developers", m: ["mokafor-mbp", "build-02"], key: "a41f09c2b7e3", c: ["ok", null, "valid", "Expires 2026-12-30, 71 days left."], cr: "2026-02-11", last: "2 min ago" },
     { n: "Ed", g: "Administrators", admin: true, m: ["ed-mac"], key: "77c2e1d0a935", c: ["ok", null, "valid", "Expires 2026-12-02, 43 days left."], cr: "2026-01-05", last: "just now" },
     { n: "Jonas Weber", g: "Developers", m: ["jweber-air"], key: "09be4f6a1c72", c: ["soon", "clock", "renewal due", "Expires 2026-11-12, 23 days left. The reporter renews it itself the next time it connects."], cr: "2026-03-18", last: "3 days ago" },
-    { n: "Cai Lindqvist", g: "Developers", m: ["clind-pro", "clind-ci"], key: "d3a08b5e7f14", c: ["serious", "warn", "expired, in grace", "Expired 2026-10-12. The reporter can still renew it for 22 more days."], cr: "2026-03-02", last: "8 days ago" },
-    { n: "Priya Nair", g: "Developers", m: ["pnair-dell"], key: "5e18c2a9d067", c: ["bad", "cross", "expired", "Expired 2026-08-30, past the 30-day grace. Reissue the config."], cr: "2026-04-21", last: "51 days ago" },
+    { n: "Cai Lindqvist", g: "Developers", m: ["clind-pro", "clind-ci"], key: "d3a08b5e7f14", c: ["serious", "warn", "lapses soon", "Expires 2026-10-27, 6 days left, and the reporter has not renewed it. Reissue the config before then."], cr: "2026-03-02", last: "8 days ago" },
+    { n: "Priya Nair", g: "Developers", m: ["pnair-dell"], key: "5e18c2a9d067", c: ["bad", "cross", "expired", "Expired 2026-08-30. The reporter is refused and cannot renew. Reissue the config."], cr: "2026-04-21", last: "51 days ago" },
     { n: "Tom Reyes", g: "Developers", m: ["treyes-mini"], key: "c7d4f1b83a2e", c: REVOKED, cr: "2026-05-09", last: "6 days ago" },
     { n: "Lena Fischer", g: "No group", m: [], key: "1b62e9d4c780", c: REVOKED, cr: "2026-06-30", last: "40 days ago", tokenRevoked: true }
   ];

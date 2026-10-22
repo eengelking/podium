@@ -68,10 +68,13 @@ If you think you have found something like this, please report it rather than op
 
 ## Built-in TLS
 
-Podium can serve HTTPS itself (#577, DECISIONS 42). It is off until the Admin turns it on with `PODIUM_TLS=on` or
-`podiumctl start --tls`. The server then makes a CA and a serving certificate, and gives each person a reporter
-config file with their client certificate and key, shown once. The reporter proves who it is with that certificate
-instead of a token. Not built yet: this is the planned behavior in `docs/SPEC.md` 7.7.
+Podium can open a second port for reporters (#577, #665, DECISIONS 42). It is off until the Admin turns it on with
+`PODIUM_TLS=on` or `podiumctl start --tls`. The server then makes a CA and a serving certificate, and gives each
+person a reporter config file with their client certificate and key, shown once. The reporter proves who it is with that
+certificate instead of a token. The port (4318 by default) is HTTPS with mutual TLS (`requestCert: true`,
+`rejectUnauthorized: true`): a connection without a valid client certificate is dropped in the handshake, it serves only
+the routes a reporter calls, and nothing in Podium disables certificate validation. The console and Admin stay on plain
+HTTP on 4317, since Podium does not serve HTTPS to browsers. The rules are in `docs/SPEC.md` 7.7.
 
 | What TLS stops | How |
 |---|---|
@@ -79,18 +82,17 @@ instead of a token. Not built yet: this is the planned behavior in `docs/SPEC.md
 | An active man in the middle, or a host answering as the server | The reporter checks the server against the CA in its own config file. |
 | Replay of captured traffic | TLS. |
 | A stolen database yielding usable reporter credentials | Person certificates are public and tokens are hashes. The server keeps no person's key. |
-| An expired or revoked certificate being used | The server checks the certificate's fingerprint on every request. |
+| An expired or revoked certificate being used | An expired or untrusted certificate is dropped in the handshake. A revoked one is refused when the server checks its fingerprint on every request. An expired certificate is never renewed, so a renewal answer only travels over a verified connection. |
 
 | What TLS does not stop | What to do about it |
 |---|---|
 | **A compromised machine, or a stolen config file.** The private key is in the file. | Revoke the person's certificate and keep the file mode 0600. |
 | **A stolen console token.** | Revoke the token. |
-| **A token after only the certificate is revoked.** Revoke certificate stops the reporter that uses the certificate; the token stays a valid credential, over HTTPS without a certificate and over HTTP from loopback. A stolen config file holds no token. | Use Revoke token or Revoke all to cut a person off. |
-| **A browser that installs the Podium CA trusts anything its key signs.** The CA has no name constraints, so it can vouch for any site, not only Podium. | Install the CA only in a browser you choose to trust it in, and compare the fingerprint first. A stolen CA key is the emergency in the next row. |
+| **A token after only the certificate is revoked.** Revoke certificate stops the reporter that uses the certificate; the token stays a valid credential over HTTP (from loopback, or while HTTP is allowed). A stolen config file holds no token. | Use Revoke token or Revoke all to cut a person off. |
 | **A stolen `/data/tls`.** It holds the CA key, so it holds everything the CA signed. | Treat it as an emergency: rotate the CA with no overlap and reissue every config. Back the folder up and set its permissions like a secret. |
 | **Any process running as the same user.** It can read the config file and use the helper's socket. | The same as for any file in that account. |
-| **Plain HTTP while "Allow reporters to connect over HTTP" is on.** Name, token and reports are not encrypted. Admin says so in a warning line. | Turn the switch off when every reporter has a config. The console on loopback stays on HTTP so an Admin can always sign in. |
-| **A browser that trusts a CA it should not.** | Admin shows the CA's fingerprint so a person can compare it before installing. |
+| **Plain HTTP while "Allow reporters to connect over HTTP" is on.** Name, token and reports are not encrypted. Admin says so in a warning line. | Turn the switch off when every reporter has a config. The console stays on HTTP so an Admin can always sign in. |
+| **The console is plain HTTP.** The name and token a browser signs in with are not encrypted on the network. | Put a TLS proxy in front of the console (#305) when people reach it over a network you do not trust. Podium does not serve HTTPS to browsers. |
 
 ## Orchestrator messaging
 

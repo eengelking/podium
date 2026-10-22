@@ -156,14 +156,14 @@ function clockProblem(code: string, clock: ClockView | undefined): Problem | nul
 }
 
 /** What a helper error code means to the person. Null for a network failure, which is an outage the reporter retries as today. */
-export function problemFor(code: string, host: string, clock?: ClockView): Problem | null {
+export function problemFor(code: string, host: string, clock?: ClockView, expiredOn?: string): Problem | null {
   const skewed = clockProblem(code, clock);
   if (skewed) return skewed;
   switch (code) {
     case 'CLIENT_CERT_REJECTED':
       return { code, status: 'certificate refused', text: 'The server did not accept your certificate: it was revoked, has expired, or the server was reset. Ask an Admin to reissue your reporter config.' };
-    case 'CERT_PAST_GRACE':
-      return { code, status: 'certificate expired', text: 'Your Podium certificate expired too long ago to renew itself. Ask an Admin to reissue your reporter config.' };
+    case 'CERT_EXPIRED':
+      return { code, status: 'certificate expired', text: `Your Podium certificate expired${expiredOn ? ` on ${expiredOn}` : ''}. Ask an Admin to generate a new reporter config.` };
     case 'CERT_RENEWAL_REFUSED':
       return { code, status: 'certificate refused', text: 'The server would not renew your certificate: it was revoked, or is not one this server issued. Ask an Admin to reissue your reporter config.' };
     case 'CLOSED_AFTER_HANDSHAKE':
@@ -236,7 +236,7 @@ export interface LinkOptions {
 
 /**
  * Starts the helper for `found` and returns a link whose `fetch` sends through it, or a link that says what is wrong.
- * Checked before anything starts: the name matches the session's and `node` exists. An expired certificate does not stop it: the helper renews inside the grace.
+ * Checked before anything starts: the name matches the session's and `node` exists. An expired certificate does not stop it: the helper says it has expired, with the date, instead of connecting.
  */
 export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValues, o: LinkOptions): Promise<Link> {
   const { headers } = found;
@@ -244,13 +244,10 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   if (o.sessionName && o.sessionName !== headers.user) {
     return brokenLink(found, { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${headers.user}", but this session reports as "${o.sessionName}"${o.nameSource ? `, and "${o.sessionName}" comes from ${o.nameSource}` : ''}. Use the file for "${o.sessionName}", or ${o.nameSource && o.nameIsSetting ? `leave that empty so the session takes the file's name` : 'change the name'}.` });
   }
-  // An expired certificate is not the end: inside the grace the helper renews it with the expired one, and past the grace it says so
-  // (CERT_PAST_GRACE) on the first request. Until then the status line says it is renewing.
+  // An expired certificate is not renewed (#665): the server's reporter port drops it at the handshake. The status line says so from the start.
   const expires = headers.expires ? Date.parse(headers.expires) : Number.NaN;
-  const renewingNote: Problem | null =
-    Number.isFinite(expires) && expires < o.now()
-      ? { code: 'CLIENT_RENEWING', status: 'renewing certificate', text: `Your Podium certificate expired on ${headers.expires?.slice(0, 10)}. Renewing it now; if that fails, ask an Admin to reissue your reporter config.` }
-      : null;
+  const expiredOn = Number.isFinite(expires) && expires < o.now() ? headers.expires?.slice(0, 10) : undefined;
+  const expiredNote: Problem | null = expiredOn ? problemFor('CERT_EXPIRED', '', undefined, expiredOn) : null;
   const node = await findNode($, env);
   if (!node) {
     return brokenLink(found, {
@@ -305,7 +302,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
             for (const line of next.value.text.split('\n')) {
               if (line.trim() === 'ready') {
                 running = true;
-                problem = renewingNote;
+                problem = expiredNote;
                 settle(true);
               } else if (line.startsWith('error ')) said = line;
               else if (line.trim()) log(`podium-reporter helper: ${line.trim().slice(0, 200)}`);
@@ -360,7 +357,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
       const code = res.headers?.[HELPER_ERROR_HEADER];
       if (code) {
         // An outage has no words of its own: it must not wipe a standing certificate problem.
-        problem = problemFor(code, host, { now: o.now(), serverNow: serverOffsetMs === undefined ? undefined : o.now() + serverOffsetMs }) ?? problem;
+        problem = problemFor(code, host, { now: o.now(), serverNow: serverOffsetMs === undefined ? undefined : o.now() + serverOffsetMs }, expiredOn) ?? problem;
         return res;
       }
       // A reply without the helper's error header came from the server and carries its Date (#650).

@@ -38,7 +38,7 @@ const PAGES: Record<TabId, { name: string; lead: string }> = {
   reporters: { name: "Reporters", lead: "Every reporter this server has heard from, and whether it is still reporting." },
   reporting: { name: "Security", lead: "Control how reporters prove who they are, and what protects the tokens." },
   settings: { name: "Settings", lead: "Server-wide choices. A change applies to everyone on this server." },
-  certs: { name: "Certificates", lead: "Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA. The serving certificate secures the console and every report." },
+  certs: { name: "Certificates", lead: "Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA and connect on the reporter port, which accepts only a valid reporter certificate. The console is served over HTTP; put a proxy in front of it for HTTPS." },
   prices: { name: "Model prices", lead: "What Podium charges each model per million tokens, in dollars. It uses these to work out what a session cost." },
   spend: { name: SPEND_CONFIG.title, lead: SPEND_CONFIG.lead },
   log: { name: "Admin log", lead: "What happened in Admin, newest first." },
@@ -259,7 +259,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
                   {tab === "reporters" && <ReportersTab api={api} paging={paging.reporters} onPaging={onReportersPaging} onCount={onCountReporters} onLocked={onLocked} />}
                   {tab === "reporting" && <ReportingTab api={api} onLocked={onLocked} />}
                   {tab === "settings" && <SettingsTab api={api} onLocked={onLocked} />}
-                  {tab === "certs" && <CertificatesTab api={api} base={base} onLocked={onLocked} />}
+                  {tab === "certs" && <CertificatesTab api={api} onLocked={onLocked} />}
                   {tab === "prices" && <ModelPricesTab api={api} onLocked={onLocked} />}
                   {tab === "spend" && <SpendPage client={client} fleetOptions={fleetOptions} onCount={onCountSpend} onLocked={onLocked} />}
                   {tab === "usage" && <ReportPage cfg={REPORT_CONFIGS.usage} client={client} onLocked={onLocked} />}
