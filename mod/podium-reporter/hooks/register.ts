@@ -52,7 +52,7 @@ import {
 } from './state.ts';
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
-import { findConfig, startLink, type Link } from './tlsLink.ts';
+import { findConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
 import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
@@ -1569,7 +1569,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (!same) state = addEvent(state, 'start', null, `session.start · ${shortName(model)}`, now, { surface: e.surface });
   // A /clear starts the session again under a new id; the helper goes on (#584). A file saved since this one was read is not taken up.
   // A name the identity now holds that the file is not for ends that link, so the check runs again below.
-  if (link && who.userName.trim() && who.userName.trim() !== link.user) {
+  // A stand-in for an unusable file (no headers) is dropped on every start so a file fixed since is found.
+  if (link && (!link.headers || (who.userName.trim() && who.userName.trim() !== link.user))) {
     link.stop();
     link = null;
   }
@@ -1578,13 +1579,14 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     linking ??= (async () => {
       const found = await findConfig($ as never).catch(() => null);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
-      if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), now: nowMs, log: (line) => void remember('tls', line) });
+      if (found?.problem) link = unusableLink(found.env.config ?? '', opts.serverUrl, found.problem);
+      else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), now: nowMs, log: (line) => void remember('tls', line) });
     })().finally(() => {
       linking = null;
     });
     await linking;
   }
-  if (link && !who.userName.trim() && link.problem()?.code !== 'NAME_MISMATCH') who = { ...who, userName: link.user };
+  if (link?.headers && !who.userName.trim() && link.problem()?.code !== 'NAME_MISMATCH') who = { ...who, userName: link.user };
   const fetch: FetchLike = (url, init) => (link ? link.fetch(url, init) : $.http.fetch(url, init));
   // Looked up once per load: the folder does not move, and a reload starts over.
   const build = rt ? rt.build : await findBuild($);
