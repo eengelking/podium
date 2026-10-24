@@ -1,0 +1,1193 @@
+<meta charset="utf-8">
+<title>Podium Atlas</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky chapter rail on the left, one wide reading column; the system map is the memorable object, everything else stays quiet. */
+:root{
+  --bg:#F3F5F9; --surface:#FFFFFF; --sunk:#E9EDF4; --ink:#0D1424; --ink2:#46506A; --mute:#6B7690; --line:#D8DEEA;
+  --accent:#2F4BFF; --accent-ink:#FFFFFF; --hot:#D61F69; --ok:#14804A; --bad:#C0262D; --warn:#9A5B00;
+  --c-reporter:#3B5BFF; --c-network:#B45309; --c-server:#0E9F8E; --c-store:#C2410C; --c-console:#7C3AED;
+  --shadow:0 1px 2px rgba(13,20,36,.06),0 8px 24px -12px rgba(13,20,36,.18);
+  --serif:"Instrument Serif",Georgia,"Times New Roman",serif; --sans:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#090E1B; --surface:#121A2E; --sunk:#0E1526; --ink:#E8ECF6; --ink2:#A5AFC6; --mute:#8791AB; --line:#25304A;
+  --accent:#8CA0FF; --accent-ink:#0A1030; --hot:#FF5C9A; --ok:#4CC38A; --bad:#FF7A80; --warn:#E8B64A;
+  --c-reporter:#5F7AF0; --c-network:#B88619; --c-server:#17A592; --c-store:#E36F2E; --c-console:#9475EA;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 28px -14px rgba(0,0,0,.6); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#090E1B; --surface:#121A2E; --sunk:#0E1526; --ink:#E8ECF6; --ink2:#A5AFC6; --mute:#8791AB; --line:#25304A;
+  --accent:#8CA0FF; --accent-ink:#0A1030; --hot:#FF5C9A; --ok:#4CC38A; --bad:#FF7A80; --warn:#E8B64A;
+  --c-reporter:#5F7AF0; --c-network:#B88619; --c-server:#17A592; --c-store:#E36F2E; --c-console:#9475EA;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 28px -14px rgba(0,0,0,.6); color-scheme:dark}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{background:var(--bg);color:var(--ink);font:400 16px/1.6 var(--sans);margin:0;-webkit-font-smoothing:antialiased}
+a{color:var(--accent)}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+code,.mono{font-family:var(--mono);font-size:.86em}
+code{background:var(--sunk);padding:.1em .38em;border-radius:5px}
+h1,h2,h3{text-wrap:balance;margin:0}
+p{margin:0 0 1em}
+
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);max-width:1480px;margin:0 auto}
+.rail{position:sticky;top:0;align-self:start;height:100vh;padding:28px 18px 24px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:22px;border-right:1px solid var(--line)}
+.brand{font:400 30px/1 var(--serif);letter-spacing:-.01em}
+.brand small{display:block;font:500 12px/1.4 var(--sans);color:var(--mute);margin-top:6px;letter-spacing:0}
+.rail nav{display:flex;flex-direction:column;gap:2px}
+.rail nav a{display:block;padding:7px 10px;border-radius:8px;text-decoration:none;color:var(--ink2);font-size:14px;font-weight:500;border-left:2px solid transparent}
+.rail nav a:hover{background:var(--sunk);color:var(--ink)}
+.rail nav a[aria-current="true"]{color:var(--ink);background:var(--sunk);border-left-color:var(--accent);font-weight:600}
+.rail .foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--mute)}
+.themebtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:600;align-self:flex-start}
+
+main{padding:0 max(16px,env(safe-area-inset-right,0px)) 120px 40px;min-width:0}
+section.ch{padding-top:88px;min-width:0}
+.ch-head{display:grid;gap:14px;margin-bottom:34px;max-width:760px}
+.ch-head h2{font:400 clamp(38px,5vw,60px)/1.02 var(--serif);letter-spacing:-.015em}
+.ch-head p{color:var(--ink2);font-size:18px;line-height:1.55;margin:0}
+.kicker{font:600 12.5px/1 var(--sans);color:var(--mute);letter-spacing:.02em}
+
+/* hero */
+.hero{padding-top:64px;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:48px;align-items:end}
+.hero h1{font:400 clamp(56px,9vw,128px)/.9 var(--serif);letter-spacing:-.03em}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero .lede{font-size:20px;line-height:1.5;color:var(--ink2);max-width:600px;margin:26px 0 0}
+.glance{margin:0;display:grid;gap:0;border-top:1px solid var(--line)}
+.glance div{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14px}
+.glance dt{color:var(--mute);font-weight:500}.glance dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
+.tryit{margin-top:28px;display:flex;flex-wrap:wrap;gap:10px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 15px;font-weight:600;font-size:14px;text-decoration:none;color:var(--ink);display:inline-flex;gap:8px;align-items:center}
+.btn:hover{border-color:var(--ink2)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}
+.pad{padding:22px 24px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+.tab{border:1px solid var(--line);background:transparent;border-radius:999px;padding:7px 14px;font-size:14px;font-weight:600;color:var(--ink2)}
+.tab[aria-selected="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:6px;font:500 12px/1 var(--mono);padding:5px 8px;border-radius:7px;background:var(--sunk);color:var(--ink2);border:1px solid transparent}
+button.chip:hover{border-color:var(--ink2)}
+.lay{display:inline-flex;align-items:center;gap:7px;font:600 12.5px/1 var(--sans);color:var(--ink)}
+.lay svg{width:12px;height:12px;flex:none}
+h3{font:400 28px/1.1 var(--serif);letter-spacing:-.01em}
+h4{margin:0 0 6px;font:700 13px/1.3 var(--sans);color:var(--ink)}
+.lbl{font:600 12px/1.2 var(--sans);color:var(--mute);margin:18px 0 6px}
+ul.tight{margin:0;padding-left:18px;color:var(--ink2);font-size:14.5px}ul.tight li{margin:3px 0}
+.files{display:flex;flex-wrap:wrap;gap:6px}
+
+/* system map */
+.maplayout{display:grid;gap:18px}
+.mapwrap{overflow-x:auto;border-radius:16px}
+.mapbox{min-width:980px;padding:6px 6px 0}
+svg.map{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+.legend .tab{display:inline-flex;align-items:center;gap:7px}
+.legend .tab[aria-pressed="false"]{opacity:.45}
+.legend .hint{font-size:13px;color:var(--mute);margin-left:auto}
+.lane{fill:var(--sunk);opacity:.7}
+.lanelabel{font:600 12px var(--sans);fill:var(--mute)}
+.node{cursor:pointer;transition:opacity .2s}
+.node rect.box{fill:var(--surface);stroke-width:1.5}
+.node .nm{font:600 13.5px var(--sans);fill:var(--ink)}
+.node .rl{font:400 11.5px var(--sans);fill:var(--ink2)}
+.node .fl{font:400 10px var(--mono);fill:var(--mute)}
+.node.dim{opacity:.28}
+.node.hot rect.box{stroke:var(--hot);stroke-width:2.5}
+.node.sel rect.box{stroke:var(--ink);stroke-width:2.75}
+.node:hover rect.box{stroke-width:2.5}
+.node:focus-visible{outline:none}.node:focus-visible rect.box{stroke:var(--accent);stroke-width:3}
+.edge{fill:none;stroke:var(--mute);stroke-width:1.4;opacity:.38;transition:opacity .2s}
+.edge.reply{stroke-dasharray:5 4}
+.edge.hot{stroke:var(--hot);stroke-width:2.4;opacity:1;stroke-dasharray:7 6;animation:march 1s linear infinite}
+.edge.dim{opacity:.1}
+.edge.near{opacity:.85;stroke:var(--ink2)}
+@keyframes march{to{stroke-dashoffset:-26}}
+.elab text{font:500 10.5px var(--mono);fill:var(--ink)}
+.elab rect{fill:var(--surface);stroke:var(--line)}
+.elab{pointer-events:none}
+.mk-dim{fill:var(--mute)}.mk-hot{fill:var(--hot)}
+
+.under{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px;align-items:start}
+.flowtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.stepper{display:flex;gap:8px;align-items:center;margin:14px 0 4px;flex-wrap:wrap}
+.dots{display:flex;gap:5px;margin-left:auto}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line);border:0;padding:0}
+.dot[aria-current="true"]{background:var(--hot);transform:scale(1.25)}
+.dot.done{background:var(--ink2)}
+.stepbody h3{margin-bottom:8px}
+.stepbody p{color:var(--ink2);margin:0 0 .6em}
+.insp .empty{color:var(--mute);font-size:14.5px}
+.talks{display:grid;gap:4px;margin:0;padding:0;list-style:none}
+.talks button{all:unset;cursor:pointer;display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:14px;color:var(--ink2);padding:3px 0}
+.talks button:hover b{text-decoration:underline}
+.talks b{color:var(--ink);font-weight:600}
+.refs{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.refs li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+.refs li:last-child{border-bottom:0}
+.refs a{display:grid;gap:1px;padding:7px 0;text-decoration:none;color:var(--ink);min-width:0}
+.refs a:hover .rw{text-decoration:underline}
+.refs .rw{font-size:14px;font-weight:600}
+.refs .rp{font:400 11.5px/1.4 var(--mono);color:var(--accent);overflow-wrap:anywhere}
+.cp{border:1px solid var(--line);background:transparent;border-radius:7px;padding:3px 9px;font-size:12px;font-weight:600;color:var(--ink2)}
+.cp:hover{border-color:var(--ink2);color:var(--ink)}
+.callout{border-left:3px solid var(--hot);padding:2px 0 2px 14px;margin:16px 0 0;color:var(--ink2);font-size:14.5px}
+
+/* networking */
+.modegrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start}
+.mini{overflow-x:auto}
+.mini svg{display:block;width:100%;min-width:560px;height:auto}
+.mini .bx{fill:var(--surface);stroke:var(--ink2);stroke-width:1.3}
+.mini .bt{font:600 13px var(--sans);fill:var(--ink)}.mini .bs{font:400 11px var(--mono);fill:var(--mute)}
+.mini .bound{fill:none;stroke:var(--mute);stroke-dasharray:4 5}
+.mini .ln{fill:none;stroke-width:2}
+.mini .ln.plain{stroke:var(--warn);stroke-dasharray:6 5}.mini .ln.secure{stroke:var(--ok)}.mini .ln.local{stroke:var(--mute)}
+.mini .ln-l{font:500 11px var(--mono);fill:var(--ink)}
+.facts{display:grid;gap:10px;margin:0;padding:0;list-style:none;font-size:14.5px;color:var(--ink2)}
+.facts li{display:grid;grid-template-columns:22px 1fr;gap:8px}
+.ic{font-weight:700}.ic.ok{color:var(--ok)}.ic.no{color:var(--bad)}.ic.wn{color:var(--warn)}
+pre.cmd{margin:0;background:var(--sunk);border-radius:10px;padding:12px 14px;font:400 12.5px/1.6 var(--mono);overflow-x:auto;position:relative;color:var(--ink)}
+.gauntlet{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.3fr);gap:18px;align-items:start}
+.scn{display:grid;gap:6px}
+.scn button{all:unset;cursor:pointer;display:block;padding:10px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;line-height:1.35;color:var(--ink2);background:var(--surface)}
+.scn button:hover{border-color:var(--ink2)}
+.scn button[aria-pressed="true"]{border-color:var(--ink);color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.scn button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pipe{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.pipe li{display:grid;grid-template-columns:30px 1fr auto;gap:12px;padding:11px 4px;border-bottom:1px solid var(--line);align-items:start;opacity:.38;transition:opacity .25s}
+.pipe li.seen{opacity:1}
+.pipe li:last-child{border-bottom:0}
+.pipe .mark{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font:700 13px/1 var(--sans);margin-top:1px}
+.pipe .pass .mark{border-color:var(--ok);color:var(--ok)}
+.pipe .stop .mark{border-color:var(--bad);color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.pipe .nm{font-weight:600;font-size:15px}.pipe .wh{font-size:13px;color:var(--mute)}
+.pipe .res{font:500 12px var(--mono);color:var(--mute);text-align:right;white-space:nowrap}
+.pipe .stop .res{color:var(--bad)}
+.verdict{margin-top:14px;padding:14px 16px;border-radius:12px;background:var(--sunk);font-size:14.5px;color:var(--ink2)}
+.verdict b{color:var(--ink)}
+
+/* ladder */
+.ladder{display:grid;gap:0}
+.tier{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) auto;gap:18px;padding:16px 4px;border-bottom:1px solid var(--line);align-items:start}
+.tier:last-child{border-bottom:0}
+.tier.on .tname{color:var(--ink)}
+.tname{font-weight:700;font-size:16px;color:var(--ink2)}
+.tmeta{font-size:13.5px;color:var(--mute);margin-top:3px}
+.titems{font-size:14px;color:var(--ink2);margin:0;padding-left:18px}
+.titems li{margin:2px 0}
+.tier:not(.on) .titems{opacity:.35;text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--mute) 60%,transparent)}
+.sw{display:grid;gap:8px;justify-items:end}
+.swrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2)}
+.sw-btn{all:unset;cursor:pointer;width:38px;height:22px;border-radius:999px;background:var(--line);position:relative;transition:background .2s;flex:none}
+.sw-btn::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .2s}
+.sw-btn[aria-checked="true"]{background:var(--accent)}.sw-btn[aria-checked="true"]::after{transform:translateX(16px)}
+.sw-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.state-pill{font:600 11.5px var(--sans);padding:3px 8px;border-radius:999px;background:var(--sunk);color:var(--mute)}
+.tier.on .state-pill{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+
+/* lifecycle */
+.life{display:grid;gap:14px}
+.track{position:relative;height:56px;border-radius:12px;overflow:hidden;display:flex;border:1px solid var(--line)}
+.seg{display:grid;place-items:center;font:600 13px var(--sans);color:var(--ink);position:relative}
+.seg.s1{background:color-mix(in srgb,var(--ok) 20%,var(--surface))}.seg.s2{background:color-mix(in srgb,var(--warn) 22%,var(--surface))}.seg.s3{background:color-mix(in srgb,var(--bad) 16%,var(--surface))}
+.marker{position:absolute;top:0;bottom:0;width:3px;background:var(--ink);box-shadow:0 0 0 2px var(--surface)}
+.ticks{position:relative;height:18px;font:500 11.5px var(--mono);color:var(--mute)}
+.ticks span{position:absolute;transform:translateX(-50%)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.modsearch{width:100%;max-width:420px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;margin-bottom:12px}
+.modlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px}
+.mod{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}
+.mod code{background:none;padding:0;color:var(--accent);font-weight:500}
+.mod span{color:var(--ink2)}
+
+/* data */
+.stores{display:grid;gap:16px}
+.tbl-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}
+.tbl-groups h4{margin-bottom:8px}
+.itemlist{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.itemlist li{display:grid;grid-template-columns:170px 1fr;gap:14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14.5px;color:var(--ink2)}
+.itemlist li b{color:var(--ink);font-weight:600}
+
+/* principles */
+.princ{display:grid;gap:0}
+.pr{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:40px;padding:26px 0;border-top:1px solid var(--line)}
+.pr h3{font-size:30px}
+.pr p{color:var(--ink2);margin:10px 0 0;font-size:15.5px}
+.pr .enf{font-size:13.5px;color:var(--mute);align-self:center}
+.pr .enf b{display:block;color:var(--ink2);font:600 12px var(--sans);margin-bottom:6px}
+
+/* chart */
+.chart{width:100%;height:auto;display:block}
+.chart text{font:500 12.5px var(--sans);fill:var(--ink)}
+.chart .ax{fill:var(--mute);font-size:11.5px;font-family:var(--mono)}
+.chart .gr{stroke:var(--line);stroke-width:1}
+.cl{display:flex;gap:18px;font-size:13.5px;color:var(--ink2);margin-bottom:8px}
+.cl i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+details.tv{margin-top:12px;font-size:14px;color:var(--ink2)}
+details.tv table{border-collapse:collapse;margin-top:8px;font-variant-numeric:tabular-nums}
+details.tv td,details.tv th{padding:5px 14px 5px 0;text-align:left;border-bottom:1px solid var(--line)}
+
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.mt{margin-top:18px}.mt2{margin-top:34px}
+.sub{font:400 24px/1.15 var(--serif);margin:0 0 6px}
+.note{font-size:14px;color:var(--mute)}
+footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);color:var(--mute);font-size:13.5px}
+
+@media (max-width:1060px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .rail{position:sticky;z-index:20;height:auto;flex-direction:row;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));border-right:0;border-bottom:1px solid var(--line);background:var(--bg);top:env(safe-area-inset-top,0px);overflow-x:auto}
+  .brand small,.rail .foot span{display:none}
+  .rail nav{flex-direction:row;gap:4px}
+  .rail nav a{white-space:nowrap;border-left:0;border-bottom:2px solid transparent}
+  .rail nav a[aria-current="true"]{border-bottom-color:var(--accent)}
+  .rail .foot{margin:0 0 0 auto}
+  main{padding:0 max(16px,env(safe-area-inset-right,0px)) 100px max(16px,env(safe-area-inset-left,0px))}
+  .hero,.under,.modegrid,.gauntlet,.two,.pr{grid-template-columns:minmax(0,1fr)}
+  .hero{gap:28px}.pr{gap:10px}
+  .tier{grid-template-columns:minmax(0,1fr)}.sw{justify-items:start}
+  .modlist{grid-template-columns:minmax(0,1fr)}
+  .itemlist li{grid-template-columns:minmax(0,1fr)}
+  .mod{grid-template-columns:minmax(0,1fr);gap:2px}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.edge.hot{animation:none}*{transition:none!important}}
+</style>
+
+<div class="shell">
+  <aside class="rail" aria-label="Chapters">
+    <div class="brand">Podium<small>How the fleet console works</small></div>
+    <nav id="nav"></nav>
+    <div class="foot"><span>Reads from the repo at v1.3.0</span><button class="themebtn" id="themebtn" type="button">Theme: system</button></div>
+  </aside>
+
+  <main>
+    <section class="hero" id="overview">
+      <div>
+        <h1>Every session.<br><em>One tab.</em></h1>
+        <p class="lede">Run several Claude Code sessions at once and one of them is always waiting on you. Podium shows every session, agent, cost and failure on one wall, and lets you answer the ones that are stuck. This page follows the data from a hook inside a session to a card on your screen, and everything it touches on the way.</p>
+        <div class="tryit">
+          <a class="btn primary" href="#map">Open the system map</a>
+          <a class="btn" href="#network">Jump to networking</a>
+        </div>
+      </div>
+      <dl class="glance" aria-label="At a glance">
+        <div><dt>Shape</dt><dd>Reporter mod → server → browser</dd></div>
+        <div><dt>Server</dt><dd>Node 24, Express, SQLite</dd></div>
+        <div><dt>Console</dt><dd>React, plain CSS tokens</dd></div>
+        <div><dt>Ports</dt><dd>4317 HTTP · 4318 mutual TLS</dd></div>
+        <div><dt>Direction</dt><dd>Sessions call out; nothing calls in</dd></div>
+        <div><dt>Code</dt><dd>≈56k lines + ≈51k lines of tests</dd></div>
+        <div><dt>Release</dt><dd>One version for server and mod</dd></div>
+      </dl>
+    </section>
+
+    <section class="ch" id="map">
+      <div class="ch-head">
+        <span class="kicker">The system map</span>
+        <h2>Thirty parts, five layers</h2>
+        <p>Click any box to see what it is and why it exists. Pick a flow to watch one real operation cross the system step by step. Dashed lines are replies; the pink path is the step you are on.</p>
+      </div>
+      <div class="legend" id="legend"></div>
+      <div class="panel mapwrap"><div class="mapbox"><svg class="map" id="mapsvg" viewBox="0 0 1280 770" role="group" aria-label="Podium system map. Use the component inspector below for text descriptions."></svg></div></div>
+      <div class="under mt">
+        <div class="panel pad" id="flowpanel">
+          <div class="flowtabs" id="flowtabs" role="tablist" aria-label="Flows"></div>
+          <div class="stepbody" id="stepbody" aria-live="polite"></div>
+          <div class="stepper">
+            <button class="btn" id="prev" type="button">Back</button>
+            <button class="btn primary" id="next" type="button">Next step</button>
+            <button class="btn" id="play" type="button" aria-pressed="false">Auto-play</button>
+            <div class="dots" id="dots"></div>
+          </div>
+        </div>
+        <div class="panel pad insp" id="insp" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="ch" id="network">
+      <div class="ch-head">
+        <span class="kicker">Networking</span>
+        <h2>Who can talk to what, and what stops them</h2>
+        <p>Podium reports travel one way: the session machine opens the connection, and replies carry any instructions back. The server never dials out to a session. How much of that path is encrypted depends on how you deploy it.</p>
+      </div>
+      <h3 class="sub">Four ways to run it</h3>
+      <div class="tabs" role="tablist" id="modetabs" aria-label="Deployment modes"></div>
+      <div class="modegrid">
+        <div class="panel pad mini" id="minidiagram"></div>
+        <div class="panel pad" id="modefacts"></div>
+      </div>
+
+      <h3 class="sub mt2">The request gauntlet</h3>
+      <p class="note" style="max-width:680px">Every request passes the same ordered checks before a route sees it. Choose a request and run it through. The order is the real middleware order in <code>server/src/index.ts</code>.</p>
+      <div class="gauntlet mt">
+        <div class="scn" id="scn" role="group" aria-label="Requests to try"></div>
+        <div class="panel pad">
+          <ol class="pipe" id="pipe"></ol>
+          <div class="verdict" id="verdict" aria-live="polite"></div>
+          <div style="margin-top:12px"><button class="btn" id="rerun" type="button">Run again</button></div>
+        </div>
+      </div>
+
+      <h3 class="sub mt2">What the network exposes</h3>
+      <div class="two mt">
+        <div class="panel pad">
+          <h4>Defaults are local</h4>
+          <ul class="tight">
+            <li>The server binds <code>127.0.0.1</code> unless you pass <code>--bind</code>.</li>
+            <li>Inside the container it binds <code>0.0.0.0</code>; the host side of the published port is what limits access.</li>
+            <li>A <code>Host</code> that is not loopback, the bind address or on <code>PODIUM_ALLOWED_HOSTS</code> gets 403, which blocks DNS rebinding.</li>
+            <li>Behind a proxy, <code>PODIUM_TRUST_PROXY</code> names the hops whose <code>X-Forwarded-*</code> headers count. A wide range lets a client pick its own address.</li>
+          </ul>
+        </div>
+        <div class="panel pad">
+          <h4>Known limits, stated plainly</h4>
+          <ul class="tight">
+            <li>Reading the console needs no token. Anyone who can reach the port sees every session.</li>
+            <li>The console and Admin are plain HTTP. Use a TLS proxy on an untrusted network.</li>
+            <li>mTLS covers the reporter port only. A stolen config file holds the key, so revoke the certificate.</li>
+            <li>Plain-HTTP reporters stay allowed until an Admin turns that off.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="ch" id="reporter">
+      <div class="ch-head">
+        <span class="kicker">The reporter mod</span>
+        <h2>It runs inside Claude Code, and asks permission for everything else</h2>
+        <p><code>podium-reporter</code> is a plugin that loads in each Claude Code process. By default it sends session metadata and never transcripts or file contents. Each step up in what it can see needs a switch on the server and a switch with the session's owner. Flip them below.</p>
+      </div>
+      <div class="panel pad">
+        <div class="ladder" id="ladder"></div>
+      </div>
+      <div class="two mt">
+        <div class="panel pad">
+          <h4>What stays on the machine</h4>
+          <ul class="tight">
+            <li>The model's thinking text is never sent.</li>
+            <li>Transcripts and file contents are never read for the wall. A diff leaves only when its owner opens it, after redaction.</li>
+            <li>The OS user name and <code>git config</code> are never read. The machine id is a random 12-character string.</li>
+            <li>Secret-shaped text (<code>sk-ant-…</code>, <code>ghp_…</code>, <code>Bearer …</code>, <code>password=…</code>) becomes <code>[redacted]</code> before it leaves.</li>
+          </ul>
+        </div>
+        <div class="panel pad">
+          <h4>Built so a session never feels it</h4>
+          <ul class="tight">
+            <li>Hooks only update an in-memory model; a timer does all network work.</li>
+            <li>An offline server costs backoff, not session speed.</li>
+            <li><code>session.end</code> sends a final report inside a 1 second deadline.</li>
+            <li>A new session id after <code>/clear</code> closes the old id and starts over under the new one.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="ch" id="server">
+      <div class="ch-head">
+        <span class="kicker">The server</span>
+        <h2>A small loop that keeps the live set honest</h2>
+        <p>The server holds the set of live sessions, stores what it should keep, and pushes changes to browsers. A one-second sweeper decides when a quiet session is stale and when it is gone.</p>
+      </div>
+      <div class="panel pad life">
+        <div>
+          <h4>How long since the session last reported?</h4>
+          <p class="note" style="margin:0">Drag the slider. Timings are the defaults: stale at 15 s, dropped 60 s later, an ended session lingers 8 s.</p>
+        </div>
+        <div>
+          <div class="track" id="track" aria-hidden="true"></div>
+          <div class="ticks" id="ticks" aria-hidden="true"></div>
+        </div>
+        <input type="range" id="slider" min="0" max="120" value="8" aria-label="Seconds since last report">
+        <div id="lifeout" aria-live="polite"></div>
+      </div>
+
+      <h3 class="sub mt2">Server source index</h3>
+      <p class="note">The files in <code>server/src/fleet/</code> and friends. Search by name or job.</p>
+      <input class="modsearch" id="modsearch" type="search" placeholder="Search, e.g. sse, token, cost" aria-label="Search server files">
+      <div class="modlist" id="modlist"></div>
+    </section>
+
+    <section class="ch" id="console">
+      <div class="ch-head">
+        <span class="kicker">The console</span>
+        <h2>A browser that computes almost nothing</h2>
+        <p>The UI is React with plain CSS. It renders the server's <code>SessionView</code> and recomputes nothing the server did not already decide. That keeps what you see identical across every open tab.</p>
+      </div>
+      <div class="tabs" role="tablist" id="uitabs" aria-label="Console surfaces"></div>
+      <div class="panel pad" id="uipanel"></div>
+    </section>
+
+    <section class="ch" id="data">
+      <div class="ch-head">
+        <span class="kicker">Where data lives</span>
+        <h2>Most sensitive data never touches disk</h2>
+        <p>The fastest way to judge a monitoring tool is to ask where its data goes. Pick a place.</p>
+      </div>
+      <div class="tabs" role="tablist" id="storetabs" aria-label="Storage locations"></div>
+      <div class="panel pad stores" id="storepanel"></div>
+    </section>
+
+    <section class="ch" id="principles">
+      <div class="ch-head">
+        <span class="kicker">Why it is built this way</span>
+        <h2>Nine decisions that shape everything else</h2>
+        <p>Each one is a constraint the code enforces, not a guideline. The right-hand column says where.</p>
+      </div>
+      <div class="princ" id="princ"></div>
+    </section>
+
+    <section class="ch" id="run">
+      <div class="ch-head">
+        <span class="kicker">Running it</span>
+        <h2>One command to start, one version to track</h2>
+        <p><code>podiumctl</code> runs the server in a Podman or Docker container, or as a plain Node process. There is no package registry and no cloud service; users build the image themselves.</p>
+      </div>
+      <div class="two">
+        <div class="panel pad">
+          <h4>Container mode</h4>
+          <ul class="tight">
+            <li>Two-stage Node 24 image, runs as the non-root <code>node</code> user.</li>
+            <li>Named volume <code>podium-data</code> holds both SQLite files.</li>
+            <li>With TLS on, the CA lives on the host in <code>~/.podium/tls</code>, mounted at <code>/data/tls</code>.</li>
+            <li>Secrets reach the server through the environment, never the command line.</li>
+          </ul>
+        </div>
+        <div class="panel pad">
+          <h4>Standalone mode</h4>
+          <ul class="tight">
+            <li>Detached <code>node server/dist/index.js</code> with a pid file and a log.</li>
+            <li>The pid file is trusted only if that pid's command line is Podium's.</li>
+            <li><code>enable</code> writes a launchd plist or a systemd user unit.</li>
+            <li>The mod is not containerized; it posts to the server's URL.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3 class="sub mt2">How much is tested</h3>
+      <div class="panel pad mt">
+        <div class="cl"><span><i style="background:var(--c-reporter)"></i>Source lines</span><span><i style="background:var(--c-server)"></i>Test lines</span></div>
+        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 18.6 thousand source, 21.0 thousand test. Reporter mod 8.7 and 7.6. Console 24.8 and 20.0. Scripts 4.1 and 2.1."></svg>
+        <details class="tv"><summary>View as a table</summary>
+          <table><thead><tr><th>Area</th><th>Source</th><th>Tests</th></tr></thead><tbody>
+            <tr><td>Server</td><td>18,593</td><td>20,986</td></tr><tr><td>Reporter mod</td><td>8,665</td><td>7,629</td></tr>
+            <tr><td>Console</td><td>24,794</td><td>20,003</td></tr><tr><td>Scripts</td><td>4,128</td><td>2,111</td></tr></tbody></table>
+        </details>
+        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23, excluding dependencies. Tests also include checks that fail the build if the docs, the design standards or the version numbers drift from the code.</p>
+      </div>
+    </section>
+
+    <footer class="end">Generated from the Podium repository at version 1.3.0 (development branch). Descriptions follow <code>docs/ARCHITECTURE.md</code>, <code>docs/SERVER.md</code> and <code>docs/REPORTER.md</code>.</footer>
+  </main>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=(s,r=document)=>r.querySelector(s);
+const NS="http://www.w3.org/2000/svg";
+function el(tag,attrs,kids){const e=document.createElement(tag);if(attrs)for(const k in attrs){if(k==="class")e.className=attrs[k];else if(k==="html")e.innerHTML=attrs[k];else if(k.startsWith("on"))e.addEventListener(k.slice(2),attrs[k]);else e.setAttribute(k,attrs[k]);}(kids||[]).forEach(c=>e.append(c));return e}
+function sv(tag,attrs,kids){const e=document.createElementNS(NS,tag);if(attrs)for(const k in attrs){if(k==="text")e.textContent=attrs[k];else e.setAttribute(k,attrs[k]);}(kids||[]).forEach(c=>e.append(c));return e}
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- chapters + rail + theme ---------- */
+const CH=[["overview","Overview"],["map","System map"],["network","Networking"],["reporter","Reporter mod"],["server","Server"],["console","Console"],["data","Data"],["principles","Principles"],["run","Running it"]];
+const nav=$("#nav");CH.forEach(([id,t])=>nav.append(el("a",{href:"#"+id,"data-id":id},[t])));
+const links=[...nav.querySelectorAll("a")];
+const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.setAttribute("aria-current",String(l.dataset.id===e.target.id)))}})},{rootMargin:"-30% 0px -60% 0px"});
+CH.forEach(([id])=>{const s=document.getElementById(id);if(s)io.observe(s)});
+let theme="system";try{theme=localStorage.getItem("atlas-theme")||"system"}catch(e){}
+function applyTheme(){const r=document.documentElement;if(theme==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",theme);$("#themebtn").textContent="Theme: "+theme}
+$("#themebtn").addEventListener("click",()=>{theme=theme==="system"?"light":theme==="light"?"dark":"system";try{localStorage.setItem("atlas-theme",theme)}catch(e){}applyTheme()});
+applyTheme();
+
+/* ---------- layers ---------- */
+const LAYERS={
+ reporter:{name:"Reporter mod",c:"var(--c-reporter)",g:"circle"},
+ network:{name:"Network edge",c:"var(--c-network)",g:"diamond"},
+ server:{name:"Podium server",c:"var(--c-server)",g:"square"},
+ store:{name:"Storage",c:"var(--c-store)",g:"cyl"},
+ console:{name:"Browser console",c:"var(--c-console)",g:"tri"}};
+function glyph(kind,cx,cy,r,color){
+ if(kind==="circle")return sv("circle",{cx,cy,r,fill:color});
+ if(kind==="diamond")return sv("path",{d:`M${cx} ${cy-r-1}L${cx+r+1} ${cy}L${cx} ${cy+r+1}L${cx-r-1} ${cy}Z`,fill:color});
+ if(kind==="square")return sv("rect",{x:cx-r,y:cy-r,width:r*2,height:r*2,rx:2,fill:color});
+ if(kind==="tri")return sv("path",{d:`M${cx} ${cy-r-1}L${cx+r+1} ${cy+r}L${cx-r-1} ${cy+r}Z`,fill:color});
+ return sv("path",{d:`M${cx-r} ${cy-r+2}a${r} 2.6 0 0 1 ${r*2} 0v${r*2-3}a${r} 2.6 0 0 1 ${-r*2} 0Z`,fill:color});
+}
+function layerChip(k){const L=LAYERS[k];const s=sv("svg",{viewBox:"0 0 16 16"});s.append(glyph(L.g,8,8,5,L.c));return el("span",{class:"lay"},[s,L.name])}
+
+/* ---------- nodes ---------- */
+const COLX={r:64,n:312,a:534,b:782,c:1054}, COLW={r:212,n:184,a:196,b:196,c:206};
+const Y=i=>44+88*i;
+const N=[
+ {id:"cc",l:"reporter",col:"r",row:0,name:"Claude Code session",role:"The process being watched",file:"mod/podium-reporter/",
+  what:"One Claude Code process on a developer's machine: an orchestrator plus the agents (subagents and forks) it launches.",
+  why:"It is the subject. Podium never wraps, proxies or replaces it, so there is nothing extra to start and nothing to break if Podium is down.",
+  how:["The reporter mod loads inside the process as a plugin and uses Claude Code's mod API (<code>$.session</code>, <code>$.agent</code>, <code>$.clock</code>, <code>$.http</code>, <code>$.prompt</code>).","Installed from the <code>eengelking-marketplace</code>; its token option is secret and is set with <code>/plugin configure</code>."]},
+ {id:"hooks",l:"reporter",col:"r",row:1,name:"Hooks and reducers",role:"Fold events into a model",file:"state.ts · plan.ts · failures.ts",
+  what:"Callbacks on tool calls, turn steps and session end that update an in-memory model through pure functions.",
+  why:"Hooks run on Claude Code's critical path. If they waited on a network call, every tool call in every session would get slower. So they never wait.",
+  how:["Reducers take the old model and an event and return a new model, so they are tested without Claude Code.","The plan comes from TaskCreate, TaskUpdate or TodoWrite; failures keep the tool, a one-line summary, exit code and last 12 lines."]},
+ {id:"tx",l:"reporter",col:"r",row:2,name:"Transport and timer",role:"Posts a snapshot, reads the reply",file:"transport.ts · report.ts",
+  what:"A clock timer that reads session id, usage and the agent list, then posts a full snapshot plus unacknowledged events to the server.",
+  why:"Complete snapshots are idempotent: a dropped request costs nothing because the next one repairs it. The reply doubles as a control channel, so the server never needs to dial into a laptop.",
+  how:["Posts every 1 s when something changed, with a 5 s heartbeat and backoff while the server is offline.","The reply carries <code>watch</code> (which loops to capture), deliveries (answers, messages), the recording grant and open requests.","Body is capped at 480,000 bytes; text is cut and redacted first."]},
+ {id:"collect",l:"reporter",col:"r",row:3,name:"Collectors",role:"Git, machine, build, models",file:"git.ts · machine.ts · build.ts",
+  what:"Small readers for the facts that are not in hooks: branch and ahead/behind counts, changed files, host name, OS, build and model details.",
+  why:"The wall shows which branch or worktree each session works in, and which machine it runs on, without reading files.",
+  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, never contents.","The machine id is a random 12-character string kept in <code>~/.claude/podium-machine-id</code>. The OS user name is never read."]},
+ {id:"helper",l:"reporter",col:"r",row:4,name:"TLS helper",role:"Holds the client certificate",file:"hooks/helper.mjs",
+  what:"A small Node script the mod starts once per session. It reads the reporter config file, makes the mutual-TLS connection and listens on a Unix socket.",
+  why:"The mod's fetch cannot present a client certificate or pin a CA. A helper keeps <code>Transport</code> unchanged: the same fetch just gets a <code>socketPath</code>.",
+  how:["Forwards only the routes a reporter needs; anything else gets 403 <code>ROUTE_NOT_ALLOWED</code>.","Renews the person's certificate at 30 days left, using a numbered lock file so several sessions share one config safely.","Checks the certificate's dates before connecting; an expired one is never sent upstream (<code>CERT_EXPIRED</code>)."]},
+ {id:"tools",l:"reporter",col:"r",row:5,name:"In-session tools",role:"Answers and messages inward",file:"respond.ts · peers.ts",
+  what:"How Podium reaches back into a session: answers to questions, plans and permission prompts, and messages from your other orchestrators. Includes <code>podium_send</code>, <code>podium_peers</code>, <code>podium_request_access</code> and <code>/podium</code>.",
+  why:"A stuck session is the problem Podium exists to solve. This is the one place it can act, and it is deliberately narrow.",
+  how:["Never types into the terminal. An answer becomes the result of a hook the mod already holds (<code>questionRace</code>, <code>planRace</code>, <code>permissionAsk</code>).","A peer message is wrapped in a frame and submitted with <code>$.prompt.submit</code>, so the model sees it was sent by a peer.","Both need the server's Admin switch and the owner's option."]},
+ {id:"rec",l:"reporter",col:"r",row:6,name:"Activity, diff, recorder",role:"Opt-in readers",file:"recording.ts · fileDiff.ts",
+  what:"Three readers that capture more than the wall needs: recent tool calls, a file diff on request, and a whole-session recording.",
+  why:"Each is more sensitive than the last, so each is gated, redacted before leaving and cut to a fixed size.",
+  how:["The recorder numbers entries per loop, redacts, cuts at 100,000 characters each and sends every 5 s (early at 256 KB).","A diff is cut at 2,000 lines or 200,000 bytes, then secret-shaped text is replaced."]},
+ {id:"alt",l:"reporter",col:"r",row:7,name:"Simulator, settings hooks",role:"Other ways to report",file:"scripts/podium-sim.ts",
+  what:"The same report and hook routes, fed by something other than the mod: a simulator that fakes busy fleets, and Claude Code's settings hooks for sessions started without the mod.",
+  why:"You can see the product with no real sessions, and a team can get a reduced view before everyone installs the mod.",
+  how:["Settings-hook sessions carry no token counts, so context, cost and plan stay empty and the card says “settings hooks”."]},
+
+ {id:"proxy",l:"network",col:"n",row:0,name:"Reverse proxy",role:"Optional TLS for browsers",file:"your infrastructure",
+  what:"A TLS-terminating proxy you put in front of the console when people reach it over a network you do not trust.",
+  why:"Podium serves HTTP to browsers on purpose. Certificates for browsers are a solved problem with solutions people already run, so Podium does not duplicate one.",
+  how:["Set <code>PODIUM_TRUST_PROXY</code> to the hops whose <code>X-Forwarded-For</code> and <code>X-Forwarded-Proto</code> the server should believe.","Without it every client looks like the proxy: one person's wrong guesses lock everyone out and cookies lose the <code>Secure</code> flag."]},
+ {id:"p4317",l:"network",col:"n",row:1,name:"HTTP :4317",role:"Console, Admin, token reports",file:"server/src/index.ts",
+  what:"The main listener. Serves the built console, the API, Admin, and reporters that authenticate with a token.",
+  why:"Zero setup for one person on one machine: no certificates, nothing to trust in a browser.",
+  how:["Binds <code>127.0.0.1</code> by default. <code>--bind 0.0.0.0</code> opens it to a team.","Plain HTTP: tokens and reports cross the network unencrypted unless you use TLS or a proxy."]},
+ {id:"p4318",l:"network",col:"n",row:2,name:"mTLS :4318",role:"Reporters with a certificate",file:"tlsServer.ts",
+  what:"A second listener, only when <code>PODIUM_TLS=on</code>. HTTPS that requires a valid client certificate from the Podium CA.",
+  why:"Reports and answers are encrypted, and each reporter proves who it is with a certificate instead of a token that could be sniffed.",
+  how:["<code>requestCert</code> and <code>rejectUnauthorized</code> are on: a connection without a valid certificate is dropped in the handshake.","A filter answers 404 to any path that is not a reporter route, so the console and Admin are unreachable here.","TLS 1.2 minimum. Any failure to start logs <code>tls.failed</code> and leaves HTTP running."]},
+
+ {id:"guards",l:"server",col:"a",row:1,name:"Guard chain",role:"Checks before any route",file:"hostCheck · securityHeaders · failureLimiter",
+  what:"Middleware that runs first on every request: Host check, security headers, the reporter HTTP gate, request log, and the failed-request limiter.",
+  why:"Cheap, uniform checks stop whole classes of attack (DNS rebinding, scanners, plain-HTTP reporters after you turned it off) before any handler has to think about them.",
+  how:["Host check answers 403 to a name the server does not expect.","Failure limiter: 300 failed requests a minute per address, then 429 with <code>Retry-After</code>. Successful requests are never counted.","The Content-Security-Policy hashes the page's inline scripts."]},
+ {id:"routes",l:"server",col:"a",row:2,name:"Routers and identity",role:"Turns credentials into an owner",file:"fleet/routes.ts",
+  what:"The HTTP routes for reports, hooks, state, stream and sessions, plus the code that decides who is calling.",
+  why:"Every session needs an owner so the wall can group by person and so answers go only to the right human.",
+  how:["With TLS, the client certificate is checked first on every request: authorized, stored, not revoked, in date, trusted issuer. A presented certificate that fails is 401 and never falls back to a token.","Otherwise the <code>X-Podium-Token</code> is a person token (<code>pdm_&lt;key id&gt;_&lt;secret&gt;</code>, SHA-256 in constant time), the admin secret, or auth is off.","Mounts <code>/api/fleet</code>, <code>/api/reporter</code>, <code>/api/admin</code>, <code>/api/tls</code> and <code>/api/health</code>."]},
+ {id:"ingest",l:"server",col:"a",row:3,name:"Ingest",role:"Validate, then store",file:"protocol.ts · ingest.ts",
+  what:"Hand-written validation of every report field, then one database transaction.",
+  why:"A report arrives from machines you do not control. Nothing is trusted until each field is checked, and a half-written session would corrupt the wall.",
+  how:["The transaction upserts the session and agents, inserts events and context blowouts idempotently, and writes one sample per second.","<code>protocol.ts</code> exists byte for byte on both sides; a test compares them, and it must stay free of Node imports because the UI imports it."]},
+ {id:"fleet",l:"server",col:"a",row:4,name:"Fleet",role:"Live set, views, cost",file:"fleet.ts · derive.ts · pricing.ts",
+  what:"Owns the set of live sessions and the clock. Turns rows into a <code>SessionView</code> (state, context fill, cost, KPIs).",
+  why:"One place decides what every browser sees, so two open tabs never disagree.",
+  how:["<code>derive.ts</code> is pure.","Tokens are priced per model from a table that starts at Anthropic list prices and that an Admin can edit. Cost is an estimate, never a bill.","Broadcasts a changed view at most once per session per 500 ms."]},
+ {id:"sse",l:"server",col:"a",row:5,name:"State and stream",role:"First paint, then push",file:"fleet/sse.ts",
+  what:"<code>GET /state</code> for the first paint and <code>GET /stream</code>, a server-sent-events feed of changes.",
+  why:"A session should appear within about two seconds of its first prompt and leave when it ends, with no refresh.",
+  how:["Events: <code>snapshot</code> (on every connect), <code>session</code>, <code>activity</code>, <code>removed</code>, <code>tick</code> every 2 s, <code>wall</code>.","At most 100 clients."]},
+ {id:"admin",l:"server",col:"a",row:6,name:"Admin API",role:"People, settings, certificates",file:"admin/adminRouter.ts",
+  what:"A separate router at <code>/api/admin</code> for people, groups, reporters, settings, feature flags, certificates, usage reports and the Admin log.",
+  why:"Power lives on its own surface with its own sign-in, lockout and audit trail.",
+  how:["Unlock exchanges a name and token for a random session id held in process memory plus an <code>HttpOnly; SameSite=Strict</code> cookie.","Changes need an <code>X-Podium-Admin</code> header. Five wrong tries lock an address out. A restart ends every Admin session.","The last active Administrator cannot be revoked."]},
+ {id:"sweeper",l:"server",col:"a",row:7,name:"Sweeper",role:"Time-based housekeeping",file:"fleet/sweeper.ts",
+  what:"A one-second loop. A session is stale after 15 s of silence and dropped 60 s later. An ended session lingers 8 s.",
+  why:"Sessions die without saying goodbye (laptop lid, killed terminal). The wall has to notice.",
+  how:["Fills quiet seconds with carry-forward samples so charts have no holes.","Ticks KPIs every 2 s, prunes hourly, and purges stored history and recordings every 5 minutes in small chunks."]},
+
+ {id:"ca",l:"server",col:"b",row:0,name:"CA and certificates",role:"Podium is its own authority",file:"tlsCa.ts · tlsPeople.ts",
+  what:"Creates a certificate authority and issues the serving certificate and each person's client certificate, using <code>openssl</code>.",
+  why:"Mutual TLS without making you run a PKI. The server makes, renews and revokes everything itself.",
+  how:["Files in <code>/data/tls</code>: <code>ca.crt</code>, <code>ca.key</code>, <code>serving.crt</code>, <code>serving.key</code>, <code>previous/</code>. The CA lasts 10 years.","A person's key exists on disk for seconds in a temp folder. Podium stores the certificate, never the key.","The serving certificate renews at 30 days left with no restart. CA rotation uses a cross certificate so old reporters keep working through an overlap."]},
+ {id:"brokers",l:"server",col:"b",row:1,name:"Live brokers",role:"Sensitive, short-lived, in memory",file:"respond.ts · activity.ts · fileDiffs.ts",
+  what:"<code>RespondStore</code> (open asks, one answer per ask, up to 20 waiting messages), <code>ActivityStore</code> (leases plus a ring of the last 20 entries per loop) and <code>DiffBroker</code> (holds a diff request for 15 s).",
+  why:"Prompts, plans and tool arguments are the most sensitive things Podium sees. Keeping them in memory means a restart forgets them and no table holds them.",
+  how:["No table and no migration for the live feed.","Visible only to the session's owner or an Admin."]},
+ {id:"peers",l:"server",col:"b",row:2,name:"Messaging service",role:"Orchestrator to orchestrator",file:"peers.ts · peerRights.ts",
+  what:"Lets one person's orchestrators on different machines find and message each other through the server.",
+  why:"Teams of agents across machines need a channel. Doing it through Podium means rights, rate limits and an audit trail come for free.",
+  how:["Same owner only, enforced in the store: a message to another person's orchestrator is a 404 before any right is read.","Messages move <code>ready</code> or <code>approval</code> to <code>handed</code> to <code>delivered</code>, <code>queued</code> or <code>dropped</code>. Delivery happens only while the target reports idle.","Text is kept 30 days by default."]},
+ {id:"db",l:"store",col:"b",row:3,name:"podium.sqlite",role:"The main database",file:"fleet/db.ts",
+  what:"SQLite in WAL mode. Sessions, agents, events, samples, people, groups, reporters, messages, daily rollups, settings and the Admin log.",
+  why:"One file, no server to run, survives restarts, easy to back up.",
+  how:["Numbered migrations tracked in <code>schema_migrations</code> (at least 23).","Retention is configurable per table (<code>RETAIN_*</code>) and enforced by the sweeper."]},
+ {id:"adb",l:"store",col:"b",row:4,name:"activity.sqlite",role:"Opt-in history and recordings",file:"activityDb.ts",
+  what:"A second SQLite file next to the first. Holds stored activity history and session recordings, and is created only when an Admin turns one on.",
+  why:"Volume and sensitivity differ from the wall's data. A separate file can be deleted, vacuumed or sized on its own, and the main database never blocks on it.",
+  how:["Own schema version, WAL and incremental auto-vacuum. No foreign key crosses files, so code removes a session's rows.","Purges run in adaptive chunks (about 25 ms each) so the event loop never stalls. Measured with 14.4 million rows: <code>/state</code> p99 stayed at 37 ms during a purge."]},
+ {id:"logs",l:"server",col:"b",row:7,name:"Logging and outside calls",role:"Structured events, opt-in shipping",file:"logging/ · updateCheck.ts",
+  what:"Named, structured log events with redaction, optional shipping to VictoriaLogs, and a once-a-day check for a newer release.",
+  why:"Operators need to know why a reporter was refused, without secrets in the logs.",
+  how:["Redaction drops fields named token, secret, prompt, body and more, and scrubs secret shapes from every string.","Shipping runs only when <code>PODIUM_LOG_SHIP_URL</code> is set: gzipped NDJSON batches, buffered 2,000 lines, retried with backoff.","The release check asks GitHub once a day and can be turned off."]},
+
+ {id:"ui_respond",l:"console",col:"c",row:1,name:"Respond modal",role:"Answer a waiting session",file:"components/Respond.tsx",
+  what:"The button and modal that let a session's owner answer a question, approve a plan or a tool call, send a message, or run <code>/clear</code> and <code>/compact</code>.",
+  why:"This is where a stuck session gets unstuck without finding its terminal.",
+  how:["Needs a separate sign-in (name and token) with its own cookie and Origin checks.","Offered only when the Admin's <code>respond</code> flag and the session's own option are on."]},
+ {id:"ui_detail",l:"console",col:"c",row:2,name:"Orchestrator page",role:"Plan, files, agents, activity",file:"components/OrchestratorDetail",
+  what:"The detail view for one orchestrator: plan, changed files, each agent's task and answer, failures, and the live activity feed.",
+  why:"The wall answers “what needs me?”. This answers “what is it actually doing?”.",
+  how:["The activity hook polls only while the panel is mounted and the tab is visible; closing the panel lets the server forget.","Opening a file diff asks the owner's machine for it, and the server holds that request for 15 s."]},
+ {id:"ui_traffic",l:"console",col:"c",row:3,name:"Reporters, Traffic, Replay",role:"Messaging and recordings",file:"MyReporters · Traffic · ReplayPage",
+  what:"My reporters (rights between your orchestrators), Traffic (a map of messages between machines) and Replay (a recorded session played back).",
+  why:"If agents can talk to each other, a person needs to see and govern that.",
+  how:["Traffic draws machines in two columns and conversations as curves in inline SVG, refreshed every 10 s while visible.","Replay pairs each tool result with its call and is readable only by the owner or an Admin."]},
+ {id:"ui_wall",l:"console",col:"c",row:4,name:"The wall",role:"One card per session",file:"SessionCard.tsx · logic.ts",
+  what:"Every session as a card: model, effort, plan, agent strip with sparkline, context fill, cost and branch. Grouped by person when several people report.",
+  why:"The answer to “which of my five sessions needs me?” should take a glance.",
+  how:["Sorting, filtering and the agent tree are pure functions.","Status is shown with shape, word and color together, so it never depends on color alone."]},
+ {id:"ui_store",l:"console",col:"c",row:5,name:"Live store",role:"State plus stream",file:"useFleet.ts · store.ts",
+  what:"Loads <code>/state</code>, then applies stream messages with a pure reducer.",
+  why:"Deterministic updates make a live UI testable and keep tabs consistent.",
+  how:["Six seconds of silence counts as disconnected and reopens the stream; its first message is a full snapshot.","The UI computes nothing it could not recompute from one <code>SessionView</code>."]},
+ {id:"ui_admin",l:"console",col:"c",row:6,name:"Admin",role:"Sixteen pages, four groups",file:"frontend/src/fleet/admin/",
+  what:"People and access (People, Groups, Reporters); Server (Settings, Model prices, Security, Certificates, Data, Stored activity); Reporting (Usage, Spend, Sessions, Failures and more); Activity (Admin log).",
+  why:"Operating a shared server needs tokens, flags, certificates and audit in one place.",
+  how:["A new token or reporter config is held in component state only until the owner says it is saved. It is never written to browser storage."]}
+];
+/* ---------- where in the repo: [path, line, symbol or what to look for] ---------- */
+const COMMIT="df2577f",GH="https://github.com/eengelking/podium/blob/"+COMMIT+"/";
+const pM="mod/podium-reporter/hooks/",pS="server/src/",pSF="server/src/fleet/",pF="frontend/src/fleet/";
+const REFS={
+ cc:[[pM+"register.ts",1920,"on('session.start')"],[pM+"register.ts",2065,"on('tool.call'), the main hook"],[pM+"register.ts",1930,"on('session.end')"],[pM+"register.ts",1714,"flush timer started with $.clock.every"]],
+ hooks:[[pM+"state.ts",228,"newSession: the in-memory model"],[pM+"state.ts",299,"addEvent: reducer for activity events"],[pM+"plan.ts",35,"taskCreate: plan from TaskCreate"],[pM+"plan.ts",63,"taskUpdate: plan from TaskUpdate"],[pM+"failures.ts",29,"redact: secret-shaped text to [redacted]"],[pM+"register.ts",2065,"tool.call hook that feeds the reducers"]],
+ collect:[[pM+"git.ts",49,"readGit: branch, ahead/behind"],[pM+"git.ts",154,"readChanges: changed files with +/- counts"],[pM+"register.ts",587,"pollGit, run every 10 s"],[pM+"machine.ts",39,"machineIdPath: the random machine id file"],[pM+"machine.ts",97,"osFromSwVers: macOS version"]],
+ tx:[[pM+"transport.ts",106,"class Transport"],[pM+"transport.ts",9,"BACKOFF_MS: 1 s, 2 s, 5 s, 10 s"],[pM+"transport.ts",175,"when a report should go: changed or heartbeat due"],[pM+"register.ts",666,"flush: the timer's entry point"],[pM+"register.ts",500,"flushOnce: build, post, read the reply"],[pM+"report.ts",249,"buildReport: the snapshot"],[pM+"report.ts",19,"MAX_ACTIVITY_PER_REPORT: 60,000 chars"],[pM+"register.ts",1656,"the FetchLike seam (direct or via helper)"]],
+ helper:[[pM+"helper.mjs",34,"REPORTER_ROUTES: the only calls it forwards"],[pM+"helper.mjs",588,"403 ROUTE_NOT_ALLOWED"],[pM+"helper.mjs",596,"CERT_EXPIRED: refuses locally"],[pM+"helper.mjs",518,"dueSoon: when to renew"],[pM+"helper.mjs",286,"LOCK_SCHEME: numbered lock files"],[pM+"helper.mjs",662,"listens on the Unix socket"]],
+ tools:[[pM+"register.ts",1021,"questionRace"],[pM+"register.ts",1052,"planRace"],[pM+"register.ts",1180,"permissionAsk"],[pM+"register.ts",1247,"handleDeliveries: answers and messages arriving"],[pM+"respond.ts",207,"toolDecision: answer to hook result"],[pM+"respond.ts",193,"planApproval"],[pM+"register.ts",1407,"podium_peers and podium_send registered"],[pM+"register.ts",1462,"sendPeerCalls: drained by the timer"],[pM+"peers.ts",67,"peerPrompt: the frame around a peer message"]],
+ rec:[[pM+"recording.ts",174,"class Recorder"],[pM+"recording.ts",12,"RECORDING_BATCH_INTERVAL_MS: 5 s"],[pM+"recording.ts",14,"RECORDING_FLUSH_BYTES: 256 KB"],[pM+"fileDiff.ts",8,"DIFF_LIMITS"],[pM+"register.ts",1217,"handleDiffs"],[pM+"diffRedact.ts",142,"redactDiff"],[pM+"state.ts",835,"setWatched: which loops to capture"],[pM+"state.ts",26,"ACTIVITY_KEPT: last 20 entries"],[pM+"activityDetail.ts",8,"DETAIL_LIMIT: 20,000 chars"]],
+ alt:[["scripts/podium-sim.ts",24,"--chaos and the simulator's options"],[pSF+"routes.ts",299,"POST /hook: settings-hook reports"],[pSF+"fleet.ts",376,"ingestHook: reduced view without the mod"]],
+ proxy:[[pS+"index.ts",88,"app.set('trust proxy', PODIUM_TRUST_PROXY)"],[pS+"failureLimiter.ts",42,"limit follows the address Express sees"]],
+ p4317:[[pS+"index.ts",128,"app.listen(PORT, HOST)"],[pS+"index.ts",102,"first middleware: hostCheck"],[pS+"index.ts",115,"/api/fleet router mounted"]],
+ p4318:[[pS+"tlsServer.ts",83,"startTls"],[pS+"tlsServer.ts",111,"https.createServer: requestCert, rejectUnauthorized"],[pS+"tlsServer.ts",73,"reporterPortOnly: 404 for non-reporter paths"],[pS+"tlsHttp.ts",13,"REPORTER_ROUTE_TEMPLATES"]],
+ guards:[[pS+"index.ts",102,"hostCheck"],[pS+"index.ts",103,"securityHeaders"],[pS+"index.ts",105,"reporterHttpGate"],[pS+"index.ts",114,"failureLimiter on /api"],[pS+"hostCheck.ts",50,"hostCheck implementation"],[pS+"tlsHttp.ts",88,"reporterHttpGate implementation"],[pS+"failureLimiter.ts",42,"failureLimiter implementation"],[pS+"securityHeaders.ts",6,"securityHeaders (CSP)"]],
+ routes:[[pSF+"routes.ts",144,"requireToken"],[pSF+"routes.ts",150,"certificate checked before the token"],[pSF+"routes.ts",198,"POST /report"],[pSF+"routes.ts",299,"POST /hook"],[pS+"tlsClientAuth.ts",159,"certAuth"],[pSF+"tokens.ts",32,"tokenMatches: constant-time compare"],[pS+"index.ts",115,"where each router is mounted (115 to 121)"]],
+ ingest:[[pSF+"protocol.ts",1781,"validateReport"],[pSF+"protocol.ts",1712,"withinActivityBudget"],[pSF+"ingest.ts",184,"ingestReport: one transaction"],[pM+"protocol.ts",2,"the shared block, identical on the mod side"]],
+ fleet:[[pSF+"fleet.ts",113,"class Fleet"],[pSF+"fleet.ts",281,"ingest"],[pSF+"fleet.ts",558,"state(): the first-paint snapshot"],[pSF+"derive.ts",228,"sessionView: rows to SessionView"],[pSF+"derive.ts",222,"sessionStatus"],[pSF+"pricing.ts",7,"PRICES_AS_OF"],[pSF+"fleet.ts",50,"staleAfterMs default: 15 s"]],
+ sse:[[pSF+"sse.ts",16,"class SseHub"],[pSF+"sse.ts",44,"broadcast"],[pSF+"sse.ts",20,"maxClients: 100"],[pSF+"routes.ts",342,"GET /state"],[pSF+"routes.ts",346,"GET /stream"]],
+ admin:[[pS+"admin/adminRouter.ts",126,"createAdminRouter"],[pS+"admin/adminRouter.ts",225,"POST /unlock"],[pSF+"lockout.ts",8,"class Lockout: five wrong tries"],[pSF+"people.ts",199,"assertNotLastAdministrator"],[pSF+"featureFlags.ts",27,"FEATURES: the Admin's flags"]],
+ sweeper:[[pSF+"sweeper.ts",87,"startSweeper"],[pSF+"sweeper.ts",21,"DEFAULT_INTERVALS: 1 s sweep, 2 s tick"],[pSF+"sweeper.ts",31,"purgeActivityHistory"],[pSF+"sweeper.ts",54,"purgeRecordings"],[pSF+"fleet.ts",82,"RETAIN_* settings"]],
+ ca:[[pS+"tlsCa.ts",197,"ensureTls: make or read the CA"],[pS+"tlsCa.ts",179,"issueServing"],[pS+"tlsPeople.ts",79,"issuePersonCert"],[pS+"tlsPeople.ts",57,"signClientCert"],[pS+"tlsPeople.ts",118,"buildReporterConfig: the .pem a person gets"],[pS+"tlsRenew.ts",173,"class ServingRenewer"],[pS+"tlsReporterRenew.ts",87,"authorizeRenewal"],[pS+"tlsReporterRenew.ts",20,"MIN_RENEW_INTERVAL_MS: 1 hour"],[pS+"tlsRotation.ts",181,"rotateCa"],[pS+"tlsRotation.ts",49,"class TrustStore"]],
+ brokers:[[pSF+"respond.ts",215,"class RespondStore"],[pSF+"activity.ts",89,"class ActivityStore"],[pSF+"activity.ts",30,"ACTIVITY_LEASE_SLACK_MS: 15 s"],[pSF+"fileDiffs.ts",14,"class DiffBroker"],[pSF+"respondRoutes.ts",220,"PUT asks/:askId, the mod's answer route"]],
+ peers:[[pSF+"peers.ts",23,"class PeerService"],[pSF+"peerRights.ts",104,"class PeerRights"],[pSF+"peerRights.ts",141,"pair: same-owner rule"],[pSF+"peerMessages.ts",145,"class PeerMessages"],[pSF+"peerRoutes.ts",132,"peerReplyFor: what rides the reply"],[pSF+"peerRoutes.ts",64,"wirePeerLogs"]],
+ db:[[pSF+"db.ts",11,"MIGRATIONS"],[pSF+"db.ts",15,"CREATE TABLE sessions"],[pSF+"db.ts",255,"CREATE TABLE peer_messages"],[pSF+"db.ts",298,"migration 23: person_certificates"],[pSF+"db.ts",476,"PRAGMA journal_mode = WAL"],[pSF+"db.ts",483,"migrations applied in order"]],
+ adb:[[pSF+"activityDb.ts",11,"ACTIVITY_SCHEMA_VERSION"],[pSF+"activityDb.ts",45,"ACTIVITY_SCHEMA_STEPS"],[pSF+"activityDb.ts",62,"stored_sessions aggregates"],[pSF+"recordings.ts",176,"class SessionRecordings"],[pSF+"recordingRoutes.ts",60,"POST /sessions/:id/recording"]],
+ logs:[[pS+"logging/redact.ts",70,"scrubPatterns"],[pS+"logging/redact.ts",83,"scrub"],[pS+"logging/logger.ts",24,"quietInText"],[pS+"logging/logger.ts",39,"foldedInText"],[pS+"logging/shipper.ts",32,"shipUrl"],[pSF+"updateCheck.ts",81,"startUpdateCheck"]],
+ ui_respond:[[pF+"components/Respond.tsx",18,"RespondButton"],[pF+"components/Respond.tsx",92,"RespondModal"],[pF+"useRespond.tsx",46,"RespondProvider"]],
+ ui_detail:[[pF+"components/OrchestratorDetail.tsx",12,"OrchestratorDetail"],[pF+"useActivityFeed.ts",39,"readEvery: the poll interval"],[pF+"components/ActivityFeed.tsx",55,"AdminOffNote"],[pF+"components/FileDiffModal.tsx",269,"FileDiffModal"]],
+ ui_traffic:[[pF+"MyReporters.tsx",64,"MyReportersPage"],[pF+"Traffic.tsx",113,"TrafficPage"],[pF+"trafficData.ts",297,"layoutMap"],[pF+"components/TrafficMap.tsx",41,"TrafficMap"],[pF+"components/ReplayPage.tsx",197,"ReplayPage"],[pF+"replayItems.ts",28,"markWords"]],
+ ui_wall:[[pF+"components/SessionCard.tsx",143,"SessionCard"],[pF+"logic.ts",42,"sortSessions"],[pF+"logic.ts",55,"filterSessions"],[pF+"logic.ts",86,"planProgress"],[pF+"components/Wall.tsx",17,"KpiStrip"],[pF+"FleetApp.tsx",104,"FleetApp"]],
+ ui_store:[[pF+"useFleet.ts",33,"useFleet: /state then /stream"],[pF+"store.ts",78,"fleetReducer"],[pF+"store.ts",149,"visibleSessions"]],
+ ui_admin:[[pF+"admin/AdminView.tsx",35,"PAGES"],[pF+"admin/AdminView.tsx",54,"NAV: four groups"],[pF+"admin/CertificatesTab.tsx",19,"CertificatesTab"],[pF+"admin/PeopleTab.tsx",62,"PeopleTab"]]
+};
+const NB={};N.forEach(n=>{n.x=COLX[n.col];n.y=Y(n.row);n.w=COLW[n.col];n.h=68;NB[n.id]=n});
+
+/* ---------- edges ---------- */
+const E=[
+ ["cc","hooks","hook events"],["hooks","tx","in-memory model"],["collect","tx","git · machine"],
+ ["tx","p4317","POST /report · /hook","bi"],["tx","helper","Unix socket"],["helper","p4318","mutual TLS","bi"],["alt","p4317","same routes"],["proxy","p4317","X-Forwarded-*"],
+ ["p4317","guards","","bi"],["p4318","guards","reporter paths only","bi"],["guards","routes","","bi"],
+ ["routes","ingest","validated body"],["ingest","db","one transaction"],["ingest","fleet","update live set"],["sweeper","fleet","2 s tick"],
+ ["fleet","sse","changed view"],["sse","ui_store","SSE /stream"],["ui_store","ui_wall","reducer"],["ui_store","ui_detail",""],
+ ["routes","brokers","asks · leases"],["ui_detail","brokers","GET activity?every="],["ui_respond","brokers","POST answer"],
+ ["tools","tx","queued calls"],["rec","tx","entries / 5 s"],["routes","peers","send · rights"],["peers","db","peer_messages"],
+ ["routes","adb","history · recording"],["adb","ui_traffic","paged reads"],["ui_traffic","peers","GET traffic"],
+ ["admin","ca","issue · renew"],["ca","p4318","serving cert + trust"],["ui_admin","admin","/api/admin"],["admin","db","people · settings"],["logs","logs",""]
+].filter(e=>e[0]!==e[1]).map((e,i)=>({id:e[0]+">"+e[1],a:e[0],b:e[1],label:e[2],bi:e[3]==="bi"}));
+const EB={};E.forEach(e=>EB[e.id]=e);
+const eid=(a,b)=>a+">"+b;
+
+/* ---------- map rendering ---------- */
+const svg=$("#mapsvg");
+const defs=sv("defs",{},[
+ sv("marker",{id:"ah-dim",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},[sv("path",{d:"M0 1L9 5L0 9Z",class:"mk-dim"})]),
+ sv("marker",{id:"ah-hot",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"8",markerHeight:"8",orient:"auto-start-reverse"},[sv("path",{d:"M0 1L9 5L0 9Z",class:"mk-hot"})])]);
+svg.append(defs);
+const lanes=[[8,280,"On the developer's machine"],[298,210,"Network edge"],[520,478,"Podium server"],[1008,264,"Browser"]];
+lanes.forEach(([x,w,t])=>{svg.append(sv("rect",{x,y:8,width:w,height:752,rx:16,class:"lane"}));svg.append(sv("text",{x:x+16,y:30,class:"lanelabel",text:t}))});
+const gE=sv("g",{}),gL=sv("g",{}),gN=sv("g",{});svg.append(gE,gN,gL);
+const side=(n,s)=>s==="r"?[n.x+n.w,n.y+n.h/2,1,0]:s==="l"?[n.x,n.y+n.h/2,-1,0]:s==="t"?[n.x+n.w/2,n.y,0,-1]:[n.x+n.w/2,n.y+n.h,0,1];
+function route(a,b){
+ const A=NB[a],B=NB[b];let sa,sb;
+ if(A.col===B.col){const d=Math.abs(A.row-B.row);if(d===1){sa=A.row<B.row?"b":"t";sb=A.row<B.row?"t":"b"}else{sa="l";sb="l"}}
+ else if(A.x<B.x){sa="r";sb="l"}else{sa="l";sb="r"}
+ const p=side(A,sa),q=side(B,sb);
+ const dist=Math.hypot(q[0]-p[0],q[1]-p[1]);
+ let k=Math.max(34,dist/2.4);
+ let c1,c2;
+ if(sa==="l"&&sb==="l"&&A.col===B.col){k=58;c1=[p[0]-k,p[1]];c2=[q[0]-k,q[1]]}
+ else{c1=[p[0]+p[2]*k,p[1]+p[3]*k];c2=[q[0]+q[2]*k,q[1]+q[3]*k]}
+ const d=`M${p[0]} ${p[1]}C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${q[0]} ${q[1]}`;
+ const t=.5,mx=(1-t)**3*p[0]+3*(1-t)**2*t*c1[0]+3*(1-t)*t*t*c2[0]+t**3*q[0],my=(1-t)**3*p[1]+3*(1-t)**2*t*c1[1]+3*(1-t)*t*t*c2[1]+t**3*q[1];
+ return {d,mx,my};
+}
+E.forEach(e=>{
+ const r=route(e.a,e.b);e.mx=r.mx;e.my=r.my;
+ e.p=sv("path",{d:r.d,class:"edge"+(e.bi?" reply":""),"marker-end":"url(#ah-dim)"});
+ if(e.bi)e.p.setAttribute("marker-start","url(#ah-dim)");
+ gE.append(e.p);
+ if(e.label){const w=e.label.length*6.1+12;e.lab=sv("g",{class:"elab",visibility:"hidden"},[sv("rect",{x:e.mx-w/2,y:e.my-10,width:w,height:19,rx:5}),sv("text",{x:e.mx,y:e.my+3.5,"text-anchor":"middle",text:e.label})]);gL.append(e.lab)}
+});
+N.forEach(n=>{
+ const L=LAYERS[n.l];
+ const g=sv("g",{class:"node",tabindex:"0",role:"button","aria-label":n.name+". "+n.role,"data-id":n.id});
+ g.append(sv("rect",{class:"box",x:n.x,y:n.y,width:n.w,height:n.h,rx:11,stroke:L.c}));
+ g.append(glyph(L.g,n.x+17,n.y+20,5.5,L.c));
+ g.append(sv("text",{class:"nm",x:n.x+32,y:n.y+25,text:n.name}));
+ g.append(sv("text",{class:"rl",x:n.x+15,y:n.y+44,text:n.role}));
+ g.append(sv("text",{class:"fl",x:n.x+15,y:n.y+59,text:n.file.length>29?n.file.slice(0,28)+"…":n.file}));
+ g.addEventListener("click",()=>select(n.id));
+ g.addEventListener("keydown",ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();select(n.id)}});
+ g.addEventListener("mouseenter",()=>{hoverId=n.id;paint()});g.addEventListener("mouseleave",()=>{hoverId=null;paint()});
+ g.addEventListener("focus",()=>{hoverId=n.id;paint()});g.addEventListener("blur",()=>{hoverId=null;paint()});
+ n.g=g;gN.append(g);
+});
+
+/* ---------- legend (layer filter) ---------- */
+let layerOff=new Set();
+const legend=$("#legend");
+Object.keys(LAYERS).forEach(k=>{
+ const b=el("button",{class:"tab",type:"button","aria-pressed":"true"});
+ const s=sv("svg",{viewBox:"0 0 16 16",width:"12",height:"12"});s.append(glyph(LAYERS[k].g,8,8,5,LAYERS[k].c));
+ b.append(s,LAYERS[k].name);
+ b.addEventListener("click",()=>{if(layerOff.has(k))layerOff.delete(k);else layerOff.add(k);b.setAttribute("aria-pressed",String(!layerOff.has(k)));paint()});
+ legend.append(b);
+});
+legend.append(el("span",{class:"hint"},["Click a layer to fade it. Scroll sideways on small screens."]));
+
+/* ---------- flows ---------- */
+const F=[
+ {id:"report",name:"A session reports in",blurb:"The heartbeat of the product, from a hook to a card.",steps:[
+  {t:"Claude Code fires a hook",b:"Every tool call, turn and agent launch reaches the mod's hooks. They only update an in-memory model through pure reducers. Nothing waits on the network, so Podium cannot slow a session down.",n:["cc","hooks"],e:[eid("cc","hooks")]},
+  {t:"A timer takes a snapshot",b:"Every second, if something changed (and every 5 s as a heartbeat), the transport reads the session id, usage and agent list, adds git state polled every 10 s plus events the server has not acknowledged, then redacts and cuts text to fixed limits.",n:["hooks","collect","tx"],e:[eid("hooks","tx"),eid("collect","tx")]},
+  {t:"It posts to the server",b:"<code>POST /api/fleet/report</code> with the token in <code>X-Podium-Token</code>. If the server is offline the mod backs off. Because every snapshot is complete, the first report after an outage repairs the gap.",n:["tx","p4317"],e:[eid("tx","p4317")]},
+  {t:"Guards run before any route",b:"Host check, security headers, the reporter HTTP gate, the request log and the failed-request limiter all run first. The Networking chapter lets you try each one.",n:["p4317","guards"],e:[eid("p4317","guards")]},
+  {t:"The credential becomes an owner",b:"<code>requireToken</code> turns the header into an identity before reading the body: a person token, the admin secret, or open. The identity becomes the session's <code>owner</code>, and the report's <code>userName</code> must agree with it.",n:["guards","routes"],e:[eid("guards","routes")]},
+  {t:"Validated by hand, stored once",b:"<code>protocol.ts</code> checks every field. <code>ingest.ts</code> then upserts the session and its agents, inserts events and context blowouts idempotently, and writes one sample per second, all in one transaction.",n:["routes","ingest","db"],e:[eid("routes","ingest"),eid("ingest","db")]},
+  {t:"The reply carries instructions back",b:"The response is a control channel: which loops to capture (<code>watch</code>), answers and messages to deliver, the recording grant, open requests. This is why the server never needs to reach into a laptop.",n:["routes","tx"],e:[eid("tx","p4317"),eid("p4317","guards"),eid("guards","routes")],call:"Only the session machine ever opens a connection."},
+  {t:"Fleet derives the view",b:"<code>derive.ts</code> turns rows into a <code>SessionView</code>: state, context fill, estimated cost, KPIs. Meanwhile the sweeper ticks every second and marks silent sessions stale at 15 s.",n:["ingest","fleet","sweeper"],e:[eid("ingest","fleet"),eid("sweeper","fleet")]},
+  {t:"Pushed to every open browser",b:"The changed view goes out over server-sent events, at most once per session per 500 ms. Each browser's store applies it with a pure reducer.",n:["fleet","sse","ui_store"],e:[eid("fleet","sse"),eid("sse","ui_store")]},
+  {t:"The wall repaints",b:"Sorting, filtering and the agent tree are pure functions of the new state. A new session shows up within about two seconds of its first prompt, and leaves when it ends, with no refresh.",n:["ui_store","ui_wall"],e:[eid("ui_store","ui_wall")]}]},
+ {id:"watch",name:"Watching an agent live",blurb:"Capture is leased, not stored.",steps:[
+  {t:"You open an agent's panel",b:"The panel asks <code>GET …/agents/:id/activity?every=</code>. The polling hook runs only while the panel is mounted and the browser tab is visible.",n:["ui_detail"],e:[]},
+  {t:"The server takes out a lease",b:"<code>ActivityStore</code> records a lease for that session and loop that expires after the poll interval plus 15 s, and starts a ring holding the last 20 numbered entries. With no lease, nothing about that agent's activity is captured at all.",n:["ui_detail","brokers"],e:[eid("ui_detail","brokers")]},
+  {t:"The next reply lists what to watch",b:"The reply to the session's next report carries <code>watch</code>: the loops under a live lease. The mod's transport hands the list to its state.",n:["routes","brokers","tx"],e:[eid("routes","brokers"),eid("tx","p4317")]},
+  {t:"The mod starts reading",b:"Tool calls add an entry with the tool name and a short summary of its arguments. Text between calls is read as it passes, each cut to 300 characters. The model's thinking is never read. A loop that is not watched costs nothing.",n:["tx","hooks"],e:[eid("hooks","tx")]},
+  {t:"Entries ride the next report",b:"The server merges only entries for watched loops, skipping any stamped before the lease began, within a 60,000-character budget per report.",n:["tx","routes","brokers"],e:[eid("tx","p4317"),eid("routes","brokers")]},
+  {t:"Your panel fills; close it and it stops",b:"The hook polls with a cursor so you never see entries from before you looked. Close the panel and the lease lapses, the server forgets, and the mod stops reading. If an Admin chose to keep Activity history, capture needs no lease and goes to <code>activity.sqlite</code> instead.",n:["brokers","ui_detail"],e:[eid("ui_detail","brokers")]}]},
+ {id:"respond",name:"Answering a waiting session",blurb:"The one place Podium acts, and why it is narrow.",steps:[
+  {t:"The session stops at a prompt",b:"A question, a plan, or a tool's permission prompt. The mod holds the matching hook open and races the terminal against Podium.",n:["cc","tools"],e:[]},
+  {t:"It is reported as an open ask",b:"The ask goes out in the next report, redacted and cut to fixed limits, but only when the session's owner turned on <code>respond</code> and <code>activityFeed</code>.",n:["tools","tx"],e:[eid("tools","tx")]},
+  {t:"Held in memory, shown to one person",b:"<code>RespondStore</code> keeps the ask in process memory only. It is visible to the session's owner or an Admin and nobody else.",n:["routes","brokers"],e:[eid("routes","brokers")]},
+  {t:"The owner signs in and answers",b:"A separate sign-in with its own <code>HttpOnly</code> cookie, header and Origin checks. One answer is accepted per ask. Both the Admin's <code>respond</code> flag and the owner's option must be on.",n:["ui_respond","brokers"],e:[eid("ui_respond","brokers")]},
+  {t:"The answer waits for the next reply",b:"There is no inbound connection to the laptop. The answer is delivered in the reply to the session's next report.",n:["brokers","routes","tx"],e:[eid("routes","brokers"),eid("tx","p4317")]},
+  {t:"The mod decides inside Claude Code",b:"The answer becomes the result of the hook the mod is holding. Podium never types into the terminal. The mod posts what happened, which closes the ask. Delivery ids are remembered so a repeat is ignored.",n:["tx","tools","cc"],e:[eid("tools","tx")]}]},
+ {id:"peers",name:"One orchestrator messages another",blurb:"Cross-machine coordination with rights and an audit trail.",steps:[
+  {t:"A session calls podium_send",b:"The model calls the tool with <code>name@machine</code> (or <code>name@machine#id</code>). The call joins a queue; it does not make its own network request.",n:["cc","tools"],e:[]},
+  {t:"The timer sends it",b:"The flush timer drains the queue with the report's credential and backoff, the same path as everything else.",n:["tools","tx"],e:[eid("tools","tx")]},
+  {t:"The server resolves and checks",b:"The target is looked up only among the sender's owner's live orchestrators, so another person's orchestrator is a 404 before any right is read. Then right, length, rate and round trips are checked.",n:["routes","peers"],e:[eid("routes","peers")]},
+  {t:"Stored as ready or awaiting approval",b:"The message goes into <code>peer_messages</code>. If the recipient's owner has not allowed the link, it waits as <code>approval</code> and appears in that person's My reporters page.",n:["peers","db"],e:[eid("peers","db")]},
+  {t:"Handed over when the target is idle",b:"Messages are delivered only in the reply to a report that says the target session is idle, so a message never interrupts work.",n:["routes","tx"],e:[eid("tx","p4317")]},
+  {t:"Framed, submitted, acknowledged",b:"The mod wraps the text in a frame that marks it as from a peer and submits it as a prompt. The result (<code>delivered</code>, <code>queued</code>, <code>dropped</code>) is posted back, and a notice rides back to the sender. You can watch it all on the Traffic page.",n:["tools","ui_traffic"],e:[eid("ui_traffic","peers")]}]},
+ {id:"record",name:"Recording and replaying",blurb:"The most sensitive feature has the most switches.",steps:[
+  {t:"Three yeses start it",b:"The Admin's switch, the session owner's choice and the reporter's own option must all be on. Every reply carries the resulting grant; the mod treats it as its on/off switch. The terminal says when recording starts and stops.",n:["routes","tx"],e:[eid("tx","p4317")]},
+  {t:"The recorder redacts and numbers",b:"Prompts, model text, and each tool call's whole input and result are redacted, cut at 100,000 characters each and numbered per loop.",n:["rec"],e:[]},
+  {t:"Batches go up every five seconds",b:"Early at 256 KB. The server drops any entry it already holds by (loop, seq), enforces the per-session cap and the disk budget, and answers with the grant.",n:["rec","tx","routes","adb"],e:[eid("rec","tx"),eid("routes","adb")]},
+  {t:"Replay is read by the owner",b:"Paged reads, newest 200 first, only for the session's owner or an Admin. The replay pairs each result with its call.",n:["adb","ui_traffic"],e:[eid("adb","ui_traffic")]},
+  {t:"It expires on its own",b:"The sweeper purges every five minutes, in short chunks that yield to the event loop. Default retention is six hours unless the Admin sets longer.",n:["sweeper","adb"],e:[]}]},
+ {id:"tls",name:"Securing the reporter link",blurb:"Mutual TLS, from creating a person to a revoked certificate.",steps:[
+  {t:"An Admin creates a person",b:"Admin > People > Create user. The Admin page holds the new token and config file in component state only, never in browser storage.",n:["ui_admin","admin"],e:[eid("ui_admin","admin")]},
+  {t:"The server issues a certificate",b:"<code>openssl</code> makes a key and a <code>clientAuth</code> certificate in a temp folder that is deleted afterwards. Podium stores the certificate and keeps no copy of the key.",n:["admin","ca"],e:[eid("admin","ca")]},
+  {t:"The config file is shown once",b:"<code>reporter-config-&lt;name&gt;-&lt;epoch&gt;.pem</code> holds the key, the certificate and the CA. The person saves it to <code>~/.podium/</code> with mode 600. Lose it and the Admin reissues.",n:["ui_admin"],e:[]},
+  {t:"The mod starts a helper",b:"If the file exists, the mod spawns the helper and routes its fetch through a Unix socket. <code>Transport</code> is unchanged.",n:["tx","helper"],e:[eid("tx","helper")]},
+  {t:"The handshake needs a certificate",b:"The helper connects to <code>:4318</code>. The server asks for a client certificate and verifies it against the Podium CA. No valid certificate, no connection.",n:["helper","p4318","ca"],e:[eid("helper","p4318"),eid("ca","p4318")]},
+  {t:"Checked again on every request",b:"<code>certAuth</code> confirms the fingerprint is stored, not revoked, in date and from a trusted issuer. It reads the database on every request, so a revoke reaches connections that are already open. A failing certificate never falls back to a token.",n:["p4318","guards","routes"],e:[eid("p4318","guards"),eid("guards","routes")]},
+  {t:"It renews itself",b:"At 30 days left the helper asks <code>/api/reporter/renew</code>, authenticated by the certificate it holds, at most once an hour. An expired certificate gets no grace: an Admin must reissue.",n:["helper","p4318"],e:[eid("helper","p4318")]}]}
+];
+
+/* ---------- state + paint ---------- */
+let sel=null,hoverId=null,flowIx=0,stepIx=0,timer=null;
+function neigh(id){const s=new Set([id]);E.forEach(e=>{if(e.a===id)s.add(e.b);if(e.b===id)s.add(e.a)});return s}
+function paint(){
+ const step=F[flowIx].steps[stepIx];
+ const hotN=new Set(step.n),hotE=new Set(step.e);
+ const focus=hoverId||sel;const nb=focus?neigh(focus):null;
+ N.forEach(n=>{
+  let cls="node";
+  if(layerOff.has(n.l))cls+=" dim";
+  else if(focus&&!nb.has(n.id)&&!hotN.has(n.id))cls+=" dim";
+  if(hotN.has(n.id))cls+=" hot";
+  if(sel===n.id)cls+=" sel";
+  n.g.setAttribute("class",cls);
+ });
+ E.forEach(e=>{
+  let cls="edge"+(e.bi?" reply":"");
+  const hot=hotE.has(e.id)||(e.bi&&hotE.has(e.b+">"+e.a));
+  if(hot)cls+=" hot";
+  else if(focus&&(e.a===focus||e.b===focus))cls+=" near";
+  else if(focus||layerOff.has(NB[e.a].l)||layerOff.has(NB[e.b].l))cls+=" dim";
+  e.p.setAttribute("class",cls);
+  const m=hot?"url(#ah-hot)":"url(#ah-dim)";e.p.setAttribute("marker-end",m);if(e.bi)e.p.setAttribute("marker-start",m);
+  if(e.lab)e.lab.setAttribute("visibility",hot||(focus&&(e.a===focus||e.b===focus))?"visible":"hidden");
+ });
+}
+function renderInspector(){
+ const box=$("#insp");box.innerHTML="";
+ if(!sel){box.append(el("p",{class:"empty",html:"<b>Component inspector.</b> Click any box on the map, or follow a flow and click the parts it lights up. You will see what the part is, why it exists, how it works and what it talks to."}));return}
+ const n=NB[sel];
+ box.append(el("div",{},[layerChip(n.l)]));
+ box.append(el("h3",{style:"margin-top:8px"},[n.name]));
+ box.append(el("div",{class:"lbl"},["What it is"]));box.append(el("p",{html:n.what,style:"margin:0;color:var(--ink2)"}));
+ box.append(el("div",{class:"lbl"},["Why it exists"]));box.append(el("p",{html:n.why,style:"margin:0;color:var(--ink2)"}));
+ box.append(el("div",{class:"lbl"},["How it works"]));
+ box.append(el("ul",{class:"tight",html:n.how.map(x=>"<li>"+x+"</li>").join("")}));
+ box.append(el("div",{class:"lbl"},["Where in the repo"]));
+ const refs=REFS[n.id]||[];
+ const list=el("ul",{class:"refs"});
+ refs.forEach(([p,ln,what])=>{
+  const ref=p+":"+ln;
+  const open=el("a",{href:GH+p+"#L"+ln,target:"_blank",rel:"noopener","aria-label":"Open "+ref+" on GitHub"},[el("span",{class:"rw"},[what]),el("span",{class:"rp"},[ref])]);
+  const cp=el("button",{class:"cp",type:"button",title:"Copy "+ref,"aria-label":"Copy "+ref},["Copy"]);
+  cp.addEventListener("click",()=>{const ok=()=>{cp.textContent="Copied";setTimeout(()=>{cp.textContent="Copy"},1200)};try{navigator.clipboard.writeText(ref).then(ok,()=>{})}catch(e){}});
+  list.append(el("li",{},[open,cp]));
+ });
+ box.append(list);
+ box.append(el("p",{class:"note",style:"margin:8px 0 0"},["Lines are from commit "+COMMIT+". They drift as files change, so search for the symbol name if a number is off. Links open the file on GitHub."]));
+ const conn=[];E.forEach(e=>{if(e.a===sel)conn.push([e.b,"to",e.label]);else if(e.b===sel)conn.push([e.a,"from",e.label])});
+ if(conn.length){
+  box.append(el("div",{class:"lbl"},["Talks to"]));
+  const ul=el("ul",{class:"talks"});
+  conn.forEach(([id,dir,lab])=>{
+   const b=el("button",{type:"button"},[el("span",{class:"mono",style:"color:var(--mute)"},[dir==="to"?"→":"←"]),el("span",{},[el("b",{},[NB[id].name]),lab?document.createTextNode(" — "+lab):document.createTextNode("")])]);
+   b.addEventListener("click",()=>select(id));ul.append(el("li",{},[b]));
+  });
+  box.append(ul);
+ }
+}
+function select(id){sel=id;renderInspector();paint()}
+function renderFlow(){
+ const f=F[flowIx],s=f.steps[stepIx];
+ [...$("#flowtabs").children].forEach((b,i)=>b.setAttribute("aria-selected",String(i===flowIx)));
+ const body=$("#stepbody");body.innerHTML="";
+ body.append(el("div",{class:"kicker"},[f.blurb+"  ·  step "+(stepIx+1)+" of "+f.steps.length]));
+ body.append(el("h3",{style:"margin:8px 0 10px"},[s.t]));
+ body.append(el("p",{html:s.b}));
+ if(s.call)body.append(el("div",{class:"callout"},[s.call]));
+ const chips=el("div",{class:"files mt"});
+ s.n.forEach(id=>{const c=el("button",{class:"chip",type:"button"},[NB[id].name]);c.addEventListener("click",()=>select(id));chips.append(c)});
+ body.append(chips);
+ const dots=$("#dots");dots.innerHTML="";
+ f.steps.forEach((_,i)=>{const d=el("button",{class:"dot"+(i<stepIx?" done":""),type:"button","aria-label":"Step "+(i+1)});if(i===stepIx)d.setAttribute("aria-current","true");d.addEventListener("click",()=>{stopPlay();stepIx=i;renderFlow()});dots.append(d)});
+ $("#prev").disabled=stepIx===0;$("#next").textContent=stepIx===f.steps.length-1?"Restart":"Next step";
+ paint();
+}
+const ft=$("#flowtabs");
+F.forEach((f,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":String(i===0)},[f.name]);b.addEventListener("click",()=>{stopPlay();flowIx=i;stepIx=0;renderFlow()});ft.append(b)});
+function advance(){const f=F[flowIx];stepIx=stepIx>=f.steps.length-1?0:stepIx+1;renderFlow()}
+$("#next").addEventListener("click",()=>{stopPlay();advance()});
+$("#prev").addEventListener("click",()=>{stopPlay();if(stepIx>0){stepIx--;renderFlow()}});
+function stopPlay(){if(timer){clearInterval(timer);timer=null}$("#play").setAttribute("aria-pressed","false");$("#play").textContent="Auto-play"}
+$("#play").addEventListener("click",()=>{if(timer){stopPlay();return}$("#play").setAttribute("aria-pressed","true");$("#play").textContent="Pause";timer=setInterval(advance,4200)});
+renderInspector();renderFlow();
+
+/* ---------- networking: deployment modes ---------- */
+function box(g,x,y,w,h,t,s){g.append(sv("rect",{x,y,width:w,height:h,rx:10,class:"bx"}));g.append(sv("text",{x:x+14,y:y+24,class:"bt",text:t}));if(s)g.append(sv("text",{x:x+14,y:y+42,class:"bs",text:s}))}
+function lnk(g,x1,y1,x2,y2,cls,label,lx,ly,mid){
+ const p=sv("path",{d:`M${x1} ${y1}C${(x1+x2)/2} ${y1} ${(x1+x2)/2} ${y2} ${x2} ${y2}`,class:"ln "+cls});g.append(p);
+ if(label)g.append(sv("text",{x:lx,y:ly,class:"ln-l","text-anchor":"middle",text:label}));
+}
+const MODES=[
+ {id:"solo",name:"Just you",
+  draw(g){g.append(sv("rect",{x:8,y:8,width:744,height:264,rx:16,class:"bound"}));g.append(sv("text",{x:24,y:30,class:"bs",text:"one machine"}));
+   box(g,30,60,200,70,"Claude Code + mod","reporter, in process");box(g,30,170,200,70,"Browser","console at localhost:4317");
+   box(g,500,90,230,120,"Podium server","127.0.0.1:4317");
+   lnk(g,230,95,500,125,"local","HTTP, loopback",365,92);lnk(g,230,205,500,175,"local","HTTP, loopback",365,214)},
+  facts:[["ok","Only this machine can reach the port."],["ok","No certificates, no firewall rules, nothing to trust."],["wn","A token still exists. It guards deletes and Admin."],["no","Not for sharing: other people cannot connect."]],
+  cmd:"podiumctl start\npodiumctl token    # shows the admin secret"},
+ {id:"lan",name:"Team on a LAN",
+  draw(g){box(g,20,24,190,64,"Laptop A","Claude Code + mod");box(g,20,108,190,64,"Laptop B","Claude Code + mod");box(g,20,192,190,64,"Browsers","anyone on the network");
+   g.append(sv("rect",{x:300,y:14,width:16,height:252,rx:4,fill:"var(--sunk)",stroke:"var(--mute)"}));g.append(sv("text",{x:308,y:288,class:"bs","text-anchor":"middle",text:"firewall"}));
+   box(g,470,70,260,130,"Podium server","0.0.0.0:4317 · Host check");
+   lnk(g,210,56,470,100,"plain","HTTP + token",350,62);lnk(g,210,140,470,135,"plain","HTTP + token",350,128);lnk(g,210,224,470,170,"plain","HTTP, no sign-in to read",350,226)},
+  facts:[["wn","Tokens and reports cross the network as plain HTTP. Use a network you trust."],["ok","Per-person tokens made in Admin give each session an owner."],["ok","Host check blocks DNS rebinding; list real names in PODIUM_ALLOWED_HOSTS."],["no","Anyone who can reach the port can read the console."]],
+  cmd:"podiumctl restart --bind 0.0.0.0\npodiumctl config set PODIUM_ALLOWED_HOSTS=box.lan\npodiumctl restart"},
+ {id:"mtls",name:"Built-in mutual TLS",
+  draw(g){box(g,20,24,200,64,"Laptop A","mod + TLS helper");box(g,20,108,200,64,"Laptop B","mod + TLS helper");box(g,20,192,200,64,"Browsers","console, plain HTTP");
+   box(g,470,40,260,180,"Podium server","");g.append(sv("text",{x:484,y:90,class:"bs",text:":4318  mutual TLS (reporters)"}));g.append(sv("text",{x:484,y:120,class:"bs",text:":4317  HTTP (console, Admin)"}));g.append(sv("text",{x:484,y:160,class:"bs",text:"CA in /data/tls"}));
+   lnk(g,220,56,470,86,"secure","client certificate",345,60);lnk(g,220,140,470,92,"secure","client certificate",345,146);lnk(g,220,224,470,116,"plain","HTTP",345,228)},
+  facts:[["ok","Reports and answers are encrypted and replay-proof."],["ok","Each reporter proves itself with a certificate; revoke one without touching the rest."],["ok","The console needs no CA in a browser."],["wn","Plain-HTTP reporters stay allowed until an Admin turns that off."],["no","The console is still plain HTTP. Add a proxy if the network is untrusted."]],
+  cmd:"podiumctl start --tls\n# Admin > People > Create user  -> config file, shown once\n# Admin > Server > Certificates -> turn off HTTP for reporters"},
+ {id:"proxy",name:"Behind a TLS proxy",
+  draw(g){box(g,20,24,190,64,"Laptops","mod, token auth");box(g,20,192,190,64,"Browsers","HTTPS to your name");
+   box(g,300,100,150,80,"TLS proxy","your certificate");box(g,540,90,200,100,"Podium server","127.0.0.1:4317");
+   lnk(g,210,56,300,125,"secure","HTTPS",255,76);lnk(g,210,224,300,155,"secure","HTTPS",255,216);lnk(g,450,140,540,140,"local","HTTP + XFF",495,128)},
+  facts:[["ok","Browsers and reporters get ordinary HTTPS with a real name."],["ok","Cookies are marked Secure once the proxy is trusted."],["wn","Trust only a proxy that overwrites X-Forwarded-For. Otherwise clients choose their own address."],["wn","Failed-request limits apply per address, so trust must be set or everyone shares one."]],
+  cmd:"podiumctl config set PODIUM_TRUST_PROXY=10.0.0.5\npodiumctl restart"}
+];
+let modeIx=0;
+const mt=$("#modetabs");
+MODES.forEach((m,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":String(i===0)},[m.name]);b.addEventListener("click",()=>{modeIx=i;renderMode()});mt.append(b)});
+function renderMode(){
+ [...mt.children].forEach((b,i)=>b.setAttribute("aria-selected",String(i===modeIx)));
+ const m=MODES[modeIx];
+ const d=$("#minidiagram");d.innerHTML="";
+ const s=sv("svg",{viewBox:"0 0 760 300",role:"img","aria-label":m.name+": "+m.facts.map(f=>f[1]).join(" ")});
+ m.draw(s);d.append(s);
+ const leg=el("div",{class:"files",style:"margin-top:10px",html:'<span class="chip" style="color:var(--ok)">solid green: encrypted + authenticated</span><span class="chip" style="color:var(--warn)">dashed amber: plain HTTP</span><span class="chip">grey: stays on one host</span>'});d.append(leg);
+ const f=$("#modefacts");f.innerHTML="";
+ f.append(el("h4",{},["What you get"]));
+ const ul=el("ul",{class:"facts"});
+ m.facts.forEach(([k,t])=>ul.append(el("li",{},[el("span",{class:"ic "+k,"aria-hidden":"true"},[k==="ok"?"✓":k==="no"?"✕":"!"]),el("span",{},[t])])));
+ f.append(ul);f.append(el("div",{class:"lbl"},["To set it up"]));
+ const pre=el("pre",{class:"cmd"},[m.cmd]);f.append(pre);
+ const cb=el("button",{class:"btn",type:"button",style:"margin-top:10px"},["Copy commands"]);
+ cb.addEventListener("click",()=>{const done=()=>{cb.textContent="Copied"};try{navigator.clipboard.writeText(m.cmd).then(done,()=>{const r=document.createRange();r.selectNodeContents(pre);const s2=getSelection();s2.removeAllRanges();s2.addRange(r)})}catch(e){}});
+ f.append(cb);
+}
+renderMode();
+
+/* ---------- networking: gauntlet ---------- */
+const STAGES=[
+ ["Helper checks the certificate","On the reporter's machine","Refuses an expired certificate before anything is sent."],
+ ["TLS handshake","Port 4318 only","Requires a client certificate signed by the Podium CA."],
+ ["Host check","First middleware, both ports","Only loopback, the bind address and allowed names."],
+ ["Security headers","Every response","Content-Security-Policy hashes the page's inline scripts."],
+ ["Reporter gate and port filter","HTTP gate on 4317, path filter on 4318","Keeps reporter traffic on the right port."],
+ ["Request log","Every request","Method, route pattern, status, duration, source. No bodies."],
+ ["Failure limiter","All of /api","300 failed requests a minute per address."],
+ ["Identity","Certificate, then token","Presented certificate wins; a bad one never falls back."],
+ ["Route handler","The actual work","Validates and acts."]];
+const SC=[
+ {n:"Teammate's session reports (plain HTTP, valid token)",stop:null,res:["","","host ok","set","pass","logged","ok","token → owner","accepted"],v:"Accepted. The token became an owner and the report was validated and stored."},
+ {n:"A web page on evil.example rebinds its name to 127.0.0.1",stop:2,res:["","","403","","","","","",""],v:"Stopped at the Host check with 403. The browser sent a Host the server does not expect, which is the signature of DNS rebinding. Logged as <b>http.host_refused</b> with the host and nothing else."},
+ {n:"Someone reads the console with no token",stop:null,res:["","","host ok","set","not a reporter route","logged","ok","open read","200 · state"],v:"Allowed. Reading the console needs no token by design, which is why you should keep the port on a network you trust or behind a proxy."},
+ {n:"A reporter uses HTTP after TLS is on and HTTP reporters are off",stop:4,res:["","","host ok","set","403","","","",""],v:"Stopped at the reporter gate with 403 and logged as <b>tls.http_refused</b>. The source also appears on the Reporters page's refused list. Loopback is exempt, so a reporter on the server's own host is not locked out."},
+ {n:"A browser opens the console on port 4318",stop:1,res:["","dropped","","","","","","",""],v:"Dropped in the TLS handshake. Browsers have no client certificate, so the connection never becomes HTTP. Logged as <b>tls.handshake_failed</b>."},
+ {n:"A valid reporter on 4318, but it asks for /api/admin",stop:4,res:["","ok","host ok","set","404","","","",""],v:"The handshake succeeded, then the port filter answered 404. Only reporter routes and certificate renewal exist on this port."},
+ {n:"A valid reporter with a current certificate",stop:null,res:["dates ok","verified","host ok","set","reporter path","logged","ok","certificate → owner","accepted"],v:"Accepted. The certificate named the person, and the owner comes from it. Revoking only the certificate would leave the person's token and console sign-in working."},
+ {n:"A reporter whose certificate was revoked",stop:7,res:["dates ok","verified","host ok","set","reporter path","logged","ok","401","" ],v:"Stopped at Identity with 401 <b>client certificate refused</b>. The row is read on every request, so this applies even to a connection that was already open. A presented certificate that fails never falls back to a token."},
+ {n:"A reporter whose certificate expired yesterday",stop:0,res:["CERT_EXPIRED","","","","","","","",""],v:"The helper refuses locally with <b>CERT_EXPIRED</b>. Nothing goes upstream, and the status line tells the person an Admin must reissue the config. There is no grace period."},
+ {n:"A scanner guessing tokens (the first few hundred tries)",stop:7,res:["","","host ok","set","pass","logged","under limit","401","" ],v:"Each guess gets 401 at Identity. Repeated wrong secrets also feed the lockout for Admin sign-in."},
+ {n:"The same scanner after 300 failed requests in a minute",stop:6,res:["","","host ok","set","pass","logged","429","",""],v:"Stopped at the failure limiter with 429 and <b>Retry-After</b>. Even that address's valid requests are refused until the minute is over. Successful requests are never counted, so a busy reporter does not trip it."}
+];
+let scIx=0,runTimer=null;
+const scn=$("#scn");
+SC.forEach((s,i)=>{const b=el("button",{type:"button","aria-pressed":String(i===0)},[s.n]);b.addEventListener("click",()=>{scIx=i;runGauntlet()});scn.append(b)});
+function runGauntlet(){
+ clearTimeout(runTimer);
+ [...scn.children].forEach((b,i)=>b.setAttribute("aria-pressed",String(i===scIx)));
+ const s=SC[scIx],pipe=$("#pipe");pipe.innerHTML="";
+ const rows=STAGES.map((st,i)=>{const li=el("li",{},[el("span",{class:"mark","aria-hidden":"true"},[String(i+1)]),el("div",{},[el("div",{class:"nm"},[st[0]]),el("div",{class:"wh"},[st[1]+". "+st[2]])]),el("span",{class:"res"},[""])]);pipe.append(li);return li});
+ $("#verdict").innerHTML="Running…";
+ let i=0;
+ const skip=(k)=>(k===0&&!(scIx===8||scIx===6||scIx===7))||(k===1&&!(scIx===4||scIx===5||scIx===6||scIx===7||scIx===8));
+ function next(){
+  while(i<STAGES.length&&skip(i)&&!(s.stop===i)){rows[i].querySelector(".res").textContent="not applicable";rows[i].classList.add("seen");rows[i].querySelector(".mark").textContent="–";i++}
+  if(i>=STAGES.length){finish();return}
+  const li=rows[i];li.classList.add("seen");
+  const r=s.res[i]||"";
+  if(s.stop===i){li.classList.add("stop");li.querySelector(".mark").textContent="✕";li.querySelector(".res").textContent=r||"refused";finish();return}
+  li.classList.add("pass");li.querySelector(".mark").textContent="✓";li.querySelector(".res").textContent=r;
+  i++;runTimer=setTimeout(next,reduce?0:380);
+ }
+ function finish(){$("#verdict").innerHTML=s.v}
+ next();
+}
+$("#rerun").addEventListener("click",runGauntlet);
+runGauntlet();
+
+/* ---------- reporter: consent ladder ---------- */
+const TIERS=[
+ {k:"base",name:"Always on",meta:"Needs no switch",admin:null,opt:null,items:["Session id, directory, repo, branch, changed-file paths with +/- counts (no contents)","Model, effort, context fill, cost, token counts, rate-limit percentages","Plan step titles; tool names with counts; failed call summaries with exit code and last 12 lines","Agent type, description, status; first 400 characters of its prompt and answer"]},
+ {k:"id",name:"Who and where",meta:"Option: userName",admin:null,opt:"userName",items:["The name you set","Short host name and a random 12-character machine id","Operating system and version"]},
+ {k:"act",name:"Live activity feed",meta:"Option: activityFeed · Admin flag: activity-feed",admin:"activity-feed",opt:"activityFeed",items:["Last 20 tool calls per loop: tool name and a short argument summary","Text the model wrote between calls, cut to 300 characters","Only while someone is watching, unless an Admin keeps history","Never the model's thinking"]},
+ {k:"resp",name:"Answering from Podium",meta:"Option: respond · Admin flag: respond",admin:"respond",opt:"respond",items:["The open question, plan or tool call, redacted and cut","Held in server memory only; visible to the owner and Admins","The answer you send is delivered through a hook, never typed"]},
+ {k:"peer",name:"Orchestrator messaging",meta:"Option: peers · Admin flag: peer-messaging",admin:"peer-messaging",opt:"peers",items:["Messages your orchestrator sends, redacted, with the target address","Access requests: machine, right and reason","Stored 30 days by default; readable by you and Admins"]},
+ {k:"rec",name:"Session recording",meta:"Option: sessionRecording · Admin switch · the owner's choice",admin:"recording",opt:"sessionRecording",items:["Prompts, model text, each tool call's whole input and whole result","Marks for /clear, /compact and where the model thought","Redacted, cut at 100,000 characters each; kept 6 hours by default","Terminal announces start and stop"]},
+ {k:"full",name:"Full prompts",meta:"Option: fullPrompts",admin:null,opt:"fullPrompts",items:["Whole task prompts and final answers up to 20,000 characters instead of 400"]}
+];
+const ladder=$("#ladder");const tstate={};TIERS.forEach(t=>tstate[t.k]={a:false,o:false});
+function renderLadder(){
+ ladder.innerHTML="";
+ TIERS.forEach(t=>{
+  const s=tstate[t.k];const on=t.k==="base"||((t.admin?s.a:true)&&(t.opt?s.o:true));
+  const row=el("div",{class:"tier"+(on?" on":"")});
+  const c1=el("div",{},[el("div",{class:"tname"},[t.name]),el("div",{class:"tmeta"},[t.meta])]);
+  const ul=el("ul",{class:"titems",html:t.items.map(x=>"<li>"+x+"</li>").join("")});
+  const sw=el("div",{class:"sw"});
+  if(t.k==="base"){sw.append(el("span",{class:"state-pill"},["Sent"]))}
+  else{
+   if(t.admin){sw.append(swrow("Server Admin allows",s.a,v=>{s.a=v;renderLadder()},t.k+"-a"))}
+   if(t.opt){sw.append(swrow("Session owner enables",s.o,v=>{s.o=v;renderLadder()},t.k+"-o"))}
+   sw.append(el("span",{class:"state-pill"},[on?"Sent":"Not sent"]));
+  }
+  row.append(c1,ul,sw);ladder.append(row);
+ });
+}
+function swrow(label,val,fn,id){
+ const b=el("button",{class:"sw-btn",role:"switch","aria-checked":String(val),"aria-label":label,id:"sw-"+id,type:"button"});
+ b.addEventListener("click",()=>{fn(!val);const nb=document.getElementById("sw-"+id);if(nb)nb.focus()});
+ return el("div",{class:"swrow"},[el("span",{},[label]),b]);
+}
+renderLadder();
+
+/* ---------- server: lifecycle ---------- */
+(function(){
+ const MAX=120,seg=[[15,"Live","s1"],[60,"Stale","s2"],[45,"Dropped","s3"]];
+ const tr=$("#track");seg.forEach(([w,t,c])=>tr.append(el("div",{class:"seg "+c,style:"width:"+(w/MAX*100)+"%"},[t])));
+ const mk=el("div",{class:"marker"});tr.append(mk);
+ const tk=$("#ticks");[0,15,75,120].forEach(v=>tk.append(el("span",{style:"left:"+(v/MAX*100)+"%"},[v+" s"])));
+ tk.querySelector("span:last-child").style.transform="translateX(-100%)";tk.querySelector("span:first-child").style.transform="none";
+ const sl=$("#slider"),out=$("#lifeout");
+ function upd(){
+  const v=+sl.value;mk.style.left="calc("+(v/MAX*100)+"% - 1px)";
+  let h;
+  if(v<15)h='<b>Live.</b> The session reported '+v+' s ago, so the card shows its real state: running, idle, or waiting on you. The mod normally reports every second when something changed and every 5 s as a heartbeat.';
+  else if(v<75)h='<b>Stale.</b> '+v+' s of silence. The sweeper marked it stale at 15 s: the card stays but looks quiet, and the server logs <code>reporter.silent</code>. Common causes are a closed laptop lid or a network drop. One report brings it back.';
+  else h='<b>Dropped.</b> Gone for '+v+' s, 60 s past stale. The sweeper removed it from the live set and told every browser (<code>removed</code> on the stream). Its history stays in the database until retention ends.';
+  out.innerHTML='<p style="margin:0;color:var(--ink2)">'+h+'</p><p class="note" style="margin:10px 0 0">A session that ends cleanly sends one last report inside a 1 second deadline and lingers 8 s so you can see how it finished.</p>';
+ }
+ sl.addEventListener("input",upd);upd();
+})();
+
+/* ---------- server: file index ---------- */
+const FILES=[
+ ["index.ts","Process entry. Builds the app, mounts guards and routers, starts HTTP and the optional TLS listener."],
+ ["hostCheck.ts","Refuses Host names the server does not expect (DNS rebinding)."],
+ ["securityHeaders.ts","Content-Security-Policy and related headers, with inline script hashes."],
+ ["failureLimiter.ts","300 failed requests per address per minute, then 429."],
+ ["tlsServer.ts","The mutual-TLS listener and the reporter-port path filter."],
+ ["tlsCa.ts","Creates, reads and renews the CA and serving certificate with openssl."],
+ ["tlsPeople.ts","Issues a person's client certificate and builds the reporter config file."],
+ ["tlsClientAuth.ts","certAuth and the person_certificates store."],
+ ["tlsReporterRenew.ts","POST /api/reporter/renew, authenticated by the old certificate."],
+ ["tlsRenew.ts","Daily check that renews the serving certificate without a restart."],
+ ["fleet/routes.ts","Report, hook, state, stream and session routes; requireToken."],
+ ["fleet/protocol.ts","The report contract and hand-written validation, shared with the mod."],
+ ["fleet/ingest.ts","Writes a validated report in one transaction."],
+ ["fleet/fleet.ts","Owns the live session set, the clock and the stores."],
+ ["fleet/derive.ts","Pure: rows to SessionView, KPIs and series."],
+ ["fleet/sweeper.ts","Stale, drop, linger, samples, retention, purges."],
+ ["fleet/sse.ts","Server-sent events: snapshot, session, activity, removed, tick, wall."],
+ ["fleet/db.ts","SQLite open, WAL, and the numbered migrations."],
+ ["fleet/pricing.ts","Per-model price table and cost math. Estimates only."],
+ ["fleet/tokens.ts","Person tokens: key id plus SHA-256 of the secret."],
+ ["fleet/people.ts","People, groups, machines and Admin log queries."],
+ ["fleet/reporters.ts","Known reporters, their sessions and refused sources."],
+ ["fleet/respond.ts","RespondStore: asks, answers, waiting messages (memory)."],
+ ["fleet/respondRoutes.ts","Browser sign-in and answer routes; the mod's answer routes."],
+ ["fleet/activity.ts","ActivityStore: leases and the ring of recent entries."],
+ ["fleet/activityHistory.ts","Optional durable history in activity.sqlite."],
+ ["fleet/recordings.ts","Session recording store and caps."],
+ ["fleet/fileDiffs.ts","DiffBroker: holds a diff request while the mod fetches it."],
+ ["fleet/peers.ts","PeerService joining rights, messages and settings."],
+ ["fleet/peerRights.ts","Rights between reporters; same-owner pairing."],
+ ["fleet/peerMessages.ts","Directory, message states and notices."],
+ ["fleet/featureFlags.ts","Admin flags such as activity-feed, respond and peer-messaging."],
+ ["fleet/compat.ts","Which reporter versions this server reads."],
+ ["fleet/rollups.ts","Daily usage, sessions and failure rollups."],
+ ["admin/adminRouter.ts","Everything under /api/admin."],
+ ["logging/logger.ts","Structured events with stable dotted names."],
+ ["logging/redact.ts","Drops sensitive fields and scrubs secret shapes."],
+ ["logging/shipper.ts","Batched, buffered shipping to VictoriaLogs."]];
+const ml=$("#modlist"),ms=$("#modsearch");
+function renderFiles(q){ml.innerHTML="";const qq=q.toLowerCase();const hits=FILES.filter(f=>!qq||(f[0]+" "+f[1]).toLowerCase().includes(qq));
+ if(!hits.length){ml.append(el("p",{class:"note"},["No file matches “"+q+"”. Try a shorter word."]));return}
+ hits.forEach(f=>ml.append(el("div",{class:"mod"},[el("code",{},[f[0]]),el("span",{},[f[1]])])))}
+ms.addEventListener("input",()=>renderFiles(ms.value));renderFiles("");
+
+/* ---------- console surfaces ---------- */
+const UI=[
+ {n:"The wall",d:"Cards for every session, grouped by person when more than one reports. Shows model, effort, plan, agents with a sparkline, context fill, estimated cost and git branch. A KPI row summarises the fleet.",w:["Sort and filter are pure functions in logic.ts.","Wall notices sit at the bottom, close with an X, and have a switch in Admin > Settings."],f:["SessionCard.tsx","logic.ts","chart.ts","wallLayout.ts"]},
+ {n:"Orchestrator page",d:"Everything about one orchestrator: plan, changed files, agents, failures, and a live activity feed for any agent.",w:["Opening a file diff asks the owner's machine, which redacts it before it leaves.","The activity hook runs only while the panel is open and the tab is visible."],f:["OrchestratorDetail","useActivityFeed.ts","FileDiffModal.tsx"]},
+ {n:"Respond",d:"Answer a question, approve a plan or tool call, send a message, or run /clear and /compact for a waiting session.",w:["Separate sign-in. Server Admin and session owner must both allow it.","Entries you send appear in the activity feed marked as from Podium."],f:["Respond.tsx","useRespond.tsx","respondApi.ts"]},
+ {n:"History and Replay",d:"Stored activity for finished sessions, and a recording played back with each result paired to its call.",w:["Readable only by the session's owner or an Admin.","Both are off until an Admin turns them on."],f:["HistoryView.tsx","ReplayPage.tsx","replayItems.ts"]},
+ {n:"My reporters and Traffic",d:"Set rights between your own orchestrators, and see messages between machines as a map.",w:["Traffic lays machines out in two columns, busiest first, so a new message does not reorder them.","A conversation's text is requested only by its owner or an Admin."],f:["MyReporters.tsx","Traffic.tsx","TrafficMap.tsx"]},
+ {n:"Admin",d:"Sixteen pages in four groups. People and access: People, Groups, Reporters. Server: Settings, Model prices, Security, Certificates, Data, Stored activity. Reporting: Usage, Spend, Sessions, Failures and more. Activity: Admin log.",w:["Separate unlock, idle expiry and per-address lockout.","A header pill counts down to the serving certificate's expiry."],f:["admin/Page.tsx","PeopleTab.tsx","CertificatesTab.tsx"]},
+ {n:"Design system",d:"Colors, components and patterns live in generated pages under docs/standards. They are rendered from the app, and a test fails if they differ.",w:["Colors are tokens from one file; a hard-coded color fails the test suite.","Status is shape plus word plus color, never color alone."],f:["tokens.css","fleet.css","docs/standards/"]}
+];
+let uiIx=0;const ut=$("#uitabs");
+UI.forEach((u,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":String(i===0)},[u.n]);b.addEventListener("click",()=>{uiIx=i;renderUI()});ut.append(b)});
+function renderUI(){
+ [...ut.children].forEach((b,i)=>b.setAttribute("aria-selected",String(i===uiIx)));
+ const u=UI[uiIx],p=$("#uipanel");p.innerHTML="";
+ p.append(el("h3",{},[u.n]));p.append(el("p",{style:"color:var(--ink2);margin:10px 0 0;max-width:680px"},[u.d]));
+ p.append(el("ul",{class:"tight mt",html:u.w.map(x=>"<li>"+x+"</li>").join("")}));
+ p.append(el("div",{class:"lbl"},["Files"]));p.append(el("div",{class:"files"},u.f.map(f=>el("span",{class:"chip"},[f]))));
+}
+renderUI();
+
+/* ---------- data ---------- */
+const STORES=[
+ {n:"Memory only",lead:"Gone on restart, on purpose. This is where the most sensitive live data sits.",rows:[
+  ["Open asks and answers","Questions, plans and tool calls waiting on you; one answer per ask; up to 20 waiting messages."],
+  ["Live activity feed","Leases and the last 20 entries per loop. No table, no migration."],
+  ["Diff requests","Held up to 15 s while a mod reads one file's diff."],
+  ["Messaging directory","Which orchestrators are live; Podium's notices to them."],
+  ["Admin sessions","Random ids behind the Admin cookie. A restart signs everyone out."],
+  ["Update notice","Result of the daily release check."]]},
+ {n:"podium.sqlite",lead:"The main database, WAL mode, in /data (container) or ~/.podium/data (standalone).",rows:[
+  ["Live fleet","sessions, agents, events, blowouts, samples"],
+  ["Identity","people, groups, person_machines, person_certificates"],
+  ["Reporters","reporters, reporter_sessions, reporter_ignores"],
+  ["Messaging","peer_rights, peer_owner_settings, peer_requests, peer_messages"],
+  ["Rollups","usage_daily, sessions_daily, failures_daily, fleet_daily"],
+  ["Config and audit","settings (flags, prices, limits), admin_log, agent_texts, schema_migrations"]]},
+ {n:"activity.sqlite",lead:"Created beside the first only when an Admin keeps Activity history or turns on Session recording.",rows:[
+  ["Stored activity","Per-session, per-loop entries with sequence numbers, plus aggregates so counts cost one indexed read."],
+  ["Recordings","rec_sessions and rec_entries: the whole conversation of a recorded session."],
+  ["Housekeeping","Own schema version, incremental vacuum, purge in short chunks every 5 minutes."],
+  ["Why separate","It can be sized, vacuumed or deleted on its own, and the main database never waits on it."]]},
+ {n:"Certificates and config",lead:"Files on disk that outlive the container.",rows:[
+  ["/data/tls","ca.crt, ca.key, serving.crt, serving.key, previous/. Keys at mode 0600. Container mode mounts ~/.podium/tls here."],
+  ["~/.podium/config.env","podiumctl settings, including PODIUM_TOKEN."],
+  ["~/.podium/reporter-config-*.pem","A person's key, certificate and CA. Podium never keeps the key; this file is the only copy."],
+  ["~/.claude/podium-machine-id","The random machine id the mod generates once."]]},
+ {n:"In the browser",lead:"Convenience only. Nothing sensitive is stored.",rows:[
+  ["Preferences","Theme, collapsed panes, pinned cards, people ordering."],
+  ["Admin tokens","Held in component state until saved. Never written to storage."],
+  ["Cookies","Respond sign-in and Admin session are HttpOnly; Admin is SameSite=Strict."]]}
+];
+let stIx=0;const stt=$("#storetabs");
+STORES.forEach((s,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":String(i===0)},[s.n]);b.addEventListener("click",()=>{stIx=i;renderStore()});stt.append(b)});
+function renderStore(){
+ [...stt.children].forEach((b,i)=>b.setAttribute("aria-selected",String(i===stIx)));
+ const s=STORES[stIx],p=$("#storepanel");p.innerHTML="";
+ p.append(el("p",{style:"margin:0;color:var(--ink2);font-size:17px;max-width:680px"},[s.lead]));
+ p.append(el("ul",{class:"itemlist",html:s.rows.map(r=>"<li><b>"+r[0]+"</b><span>"+r[1]+"</span></li>").join("")}));
+}
+renderStore();
+
+/* ---------- principles ---------- */
+const PR=[
+ ["Watch, don't drive","Podium shows sessions and can answer the ones waiting on a person. It never types into a terminal or edits a session's permission rules.","Answers are the result of a hook the mod already holds. Both the Admin's switch and the owner's option must be on."],
+ ["Sensitive data is leased, not kept","Activity is captured only while someone watches. Prompts and plans live in memory and expire.","ActivityStore leases; RespondStore has no table; the Admin must opt in to any stored history."],
+ ["A session must never feel Podium","Hooks update memory and return. The network is touched only by a timer.","Pure reducers in state.ts; Transport owns every request; a 1 s deadline on session end."],
+ ["Snapshots, not streams","Every report is complete, so a lost request is repaired by the next. No replay log is needed.","Idempotent ingest keyed by session and event ids."],
+ ["One contract, tested byte for byte","The report format exists on both sides and must be identical.","A test compares the two protocol.ts copies; another walks its imports to keep it free of Node."],
+ ["Connections go outward","The server never dials a laptop. Instructions ride the reply to a report.","watch, deliveries and grants are fields of the response; helper listens only on a Unix socket."],
+ ["Trust is layered, never assumed","Host check, token or certificate, ownership, rights, flags, then rate limits.","Each layer is its own module with its own tests; a revoked certificate is checked on every request."],
+ ["Everything stored has an owner and an expiry","Sessions, history, recordings, messages and logs each have a retention setting and a purge.","RETAIN_* settings; sweeper purge jobs; the Admin log records every change."],
+ ["One version, and docs that cannot drift","Server and mod share one version number. The design standards are generated from the running app.","versions.test.ts fails on mismatch; standards:parity fails if a page differs from what the app renders."]];
+const pr=$("#princ");PR.forEach(p=>pr.append(el("div",{class:"pr"},[el("div",{},[el("h3",{},[p[0]]),el("p",{},[p[1]])]),el("div",{class:"enf"},[el("b",{},["Enforced by"]),document.createTextNode(p[2])])])));
+
+/* ---------- chart ---------- */
+(function(){
+ const D=[["Console",24794,20003],["Server",18593,20986],["Reporter mod",8665,7629],["Scripts",4128,2111]];
+ const c=$("#chart"),max=25000,x0=130,W=560,rowH=58,y0=14;
+ [0,5000,10000,15000,20000,25000].forEach(v=>{const x=x0+v/max*W;c.append(sv("line",{x1:x,x2:x,y1:y0-6,y2:y0+rowH*D.length-8,class:"gr"}));c.append(sv("text",{x,y:y0+rowH*D.length+10,class:"ax","text-anchor":"middle",text:v===0?"0":(v/1000)+"k"}))});
+ D.forEach((d,i)=>{const y=y0+i*rowH;
+  c.append(sv("text",{x:x0-12,y:y+30,"text-anchor":"end",text:d[0]}));
+  [[d[1],"var(--c-reporter)",0],[d[2],"var(--c-server)",1]].forEach(([v,col,k])=>{
+   const w=v/max*W,yy=y+k*20;
+   c.append(sv("path",{d:`M${x0} ${yy}H${x0+w-4}a4 4 0 0 1 4 4v10a4 4 0 0 1 -4 4H${x0}Z`,fill:col}));
+   c.append(sv("text",{x:x0+w+8,y:yy+14,text:(v/1000).toFixed(1)+"k"}));
+  });
+ });
+})();
+})();
+</script>
