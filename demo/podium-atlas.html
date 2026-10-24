@@ -90,6 +90,7 @@ svg.map{display:block;width:100%;height:auto}
 .legend .tab{display:inline-flex;align-items:center;gap:7px}
 .legend .tab[aria-pressed="false"]{opacity:.45}
 .legend .hint{font-size:13px;color:var(--mute);margin-left:auto}
+.legend .hint .sm{display:none}
 .lane{fill:var(--sunk);opacity:.7}
 .lanelabel{font:600 12px var(--sans);fill:var(--mute)}
 .node{cursor:pointer;transition:opacity .2s}
@@ -247,6 +248,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
   .rail nav a{white-space:nowrap;border-left:0;border-bottom:2px solid transparent}
   .rail nav a[aria-current="true"]{border-bottom-color:var(--accent)}
   .rail .foot{margin:0 0 0 auto}
+  .legend .hint .sm{display:inline}
   main{padding:0 max(16px,env(safe-area-inset-right,0px)) 100px max(16px,env(safe-area-inset-left,0px))}
   .hero,.under,.modegrid,.gauntlet,.two,.pr{grid-template-columns:minmax(0,1fr)}
   .hero{gap:28px}.pr{gap:10px}
@@ -760,7 +762,7 @@ const legend=$("#legend");
 const layerBtns={};
 /* "All" is lit while every layer is lit and nothing is selected. Clicking it then fades every layer; clicking it otherwise
    lights every layer and clears the selection, so a fade left by a flow or a click is one click to undo. */
-const allBtn=el("button",{class:"tab all",type:"button","aria-pressed":"true"},["All"]);
+const allBtn=el("button",{class:"tab all",type:"button","aria-pressed":"true",title:"Light or fade every layer"},["All"]);
 allBtn.addEventListener("click",()=>{
  const allLit=layerOff.size===0&&!sel;
  if(allLit)Object.keys(LAYERS).forEach(k=>layerOff.add(k));
@@ -776,7 +778,7 @@ Object.keys(LAYERS).forEach(k=>{
  layerBtns[k]=b;
  legend.append(b);
 });
-legend.append(el("span",{class:"hint"},["Click a layer to fade it, or All to light or fade every layer. Scroll sideways on small screens."]));
+legend.append(el("span",{class:"hint"},["Click a layer to fade it.",el("span",{class:"sm"},[" Scroll sideways on small screens."])]));
 
 /* ---------- flows ---------- */
 const F=[
