@@ -757,14 +757,26 @@ N.forEach(n=>{
 /* ---------- legend (layer filter) ---------- */
 let layerOff=new Set();
 const legend=$("#legend");
+const layerBtns={};
+/* "All" is lit while every layer is lit and nothing is selected. Clicking it then fades every layer; clicking it otherwise
+   lights every layer and clears the selection, so a fade left by a flow or a click is one click to undo. */
+const allBtn=el("button",{class:"tab all",type:"button","aria-pressed":"true"},["All"]);
+allBtn.addEventListener("click",()=>{
+ const allLit=layerOff.size===0&&!sel;
+ if(allLit)Object.keys(LAYERS).forEach(k=>layerOff.add(k));
+ else{layerOff.clear();sel=null;renderInspector()}
+ paint();
+});
+legend.append(allBtn);
 Object.keys(LAYERS).forEach(k=>{
  const b=el("button",{class:"tab",type:"button","aria-pressed":"true"});
  const s=sv("svg",{viewBox:"0 0 16 16",width:"12",height:"12"});s.append(glyph(LAYERS[k].g,8,8,5,LAYERS[k].c));
  b.append(s,LAYERS[k].name);
- b.addEventListener("click",()=>{if(layerOff.has(k))layerOff.delete(k);else layerOff.add(k);b.setAttribute("aria-pressed",String(!layerOff.has(k)));paint()});
+ b.addEventListener("click",()=>{if(layerOff.has(k))layerOff.delete(k);else layerOff.add(k);paint()});
+ layerBtns[k]=b;
  legend.append(b);
 });
-legend.append(el("span",{class:"hint"},["Click a layer to fade it. Scroll sideways on small screens."]));
+legend.append(el("span",{class:"hint"},["Click a layer to fade it, or All to light or fade every layer. Scroll sideways on small screens."]));
 
 /* ---------- flows ---------- */
 const F=[
@@ -823,6 +835,8 @@ function paint(){
  const step=F[flowIx].steps[stepIx];
  const hotN=new Set(step.n),hotE=new Set(step.e);
  const focus=hoverId||sel;const nb=focus?neigh(focus):null;
+ Object.keys(layerBtns).forEach(k=>layerBtns[k].setAttribute("aria-pressed",String(!layerOff.has(k))));
+ allBtn.setAttribute("aria-pressed",String(layerOff.size===0&&!sel));
  N.forEach(n=>{
   let cls="node";
   if(layerOff.has(n.l))cls+=" dim";
