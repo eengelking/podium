@@ -370,14 +370,14 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
           <ul class="tight">
             <li>The model's thinking text is never sent.</li>
             <li>Transcripts and file contents are never read for the wall. A diff leaves only when its owner opens it, with both the <code>fileDiff</code> option and the Admin's <code>file-diff</code> flag on (both off by default), and only after redaction.</li>
-            <li>The OS user name is never read, and neither are your git user settings. Git is read for the branch, changed files and the repo name (from <code>remote.origin.url</code>). The machine id is a random 12-character string.</li>
+            <li>The OS user name is never read, and neither are your git user settings. Git is read for the branch and changed files. The repo name comes from Claude Code's own session repo, falling back to the remote URL and then the folder name. The machine id is a random 12-character string.</li>
             <li>Secret-shaped text (<code>sk-ant-…</code>, <code>ghp_…</code>, <code>Bearer …</code>) and the values after <code>password=</code>, <code>token=</code> and similar keys become <code>[redacted]</code> before they leave.</li>
           </ul>
         </div>
         <div class="panel pad">
           <h4>Built so a session never feels it</h4>
           <ul class="tight">
-            <li>Hooks only update an in-memory model, and a timer does the network work. The one exception is a session waiting on a person: its respond hook stays open and makes its own calls.</li>
+            <li>Hooks only update an in-memory model, and a timer does the network work. Two exceptions: a session waiting on a person, whose respond hook stays open and makes its own calls, and session end, which sends a final report inside a 1 s deadline.</li>
             <li>An offline server costs backoff, not session speed.</li>
             <li><code>session.end</code> sends a final report inside a 1 second deadline.</li>
             <li>A new session id after <code>/clear</code> closes the old id and starts over under the new one.</li>
@@ -415,7 +415,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       <div class="ch-head">
         <span class="kicker">The console</span>
         <h2>A browser that computes almost nothing</h2>
-        <p>The UI is React with plain CSS. It renders the server's <code>SessionView</code> and recomputes nothing the server did not already decide. That keeps what you see identical across every open tab.</p>
+        <p>The UI is React with plain CSS. It renders the server's <code>SessionView</code> and adds only presentation: card state, whether to offer Respond, sorting, filtering and bands. Every tab shows the same state; layout preferences (pins, collapse, grouping) are per browser.</p>
       </div>
       <div class="tabs" role="tablist" id="uitabs" aria-label="Console surfaces"></div>
       <div class="panel pad" id="uipanel"></div>
@@ -476,7 +476,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
             <tr><td>Server</td><td>18,593</td><td>20,986</td></tr><tr><td>Reporter mod</td><td>8,665</td><td>7,629</td></tr>
             <tr><td>Console</td><td>24,794</td><td>19,971</td></tr><tr><td>Scripts</td><td>4,128</td><td>2,111</td></tr></tbody></table>
         </details>
-        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 8 lines. Tests also include checks that fail the build if the docs, the design standards or the version numbers drift from the code.</p>
+        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 8 lines. Tests fail the build if the design standards or the version numbers drift from the code. Prose docs are not checked against code.</p>
       </div>
     </section>
 
@@ -530,16 +530,16 @@ const N=[
   how:["The reporter mod loads inside the process as a plugin and uses Claude Code's mod API (<code>$.session</code>, <code>$.agent</code>, <code>$.clock</code>, <code>$.http</code>, <code>$.prompt</code>).","Installed from the <code>eengelking-marketplace</code>; its token option is secret and is set with <code>/plugin configure</code>."]},
  {id:"hooks",l:"reporter",col:"r",row:1,name:"Hooks and reducers",role:"Fold events into a model",file:"state.ts · plan.ts · failures.ts",
   what:"Callbacks on tool calls, turn steps and session end that update an in-memory model through pure functions.",
-  why:"Hooks run on Claude Code's critical path. If they waited on a network call, every tool call in every session would get slower. So they never wait.",
+  why:"Hooks run on Claude Code's critical path. If they waited on a network call, every tool call in every session would get slower. So outside a prompt a person is answering, and the final report at session end (up to 1 s), they do not wait.",
   how:["Reducers take the old model and an event and return a new model, so they are tested without Claude Code.","The plan comes from TaskCreate, TaskUpdate or TodoWrite; failures keep the tool, a one-line summary, exit code and last 12 lines.","The one place a hook stays open is when the session is waiting on a person and responding is on: the hook holds until an answer arrives from the terminal or from Podium. That hook makes its own calls to announce the ask and long-poll for an answer, so the timer is not the only caller there."]},
  {id:"tx",l:"reporter",col:"r",row:2,name:"Transport and timer",role:"Posts a snapshot, reads the reply",file:"transport.ts · report.ts",
   what:"A clock timer that reads session id, usage and the agent list, then posts a full snapshot plus unacknowledged events to the server.",
   why:"Complete snapshots are idempotent: a dropped request costs nothing because the next one repairs it. The reply doubles as a control channel, so the server never needs to dial into a laptop.",
-  how:["Posts every 1 s when something changed, with a 5 s heartbeat and backoff while the server is offline.","The reply carries <code>watch</code> (which loops to capture), deliveries (answers, messages), the recording grant and open requests.","Body is capped at 480,000 bytes; text is cut and redacted first."]},
+  how:["Posts every 1 s when something changed, with a 5 s heartbeat and backoff while the server is offline.","The reply carries <code>watch</code> (which loops to capture), deliveries (messages and commands), the recording grant and open requests. Answers return on a request the mod holds open for that ask.","Body is capped at 480,000 bytes; text is cut and redacted first."]},
  {id:"collect",l:"reporter",col:"r",row:3,name:"Collectors",role:"Git, machine, build, models",file:"git.ts · machine.ts · build.ts",
   what:"Small readers for the facts that are not in hooks: branch and ahead/behind counts, changed files, host name, OS, build and model details.",
   why:"The wall shows which branch or worktree each session works in, and which machine it runs on, without reading files.",
-  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, never contents.","The machine id is a random 12-character string kept in <code>~/.claude/podium-machine-id</code>. The OS user name is never read."]},
+  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, never contents.","The machine id is a random 12-character string kept in <code>podium-machine-id</code> under <code>CLAUDE_CONFIG_DIR</code> when set, else <code>~/.claude</code>. The OS user name is never read."]},
  {id:"helper",l:"reporter",col:"r",row:4,name:"TLS helper",role:"Holds the client certificate",file:"hooks/helper.mjs",
   what:"A small Node script the mod starts once per session. It reads the reporter config file, makes the mutual-TLS connection and listens on a Unix socket.",
   why:"The mod's fetch cannot present a client certificate or pin a CA. A helper keeps <code>Transport</code> unchanged: the same fetch just gets a <code>socketPath</code>.",
@@ -547,7 +547,7 @@ const N=[
  {id:"tools",l:"reporter",col:"r",row:5,name:"In-session tools",role:"Answers and messages inward",file:"respond.ts · peers.ts",
   what:"How Podium reaches back into a session: answers to questions, plans and permission prompts, and messages from your other orchestrators. Includes <code>podium_send</code>, <code>podium_peers</code>, <code>podium_request_access</code> and <code>/podium</code>.",
   why:"A stuck session is the problem Podium exists to solve. This is the one place it can act, and it is deliberately narrow.",
-  how:["Answers do not go through the terminal. An answer becomes the result of a hook the mod already holds (<code>questionRace</code>, <code>planRace</code>, <code>permissionAsk</code>). The only commands it runs are <code>/clear</code> and <code>/compact</code>, with <code>$.command.run</code>, once the session is idle.","A peer message is wrapped in a frame and submitted with <code>$.prompt.submit</code>, so the model sees it was sent by a peer.","Both need the server's Admin switch and the owner's option."]},
+  how:["Answers do not go through the terminal. An answer becomes the result of a hook the mod already holds (<code>questionRace</code>, <code>planRace</code>, <code>permissionAsk</code>). The only commands it runs are <code>/clear</code> and <code>/compact</code>, with <code>$.command.run</code>; Claude Code decides when the session can take them.","A peer message is wrapped in a frame and submitted with <code>$.prompt.submit</code>, so the model sees it was sent by a peer.","Both need the server's Admin switch and the owner's option."]},
  {id:"rec",l:"reporter",col:"r",row:6,name:"Activity, diff, recorder",role:"Opt-in readers",file:"recording.ts · fileDiff.ts",
   what:"Three readers that capture more than the wall needs: recent tool calls, a file diff on request, and a whole-session recording.",
   why:"Each is more sensitive than the last, so each is gated, redacted before leaving and cut to a fixed size.",
@@ -579,7 +579,7 @@ const N=[
   why:"Every session needs an owner so the wall can group by person and so answers go only to the right human.",
   how:["With TLS, the client certificate is checked first on every request: authorized, stored, not revoked, in date, trusted issuer. A presented certificate that fails is 401 and never falls back to a token.","Otherwise the <code>X-Podium-Token</code> is a person token (<code>pdm_&lt;key id&gt;_&lt;secret&gt;</code>, SHA-256 in constant time), the admin secret, or auth is off.","Mounts <code>/api/fleet</code>, <code>/api/reporter</code>, <code>/api/admin</code>, <code>/api/tls</code> and <code>/api/health</code>."]},
  {id:"ingest",l:"server",col:"a",row:3,name:"Ingest",role:"Validate, then store",file:"protocol.ts · ingest.ts",
-  what:"Hand-written validation of every report field, then one database transaction.",
+  what:"Hand-written validation of the report (<code>validateReport</code>), then one database transaction.",
   why:"A report arrives from machines you do not control. Nothing is trusted until each field is checked, and a half-written session would corrupt the wall.",
   how:["The transaction upserts the session and agents, inserts events and context blowouts idempotently, and writes one sample per second.","The block between the PROTOCOL markers in <code>protocol.ts</code> is identical on both sides; a test compares it (ignoring whitespace), and the server file must stay free of Node imports because the UI imports it."]},
  {id:"fleet",l:"server",col:"a",row:4,name:"Fleet",role:"Live set, views, cost",file:"fleet.ts · derive.ts · pricing.ts",
@@ -588,7 +588,7 @@ const N=[
   how:["<code>derive.ts</code> is pure.","Tokens are priced per model from a table that starts at Anthropic list prices and that an Admin can edit. Cost is an estimate, never a bill.","Broadcasts a changed view at most once per session per 500 ms."]},
  {id:"sse",l:"server",col:"a",row:5,name:"State and stream",role:"First paint, then push",file:"fleet/sse.ts",
   what:"<code>GET /state</code> for the first paint and <code>GET /stream</code>, a server-sent-events feed of changes.",
-  why:"A session should appear within about two seconds of its first prompt and leave when it ends, with no refresh.",
+  why:"A session should appear promptly after its first prompt (the project targets about two seconds) and leave when it ends, with no refresh.",
   how:["Events: <code>snapshot</code> (on every connect), <code>session</code>, <code>activity</code>, <code>removed</code>, <code>tick</code> every 2 s, <code>wall</code>.","At most 100 clients."]},
  {id:"admin",l:"server",col:"a",row:6,name:"Admin API",role:"People, settings, certificates",file:"admin/adminRouter.ts",
   what:"A separate router at <code>/api/admin</code> for people, groups, reporters, settings, feature flags, certificates, usage reports and the Admin log.",
@@ -606,7 +606,7 @@ const N=[
  {id:"brokers",l:"server",col:"b",row:1,name:"Live brokers",role:"Sensitive, short-lived, in memory",file:"respond.ts · activity.ts · fileDiffs.ts",
   what:"<code>RespondStore</code> (open asks, one answer per ask, up to 20 waiting messages per session), <code>ActivityStore</code> (leases plus a ring of the last 20 entries per loop) and <code>DiffBroker</code> (holds a diff request for 15 s).",
   why:"Open questions, plans awaiting approval, tool arguments and the live activity feed are the most sensitive live data Podium sees. Held in memory, a restart forgets them and no table holds them, unless an Admin keeps Activity history.",
-  how:["No table and no migration for the live feed.","Visible only to the session's owner or an Admin."]},
+  how:["No table and no migration for the live feed.","Served to any reader of the console, like the other reads. Asks, answers and recordings are owner or Admin only."]},
  {id:"peers",l:"server",col:"b",row:2,name:"Messaging service",role:"Orchestrator to orchestrator",file:"peers.ts · peerRights.ts",
   what:"Lets one person's orchestrators on different machines find and message each other through the server.",
   why:"Teams of agents across machines need a channel. Doing it through Podium means rights, rate limits and an audit trail come for free.",
@@ -614,11 +614,11 @@ const N=[
  {id:"db",l:"store",col:"b",row:3,name:"podium.sqlite",role:"The main database",file:"fleet/db.ts",
   what:"SQLite in WAL mode. Sessions, agents, events, samples, people, groups, reporters, messages, daily rollups, settings and the Admin log.",
   why:"One file, no server to run, survives restarts, easy to back up.",
-  how:["Numbered migrations tracked in <code>schema_migrations</code> (at least 23).","Retention is configurable per table (<code>RETAIN_*</code>) and enforced by the sweeper."]},
+  how:["Numbered migrations tracked in <code>schema_migrations</code> (at least 23).","Five tables have <code>RETAIN_*</code> settings, enforced hourly by the sweeper; messages, history and recordings have their own Admin settings."]},
  {id:"adb",l:"store",col:"b",row:4,name:"activity.sqlite",role:"Opt-in history and recordings",file:"activityDb.ts",
   what:"A second SQLite file next to the first. Holds stored activity history and session recordings. The file is opened at startup, but nothing is written to it unless an Admin turns one of those on.",
-  why:"Volume and sensitivity differ from the wall's data. A separate file can be deleted, vacuumed or sized on its own, and the main database never blocks on it.",
-  how:["Own schema version, WAL and incremental auto-vacuum. No foreign key crosses files, so code removes a session's rows.","Purges run in adaptive chunks (about 25 ms each) so the event loop never stalls. Measured against a 14.4 million row file: <code>/state</code> p99 was 37 ms during a purge of 3.7 million rows (documented in ARCHITECTURE.md; not re-run for this page)."]},
+  why:"Volume and sensitivity differ from the wall's data. A separate file can be deleted, vacuumed or sized on its own, and the purge does not lock the main database's file.",
+  how:["Own schema version, WAL and incremental auto-vacuum. No foreign key crosses files, so code removes a session's rows.","Purges run in adaptive chunks (about 25 ms each) on the same event loop, so a request can wait up to one chunk. Measured against a 14.4 million row file: <code>/state</code> p99 was 37 ms during a purge of 3.7 million rows (documented in ARCHITECTURE.md; not re-run for this page)."]},
  {id:"logs",l:"server",col:"b",row:7,name:"Logging and outside calls",role:"Structured events, opt-in shipping",file:"logging/ · updateCheck.ts",
   what:"Named, structured log events with redaction, optional shipping to VictoriaLogs, and a once-a-day check for a newer release.",
   why:"Operators need to know why a reporter was refused, without secrets in the logs.",
@@ -637,13 +637,13 @@ const N=[
   why:"If agents can talk to each other, a person needs to see and govern that.",
   how:["Traffic draws machines in two columns (the machine with the most orchestrators first) and conversations as curves in inline SVG, refreshed every 10 s while visible.","Replay pairs each tool result with its call and is readable only by the owner or an Admin."]},
  {id:"ui_wall",l:"console",col:"c",row:4,name:"The wall",role:"One card per session",file:"SessionCard.tsx · logic.ts",
-  what:"Every session as a card: model, effort, plan, agent strip with sparkline, context fill, cost and branch. Grouped by person when several people report.",
+  what:"Every session as a card: model, effort, plan, agent strip with sparkline, context fill, cost and branch. Grouped by person by default (group, none or me can be chosen); one person still gets a band.",
   why:"The answer to “which of my five sessions needs me?” should take a glance.",
   how:["Sorting, filtering and the agent tree are pure functions.","Status is shown with shape, word and color together, so it never depends on color alone."]},
  {id:"ui_store",l:"console",col:"c",row:5,name:"Live store",role:"State plus stream",file:"useFleet.ts · store.ts",
   what:"Loads <code>/state</code>, then applies stream messages with a pure reducer.",
   why:"Deterministic updates make a live UI testable and keep tabs consistent.",
-  how:["Six seconds of silence counts as disconnected and reopens the stream; its first message is a full snapshot.","The UI computes nothing it could not recompute from one <code>SessionView</code>."]},
+  how:["Six seconds of silence counts as disconnected and reopens the stream; its first message is a full snapshot.","Presentation is derived from one <code>SessionView</code>; layout preferences stay in the browser."]},
  {id:"ui_admin",l:"console",col:"c",row:6,name:"Admin",role:"Sixteen pages, four groups",file:"frontend/src/fleet/admin/",
   what:"People and access (People, Groups, Reporters); Server (Settings, Model prices, Security, Certificates, Data, Stored activity); Reporting (Usage, Spend, Sessions, Failures and more); Activity (Admin log).",
   why:"Operating a shared server needs tokens, flags, certificates and audit in one place.",
@@ -661,7 +661,7 @@ const REFS={
  tools:[[pM+"register.ts",1021,"questionRace"],[pM+"register.ts",1052,"planRace"],[pM+"register.ts",1180,"permissionAsk"],[pM+"register.ts",1247,"handleDeliveries: answers and messages arriving"],[pM+"respond.ts",207,"toolDecision: answer to hook result"],[pM+"respond.ts",193,"planApproval"],[pM+"register.ts",1407,"podium_peers registered (podium_send is named at 1409)"],[pM+"register.ts",1462,"sendPeerCalls: drained by the timer"],[pM+"peers.ts",67,"peerPrompt: the frame around a peer message"]],
  rec:[[pM+"recording.ts",174,"class Recorder"],[pM+"recording.ts",12,"RECORDING_BATCH_INTERVAL_MS: 5 s"],[pM+"recording.ts",14,"RECORDING_FLUSH_BYTES: 256 KB"],[pM+"fileDiff.ts",8,"DIFF_LIMITS"],[pM+"register.ts",1217,"handleDiffs"],[pM+"diffRedact.ts",142,"redactDiff"],[pM+"state.ts",835,"setWatched: which loops to capture"],[pM+"state.ts",26,"ACTIVITY_KEPT: last 20 entries"],[pM+"activityDetail.ts",8,"DETAIL_LIMIT: 20,000 chars"]],
  alt:[["scripts/podium-sim.ts",24,"--chaos and the simulator's options"],[pSF+"routes.ts",299,"POST /hook: settings-hook reports"],[pSF+"fleet.ts",376,"ingestHook: reduced view without the mod"]],
- proxy:[[pS+"index.ts",88,"trust proxy set from PODIUM_TRUST_PROXY"],[pS+"failureLimiter.ts",42,"limit follows the address Express sees"]],
+ proxy:[[pS+"index.ts",88,"trust proxy set from PODIUM_TRUST_PROXY"],[pS+"failureLimiter.ts",42,"express-rate-limit, keyed on req.ip"]],
  p4317:[[pS+"index.ts",128,"app.listen(PORT, HOST)"],[pS+"index.ts",102,"first middleware: hostCheck"],[pS+"index.ts",115,"/api/fleet router mounted"]],
  p4318:[[pS+"tlsServer.ts",83,"startTls"],[pS+"tlsServer.ts",111,"https.createServer: requestCert, rejectUnauthorized"],[pS+"tlsServer.ts",73,"reporterPortOnly: 404 for non-reporter paths"],[pS+"tlsHttp.ts",13,"REPORTER_ROUTE_TEMPLATES"]],
  guards:[[pS+"index.ts",102,"hostCheck"],[pS+"index.ts",103,"securityHeaders"],[pS+"index.ts",105,"reporterHttpGate"],[pS+"index.ts",114,"failureLimiter on /api"],[pS+"hostCheck.ts",50,"hostCheck implementation"],[pS+"tlsHttp.ts",88,"reporterHttpGate implementation"],[pS+"failureLimiter.ts",42,"failureLimiter implementation"],[pS+"securityHeaders.ts",6,"securityHeaders (CSP)"]],
@@ -762,7 +762,7 @@ legend.append(el("span",{class:"hint"},["Click a layer to fade it. Scroll sidewa
 /* ---------- flows ---------- */
 const F=[
  {id:"report",name:"A session reports in",blurb:"The heartbeat of the product, from a hook to a card.",steps:[
-  {t:"Claude Code fires a hook",b:"Every tool call, turn and agent launch reaches the mod's hooks. They only update an in-memory model through pure reducers. Outside the respond case below, nothing waits on the network, so Podium cannot slow a session down.",n:["cc","hooks"],e:[eid("cc","hooks")]},
+  {t:"Claude Code fires a hook",b:"Every tool call, turn and agent launch reaches the mod's hooks. They only update an in-memory model through pure reducers. Apart from the respond case below and a 1 s final report at session end, nothing waits on the network, so Podium does not slow a session down.",n:["cc","hooks"],e:[eid("cc","hooks")]},
   {t:"A timer takes a snapshot",b:"Every second, if something changed (and every 5 s as a heartbeat), the transport reads the session id, usage and agent list, adds git state polled every 10 s plus events the server has not acknowledged, then redacts and cuts text to fixed limits.",n:["hooks","collect","tx"],e:[eid("hooks","tx"),eid("collect","tx")]},
   {t:"It posts to the server",b:"<code>POST /api/fleet/report</code> with the token in <code>X-Podium-Token</code>. If the server is offline the mod backs off. Because every snapshot is complete, the first report after an outage repairs the gap.",n:["tx","p4317"],e:[eid("tx","p4317")]},
   {t:"Guards run before any route",b:"Host check, security headers, the reporter HTTP gate, the request log and the failed-request limiter all run first. The Networking chapter lets you try each one.",n:["p4317","guards"],e:[eid("p4317","guards")]},
@@ -771,7 +771,7 @@ const F=[
   {t:"The reply carries instructions back",b:"The response is a control channel: which loops to capture (<code>watch</code>), answers and messages to deliver, the recording grant, open requests. This is why the server never needs to reach into a laptop.",n:["routes","tx"],e:[eid("tx","p4317"),eid("p4317","guards"),eid("guards","routes")],call:"Only the session machine ever opens a connection."},
   {t:"Fleet derives the view",b:"<code>derive.ts</code> turns rows into a <code>SessionView</code>: state, context fill, estimated cost, KPIs. Meanwhile the sweeper ticks every second and marks silent sessions stale at 15 s (10 minutes for settings-hook sessions).",n:["ingest","fleet","sweeper"],e:[eid("ingest","fleet"),eid("sweeper","fleet")]},
   {t:"Pushed to every open browser",b:"The changed view goes out over server-sent events, at most once per session per 500 ms. Each browser's store applies it with a pure reducer.",n:["fleet","sse","ui_store"],e:[eid("fleet","sse"),eid("sse","ui_store")]},
-  {t:"The wall repaints",b:"Sorting, filtering and the agent tree are pure functions of the new state. A new session shows up within about two seconds of its first prompt, and leaves when it ends, with no refresh.",n:["ui_store","ui_wall"],e:[eid("ui_store","ui_wall")]}]},
+  {t:"The wall repaints",b:"Sorting, filtering and the agent tree are pure functions of the new state. A new session shows up promptly (the project targets about two seconds), and leaves when it ends, with no refresh.",n:["ui_store","ui_wall"],e:[eid("ui_store","ui_wall")]}]},
  {id:"watch",name:"Watching an agent live",blurb:"Capture is leased, not stored.",steps:[
   {t:"You open an agent's panel",b:"The panel asks <code>GET …/agents/:id/activity?every=</code>. The polling hook runs only while the panel is mounted and the browser tab is visible.",n:["ui_detail"],e:[]},
   {t:"The server takes out a lease",b:"<code>ActivityStore</code> records a lease for that session and loop that expires after the poll interval plus 15 s, and starts a ring holding the last 20 numbered entries. Under the default policy, with no lease nothing about that agent's activity is captured.",n:["ui_detail","brokers"],e:[eid("ui_detail","brokers")]},
@@ -784,7 +784,7 @@ const F=[
   {t:"It is reported as an open ask",b:"The ask goes out in the next report, redacted and cut to fixed limits, but only when the session's owner has <code>respond</code> on. The session accepts answers only while <code>activityFeed</code> is also on, and the Admin's <code>respond</code> flag must be on for the console to offer them.",n:["tools","tx"],e:[eid("tools","tx")]},
   {t:"Held in memory, shown to one person",b:"<code>RespondStore</code> keeps the ask in process memory only. It is visible to the session's owner or an Admin and nobody else.",n:["routes","brokers"],e:[eid("routes","brokers")]},
   {t:"The owner signs in and answers",b:"A separate sign-in with its own <code>HttpOnly</code> cookie, header and Origin checks. One answer is accepted per ask. Both the Admin's <code>respond</code> flag and the owner's option must be on.",n:["ui_respond","brokers"],e:[eid("ui_respond","brokers")]},
-  {t:"The answer waits for the next reply",b:"There is no inbound connection to the laptop. The answer is delivered in the reply to the session's next report.",n:["brokers","routes","tx"],e:[eid("routes","brokers"),eid("tx","p4317")]},
+  {t:"The answer waits for the next reply",b:"There is no inbound connection to the laptop. The mod holds a request open for the ask's answer (up to 20 s per hold). Messages and commands ride the reply to the session's next report.",n:["brokers","routes","tx"],e:[eid("routes","brokers"),eid("tx","p4317")]},
   {t:"The mod decides inside Claude Code",b:"The answer becomes the result of the hook the mod is holding. The answer is a hook result, not keystrokes in the terminal. The mod posts what happened, which closes the ask. Delivery ids are remembered so a repeat is ignored.",n:["tx","tools","cc"],e:[eid("tools","tx")]}]},
  {id:"peers",name:"One orchestrator messages another",blurb:"Cross-machine coordination with rights and an audit trail.",steps:[
   {t:"A session calls podium_send",b:"The model calls the tool with <code>name@machine</code> (or <code>name@machine#id</code>). The call joins a queue; it does not make its own network request.",n:["cc","tools"],e:[]},
@@ -955,7 +955,7 @@ const STAGES=[
  ["Helper checks the certificate","On the reporter's machine","Refuses an expired certificate before anything is sent."],
  ["TLS handshake","Port 4318 only","Requires a client certificate signed by the Podium CA."],
  ["Host check","First middleware on 4317; after the path filter on 4318","Loopback, the bind address, allowed names, and any IP address on a wildcard bind."],
- ["Security headers","Every response","Content-Security-Policy hashes the page's inline scripts."],
+ ["Security headers","Every response the app sends","Content-Security-Policy hashes the page's inline scripts. On 4318 the port filter's 404 for other paths comes first."],
  ["Reporter gate and port filter","4317: the HTTP gate. 4318: the path filter, which runs before everything else","Keeps reporter traffic on the right port."],
  ["Request log","Debug level only","Method, path, route pattern, status, duration, source. No bodies."],
  ["Failure limiter","All of /api","300 failed requests a minute per address."],
@@ -1109,7 +1109,7 @@ const UI=[
  {n:"The wall",d:"Cards for every session, grouped by person when more than one reports. Shows model, effort, plan, agents with a sparkline, context fill, estimated cost and git branch. A KPI row summarises the fleet.",w:["Sort and filter are pure functions in logic.ts.","Wall notices sit at the bottom, close with an X, and have a switch in Admin > Settings."],f:["SessionCard.tsx","logic.ts","chart.ts","wallLayout.ts"]},
  {n:"Orchestrator page",d:"Everything about one orchestrator: plan, changed files, agents, failures, and a live activity feed for any agent.",w:["Opening a file diff asks the owner's machine, which redacts it before it leaves.","The activity hook runs only while the panel is open and the tab is visible."],f:["OrchestratorDetail","useActivityFeed.ts","FileDiffModal.tsx"]},
  {n:"Respond",d:"Answer a question, approve a plan or tool call, send a message, or run /clear and /compact for a waiting session.",w:["Separate sign-in. Server Admin and session owner must both allow it.","Entries you send appear in the activity feed marked as from Podium."],f:["Respond.tsx","useRespond.tsx","respondApi.ts"]},
- {n:"History and Replay",d:"Stored activity for finished sessions, and a recording played back with each result paired to its call.",w:["Readable only by the session's owner or an Admin.","Both are off until an Admin turns them on."],f:["HistoryView.tsx","ReplayPage.tsx","replayItems.ts"]},
+ {n:"History and Replay",d:"Stored activity for finished sessions, and a recording played back with each result paired to its call.",w:["Replay is readable only by the session's owner or an Admin. Both are off until an Admin turns them on."],f:["HistoryView.tsx","ReplayPage.tsx","replayItems.ts"]},
  {n:"My reporters and Traffic",d:"Set rights between your own orchestrators, and see messages between machines as a map.",w:["Traffic lays machines out in two columns, the one with the most orchestrators first, so a new message does not reorder them.","A conversation's text is requested only by its owner or an Admin."],f:["MyReporters.tsx","Traffic.tsx","TrafficMap.tsx"]},
  {n:"Admin",d:"Sixteen pages in four groups. People and access: People, Groups, Reporters. Server: Settings, Model prices, Security, Certificates, Data, Stored activity. Reporting: Usage, Spend, Sessions, Failures and more. Activity: Admin log.",w:["Separate unlock, idle expiry and per-address lockout.","A header pill counts down to the serving certificate's expiry."],f:["admin/Page.tsx","PeopleTab.tsx","CertificatesTab.tsx"]},
  {n:"Design system",d:"Colors, components and patterns live in generated pages under docs/standards. They are rendered from the app, and a test fails if they differ.",w:["Colors are tokens from one file; a hard-coded color fails the test suite.","Status is shape plus word plus color, never color alone."],f:["tokens.css","fleet.css","docs/standards/"]}
@@ -1146,7 +1146,7 @@ const STORES=[
   ["Stored activity","Tables entries, stored_sessions and loops: per-session, per-loop entries with sequence numbers, plus aggregates so counts cost one indexed read."],
   ["Recordings","rec_sessions and rec_entries: the whole conversation of a recorded session."],
   ["Housekeeping","Own schema version, incremental vacuum, purge in short chunks every 5 minutes."],
-  ["Why separate","It can be sized, vacuumed or deleted on its own, and the main database never waits on it."]]},
+  ["Why separate","It can be sized, vacuumed or deleted on its own, and the purge does not lock the main database's file."]]},
  {n:"Certificates and config",lead:"Files on disk that outlive the container.",rows:[
   ["/data/tls","ca.crt, ca.key, serving.crt, serving.key, previous/. Keys at mode 0600. Container mode mounts ~/.podium/tls here; standalone mode keeps it in ~/.podium/data/tls beside the database."],
   ["~/.podium/config.env","podiumctl settings, including PODIUM_TOKEN."],
@@ -1169,15 +1169,15 @@ renderStore();
 
 /* ---------- principles ---------- */
 const PR=[
- ["Watch, don't drive","Podium shows sessions and can answer the ones waiting on a person. It does not type into your terminal or edit permission rules. Answers become the result of a hook the mod already holds. The only commands it can run are /clear and /compact, once the session is idle, and a peer message is submitted as a prompt.","Answers are hook results; commands are limited to clear and compact (register.ts runCommand). Each needs the Admin's switch and the owner's option."],
- ["Sensitive data is leased, not kept","Activity is captured only while someone watches. Open questions and answers live in memory and expire.","ActivityStore leases; RespondStore has no table; the Admin must opt in to any stored history."],
- ["A session must never feel Podium","Hooks update memory and return, except while a session is waiting on a person. Reports go out from a timer.","Pure reducers in state.ts; Transport owns the reports; a 1 s deadline on session end."],
- ["Snapshots, not streams","Every report is complete, so a lost request is repaired by the next. No replay log is needed.","Idempotent ingest keyed by session and event ids."],
+ ["Watch, don't drive","Podium shows sessions and can answer the ones waiting on a person. It sends no keystrokes and edits no permission rules. Answers become the result of a hook the mod already holds. The only commands it can run are /clear and /compact, and a peer message is submitted as a prompt.","Answers are hook results; commands are limited to clear and compact (register.ts runCommand). Each needs the Admin's switch and the owner's option."],
+ ["Sensitive data is leased, not kept","Under the default policy, activity is captured only while someone watches; an Admin who keeps Activity history captures every loop without a viewer. Open questions and answers live in memory and expire.","ActivityStore leases; RespondStore has no table; the Admin must opt in to any stored history."],
+ ["A session must never feel Podium","Hooks update memory and return, except a session waiting on a person, session end (a final report, up to 1 s) and the peer tools (up to 8 s). Reports go out from a timer.","Pure reducers in state.ts; Transport owns the reports; a 1 s deadline on session end."],
+ ["Snapshots, not streams","Each report carries a full session and agent snapshot. Unacknowledged events queue and are resent (up to 100 per report); text and activity past a budget go in later reports.","Idempotent ingest keyed by session and event ids."],
  ["One shared contract, tested","The report format exists on both sides and the shared block must be identical.","A test compares the marked block in the two protocol.ts files; another walks the server file's imports to keep it free of Node."],
  ["Connections go outward","The server never dials a laptop. Instructions ride the reply to a report.","watch, deliveries and grants are fields of the response; helper listens only on a Unix socket."],
- ["Trust is layered, never assumed","Host check and rate limits first, then token or certificate, ownership, rights and flags.","Each layer is its own module with its own tests; a revoked certificate is checked on every request."],
- ["Everything stored has an owner and an expiry","Sessions, history, recordings and messages each have a retention setting and a purge. Logs stay in the process output unless you ship them.","RETAIN_* settings for the main tables; Admin settings for history, recordings and messages; sweeper purge jobs; Admin actions go to the Admin log."],
- ["One version, and docs that cannot drift","Server and mod share one version number. The design standards are generated from the running app.","versions.test.ts fails on mismatch; standards:parity fails if a page differs from what the app renders."]];
+ ["Trust is layered, never assumed","Host check and rate limits first, then token or certificate, ownership, rights and flags.","Host check, headers, limiter and certificate auth are separate modules, and identity lives in the routes module; a revoked certificate is checked on every request."],
+ ["Stored activity has an owner and an expiry","Sessions, history, recordings and messages each have a retention setting and a purge. Configuration (people, groups, rights, settings, certificates) stays until an Admin removes it. Logs stay in the process output unless you ship them.","RETAIN_* settings for the main tables; Admin settings for history, recordings and messages; sweeper purge jobs; Admin actions go to the Admin log."],
+ ["One version, and standards that cannot drift","Server and mod share one version number. The design standards are generated from the running app.","versions.test.ts fails on mismatch; standards:parity fails if a page differs from what the app renders."]];
 const pr=$("#princ");PR.forEach(p=>pr.append(el("div",{class:"pr"},[el("div",{},[el("h3",{},[p[0]]),el("p",{},[p[1]])]),el("div",{class:"enf"},[el("b",{},["Enforced by"]),document.createTextNode(p[2])])])));
 
 /* ---------- chart ---------- */
