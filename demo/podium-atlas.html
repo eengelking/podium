@@ -498,8 +498,14 @@ const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
 const CH=[["overview","Overview"],["map","System map"],["network","Networking"],["reporter","Reporter mod"],["server","Server"],["console","Console"],["data","Data"],["principles","Principles"],["run","Running it"]];
 const nav=$("#nav");CH.forEach(([id,t])=>nav.append(el("a",{href:"#"+id,"data-id":id},[t])));
 const links=[...nav.querySelectorAll("a")];
-const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.setAttribute("aria-current",String(l.dataset.id===e.target.id)))}})},{rootMargin:"-30% 0px -60% 0px"});
-CH.forEach(([id])=>{const s=document.getElementById(id);if(s)io.observe(s)});
+/* A chapter is current once its heading has scrolled above a line 35% down the window (the chapter box starts higher, above its padding), and the last one is current at the page bottom. */
+let spyQueued=false;
+function spy(){spyQueued=false;const line=innerHeight*.35;let cur=CH[0][0];
+  CH.forEach(([id])=>{const s=document.getElementById(id);if(!s)return;const h=s.querySelector(".ch-head")||s;if(h.getBoundingClientRect().top<=line)cur=id});
+  if(innerHeight+scrollY>=document.documentElement.scrollHeight-4)cur=CH[CH.length-1][0];
+  links.forEach(l=>l.setAttribute("aria-current",String(l.dataset.id===cur)))}
+function queueSpy(){if(!spyQueued){spyQueued=true;requestAnimationFrame(spy)}}
+addEventListener("scroll",queueSpy,{passive:true});addEventListener("resize",queueSpy);spy();
 let theme="system";try{theme=localStorage.getItem("atlas-theme")||"system"}catch(e){}
 function applyTheme(){const r=document.documentElement;if(theme==="system")r.removeAttribute("data-theme");else r.setAttribute("data-theme",theme);$("#themebtn").textContent="Theme: "+theme}
 $("#themebtn").addEventListener("click",()=>{theme=theme==="system"?"light":theme==="light"?"dark":"system";try{localStorage.setItem("atlas-theme",theme)}catch(e){}applyTheme()});
