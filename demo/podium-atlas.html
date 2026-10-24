@@ -235,6 +235,7 @@ details.tv td,details.tv th{padding:5px 14px 5px 0;text-align:left;border-bottom
 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
 .mt{margin-top:18px}.mt2{margin-top:34px}
 .sub{font:400 24px/1.15 var(--serif);margin:0 0 6px}
+.sub.mt2{margin-top:34px}
 .note{font-size:14px;color:var(--mute)}
 footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);color:var(--mute);font-size:13.5px}
 
@@ -305,6 +306,18 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
           </div>
         </div>
         <div class="panel pad insp" id="insp" aria-live="polite"></div>
+      </div>
+
+      <h3 class="sub mt2">How much is tested</h3>
+      <div class="panel pad mt">
+        <div class="cl"><span><i style="background:var(--c-reporter)"></i>Source lines</span><span><i style="background:var(--c-server)"></i>Test lines</span></div>
+        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 18.6 thousand source, 21.0 thousand test. Reporter mod 8.7 and 7.6. Console 24.8 and 20.0. Scripts 4.1 and 2.1."></svg>
+        <details class="tv"><summary>View as a table</summary>
+          <table><thead><tr><th>Area</th><th>Source</th><th>Tests</th></tr></thead><tbody>
+            <tr><td>Server</td><td>18,593</td><td>20,986</td></tr><tr><td>Reporter mod</td><td>8,665</td><td>7,629</td></tr>
+            <tr><td>Console</td><td>24,794</td><td>19,971</td></tr><tr><td>Scripts</td><td>4,128</td><td>2,111</td></tr></tbody></table>
+        </details>
+        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 8 lines. Tests fail the build if the version numbers drift from the code. The design standards are compared with the app by <code>npm run standards:parity</code>, which CI runs on pull requests into main. Prose docs are not checked against code.</p>
       </div>
     </section>
 
@@ -465,18 +478,6 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
             <li>The mod is not containerized; it posts to the server's URL.</li>
           </ul>
         </div>
-      </div>
-
-      <h3 class="sub mt2">How much is tested</h3>
-      <div class="panel pad mt">
-        <div class="cl"><span><i style="background:var(--c-reporter)"></i>Source lines</span><span><i style="background:var(--c-server)"></i>Test lines</span></div>
-        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 18.6 thousand source, 21.0 thousand test. Reporter mod 8.7 and 7.6. Console 24.8 and 20.0. Scripts 4.1 and 2.1."></svg>
-        <details class="tv"><summary>View as a table</summary>
-          <table><thead><tr><th>Area</th><th>Source</th><th>Tests</th></tr></thead><tbody>
-            <tr><td>Server</td><td>18,593</td><td>20,986</td></tr><tr><td>Reporter mod</td><td>8,665</td><td>7,629</td></tr>
-            <tr><td>Console</td><td>24,794</td><td>19,971</td></tr><tr><td>Scripts</td><td>4,128</td><td>2,111</td></tr></tbody></table>
-        </details>
-        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 8 lines. Tests fail the build if the version numbers drift from the code. The design standards are compared with the app by <code>npm run standards:parity</code>, which CI runs on pull requests into main. Prose docs are not checked against code.</p>
       </div>
     </section>
 
