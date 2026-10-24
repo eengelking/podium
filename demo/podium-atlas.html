@@ -346,7 +346,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
         <div class="panel pad">
           <h4>Known limits, stated plainly</h4>
           <ul class="tight">
-            <li>Reading the console needs no token. Anyone who can reach the port sees every session.</li>
+            <li>Reading the console needs no token. Anyone who can reach the port can see the wall.</li>
             <li>The console and Admin are plain HTTP. Use a TLS proxy on an untrusted network.</li>
             <li>mTLS covers the reporter port only. A stolen config file holds the key, so revoke the certificate.</li>
             <li>If reporters already existed when TLS was first turned on, plain-HTTP reporters stay allowed until an Admin turns that off. A fresh server starts with it off.</li>
@@ -359,7 +359,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       <div class="ch-head">
         <span class="kicker">The reporter mod</span>
         <h2>It runs inside Claude Code, and asks permission for everything else</h2>
-        <p><code>podium-reporter</code> is a plugin that loads in each Claude Code process. By default it sends session metadata and short excerpts (the first 400 characters of each agent's task prompt and answer), never transcripts or file contents. Most steps up need a switch on the server and a switch with the session's owner; your name, failure explanations and full prompts need only the owner's option. The live activity feed also needs someone watching. Flip them below.</p>
+        <p><code>podium-reporter</code> is a plugin that loads in each Claude Code process. By default it sends session metadata and short excerpts (the first 400 characters of each agent's task prompt and answer), not transcripts or file contents (except in the opt-in recording and diff). Most steps up need a switch on the server and a switch with the session's owner; your name, failure explanations and full prompts need only the owner's option. The live activity feed also needs someone watching. Flip them below.</p>
       </div>
       <div class="panel pad">
         <div class="ladder" id="ladder"></div>
@@ -453,7 +453,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
             <li>Two-stage Node 24 image, runs as the non-root <code>node</code> user.</li>
             <li>Named volume <code>podium-data</code> holds both SQLite files.</li>
             <li>With TLS on, the CA lives on the host in <code>~/.podium/tls</code>, mounted at <code>/data/tls</code>.</li>
-            <li>Secrets reach the server through the environment, never the command line.</li>
+            <li>Secrets reach the server through the environment rather than the command line.</li>
           </ul>
         </div>
         <div class="panel pad">
@@ -538,8 +538,8 @@ const N=[
   how:["Posts every 1 s when something changed, with a 5 s heartbeat and backoff while the server is offline.","The reply carries <code>watch</code> (which loops to capture), deliveries (messages and commands), the recording grant and open requests. Answers return on a request the mod holds open for that ask.","Body is capped at 480,000 bytes; text is cut and redacted first."]},
  {id:"collect",l:"reporter",col:"r",row:3,name:"Collectors",role:"Git, machine, build, models",file:"git.ts · machine.ts · build.ts",
   what:"Small readers for the facts that are not in hooks: branch and ahead/behind counts, changed files, host name, OS, build and model details.",
-  why:"The wall shows which branch or worktree each session works in, and which machine it runs on, without reading files.",
-  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, never contents.","The machine id is a random 12-character string kept in <code>podium-machine-id</code> under <code>CLAUDE_CONFIG_DIR</code> when set, else <code>~/.claude</code>. The OS user name is never read."]},
+  why:"The wall shows which branch or worktree each session works in, and which machine it runs on, without reading transcripts.",
+  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, with no contents (a diff is a separate opt-in).","The machine id is a random 12-character string kept in <code>podium-machine-id</code> under <code>CLAUDE_CONFIG_DIR</code> when set, else <code>~/.claude</code>. The OS user name is never read."]},
  {id:"helper",l:"reporter",col:"r",row:4,name:"TLS helper",role:"Holds the client certificate",file:"hooks/helper.mjs",
   what:"A small Node script the mod starts once per session. It reads the reporter config file, makes the mutual-TLS connection and listens on a Unix socket.",
   why:"The mod's fetch cannot present a client certificate or pin a CA. A helper keeps <code>Transport</code> unchanged: the same fetch just gets a <code>socketPath</code>.",
@@ -547,7 +547,7 @@ const N=[
  {id:"tools",l:"reporter",col:"r",row:5,name:"In-session tools",role:"Answers and messages inward",file:"respond.ts · peers.ts",
   what:"How Podium reaches back into a session: answers to questions, plans and permission prompts, and messages from your other orchestrators. Includes <code>podium_send</code>, <code>podium_peers</code>, <code>podium_request_access</code> and <code>/podium</code>.",
   why:"A stuck session is the problem Podium exists to solve. This is the one place it can act, and it is deliberately narrow.",
-  how:["Answers do not go through the terminal. An answer becomes the result of a hook the mod already holds (<code>questionRace</code>, <code>planRace</code>, <code>permissionAsk</code>). The only commands it runs are <code>/clear</code> and <code>/compact</code>, with <code>$.command.run</code>; Claude Code decides when the session can take them.","A peer message is wrapped in a frame and submitted with <code>$.prompt.submit</code>, so the model sees it was sent by a peer.","Both need the server's Admin switch and the owner's option."]},
+  how:["Answers do not go through the terminal. An answer becomes the result of a hook the mod already holds (<code>questionRace</code>, <code>planRace</code>, <code>permissionAsk</code>). The only Claude Code commands it runs are <code>/clear</code> and <code>/compact</code>, with <code>$.command.run</code>; Claude Code decides when the session can take them.","A peer message is wrapped in a frame and submitted with <code>$.prompt.submit</code>, so the model sees it was sent by a peer.","Both need the server's Admin switch and the owner's option."]},
  {id:"rec",l:"reporter",col:"r",row:6,name:"Activity, diff, recorder",role:"Opt-in readers",file:"recording.ts · fileDiff.ts",
   what:"Three readers that capture more than the wall needs: recent tool calls, a file diff on request, and a whole-session recording.",
   why:"Each is more sensitive than the last, so each is gated, redacted before leaving and cut to a fixed size.",
@@ -584,7 +584,7 @@ const N=[
   how:["The transaction upserts the session and agents, inserts events and context blowouts idempotently, and writes one sample per second.","The block between the PROTOCOL markers in <code>protocol.ts</code> is identical on both sides; a test compares it (ignoring whitespace), and the server file must stay free of Node imports because the UI imports it."]},
  {id:"fleet",l:"server",col:"a",row:4,name:"Fleet",role:"Live set, views, cost",file:"fleet.ts · derive.ts · pricing.ts",
   what:"Owns the set of live sessions and the clock. Turns rows into a <code>SessionView</code> (state, context fill, cost, KPIs).",
-  why:"One place decides what every browser sees, so two open tabs never disagree.",
+  why:"One place decides what every browser sees, so open tabs show the same state.",
   how:["<code>derive.ts</code> is pure.","Tokens are priced per model from a table that starts at Anthropic list prices and that an Admin can edit. Cost is an estimate, never a bill.","A report's changed view goes out at most once per session per 500 ms; the sweeper also sends a session's view at once when its status changes."]},
  {id:"sse",l:"server",col:"a",row:5,name:"State and stream",role:"First paint, then push",file:"fleet/sse.ts",
   what:"<code>GET /state</code> for the first paint and <code>GET /stream</code>, a server-sent-events feed of changes.",
@@ -610,7 +610,7 @@ const N=[
  {id:"peers",l:"server",col:"b",row:2,name:"Messaging service",role:"Orchestrator to orchestrator",file:"peers.ts · peerRights.ts",
   what:"Lets one person's orchestrators on different machines find and message each other through the server.",
   why:"Teams of agents across machines need a channel. Doing it through Podium means rights, rate limits and an audit trail come for free.",
-  how:["Same owner only, enforced in the store: a message to another person's orchestrator is a 404 before any right is read.","Messages move <code>ready</code> or <code>approval</code> to <code>handed</code> to <code>delivered</code>, <code>queued</code> or <code>dropped</code>; an owner can also mark one <code>declined</code>. Delivery happens only while the target reports idle.","Text is kept 30 days by default."]},
+  how:["Same owner only, enforced in the store: a message to another person's orchestrator is a 404 before any right is read.","Messages move <code>ready</code> or <code>approval</code> to <code>handed</code> to <code>delivered</code>, <code>queued</code> or <code>dropped</code>; an owner can also mark one <code>declined</code>. Message delivery waits for the target to report idle.","Text is kept 30 days by default."]},
  {id:"db",l:"store",col:"b",row:3,name:"podium.sqlite",role:"The main database",file:"fleet/db.ts",
   what:"SQLite in WAL mode. Sessions, agents, events, samples, people, groups, reporters, messages, daily rollups, settings and the Admin log.",
   why:"One file, no server to run, survives restarts, easy to back up.",
@@ -925,7 +925,7 @@ const MODES=[
   draw(g){box(g,20,24,190,64,"Laptops","mod, token auth");box(g,20,192,190,64,"Browsers","HTTPS to your name");
    box(g,300,100,150,80,"TLS proxy","your certificate");box(g,540,90,200,100,"Podium server","127.0.0.1:4317");
    lnk(g,210,56,300,125,"secure","HTTPS",255,76);lnk(g,210,224,300,155,"secure","HTTPS",255,216);lnk(g,450,140,540,140,"local","HTTP + XFF",495,128)},
-  facts:[["ok","Browsers and reporters get ordinary HTTPS with a real name."],["ok","Cookies are marked Secure once the proxy is trusted."],["wn","Trust only a proxy that overwrites X-Forwarded-For. Otherwise clients choose their own address."],["wn","Failed-request limits apply per address, so trust must be set or everyone shares one."]],
+  facts:[["ok","Browsers and reporters get ordinary HTTPS with a real name."],["ok","Cookies are marked Secure once the proxy is trusted and sends X-Forwarded-Proto: https."],["wn","Trust only a proxy that overwrites X-Forwarded-For. Otherwise clients choose their own address."],["wn","Failed-request limits apply per address, so trust must be set or everyone shares one."]],
   cmd:"podiumctl config set PODIUM_TRUST_PROXY=10.0.0.5\npodiumctl restart"}
 ];
 let modeIx=0;
@@ -1169,7 +1169,7 @@ renderStore();
 
 /* ---------- principles ---------- */
 const PR=[
- ["Watch, don't drive","Podium shows sessions and can answer the ones waiting on a person. It sends no keystrokes and edits no permission rules. Answers become the result of a hook the mod already holds. The only commands it can run are /clear and /compact, and a peer message is submitted as a prompt.","Answers are hook results; commands are limited to clear and compact (register.ts runCommand). Each needs the Admin's switch and the owner's option."],
+ ["Watch, don't drive","Podium shows sessions and can answer the ones waiting on a person. It sends no keystrokes and edits no permission rules. Answers become the result of a hook the mod already holds. The only Claude Code commands it can run are /clear and /compact, and a peer message is submitted as a prompt.","Answers are hook results; commands are limited to clear and compact (register.ts runCommand). Each needs the Admin's switch and the owner's option."],
  ["Sensitive data is leased, not kept","Under the default policy, activity is captured only while someone watches; an Admin who keeps Activity history captures every loop of a session whose reporter has the activity feed on, without a viewer. Open questions and answers live in memory and expire.","ActivityStore leases; RespondStore has no table; the Admin must opt in to any stored history."],
  ["A session must never feel Podium","Hooks update memory and return, except a session waiting on a person, session end (a final report, up to 1 s) the peer tools (up to 8 s) and the first session start after the mod loads, which runs a few local git commands. Reports go out from a timer.","Pure reducers in state.ts; Transport owns the reports; a 1 s deadline on session end."],
  ["Snapshots, not streams","Each report carries a full session snapshot and an agent snapshot (the 200 most recent agents). Unacknowledged events queue and are resent (up to 100 per report); text and activity past a budget go in later reports.","Idempotent ingest keyed by session and event ids."],
