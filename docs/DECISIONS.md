@@ -1452,3 +1452,23 @@ standards and atlas pages are served unchanged, so their frames still load fonts
 with today's theme, so an old version looks like the current site and not like it did. A tag whose docs do not build
 needs a fix in the build step, not a change to the tag. Versions start at the first release that ships with the site
 (v1.3.1 is the first); earlier ones are not back-filled.
+
+## 44. The docs live at podium.engelking.dev, a CNAME to GitHub Pages (#689)
+
+*Context.* The docs site (decision 43) needs an address people can remember. The maintainer owns `engelking.dev`, with its DNS
+on Cloudflare, and chose a subdomain of it over registering a new domain.
+
+*Decision.*
+
+- `podium.engelking.dev` is a `CNAME` to `eengelking.github.io`, and GitHub Pages serves the site there. The record is DNS only
+  (not proxied), so Pages can issue and renew the certificate itself. If it is ever proxied, Cloudflare's SSL mode must be Full
+  (strict) or renewal fails.
+- Pages builds from the `Docs site` workflow, not from a branch. The custom domain is set in the repository's Pages settings, and
+  `site/public/CNAME` keeps it in every build so a deploy does not clear it. HTTPS is enforced once the first deploy has run (#709).
+- The apex `engelking.dev` is the maintainer's own and this project does not touch it. Podium needs only the one subdomain.
+- The old `eengelking.github.io/podium` address redirects to the domain; GitHub does that once a custom domain is set.
+- The repository's homepage and the README name the site as the official homepage and documentation site.
+
+*Why.* A subdomain costs nothing extra and keeps the maintainer's other uses of the domain free. A DNS-only CNAME is what Pages
+documents, and it leaves certificate renewal with GitHub. Every `.dev` domain is on the browser HSTS preload list, so the site is
+HTTPS-only from the first request, which Pages supports.

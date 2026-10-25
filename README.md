@@ -13,6 +13,8 @@
 
 **A Claude Code session is waiting on you...**
 
+Official homepage and documentation: [podium.engelking.dev](https://podium.engelking.dev)
+
 Run a few sessions at once and it happens fast. One is stopped at a permission prompt. One has filled its
 context window. A subagent failed ten minutes ago and nothing told you. The only way to find out is to
 click through every terminal, and that takes more effort than the work itself.
@@ -80,7 +82,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 
 ## Documentation
 
-The docs are also published with a menu, search and a version picker at [podium.engelking.dev](https://podium.engelking.dev). These are the same files.
+[podium.engelking.dev](https://podium.engelking.dev) is the official homepage and documentation site for Podium, with a menu, search and a version picker. The files below are the same ones, and they read fine on GitHub too.
 
 | Read | To |
 |---|---|
