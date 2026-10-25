@@ -1412,7 +1412,12 @@ site is a separate project in `site/`, not part of the server or the UI, and `do
   put together into one site. Nothing is copied into the repo for an old version.
 - A small build step prepares the pages before Starlight reads them: it gives a page a `title` from its first heading
   until every page has frontmatter (#696), and rewrites links between pages to site routes.
-- The dropdown is a Starlight component override that reads a `versions.json` the build writes.
+- The dropdown is a Starlight component override. Each build is given the whole version list, so the menu needs no
+  request, and "same page in another version" sends a person to the page when that version has it and to that version's
+  front page when it does not.
+- The newest version is built from the working tree, not a tag, because the site is built when `main` moves and the tag
+  comes after. Older versions are noindex and out of the sitemap, so a search finds the current page and not five copies.
+- The menu lists what each version has: an older release may lack a page the newest has.
 - The community plugin `starlight-versions` is not used.
 
 *Why.* A spike, run before the choice was made, built the real docs two ways with Starlight 0.42.7 and Astro 7.4.2.
@@ -1431,6 +1436,14 @@ site is a separate project in `site/`, not part of the server or the UI, and `do
 *Alternatives.* Docusaurus versions natively, but it copies each version into the repo like the plugin does and brings a
 heavier toolchain. MkDocs Material with `mike` and Hugo were not tried. Neither shares the maintainer's website stack,
 and the spike showed Starlight can do what was needed.
+
+*Also decided.* The site's accent is the console's blue, `--sonnet`, for what is selected and what can be clicked, with the
+status colors `--good`, `--warn` and `--crit` for tip, caution and danger callouts. It borrows a model color for a non-model
+job. The maintainer approved that when the mockup was accepted on #688, and since the site is not part of the app the
+standards pages do not change. Search is Pagefind over the docs pages only;
+`docs/standards/` and the atlas page are served as they are and are not indexed. The interactive atlas page is served at
+`/atlas-map/`, because `/atlas/` is the page built from `ATLAS.md`. The site loads its two fonts from Google Fonts, as the
+console's mockups do.
 
 *Cost.* The version dropdown, the combined build and the link rewrite are ours to write and keep. A tag's `docs/` is built
 with today's theme, so an old version looks like the current site and not like it did. A tag whose docs do not build

@@ -1,0 +1,107 @@
+/* The docs site's look, from the accepted mockup (mockup/podium-docs-site.html, #688). Every color is a token from the app's
+   tokens.css, so the site and the console change together. This file maps those tokens onto Starlight's variables and adds the one
+   accent the site uses; it defines no color of its own. The accent is the console's blue (--sonnet), used for what is selected and
+   what can be clicked, and the maintainer approved it for the site. */
+@import "../../../frontend/src/fleet/tokens.css";
+
+:root,
+:root[data-theme="light"],
+:root[data-theme="dark"] {
+  --accent: var(--sonnet);
+  --accent-text: color-mix(in srgb, var(--sonnet) 62%, var(--ink));
+  --tint: color-mix(in srgb, var(--sonnet) 16%, var(--bg));
+  --tint2: color-mix(in srgb, var(--sonnet) 9%, var(--bg));
+
+  --sl-font: var(--font-ui);
+  --sl-font-mono: var(--font-mono);
+  --sl-text-body: 0.9375rem;
+  --sl-text-h1: 1.5rem;
+  --sl-text-h2: 1.125rem;
+  --sl-text-h3: 0.9375rem;
+  --sl-text-h4: 0.9375rem;
+  --sl-nav-height: 3.25rem;
+  --sl-content-width: 46rem;
+
+  --sl-color-white: var(--ink);
+  --sl-color-gray-1: var(--ink);
+  --sl-color-gray-2: var(--ink2);
+  --sl-color-gray-3: var(--ink2);
+  --sl-color-gray-4: var(--muted);
+  --sl-color-gray-5: var(--axis);
+  --sl-color-gray-6: var(--raised);
+  --sl-color-gray-7: var(--surface);
+  --sl-color-black: var(--bg);
+  --sl-color-bg: var(--bg);
+  --sl-color-bg-nav: var(--raised);
+  --sl-color-bg-sidebar: var(--surface);
+  --sl-color-bg-inline-code: var(--tint2);
+  --sl-color-text: var(--ink);
+  --sl-color-text-accent: var(--accent-text);
+  --sl-color-hairline: var(--axis);
+  --sl-color-hairline-light: var(--axis);
+  --sl-color-hairline-shade: var(--grid);
+  --sl-color-accent-low: var(--tint);
+  --sl-color-accent: var(--accent);
+  --sl-color-accent-high: var(--accent-text);
+
+  /* The callouts: a color, an icon and a word each. They use the app's status colors for the same meanings there. */
+  --sl-color-blue-low: color-mix(in srgb, var(--sonnet) 11%, var(--bg));
+  --sl-color-blue: var(--sonnet);
+  --sl-color-blue-high: var(--accent-text);
+  --sl-color-green-low: color-mix(in srgb, var(--good) 11%, var(--bg));
+  --sl-color-green: var(--good);
+  --sl-color-green-high: var(--good-text);
+  --sl-color-orange-low: color-mix(in srgb, var(--warn) 11%, var(--bg));
+  --sl-color-orange: var(--warn);
+  --sl-color-orange-high: var(--ink);
+  --sl-color-red-low: color-mix(in srgb, var(--crit) 11%, var(--bg));
+  --sl-color-red: var(--crit);
+  --sl-color-red-high: var(--crit-text);
+}
+
+/* Top bar */
+.header { gap: 16px; }
+
+/* Selected states. The console's own selection is a faint gray; on the site a selected link must be easy to find. */
+nav.sidebar a[aria-current="page"],
+.sidebar-content a[aria-current="page"] {
+  background: var(--tint);
+  color: var(--accent-text);
+  font-weight: 650;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.sidebar-content details > summary .large { color: var(--ink); font-weight: 650; }
+starlight-toc a[aria-current="true"],
+mobile-starlight-toc a[aria-current="true"] {
+  color: var(--accent-text);
+  font-weight: 650;
+  background: var(--tint);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The homepage has no sidebar and fills the width; its empty title panel is hidden. */
+:root:not([data-has-sidebar]) { --sl-content-width: 80rem; }
+:root:not([data-has-sidebar]) .content-panel { padding: 0; }
+:root:not([data-has-sidebar]) footer { padding-inline: 40px; padding-bottom: 1.5rem; }
+@media (max-width: 40rem) { :root:not([data-has-sidebar]) footer { padding-inline: 16px; } }
+:root:not([data-has-sidebar]) .content-panel:has(> .sl-container:empty) { display: none; }
+
+/* Content */
+.sl-markdown-content h2:not(:where(.not-content *)) { padding-bottom: 6px; border-bottom: 2px solid var(--tint); }
+.sl-markdown-content a:not(.sl-link-button):not(:where(.not-content *)) { color: var(--accent-text); }
+.sl-markdown-content pre:not(:where(.not-content *)) { background: var(--raised); border: 1px solid var(--axis); }
+.sl-markdown-content .expressive-code { --ec-brdRad: 6px; }
+.starlight-aside { border-inline-start-width: 4px; border-radius: 6px; }
+.starlight-aside__title { font-weight: 700; font-size: 0.75rem; }
+
+/* Pagination */
+.pagination-links a { border-color: var(--axis); }
+.pagination-links a:hover { background: var(--tint2); border-color: var(--accent); }
+.pagination-links .link-title { color: var(--accent-text); }
+
+/* Focus */
+:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

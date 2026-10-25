@@ -1,0 +1,42 @@
+---
+import { current, latest } from "./siteMeta";
+
+// A bar above an older version's pages: which version this is, and a link to the same page in the latest.
+const show = current && latest && !current.latest;
+---
+
+{
+  show && (
+    <div class="old" data-latest-base={latest.base} data-current-base={current.base}>
+      <span class="chip">Older version</span>
+      <span>
+        You are reading the docs for {current.label}. The latest is {latest.label}.
+      </span>
+      <span class="sp" />
+      <a class="btn" href={latest.base}>Go to the same page in {latest.label}</a>
+    </div>
+  )
+}
+
+<style>
+  .old { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 20px; background: var(--raised); border-bottom: 1px solid var(--axis); box-shadow: inset 0 -2px 0 var(--warn); font-size: 0.8125rem; color: var(--ink); }
+  .chip { display: inline-flex; align-items: center; padding: 1px 7px 1px 10px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); box-shadow: inset 3px 0 0 var(--warn); font-size: 0.72rem; font-weight: 500; }
+  .sp { flex: 1; }
+  .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font-weight: 500; text-decoration: none; }
+  .btn:hover { background: var(--tint); border-color: var(--accent); }
+</style>
+
+<script>
+  const bar = document.querySelector<HTMLElement>(".old");
+  const link = bar?.querySelector<HTMLAnchorElement>("a.btn");
+  if (bar && link) {
+    const currentBase = bar.dataset.currentBase ?? "/";
+    const latestBase = bar.dataset.latestBase ?? "/";
+    const rest = location.pathname.startsWith(currentBase) ? location.pathname.slice(currentBase.length) : "";
+    fetch(latestBase + rest, { method: "HEAD" })
+      .then((res) => {
+        if (res.ok) link.href = latestBase + rest;
+      })
+      .catch(() => {});
+  }
+</script>

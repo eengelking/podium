@@ -1,0 +1,25 @@
+---
+import Default from "@astrojs/starlight/components/Footer.astro";
+import { current, repoFile, repoUrl } from "./siteMeta";
+
+const links = [
+  { label: "MIT license", href: repoFile("LICENSE") },
+  { label: "Security policy", href: repoFile(".github/SECURITY.md") },
+  { label: "Contributing", href: repoFile("CONTRIBUTING.md") },
+  { label: "Report a docs issue", href: `${repoUrl}/issues/new?labels=documentation` },
+  { label: "GitHub", href: repoUrl },
+];
+---
+
+<Default {...Astro.props}><slot /></Default>
+<div class="foot">
+  <span>Podium {current?.label} &middot; &copy; 2026 Ed Engelking</span>
+  <span class="sp"></span>
+  {links.map((l) => <a href={l.href}>{l.label}</a>)}
+</div>
+
+<style>
+  .foot { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 2rem; padding: 14px 0 0; border-top: 1px solid var(--axis); color: var(--ink2); font-size: 0.75rem; }
+  .foot a { color: var(--accent-text); }
+  .sp { flex: 1; }
+</style>

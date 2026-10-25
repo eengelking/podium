@@ -1,0 +1,157 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import { base, repoUrl } from "../components/siteMeta";
+import { SITE_ORIGIN } from "../../docs-nav.mjs";
+
+const description =
+  "Podium shows each Claude Code session's model, cost, context and branch, the agents it launched, and why anything failed, on one screen. It watches and never types into a terminal.";
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Podium",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux",
+  description,
+  url: SITE_ORIGIN,
+  license: "https://opensource.org/licenses/MIT",
+  codeRepository: repoUrl,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+};
+---
+
+<StarlightPage
+  frontmatter={{
+    title: "See every Claude Code session on one screen",
+    description,
+    template: "splash",
+    banner: process.env.DOCS_REF ? { content: "Older version" } : undefined,
+    head: [{ tag: "script", attrs: { type: "application/ld+json" }, content: JSON.stringify(structuredData) }],
+  }}
+>
+  <div class="home not-content">
+    <section class="hero">
+      <div>
+        <h1>See every Claude Code session on one screen.</h1>
+        <p class="lede">
+          Podium shows each session's model, cost, context and branch, the agents it launched, and why anything failed. Run several sessions
+          without clicking through every terminal.
+        </p>
+        <div class="acts">
+          <a class="btn pri" href={`${base}user-guide/`}>Get started</a>
+          <a class="btn" href={`${base}user-guide/`}>Read the user guide</a>
+        </div>
+        <p class="stance">
+          Podium watches. The one thing it sends is an answer to a session that is waiting on you, and only when the Admin and the session's
+          owner have both turned that on. It never types into a terminal.
+        </p>
+      </div>
+      <figure class="shot">
+        <img
+          src={`${base}images/podium-chaos.png`}
+          width="1922"
+          height="936"
+          alt="The Podium fleet console showing nine simulated Claude Code sessions with their models, cost, context bars and the activity feed"
+        />
+        <figcaption>Nine simulated sessions: running, stale and failing, with the activity feed on the right.</figcaption>
+      </figure>
+    </section>
+
+    <section class="sect alt">
+      <h2>What you see for every session</h2>
+      <p class="sub">Each session appears within about two seconds of its first prompt and leaves when it ends, with no refresh.</p>
+      <dl class="facts">
+        <div><dt>Cost</dt><dd>An estimate from token counts and a price table you can change in Admin. It is never a bill.</dd></div>
+        <div><dt>Context</dt><dd>How full each context window is, and how often one blew out.</dd></div>
+        <div><dt>Failures</dt><dd>Why an agent or a tool call failed, and which session it belongs to.</dd></div>
+        <div><dt>Branch</dt><dd>The git branch or worktree each session works in, and whether it has uncommitted changes.</dd></div>
+      </dl>
+    </section>
+
+    <section class="sect">
+      <h2>Start in three steps</h2>
+      <p class="sub">Podium is a server and a Claude Code mod. You run both yourself.</p>
+      <ol class="steps">
+        <li>
+          <div>
+            <h3>Start the server</h3>
+            <p>It builds on first use and runs on your machine.</p>
+            <pre class="code">git clone https://github.com/eengelking/podium.git &amp;&amp; cd podium &amp;&amp; npm link
+podiumctl start</pre>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Install the reporter mod</h3>
+            <p>In Claude Code, from the eengelking marketplace.</p>
+            <pre class="code">/plugin marketplace add eengelking/skills
+/plugin install podium-reporter@eengelking-marketplace</pre>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3>Open the console</h3>
+            <p>Start a session. It shows up at <code>http://127.0.0.1:4317</code>.</p>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="sect alt">
+      <h2>Where to go next</h2>
+      <div class="next">
+        <a href={`${base}user-guide/`}><b>User guide</b><span>Set it up and read the dashboard.</span></a>
+        <a href={`${base}server/`}><b>Running the server</b><span>podiumctl, tokens, TLS and settings.</span></a>
+        <a href={`${base}decisions/`}><b>Design decisions</b><span>Why Podium works the way it does.</span></a>
+      </div>
+    </section>
+  </div>
+</StarlightPage>
+
+<style>
+  .home { font-size: 0.9375rem; line-height: 1.6; }
+  .home a { color: inherit; }
+  .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; padding: 56px 40px 48px; align-items: center; background: linear-gradient(135deg, var(--tint) 0%, var(--bg) 70%); }
+  h1 { margin: 0 0 14px; font-size: 1.75rem; line-height: 1.2; font-weight: 700; text-wrap: balance; }
+  .lede { margin: 0 0 22px; color: var(--ink2); max-width: 46ch; }
+  .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); font-size: 0.8125rem; font-weight: 500; text-decoration: none; }
+  .btn:hover { background: var(--sel); }
+  /* The primary button is the ink fill the standards describe: .btn.pri */
+  .btn.pri { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.pri:hover { background: color-mix(in srgb, var(--ink) 85%, var(--bg)); }
+  .stance { margin: 0; padding-left: 12px; border-left: 3px solid var(--accent); color: var(--ink2); font-size: 0.8125rem; max-width: 46ch; }
+  .shot { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot figcaption { padding: 6px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.72rem; }
+  .sect { padding: 40px 40px 44px; border-top: 1px solid var(--axis); background: var(--bg); }
+  .sect.alt { background: var(--surface); }
+  h2 { margin: 0 0 4px; font-size: 1.125rem; font-weight: 650; display: flex; align-items: center; gap: 10px; border: 0; padding: 0; }
+  h2::before { content: ""; width: 4px; height: 18px; border-radius: 2px; background: var(--accent); flex: none; }
+  .sub { margin: 0 0 20px; color: var(--ink2); max-width: 62ch; }
+  .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; margin: 0; }
+  .facts div { padding: 14px 16px 14px 14px; border-top: 1px solid var(--axis); border-left: 3px solid var(--accent); background: var(--bg); border-radius: 0 6px 6px 0; margin-top: 10px; }
+  dt { font-weight: 650; margin: 0 0 2px; color: var(--accent-text); }
+  dd { margin: 0; color: var(--ink2); font-size: 0.875rem; max-width: 54ch; }
+  .steps { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; counter-reset: s; max-width: 760px; }
+  .steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; counter-increment: s; }
+  .steps li::before { content: counter(s); width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: grid; place-items: center; font-size: 0.75rem; font-weight: 700; color: var(--bg); }
+  h3 { margin: 0 0 2px; font-size: 0.9rem; font-weight: 600; }
+  .steps p { margin: 0 0 8px; color: var(--ink2); font-size: 0.875rem; }
+  pre.code { margin: 0; padding: 10px 14px; border: 1px solid var(--axis); border-radius: 6px; background: var(--raised); font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.5; overflow-x: auto; color: var(--ink); }
+  code { font-family: var(--font-mono); }
+  .next { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .next a { display: block; padding: 14px 16px; border: 1px solid var(--axis); border-top: 3px solid var(--accent); border-radius: 6px; background: var(--bg); text-decoration: none; }
+  .next a:hover { background: var(--tint2); }
+  .next a:hover b { text-decoration: underline; }
+  .next b { display: block; font-size: 0.9rem; font-weight: 600; color: var(--accent-text); }
+  .next span { color: var(--ink2); font-size: 0.84rem; }
+  @media (max-width: 56rem) {
+    .hero { grid-template-columns: minmax(0, 1fr); padding: 36px 24px 28px; gap: 28px; }
+    .sect { padding: 28px 24px; }
+  }
+  @media (max-width: 40rem) {
+    .hero { padding: 28px 16px 24px; }
+    .sect { padding: 24px 16px; }
+    .facts, .next { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>

@@ -154,6 +154,20 @@ These apply when you write a new doc or change an existing one. People and agent
 3. If a doc disagrees with `docs/SPEC.md`, do not pick a reading. Say so in the PR and ask.
 4. Reread for the voice rules below.
 
+**Preview the docs site**
+
+The docs are also published as a site (`site/`, at podium.engelking.dev). A docs change shows up there when `main` moves, so check
+how it builds before you open the PR. `site/` is its own project and is not an npm workspace:
+
+```sh
+cd site && npm ci --ignore-scripts          # once
+cd .. && node site/scripts/build.mjs --latest-only
+python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
+```
+
+The build fails on a broken link between pages. A new doc page needs a line in `site/docs-nav.mjs`, or it is not published. The
+`podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
+
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under

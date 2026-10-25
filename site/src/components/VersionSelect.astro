@@ -1,0 +1,80 @@
+---
+import { versions, current } from "./siteMeta";
+---
+
+{
+  versions.length > 0 && current && (
+    <div class="vwrap" data-current-base={current.base}>
+      <button type="button" class="vbtn" aria-haspopup="true" aria-expanded="false" aria-label={`Version, ${current.label}`}>
+        {current.label}
+        {current.latest && <span class="lbl">(latest)</span>}
+        <span class="car" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="vmenu" role="menu" hidden>
+        <div class="hd">Version</div>
+        {versions.map((v) => (
+          <a href={v.base} role="menuitem" data-base={v.base} aria-current={v.line === current.line ? "true" : undefined}>
+            {v.label}
+            {v.latest && <small>latest</small>}
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+<style>
+  .vwrap { position: relative; }
+  .vbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font: inherit; font-size: 0.75rem; font-weight: 500; cursor: pointer; }
+  .vbtn:hover, .vbtn[aria-expanded="true"] { background: var(--tint); border-color: var(--accent); }
+  .vbtn[aria-expanded="true"] { color: var(--accent-text); }
+  .car { color: var(--muted); font-size: 0.65rem; }
+  .vmenu { position: absolute; top: calc(100% + 6px); right: 0; width: 220px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.5); z-index: 30; display: grid; gap: 2px; }
+  .vmenu[hidden] { display: none; }
+  .hd { padding: 4px 8px 2px; font-size: 0.72rem; color: var(--muted); }
+  .vmenu a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; text-decoration: none; font-size: 0.8125rem; color: var(--ink); }
+  .vmenu a:hover { background: var(--hover); }
+  .vmenu a[aria-current="true"] { background: var(--tint); color: var(--accent-text); font-weight: 600; box-shadow: inset 3px 0 0 var(--accent); }
+  .vmenu small { color: var(--muted); font-size: 0.72rem; }
+  .vmenu a[aria-current="true"] small { color: var(--accent-text); }
+  @media (max-width: 40rem) { .lbl { display: none; } .vmenu { right: auto; left: -80px; } }
+</style>
+
+<script>
+  // Opens and closes the menu, and takes a person to the same page in another version when that version has it, or to that
+  // version's front page when it does not. Every build of the site is static, so the check is a HEAD request.
+  const wrap = document.querySelector<HTMLElement>(".vwrap");
+  if (wrap) {
+    const btn = wrap.querySelector<HTMLButtonElement>(".vbtn")!;
+    const menu = wrap.querySelector<HTMLElement>(".vmenu")!;
+    const currentBase = wrap.dataset.currentBase ?? "/";
+    const set = (open: boolean) => {
+      menu.hidden = !open;
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    btn.addEventListener("click", () => set(menu.hidden));
+    document.addEventListener("click", (e) => {
+      if (!wrap.contains(e.target as Node)) set(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu.hidden) {
+        set(false);
+        btn.focus();
+      }
+    });
+    menu.querySelectorAll<HTMLAnchorElement>("a").forEach((a) => {
+      a.addEventListener("click", async (e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        const rest = location.pathname.startsWith(currentBase) ? location.pathname.slice(currentBase.length) : "";
+        const target = a.dataset.base + rest;
+        try {
+          const res = await fetch(target, { method: "HEAD" });
+          location.href = res.ok ? target + location.hash : a.dataset.base!;
+        } catch {
+          location.href = a.dataset.base!;
+        }
+      });
+    });
+  }
+</script>

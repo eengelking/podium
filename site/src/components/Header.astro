@@ -1,0 +1,52 @@
+---
+import Search from "virtual:starlight/components/Search";
+import VersionSelect from "./VersionSelect.astro";
+import { base, releaseUrl, repoUrl } from "./siteMeta";
+
+const path = Astro.url.pathname;
+const onHome = path === base || path === `${base}index.html`;
+const nav = [
+  { label: "Docs", href: `${base}user-guide/`, current: !onHome },
+  { label: "User guide", href: `${base}user-guide/` },
+  { label: "Reporter", href: `${base}reporter/` },
+];
+---
+
+<div class="top">
+  <a class="brand" href={base}>
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false">
+      <circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle>
+      <path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"></path>
+    </svg>
+    Podium
+  </a>
+  <nav class="nav" aria-label="Main">
+    {nav.map((n) => <a href={n.href} aria-current={n.current ? "page" : undefined}>{n.label}</a>)}
+    <a href={releaseUrl} target="_blank" rel="noopener">
+      Changelog <span aria-hidden="true">&#8599;</span><span class="sr-only">(opens the GitHub release page)</span>
+    </a>
+  </nav>
+  <span class="sp"></span>
+  <div class="srch"><Search /></div>
+  <VersionSelect />
+  <a class="gh" href={repoUrl} aria-label="Podium on GitHub">GitHub</a>
+</div>
+
+<style>
+  .top { display: flex; align-items: center; gap: 16px; height: 100%; }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
+  .brand svg { width: 20px; height: 20px; }
+  .nav { display: flex; gap: 4px; margin-left: 8px; align-self: stretch; align-items: stretch; }
+  .nav a { display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px 6px 0 0; text-decoration: none; color: var(--ink2); font-size: 0.8125rem; font-weight: 500; }
+  .nav a:hover { background: var(--hover); color: var(--ink); }
+  .nav a[aria-current="page"] { color: var(--accent-text); background: var(--tint); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+  .sp { flex: 1; }
+  .gh { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font-size: 0.75rem; font-weight: 500; text-decoration: none; }
+  .gh:hover { background: var(--tint); border-color: var(--accent); }
+  .srch { display: flex; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 50rem) {
+    .nav, .gh { display: none; }
+    .top { padding-inline-start: 3rem; }
+  }
+</style>

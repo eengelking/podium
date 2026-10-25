@@ -1,0 +1,19 @@
+{
+  "name": "podium-site",
+  "private": true,
+  "type": "module",
+  "description": "The Podium docs site (Astro Starlight). It reads ../docs and is built by scripts/build.mjs, one build per released version.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:latest": "node scripts/build.mjs --latest-only",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.42.7",
+    "astro": "7.4.2",
+    "starlight-links-validator": "0.27.0"
+  }
+}

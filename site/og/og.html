@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium social card</title>
+<meta name="viewport" content="width=1200">
+<link rel="stylesheet" href="../../frontend/src/fleet/tokens.css">
+<style>
+/* The 1200 x 630 image that link previews show for the docs site (site/public/og.png). Colors and fonts come from tokens.css.
+   To regenerate it: serve the repo root, open this file, and save a 1200 x 630 screenshot (node scripts/page-shot.mjs --width 1200
+   --height 630 --url http://127.0.0.1:<port>/site/og/og.html --out site/public/og.png). */
+html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: var(--bg); color: var(--ink); font: 16px/1.4 var(--font-ui); }
+.card { position: relative; width: 1200px; height: 630px; padding: 64px; box-sizing: border-box; background: linear-gradient(135deg, color-mix(in srgb, var(--sonnet) 22%, var(--bg)) 0%, var(--bg) 62%); }
+.brand { display: flex; align-items: center; gap: 12px; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+.brand svg { width: 36px; height: 36px; }
+h1 { margin: 56px 0 0; width: 470px; font-size: 54px; line-height: 1.12; font-weight: 700; }
+p { margin: 24px 0 0; width: 440px; font-size: 22px; color: var(--ink2); }
+.shot { position: absolute; left: 600px; top: 96px; width: 760px; border: 1px solid var(--axis); border-radius: 10px; overflow: hidden; box-shadow: 0 30px 70px rgba(0, 0, 0, 0.45); }
+.shot img { display: block; width: 100%; }
+.url { position: absolute; left: 64px; bottom: 56px; font-family: var(--font-mono); font-size: 20px; color: var(--ink2); }
+</style>
+<div class="card">
+  <div class="brand"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>Podium</div>
+  <h1>Every Claude Code session on one screen.</h1>
+  <p>Model, cost, context and branch for each session. It watches and never types into a terminal.</p>
+  <div class="shot"><img src="../../docs/images/podium-chaos.png" alt=""></div>
+  <div class="url">podium.engelking.dev</div>
+</div>

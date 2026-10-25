@@ -115,6 +115,22 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 Two project skills and an agent keep it honest: `podium-standards-check`, `podium-standards-update` and
 `podium-ui-auditor` (`.claude/`).
 
+### The docs site (#688)
+
+`site/` publishes `docs/` at podium.engelking.dev. It is a separate Astro Starlight project with its own `package.json` and
+lockfile, outside the npm workspaces, so the server and UI builds never install it. DECISIONS 43 has the reasons.
+
+- `site/scripts/build.mjs` builds one Starlight site per version and puts them in `site/out/`. The newest release line (from the
+  root `package.json`) is built from the working tree at `/`; each older line from `FIRST_VERSION_LINE` on is built from its newest
+  `vX.Y.Z` tag at `/<line>/`. Before each build `prepareDocs` in `site/scripts/lib.mjs` writes the pages (title, description and
+  last-updated from the doc and git, links rewritten to site addresses or to GitHub at that tag) into the ignored
+  `site/src/content/docs/`, and copies `docs/standards/`, `docs/images/` and the atlas page unchanged.
+- `site/docs-nav.mjs` is the menu: which docs are published, in which group, at which address.
+- `site/src/styles/theme.css` maps the console's tokens onto Starlight's variables. `site/src/components/` overrides the header,
+  footer, banner (older versions) and page title, and holds the version menu. `site/src/pages/index.astro` is the homepage.
+- `.github/workflows/docs-site.yml` builds every version on a PR into `main` and deploys to GitHub Pages on a push to `main`.
+  `scripts/site-lib.test.ts` tests the preparation and the version choice. The `podium-docs-site` skill is the procedure.
+
 ## Components
 
 Most subsections name the files that own them and the issue that introduced them. Mockups are under `mockup/`.
@@ -1331,6 +1347,8 @@ Validating hooks: mod/podium-reporter/hooks/hooks.json
 ## Dependencies added
 
 `express-rate-limit` at run time, for the failure limiter (#667). `@types/node` in `server/` went from 20 to 24 so `node:sqlite` is declared.
+
+`astro`, `@astrojs/starlight` and `starlight-links-validator` in `site/`, for the docs site (#688). They are build tools for the site only and are not part of the server, the UI or the mod.
 
 ## Phase log
 

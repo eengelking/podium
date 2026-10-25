@@ -1,0 +1,8 @@
+---
+import Default from "@astrojs/starlight/components/PageTitle.astro";
+
+// The homepage prints its own heading, so a splash page leaves the title to it.
+const splash = Astro.locals.starlightRoute.entry.data.template === "splash";
+---
+
+{splash ? null : <Default {...Astro.props}><slot /></Default>}

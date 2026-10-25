@@ -80,6 +80,8 @@ To serve the built UI and the API without a container, `npm run build` and then 
 
 ## Documentation
 
+The docs are also published with a menu, search and a version picker at [podium.engelking.dev](https://podium.engelking.dev). These are the same files.
+
 | Read | To |
 |---|---|
 | [User guide](docs/USER_GUIDE.md) | Set Podium up, read the dashboard and use Admin |
