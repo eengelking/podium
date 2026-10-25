@@ -48,8 +48,8 @@ jobs:
           base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
           rm -rf "$dir"
           mkdir -p "$dir"
-          curl -fsSL --retry 3 -o "${dir}/${archive}" "${base}/${archive}"
-          curl -fsSL --retry 3 -o "${dir}/checksums.txt" "${base}/gh_${GH_VERSION}_checksums.txt"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/${archive}" "${base}/${archive}"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/checksums.txt" "${base}/gh_${GH_VERSION}_checksums.txt"
           (cd "$dir" && awk -v f="$archive" '$2 == f' checksums.txt | sha256sum -c -)
           tar -xzf "${dir}/${archive}" -C "$dir"
           echo "${dir}/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
@@ -126,8 +126,8 @@ jobs:
           base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
           rm -rf "$dir"
           mkdir -p "$dir"
-          curl -fsSL --retry 3 -o "${dir}/${archive}" "${base}/${archive}"
-          curl -fsSL --retry 3 -o "${dir}/checksums.txt" "${base}/gh_${GH_VERSION}_checksums.txt"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/${archive}" "${base}/${archive}"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/checksums.txt" "${base}/gh_${GH_VERSION}_checksums.txt"
           (cd "$dir" && awk -v f="$archive" '$2 == f' checksums.txt | sha256sum -c -)
           tar -xzf "${dir}/${archive}" -C "$dir"
           echo "${dir}/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
