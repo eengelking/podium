@@ -26,6 +26,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **`vite` 8.3.5 and `dotenv` 18.0.8.** Patch updates to the UI build tool (with its `postcss` and `rolldown`) and to the `.env` reader, taken from Dependabot's #690 on top of current `development`. No behavior changes.
 
+- **CodeQL action 4.39.1.** `init` and `analyze` in `.github/workflows/codeql.yml` move together from 4.39.0 to 4.39.1, in one change, because the two must run the same version. Taken from Dependabot's #692 and #693, which could not pass separately. CI only; no behavior changes.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
