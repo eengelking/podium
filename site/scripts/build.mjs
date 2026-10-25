@@ -89,6 +89,7 @@ function main(argv) {
     return 0;
   }
   const outArg = argv.indexOf("--out");
+  if (outArg !== -1 && !argv[outArg + 1]) throw new Error("--out needs a folder.");
   const outRoot = path.resolve(outArg === -1 ? path.join(siteDir, "out") : argv[outArg + 1]);
   const headVersion = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8")).version;
   const latestOnly = argv.includes("--latest-only");
