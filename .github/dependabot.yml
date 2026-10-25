@@ -9,6 +9,17 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+  # The docs site (site/, #688) has its own package.json and lockfile and is not an npm workspace, so the root entry does not see it.
+  # Astro and Starlight move together: a major version of either changes how the site builds, so it gets its own PR.
+  - package-ecosystem: npm
+    directory: "/site"
+    target-branch: development
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: "/"
     target-branch: development
