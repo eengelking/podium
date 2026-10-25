@@ -67,6 +67,7 @@ Other docs cite entries by number, so numbers never change.
 | [40](#40-a-session-can-be-recorded-whole-with-three-yes-answers-353) | A session can be recorded whole, with three yes answers (#353) |
 | [41](#41-a-bash-row-opens-to-the-whole-command-and-its-output-431) | A Bash row opens to the whole command and its output (#431) |
 | [42](#42-podium-makes-its-own-ca-and-the-reporter-authenticates-with-a-certificate-577) | Podium makes its own CA, and the reporter authenticates with a certificate (#577) |
+| [43](#43-the-docs-site-is-astro-starlight-and-each-version-is-built-from-its-git-tag-688) | The docs site is Astro Starlight, and each version is built from its git tag (#688) |
 
 ## 1. Podium only observes
 
@@ -1395,3 +1396,43 @@ new CA during a rotation included, now only travels over a connection both sides
 (it can lapse after a little over a month away, and always does after 90), needs an Admin to reissue its config. Revocation is checked on every request and not in
 the handshake, since the handshake cannot know it. The planned-rotation overlap stays at 120 days, which now leaves a
 margin over a default 90-day certificate and does not cover a certificate set to the 365-day maximum.
+
+## 43. The docs site is Astro Starlight, and each version is built from its git tag (#688)
+
+*Context.* The docs are Markdown files in `docs/`. The maintainer wants them on GitHub Pages at
+`podium.engelking.dev` (#689) with a menu, search, SEO and a version dropdown that opens on the latest release. The
+site is a separate project in `site/`, not part of the server or the UI, and `docs/` stays the only source.
+
+*Decision.*
+
+- The generator is Astro Starlight. Search is Pagefind, built into Starlight, client-side, with no outside service.
+- A version is a release line (`1.3`), and the site shows the newest patch tag of each line. The latest line is served
+  at `/`, and older ones at `/<line>/`.
+- Each version is built from that tag's `docs/` (`git archive <tag> docs`) in its own Starlight build, and the builds are
+  put together into one site. Nothing is copied into the repo for an old version.
+- A small build step prepares the pages before Starlight reads them: it gives a page a `title` from its first heading
+  until every page has frontmatter (#696), and rewrites links between pages to site routes.
+- The dropdown is a Starlight component override that reads a `versions.json` the build writes.
+- The community plugin `starlight-versions` is not used.
+
+*Why.* A spike, run before the choice was made, built the real docs two ways with Starlight 0.42.7 and Astro 7.4.2.
+
+- `starlight-versions` 0.10.1 snapshots the current pages into the repo and parses every page as MDX, including `.md`
+  files. It stopped at the first unescaped `<feedback>` in `docs/ARCHITECTURE.md` and then at a `<time>` elsewhere. The
+  docs are plain Markdown that quotes tags in prose, and every new page would have to be written to MDX's rules. It also
+  keeps a second copy of each old version in the repo.
+- Building from a tag needed no plugin. v1.2.2 and v1.3.0 each built in about two seconds (11 and 13 pages), with Pagefind
+  indexes of their own, so an old version searches only its own pages. Put together, the latest sits at `/` and the older
+  one at `/1.2/`, with its links and assets under that path. The latest has to be built first, since a build empties its
+  output folder.
+- The link validator (`starlight-links-validator` 0.27.0) ran on the 1.3.0 build and reported 5 invalid links in 2 files,
+  which the build step or the docs have to fix. Links written as `FILE.md` do not become site routes by themselves.
+
+*Alternatives.* Docusaurus versions natively, but it copies each version into the repo like the plugin does and brings a
+heavier toolchain. MkDocs Material with `mike` and Hugo were not tried. Neither shares the maintainer's website stack,
+and the spike showed Starlight can do what was needed.
+
+*Cost.* The version dropdown, the combined build and the link rewrite are ours to write and keep. A tag's `docs/` is built
+with today's theme, so an old version looks like the current site and not like it did. A tag whose docs do not build
+needs a fix in the build step, not a change to the tag. Versions start at the first release that ships with the site
+(v1.3.1 is the first); earlier ones are not back-filled.
