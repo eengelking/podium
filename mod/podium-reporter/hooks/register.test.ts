@@ -819,19 +819,19 @@ describe('podium-reporter end to end', () => {
     const w = world(on)
     mock.env(on, { HOME: '/Users/dev' })
     w.hosts.hostname = 'Mac\n'
-    w.hosts.local = 'Eds-MacBook-Pro-14\n'
+    w.hosts.local = 'Dana-MacBook-Pro\n'
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)
-    expect(w.posts[0]!.machine!.name).toBe('Eds-MacBook-Pro-14')
+    expect(w.posts[0]!.machine!.name).toBe('Dana-MacBook-Pro')
   })
 
   test('the name is kept in a shared file, so a load started after the host name changed reports the first name (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
-    const w = world(on, {}, { [NAME_FILE]: 'Eds-MacBook-Pro-14\n' })
+    const w = world(on, {}, { [NAME_FILE]: 'Dana-MacBook-Pro\n' })
     mock.env(on, { HOME: '/Users/dev' })
     w.hosts.hostname = 'Mac\n'
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)
-    expect(w.posts[0]!.machine!.name).toBe('Eds-MacBook-Pro-14')
+    expect(w.posts[0]!.machine!.name).toBe('Dana-MacBook-Pro')
     expect(w.ran.some((argv) => argv[0] === 'hostname')).toBe(false)
   })
 

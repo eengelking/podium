@@ -123,14 +123,14 @@ describe('the pinned machine name (#715)', () => {
   })
 
   test('parseMachineNameFile takes the first line as a short host name, null when empty', () => {
-    expect(parseMachineNameFile('Eds-MacBook-Pro-14\n')).toBe('Eds-MacBook-Pro-14')
+    expect(parseMachineNameFile('Dana-MacBook-Pro\n')).toBe('Dana-MacBook-Pro')
     expect(parseMachineNameFile('devbox.local\nsecond')).toBe('devbox')
     expect(parseMachineNameFile('  \n')).toBeNull()
     expect(parseMachineNameFile(null)).toBeNull()
   })
 
   test('localHostNameOf is the same cleaning as hostOf, for scutil output', () => {
-    expect(localHostNameOf('Eds-MacBook-Pro-14\n')).toBe('Eds-MacBook-Pro-14')
+    expect(localHostNameOf('Dana-MacBook-Pro\n')).toBe('Dana-MacBook-Pro')
     expect(localHostNameOf('')).toBeNull()
   })
 })
