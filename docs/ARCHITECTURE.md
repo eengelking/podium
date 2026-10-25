@@ -9,6 +9,8 @@ Related documents:
 - [SPEC.md](SPEC.md) owns intended behavior. Section numbers cited here as "SPEC x.y" point into it.
 - [DECISIONS.md](DECISIONS.md) owns why a choice was made. "DECISIONS n" points into it.
 - [GOTCHAS.md](GOTCHAS.md) is the short, practical version of the known issues below.
+- [ATLAS.md](atlas/ATLAS.md) is a table of every part of Podium and every reporter hook, and where each runs. Read it for
+  the map before the detail below; [the interactive version](atlas/podium-atlas.html) opens in a browser.
 
 Podium is a live fleet console for Claude Code sessions. This repo holds the reporter mod
 (`mod/podium-reporter/`), an Express server (`server/src/fleet/`) and a Vite frontend (`frontend/src/fleet/`),

@@ -89,6 +89,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Session recording and replay](docs/REPLAY.md) | Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it |
 | [Gotchas](docs/GOTCHAS.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/GOTCHAS.md#reporters-and-machines) |
 | [UI standards](docs/standards/index.html) | How the UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility. Open the page in a browser |
+| [Atlas](docs/atlas/ATLAS.md) | A short table of every part of Podium and every reporter hook, and where each runs. Open [the interactive version](docs/atlas/podium-atlas.html) in a browser |
 | [Demo](docs/DEMO.md) | A script and a paste-in prompt for showing Podium to other people |
 | [Spec](docs/SPEC.md) | The build spec: intended behavior and requirements |
 | [Architecture](docs/ARCHITECTURE.md) | How it was built, where it departs from the spec and why, what was verified, known issues |

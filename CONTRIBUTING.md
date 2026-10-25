@@ -112,6 +112,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/GOTCHAS.md` | Sharp edges that are easy to hit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
+| `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
 | `docs/DEMO.md` | A script for showing Podium to other people |
 | `CHANGELOG.md` | One entry per release |
 

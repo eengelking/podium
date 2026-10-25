@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **An architecture atlas: an interactive page and a table of every part.** `docs/atlas/podium-atlas.html` is a single page, opened in a browser, that follows a report from a hook inside a session to a card on the wall: a clickable system map of the thirty parts, step-by-step flows, the deployment modes and the request checks, what the reporter sends at each opt-in, the session lifecycle, and where each kind of data lives. `docs/atlas/ATLAS.md` is its text companion: one table of the thirty parts and one of the reporter's hooks and timers, each with where it runs and what it does. Documentation only; no behavior changes.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added

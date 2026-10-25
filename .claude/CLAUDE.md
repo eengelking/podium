@@ -195,6 +195,7 @@ Everything below changes in the release-prep PR, in the same commit, never as a 
 | `package-lock.json` | Run `npm install --package-lock-only` so its entries follow the manifests |
 | `mod/podium-reporter/.claude-plugin/plugin.json` | `version`, the same release number |
 | `mod/podium-reporter/hooks/register.ts` | `VERSION`, equal to `plugin.json` |
+| `docs/atlas/podium-atlas.html` | The version in the rail ("Reads from the repo at vX.Y.Z") and in the footer ("at version X.Y.Z"); the line counts under "How much is tested", the chart and its table, and the "Counted from the repository on" date, when the release changed much code |
 | `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in `REPORTER_SUPPORT` to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date mod it is newer than the server supports (SPEC 6.8) |
 
 Then grep the repo for the old version string and look at every hit before assuming the table is complete. Known hits that are sample data and do not change: `docs/fixtures/report.sample.json`, the fixtures in `server/src/fleet/*.test.ts`, `docs/GOTCHAS.md`, `mod/podium-reporter/hooks/scripted.ts`, the simulator's `0.1.0-sim`, and the manifest example in `docs/SPEC.md`.
@@ -204,6 +205,7 @@ Then grep the repo for the old version string and look at every hit before assum
 - every file in the table carries the release version, and the versions agree with each other;
 - `CHANGELOG.md` has a `[X.Y.Z]` section for exactly this version, dated, holding the changes that accumulated under `[Unreleased]`, with a fresh empty `[Unreleased]` above it and the two links at the bottom right;
 - the grep for the old version string has been looked at, listing each hit that is not a known sample-data one;
+- the atlas still matches the code: `docs/atlas/podium-atlas.html` carries the release version, every source file it names exists, every handler registered with `on(` in `mod/podium-reporter/hooks/register.ts` has a row in `docs/atlas/ATLAS.md` and every hook row there is still registered, and a number the atlas states (a default timing, a limit, a port, a count of pages or migrations) still equals the code, checked for each part an `[Unreleased]` entry touches;
 - `npm test`, `npm run build` and `npm run standards:parity` pass, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
 
 It reports a short pass/fail list, with the file and line of each mismatch. The main session fixes every failure and runs the agent once more; if the second run still fails, stop and ask. A pass is a claim, not the check: the main session runs `npm test` and `npm run build` itself too, as it does before any PR.
