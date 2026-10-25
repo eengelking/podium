@@ -141,8 +141,14 @@ pre.code .c { color: var(--muted); }
 .prose p, .prose li { color: var(--ink); }
 .prose ul { padding-left: 20px; }
 .prose code { font-size: 12.5px; padding: 1px 5px; border-radius: 4px; background: var(--tint2); border: 1px solid var(--axis); }
-.callout { margin: 16px 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: inset 3px 0 0 var(--warn); font-size: 14px; }
-.callout b { font-weight: 600; }
+/* Asides: a color, a shape and a word each, so none depends on color alone. */
+.aside { --c: var(--accent); --ct: var(--accent-text); margin: 16px 0; padding: 10px 14px 12px; border: 1px solid color-mix(in srgb, var(--c) 45%, var(--axis)); border-radius: 6px; background: color-mix(in srgb, var(--c) 11%, var(--bg)); box-shadow: inset 4px 0 0 var(--c); font-size: 14px; }
+.aside .ah { display: flex; align-items: center; gap: 7px; margin: 0 0 3px; font-size: 12px; font-weight: 700; color: var(--ct); }
+.aside .ah svg { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--c); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.aside p { margin: 0; }
+.aside.tip { --c: var(--good); --ct: var(--good-text); }
+.aside.caution { --c: var(--warn); --ct: var(--ink); }
+.aside.danger { --c: var(--crit); --ct: var(--crit-text); }
 .pn { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 32px; max-width: 70ch; }
 .pn a { padding: 10px 14px; border: 1px solid var(--axis); border-radius: 6px; text-decoration: none; display: grid; gap: 1px; }
 .pn a:hover { background: var(--tint2); border-color: var(--accent); }
@@ -343,7 +349,10 @@ podiumctl logs -f                   <span class="c"># follow the log</span>
 podiumctl enable                    <span class="c"># start on boot / login</span></pre>
             <h3 id="auth-token">Auth token</h3>
             <p>The first <code>start</code> generates a random token and saves it as <code>PODIUM_TOKEN</code> in <code>~/.podium/config.env</code>. This is the <b>admin secret</b>. It opens the Admin section.</p>
-            <div class="callout"><b>Running without a token turns Admin off.</b> Nothing would protect it.</div>
+            <div class="aside tip"><div class="ah"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8a4.2 4.2 0 0 0-2.3 7.7c.4.3.6.7.6 1.2v.6h3.4v-.6c0-.5.2-.9.6-1.2A4.2 4.2 0 0 0 8 1.8zM6.4 13.4h3.2"/></svg>Tip</div><p><code>podiumctl token</code> shows the admin secret at any time. <code>podiumctl token --rotate</code> makes a new one.</p></div>
+            <div class="aside caution"><div class="ah"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.2l6.2 11H1.8L8 2.2zM8 6.6v3M8 11.6v.1"/></svg>Caution</div><p><b>Running without a token turns Admin off.</b> Nothing would protect it.</p></div>
+            <div class="aside note"><div class="ah"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v3.7M8 4.9v.1"/></svg>Note</div><p><code>--mode</code>, <code>--port</code> and <code>--bind</code> are saved, so later commands reuse them.</p></div>
+            <div class="aside danger"><div class="ah"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.2 1.8h5.6l3.4 3.4v5.6l-3.4 3.4H5.2L1.8 10.8V5.2l3.4-3.4zM8 5v3.6M8 10.9v.1"/></svg>Danger</div><p><code>podiumctl rm --purge --yes</code> removes the container, its data volume and the image. The database goes with it.</p></div>
           </div>
           <div class="pn"><a href="#"><small>Previous</small><b>User guide</b></a><a href="#"><small>Next</small><b>Reporter</b></a></div>
         </article>
@@ -387,6 +396,7 @@ podiumctl enable                    <span class="c"># start on boot / login</spa
 <div class="notes">
   <h2>What this mockup shows</h2>
   <ul>
+    <li><b>Callouts.</b> Four kinds, each with a color, an icon and a word: Note (blue), Tip (green), Caution (amber), Danger (red). They use the app's status colors, <code>--good</code>, <code>--warn</code> and <code>--crit</code>, for the same meaning there: fine, watch out, will hurt. Caution's label stays in ink, since the amber is too light for text on the light theme.</li>
     <li><b>Color.</b> One accent, the console's blue (<code>--sonnet</code>), marks what is selected and what you can click: the current top-bar link, the current sidebar page, the current heading in the table of contents, links, and the selected search result. Sections alternate between two surfaces and each heading carries an accent bar. This borrows a model color for a non-model job, so it needs your approval and a <code>Standards:</code> line before it ships.</li>
     <li><b>Homepage.</b> One pitch, the real console screenshot, four things you see for every session, three steps to start, three places to go next. One primary button. The commands are the ones in the README and the user guide.</li>
     <li><b>Docs page.</b> Groups in the sidebar (getting started, running it, reference, project internals), a table of contents on the right, last-updated date, an edit link, previous and next. The text is the opening of docs/SERVER.md.</li>
