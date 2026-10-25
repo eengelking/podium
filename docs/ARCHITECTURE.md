@@ -130,7 +130,7 @@ lockfile, outside the npm workspaces, so the server and UI builds never install 
 - `site/docs-nav.mjs` is the menu: which docs are published, in which group, at which address.
 - `site/src/styles/theme.css` maps the console's tokens onto Starlight's variables. `site/src/components/` overrides the header,
   footer, banner (older versions) and page title, and holds the version menu. The header carries Starlight's theme switch, and a page that shows a static page in a frame gives that page the site's theme. `site/src/pages/index.astro` is the homepage.
-- `.github/workflows/docs-site.yml` builds every version on a PR into `main` and deploys to GitHub Pages on a push to `main`.
+- `.github/workflows/docs-site.yml` builds every version on a PR into `main`, and on a PR into `development` that changes `docs/`, `site/`, the tokens or the workflow, and deploys to GitHub Pages on a push to `main`.
   `scripts/site-lib.test.ts` tests the preparation and the version choice. The `podium-docs-site` skill is the procedure.
 
 ## Components
@@ -702,7 +702,7 @@ blocked on the engine. This records the structure so the sub-issues agree. The r
 starts `https.createServer` on the reporter port (`4318`, `PODIUM_TLS_PORT`) with the same Express app behind
 `reporterPortOnly`, next to the HTTP listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and serving certificate. Any failure there
 (openssl missing, a half-present CA, a bad or busy port) logs `tls.failed` and leaves HTTP running. The Host check
-(`hostCheck.ts`) runs on both (33). The reporter server requires a client certificate (`requestCert: true`,
+(`hostCheck.ts`) runs on both ([DECISIONS 33](DECISIONS.md#33-refusing-a-host-the-server-does-not-expect-256)). The reporter server requires a client certificate (`requestCert: true`,
 `rejectUnauthorized: true`, `ca` set to the Podium CA or CAs), so Node drops a connection without a valid one in the
 handshake (the `tlsClientError` log line is `tls.handshake_failed`). `reporterPortOnly` lets through only the paths
 `isReporterRoute` names and `POST /api/reporter/renew` (`isRenewRoute`), and answers any other path with a `404`, so the
@@ -1367,7 +1367,6 @@ and then cannot resolve `sqlite`). `process.getBuiltinModule('node:sqlite')` wor
 plain `node`, and is typed by `@types/node` 24, so `db.ts` uses it. No fallback to `better-sqlite3` was
 needed.
 
-Not verified yet: the SSE proxy through Vite (T4.1 checks it).
 
 ### Phase 1: server
 
@@ -1457,7 +1456,6 @@ Found and fixed while running in the browser:
 - A pointer event without a usable `clientX` produced a NaN width (fixed test-first).
 - The "now" caption of the peak chart was red with no blowouts.
 
-Not verified: real touch input; screen reader output (roles and names are asserted in tests only).
 
 ### Phase 3: the reporter mod
 
@@ -1481,8 +1479,6 @@ cross-check that a scripted mod Report passes the server's validator unchanged. 
    general-purpose and effort low, asking it to reply with the word hello. Then reply done.": worktree
    detected, effort `low` at spawn.
 
-Not verified for real: a subagent's own compaction, a teammate, `classic.Notification`, a `/clear` (the
-id switch is covered by tests), and the status line (both runs were headless).
 
 ### Phase 4: integration and hardening
 
@@ -1556,7 +1552,7 @@ Done after Phases 0 to 4 passed.
 ### Code review pass (before the PR)
 
 One `/code-review` pass over the branch found ten issues. Nine are fixed, each with a test written first
-that failed for the reason described; one part is deliberately left as is.
+that failed for the reason described; the tenth (a `tz` parameter for `GET /history`) is deliberately left for later.
 
 - **SubagentStop flipped a working session to waiting** (`hookIngest.ts`). Only `Stop` means the main loop
   is idle now.

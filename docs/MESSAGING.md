@@ -80,9 +80,8 @@ orchestrators on one machine). A **conversation** is the messages between two or
 - **A person and a token.** An Admin makes the person in Admin > People, which shows their token once. Every machine
   that takes part reports with that token and that name. The admin secret cannot take part: its sessions belong to
   no one. See [SERVER.md](SERVER.md#admin-and-per-person-tokens).
-- **A reporter that can message.** podium-reporter must be a version with the `peers` option, from the release that
-  adds orchestrator messaging (the first after 1.1.0). An older one shows as **Reporter can't message: update it**.
-  Until that release is out, load the mod from a checkout of `development` with `claude --plugin-dir`.
+- **A reporter that can message.** podium-reporter must be version 1.2.0 or later, the first with the `peers` option.
+  An older one shows as **Reporter can't message: update it**.
 - **An interactive session.** A `claude -p` run never takes part.
 - **A server everyone can reach.** For more than one machine, see
   [Several people on one Podium](SERVER.md#several-people-on-one-podium). The same steps apply to one person's

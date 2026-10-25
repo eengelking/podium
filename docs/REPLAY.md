@@ -70,7 +70,7 @@ stops every recording, and what was recorded stays until it expires. The option 
 
 1. Open the session's orchestrator page. The **Recording** cell is the last in the facts panel, after Fork.
 2. Press **Record**. The picker lists the orchestrator, its agents and its forks, each with a box. It tells you before
-   you start if the owner has not allowed recording, how long a recording is kept, and which of the five states applies.
+   you start if the owner has not allowed recording, how long a recording is kept, and which of its five states applies: you may record, recording has just started, the owner has not allowed it, the feature is off, or you are not the owner or an Admin.
 3. Press **Start recording**. Nothing before that moment is kept, and a short delay before capture begins is normal.
    A loop that starts later is not recorded unless you add it by choosing again.
 
@@ -102,11 +102,10 @@ settings and the environment. Cost, tokens and the plan are already in the sessi
 
 ### Thinking text is not available
 
-The mod receives the model's thinking as chunks that arrive with empty text. It was tested on `claude-sonnet-5-5` at
-medium effort, in the main loop and in a subagent (the research is in [issue #353](https://github.com/eengelking/podium/issues/353)).
+The mod receives the model's thinking as chunks that arrive with empty text, on every model tried (haiku and
+`claude-sonnet-5-5`, in the main loop and in a subagent; the research is in [issue #353](https://github.com/eengelking/podium/issues/353)).
 The recording therefore keeps a mark for each block and no text, and the replay says "Thinking: text is not available"
-so it never reads as if the agent did not think. Other models, other efforts and forks were not tested
-([open follow-ups](#open-follow-ups)).
+so it never reads as if the agent did not think.
 
 ### What is not marked
 
@@ -296,7 +295,5 @@ Not yet tracked as GitHub issues; they are in [ISSUES.md](ISSUES.md):
 - Hot-reloading the mod during a recording lost later prompts in one live run; the cause is not found.
 - A prompt sent within about 2 s of pressing Record can be lost.
 - Redaction hides some text that is not a secret, such as a long identifier line.
-- The `gap` mark after a dropped queue, a fork, and thinking text on models other than haiku and `claude-sonnet-5-5` were not
-  exercised live. Thinking arrived with empty text on every model tried.
 - The replay footer mixes row and entry counts, and Jump to next failure looks enabled for a filter with no rows.
 - The load measurement used simulated traffic.

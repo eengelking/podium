@@ -210,7 +210,7 @@ nothing the server sends is taken.
 
 ## What leaves the session
 
-Data goes only to the server URL above, and only the items below. Podium never reads transcripts or files.
+Data goes only to the server URL above, and only the items below. Podium does not read whole conversations or send whole files: text is cut to short excerpts, and the options below that send more are opt-in.
 
 **Always:**
 

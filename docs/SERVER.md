@@ -300,9 +300,7 @@ Other settings (`STALE_AFTER_MS`, `RETAIN_*`, the `PODIUM_LOG_*` logging setting
 starts the Podman machine on macOS. In standalone mode it runs the server in the foreground and restarts it
 if it crashes.
 
-On Linux, `loginctl enable-linger $USER` makes the user unit start before you log in. (The Linux unit has
-run on Bazzite, and standalone mode has been through a reboot with and without linger; container mode has not been
-rebooted.)
+On Linux, `loginctl enable-linger $USER` makes the user unit start before you log in.
 
 ## Server settings
 

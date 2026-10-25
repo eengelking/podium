@@ -1712,7 +1712,7 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   cut to 20,000 characters with a visible `[cut off at 20,000 characters]` marker (`command`, with `commandCut`).
   Only a Bash row carries a whole command; any other tool row stays at its 300-character summary.
   The mod removes ANSI escape sequences and other control characters (not line breaks or tabs) from a command and from
-  output before redacting, so a coloured secret is still caught. Of the tool rows, the mod sends `id` and `command` for Bash only.
+  output before redacting, so a colored secret is still caught. Of the tool rows, the mod sends `id` and `command` for Bash only.
 - With the `activityOutput` option on, the entry gets the call's output, stdout then stderr, redacted and cut the
   same way (`output`, `outputCut`). Once the call returns, the entry also gets `done` and the exit status (`exitCode`,
   `failed`), with the option on or off (#598): these are not output.
@@ -4228,7 +4228,7 @@ activity panel and legend as the wall, with the board in the middle.
 
 **Cards**
 - A card has three parts, always in this order:
-  1. the orchestrator's name with its model-colour square as the title (left off in the By orchestrator
+  1. the orchestrator's name with its model-color square as the title (left off in the By orchestrator
      layout, where the lane names it). While Admin > Settings > The wall > **Title cards with the machine** is
      on (#480), the title is `machine | session`, the machine's name, a space, a pipe, a space, then the
      session's name (`Silverbolt | Foobar`), with the pipe in the muted color and a little extra room either side;
@@ -5092,7 +5092,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     - When the Admin later goes below the owner's value, the owner's is kept and the row says the Admin's applies.
     - It saves through `PUT /api/fleet/respond/peers/defaults`.
   - **Who can message whom**, with a **Grid | Board** switch that the browser remembers:
-    - Grid: rows send, columns receive, and every cell is a select labelled "A to B". The diagonal is between
+    - Grid: rows send, columns receive, and every cell is a select labeled "A to B". The diagonal is between
       orchestrators on the same machine. A cell with messaging off says why.
     - Board: one reporter's peers as cards in four columns (No access, Can see, Can send with approval, Can
       send). Dragging is never the only way: each card has a Move to list. Each card also says what that
@@ -5415,7 +5415,7 @@ and inline failure class.
   - It is not a stroke icon, so it never reads as an empty box, and it is decorative: the status chip carries
     the state.
   - The legend's "Square color is the model" holds for the cards and the tree rows (the legend's own swatches
-    are grey).
+    are gray).
   - The Kind row of the agent panel keeps its own icons.
 - **Sorting.** A column header sorts the tree: the children of each parent, and the top-level agents, are
   ordered by that column, and every child stays under its parent at every depth (#101). Clicking the same
@@ -5538,7 +5538,7 @@ Two buttons, **Task prompt** and **Final answer**, each with the length of the t
 - Without the full text it falls back to the 400-character excerpt and says `excerpt only`.
 - With neither it is dimmed, dashed and inert and says `not reported`, and for the answer of an agent that is
   still running `not finished`. It turns on when the answer arrives, without a reload.
-- A click opens a centered modal (`role="dialog"`, `aria-modal`, labelled by its title) with the text rendered
+- A click opens a centered modal (`role="dialog"`, `aria-modal`, labeled by its title) with the text rendered
   as markdown, the rest of the page blurred behind it.
   - Markdown supports headings, lists, bold, italic, inline code, fenced code, block quotes and links. A fence
     closes only on a fence at least as long as the one that opened it, and a link's address may hold one level

@@ -3,12 +3,14 @@ name: Docs site
 # Builds the docs site (site/, built from docs/ by site/scripts/build.mjs) and publishes it to GitHub Pages at podium.engelking.dev.
 #   - A push to main (a release or a hotfix) builds the site and deploys it.
 #   - A PR into main (the release PR) builds it without deploying, so a broken link or a page that will not build fails the PR.
-# Nothing runs on feature branches or on pushes to development. The build fails on a broken internal link.
+#   - A PR into development builds it too, without deploying, when the PR changes something the site is made from: docs/, site/, the
+#     app's tokens or this workflow. Any other PR skips the build.
+# Nothing runs on pushes to development or to feature branches. The build fails on a broken internal link.
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, development]
 
 permissions:
   contents: read
@@ -32,11 +34,31 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
 
+      # A PR into development builds the site only when it changes what the site is made from. Everything else always builds.
+      - name: Decide whether the site could be affected
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ] && [ "$BASE" = "development" ]; then
+            if git diff --name-only "origin/$BASE...HEAD" | grep -Eq '^(docs/|site/|frontend/src/fleet/tokens\.css$|\.github/workflows/docs-site\.yml$|package\.json$)'; then
+              echo "build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build=false" >> "$GITHUB_OUTPUT"
+              echo "This PR changes nothing the docs site is made from, so the site is not built."
+            fi
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install
+        if: steps.gate.outputs.build == 'true'
         working-directory: site
         run: npm ci --ignore-scripts
 
       - name: Build every version
+        if: steps.gate.outputs.build == 'true'
         run: node site/scripts/build.mjs
 
       - name: Upload the site

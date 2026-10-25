@@ -40,7 +40,7 @@ Other docs cite entries by number, so numbers never change.
 | [13](#13-the-token-option-is-sensitive) | The `token` option is sensitive |
 | [14](#14-the-project-is-named-podium-in-one-repo) | The project is named Podium, in one repo |
 | [15](#15-the-usage-dashboard-is-removed) | The usage dashboard is removed |
-| [16](#16-the-host-passes-its-home-directory-to-a-containerised-server) | The host passes its home directory to a containerised server |
+| [16](#16-the-host-passes-its-home-directory-to-a-containerized-server) | The host passes its home directory to a containerized server |
 | [17](#17-fleet-cards-keep-a-fixed-width) | Fleet cards keep a fixed width (superseded by 27) |
 | [18](#18-a-supported-range-of-reporter-versions-not-a-protocol-number) | A supported range of reporter versions, not a protocol number |
 | [19](#19-the-changed-files-list-is-a-git-diff-against-where-the-session-started) | The changed-files list is a git diff against where the session started |
@@ -288,7 +288,7 @@ shared the repo and the server but none of the fleet console's code. This overri
 **Cost.** A breaking change for anyone who used the page (pre-1.0). Cross-session cost history, if wanted,
 would be a new feature in the fleet console built from what the mod reports.
 
-## 16. The host passes its home directory to a containerised server
+## 16. The host passes its home directory to a containerized server
 
 **Decision.** `podiumctl` sets `PODIUM_HOST_HOME` to the host's home directory when it starts the container,
 and `configFromEnv` uses it in place of the server's own `os.homedir()` when it is an absolute path.
@@ -1322,7 +1322,7 @@ and the certificate with its private key, the way `kubeadm` and `kubectl` do. `S
 - The reporter makes its TLS connection through a small Node helper, started per session, because the mod's
   `$.http.fetch` accepts no CA or certificate. The mod sends its requests to the helper over a Unix socket.
 - Revoking the certificate, the token, or both are separate actions. The server checks revocation on every
-  request. Plain HTTP stays on loopback so an Admin can always sign in (33 still applies to both ports).
+  request. Plain HTTP stays on the address the server is bound to (any address, loopback or `0.0.0.0`), so an Admin can always sign in (33 still applies to both ports).
 - Serving certificates renew themselves, person certificates renew from the reporter, and the CA rotates only
   by hand, with a cross-signed overlap when planned.
 - Reporters over HTTP are an Admin switch, on for an existing install and off for a fresh one that enables TLS.

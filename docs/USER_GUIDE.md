@@ -3,8 +3,10 @@
 How to set up Podium, read the dashboard and fix common problems. It is for anyone who runs Claude Code sessions and
 wants to watch them, and for the person who runs the server, whose part is in [Admin](#admin).
 
-Podium shows every Claude Code session on your machine in one browser tab. It watches. It never sends a prompt to a
-session, stops an agent or changes anything, unless you turn on [answering from Podium](#answering-a-session-from-podium).
+Podium shows every Claude Code session on your machine in one browser tab. It watches. The one thing it can send is an
+answer to a session that is waiting on you (a question, a plan, a tool's permission prompt, a message, `/clear` or `/compact`), and only
+when the server's Admin and the session's owner have both turned on [answering from Podium](#answering-a-session-from-podium). It
+never types into a terminal.
 
 Related docs: [REPORTER.md](REPORTER.md) for the mod's options, [SERVER.md](SERVER.md) for the server's settings,
 [MESSAGING.md](MESSAGING.md) for setting up orchestrator messaging, [REPLAY.md](REPLAY.md) for recording a session and
@@ -197,14 +199,14 @@ For a wall display, collapse what you do not need.
 
 | Part | Button | Key |
 |---|---|---|
-| Left pane | The tab on its edge, labelled "Collapse the left pane" | `[` |
-| Right pane | The tab on its edge, labelled "Collapse the right pane" | `]` |
-| Top bar | The chevron tab at the middle of the bar's bottom edge, labelled "Hide top bar" | `\` |
+| Left pane | The tab on its edge, labeled "Collapse the left pane" | `[` |
+| Right pane | The tab on its edge, labeled "Collapse the right pane" | `]` |
+| Top bar | The chevron tab at the middle of the bar's bottom edge, labeled "Hide top bar" | `\` |
 | All three (**Wall mode**) | The button in the top right | `w` |
 
 - A collapsed pane leaves a slim strip with the same small tab to open it again, and the pane returns to the width you had. Your choice is
   remembered.
-- A hidden top bar leaves a thin strip along the top of the screen with a chevron tab at its middle, labelled "Show top
+- A hidden top bar leaves a thin strip along the top of the screen with a chevron tab at its middle, labeled "Show top
   bar". It stays visible; click it, or press `\`, to bring the bar back.
 - Wall mode collapses all three at once and asks the browser for fullscreen. Leave it with `Esc` or the Exit wall mode
   button, and everything goes back to how it was.
@@ -1300,7 +1302,7 @@ As a second guard, every piece of text in a line is scrubbed for common secret s
 - the password in `https://user:pass@host`,
 - keys that start `sk-`, `ghp_`, `github_pat_`, `AKIA` or `xoxb-`, and JWTs.
 
-It recognises shapes only. A secret in a format it does not know, or one written as plain prose such as "the password is
+It recognizes shapes only. A secret in a format it does not know, or one written as plain prose such as "the password is
 hunter2", is not caught. It does not look at the Admin Log or stored data.
 
 ### Send the logs to VictoriaLogs
@@ -1414,7 +1416,7 @@ page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is alw
 
 Data leaves a session only to the server URL you set, and only the fields
 [REPORTER.md](REPORTER.md#what-leaves-the-session) lists. Text is cut to fixed limits, and anything that looks like a
-secret is replaced with `[redacted]` before it is sent. Podium never reads transcripts or files.
+secret is replaced with `[redacted]` before it is sent. Podium does not read whole conversations or send whole files, except through the opt-in options that REPORTER.md lists.
 
 | What | When it leaves the session |
 |---|---|

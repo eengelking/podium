@@ -4,8 +4,8 @@ This page is for anyone showing Podium to other people. It is a script built to 
 three parts: setup, a prompt to paste into a live Claude Code session, and a simulated fleet for the "many
 sessions" shot. Everything the demo prompt does is read-only, so it is safe to run in this repo or any other.
 
-Nothing here has been run end to end by the author of this file. Do one dry run before you record, and fix
-the wording of the prompt if Claude takes a different route than the script expects.
+Do one dry run before you record, and fix the wording of the prompt if Claude takes a different route than the script
+expects.
 
 Contents:
 
@@ -28,7 +28,7 @@ Contents:
    whose context window fills.
 6. When the sessions end, they leave on their own.
 
-Podium only watches. It never sends a prompt to a session, which is worth saying out loud.
+Podium watches. It never types into a terminal, and the only thing it can send is an answer to a session that is waiting on its person, which is off unless the Admin and the session's owner turn it on. That is worth saying out loud.
 
 ## Before you record
 
