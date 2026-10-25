@@ -101,6 +101,29 @@ describe("the written pages", () => {
     expect(process).toContain("<code>fleet.css rgba(0,0,0,.5)</code>");
     expect(process).toContain("podium-standards-update");
   });
+
+  it("draws every position: fixed part in place inside a sample (#700)", () => {
+    const fleet = join(OUT, "..", "..", "frontend", "src", "fleet");
+    const rules = (css: string) => [...css.replaceAll(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+    // Classes that are fixed in the app and may appear in no sample. Add one only with a reason.
+    const allowed: string[] = [];
+    const fixed = new Set<string>();
+    for (const file of ["fleet.css", "admin/admin.css"]) {
+      for (const r of rules(readFileSync(join(fleet, file), "utf8"))) {
+        if (!/position:\s*fixed/.test(r.body)) continue;
+        for (const sel of r.sel.split(",")) fixed.add(sel.trim().split(/\s+/).pop()!.replace(/^[^.]*\./, "").split(/[.:[]/)[0]);
+      }
+    }
+    const inPlace = new Set<string>();
+    for (const r of rules(readFileSync(join(OUT, "standards.css"), "utf8"))) {
+      if (!/position:\s*(static|relative)/.test(r.body)) continue;
+      for (const sel of r.sel.split(",")) {
+        const m = /^\.s-sample\s+\.([\w-]+)$/.exec(sel.trim());
+        if (m) inPlace.add(m[1]);
+      }
+    }
+    expect([...fixed].filter((c) => !inPlace.has(c) && !allowed.includes(c))).toEqual([]);
+  });
 });
 
 // Every screen the samples are cut from still renders and reaches its state. This does not compare anything with the files on

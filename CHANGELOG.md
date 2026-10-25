@@ -20,6 +20,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The Actions menu samples on the standards Components page sit in the page (#700).** The row Actions menu (`.menubox`) is `position: fixed` in the app, and the standards drew it that way, so its 25 samples floated over the page and covered its navigation. A sample now draws it in place, as it already did the toast and the tip. A new test fails when any `position: fixed` class in `fleet.css` or `admin.css` has no in-place rule for samples in `docs/standards/standards.css`, so the next fixed part is caught when it is added. Standards: the Actions menu sample is drawn in place (`.menubox` inside `.s-sample`); approved by the maintainer when asked to fix #700 on 2026-10-25.
+
 - **The nightly build publishes again (#698).** The `Nightly` workflow failed on every scheduled run because the generic self-hosted runners have no GitHub CLI, so `gh` was not found and no `nightly-YYYY-MM-DD` prerelease was ever made. Each job now installs a pinned `gh` (no `sudo`, checked against the release's checksums) unless the runner already has one. The "already has a nightly" check also no longer swallows a failing `gh`, which had made it always report that a nightly was needed.
 
 ## [1.3.0] - 2026-10-22
