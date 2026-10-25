@@ -1,0 +1,444 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Docs Site</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>
+/* Mockup for #688: the public docs site at podium.engelking.dev, built with Astro Starlight.
+   Five screens: the homepage, a docs page, the version menu, search, and an older version.
+   Colors and fonts come from tokens.css; this file defines no tokens of its own. The site is
+   one wall-like surface: the homepage leads with the real console screenshot (docs/images/podium-chaos.png)
+   and everything around it stays quiet. Sizes are the ones on docs/standards/scale.html, and the
+   primary button is the .btn.pri rule written out (ink fill, page-color text).
+   The width switch sets the frame to 1180 or 400 px; the site answers its frame with container
+   queries, because a frame is not a viewport. Only the demo chrome (.demo, .stage, .notes, .decisions) is this mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ---------- demo chrome ---------- */
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); color: var(--ink2); font-size: 12px; }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.stage { padding: 16px; overflow-x: auto; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 0 auto; max-width: 100%; background: var(--bg); position: relative; container-type: inline-size; container-name: site; }
+.frame.wide { width: 1180px; }
+.frame.narrow { width: 400px; }
+.notes { max-width: 1180px; margin: 0 auto; padding: 4px 16px 40px; display: grid; gap: 6px; color: var(--ink2); }
+.notes h2 { margin: 14px 0 2px; font-size: 13px; color: var(--ink); }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 90ch; }
+.decisions { border-collapse: collapse; width: 100%; max-width: 1100px; font-size: 12.5px; }
+.decisions th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--axis); }
+.decisions td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.decisions td:first-child { white-space: nowrap; color: var(--ink); font-weight: 600; }
+
+/* ---------- the site ---------- */
+.site { background: var(--bg); color: var(--ink); font-size: 15px; line-height: 1.6; min-height: 640px; }
+.site a, .scrim a { color: inherit; }
+.site :focus-visible, .scrim :focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 4px; }
+.site code, .site kbd, .site pre { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.scr[hidden] { display: none; }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--bg); position: relative; z-index: 5; }
+.brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; text-decoration: none; }
+.brand .mark { width: 18px; height: 18px; border-radius: 4px; border: 2px solid var(--ink); display: inline-grid; place-items: center; }
+.brand .mark i { width: 6px; height: 6px; border-radius: 2px; background: var(--ink); }
+.nav { display: flex; gap: 4px; margin-left: 8px; }
+.nav a { padding: 4px 10px; border-radius: 6px; text-decoration: none; color: var(--ink2); font-size: 13px; font-weight: 500; }
+.nav a:hover { background: var(--hover); color: var(--ink); }
+.nav a[aria-current="page"] { color: var(--ink); background: var(--sel); }
+.top .sp { flex: 1; }
+.tbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.tbtn:hover { background: var(--sel); }
+.tbtn kbd { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.tbtn .car { color: var(--muted); font-size: 10.5px; }
+.tbtn.menu { display: none; }
+.vwrap { position: relative; }
+.vmenu { position: absolute; top: calc(100% + 6px); right: 0; width: 240px; padding: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 8px 24px -10px rgba(0,0,0,.5); z-index: 30; display: grid; gap: 2px; }
+.vmenu[hidden] { display: none; }
+.vmenu .hd { padding: 4px 8px 2px; font-size: 11.5px; color: var(--muted); }
+.vmenu a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; text-decoration: none; font-size: 13px; color: var(--ink); }
+.vmenu a:hover { background: var(--hover); }
+.vmenu a[aria-current="true"] { background: var(--sel); }
+.vmenu a small { color: var(--muted); font-size: 11.5px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; font-weight: 500; border: 1px solid var(--border); white-space: nowrap; color: var(--ink2); }
+.chip.good { color: var(--good-text); }
+.chip.warn { color: var(--ink); border-color: color-mix(in srgb, var(--warn) 55%, transparent); box-shadow: inset 3px 0 0 var(--warn); padding-left: 10px; }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--raised); color: var(--ink); font: inherit; font-size: 13px; font-weight: 500; text-decoration: none; cursor: pointer; }
+.btn:hover { background: var(--sel); }
+.btn.pri { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.pri:hover { background: color-mix(in srgb, var(--ink) 85%, var(--bg)); }
+
+/* homepage */
+.home .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; padding: 56px 40px 40px; align-items: center; }
+.home h1 { margin: 0 0 14px; font-size: 28px; line-height: 1.2; font-weight: 700; text-wrap: balance; }
+.home .lede { margin: 0 0 22px; color: var(--ink2); max-width: 46ch; font-size: 15px; }
+.home .acts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+.home .stance { margin: 0; padding-left: 12px; border-left: 2px solid var(--axis); color: var(--ink2); font-size: 13px; max-width: 46ch; }
+.shot { margin: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.shot img { display: block; width: 100%; height: auto; }
+.shot figcaption { padding: 6px 12px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; }
+.sect { padding: 36px 40px; border-top: 1px solid var(--grid); }
+.sect h2 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+.sect > p.sub { margin: 0 0 20px; color: var(--ink2); max-width: 62ch; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; margin: 0; }
+.facts div { padding: 14px 0; border-top: 1px solid var(--grid); }
+.facts dt { font-weight: 600; margin: 0 0 2px; }
+.facts dd { margin: 0; color: var(--ink2); font-size: 14px; max-width: 54ch; }
+.steps { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; counter-reset: s; max-width: 760px; }
+.steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; counter-increment: s; }
+.steps li::before { content: counter(s); width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--axis); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--ink2); }
+.steps h3 { margin: 0 0 2px; font-size: 14.5px; font-weight: 600; }
+.steps p { margin: 0 0 8px; color: var(--ink2); font-size: 14px; }
+pre.code { margin: 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-size: 12.5px; line-height: 1.5; overflow-x: auto; color: var(--ink); }
+pre.code .c { color: var(--muted); }
+.next { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; }
+.next a { display: block; padding: 14px 0; border-top: 1px solid var(--grid); text-decoration: none; }
+.next a:hover b { text-decoration: underline; }
+.next b { display: block; font-size: 14.5px; font-weight: 600; }
+.next span { color: var(--ink2); font-size: 13.5px; }
+
+/* footer */
+.foot { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 20px 40px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.foot a { color: var(--ink2); }
+.foot .sp { flex: 1; }
+
+/* docs layout */
+.docs { display: grid; grid-template-columns: 230px minmax(0, 1fr) 190px; min-height: 560px; }
+.side { padding: 18px 12px 24px 20px; border-right: 1px solid var(--border); display: grid; align-content: start; gap: 14px; font-size: 13px; }
+.side h2 { margin: 0 0 2px; padding: 0 8px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.side a { display: block; padding: 4px 8px; border-radius: 6px; text-decoration: none; color: var(--ink2); }
+.side a:hover { background: var(--hover); color: var(--ink); }
+.side a[aria-current="page"] { background: var(--sel); color: var(--ink); font-weight: 600; }
+.main { padding: 26px 40px 40px; min-width: 0; }
+.crumbs { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.main h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; font-weight: 700; }
+.main .desc { margin: 0 0 14px; color: var(--ink2); max-width: 66ch; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--grid); }
+.prose { max-width: 70ch; }
+.prose h2 { margin: 26px 0 6px; font-size: 18px; font-weight: 650; }
+.prose h3 { margin: 20px 0 4px; font-size: 15px; font-weight: 600; }
+.prose p, .prose li { color: var(--ink); }
+.prose ul { padding-left: 20px; }
+.prose code { font-size: 12.5px; padding: 1px 5px; border-radius: 4px; background: var(--raised); border: 1px solid var(--border); }
+.callout { margin: 16px 0; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: inset 3px 0 0 var(--warn); font-size: 14px; }
+.callout b { font-weight: 600; }
+.pn { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 32px; max-width: 70ch; }
+.pn a { padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; text-decoration: none; display: grid; gap: 1px; }
+.pn a:hover { background: var(--hover); }
+.pn a:last-child { text-align: right; }
+.pn small { color: var(--muted); font-size: 11.5px; }
+.pn b { font-weight: 600; font-size: 14px; }
+.toc { padding: 26px 20px 24px 8px; font-size: 12.5px; align-content: start; display: grid; gap: 4px; }
+.toc h2 { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.toc a { color: var(--ink2); text-decoration: none; padding: 2px 0 2px 10px; border-left: 2px solid var(--grid); }
+.toc a:hover { color: var(--ink); }
+.toc a[aria-current="true"] { color: var(--ink); border-left-color: var(--ink); }
+.toc a.l3 { padding-left: 22px; }
+
+/* older-version banner */
+.old { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 20px; background: var(--raised); border-bottom: 1px solid var(--border); box-shadow: inset 0 -2px 0 var(--warn); font-size: 13px; }
+.old[hidden] { display: none; }
+.old .sp { flex: 1; }
+
+/* search */
+.scrim { position: absolute; inset: 0; z-index: 40; background: color-mix(in srgb, var(--bg) 72%, transparent); display: flex; justify-content: center; align-items: flex-start; padding: 70px 16px 16px; }
+.scrim[hidden] { display: none; }
+.dlg { width: 600px; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--raised); box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden; }
+.dlg .q { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.dlg .q input { flex: 1; min-width: 0; background: none; border: 0; color: var(--ink); font: inherit; font-size: 15px; }
+.dlg .q input:focus-visible { outline: none; }
+.dlg .q kbd { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.res { max-height: 340px; overflow-y: auto; padding: 6px; display: grid; gap: 2px; }
+.res .grp { padding: 8px 10px 2px; font-size: 11.5px; color: var(--muted); }
+.res a { display: grid; gap: 1px; padding: 8px 10px; border-radius: 6px; text-decoration: none; }
+.res a:hover, .res a[aria-selected="true"] { background: var(--sel); }
+.res a b { font-size: 14px; font-weight: 600; }
+.res a span { color: var(--ink2); font-size: 13px; }
+.res mark { background: none; color: var(--ink); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.dlg .ft { display: flex; justify-content: space-between; gap: 12px; padding: 8px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 11.5px; }
+
+/* narrow frame: the site answers the frame's width */
+@container site (max-width: 900px) {
+  .home .hero { grid-template-columns: minmax(0, 1fr); padding: 36px 24px 28px; gap: 28px; }
+  .sect { padding: 28px 24px; }
+  .foot { padding: 18px 24px; }
+  .docs { grid-template-columns: minmax(0, 1fr); }
+  .side { display: none; }
+  .toc { display: none; }
+  .main { padding: 20px 24px 32px; }
+  .frame.menu-open .side { display: grid; border-right: 0; padding: 16px 24px 24px; }
+  .frame.menu-open .main { display: none; }
+}
+@container site (max-width: 640px) {
+  .top { padding: 8px 16px; gap: 8px; }
+  .nav { display: none; }
+  .tbtn.menu { display: inline-flex; }
+  .tbtn .lbl { display: none; }
+  .tbtn.srch kbd { display: none; }
+  .facts, .next { grid-template-columns: minmax(0, 1fr); }
+  .home .hero { padding: 28px 16px 24px; }
+  .sect { padding: 24px 16px; }
+  .foot { padding: 16px; }
+  .main { padding: 18px 16px 28px; }
+  .pn { grid-template-columns: minmax(0, 1fr); }
+  .pn a:last-child { text-align: left; }
+  .vmenu { right: auto; left: -80px; }
+  .old { padding: 8px 16px; }
+  .scrim { padding-top: 56px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media print { .demo, .notes { display: none; } }
+</style>
+
+<div class="demo">
+  <b>Docs site (#688)</b>
+  <span class="grp" role="group" aria-label="Screen">Screen
+    <button type="button" data-sc="home" aria-pressed="true">Homepage</button>
+    <button type="button" data-sc="page" aria-pressed="false">Docs page</button>
+    <button type="button" data-sc="versions" aria-pressed="false">Version menu</button>
+    <button type="button" data-sc="search" aria-pressed="false">Search</button>
+    <button type="button" data-sc="old" aria-pressed="false">Older version</button>
+  </span>
+  <span class="grp" role="group" aria-label="Theme">Theme
+    <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-th="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">1180 px</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<div class="stage">
+  <div class="frame wide" id="frame">
+    <div class="site">
+
+      <div class="old" id="oldbar" hidden>
+        <span class="chip warn">Older version</span>
+        <span>You are reading the docs for 1.3. The latest is 1.4.</span>
+        <span class="sp"></span>
+        <a class="btn" href="#" data-sc="page">Go to the same page in 1.4</a>
+      </div>
+
+      <header class="top">
+        <a class="brand" href="#" data-sc="home"><span class="mark" aria-hidden="true"><i></i></span>Podium</a>
+        <nav class="nav" aria-label="Main">
+          <a href="#" data-sc="page" id="nav-docs">Docs</a>
+          <a href="#" data-sc="page">User guide</a>
+          <a href="#" data-sc="page">Reporter</a>
+          <a href="#">Changelog</a>
+        </nav>
+        <span class="sp"></span>
+        <button type="button" class="tbtn srch" data-sc="search" aria-label="Search the docs"><span aria-hidden="true">&#8981;</span><span class="lbl">Search</span><kbd>/</kbd></button>
+        <span class="vwrap">
+          <button type="button" class="tbtn" id="vbtn" aria-haspopup="true" aria-expanded="false" aria-label="Version">1.4 <span class="lbl">(latest)</span> <span class="car" aria-hidden="true">&#9662;</span></button>
+          <div class="vmenu" id="vmenu" role="menu" hidden>
+            <div class="hd">Version</div>
+            <a href="#" role="menuitem" data-sc="page" id="vi-new" aria-current="true">1.4 <small>latest</small></a>
+            <a href="#" role="menuitem" data-sc="old" id="vi-old">1.3 <small>released 2026-10-22</small></a>
+            <div class="hd">Example versions. The first one listed is the first release that ships the site.</div>
+          </div>
+        </span>
+        <a class="tbtn" href="#" aria-label="Podium on GitHub">GitHub</a>
+        <button type="button" class="tbtn menu" id="mbtn" aria-expanded="false" aria-label="Open the menu">Menu</button>
+      </header>
+
+      <!-- ===== homepage ===== -->
+      <main class="scr home" id="sc-home">
+        <section class="hero">
+          <div>
+            <h1>See every Claude Code session on one screen.</h1>
+            <p class="lede">Podium shows each session's model, cost, context and branch, the agents it launched, and why anything failed. Run several sessions without clicking through every terminal.</p>
+            <div class="acts">
+              <a class="btn pri" href="#" data-sc="page">Get started</a>
+              <a class="btn" href="#" data-sc="page">Read the user guide</a>
+            </div>
+            <p class="stance">Podium watches. The one thing it sends is an answer to a session that is waiting on you, and only when the Admin and the session's owner have both turned that on. It never types into a terminal.</p>
+          </div>
+          <figure class="shot">
+            <img src="../docs/images/podium-chaos.png" alt="The Podium fleet console showing nine simulated Claude Code sessions with their models, cost, context bars and the activity feed">
+            <figcaption>Nine simulated sessions: running, stale and failing, with the activity feed on the right.</figcaption>
+          </figure>
+        </section>
+
+        <section class="sect">
+          <h2>What you see for every session</h2>
+          <p class="sub">Each session appears within about two seconds of its first prompt and leaves when it ends, with no refresh.</p>
+          <dl class="facts">
+            <div><dt>Cost</dt><dd>An estimate from token counts and a price table you can change in Admin. It is never a bill.</dd></div>
+            <div><dt>Context</dt><dd>How full each context window is, and how often one blew out.</dd></div>
+            <div><dt>Failures</dt><dd>Why an agent or a tool call failed, and which session it belongs to.</dd></div>
+            <div><dt>Branch</dt><dd>The git branch or worktree each session works in, and whether it has uncommitted changes.</dd></div>
+          </dl>
+        </section>
+
+        <section class="sect">
+          <h2>Start in three steps</h2>
+          <p class="sub">Podium is a server and a Claude Code mod. You run both yourself.</p>
+          <ol class="steps">
+            <li><div><h3>Start the server</h3><p>It builds on first use and runs on your machine.</p>
+              <pre class="code">git clone https://github.com/eengelking/podium.git &amp;&amp; cd podium &amp;&amp; npm link
+podiumctl start</pre></div></li>
+            <li><div><h3>Install the reporter mod</h3><p>In Claude Code, from the eengelking marketplace.</p>
+              <pre class="code">/plugin marketplace add eengelking/skills
+/plugin install podium-reporter@eengelking-marketplace</pre></div></li>
+            <li><div><h3>Open the console</h3><p>Start a session. It shows up at <code>http://127.0.0.1:4317</code>.</p></div></li>
+          </ol>
+        </section>
+
+        <section class="sect">
+          <h2>Where to go next</h2>
+          <div class="next">
+            <a href="#" data-sc="page"><b>User guide</b><span>Set it up and read the dashboard.</span></a>
+            <a href="#" data-sc="page"><b>Running the server</b><span>podiumctl, tokens, TLS and settings.</span></a>
+            <a href="#" data-sc="page"><b>Design decisions</b><span>Why Podium works the way it does.</span></a>
+          </div>
+        </section>
+      </main>
+
+      <!-- ===== docs page ===== -->
+      <div class="scr docs" id="sc-page" hidden>
+        <nav class="side" aria-label="Docs">
+          <div><h2>Getting started</h2><ul><li><a href="#">Overview</a></li><li><a href="#">User guide</a></li><li><a href="#">Demo</a></li></ul></div>
+          <div><h2>Running it</h2><ul><li><a href="#" aria-current="page">Running the server</a></li><li><a href="#">Reporter</a></li><li><a href="#">Messaging</a></li><li><a href="#">Session replay</a></li></ul></div>
+          <div><h2>Reference</h2><ul><li><a href="#">Specification</a></li><li><a href="#">Design standards</a></li></ul></div>
+          <div><h2>Project internals</h2><ul><li><a href="#">Architecture</a></li><li><a href="#">Decisions</a></li><li><a href="#">Gotchas</a></li><li><a href="#">Community</a></li></ul></div>
+        </nav>
+        <article class="main">
+          <div class="crumbs">Running it</div>
+          <h1>Running the server</h1>
+          <p class="desc">How to start the Podium server, keep it running, control who can reach it, and the settings that change how it behaves.</p>
+          <div class="meta"><span>Last updated 2026-10-22</span><a href="#">Edit this page on GitHub</a></div>
+          <div class="prose">
+            <p>This page is for whoever runs the Podium server. To set Podium up for the first time, start with the <a href="#">user guide</a>. The mod that sends the data is in <a href="#">Reporter</a>.</p>
+            <h2 id="run-it-with-podiumctl">Run it with podiumctl</h2>
+            <p><code>bin/podiumctl</code> starts, stops and watches the server without a dev setup. It has no dependencies of its own and runs Podium in one of two modes:</p>
+            <ul><li><b>Podman container.</b> The default when Podman is installed.</li><li><b>Standalone.</b> A plain Node process on the host.</li></ul>
+            <pre class="code">podiumctl start                     <span class="c"># builds the image on first use, then runs it</span>
+podiumctl status                    <span class="c"># mode, state, health, URL, boot setting</span>
+podiumctl logs -f                   <span class="c"># follow the log</span>
+podiumctl enable                    <span class="c"># start on boot / login</span></pre>
+            <h3 id="auth-token">Auth token</h3>
+            <p>The first <code>start</code> generates a random token and saves it as <code>PODIUM_TOKEN</code> in <code>~/.podium/config.env</code>. This is the <b>admin secret</b>. It opens the Admin section.</p>
+            <div class="callout"><b>Running without a token turns Admin off.</b> Nothing would protect it.</div>
+          </div>
+          <div class="pn"><a href="#"><small>Previous</small><b>User guide</b></a><a href="#"><small>Next</small><b>Reporter</b></a></div>
+        </article>
+        <nav class="toc" aria-label="On this page">
+          <h2>On this page</h2>
+          <a href="#" aria-current="true">Run it with podiumctl</a>
+          <a href="#" class="l3">Auth token</a>
+          <a href="#" class="l3">Admin and per-person tokens</a>
+          <a href="#" class="l3">Built-in TLS</a>
+          <a href="#">Server settings</a>
+          <a href="#">What it costs to run</a>
+        </nav>
+      </div>
+
+      <footer class="foot">
+        <span id="ver-foot">Podium 1.4 &middot; &copy; 2026 Ed Engelking</span>
+        <span class="sp"></span>
+        <a href="#">MIT license</a><a href="#">Security policy</a><a href="#">Contributing</a><a href="#">Report a docs issue</a><a href="#">GitHub</a>
+      </footer>
+    </div>
+
+    <!-- search dialog -->
+    <div class="scrim" id="scrim" hidden>
+      <div class="dlg" role="dialog" aria-label="Search the docs">
+        <div class="q"><span aria-hidden="true">&#8981;</span><input id="q" type="search" value="context" aria-label="Search the docs"><kbd>Esc</kbd></div>
+        <div class="res" role="listbox" aria-label="Results">
+          <div class="grp">User guide</div>
+          <a href="#" role="option" aria-selected="true"><b>Reading a session card</b><span>How full the <mark>context</mark> window is, and what a blowout means.</span></a>
+          <a href="#" role="option"><b>Blowouts</b><span>A session that went over its <mark>context</mark> limit more than once.</span></a>
+          <div class="grp">Reporter</div>
+          <a href="#" role="option"><b>What the reporter sends</b><span>The model, effort and <mark>context</mark> use of each session, and nothing from its text.</span></a>
+          <div class="grp">Decisions</div>
+          <a href="#" role="option"><b>5. Context is measured from the last turn</b><span>Why the bar counts the last request and not the running total.</span></a>
+        </div>
+        <div class="ft"><span>Searches this version only (1.4)</span><span>4 of 11 results</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <h2>What this mockup shows</h2>
+  <ul>
+    <li><b>Homepage.</b> One pitch, the real console screenshot, four things you see for every session, three steps to start, three places to go next. One primary button. The commands are the ones in the README and the user guide.</li>
+    <li><b>Docs page.</b> Groups in the sidebar (getting started, running it, reference, project internals), a table of contents on the right, last-updated date, an edit link, previous and next. The text is the opening of docs/SERVER.md.</li>
+    <li><b>Version menu.</b> The latest version is the default and is named in the button. The versions and dates shown are examples, since the first version listed will be the first release that ships the site.</li>
+    <li><b>Older version.</b> A bar above the page says which version it is and links to the same page in the latest.</li>
+    <li><b>Search.</b> Opens from the button or the <kbd>/</kbd> key, groups results by page, and searches the version being read. The terms are marked by weight and underline, not color alone.</li>
+    <li><b>Not shown.</b> The 404 page, the standards pages (served as they are, in their own style) and the footer on narrow widths beyond what is here.</li>
+  </ul>
+  <h2>Decisions to confirm</h2>
+  <table class="decisions">
+    <thead><tr><th>Question</th><th>In this mockup</th></tr></thead>
+    <tbody>
+      <tr><td>Homepage hero</td><td>The real screenshot of the console beside the pitch, not an illustration. It is the one loud element; the rest is type and rules.</td></tr>
+      <tr><td>Theme</td><td>Dark first, like the console, with a light theme from the same tokens. The screenshot stays the dark console in both.</td></tr>
+      <tr><td>Type</td><td>Schibsted Grotesk for text and JetBrains Mono for commands, as in the app. Reading text is 15 px, headings 18 to 28 px.</td></tr>
+      <tr><td>Sidebar groups</td><td>Getting started, Running it, Reference, Project internals. The split SPEC, DECISIONS and GOTCHAS pages (#697) become sub-groups under Reference and Project internals.</td></tr>
+      <tr><td>Version menu</td><td>One list of release lines, the latest first. An older version shows a bar, not a different layout.</td></tr>
+      <tr><td>Narrow width</td><td>At 400 px the sidebar and table of contents leave, the top bar keeps search, version and a Menu button, and Menu opens the sidebar in place of the page.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var frame = document.getElementById("frame");
+  var screens = { home: document.getElementById("sc-home"), page: document.getElementById("sc-page") };
+  var scrim = document.getElementById("scrim"), oldbar = document.getElementById("oldbar");
+  var vmenu = document.getElementById("vmenu"), vbtn = document.getElementById("vbtn");
+  function press(sel, attr, v) { document.querySelectorAll(sel).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)); }); }
+  function show(sc) {
+    var base = sc === "home" ? "home" : "page";
+    screens.home.hidden = base !== "home";
+    screens.page.hidden = base !== "page";
+    scrim.hidden = sc !== "search";
+    oldbar.hidden = sc !== "old";
+    vmenu.hidden = sc !== "versions";
+    vbtn.setAttribute("aria-expanded", String(sc === "versions"));
+    var isOld = sc === "old";
+    vbtn.firstChild.nodeValue = isOld ? "1.3 " : "1.4 ";
+    vbtn.querySelector(".lbl").hidden = isOld;
+    document.getElementById("ver-foot").firstChild.nodeValue = isOld ? "Podium 1.3 \u00b7 \u00a9 2026 Ed Engelking" : "Podium 1.4 \u00b7 \u00a9 2026 Ed Engelking";
+    document.getElementById("vi-new").setAttribute("aria-current", String(!isOld));
+    document.getElementById("vi-old").setAttribute("aria-current", String(isOld));
+    document.getElementById("nav-docs").setAttribute("aria-current", base === "page" ? "page" : "false");
+    press("[data-sc].demo-b, .demo [data-sc]", "data-sc", sc);
+  }
+  document.querySelectorAll("[data-sc]").forEach(function (el) {
+    el.addEventListener("click", function (e) { e.preventDefault(); show(el.getAttribute("data-sc")); });
+  });
+  var mbtn = document.getElementById("mbtn");
+  mbtn.addEventListener("click", function () {
+    var open = !frame.classList.contains("menu-open");
+    if (open) show("page");
+    frame.classList.toggle("menu-open", open);
+    mbtn.setAttribute("aria-expanded", String(open));
+  });
+  vbtn.addEventListener("click", function () { show(vmenu.hidden ? "versions" : "page"); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") show(screens.home.hidden ? "page" : "home");
+    else if (e.key === "/" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); show("search"); }
+  });
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { var t = b.getAttribute("data-th"); root.setAttribute("data-theme", t); press("[data-th]", "data-th", t); }); });
+  document.querySelectorAll("[data-w]").forEach(function (b) { b.addEventListener("click", function () { var w = b.getAttribute("data-w"); frame.className = "frame " + w; mbtn.setAttribute("aria-expanded", "false"); press("[data-w]", "data-w", w); }); });
+  root.setAttribute("data-theme", "dark");
+  show("home");
+})();
+</script>
