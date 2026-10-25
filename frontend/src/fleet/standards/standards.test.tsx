@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -169,6 +169,36 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
     }
     for (const [file, html] of Object.entries(pages)) expect(readFileSync(join(OUT, file), "utf8"), `docs/standards/${file} differs from the app: run npm run standards:sync after the change is approved`).toBe(html);
   }, BUILD_MS);
+
+  // Runs only in the parity pass: the in-place rule reaches docs/standards/standards.css in the release-prep PR through
+  // podium-standards-update, so this fails in parity runs until then (CLAUDE.md, UI Standards, "Changing a standard").
+  it("draws every position: fixed part in place inside a sample (#700)", () => {
+    const fleet = join(OUT, "..", "..", "frontend", "src", "fleet");
+    const rules = (css: string) => [...css.replaceAll(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+    const fixed = new Set<string>();
+    // Every stylesheet in fleet/, so a new one with a fixed part is checked too.
+    for (const file of readdirSync(fleet, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".css"))) {
+      for (const r of rules(readFileSync(join(fleet, file), "utf8"))) {
+        if (!/position:\s*fixed/.test(r.body)) continue;
+        for (const sel of r.sel.split(",")) {
+          const found = [...sel.matchAll(/\.([\w-]+)/g)];
+          if (found.length > 0) fixed.add(found[found.length - 1][1]);
+        }
+      }
+    }
+    const inPlace = new Set<string>();
+    for (const r of rules(readFileSync(join(OUT, "standards.css"), "utf8"))) {
+      if (!/position:\s*(static|relative)/.test(r.body)) continue;
+      for (const sel of r.sel.split(",")) {
+        const m = /^\.s-sample\s+\.([\w-]+)$/.exec(sel.trim());
+        if (m) inPlace.add(m[1]);
+      }
+    }
+    expect(
+      [...fixed].filter((c) => !inPlace.has(c)),
+      "a class that is position: fixed in the app has no in-place rule under .s-sample in docs/standards/standards.css. For .menubox this is the expected gap in #700: the rule is added in the release-prep PR with podium-standards-update. Do not edit docs/standards/ by hand.",
+    ).toEqual([]);
+  });
 
   it("renders every class in the stylesheets, or says why it cannot", async () => {
     const pages = await buildPages();
