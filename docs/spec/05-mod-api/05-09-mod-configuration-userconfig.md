@@ -174,8 +174,8 @@ the file, and the mod sends its requests to it over a Unix socket with `$.http.f
   `CERT_EXPIRED` and sends nothing upstream. The reporter treats that as any failed send: it keeps its reports and
   retries with a back-off of at most 10 seconds, and `/podium` shows `offline, retrying` beside the reason.
 
-**Platforms.** macOS and Linux are in scope. Windows is out of scope and unsupported. The desktop app and VS Code
-are untested: `$.process` is CLI only per the engine types, so the helper may not start there.
+**Platforms.** macOS and Linux are in scope. Windows is out of scope and unsupported. The mod runs on the command
+line only: `$.process` is provided only there per the engine types, so the desktop app and VS Code are not covered.
 
 **How the reporter finds `node`.** The helper needs `node`, and a Claude Code started from a desktop launcher
 often has no `nvm` or Homebrew `PATH` (measured: the spawn fails with `ENOENT`). The reporter uses the file named

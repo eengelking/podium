@@ -36,7 +36,7 @@ server owner makes a token for each person.
 - Anyone with the admin secret can open Admin and make tokens, so the secret still has to be guarded
   (`podman inspect` shows it).
 - Sessions live in memory, so a restart locks Admin.
-- There are no accounts, and a person cannot see or rotate their own token. (The built-in Administrators
+- There are no accounts, and a person cannot see or rotate their own token; an Admin does (there can be several). (The built-in Administrators
   group, #172, later let its members open Admin with their own name and token. See 30.)
 - Tokens still travel over plain HTTP: a network-reachable server needs a trusted network or a TLS proxy.
 - Any valid credential can delete any session.

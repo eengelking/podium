@@ -319,7 +319,7 @@ A file's diff is source code. Reads are open by design, so this is the one read 
 - A name is 1 to 48 characters and a group name 1 to 24, with no control characters, both unique
   case-insensitively.
 - The name `Admin` is reserved: it is the owner of a report made with the admin secret.
-- A person sees no one's token, including their own. Only the owner rotates it.
+- A person sees no one's token, including their own. Only an Admin rotates it, and there can be several.
 
 ## Which reporters the server knows (#142)
 
