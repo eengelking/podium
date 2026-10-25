@@ -26,6 +26,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **`vite` 8.3.5 and `dotenv` 18.0.8.** Patch updates to the UI build tool (with its `postcss` and `rolldown`) and to the `.env` reader, taken from Dependabot's #690 on top of current `development`. No behavior changes.
 
+- **`jsdom` 30.1.3 for the frontend tests.** A dev-only update from 24.1.3 (six major versions) to the DOM the frontend tests run in; the image and the product are unchanged. `jsdom` 30 needs Node 22.22, 24.15 or 26 and later, which CI's Node 24 satisfies. Taken from Dependabot's #691 on top of current `development`. No behavior changes.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
