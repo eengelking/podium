@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile } from './machine.ts'
+import { cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, machineNamePath, parseMachineNameFile, localHostNameOf } from './machine.ts'
 
 describe('machine', () => {
   test('trailing slashes are dropped from a URL, in linear time (#362)', () => {
@@ -111,5 +111,26 @@ describe('machine', () => {
     }
     expect(new Set(draws).size).toBeGreaterThan(40)
     expect(newMachineId(() => platformRandom(undefined))).toMatch(/^[0-9a-f]{12}$/)
+  })
+})
+
+describe('the pinned machine name (#715)', () => {
+  test('machineNamePath sits beside the id file', () => {
+    expect(machineNamePath('/cfg', '/Users/dev')).toBe('/cfg/podium-machine-name')
+    expect(machineNamePath(undefined, '/Users/dev')).toBe('/Users/dev/.claude/podium-machine-name')
+    expect(machineNamePath('relative/cfg', undefined)).toBeNull()
+    expect(machineNamePath(undefined, undefined)).toBeNull()
+  })
+
+  test('parseMachineNameFile takes the first line as a short host name, null when empty', () => {
+    expect(parseMachineNameFile('Eds-MacBook-Pro-14\n')).toBe('Eds-MacBook-Pro-14')
+    expect(parseMachineNameFile('devbox.local\nsecond')).toBe('devbox')
+    expect(parseMachineNameFile('  \n')).toBeNull()
+    expect(parseMachineNameFile(null)).toBeNull()
+  })
+
+  test('localHostNameOf is the same cleaning as hostOf, for scutil output', () => {
+    expect(localHostNameOf('Eds-MacBook-Pro-14\n')).toBe('Eds-MacBook-Pro-14')
+    expect(localHostNameOf('')).toBeNull()
   })
 })

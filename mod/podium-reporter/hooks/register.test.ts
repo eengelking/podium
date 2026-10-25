@@ -49,6 +49,8 @@ interface World {
   gitAt: Record<string, Record<string, string> | null>
   /** The commit the mod's own folder is a dev checkout at (#400); null is an installed copy, which has no repository. */
   devBuild: { value: string | null }
+  /** What `hostname` and macOS's `scutil --get LocalHostName` print; `local` null is a machine with no `scutil` (it exits 1). */
+  hosts: { hostname: string; local: string | null }
   /** Every status line the plugin set. */
   statuses: (string | undefined)[]
   /** What the server's reply says about itself: its build (#400). */
@@ -91,6 +93,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const place: World['place'] = { cwd: CWD, root: CWD, repo: { root: '/Users/dev/app', remote: 'git@github.com:acme/app.git', internal: false, name: null } }
   const gitAt: World['gitAt'] = {}
   const devBuild: World['devBuild'] = { value: null }
+  const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
   const fetched: World['fetched'] = []
@@ -141,7 +144,8 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
       const out = here?.[e.argv.slice(1).join(' ')]
       return { value: { exitCode: out === undefined ? 128 : 0, stdout: out ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    if (e.argv[0] === 'hostname') return { value: { exitCode: 0, stdout: 'Devs-MBP.local\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'hostname') return { value: { exitCode: 0, stdout: hosts.hostname, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (e.argv[0] === 'scutil') return { value: { exitCode: hosts.local === null ? 1 : 0, stdout: hosts.local ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     return { value: { exitCode: e.argv[1] === 'rev-parse' || e.argv[1] === 'status' ? 0 : 1, stdout: GIT[e.argv.slice(1).join(' ')] ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('http.fetch', (_$, e) => {
@@ -189,7 +193,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -807,6 +811,55 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)
     expect(w.posts[0]!.machine!.id).toMatch(/^[0-9a-f]{12}$/)
+  })
+
+  const NAME_FILE = '/Users/dev/.claude/podium-machine-name'
+
+  test('on a Mac the name is LocalHostName, not `hostname`, which follows the network and can read "Mac" (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on)
+    mock.env(on, { HOME: '/Users/dev' })
+    w.hosts.hostname = 'Mac\n'
+    w.hosts.local = 'Eds-MacBook-Pro-14\n'
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.name).toBe('Eds-MacBook-Pro-14')
+  })
+
+  test('the name is kept in a shared file, so a load started after the host name changed reports the first name (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, {}, { [NAME_FILE]: 'Eds-MacBook-Pro-14\n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    w.hosts.hostname = 'Mac\n'
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.name).toBe('Eds-MacBook-Pro-14')
+    expect(w.ran.some((argv) => argv[0] === 'hostname')).toBe(false)
+  })
+
+  test('the first name read is written to the shared file beside the id file, under CLAUDE_CONFIG_DIR when set (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on)
+    mock.env(on, { HOME: '/Users/dev', CLAUDE_CONFIG_DIR: '/cfg' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.name).toBe('Devs-MBP')
+    expect(w.files.text['/cfg/podium-machine-name']!.trim()).toBe('Devs-MBP')
+  })
+
+  test('a junk name file is ignored and the live name is used and written over it (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, {}, { [NAME_FILE]: '   \n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.name).toBe('Devs-MBP')
+    expect(w.files.text[NAME_FILE]!.trim()).toBe('Devs-MBP')
+  })
+
+  test('where the name file cannot be used the live name is reported as before (#715)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, { machineId: 'abcdef012345' })
+    mock.env(on, { HOME: '/Users/dev' })
+    w.files.broken = true
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine).toEqual({ name: 'Devs-MBP', id: 'abcdef012345' })
   })
 
   test('without a userName nothing about the machine is read or sent', async ($, on) => {

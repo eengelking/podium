@@ -59,7 +59,7 @@ import { findConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
-import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
+import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, localHostNameOf, parseMachineNameFile, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from './machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from './protocol.ts';
 import { isRecordingGrant } from './transport.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
@@ -784,6 +784,35 @@ async function machineId($: Engine): Promise<string> {
 }
 
 /**
+ * The machine's short host name, pinned (#715). `hostname` follows the network on a Mac with no `HostName` set (a
+ * DHCP or reverse-DNS answer such as `Mac`, or the stable `LocalHostName`), and can change on Linux with a DHCP
+ * hostname or a recreated container, so one machine showed two names. The first name read is kept in
+ * `podium-machine-name` beside the id file and every later load reports it. Where the file cannot be used, the live
+ * name is reported as before. Delete the file to take a new name.
+ */
+async function machineName($: Engine): Promise<string | null> {
+  const path = machineNamePath(
+    await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
+    await attempt(() => $.env.get('HOME'), undefined),
+  );
+  const pinnedName = async () => (path ? parseMachineNameFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
+  const pinned = await pinnedName();
+  if (pinned) return pinned;
+  const run = async (argv: string[]) => {
+    const res = await $.process.run(argv, { timeoutMs: 2000 });
+    return res.exitCode === 0 ? res.stdout : null;
+  };
+  // macOS first: LocalHostName is the Sharing name and does not follow the network. A missing `scutil` rejects.
+  const live =
+    (await attempt(async () => localHostNameOf(await run(['scutil', '--get', 'LocalHostName'])), null)) ??
+    (await attempt(async () => hostOf(await run(['hostname'])), null));
+  if (!live || !path) return live;
+  await attempt(() => $.fs.write(path, `${live}\n`), undefined);
+  // Two loads starting together both write; each reports whichever name the file ended with, as machineId does.
+  return (await pinnedName()) ?? live;
+}
+
+/**
  * This machine's short host name and the random id the mod keeps for it in its own store (made on first
  * use). Read only when a userName is set: an unnamed reporter sends nothing that identifies the machine.
  */
@@ -792,13 +821,7 @@ async function readMachine($: Engine): Promise<MachineInfo | null> {
   try {
     const id = await machineId($);
     // The host name and the OS at once: session.start waits on both, and each can take a process's timeout.
-    const [host, os] = await Promise.all([
-      attempt(async () => {
-        const res = await $.process.run(['hostname'], { timeoutMs: 2000 });
-        return res.exitCode === 0 ? hostOf(res.stdout) : null;
-      }, null),
-      readOs($),
-    ]);
+    const [host, os] = await Promise.all([machineName($), readOs($)]);
     return machineInfo(host, id, os);
   } catch (err) {
     record($, 'machine', err);

@@ -22,7 +22,9 @@ secret is replaced with `[redacted]` before it is sent. Podium does not read who
 | The model's thinking | Never |
 
 Once `userName` is set, each report carries that name, the machine's short host name and a random id the mod keeps for
-this machine. Everyone who can open the console sees them. Podium never reads your operating system user name or
+this machine. The mod keeps the host name it first read in `podium-machine-name` in the Claude config directory, next
+to the id, so one machine keeps one name when the network changes the name your system reports. If the name is wrong,
+delete that file and the next session reads it again. Everyone who can open the console sees them. Podium never reads your operating system user name or
 `git config` for this.
 
 The name shown on a session comes from the token that sent it, not from `userName`. The server checks that the two match,

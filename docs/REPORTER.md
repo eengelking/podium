@@ -282,10 +282,12 @@ put on record:
 **Only with `userName`:**
 
 - That name.
-- Which machine the session runs on: its short host name (what `hostname` prints, up to the first dot) and a
+- Which machine the session runs on: its short host name (on a Mac `scutil --get LocalHostName`, else what `hostname` prints, up to the first dot) and a
   random 12-character id. The mod makes the id the first time and keeps it in one file
   (`~/.claude/podium-machine-id`, or under `CLAUDE_CONFIG_DIR` when that is set). Two machines with the same
-  host name stay apart, and every copy of the mod on a machine reports the same id.
+  host name stay apart, and every copy of the mod on a machine reports the same id. The name is pinned the
+  same way, in `podium-machine-name` beside the id file, so a name that changes with the network (#715) does not
+  split one machine into two. Delete that file to take the machine's current name.
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does.
 - The id is random, not read from the hardware. The operating system user name and `git config` are never

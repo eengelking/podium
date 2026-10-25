@@ -14,7 +14,10 @@ order: 21
 (decision 20), not by the `userName` a report carries.
 
 - A named reporter also sends `machine`: the short host name and a random 12-hex id. The mod makes the id
-  once and keeps it in `podium-machine-id` in the Claude config directory (#267).
+  once and keeps it in `podium-machine-id` in the Claude config directory (#267). It also keeps the host name it
+  first read in `podium-machine-name` beside it, because `hostname` follows the network on a Mac and a DHCP
+  hostname or a recreated container changes it on Linux, so one machine showed two names (#715). On macOS the
+  name is `scutil --get LocalHostName` when that works, else `hostname`.
 - Bands, ordering and the spend chart are computed in the browser from live sessions. The server adds only
   the machine, each owner's group and today's spend per owner.
 - "Me" is picked in the browser and kept in `localStorage`.
@@ -36,6 +39,8 @@ order: 21
 - A person whose sessions have all ended has no band, though today's spend still lists them.
 - The id is per config directory, so a copied `~/.claude` makes two machines share one id (the host name
   still differs in most cases).
+- A machine that is really renamed keeps its pinned name until `podium-machine-name` is deleted. The name is
+  not an identity (the id is), so showing the first one is the lesser harm than a name that flips.
 - The mod now writes one file of its own outside its store. A machine that had two ids (an inline copy and
   the marketplace install) settles on one, so its other row ends with that row's last session.
 - Group changes in Admin reach a live session's card with its next report rather than at once.

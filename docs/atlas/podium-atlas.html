@@ -548,7 +548,7 @@ const N=[
  {id:"collect",l:"reporter",col:"r",row:3,name:"Collectors",role:"Git, machine, build, models",file:"git.ts · machine.ts · build.ts",
   what:"Small readers for the facts that are not in hooks: branch and ahead/behind counts, changed files, host name, OS, build and model details.",
   why:"The wall shows which branch or worktree each session works in, and, when the reporter has a name set, which machine it runs on, without reading transcripts.",
-  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, with no contents (a diff is a separate opt-in).","The machine id is a random 12-character string kept in <code>podium-machine-id</code> under <code>CLAUDE_CONFIG_DIR</code> when set, else <code>~/.claude</code>. The OS user name is never read."]},
+  how:["Git is polled every 10 s. Changed files are paths with status and +/- counts, at most 200, with no contents (a diff is a separate opt-in).","The machine id is a random 12-character string kept in <code>podium-machine-id</code> under <code>CLAUDE_CONFIG_DIR</code> when set, else <code>~/.claude</code>. The machine's name is pinned in <code>podium-machine-name</code> beside it, so a name that follows the network cannot split one machine in two. The OS user name is never read."]},
  {id:"helper",l:"reporter",col:"r",row:4,name:"TLS helper",role:"Holds the client certificate",file:"hooks/helper.mjs",
   what:"A small Node script the mod starts once per session. It reads the reporter config file, makes the mutual-TLS connection and listens on a Unix socket.",
   why:"The mod's fetch cannot present a client certificate or pin a CA. A helper keeps <code>Transport</code> unchanged: the same fetch just gets a <code>socketPath</code>.",
@@ -1174,7 +1174,8 @@ const STORES=[
   ["/data/tls","ca.crt, ca.key, serving.crt, serving.key, previous/. Keys at mode 0600. Container mode mounts ~/.podium/tls here; standalone mode keeps it in ~/.podium/data/tls beside the database."],
   ["~/.podium/config.env","podiumctl settings, including PODIUM_TOKEN."],
   ["~/.podium/reporter-config-*.pem","A person's key, certificate and CA. Podium never keeps the key; this file is the only copy."],
-  ["$CLAUDE_CONFIG_DIR/podium-machine-id (else ~/.claude/)","The random machine id the mod generates once."]]},
+  ["$CLAUDE_CONFIG_DIR/podium-machine-id (else ~/.claude/)","The random machine id the mod generates once."],
+  ["$CLAUDE_CONFIG_DIR/podium-machine-name (else ~/.claude/)","The machine's short host name, as first read; delete it to take a new one."]]},
  {n:"In the browser",lead:"Convenience only. Nothing sensitive is stored.",rows:[
   ["Preferences","Theme, collapsed panes, pinned cards, people ordering, the update interval and an Admin reports setting."],
   ["Admin tokens","Held in component state until saved. Never written to storage."],

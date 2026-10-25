@@ -49,6 +49,25 @@ export function parseMachineIdFile(text: string | null | undefined): string | nu
   return isMachineId(id) ? id : null;
 }
 
+/** The file name the machine's name is pinned under, beside the id file (#715). */
+export const MACHINE_NAME_FILE = 'podium-machine-name';
+
+/** Where the pinned name lives: the id file's folder, so both follow `CLAUDE_CONFIG_DIR`. Null when the id file has no place. */
+export function machineNamePath(configDir: string | undefined, home: string | undefined): string | null {
+  const id = machineIdPath(configDir, home);
+  return id ? `${id.slice(0, -MACHINE_ID_FILE.length)}${MACHINE_NAME_FILE}` : null;
+}
+
+/** The name the pinned file holds: its first line as a short host name. Null when empty. */
+export function parseMachineNameFile(text: string | null | undefined): string | null {
+  return hostOf(text);
+}
+
+/** The name `scutil --get LocalHostName` printed on macOS, cleaned as a host name is (#715). Null when empty. */
+export function localHostNameOf(stdout: string | null | undefined): string | null {
+  return hostOf(stdout);
+}
+
 /** A generator with the platform's `getRandomValues`, when the sandbox has one. */
 export interface RandomSource {
   getRandomValues?: (a: Uint32Array) => Uint32Array;
