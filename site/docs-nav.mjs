@@ -1,13 +1,15 @@
 // What the site shows from docs/ and where. This is the one place a doc page is placed in the menu (#688), until every page
 // carries its own `title`, `description` and `group` in frontmatter (#696). A page that is not listed here is not published.
-// `file` is the path under docs/; `slug` is the page's address on the site.
+// `file` is the path under docs/; `slug` is the page's address on the site; `label` is its name in the menu and in links that name it.
+// `title` and `description` are optional and replace what the build derives from the doc's first heading and first paragraph, for a doc
+// where that reads badly in a menu or a search result.
 export const GROUPS = [
   {
     label: "Getting started",
     items: [
       { file: "INTRODUCTION.md", slug: "introduction", label: "Introduction" },
       { file: "USER_GUIDE.md", slug: "user-guide", label: "User guide" },
-      { file: "DEMO.md", slug: "demo", label: "Demo" },
+      { file: "DEMO.md", slug: "demo", label: "Demo", description: "A script and a paste-in prompt for showing Podium to other people, built to be screen-recorded." },
     ],
   },
   {
@@ -16,13 +18,13 @@ export const GROUPS = [
       { file: "SERVER.md", slug: "server", label: "Server" },
       { file: "REPORTER.md", slug: "reporter", label: "Reporter" },
       { file: "MESSAGING.md", slug: "messaging", label: "Messaging" },
-      { file: "REPLAY.md", slug: "replay", label: "Session replay" },
+      { file: "REPLAY.md", slug: "replay", label: "Session replay", description: "Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it." },
     ],
   },
   {
     label: "Reference",
     items: [
-      { file: "SPEC.md", slug: "spec", label: "Specification" },
+      { file: "SPEC.md", slug: "spec", label: "Specification", title: "Specification", description: "The build spec: what Podium must do, its intended behavior and requirements." },
       // These two are served as they are (docs/standards/ is generated from the app, so the site never rewrites it) and shown inside
       // a page of the site, so the menu and the header stay around them. See EMBEDS.
       { slug: "design-standards", label: "Design standards" },

@@ -1445,8 +1445,8 @@ standards pages do not change. Search is Pagefind over the docs pages only;
 site (`/design-standards/`, `/architecture-atlas/`), so the header and menu stay around it, and each is also reachable on its own page.
 The standards load the app's stylesheets as `../../frontend/src/fleet/*.css`, so the site serves them at `/docs/standards/` and
 copies those stylesheets, from the same version, to `/frontend/src/fleet/`; the pages themselves are not changed. The atlas is at
-`/atlas-map/`, because `/atlas/` is the page built from `ATLAS.md`. The site loads its two fonts from Google Fonts, as the
-console's mockups do.
+`/atlas-map/`, because `/atlas/` is the page built from `ATLAS.md`. The site serves its two fonts itself (Fontsource, latin subset, SIL OFL), so a visitor's browser does not contact Google for them. The
+standards and atlas pages are served unchanged, so their frames still load fonts from Google Fonts.
 
 *Cost.* The version dropdown, the combined build and the link rewrite are ours to write and keep. A tag's `docs/` is built
 with today's theme, so an old version looks like the current site and not like it did. A tag whose docs do not build

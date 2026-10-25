@@ -667,7 +667,7 @@ no live counts) and `disabledLevels: ["none"]` (the server refuses a proposal of
 `POST reporters/:from/peers/propose`. The Admin's `GET reporters/:key/peers` covers every pair of the owner's reporters
 and returns the owner's `trust`, so the Grid needs one read. `components/PeerLimits.tsx` is the limit rows for Admin >
 Settings and My reporters > Defaults: the ranges and error words mirror `peerSettings.ts` (its test imports the server
-file and compares), and the caller supplies each key's maximum, the state line, the Use the Admin's limit action and
+file and compares), and the caller supplies each key's maximum, the state line, the "Use the Admin's limit" action and
 what a typed value means, so the one component draws both.
 
 **Traffic (#417).** The page is a flag on `FleetApp`, like My reporters, with no wall, rail or side panel, and no keys
@@ -730,8 +730,8 @@ named by their SPEC keys (`TlsSettingsStore`). `adminRouter.ts` serves `GET` and
 **CA rotation (#588).** `tlsRotation.ts` has `TrustStore`, the one list of trusted CAs: `ca.crt`, and during an overlap
 `previous-ca.crt`, `cross.crt` and `rotation.json`. The listener's `ca`, the renewer's `setSecureContext`, `trustedIssuers`
 (the certificate check on each request and the renewal check) and the CA in a config file all read it, so a certificate
-cannot pass TLS and then be refused for its issuer. It ignores a cross certificate that is not the current CA's key signed
-by the previous CA, which is what a rotation that stopped part-way leaves. `rotateCa` builds the new CA, the cross
+cannot pass TLS and then be refused for its issuer. It ignores a cross certificate unless the previous CA signed it for the
+current CA's key, which is what a rotation that stopped part-way leaves. `rotateCa` builds the new CA, the cross
 certificate and the serving certificate in a `.new-*` folder and moves them in, the overlap files first and `ca.key` after.
 `ServingRenewer.exclusive` runs a rotation and a serving renewal one at a time. `startTls` keeps the open TLS sockets, since
 narrowing the client `ca` list does not drop one that is already authorized: a hard cutover destroys every socket that held
@@ -839,8 +839,7 @@ A person's row opens `SpendBreakdown.tsx` (#482), which reads `reports/spend/tod
 
 **Reporting (#484)**
 
-Files: `server/src/fleet/rollups.ts`, `reports.ts`, `reportRoutes.ts`, `reportDeps.ts`, `frontend/src/fleet/admin/
-reportsApi.ts`, `useReport.ts`, `ReportParts.tsx`, `ReportPages.tsx`, `scripts/podium-seed-history.ts`.
+Files: `server/src/fleet/rollups.ts`, `reports.ts`, `reportRoutes.ts`, `reportDeps.ts`, `frontend/src/fleet/admin/reportsApi.ts`, `useReport.ts`, `ReportParts.tsx`, `ReportPages.tsx`, `scripts/podium-seed-history.ts`.
 
 - The reports read daily rollups (`usage_daily`, `sessions_daily`, `failures_daily`, `fleet_daily`, migration 22), not the
   detail tables, so they reach back past the 30 days sessions and events are kept. `Fleet.retain()` calls
@@ -890,8 +889,8 @@ mod's logs stay on its machine.
 
 - Callers pass named fields and never a body. A field whose name contains a word such as token, secret,
   authorization, cookie, prompt, answer, activity, text or body is dropped.
-- Every string has person tokens (`pdm_...`), the admin secret, the ship header values and a ship URL's password
-  replaced with `[redacted]`, control characters removed and a 500-character cap.
+- In every string, person tokens (`pdm_...`), the admin secret, the ship header values and a ship URL's password
+  are replaced with `[redacted]`, control characters are removed, and a 500-character cap applies.
 - After the exact-match replacement, `scrubPatterns` replaces common secret shapes in every string, the message
   and event included:
   - `Bearer` and `Basic` credentials.
@@ -1290,7 +1289,7 @@ the findings comment on #411.
 | Windows: 200,000 for haiku, 1,000,000 for others | **Wrong for the current Haiku.** Haiku 5.5 has a 1M window; only Haiku 4.5 (and older) has 200K. `windowOf` uses 200K only for `haiku-4`, `haiku-3`, `claude-3` ids. | `claude-api` skill, model table cached 2026-10-06 |
 | Bash exit code in an error result | No field: `tool.call` error results carry `text` ("Exit code 1 ..."); the reporter parses it. | `BuiltinToolResults.Bash` has no exit code |
 | #206: plan text and path on ExitPlanMode's `tool.call` | **Yes.** The input carries `plan` and `planFilePath`, though the declared type lists only `allowedPrompts`; `classic.PermissionRequest`'s `tool_input` has the same two. | recorded hook inputs |
-| #206: Esc told apart from plan feedback | **Yes, by the text.** Both are `isError`; feedback reads "... To tell you how to proceed, the user said:\n<feedback>", Esc "... STOP what you are doing ...". | recorded results |
+| #206: Esc told apart from plan feedback | **Yes, by the text.** Both are `isError`; feedback reads "... To tell you how to proceed, the user said:\n`<feedback>`", Esc "... STOP what you are doing ...". | recorded results |
 | #206: the engine ends a waiting PermissionRequest hook when the terminal answers first | **No.** `next.signal` never aborted; the hook held on for 60 s, past the command's end. The only signal is the call's `tool.call` resolving, so a tool ask stays open while a terminal-allowed command runs. | two Bash prompts answered "Yes" in the terminal |
 | #206: `$.http.fetch` time limit | **30 s**: "no complete answer within 30000ms". Held requests wait 20 s at most. | recorded rejection |
 | #206: `tool.check` before a prompt | Carries `tool_use_id`; resolves to `ask` 3 to 11 ms before `classic.PermissionRequest` fires (Bash and ExitPlanMode). The managed-setup case, where no PermissionRequest fires, is **unverified**. | recorded timings |

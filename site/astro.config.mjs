@@ -55,15 +55,6 @@ export default defineConfig({
         }),
       ],
       head: [
-        { tag: "link", attrs: { rel: "preconnect", href: "https://fonts.googleapis.com" } },
-        { tag: "link", attrs: { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" } },
-        {
-          tag: "link",
-          attrs: {
-            rel: "stylesheet",
-            href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap",
-          },
-        },
         { tag: "meta", attrs: { property: "og:site_name", content: "Podium" } },
         { tag: "meta", attrs: { property: "og:image", content: `${SITE_ORIGIN}/og.png` } },
         { tag: "meta", attrs: { property: "og:image:alt", content: "Podium: every Claude Code session on one screen" } },

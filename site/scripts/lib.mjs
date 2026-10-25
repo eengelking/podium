@@ -63,6 +63,41 @@ export function plain(text) {
   return out.replaceAll(/\s+/g, " ").trim();
 }
 
+/**
+ * The doc without its hand-written contents list, which the site's table of contents replaces: a "Contents:" line and the list under
+ * it, or a "## Contents" section up to the next "## " heading. A doc read on GitHub keeps its list.
+ */
+export function withoutContents(md) {
+  const out = [];
+  let fence = "";
+  let skip = "";
+  for (const line of md.split("\n")) {
+    const t = line.trimStart();
+    const marker = t.startsWith("```") ? "```" : t.startsWith("~~~") ? "~~~" : "";
+    if (marker && (!fence || fence === marker)) fence = fence ? "" : marker;
+    if (!fence && !marker) {
+      if (skip === "list") {
+        const item = /^\s*([-*+]|\d+\.)\s/.test(line) || /^\s{2,}\S/.test(line) || line.trim() === "";
+        if (item) continue;
+        skip = "";
+      } else if (skip === "section") {
+        if (line.startsWith("## ")) skip = "";
+        else continue;
+      }
+      if (!skip && line.trim() === "Contents:") {
+        skip = "list";
+        continue;
+      }
+      if (!skip && line.trim() === "## Contents") {
+        skip = "section";
+        continue;
+      }
+    } else if (skip) continue;
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
 /** The first `# ` heading outside a code block, or "". */
 export function titleOf(md) {
   let title = "";
@@ -133,10 +168,45 @@ export function rewriteTarget(target, ctx) {
   return `https://github.com/${REPO}/${kind}/${ctx.ref}/${repoPath}${hash}`;
 }
 
+/**
+ * The page name to show for a link whose text is just the file it points at, such as [SERVER.md](SERVER.md#auth-token): a file name
+ * reads well on GitHub and badly on the site. Null when the text is anything else, or the target is not a page.
+ */
+function fileLinkLabel(text, target, ctx) {
+  const bare = text.replaceAll("`", "").trim();
+  if (!bare.endsWith(".md") || target.startsWith("#") || hasScheme(target) || target.startsWith("/")) return null;
+  const rel = target.includes("#") ? target.slice(0, target.indexOf("#")) : target;
+  const full = path.posix.normalize(path.posix.join("docs", ctx.fromDir ?? "", rel));
+  const inDocs = full.startsWith("docs/") ? full.slice(5) : null;
+  const same = path.posix.basename(full) === path.posix.basename(bare);
+  return same && inDocs !== null ? (ctx.labels.get(inDocs) ?? null) : null;
+}
+
+/** [`SERVER.md`](SERVER.md) in a line: the file name is in a code span, so the link scan cannot see it; give such a link the page's name. */
+function codeFileLinks(line, ctx) {
+  if (!ctx.labels) return line;
+  let out = "";
+  let from = 0;
+  let at = line.indexOf("[`");
+  while (at !== -1) {
+    const close = line.indexOf("`](", at + 2);
+    const end = close === -1 ? -1 : line.indexOf(")", close + 3);
+    if (end === -1) break;
+    const text = line.slice(at + 2, close);
+    const label = text.includes("`") ? null : fileLinkLabel(text, line.slice(close + 3, end), ctx);
+    if (label !== null) {
+      out += `${line.slice(from, at)}[${label}](${line.slice(close + 3, end)})`;
+      from = end + 1;
+    }
+    at = line.indexOf("[`", label === null ? at + 2 : from);
+  }
+  return out + line.slice(from);
+}
+
 /** Rewrites every `[text](target)` and `![alt](target)` outside code in a doc. */
 export function rewriteLinks(md, ctx) {
   return mapOutsideFences(md, (line) =>
-    mapOutsideInlineCode(line, (part) => {
+    mapOutsideInlineCode(codeFileLinks(line, ctx), (part) => {
       let out = "";
       let from = 0;
       let at = part.indexOf("](");
@@ -154,7 +224,10 @@ export function rewriteLinks(md, ctx) {
         const space = inner.search(/\s/);
         const target = space === -1 ? inner : inner.slice(0, space);
         const title = space === -1 ? "" : inner.slice(space);
-        out += part.slice(from, start) + rewriteTarget(target, ctx) + title + ")";
+        const open = part.lastIndexOf("[", at);
+        const label = open >= from && ctx.labels ? fileLinkLabel(part.slice(open + 1, at), target, ctx) : null;
+        const head = label === null ? part.slice(from, start) : `${part.slice(from, open + 1)}${label}](`;
+        out += head + rewriteTarget(target, ctx) + title + ")";
         from = end;
         at = part.indexOf("](", from);
       }
@@ -173,22 +246,22 @@ export function frontmatter(fields) {
 
 /**
  * Builds one page's Markdown for the site from a doc.
- * @param {{ file: string, slug: string, label: string }} page
+ * @param {{ file: string, slug: string, label: string, title?: string, description?: string }} page
  * @param {string} md the doc's text
- * @param {{ base: string, ref: string, slugs: Map<string, string>, editBase: string, lastUpdated?: string, older?: boolean }} ctx
+ * @param {{ base: string, ref: string, slugs: Map<string, string>, labels?: Map<string, string>, editBase: string, lastUpdated?: string, older?: boolean }} ctx
  */
 export function preparePage(page, md, ctx) {
-  const title = titleOf(md) || page.label;
-  const body = rewriteLinks(removeTitle(md), { ...ctx, fromDir: path.posix.dirname(page.file) === "." ? "" : path.posix.dirname(page.file) });
+  const title = page.title || titleOf(md) || page.label;
+  const body = rewriteLinks(removeTitle(withoutContents(md)), { ...ctx, fromDir: path.posix.dirname(page.file) === "." ? "" : path.posix.dirname(page.file) });
   const head = frontmatter({
     title,
-    description: descriptionOf(md),
+    description: page.description || descriptionOf(md),
     editUrl: ctx.editBase ? `${ctx.editBase}docs/${page.file}` : undefined,
     lastUpdated: ctx.lastUpdated,
     // Starlight shows its banner slot only when a page has this field; the site's Banner says which version it is.
     banner: ctx.older ? { content: "Older version" } : undefined,
   });
-  return { title, description: descriptionOf(md), content: head + body.replace(/^\n+/, "") };
+  return { title, description: page.description || descriptionOf(md), content: head + body.replace(/^\n+/, "") };
 }
 
 function removeTitle(md) {
@@ -262,11 +335,12 @@ export function prepareDocs(opts) {
   fs.mkdirSync(contentDir, { recursive: true });
   for (const dir of STATIC_DIRS) fs.rmSync(path.join(publicDir, dir.to), { recursive: true, force: true });
   const slugs = new Map(PAGES.map((p) => [p.file, p.slug]));
+  const labels = new Map(PAGES.map((p) => [p.file, p.label]));
   const written = [];
   for (const page of PAGES) {
     const file = path.join(docsDir, page.file);
     if (!fs.existsSync(file)) continue;
-    const out = preparePage(page, fs.readFileSync(file, "utf8"), { base, ref, slugs, editBase, older: opts.older, lastUpdated: opts.lastUpdatedOf?.(page.file) });
+    const out = preparePage(page, fs.readFileSync(file, "utf8"), { base, ref, slugs, labels, editBase, older: opts.older, lastUpdated: opts.lastUpdatedOf?.(page.file) });
     fs.writeFileSync(path.join(contentDir, `${page.slug}.md`), out.content);
     written.push({ slug: page.slug, label: page.label, group: page.group, title: out.title, description: out.description });
   }

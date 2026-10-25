@@ -1,6 +1,6 @@
 # Gotchas
 
-Sharp edges that are easy to hit, and how to get past them. If something looks wrong, find your symptom here first.
+Sharp edges that are easy to hit when you run Podium or work on it, and how to get past them. If something looks wrong, find your symptom here first.
 
 Every entry has the same three parts:
 
@@ -525,35 +525,35 @@ The feature is in [REPLAY.md](REPLAY.md).
 
 ### Record says "This session's reporter does not allow recording"
 
-**You see:** you chose a session and pressed Start recording, and the dialog or the layer says the reporter does not
+**You see:** You chose a session and pressed Start recording, and the dialog or the layer says the reporter does not
 allow recording. Nothing is recorded.
 
-**Why:** the third yes answer is the reporter's `sessionRecording` option on the machine the session runs on, and it is
+**Why:** The third yes answer is the reporter's `sessionRecording` option on the machine the session runs on, and it is
 off by default. The browser cannot turn it on, on purpose.
 
-**Do:** on that machine, run `/plugin configure podium-reporter@eengelking-marketplace` and turn on **Allow session
+**Do:** On that machine, run `/plugin configure podium-reporter@eengelking-marketplace` and turn on **Allow session
 recording**, then start the recording again. Capture begins at the next reply, so allow a few seconds.
 
 ### A permission prompt or question I answered in the terminal is not in the replay
 
-**You see:** the replay shows the tool call and its result, but no "Allowed a tool once" or "Answered a question" row.
+**You see:** The replay shows the tool call and its result, but no "Allowed a tool once" or "Answered a question" row.
 
-**Why:** the replay marks only answers and approvals sent from Podium. The mod cannot see a permission prompt that was
+**Why:** The replay marks only answers and approvals sent from Podium. The mod cannot see a permission prompt that was
 answered in the terminal, and a question's result arrives as an object it cannot read as text.
 
-**Do:** read the tool's result: it shows what ran and whether it was refused. A decision row means someone answered from
+**Do:** Read the tool's result: it shows what ran and whether it was refused. A decision row means someone answered from
 Podium.
 
 ### After `/clear` the recording is on a different session
 
-**You see:** after `/clear` the old session's recording reads stopped, with no one named, and the new session shows it
+**You see:** After `/clear` the old session's recording reads stopped, with no one named, and the new session shows it
 recording.
 
 **Why:** `/clear` gives the session a new id. The server carries a running recording over to the new session, with the same
 starter and start time, and stops the old one. The owner's consent is not carried: the new session's own report must state
 that `sessionRecording` is on.
 
-**Do:** replay the first part from the old session's page and the rest from the new one. If the new session says the
+**Do:** Replay the first part from the old session's page and the rest from the new one. If the new session says the
 reporter does not allow recording, turn the option on for that machine.
 
 ## Developing
@@ -682,7 +682,7 @@ loop. The activity feed (#118) has to see the text chunks, so for a watched loop
 with `for await`, yields each chunk on as it came, and then takes the result from `await stream.result`. Only a watched
 loop takes this path. Every other step still uses `yield* next(e)`.
 
-**Do:** Do not forget the last step, `await stream.result`. The same applies to a test that drives `$.turn.step` by hand:
+**Do:** Do not forget `await stream.result` after the loop. The same applies to a test that drives `$.turn.step` by hand:
 read it with `next()` until `done`, as `stepOnce` in `register.test.ts` does.
 
 ### A mod fix did not reach anyone

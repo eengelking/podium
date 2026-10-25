@@ -1,6 +1,7 @@
 # User guide
 
-How to set up Podium, read the dashboard and fix common problems.
+How to set up Podium, read the dashboard and fix common problems. It is for anyone who runs Claude Code sessions and
+wants to watch them, and for the person who runs the server, whose part is in [Admin](#admin).
 
 Podium shows every Claude Code session on your machine in one browser tab. It watches. It never sends a prompt to a
 session, stops an agent or changes anything, unless you turn on [answering from Podium](#answering-a-session-from-podium).
@@ -88,7 +89,7 @@ If someone else runs the server, ask them for your own token and enter it as `to
 (see [Admin](#admin)). To run one server for several people, see "Several people on one Podium" in
 [SERVER.md](SERVER.md#run-it-with-podiumctl). It covers the bind address, the firewall, the names the server accepts
 (`PODIUM_ALLOWED_HOSTS`, for reaching it by a name rather than an address) and what everyone who can reach the server
-can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](SERVER.md#behind-a-reverse-proxy), so
+can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](SERVER.md#behind-a-reverse-proxy), so that
 Admin's log shows each person's address and one person's wrong tries do not lock everyone out.
 
 To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine).
@@ -221,7 +222,7 @@ the browser, and the browser draws it.
 - The browser's CPU, memory and GPU are used by each open tab.
 
 As one example, Chrome on an M5 MacBook Pro used about 24% GPU with ten simulated sessions and a hundred agents on
-screen, against about 15% for a plain page. That is one machine and one browser, not a promise.
+screen, against about 15% for a plain page. That is one machine and one browser, so treat it as an example.
 `scripts/gpu-sample.sh` (macOS) measures your own.
 
 To lower it:
@@ -285,7 +286,7 @@ card to open its orchestrator. You cannot move a card: the state comes from Clau
 - A session with no task list, or with every step done and finished, is listed in a strip pinned to the bottom of the page,
   above the legend. Click the (i) there to see how to get a plan.
 - The board opens with the left and right panels collapsed so the columns get the width. Open either from its edge tab.
-  The board remembers that apart from the fleet page.
+  The board remembers which panels you left open, apart from the fleet page.
 
 ### People
 
@@ -657,7 +658,7 @@ To record and replay:
 4. **Stop recording** ends it and keeps what was recorded. **Open replay** plays it back, oldest first: filter by agent,
    drag the slider, **Jump to next failure**, and **Show older** for a long run. **Delete recording** removes it. Each of
    these asks first.
-5. A session that has ended is reached from History, whose row says "recording kept until <time>", or from Admin >
+5. A session that has ended is reached from History, whose row says "recording kept until `<time>`", or from Admin >
    Settings > Recordings.
 
 What to know:
@@ -955,9 +956,9 @@ flagged:
 - **Remove from list** (in a reporter's details, with a tooltip that says the same) takes a reporter off the list. It
   comes back if it reports again, and its sessions are not touched.
 - To clear out many at once, tick the boxes (the box in the header ticks the page, and **Select all N that match**
-  reaches past it), then **Remove N…**. With a state chosen, **Remove all <state>** beside the search does the same.
+  reaches past it), then **Remove N…**. With a state chosen, **Remove all `<state>`** beside the search does the same.
 - To keep a reporter off the list for good, choose **Ignore…** in its details. It sits beside **Remove from list**, and
-  the dots mean it asks what to ignore before doing anything. Its reports are then turned away, so its sessions stop
+  the … in its name means it asks what to ignore before doing anything. Its reports are then turned away, so its sessions stop
   appearing on the fleet.
 - The **Ignore rules** section after the table shows every rule (a key, an address or a version, with `*` for "anything",
   as in `10.88.*` or `*-sim`). **Remove rule** undoes one.
@@ -1340,7 +1341,7 @@ Add the [VictoriaLogs MCP server](https://github.com/VictoriaMetrics-Community/m
 at the same VictoriaLogs, and ask in plain words ("why were reports rejected in the last hour?"). It runs LogsQL queries
 such as these:
 
-```logsql
+```text
 # Rejected reports in the last hour, counted by reason
 _time:1h {service="podium"} event:="report.rejected" | stats by (reason) count() rejected
 

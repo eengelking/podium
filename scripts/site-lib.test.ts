@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf } from "../site/scripts/lib.mjs";
+import { computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutContents } from "../site/scripts/lib.mjs";
 import { PAGES } from "../site/docs-nav.mjs";
 
 const slugs = new Map<string, string>([
@@ -11,7 +11,12 @@ const slugs = new Map<string, string>([
   ["USER_GUIDE.md", "user-guide"],
   ["atlas/ATLAS.md", "atlas"],
 ]);
-const ctx = { base: "/", ref: "main", fromDir: "", slugs };
+const labels = new Map<string, string>([
+  ["SERVER.md", "Server"],
+  ["USER_GUIDE.md", "User guide"],
+  ["atlas/ATLAS.md", "Atlas tables"],
+]);
+const ctx = { base: "/", ref: "main", fromDir: "", slugs, labels };
 
 describe("plain", () => {
   it("keeps the text of links and drops code, emphasis and strike marks", () => {
@@ -45,6 +50,24 @@ describe("titleOf and descriptionOf", () => {
     const cut = descriptionOf(`# T\n\n${run}`);
     expect(cut.endsWith("…")).toBe(true);
     expect(cut.length).toBeLessThanOrEqual(161);
+  });
+});
+
+describe("withoutContents", () => {
+  it("drops a Contents: line and the list under it, nested items and blank lines included", () => {
+    const md = "Intro.\n\nContents:\n\n- [a](#a)\n  - [b](#b)\n- [c](#c)\n\n## A\n\nText.\n";
+    expect(withoutContents(md)).toBe("Intro.\n\n## A\n\nText.\n");
+  });
+  it("drops a ## Contents section up to the next ## heading, table or list", () => {
+    const md = "# T\n\n## Contents\n\n| # | Decision |\n|---|---|\n| 1 | x |\n\n## One\n\nBody.\n";
+    expect(withoutContents(md)).toBe("# T\n\n## One\n\nBody.\n");
+  });
+  it("keeps a contents list inside a code block and any text that is not one", () => {
+    const md = "```\nContents:\n- a\n```\n\nContents: of the box are listed below.\n\n- real list\n";
+    expect(withoutContents(md)).toBe(md);
+  });
+  it("stops a list at the first line that is not part of it", () => {
+    expect(withoutContents("Contents:\n- a\nNot a list.\n")).toBe("Not a list.\n");
   });
 });
 
@@ -83,6 +106,18 @@ describe("rewriteLinks", () => {
     const out = rewriteLinks('See [guide](USER_GUIDE.md "The guide") and ![shot](images/a.png) and [w](https://x.test/a_(b)).', ctx);
     expect(out).toBe('See [guide](/user-guide/ "The guide") and ![shot](/images/a.png) and [w](https://x.test/a_(b)).');
   });
+  it("names the page when the link text is just the file it points at", () => {
+    expect(rewriteLinks("See [SERVER.md](SERVER.md#auth-token) and [`USER_GUIDE.md`](USER_GUIDE.md).", ctx)).toBe(
+      "See [Server](/server/#auth-token) and [User guide](/user-guide/).",
+    );
+    expect(rewriteLinks("[ATLAS.md](ATLAS.md)", { ...ctx, fromDir: "atlas" })).toBe("[Atlas tables](/atlas/)");
+    expect(rewriteLinks("[docs/SERVER.md](../docs/SERVER.md)", ctx)).toBe("[Server](/server/)");
+  });
+  it("keeps link text that is not a bare file name, or whose file is not a page", () => {
+    expect(rewriteLinks("[the server guide](SERVER.md) and [ISSUES.md](ISSUES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)", ctx)).toBe(
+      "[the server guide](/server/) and [ISSUES.md](https://github.com/eengelking/podium/blob/main/docs/ISSUES.md) and [x.md](https://x.test/x.md) and [SERVER.md](#top)",
+    );
+  });
   it("does not touch code spans or fenced blocks", () => {
     const md = "Use `[a](SERVER.md)` here, then [b](SERVER.md).\n\n```\n[c](SERVER.md)\n```\n\n~~~\n[d](SERVER.md)\n~~~\n";
     const out = rewriteLinks(md, ctx);
@@ -114,6 +149,15 @@ describe("frontmatter and preparePage", () => {
     expect(out.content).not.toContain("# Atlas");
     expect(out.content).toContain("[guide](/user-guide/)");
     expect(out.content).not.toContain("banner");
+  });
+  it("uses a title and description given in the menu over the ones taken from the doc, and hides the contents list", () => {
+    const page = { file: "SPEC.md", slug: "spec", label: "Specification", title: "Specification", description: "What Podium must do." };
+    const out = preparePage(page, "# SPEC: Podium, a long name\n\nContents:\n\n- [a](#a)\n\nFirst paragraph.\n", { base: "/", ref: "main", slugs, labels, editBase: "" });
+    expect(out.title).toBe("Specification");
+    expect(out.description).toBe("What Podium must do.");
+    expect(out.content).toContain('title: "Specification"');
+    expect(out.content).not.toContain("Contents:");
+    expect(out.content).toContain("First paragraph.");
   });
   it("marks an older version's page for the banner, and has no edit link", () => {
     const page = { file: "SERVER.md", slug: "server", label: "Server" };

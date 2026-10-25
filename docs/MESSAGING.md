@@ -5,10 +5,10 @@ page is for whoever sets that up and uses it: what it is, how the parts fit, the
 limits, what the session sees, Traffic, what is kept, troubleshooting and how to try it end to end.
 
 The exact rules are in [SPEC.md](SPEC.md): the reporter's side in
-[5.3](SPEC.md#orchestrator-messaging-from-the-reporter-347), the server's in
-[7.7](SPEC.md#orchestrator-messaging-347), what is stored in
-[7.2](SPEC.md#what-orchestrator-messaging-keeps-and-where-347) and the pages in
-[8.1](SPEC.md#my-reporters-page-347-mockuppodium-my-reportershtml). Where this page and the spec differ, the spec
+[SPEC 5.3](SPEC.md#orchestrator-messaging-from-the-reporter-347), the server's in
+[SPEC 7.7](SPEC.md#orchestrator-messaging-347), what is stored in
+[SPEC 7.2](SPEC.md#what-orchestrator-messaging-keeps-and-where-347) and the pages in
+[SPEC 8.1](SPEC.md#my-reporters-page-347-mockuppodium-my-reportershtml). Where this page and the spec differ, the spec
 wins. Why it was built this way is [DECISIONS 37](DECISIONS.md#37-orchestrators-can-message-each-other-but-only-one-persons-own-347).
 
 ## Contents
@@ -171,8 +171,8 @@ everywhere:
 - Sending includes seeing.
 - A reply is a message too, so B answering A needs its own right from B to A.
 - Two orchestrators on the same machine use that reporter's right to itself, the Grid's diagonal.
-- Lowering a right does not recall a message already sent: it is delivered under the right it was sent with. Remove
-  link drops one still waiting.
+- Lowering a right does not recall a message already sent: it is delivered under the right it was sent with.
+  Removing a link drops any message still waiting.
 
 ### Requests, and where to answer them
 
@@ -227,8 +227,8 @@ The Admin sets four limits in Admin > Settings > Orchestrator messaging, for eve
   Each change is written to the Admin log as `peer_limits_changed`.
 - A round trip is two changes of direction in one conversation, counted from the last message the owner approved.
 - An owner can make the first three stricter on their own links, in My reporters > Defaults, never looser. A value
-  above the Admin's is refused. If the Admin later sets theirs lower, theirs applies, the row says so, and the owner's
-  value is kept in case the Admin raises it again.
+  above the Admin's is refused. If the Admin later sets a lower value, the Admin's applies, the row says so, and the
+  owner's value is kept in case the Admin raises it again.
 - The round-trip limit is the only guard against two orchestrators looping. There is no hop count across a chain
   (A to B to C) and no spend cap.
 

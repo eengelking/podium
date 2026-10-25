@@ -3,6 +3,14 @@
    accent the site uses; it defines no color of its own. The accent is the console's blue (--sonnet), used for what is selected and
    what can be clicked, and the maintainer approved it for the site. */
 @import "../../../frontend/src/fleet/tokens.css";
+/* The two fonts the tokens name, served from this site (Fontsource, SIL OFL, latin subset) so a visitor's browser contacts no one else. */
+@import "@fontsource/schibsted-grotesk/latin-400.css";
+@import "@fontsource/schibsted-grotesk/latin-500.css";
+@import "@fontsource/schibsted-grotesk/latin-600.css";
+@import "@fontsource/schibsted-grotesk/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+@import "@fontsource/jetbrains-mono/latin-600.css";
 
 :root,
 :root[data-theme="light"],

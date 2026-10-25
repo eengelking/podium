@@ -1018,17 +1018,17 @@ and what it writes in the owner's terminal.
   reload of the module while the reply still says `recording` picks it up again at the next reply.
 - **Terminal text.** The mod writes a line to the owner's terminal in the same words the console uses, in these
   cases (`mockup/podium-recording.html`, *Owner's terminal*):
-  - *Recording starts*, once, when it begins capturing: "podium: This session is being recorded by <name>, from
-    <time>. The whole history of this orchestrator and every agent and fork under it is kept in Podium for
-    troubleshooting, and is deleted at <time>. Either of you can stop it from Podium. To refuse recording on this
+  - *Recording starts*, once, when it begins capturing: "podium: This session is being recorded by `<name>`, from
+    `<time>`. The whole history of this orchestrator and every agent and fork under it is kept in Podium for
+    troubleshooting, and is deleted at `<time>`. Either of you can stop it from Podium. To refuse recording on this
     machine, set sessionRecording to off in /plugin configure." It is written again after `/clear` and after a
     compaction (the transcript was emptied) and on the first idle prompt after the module reloads.
-  - *Recording stops*: "podium: Recording stopped by <name> at <time>. What was recorded until then is kept until
-    <time>."
-  - *Chosen but not allowed*, when `consent.chosen` is true and the option is off: "podium: <name> chose to record
+  - *Recording stops*: "podium: Recording stopped by `<name>` at `<time>`. What was recorded until then is kept until
+    `<time>`."
+  - *Chosen but not allowed*, when `consent.chosen` is true and the option is off: "podium: `<name>` chose to record
     this session, but sessionRecording is off here, so nothing is recorded." Nothing about the session leaves the
     machine.
-  - *Limit reached*: "podium: Recording stopped: this session reached its <n> MB limit. Nothing after this point is
+  - *Limit reached*: "podium: Recording stopped: this session reached its `<n>` MB limit. Nothing after this point is
     kept." (for the disk budget, "the server's disk budget" in place of the session's limit).
   - A time is the server's `keptUntil` or `startedAt` shown in the machine's local time, and "today" is left out
     when it is not today.
@@ -4365,7 +4365,7 @@ one page of rows and a pager. When they fit there is no pager and no scrollbar, 
 - Paging is by rows. With the people view grouped (People or Group), a band that continues onto the next page
   gets its header repeated there, marked "continued", so a page never starts with orphaned rows. A band's count
   and attention mark are the whole band's, not the page's, and the header still narrows the wall.
-- A selection on another page stays selected. The pager then carries "Selected: <name> is on page N", and N is a
+- A selection on another page stays selected. The pager then carries "Selected: `<name>` is on page N", and N is a
   button that goes to that page. "All orchestrators" is not a row and shows on every page.
 - A page change is announced in a visually hidden `role="status"` region ("Page 2 of 3, showing 9 to 16 of 24
   orchestrators"). The pager buttons are real buttons: "Previous page" and "Next page".
@@ -4507,7 +4507,7 @@ menu and the page scroll on their own.
   config (#629).
   **Download certificate** gives the public certificate and the CA, never a key.
 - **The show-once box** (after Create user, Reissue config or a token rotation) is headed "Token and reporter
-  config for <name>" (or "Token for <name>" when TLS is off). It holds the token settings (`userName`, `token`,
+  config for `<name>`" (or "Token for `<name>`" when TLS is off). It holds the token settings (`userName`, `token`,
   `serverUrl`), and with TLS on the file `reporter-config-<name>-<epoch>.pem` with **Download reporter config**, the
   two steps (save it in `~/.podium/`; optionally set `PODIUM_REPORTER_CONFIG`) and the note that a running
   session does not pick it up and podium-reporter needs Node.js on the PATH. A reissue shows only the file and a
@@ -4707,8 +4707,8 @@ a map of it.
 - It is gone when responding is off and when the reporter can't answer (`respond` null, or the ask's kind
   removed by `limits`).
 - Signed out, it is live on every waiting card, since Podium doesn't know whose sessions are yours.
-- Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "<Owner>'s
-  session" beside it and the tooltip "Only <Owner>, who owns this session, or an Admin can respond."
+- Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "`<Owner>`'s
+  session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin can respond."
 - The card's own click target is unchanged.
 
 **The modal**
@@ -4726,7 +4726,7 @@ a map of it.
   panel, and no message box.
 - The top bar's far end, after a divider that follows History, Hide top bar, the wall mode button and Admin,
   has **Sign in**, which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
-  as <name>" and **Sign out**.
+  as `<name>`" and **Sign out**.
 - These go after the spacer, at the end of the bar, so the controls before them don't move. Nothing is added
   next to the connection pill.
 - A wrong pair, an empty field, the lockout and a sign-in that ended show the mockup's messages.
@@ -4734,7 +4734,7 @@ a map of it.
 
 **The feed**
 - An answer, message or command sent from Podium is a feed entry: "You, from Podium:" for the signed-in
-  person's own, "<Name>, from Podium:" (for example "Alex, from Podium:") for someone else's, with the
+  person's own, "`<Name>`, from Podium:" (for example "Alex, from Podium:") for someone else's, with the
   mockup's notes, such as "(queued until the session is idle)".
 - The server adds these entries to the loop's in-memory feed ([6.4](#64-failure-and-excerpt-rules)) when it
   takes the delivery and updates them when the mod reports its result. They follow the feed's lease rules and
@@ -4791,7 +4791,7 @@ becomes a standard in the release-prep PR, not in the feature PR.
   neutral color and a ring in place of the filled dot, and it keeps **Open replay** and **Delete recording**.
   A recording that hit a limit reads the same way with the limit named.
 - An ended session shows its final state (the Done band, all agents done) plus that layer. It is reached from
-  History, whose row has a line under the name, "recording kept until <time>" (shown to the session's owner and to an
+  History, whose row has a line under the name, "recording kept until `<time>`" (shown to the session's owner and to an
   Admin only, from the row's `recording`, [7.1](#71-endpoints)), and from Admin's Recordings table.
   Nothing is shown once the recording is deleted or has expired.
 
@@ -4823,7 +4823,7 @@ becomes a standard in the release-prep PR, not in the feature PR.
 
 Informational notes about the wall sit in one stack at the bottom of the wall, below the cards, one per row.
 
-- Each has an X (accessible name "Close notice: <name>"). Its action link, if it has one, stays in the note.
+- Each has an X (accessible name "Close notice: `<name>`"). Its action link, if it has one, stays in the note.
 - Closing a notice turns it off for everyone (`POST /api/fleet/notices/:id/close`) and shows a confirmation,
   bottom right, that names the notice and links to `#/admin/settings`. The confirmation clears itself after
   about 9 seconds and has its own X.
@@ -4959,7 +4959,7 @@ Board, History, Admin or the rail, and there is no dragging a card to a new plac
 
 - Each wall card has a pin button in its first row, just before the model chip. The row keeps an empty 24 px space
   there, so no card text is covered; the button is a sibling of the card's own button, laid over that space. Its name
-  is "Pin <session> to its place on the wall" and, once pinned, "Unpin <session>", with `aria-pressed`. It shows on
+  is "Pin `<session>` to its place on the wall" and, once pinned, "Unpin `<session>`", with `aria-pressed`. It shows on
   hover and keyboard focus (always on touch screens). A pinned card always shows it, filled, and has a stronger
   border, so pinned is not shown by color alone. Any number of cards can be pinned.
 - A pin holds a slot: the card's place in reading order (first, second, third...) in its wall, or in its band
@@ -5023,7 +5023,7 @@ like the rest of Admin.
   until a row is ticked, then shows **N selected**, **Remove N…** and **Clear selection**.
 - Removing asks "Remove N reporters from the list? They come back if they report again, unless ignored. Their
   sessions are not touched." with **Remove N reporters** and **Keep them**.
-- With a state chosen, **Remove all <state> (N)** beside the search asks the same.
+- With a state chosen, **Remove all `<state>` (N)** beside the search asks the same.
 - **Remove from list** has a tooltip that says what it does and does not do: it takes the row away and nothing
   else, the sessions stay, and the reporter comes back the next time it reports (#181).
 
@@ -5341,7 +5341,7 @@ selected first and the choice is not saved). While Files is selected the left co
     the same plan. A report with no plan in between does not break that: the server keeps the last plan until one returns.
     A different plan starts over, and one first seen already part done gets no numbers. A step
     that moves keeps its row and the viewer's page, and the list says once, politely, to assistive
-    technology: "<step> finished and moved to the end of the list." (several at once: "N steps finished and
+    technology: "`<step>` finished and moved to the end of the list." (several at once: "N steps finished and
     moved to the end of the list."). Rows do not slide, so reduced motion needs no special case.
   - Each state has its own mark, so shape carries the state as well as color: a green circle with a check for
     done, a ring with a filled dot for in progress, a ring with a slash for blocked, an empty ring for not
@@ -5358,7 +5358,7 @@ selected first and the choice is not saved). While Files is selected the left co
     screen readers, and the signed counts (`+12 −3`, the word `binary` for a binary file), with a five-block
     bar beside them (green for the share of added lines, red for the rest) that carries no numbers.
   - With the `file-diff` flag and the session's `fileDiff` option on, and the session's signed-in owner
-    (#319, `mockup/podium-file-diff.html`), a row is a button named "Open diff of <path>". Enter, Space and a
+    (#319, `mockup/podium-file-diff.html`), a row is a button named "Open diff of `<path>`". Enter, Space and a
     click open the shared `Modal` (#97): the title is the path, the sub line is the status letter and the
     counts. The modal is a wide variant (up to 1240 px). The diff is side by side: the old file on the left
     and the new one on the right, level line for line, with a filler beside a line that has no partner (an
@@ -5391,7 +5391,7 @@ selected first and the choice is not saved). While Files is selected the left co
     area return focus to the row.
   - Otherwise the row is not a button. With the `file-diff` flag off nothing changes, since a flag that is off
     hides its feature. With it on, a line under the list says why: "Sign in to open diffs." (signed out),
-    "Only <Owner> can open diffs." (someone else's session, an Admin included), "This session has no owner, so no
+    "Only `<Owner>` can open diffs." (someone else's session, an Admin included), "This session has no owner, so no
     one can open its diffs.", or "Turn on the fileDiff option of podium-reporter on this machine to open diffs."
     A session that has ended shows no line.
   - A summary line above the list gives the file count and the totals (`6 files · +855 −145`).
@@ -5455,7 +5455,7 @@ lists or counts agents treats them like top-level ones.
   - The card's agent strip is in tree order, and a nested agent's square names its parent in its tooltip.
   - The rail, the facts bar and the card count every agent once and the orchestrator as one more (#109). The
     wall's "agents running" tile counts agents only, since "orchestrators live" is beside it.
-- **Activity.** A spawn row in the activity feed for a nested agent ends with "· launched by <parent's task>"
+- **Activity.** A spawn row in the activity feed for a nested agent ends with "· launched by `<parent's task>`"
   and opens that agent.
 - A plan step can be owned by a nested agent like any other.
 - The Files tab lists the session's working-tree changes and names no agent, so changes made by nested agents

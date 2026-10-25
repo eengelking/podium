@@ -167,7 +167,7 @@ the person can still sign in to the console. **Revoke token** (which revokes the
   There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line says the
   certificate expired on a date and that an Admin must generate a new one. Admin > People warns before that happens, with
   a *lapses soon* badge. After an expiry or a revoke, choose **Reissue config** for the person and send them the new file.
-- **The serving certificate** renews itself when 30 days are left (Admin > Server > Certificates changes that), checking at every start and once a day. A failed renewal shows in
+- **The serving certificate** renews itself when 30 days are left (the setting is on Admin > Server > Certificates), checking at every start and once a day. A failed renewal shows in
   red on the Certificates page and in the header pill. **Renew now** tries again.
 - **The CA** lasts 10 years. Rotate it before then with **Rotate CA…**, which keeps old reporters working through an
   overlap. If the CA expired or its key leaked, use **Rotate CA and end the overlap now**, then reissue every config.

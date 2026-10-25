@@ -1,5 +1,7 @@
 # Third-party notices
 
+This page is for anyone who wants to know where a Podium color theme's colors came from and under what license.
+
 Podium's color themes use palettes from the open source projects below. Podium copies the color values it
 needs, not the projects' code. Each palette is used under the MIT license, whose text follows the entry.
 
@@ -146,3 +148,13 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+## Fonts on the docs site
+
+The docs site (`site/`) serves two fonts from the Fontsource packages `@fontsource/schibsted-grotesk` and `@fontsource/jetbrains-mono`,
+the latin subset only. Both are licensed under the SIL Open Font License, Version 1.1.
+
+- Schibsted Grotesk: Copyright 2023 The Schibsted-Grotesk Project Authors (https://github.com/schibsted/schibsted-grotesk).
+- JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono).
+
+The license text is in each package's `LICENSE` file and at https://openfontlicense.org.
