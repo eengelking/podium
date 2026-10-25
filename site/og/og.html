@@ -13,8 +13,9 @@ html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; backgrou
 .brand svg { width: 36px; height: 36px; }
 h1 { margin: 56px 0 0; width: 470px; font-size: 54px; line-height: 1.12; font-weight: 700; }
 p { margin: 24px 0 0; width: 440px; font-size: 22px; color: var(--ink2); }
-.shot { position: absolute; left: 600px; top: 96px; width: 760px; border: 1px solid var(--axis); border-radius: 10px; overflow: hidden; }
-.shot img { display: block; width: 100%; }
+/* The screenshot is cropped to its left part and top rows: the right-hand card and the rows below show a machine path that does not belong on a link preview. */
+.shot { position: absolute; left: 600px; top: 96px; width: 740px; height: 440px; border: 1px solid var(--axis); border-radius: 10px; overflow: hidden; }
+.shot img { display: block; width: 1345px; max-width: none; }
 .url { position: absolute; left: 64px; bottom: 56px; font-family: var(--font-mono); font-size: 20px; color: var(--ink2); }
 </style>
 <div class="card">
