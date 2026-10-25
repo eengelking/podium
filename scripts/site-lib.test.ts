@@ -186,6 +186,15 @@ describe("prepareDocs", () => {
     expect(md).toContain('src="/1.2/docs/standards/index.html" title="Frame"');
     expect(md).toContain('<a href="/1.2/docs/standards/index.html">Open this on its own page</a>');
     expect(md).not.toContain("site-frame-fix");
+    expect(md).not.toContain("banner");
+    // the framed page takes the site's theme, on load and when it changes
+    expect(md).toContain("setAttribute('data-theme'");
+    expect(md).toContain("MutationObserver");
+  });
+
+  it("marks an older version's frame page for the banner", () => {
+    const md = embedPage({ slug: "s", src: "x.html", title: "S", description: "d", frame: "F" }, "/1.2/", true);
+    expect(md).toContain('banner: {"content":"Older version"}');
   });
 
   it("adds a rule inside the frame for a page that needs one", () => {

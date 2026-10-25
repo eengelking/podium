@@ -208,18 +208,24 @@ function removeTitle(md) {
   return kept.join("\n");
 }
 
-/** A script that adds a stylesheet rule inside the page's frame each time the frame loads a page (the frame is on the same origin). */
-function frameFix(css) {
+/**
+ * A script for a page that shows a static page in a frame (the frame is on the same origin). Each time the frame loads a page, and
+ * each time the site's theme changes, it gives the framed page the site's theme, so the two do not disagree. When `css` is given it
+ * also adds that rule inside the frame.
+ */
+function frameScript(css) {
   return (
-    "document.addEventListener('DOMContentLoaded',function(){var f=document.querySelector('iframe.embed');if(!f)return;" +
-    "var fix=function(){try{var d=f.contentDocument;if(!d||!d.head||d.getElementById('site-frame-fix'))return;" +
-    `var s=d.createElement('style');s.id='site-frame-fix';s.textContent=${JSON.stringify(css)};d.head.appendChild(s);}catch(e){}};` +
-    "f.addEventListener('load',fix);fix();});"
+    "document.addEventListener('DOMContentLoaded',function(){var f=document.querySelector('iframe.embed');if(!f)return;var root=document.documentElement;" +
+    "var sync=function(){try{var d=f.contentDocument;if(!d||!d.head)return;d.documentElement.setAttribute('data-theme',root.getAttribute('data-theme')||'dark');" +
+    (css
+      ? `if(!d.getElementById('site-frame-fix')){var s=d.createElement('style');s.id='site-frame-fix';s.textContent=${JSON.stringify(css)};d.head.appendChild(s);}`
+      : "") +
+    "}catch(e){}};f.addEventListener('load',sync);new MutationObserver(sync).observe(root,{attributes:true,attributeFilter:['data-theme']});sync();});"
   );
 }
 
 /** The Markdown of a page that shows a static page in a frame, without a table of contents. theme.css widens a page that has a frame. */
-export function embedPage(embed, base) {
+export function embedPage(embed, base, older = false) {
   const head = frontmatter({
     title: embed.title,
     description: embed.description,
@@ -227,7 +233,8 @@ export function embedPage(embed, base) {
     prev: false,
     next: false,
     lastUpdated: false,
-    head: embed.fix ? [{ tag: "script", content: frameFix(embed.fix) }] : undefined,
+    banner: older ? { content: "Older version" } : undefined,
+    head: [{ tag: "script", content: frameScript(embed.fix) }],
   });
   const src = `${base}${embed.src}`;
   return `${head}<iframe class="embed" src="${src}" title="${embed.frame}" loading="lazy"></iframe>\n\n<p class="embed-note"><a href="${src}">Open this on its own page</a></p>\n`;
@@ -280,7 +287,7 @@ export function prepareDocs(opts) {
   }
   for (const embed of EMBEDS) {
     if (!statics.includes(embed.dir)) continue;
-    fs.writeFileSync(path.join(contentDir, `${embed.slug}.md`), embedPage(embed, base));
+    fs.writeFileSync(path.join(contentDir, `${embed.slug}.md`), embedPage(embed, base, opts.older));
     written.push({ slug: embed.slug, label: embed.title, group: embed.group, title: embed.title, description: embed.description });
   }
   return { pages: written, statics };

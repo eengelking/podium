@@ -20,7 +20,7 @@
   --sl-text-h3: 1.1875rem;
   --sl-text-h4: 1rem;
   --sl-nav-height: 3.25rem;
-  --sl-content-width: 46rem;
+  --sl-content-width: 60rem;
 
   --sl-color-white: var(--ink);
   --sl-color-gray-1: var(--ink);
@@ -125,3 +125,11 @@ mobile-starlight-toc a[aria-current="true"] {
 :root:has(iframe.embed) { --sl-content-width: 90rem; }
 .sl-markdown-content iframe.embed { display: block; width: 100%; height: calc(100vh - 9rem); min-height: 30rem; border: 1px solid var(--axis); border-radius: 8px; background: var(--bg); }
 .sl-markdown-content .embed-note { margin-top: 0.5rem; font-size: 0.8125rem; color: var(--ink2); }
+
+/* The search dialog's empty state (added by Header.astro): what it searches and a few terms to try. */
+.search-hints { padding: 1rem 1.25rem; color: var(--ink2); font-size: 0.875rem; }
+.search-hints[hidden] { display: none; }
+.search-hints p { margin: 0 0 0.6rem; }
+.search-hints div { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.search-hints button { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--axis); background: var(--surface); color: var(--accent-text); font: inherit; font-weight: 500; cursor: pointer; }
+.search-hints button:hover { background: var(--tint); border-color: var(--accent); }

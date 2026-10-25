@@ -48,7 +48,7 @@ preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
 | Add a doc page | Add it to `GROUPS` in `site/docs-nav.mjs` (file, slug, label), in the group it belongs to. A page that is not listed is not published. |
 | Move or rename a page | Change `docs-nav.mjs`, then run the build; the link check lists every link that no longer resolves. A slug is a public address, so keep it unless you must change it. |
 | Change the look | `site/src/styles/theme.css` maps the app's tokens (`frontend/src/fleet/tokens.css`) onto Starlight's variables. Add no color of your own. The site's look follows `mockup/podium-docs-site.html`; a change to it needs a new mockup. |
-| Change the header, footer, banner or version menu | The components in `site/src/components/`. They read the version list from `siteMeta.ts`. |
+| Change the header, footer, banner, version menu, theme switch or the search dialog's empty state | The components in `site/src/components/` (the search hints are the script in `Header.astro`). They read the version list from `siteMeta.ts`. |
 | Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/USER_GUIDE.md`; change them together. |
 | Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. |
 | Change which releases are listed | `FIRST_VERSION_LINE` in `site/docs-nav.mjs`. |

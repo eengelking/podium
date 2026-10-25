@@ -1,5 +1,6 @@
 ---
 import Search from "virtual:starlight/components/Search";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import VersionSelect from "./VersionSelect.astro";
 import { base, releaseUrl, repoUrl } from "./siteMeta";
 
@@ -30,6 +31,7 @@ const nav = [
   <div class="srch"><Search /></div>
   <VersionSelect />
   <a class="gh" href={repoUrl} aria-label="Podium on GitHub">GitHub</a>
+  <div class="theme"><ThemeSelect /></div>
 </div>
 
 <style>
@@ -44,9 +46,59 @@ const nav = [
   .gh { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); font-size: 0.75rem; font-weight: 500; text-decoration: none; }
   .gh:hover { background: var(--tint); border-color: var(--accent); }
   .srch { display: flex; }
+  .theme { display: flex; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   @media (max-width: 50rem) {
-    .nav, .gh { display: none; }
+    .nav, .gh, .theme { display: none; }
     .top { padding-inline-start: 3rem; }
   }
 </style>
+
+<script>
+  // The search dialog opens empty. Say what it searches and offer a few terms that fill the box, so the first view is not a blank field.
+  const terms = ["context", "token", "podiumctl", "reporter", "TLS", "cost"];
+  // The search box is built when the dialog is first opened, so look for it a few times.
+  function addHints(): boolean {
+    const dialog = document.querySelector("site-search dialog");
+    const input = dialog?.querySelector<HTMLInputElement>("input");
+    if (!dialog || !input) return false;
+    if (dialog.querySelector(".search-hints")) return true;
+    const box = document.createElement("div");
+    box.className = "search-hints";
+    const lead = document.createElement("p");
+    lead.textContent = "Search every page of this version. Try:";
+    const row = document.createElement("div");
+    for (const term of terms) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = term;
+      b.addEventListener("click", () => {
+        input.value = term;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      });
+      row.append(b);
+    }
+    box.append(lead, row);
+    // Outside the search UI's own tree, which it redraws and would drop a node added inside it.
+    const host = dialog.querySelector("#starlight__search");
+    if (host) host.after(box);
+    else dialog.append(box);
+    const toggle = () => {
+      box.hidden = input.value.trim().length > 0;
+    };
+    input.addEventListener("input", toggle);
+    toggle();
+    return true;
+  }
+  function soon(tries = 0) {
+    if (addHints() || tries >= 20) return;
+    setTimeout(() => soon(tries + 1), 150);
+  }
+  document.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("site-search button")) soon();
+  }, true); // capture: the search button may stop the click before it reaches the document
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || e.key === "/") soon();
+  });
+</script>
