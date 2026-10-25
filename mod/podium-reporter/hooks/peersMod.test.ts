@@ -142,7 +142,7 @@ function world(on: On) {
     commands.push(e.command)
     return { text: '' }
   })
-  on('tool.check', () => ({ decision: 'ask' }))
+  on('tool.check', () => ({ decision: 'allow' }))
   on('tool.call', (_$, e) => {
     if (e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode') return new Promise((resolve) => (dialog.resolve = resolve as (r: unknown) => void))
     return { result: { ok: true }, text: 'ok' }

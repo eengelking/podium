@@ -56,7 +56,7 @@ function world(on: On): World {
   const dialog: World['dialog'] = { resolve: null }
   const toolRun: World['toolRun'] = { resolve: null }
   const sessionId = { value: SID }
-  const checkDecision: World['checkDecision'] = { value: 'ask' }
+  const checkDecision: World['checkDecision'] = { value: 'allow' }
   const onDialog: World['onDialog'] = { run: null }
   const resultStatus: World['resultStatus'] = { value: 200 }
   const clock = mock.clock(on, { now: NOW })
@@ -683,6 +683,7 @@ describe('respond: where PermissionRequest hooks do not run', () => {
   test('a prompt with no PermissionRequest within 2 seconds drops plan approval and tool permissions, until one fires', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)
+    w.checkDecision.value = 'ask'
     await $.tool.check({ tool: 'Edit', input: { file_path: '/x' }, tool_use_id: 'toolu_check1' } as never)
     await w.clock.advance(2500)
     await w.clock.advance(5000)
@@ -698,6 +699,7 @@ describe('respond: where PermissionRequest hooks do not run', () => {
     await started($, w)
     leaveOpen($.tool.call({ tool: 'Bash', command: 'git push', description: 'Push' } as never))
     await settle(w)
+    w.checkDecision.value = 'ask'
     await $.tool.check({ tool: 'Bash', input: { command: 'git push', description: 'Push' }, tool_use_id: 'toolu_check2' } as never)
     void $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'git push', description: 'Push' } } as never)
     await w.clock.advance(2500)

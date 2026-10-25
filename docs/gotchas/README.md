@@ -117,4 +117,5 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A turn.step hook that reads the stream loses the step's result](turn-step-hook-loses-the-step-result.md): A for await loop throws away the stream's return value; read the result from await stream.result after the loop.
 - [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md): Installed copies update only when the plugin.json version changes, and that bump happens in the release-prep PR.
 - [A new color theme shows up in the dropdown but the page stays on Podium's colors](new-color-theme-has-no-effect.md): A theme lives in themes.ts, tokens.css and the inline script in index.html; update all three.
+- [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md): A fake tool.check that answers ask is denied by Claude Code 2.1.310's test engine; the mod's tests answer allow and set ask only where a test needs it.
 <!-- entries:end -->

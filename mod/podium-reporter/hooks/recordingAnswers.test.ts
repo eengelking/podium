@@ -98,7 +98,7 @@ function world(on: On, grant: RecordingGrant | null = GRANT) {
     if (commandRuns.hold) await new Promise<void>((resolve) => (commandRuns.release = resolve))
     return { text: '' }
   })
-  on('tool.check', () => ({ decision: 'ask' as const }))
+  on('tool.check', () => ({ decision: 'allow' as const }))
   on('tool.call', (_$, e) => {
     if (e.tool === 'Read') throw new Error('the tool failed to run')
     if (e.tool === 'AskUserQuestion' || e.tool === 'ExitPlanMode') return new Promise((resolve) => (dialog.resolve = resolve as (r: unknown) => void))

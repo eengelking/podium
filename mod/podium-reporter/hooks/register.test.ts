@@ -1,6 +1,7 @@
 import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { AgentSpawnInput, CommandRunInput, On, TurnStepChunk } from 'claude-code'
 import { MAIN_LOOP, type Report } from './protocol.ts'
+import { VERSION } from './register.ts'
 
 // The test runner has a console; the hooks sandbox's declarations do not.
 declare const console: { log: (...args: unknown[]) => void }
@@ -528,9 +529,9 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
     await w.clock.advance(1000)
     expect(w.posts[0]!.reporter.build).toBe('a1b2c3d4')
-    expect(w.statuses.at(-1)).toBe('podium v1.2.2 | dev: a1b2c3d4 ● 3 live')
+    expect(w.statuses.at(-1)).toBe(`podium v${VERSION} | dev: a1b2c3d4 ● 3 live`)
     const info = await $.command.run(podium(''))
-    expect(info.text).toContain('Versions: reporter 1.2.2 · Dev: a1b2c3d4, server 1.1.0 · Dev: 9f8e7d6c')
+    expect(info.text).toContain(`Versions: reporter ${VERSION} · Dev: a1b2c3d4, server 1.1.0 · Dev: 9f8e7d6c`)
     expect(w.ran.filter((a) => a[1] === '-C').length).toBeGreaterThan(0)
   })
 
@@ -539,9 +540,9 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
     await w.clock.advance(1000)
     expect(w.posts[0]!.reporter).not.toHaveProperty('build')
-    expect(w.statuses.at(-1)).toBe('podium v1.2.2 ● 3 live')
+    expect(w.statuses.at(-1)).toBe(`podium v${VERSION} ● 3 live`)
     const info = await $.command.run(podium(''))
-    expect(info.text).toContain('Versions: reporter 1.2.2, server 1.1.0')
+    expect(info.text).toContain(`Versions: reporter ${VERSION}, server 1.1.0`)
   })
 
   test("Claude Code's own session name is the display name once a hook carries it (#322)", async ($, on) => {

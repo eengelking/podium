@@ -27,5 +27,5 @@ clean run of `npx tsx scripts/theme-contrast.ts`.
 <!-- nav:start -->
 ---
 
-Previous: [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md) · Up: [Gotchas](README.md)
+Previous: [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md) · Up: [Gotchas](README.md) · Next: [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md)
 <!-- nav:end -->

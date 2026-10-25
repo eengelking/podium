@@ -28,6 +28,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **`npm run test:mod` passes again with Claude Code 2.1.310 (#718).** 33 of its tests failed on a clean `development` and on `v1.3.0`: the test engine now denies a faked `ask` permission check, and two tests still expected version 1.2.2. The tests answer `allow` unless one needs an `ask`, and read the version from the mod. Test-only: the mod and the server are unchanged.
+
 - **One machine shows one name, however the network names it (#715).** The mod read the machine's name with `hostname`, which on a Mac with no `HostName` set follows the network (a session could say `Mac`, another `Dana-MacBook-Pro`) and on Linux changes with a DHCP hostname or a recreated container. The mod now reads `scutil --get LocalHostName` on macOS, falls back to `hostname`, and keeps the first name it reads in `podium-machine-name` next to `podium-machine-id`, so every later session reports it. Delete that file to take the machine's current name. SPEC 6.2, decision 21, the reporter guide and the user guide say so.
 
 - **Seven passages of the spec say what they mean (#705).** The heading in SPEC 5.9 now reads "Notes on six options"; the sentence in 7.7 that stopped at "The reporter's side is" and the one in 8.1 that had no verb are complete; the wall-notices list in 8.1 no longer contradicts itself about which notice is in `NOTICES`; "the new use" in 7.7 is "the new fields"; a comma is added in 6.4; and the build-time branch instruction in 10.1 is now the current rule. No numbered heading changed and no behavior described. Documentation only.
