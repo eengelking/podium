@@ -133,3 +133,8 @@ mobile-starlight-toc a[aria-current="true"] {
 .search-hints div { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .search-hints button { padding: 4px 12px; border-radius: 999px; border: 1px solid var(--axis); background: var(--surface); color: var(--accent-text); font: inherit; font-weight: 500; cursor: pointer; }
 .search-hints button:hover { background: var(--tint); border-color: var(--accent); }
+
+/* A long page (the specification is about 900 blocks) is slow to lay out all at once. Blocks off screen are skipped until they scroll
+   near, which cuts the first layout of the specification from about 100 ms to about 6 ms here. Headings stay laid out so the table of
+   contents and anchors keep their positions. Splitting long pages (#697) is the lasting fix. */
+.sl-markdown-content > :not(.sl-heading-wrapper) { content-visibility: auto; contain-intrinsic-size: auto 120px; }

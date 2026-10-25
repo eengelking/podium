@@ -5,6 +5,7 @@ export const GROUPS = [
   {
     label: "Getting started",
     items: [
+      { file: "INTRODUCTION.md", slug: "introduction", label: "Introduction" },
       { file: "USER_GUIDE.md", slug: "user-guide", label: "User guide" },
       { file: "DEMO.md", slug: "demo", label: "Demo" },
     ],
@@ -12,7 +13,7 @@ export const GROUPS = [
   {
     label: "Running it",
     items: [
-      { file: "SERVER.md", slug: "server", label: "Running the server" },
+      { file: "SERVER.md", slug: "server", label: "Server" },
       { file: "REPORTER.md", slug: "reporter", label: "Reporter" },
       { file: "MESSAGING.md", slug: "messaging", label: "Messaging" },
       { file: "REPLAY.md", slug: "replay", label: "Session replay" },

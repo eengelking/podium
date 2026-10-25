@@ -13,7 +13,7 @@ const show = current && latest && !current.latest;
         You are reading the docs for {current.label}. The latest is {latest.label}.
       </span>
       <span class="sp" />
-      <a class="btn" href={latest.base}>Go to the same page in {latest.label}</a>
+      <a class="btn" href={latest.base}>Go to this page in {latest.label}</a>
     </div>
   )
 }
@@ -33,10 +33,19 @@ const show = current && latest && !current.latest;
     const currentBase = bar.dataset.currentBase ?? "/";
     const latestBase = bar.dataset.latestBase ?? "/";
     const rest = location.pathname.startsWith(currentBase) ? location.pathname.slice(currentBase.length) : "";
-    fetch(latestBase + rest, { method: "HEAD" })
-      .then((res) => {
-        if (res.ok) link.href = latestBase + rest;
-      })
-      .catch(() => {});
+    // The same page in the latest version, or its introduction when the latest has no such page.
+    const probe = async (urls: string[]) => {
+      for (const url of urls) {
+        try {
+          if ((await fetch(url, { method: "HEAD" })).ok) {
+            link.href = url;
+            return;
+          }
+        } catch {
+          return;
+        }
+      }
+    };
+    probe([latestBase + rest, `${latestBase}introduction/`, `${latestBase}user-guide/`]);
   }
 </script>

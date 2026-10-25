@@ -84,6 +84,7 @@ The docs are also published with a menu, search and a version picker at [podium.
 
 | Read | To |
 |---|---|
+| [Introduction](docs/INTRODUCTION.md) | What Podium is, what it does and does not do, and where to read next |
 | [User guide](docs/USER_GUIDE.md) | Set Podium up, read the dashboard and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
 | [The reporter mod](docs/REPORTER.md) | Install `podium-reporter`, set its options and see what leaves a session |

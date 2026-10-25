@@ -14,6 +14,12 @@ export const currentLine = process.env.DOCS_CURRENT ?? versions[0]?.line ?? "";
 export const current: Version | undefined = versions.find((v) => v.line === currentLine) ?? versions[0];
 export const latest: Version | undefined = versions.find((v) => v.latest);
 export const base = process.env.DOCS_BASE ?? "/";
+
+const pages: string[] | null = process.env.DOCS_PAGES ? JSON.parse(process.env.DOCS_PAGES) : null;
+export const hasPage = (slug: string) => !pages || pages.includes(slug);
+
+/** The docs' front page: the introduction, or the user guide in a release that has no introduction. */
+export const docsHome = `${base}${hasPage("introduction") ? "introduction" : "user-guide"}/`;
 export const repoUrl = `https://github.com/${REPO}`;
 
 /** The GitHub page that lists what this version changed. */

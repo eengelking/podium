@@ -1,6 +1,6 @@
 ---
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
-import { base, repoUrl } from "../components/siteMeta";
+import { base, docsHome, repoUrl } from "../components/siteMeta";
 import { SITE_ORIGIN } from "../../docs-nav.mjs";
 
 const description =
@@ -38,7 +38,7 @@ const structuredData = {
         </p>
         <div class="acts">
           <a class="btn pri" href={`${base}user-guide/`}>Get started</a>
-          <a class="btn" href={`${base}user-guide/`}>Read the user guide</a>
+          <a class="btn" href={docsHome}>Read the docs</a>
         </div>
         <p class="stance">
           Podium watches. The one thing it sends is an answer to a session that is waiting on you, and only when the Admin and the session's
@@ -100,7 +100,7 @@ podiumctl start</pre>
       <h2>Where to go next</h2>
       <div class="next">
         <a href={`${base}user-guide/`}><b>User guide</b><span>Set it up and read the dashboard.</span></a>
-        <a href={`${base}server/`}><b>Running the server</b><span>podiumctl, tokens, TLS and settings.</span></a>
+        <a href={`${base}server/`}><b>Server</b><span>podiumctl, tokens, TLS and settings.</span></a>
         <a href={`${base}decisions/`}><b>Design decisions</b><span>Why Podium works the way it does.</span></a>
       </div>
     </section>

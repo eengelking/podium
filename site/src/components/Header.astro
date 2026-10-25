@@ -2,12 +2,12 @@
 import Search from "virtual:starlight/components/Search";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 import VersionSelect from "./VersionSelect.astro";
-import { base, releaseUrl, repoUrl } from "./siteMeta";
+import { base, docsHome, releaseUrl, repoUrl } from "./siteMeta";
 
 const path = Astro.url.pathname;
 const onHome = path === base || path === `${base}index.html`;
 const nav = [
-  { label: "Docs", href: `${base}user-guide/`, current: !onHome },
+  { label: "Docs", href: docsHome, current: !onHome },
   { label: "User guide", href: `${base}user-guide/` },
   { label: "Reporter", href: `${base}reporter/` },
 ];
@@ -88,6 +88,10 @@ const nav = [
       box.hidden = input.value.trim().length > 0;
     };
     input.addEventListener("input", toggle);
+    // The search box's own Clear button empties the box without an input event, so look again after any click inside the dialog and
+    // while it is open.
+    dialog.addEventListener("click", () => setTimeout(toggle, 50));
+    setInterval(toggle, 300);
     toggle();
     return true;
   }

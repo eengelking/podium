@@ -42,7 +42,8 @@ import { versions, current } from "./siteMeta";
 
 <script>
   // Opens and closes the menu, and takes a person to the same page in another version when that version has it, or to that
-  // version's front page when it does not. Every build of the site is static, so the check is a HEAD request.
+  // version's docs front page (its introduction, or the user guide in a release that has none) when it does not. Every
+  // build of the site is static, so each check is a HEAD request.
   const wrap = document.querySelector<HTMLElement>(".vwrap");
   if (wrap) {
     const btn = wrap.querySelector<HTMLButtonElement>(".vbtn")!;
@@ -67,13 +68,18 @@ import { versions, current } from "./siteMeta";
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();
         const rest = location.pathname.startsWith(currentBase) ? location.pathname.slice(currentBase.length) : "";
-        const target = a.dataset.base + rest;
-        try {
-          const res = await fetch(target, { method: "HEAD" });
-          location.href = res.ok ? target + location.hash : a.dataset.base!;
-        } catch {
-          location.href = a.dataset.base!;
+        const to = a.dataset.base!;
+        for (const url of [to + rest, `${to}introduction/`, `${to}user-guide/`]) {
+          try {
+            if ((await fetch(url, { method: "HEAD" })).ok) {
+              location.href = url === to + rest ? url + location.hash : url;
+              return;
+            }
+          } catch {
+            break;
+          }
         }
+        location.href = to;
       });
     });
   }
