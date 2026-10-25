@@ -4,6 +4,7 @@
 // Usage: node scripts/build-doc-indexes.mjs [--check] [--root <docs folder>] [--only <folder under the docs folder>]
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseFrontmatter } from "./docFrontmatter.mjs";
 import { ENTRIES_END, ENTRIES_START, NAV_END, NAV_START, entriesMarkdown, navMarkdown, replaceBetween, topicDirs, topicEntries } from "./docTopics.mjs";
 
@@ -40,9 +41,10 @@ export function pendingChanges(root, only = "") {
   return [...pending];
 }
 
-function main(argv) {
+/** Runs the command with `argv`, writing its report with `log`; returns the exit code. Exported so the tests can run it in-process. */
+export function run(argv, log = console.log) {
   if (argv.includes("-h") || argv.includes("--help")) {
-    console.log(HELP);
+    log(HELP);
     return 0;
   }
   const rootAt = argv.indexOf("--root");
@@ -51,18 +53,20 @@ function main(argv) {
   const onlyAt = argv.indexOf("--only");
   const changes = pendingChanges(root, onlyAt === -1 ? "" : argv[onlyAt + 1].replace(/\/$/, ""));
   if (argv.includes("--check")) {
-    for (const [path] of changes) console.log(`${path}: out of date, run node scripts/build-doc-indexes.mjs`);
-    console.log(changes.length ? `${changes.length} file(s) out of date` : "all generated indexes are up to date");
+    for (const [path] of changes) log(`${path}: out of date, run node scripts/build-doc-indexes.mjs`);
+    log(changes.length ? `${changes.length} file(s) out of date` : "all generated indexes are up to date");
     return changes.length ? 1 : 0;
   }
   for (const [path, text] of changes) writeFileSync(path, text);
-  console.log(`${changes.length} file(s) updated`);
+  log(`${changes.length} file(s) updated`);
   return 0;
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (err) {
-  console.error(err instanceof Error ? err.message : err);
-  process.exitCode = 1;
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    process.exitCode = run(process.argv.slice(2));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exitCode = 1;
+  }
 }

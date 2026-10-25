@@ -273,12 +273,23 @@ export function preparePage(page, md, ctx) {
   return { title, description, content: head + body.replace(/^\n+/, "") };
 }
 
+/** The text without its leading blank lines, keeping the indent of the first line that has text. */
+function dropLeadingBlankLines(text) {
+  let at = 0;
+  for (;;) {
+    const nl = text.indexOf("\n", at);
+    if (nl === -1 || text.slice(at, nl).trim() !== "") break;
+    at = nl + 1;
+  }
+  return text.slice(at);
+}
+
 /** The text without what is between two markers and the markers themselves. */
 export function withoutBlock(md, start, end) {
   const a = md.indexOf(start);
   const b = md.indexOf(end, a + 1);
   if (a === -1 || b === -1) return md;
-  return `${md.slice(0, a).replace(/\s+$/, "")}\n${md.slice(b + end.length).replace(/^\s*\n/, "")}`;
+  return `${md.slice(0, a).trimEnd()}\n${dropLeadingBlankLines(md.slice(b + end.length))}`;
 }
 
 function removeTitle(md) {
@@ -348,19 +359,22 @@ function copyTree(from, to, only, rename = {}) {
  */
 export function collectTopic(root, dir, slug, group) {
   const pages = [];
+  // The menu shows `sidebar_label` when a page sets one, and the title otherwise, so a long title can have a short name in the menu.
+  const nameOf = (fields) => fields.sidebar_label || fields.title;
   const node = (rel, at, label) => {
     const readmeFields = parseFrontmatter(fs.readFileSync(path.join(root, rel, "README.md"), "utf8")).fields;
-    pages.push({ file: `${rel}/README.md`, slug: at, label: label ?? readmeFields.title, group });
+    const name = label ?? nameOf(readmeFields);
+    pages.push({ file: `${rel}/README.md`, slug: at, label: name, group });
     const items = [{ label: "Overview", slug: at }];
     for (const e of topicEntries(root, rel)) {
-      const name = e.name.replace(/\.md$/, "");
-      if (e.isFolder) items.push(node(`${rel}/${name}`, `${at}/${name}`, e.fields.title));
+      const file = e.name.replace(/\.md$/, "");
+      if (e.isFolder) items.push(node(`${rel}/${file}`, `${at}/${file}`, nameOf(e.fields)));
       else {
-        pages.push({ file: `${rel}/${e.name}`, slug: `${at}/${name}`, label: e.fields.title, group });
-        items.push({ label: e.fields.title, slug: `${at}/${name}` });
+        pages.push({ file: `${rel}/${e.name}`, slug: `${at}/${file}`, label: nameOf(e.fields), group });
+        items.push({ label: nameOf(e.fields), slug: `${at}/${file}` });
       }
     }
-    return { label: label ?? readmeFields.title, collapsed: true, items };
+    return { label: name, collapsed: true, items };
   };
   const top = node(dir, slug, undefined);
   return { pages, sidebar: top };

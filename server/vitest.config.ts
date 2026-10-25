@@ -14,7 +14,7 @@ export default defineConfig({
       provider: "v8",
       allowExternal: true, // the simulator in scripts/ and the mod's pure modules are tested here too
       reporter: ["text-summary", "lcov"],
-      include: ["src/**/*.ts", "../scripts/**/*.ts", "../scripts/docLinks.mjs", "../scripts/docFrontmatter.mjs", "../scripts/docTopics.mjs", "../scripts/atlas-functions.mjs", "../site/scripts/lib.mjs", "../site/docs-nav.mjs", "../mod/podium-reporter/hooks/*.ts"], // the mod's pure modules are tested from scripts/
+      include: ["src/**/*.ts", "../scripts/**/*.ts", "../scripts/docLinks.mjs", "../scripts/docFrontmatter.mjs", "../scripts/docTopics.mjs", "../scripts/build-doc-indexes.mjs", "../scripts/check-doc-refs.mjs", "../scripts/atlas-functions.mjs", "../site/scripts/lib.mjs", "../site/docs-nav.mjs", "../mod/podium-reporter/hooks/*.ts"], // the mod's pure modules are tested from scripts/
       exclude: ["**/*.test.ts", "src/testSetup.ts", "**/*.d.ts"],
     },
   },

@@ -4,6 +4,7 @@ description: "The server's requirements: routes, database, ingest, view types, t
 group: "Reference"
 entries: "list"
 section: "7"
+sidebar_label: "7. The server"
 order: 7
 ---
 

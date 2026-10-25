@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { entriesMarkdown, navMarkdown, replaceBetween, topicDirs, topicEntries } from "./docTopics.mjs";
+import { pendingChanges, run as runInProcess } from "./build-doc-indexes.mjs";
+import { entriesMarkdown, markdownUnder, navMarkdown, replaceBetween, topicDirs, topicEntries } from "./docTopics.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "build-doc-indexes.mjs");
 const made: string[] = [];
@@ -33,6 +34,13 @@ describe("docTopics", () => {
   it("finds folders with a README.md and skips the generated and example ones", () => {
     expect(topicDirs(tree())).toEqual(["things", "things/sub"]);
   });
+  it("lists every .md under a folder, sorted, without the generated and example folders", () => {
+    const root = tree();
+    mkdirSync(join(root, "standards"));
+    writeFileSync(join(root, "standards/x.md"), "x");
+    writeFileSync(join(root, "things/notes.txt"), "x");
+    expect(markdownUnder(root).map((p: string) => p.replace(root, ""))).toEqual(["/things/README.md", "/things/a.md", "/things/b.md", "/things/sub/README.md", "/things/sub/c.md"]);
+  });
   it("orders entries by order, then name, and lists a subfolder by its README", () => {
     const e = topicEntries(tree(), "things");
     expect(e.map((x: { link: string }) => x.link)).toEqual(["a.md", "b.md", "sub/README.md"]);
@@ -57,6 +65,33 @@ describe("docTopics", () => {
   it("writes previous, up and next, leaving out a side that is missing", () => {
     expect(navMarkdown({ prev: { fields: { title: "P" }, href: "p.md" }, next: { fields: { title: "N" }, href: "n.md" }, upTitle: "U" })).toBe("---\n\nPrevious: [P](p.md) · Up: [U](README.md) · Next: [N](n.md)");
     expect(navMarkdown({ prev: null, next: null, upTitle: "U" })).toBe("---\n\nUp: [U](README.md)");
+  });
+});
+
+describe("build-doc-indexes.mjs, in-process", () => {
+  const capture = () => {
+    const lines: string[] = [];
+    return { lines, log: (l: string) => lines.push(l) };
+  };
+  it("lists the files it would change, then writes them and finds nothing left", () => {
+    const root = tree("table");
+    expect(pendingChanges(root).map(([p]: [string, string]) => p.replace(root, "")).sort()).toEqual(["/things/README.md", "/things/a.md", "/things/b.md", "/things/sub/README.md", "/things/sub/c.md"]);
+    const c = capture();
+    expect(runInProcess(["--root", root, "--check"], c.log)).toBe(1);
+    expect(c.lines.at(-1)).toBe("5 file(s) out of date");
+    expect(runInProcess(["--root", root], c.log)).toBe(0);
+    expect(c.lines.at(-1)).toBe("5 file(s) updated");
+    expect(runInProcess(["--root", root, "--check"], c.log)).toBe(0);
+    expect(c.lines.at(-1)).toContain("up to date");
+  });
+  it("limits itself to --only, prints help and rejects a missing folder", () => {
+    const root = tree();
+    expect(pendingChanges(root, "things/sub").map(([p]: [string, string]) => p.replace(root, "")).sort()).toEqual(["/things/sub/c.md"]);
+    const c = capture();
+    expect(runInProcess(["--help"], c.log)).toBe(0);
+    expect(c.lines[0]).toContain("Usage:");
+    expect(() => runInProcess(["--root", "/nonexistent-docs-folder"], c.log)).toThrow("not found");
+    expect(() => runInProcess(["--root"], c.log)).toThrow("not found");
   });
 });
 

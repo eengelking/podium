@@ -81,7 +81,14 @@ nav.sidebar a[aria-current="page"],
   font-weight: 650;
   box-shadow: inset 3px 0 0 var(--accent);
 }
-.sidebar-content details > summary .large { color: var(--ink); font-weight: 650; }
+/* Sidebar rows (#697, mockup/podium-docs-sidebar.html). Starlight gives every group label the large heading style at every depth, so a
+   nested group outweighed the pages beside it. One row height, and weight and color say what a row is: a section of the docs is bold,
+   a topic or a part with pages inside is semibold, a part inside a topic is semibold in the secondary ink, a page is regular. */
+.sidebar-content a, .sidebar-content summary .large { font-size: 0.84375rem; line-height: 1.35; text-wrap: pretty; }
+.sidebar-content a { color: var(--ink2); }
+.sidebar-content .top-level > li > details > summary .large { color: var(--ink); font-weight: 700; font-size: 0.875rem; }
+.sidebar-content details details > summary .large { color: var(--ink); font-weight: 600; }
+.sidebar-content details details details > summary .large { color: var(--ink2); }
 starlight-toc a[aria-current="true"],
 mobile-starlight-toc a[aria-current="true"] {
   color: var(--accent-text);

@@ -4,6 +4,7 @@ description: "What the browser UI must do and how it is built: requirements, com
 group: "Reference"
 entries: "list"
 section: "8"
+sidebar_label: "8. The UI"
 order: 8
 ---
 

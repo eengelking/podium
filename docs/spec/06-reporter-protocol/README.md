@@ -4,6 +4,7 @@ description: "The data that crosses the wire between the reporter and the server
 group: "Reference"
 entries: "list"
 section: "6"
+sidebar_label: "6. Reporter protocol"
 order: 6
 ---
 

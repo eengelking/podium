@@ -57,7 +57,7 @@ export function knownRefs(root) {
       listItems.set(p.fields.section, new Set([...p.text.matchAll(/^(\d+)\. /gm)].map((m) => m[1])));
     }
   }
-  const decisions = new Set(pagesIn(root, "decisions").map((p) => p.fields.number).filter((n) => n !== undefined && n !== ""));
+  const decisions = new Set(pagesIn(root, "decisions").map((p) => p.fields.number).filter(Boolean));
   const has = (ref) => {
     if (sections.has(ref)) return true;
     const dot = ref.lastIndexOf(".");
@@ -85,23 +85,24 @@ export function refProblems(root) {
   return problems;
 }
 
-function main(argv) {
+/** Runs the command with `argv`, writing its report with `log`; returns the exit code. Exported so the tests can run it in-process. */
+export function run(argv, log = console.log) {
   if (argv.includes("-h") || argv.includes("--help")) {
-    console.log(HELP);
+    log(HELP);
     return 0;
   }
   const at = argv.indexOf("--root");
   const root = at === -1 ? "." : argv[at + 1];
   if (!root || !existsSync(root)) throw new Error("The repository folder was not found.");
   const problems = refProblems(root);
-  for (const p of problems) console.log(p);
-  console.log(problems.length ? `${problems.length} unresolved reference(s)` : "all doc references resolve");
+  for (const p of problems) log(p);
+  log(problems.length ? `${problems.length} unresolved reference(s)` : "all doc references resolve");
   return problems.length ? 1 : 0;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    process.exitCode = main(process.argv.slice(2));
+    process.exitCode = run(process.argv.slice(2));
   } catch (err) {
     console.error(err instanceof Error ? err.message : err);
     process.exitCode = 1;

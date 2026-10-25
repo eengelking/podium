@@ -6,12 +6,21 @@ import { join } from "node:path";
 import { parseFrontmatter } from "./docFrontmatter.mjs";
 
 /** Folders under docs/ that hold no pages of this kind. */
-export const SKIP_DIRS = new Set(["standards", "templates", "fixtures", "images", "atlas"]);
+export const SKIP_DIRS = new Set(["standards", "templates", "fixtures", "images"]);
 
 export const ENTRIES_START = "<!-- entries:start -->";
 export const ENTRIES_END = "<!-- entries:end -->";
 export const NAV_START = "<!-- nav:start -->";
 export const NAV_END = "<!-- nav:end -->";
+
+/** Every `.md` file under `dir`, as paths that start with `dir`, leaving out the generated and example folders. Sorted. */
+export function markdownUnder(dir) {
+  const walk = (d) =>
+    readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? (SKIP_DIRS.has(e.name) ? [] : walk(join(d, e.name))) : e.name.endsWith(".md") ? [join(d, e.name)] : [],
+    );
+  return walk(dir).sort();
+}
 
 /** Every folder under `root` (a docs folder) that has a README.md, as paths relative to `root`, outermost first. */
 export function topicDirs(root) {

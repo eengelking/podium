@@ -167,7 +167,8 @@ whole, and a short log still splits. A section that is itself a set of subsectio
   `node scripts/build-doc-indexes.mjs` after you add, rename or reorder a page. `npm test` fails when they are out of date.
 - **File names** start with a zero-padded number when the order matters (`07-01-endpoints.md`) so the folder lists in
   reading order on GitHub. A gotcha has no number and is ordered by `order`.
-- **Frontmatter** is the page's own, plus: `order` (a number, the reading order inside its folder), and for an entry
+- **Frontmatter** is the page's own, plus: `order` (a number, the reading order inside its folder), optionally `sidebar_label` (a
+  shorter name for the site's menu when the title is long), and for an entry
   `number`, `date` and `status` (a decision), `area`, `date` and `status` (a gotcha), or `section` (a spec page, the string
   other docs cite, such as `"7.7"`). A README's `entries` says how its list is drawn: `list`, `table` or `by-area`.
 - **A new decision or gotcha is one new file** from `docs/templates/decision-entry.md` or `gotcha-entry.md`, then

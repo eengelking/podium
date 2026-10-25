@@ -1,0 +1,180 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Docs Sidebar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<style>
+/* Mockup for #697: the docs site's sidebar once the spec, decisions, gotchas, architecture notes and user guide are folders.
+   The site (mockup/podium-docs-site.html, accepted in #688) was drawn with flat pages. With nested groups every group label
+   took the big heading style of a top-level group, so "5. The Claude Code mod API: everything the reporter needs" outweighed the
+   pages beside it and wrapped onto three lines. This shows the sidebar as built ("Now") and the proposal, on the same tree.
+   Colors and fonts come from tokens.css; this file defines no tokens of its own. The accent is the site's blue (--sonnet), as in
+   the accepted mockup: it marks only the current page. Only the demo chrome (.demo, .board, .col, .notes) is this mockup's own. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+*, *::before, *::after { box-sizing: border-box; }
+
+.demo { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, max-content)); gap: 24px; justify-content: center; padding: 20px 16px 8px; align-items: start; }
+.col h2 { margin: 0 0 8px; font-size: 13px; font-weight: 650; }
+.col h2 span { color: var(--muted); font-weight: 400; }
+.side { width: 280px; max-width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 8px; }
+.side.narrow { width: 400px; }
+
+/* ---------- the sidebar, as drawn in both columns ---------- */
+.side ul { list-style: none; margin: 0; padding: 0; }
+.side details > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; list-style: none; border-radius: 6px; padding: 4px 8px; }
+.side details > summary::-webkit-details-marker { display: none; }
+.side details > summary:hover, .side a:hover { background: var(--hover); }
+.side summary::after { content: ""; flex: none; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); }
+.side details[open] > summary::after { transform: rotate(45deg); }
+.side a { display: block; color: inherit; text-decoration: none; border-radius: 6px; padding: 4px 8px; }
+.side a[aria-current="page"] { background: color-mix(in srgb, var(--sonnet) 16%, var(--bg)); color: color-mix(in srgb, var(--sonnet) 62%, var(--ink)); font-weight: 650; box-shadow: inset 3px 0 0 var(--sonnet); }
+.side summary:focus-visible, .side a:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+/* each nested list hangs from a thin rail */
+.side details > ul { margin: 2px 0 2px 12px; padding-left: 4px; border-left: 1px solid var(--axis); }
+
+/* ---------- Now: what the build does today (every group label is the large heading style) ---------- */
+.now summary, .now a { font-size: 15px; }
+.now a { color: var(--ink2); }
+.now details > summary { color: var(--ink); font-weight: 650; font-size: 18px; }
+
+/* ---------- Proposed: one row height; weight and color say what a row is ---------- */
+.new { --row: 13.5px; }
+.new summary, .new a { font-size: var(--row); line-height: 1.35; text-wrap: pretty; }
+.new a { color: var(--ink2); }
+.new > ul > li > details > summary { color: var(--ink); font-weight: 700; font-size: 14px; padding-top: 8px; }   /* a section of the docs */
+.new details details > summary { color: var(--ink); font-weight: 600; }                                          /* a topic or a part: has pages inside */
+.new details details details > summary { color: var(--ink2); }                                                    /* a part inside a topic */
+.new a[aria-current="page"] { color: color-mix(in srgb, var(--sonnet) 62%, var(--ink)); }
+
+.notes { max-width: 980px; margin: 8px auto 40px; padding: 0 16px; color: var(--ink2); }
+.notes h2 { font-size: 14px; color: var(--ink); margin: 20px 0 6px; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.notes code { font-family: var(--font-mono); font-size: 12px; background: var(--raised); padding: 1px 4px; border-radius: 4px; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Preview">
+  <b>Docs sidebar (#697)</b>
+  <span>Theme</span>
+  <button type="button" data-th="dark" aria-pressed="true">Dark</button>
+  <button type="button" data-th="light" aria-pressed="false">Light</button>
+</div>
+
+<div class="board">
+  <!-- one tree, drawn twice: the groups and pages are the real ones under Reference and Project internals -->
+  <section class="col">
+    <h2>Now <span>as built</span></h2>
+    <nav class="side now" aria-label="Sidebar as built">
+      <ul>
+        <li><details open><summary>Reference</summary><ul>
+          <li><details open><summary>Specification</summary><ul>
+            <li><a href="#">Overview</a></li>
+            <li><a href="#">3. Glossary</a></li>
+            <li><a href="#">4. Architecture</a></li>
+            <li><details><summary>5. The Claude Code mod API: everything the reporter needs</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><details><summary>6. The reporter protocol</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><details open><summary>7. The server</summary><ul>
+              <li><a href="#">Overview</a></li>
+              <li><a href="#">7.1 Endpoints</a></li>
+              <li><a href="#">7.3 Ingest rules and derivation</a></li>
+              <li><a href="#" aria-current="page">7.7 Hardening</a></li>
+            </ul></details></li>
+            <li><details><summary>8. The UI</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><a href="#">9. Phased build plan</a></li>
+            <li><a href="#">10. Rules for the implementing agent</a></li>
+          </ul></details></li>
+          <li><a href="#">Design standards</a></li>
+        </ul></details></li>
+        <li><details open><summary>Project internals</summary><ul>
+          <li><details><summary>Architecture</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+          <li><details><summary>Decisions</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+          <li><a href="#">Community</a></li>
+        </ul></details></li>
+      </ul>
+    </nav>
+  </section>
+
+  <section class="col">
+    <h2>Proposed <span>one row height, weight for groups</span></h2>
+    <nav class="side new" aria-label="Sidebar proposed">
+      <ul>
+        <li><details open><summary>Reference</summary><ul>
+          <li><details open><summary>Specification</summary><ul>
+            <li><a href="#">Overview</a></li>
+            <li><a href="#">3. Glossary</a></li>
+            <li><a href="#">4. Architecture</a></li>
+            <li><details><summary>5. The mod API</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><details><summary>6. Reporter protocol</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><details open><summary>7. The server</summary><ul>
+              <li><a href="#">Overview</a></li>
+              <li><a href="#">7.1 Endpoints</a></li>
+              <li><a href="#">7.3 Ingest rules and derivation</a></li>
+              <li><a href="#" aria-current="page">7.7 Hardening</a></li>
+            </ul></details></li>
+            <li><details><summary>8. The UI</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><a href="#">9. Phased build plan</a></li>
+            <li><a href="#">10. Rules for the implementing agent</a></li>
+          </ul></details></li>
+          <li><a href="#">Design standards</a></li>
+        </ul></details></li>
+        <li><details open><summary>Project internals</summary><ul>
+          <li><details><summary>Architecture</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+          <li><details><summary>Decisions</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+          <li><a href="#">Community</a></li>
+        </ul></details></li>
+      </ul>
+    </nav>
+  </section>
+
+  <section class="col">
+    <h2>Proposed <span>at 400 px, opened from Menu</span></h2>
+    <nav class="side new narrow" aria-label="Sidebar proposed at 400 px">
+      <ul>
+        <li><details open><summary>Reference</summary><ul>
+          <li><details open><summary>Specification</summary><ul>
+            <li><a href="#">Overview</a></li>
+            <li><details><summary>5. The mod API</summary><ul><li><a href="#">Overview</a></li></ul></details></li>
+            <li><details open><summary>7. The server</summary><ul>
+              <li><a href="#">Overview</a></li>
+              <li><a href="#">7.3 Ingest rules and derivation</a></li>
+              <li><a href="#" aria-current="page">7.7 Hardening</a></li>
+            </ul></details></li>
+            <li><a href="#">9. Phased build plan</a></li>
+          </ul></details></li>
+        </ul></details></li>
+      </ul>
+    </nav>
+  </section>
+</div>
+
+<div class="notes">
+  <h2>What changes</h2>
+  <ul>
+    <li><b>One row height.</b> A group label, a page and a part use the same size (13.5 px). Today a group label is 18 px and a page is 15 px, so a group looks like a heading and a page like a footnote.</li>
+    <li><b>Weight and color say what a row is.</b> A section of the docs (Reference) is bold, a topic or a part with pages inside (Specification, 7. The server) is semibold in the main ink, a page is regular in the secondary ink, and the current page keeps the blue bar and tint it has now. The caret on the right marks every group.</li>
+    <li><b>Shorter group labels.</b> A folder's README can set <code>sidebar_label</code> in its frontmatter: "5. The mod API", "6. Reporter protocol", "7. The server", "8. The UI". The page keeps its full title. A row that still wraps hangs under its first line.</li>
+    <li><b>Same rail, same accent.</b> The thin rail per level and the blue current-page bar stay as they are. No new color and no new component; this changes only the sidebar rules in <code>site/src/styles/theme.css</code> and one optional frontmatter field.</li>
+    <li><b>Narrow width.</b> At 400 px the sidebar opens in place of the page, as in the accepted site mockup, with the same rows.</li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function set(t) {
+    root.setAttribute("data-theme", t);
+    document.querySelectorAll("[data-th]").forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-th") === t)); });
+  }
+  document.querySelectorAll("[data-th]").forEach(function (b) { b.addEventListener("click", function () { set(b.getAttribute("data-th")); }); });
+  set("dark");
+})();
+</script>

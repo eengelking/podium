@@ -4,6 +4,7 @@ description: "The reference for the Claude Code mod API the reporter uses: what 
 group: "Reference"
 entries: "list"
 section: "5"
+sidebar_label: "5. The mod API"
 order: 5
 ---
 

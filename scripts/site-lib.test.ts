@@ -288,7 +288,7 @@ function topicDocs() {
   };
   put("spec/README.md", 'title: "Spec"\ndescription: "The spec."\ngroup: Reference', "# Spec\n\nSee [one](01-one.md) and [deep](02-sub/02-01-deep.md).\n\n<!-- entries:start -->\n- x\n<!-- entries:end -->\n");
   put("spec/01-one.md", 'title: "1. One"\ndescription: "First."\ngroup: Reference\norder: 1', "# 1. One\n\nBack to [the spec](README.md).\n\n<!-- nav:start -->\n---\n\nUp: [Spec](README.md)\n<!-- nav:end -->\n");
-  put("spec/02-sub/README.md", 'title: "2. Sub"\ndescription: "Sub."\ngroup: Reference\norder: 2', "# 2. Sub\n");
+  put("spec/02-sub/README.md", 'title: "2. The long title of the sub folder"\nsidebar_label: "2. Sub"\ndescription: "Sub."\ngroup: Reference\norder: 2', "# 2. The long title of the sub folder\n");
   put("spec/02-sub/02-01-deep.md", 'title: "2.1 Deep"\ndescription: "Deep."\ngroup: Reference\norder: 1', "# 2.1 Deep\n\nUp to [one](../01-one.md).\n");
   return root;
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { knownRefs, refProblems } from "./check-doc-refs.mjs";
+import { knownRefs, refProblems, run } from "./check-doc-refs.mjs";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "check-doc-refs.mjs");
 const made: string[] = [];
@@ -63,6 +63,23 @@ describe("refProblems", () => {
   it("skips node_modules and ignores files that are not text", () => {
     const root = repo({ "node_modules/x/a.md": "SPEC 99\n", "logo.png": "SPEC 99\n" });
     expect(refProblems(root)).toEqual([]);
+  });
+});
+
+describe("check-doc-refs.mjs, in-process", () => {
+  it("reports each problem then a count, and exits 0 when nothing is wrong", () => {
+    const lines: string[] = [];
+    expect(run(["--root", repo({ "a.md": "SPEC 8.8\n" })], (l: string) => lines.push(l))).toBe(1);
+    expect(lines).toEqual(["a.md:1: SPEC 8.8 is not a section of docs/spec/", "1 unresolved reference(s)"]);
+    const ok: string[] = [];
+    expect(run(["--root", repo()], (l: string) => ok.push(l))).toBe(0);
+    expect(ok).toEqual(["all doc references resolve"]);
+  });
+  it("prints help and rejects a missing folder", () => {
+    const lines: string[] = [];
+    expect(run(["-h"], (l: string) => lines.push(l))).toBe(0);
+    expect(lines[0]).toContain("Usage:");
+    expect(() => run(["--root", "/nonexistent-repo-folder"])).toThrow("not found");
   });
 });
 
