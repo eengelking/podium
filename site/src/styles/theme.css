@@ -15,10 +15,10 @@
   --sl-font: var(--font-ui);
   --sl-font-mono: var(--font-mono);
   --sl-text-body: 0.9375rem;
-  --sl-text-h1: 1.5rem;
-  --sl-text-h2: 1.125rem;
-  --sl-text-h3: 0.9375rem;
-  --sl-text-h4: 0.9375rem;
+  --sl-text-h1: 1.75rem;
+  --sl-text-h2: 1.5rem;
+  --sl-text-h3: 1.1875rem;
+  --sl-text-h4: 1rem;
   --sl-nav-height: 3.25rem;
   --sl-content-width: 46rem;
 
@@ -87,7 +87,21 @@ mobile-starlight-toc a[aria-current="true"] {
 :root:not([data-has-sidebar]) .content-panel:has(> .sl-container:empty) { display: none; }
 
 /* Content */
-.sl-markdown-content h2:not(:where(.not-content *)) { padding-bottom: 6px; border-bottom: 2px solid var(--tint); }
+/* Sections of a long page. A section ends with plenty of space and the next one opens with a banded, larger heading, and each entry under
+   it opens with a ruled heading in the accent color, so a page of dense text has places for the eye to land. */
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  margin-top: 4.5rem;
+  padding: 0.6rem 1rem;
+  background: var(--tint);
+  border-left: 5px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+}
+.sl-markdown-content > .sl-heading-wrapper.level-h2:first-child { margin-top: 1.5rem; }
+.sl-markdown-content h2:not(:where(.not-content *)) { font-size: 1.5rem; line-height: 1.25; font-weight: 700; }
+.sl-markdown-content .sl-heading-wrapper.level-h3 { margin-top: 3rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--axis); }
+.sl-markdown-content h3:not(:where(.not-content *)) { font-size: 1.1875rem; line-height: 1.3; font-weight: 650; color: var(--accent-text); }
+.sl-markdown-content .sl-heading-wrapper.level-h4 { margin-top: 2rem; }
+.sl-markdown-content h4:not(:where(.not-content *)) { font-size: 1rem; font-weight: 650; }
 .sl-markdown-content a:not(.sl-link-button):not(:where(.not-content *)) { color: var(--accent-text); }
 .sl-markdown-content pre:not(:where(.not-content *)) { background: var(--raised); border: 1px solid var(--axis); }
 .sl-markdown-content .expressive-code { --ec-brdRad: 6px; }
