@@ -1,5 +1,5 @@
 // What the site shows from docs/ and where. This is the one place a doc page is placed in the menu (#688). Each page also names its
-// own `title`, `description` and `group` in frontmatter (#696), and the build checks the group against this list. A page that is
+// own `title`, `description` and `group` in frontmatter (#696), and a test (scripts/site-lib.test.ts) checks the group against this list. A page that is
 // not listed here is not published.
 // `file` is the path under docs/; `slug` is the page's address on the site; `label` is its name in the menu and in links that name it.
 // `title` and `description` are optional and replace the page's frontmatter. An older version's docs have no frontmatter, so for them
