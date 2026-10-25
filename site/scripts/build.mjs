@@ -26,8 +26,16 @@ older release line from its newest git tag at /<line>/. The build fails on a bro
 
 Preview a build with: python3 -m http.server -d site/out`;
 
+// git and tar are run by their full path, found in fixed system folders, and not looked up on PATH, which a build could not trust.
+const TOOL_DIRS = { git: ["/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"], tar: ["/usr/bin", "/bin"] };
+function tool(name) {
+  const dir = TOOL_DIRS[name].find((d) => fs.existsSync(path.join(d, name)));
+  if (!dir) throw new Error(`${name} was not found in ${TOOL_DIRS[name].join(", ")}`);
+  return path.join(dir, name);
+}
+
 function git(args, opts = {}) {
-  const res = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", ...opts });
+  const res = spawnSync(tool("git"), args, { cwd: repoRoot, encoding: "utf8", ...opts });
   if (res.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${res.stderr}`);
   return res.stdout;
 }
@@ -36,10 +44,10 @@ function git(args, opts = {}) {
 function extractDocs(ref) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "podium-docs-"));
   // docs/ and the app's stylesheets, which the standards pages load. A very old release may lack the stylesheets' folder.
-  let archive = spawnSync("git", ["archive", ref, "docs", "frontend/src/fleet"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
-  if (archive.status !== 0) archive = spawnSync("git", ["archive", ref, "docs"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
+  let archive = spawnSync(tool("git"), ["archive", ref, "docs", "frontend/src/fleet"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
+  if (archive.status !== 0) archive = spawnSync(tool("git"), ["archive", ref, "docs"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
   if (archive.status !== 0) throw new Error(`git archive ${ref} failed: ${archive.stderr}`);
-  const untar = spawnSync("tar", ["-x", "-C", dir], { input: archive.stdout });
+  const untar = spawnSync(tool("tar"), ["-x", "-C", dir], { input: archive.stdout });
   if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr}`);
   return dir;
 }

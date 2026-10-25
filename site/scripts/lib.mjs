@@ -127,7 +127,9 @@ export function descriptionOf(md) {
   const cut = text.slice(0, MAX_DESCRIPTION);
   const sentence = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "));
   if (sentence > 60) return cut.slice(0, sentence + 1);
-  return cut.slice(0, cut.lastIndexOf(" ")).replace(/[ ,;:(-]+$/, "") + "\u2026";
+  let end = cut.lastIndexOf(" ");
+  while (end > 0 && " ,;:(-".includes(cut[end - 1])) end--;
+  return `${cut.slice(0, end)}\u2026`;
 }
 
 function hasScheme(t) {
