@@ -208,6 +208,16 @@ function removeTitle(md) {
   return kept.join("\n");
 }
 
+/** A script that adds a stylesheet rule inside the page's frame each time the frame loads a page (the frame is on the same origin). */
+function frameFix(css) {
+  return (
+    "document.addEventListener('DOMContentLoaded',function(){var f=document.querySelector('iframe.embed');if(!f)return;" +
+    "var fix=function(){try{var d=f.contentDocument;if(!d||!d.head||d.getElementById('site-frame-fix'))return;" +
+    `var s=d.createElement('style');s.id='site-frame-fix';s.textContent=${JSON.stringify(css)};d.head.appendChild(s);}catch(e){}};` +
+    "f.addEventListener('load',fix);fix();});"
+  );
+}
+
 /** The Markdown of a page that shows a static page in a frame, without a table of contents. theme.css widens a page that has a frame. */
 export function embedPage(embed, base) {
   const head = frontmatter({
@@ -217,6 +227,7 @@ export function embedPage(embed, base) {
     prev: false,
     next: false,
     lastUpdated: false,
+    head: embed.fix ? [{ tag: "script", content: frameFix(embed.fix) }] : undefined,
   });
   const src = `${base}${embed.src}`;
   return `${head}<iframe class="embed" src="${src}" title="${embed.frame}" loading="lazy"></iframe>\n\n<p class="embed-note"><a href="${src}">Open this on its own page</a></p>\n`;

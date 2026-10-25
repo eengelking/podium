@@ -185,6 +185,14 @@ describe("prepareDocs", () => {
     expect(md).toContain("lastUpdated: false");
     expect(md).toContain('src="/1.2/docs/standards/index.html" title="Frame"');
     expect(md).toContain('<a href="/1.2/docs/standards/index.html">Open this on its own page</a>');
+    expect(md).not.toContain("site-frame-fix");
+  });
+
+  it("adds a rule inside the frame for a page that needs one", () => {
+    const md = embedPage({ slug: "s", src: "docs/standards/index.html", title: "S", description: "d", frame: "F", fix: ".s-sample .menubox { position: static; }" }, "/");
+    expect(md).toContain("site-frame-fix");
+    expect(md).toContain(".s-sample .menubox { position: static; }");
+    expect(md).toContain("head:");
   });
 
   it("skips a folder an older release does not have", () => {

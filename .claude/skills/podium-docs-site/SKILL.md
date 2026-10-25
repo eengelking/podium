@@ -60,6 +60,12 @@ the tags, so a new minor release adds a line by itself when `main` moves. Before
 passes on `development` (the release PR's `docs-site.yml` run does the same). After the merge to `main`, the deploy job publishes the
 site; check the run is green and the new version is in the menu before the tag is proposed.
 
+## A workaround to remove
+
+The Actions menu samples on the standards Components page are `position: fixed` and float over the page (#700). The site adds
+`.s-sample .menubox { position: static; }` inside the standards frame (`fix` in `EMBEDS`, `site/docs-nav.mjs`) because the pages are served
+unchanged. Remove `fix` when #700 is fixed in the standards generator.
+
 ## What not to do
 
 - Do not edit anything under `docs/standards/` through the site: it is generated from the app (`podium-standards-update`).

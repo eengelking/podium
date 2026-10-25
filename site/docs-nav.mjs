@@ -56,6 +56,9 @@ export const EMBEDS = [
     title: "Design standards",
     description: "How Podium's UI looks and is built: tokens, themes, every component with its states, patterns, voice and accessibility.",
     frame: "Podium design standards",
+    // The Actions menu samples are position: fixed in the app and the standards do not draw them in place, so they float over the
+    // page (#700). The rule is added inside the frame only, because the pages are served unchanged. Remove it when #700 is fixed.
+    fix: ".s-sample .menubox { position: static; }",
     group: "Reference",
   },
   {
