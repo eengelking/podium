@@ -109,9 +109,10 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
   same on every machine.
 - `scripts/standards-inventory.ts` lists the tokens, classes, components and color literals. `npm test` uses it to fail on
   a hard-coded color not listed in `docs/standards/deferred.json`, and on a custom property nothing defines.
-- A sample draws a `position: fixed` part (the toast, a tip, a row's Actions menu, a modal's backdrop) in place, and an Admin `main` as a `div`.
-  Those are the only differences between a sample and the app. `npm test` fails when a class that `fleet.css` or `admin.css`
-  fixes has no in-place rule under `.s-sample` in `docs/standards/standards.css`, a hand-written file the pages link.
+- A sample draws a `position: fixed` part (the toast, a tip, a modal's backdrop) in place, and an Admin `main` as a `div`.
+  Those are the only differences between a sample and the app. The parity pass fails when a class that `fleet.css` or
+  `admin.css` fixes has no in-place rule under `.s-sample` in `docs/standards/standards.css` (a hand-written file the pages
+  link). The rule for the row Actions menu arrives with the release's standards update (#700).
 
 Two project skills and an agent keep it honest: `podium-standards-check`, `podium-standards-update` and
 `podium-ui-auditor` (`.claude/`).
