@@ -1,0 +1,66 @@
+/* The page chrome of the standards pages (#354): the top bar, the page list, the layout of a standard's section.
+   It is the only CSS here. Every color comes from tokens.css through var(), and the samples on the pages use the app's own
+   fleet.css and admin.css, so this file never restyles a component. Classes start with s- so they cannot meet the app's. */
+/* Padding is inside the width, so a page that is 100% wide never scrolls sideways. */
+.s-bar, .s-shell, .s-shell * { box-sizing: border-box; }
+body { margin: 0; font: 13px/1.45 var(--font-ui); background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
+.s-bar a, .s-nav a, .s-main a { color: inherit; }
+.s-main a { text-underline-offset: 2px; }
+.s-bar button, .s-bar select, .s-copy { font: inherit; color: var(--ink); }
+.s-bar button:focus-visible, .s-bar select:focus-visible, .s-nav a:focus-visible, .s-main a:focus-visible, .s-copy:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.s-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); background: var(--surface); border-bottom: 1px solid var(--border); }
+.s-logo { font-weight: 700; font-size: 15px; text-decoration: none; }
+.s-logo span { color: var(--muted); font-weight: 500; }
+.s-grow { flex: 1; }
+.s-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.s-select { background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-size: 12px; font-weight: 500; }
+.s-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.s-seg button { font-size: 12px; font-weight: 500; color: var(--ink2); background: var(--raised); border: 0; padding: 5px 9px; cursor: pointer; }
+.s-seg button + button { border-left: 1px solid var(--border); }
+.s-seg button[aria-checked="true"] { background: var(--sel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+.s-shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: calc(100vh - 50px); }
+.s-nav { border-right: 1px solid var(--border); padding: 12px 8px; display: grid; gap: 2px; align-content: start; }
+.s-nav h2 { font-size: 11.5px; font-weight: 600; color: var(--muted); margin: 10px 8px 4px; }
+.s-nav a { text-decoration: none; padding: 5px 8px; border-radius: 6px; color: var(--ink2); }
+.s-nav a:hover { background: var(--hover); }
+.s-nav a[aria-current="page"] { background: var(--sel); color: var(--ink); font-weight: 600; }
+.s-main { padding: 20px 24px 56px; display: grid; gap: 16px; align-content: start; min-width: 0; max-width: 980px; width: 100%; }
+.s-main h1 { font-size: 20px; letter-spacing: -.01em; margin: 0 0 4px; }
+.s-main h2 { font-size: 15px; margin: 8px 0 0; }
+.s-main h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.s-main p { margin: 0; max-width: 68ch; color: var(--ink2); }
+.s-main code { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink2); }
+.s-panel { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 12px 14px; display: grid; gap: 10px; min-width: 0; }
+.s-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.s-page { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); text-decoration: none; }
+.s-page:hover { background: var(--raised); }
+.s-page span { color: var(--muted); font-size: 12px; }
+.s-sample { height: auto; border: 1px solid var(--grid); border-radius: 6px; padding: 12px; display: block; overflow-x: auto; }
+.s-sample .toast, .s-sample .tipbox { position: static; }
+.s-sample .podium-modal { height: auto; }
+.s-sample .scrim { position: relative; inset: auto; z-index: auto; padding: 12px; }
+.s-cap { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+.s-cap code { color: var(--muted); }
+.s-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+.s-rules ul { margin: 0; padding-left: 18px; color: var(--ink2); display: grid; gap: 3px; }
+.s-rules > div { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--surface); }
+.s-rules .s-use { border-left: 3px solid var(--good); }
+.s-rules .s-avoid { border-left: 3px solid var(--crit); }
+.s-rules h4 { margin: 0 0 6px; font-size: 12.5px; }
+.s-table-wrap { overflow-x: auto; }
+.s-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.s-table th, .s-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.s-table th { font-weight: 600; color: var(--muted); font-size: 12px; }
+.s-swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); vertical-align: middle; margin-right: 6px; }
+.s-parity { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; background: var(--surface); }
+.s-ok { color: var(--good-text); font-weight: 600; }
+.s-toc { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+@media (max-width: 760px) {
+  .s-shell { grid-template-columns: 1fr; }
+  .s-nav { border-right: 0; border-bottom: 1px solid var(--border); grid-auto-flow: column; overflow-x: auto; padding: 8px; }
+  .s-nav h2 { display: none; }
+  .s-nav a { white-space: nowrap; }
+  .s-main { padding: 16px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.s-case { display: grid; gap: 6px; min-width: 0; }

@@ -1441,7 +1441,10 @@ and the spike showed Starlight can do what was needed.
 status colors `--good`, `--warn` and `--crit` for tip, caution and danger callouts. It borrows a model color for a non-model
 job. The maintainer approved that when the mockup was accepted on #688, and since the site is not part of the app the
 standards pages do not change. Search is Pagefind over the docs pages only;
-`docs/standards/` and the atlas page are served as they are and are not indexed. The interactive atlas page is served at
+`docs/standards/` and the atlas page are served as they are and are not indexed. Each is shown in a frame inside a page of the
+site (`/design-standards/`, `/architecture-atlas/`), so the header and menu stay around it, and each is also reachable on its own page.
+The standards load the app's stylesheets as `../../frontend/src/fleet/*.css`, so the site serves them at `/docs/standards/` and
+copies those stylesheets, from the same version, to `/frontend/src/fleet/`; the pages themselves are not changed. The atlas is at
 `/atlas-map/`, because `/atlas/` is the page built from `ATLAS.md`. The site loads its two fonts from Google Fonts, as the
 console's mockups do.
 

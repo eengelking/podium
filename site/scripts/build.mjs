@@ -35,7 +35,9 @@ function git(args, opts = {}) {
 /** Writes the docs folder of a tag into a fresh temporary folder and returns its path. */
 function extractDocs(ref) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "podium-docs-"));
-  const archive = spawnSync("git", ["archive", ref, "docs"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
+  // docs/ and the app's stylesheets, which the standards pages load. A very old release may lack the stylesheets' folder.
+  let archive = spawnSync("git", ["archive", ref, "docs", "frontend/src/fleet"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
+  if (archive.status !== 0) archive = spawnSync("git", ["archive", ref, "docs"], { cwd: repoRoot, maxBuffer: 256 * 1024 * 1024 });
   if (archive.status !== 0) throw new Error(`git archive ${ref} failed: ${archive.stderr}`);
   const untar = spawnSync("tar", ["-x", "-C", dir], { input: archive.stdout });
   if (untar.status !== 0) throw new Error(`tar failed: ${untar.stderr}`);
@@ -46,8 +48,9 @@ function buildOne(version, versions, outRoot) {
   const older = version.ref !== null;
   const tmp = older ? extractDocs(version.ref) : null;
   try {
-    const { pages, statics } = prepareDocs({
+    const { pages } = prepareDocs({
       docsDir: path.join(tmp ?? repoRoot, "docs"),
+      rootDir: tmp ?? repoRoot,
       contentDir: path.join(siteDir, "src/content/docs"),
       publicDir: path.join(siteDir, "public"),
       base: version.base,
@@ -74,7 +77,6 @@ function buildOne(version, versions, outRoot) {
         DOCS_VERSIONS: JSON.stringify(versions),
         // What this version has: an older release may lack a page or a folder the newest one has.
         DOCS_PAGES: JSON.stringify(pages.map((p) => p.slug)),
-        DOCS_STATICS: JSON.stringify(statics),
       },
     });
     if (res.status !== 0) throw new Error(`The build of ${version.label} failed.`);

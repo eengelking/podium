@@ -105,3 +105,9 @@ mobile-starlight-toc a[aria-current="true"] {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* A page that shows the standards or the atlas in a frame: the frame fills the screen under the header, so the page's own scroll and
+   sticky menu keep working inside it. */
+:root:has(iframe.embed) { --sl-content-width: 90rem; }
+.sl-markdown-content iframe.embed { display: block; width: 100%; height: calc(100vh - 9rem); min-height: 30rem; border: 1px solid var(--axis); border-radius: 8px; background: var(--bg); }
+.sl-markdown-content .embed-note { margin-top: 0.5rem; font-size: 0.8125rem; color: var(--ink2); }

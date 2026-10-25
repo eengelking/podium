@@ -2,7 +2,7 @@
 // the site shows. Plain scans rather than patterns on text that comes from the docs, so hostile input costs one pass (#487, #489).
 import fs from "node:fs";
 import path from "node:path";
-import { PAGES, STATIC_DIRS, REPO, SITE_ORIGIN } from "../docs-nav.mjs";
+import { PAGES, EMBEDS, STATIC_DIRS, STYLES, REPO, SITE_ORIGIN } from "../docs-nav.mjs";
 
 const MAX_DESCRIPTION = 160;
 
@@ -208,6 +208,20 @@ function removeTitle(md) {
   return kept.join("\n");
 }
 
+/** The Markdown of a page that shows a static page in a frame, without a table of contents. theme.css widens a page that has a frame. */
+export function embedPage(embed, base) {
+  const head = frontmatter({
+    title: embed.title,
+    description: embed.description,
+    tableOfContents: false,
+    prev: false,
+    next: false,
+    lastUpdated: false,
+  });
+  const src = `${base}${embed.src}`;
+  return `${head}<iframe class="embed" src="${src}" title="${embed.frame}" loading="lazy"></iframe>\n\n<p class="embed-note"><a href="${src}">Open this on its own page</a></p>\n`;
+}
+
 function copyTree(from, to, only, rename = {}) {
   if (!fs.existsSync(from)) return;
   fs.mkdirSync(to, { recursive: true });
@@ -221,7 +235,7 @@ function copyTree(from, to, only, rename = {}) {
 
 /**
  * Writes the site's pages and static folders for one version.
- * @param {{ docsDir: string, contentDir: string, publicDir: string, base: string, ref: string, editBase: string, older?: boolean, lastUpdatedOf?: (file: string) => string | undefined }} opts
+ * @param {{ docsDir: string, rootDir?: string, contentDir: string, publicDir: string, base: string, ref: string, editBase: string, older?: boolean, lastUpdatedOf?: (file: string) => string | undefined }} opts
  * @returns {{ pages: object[], statics: string[] }} the pages written, in menu order, and the static folders copied
  */
 export function prepareDocs(opts) {
@@ -243,6 +257,20 @@ export function prepareDocs(opts) {
     if (!fs.existsSync(path.join(docsDir, dir.from))) continue;
     copyTree(path.join(docsDir, dir.from), path.join(publicDir, dir.to), dir.only, dir.rename);
     statics.push(dir.to);
+  }
+  // The standards pages load the app's stylesheets by a path that climbs out of docs/, so the stylesheets of the same version go to
+  // the matching place under the site.
+  fs.rmSync(path.join(publicDir, "frontend"), { recursive: true, force: true });
+  for (const css of STYLES) {
+    const from = path.join(opts.rootDir ?? path.dirname(docsDir), css);
+    if (!fs.existsSync(from)) continue;
+    fs.mkdirSync(path.dirname(path.join(publicDir, css)), { recursive: true });
+    fs.copyFileSync(from, path.join(publicDir, css));
+  }
+  for (const embed of EMBEDS) {
+    if (!statics.includes(embed.dir)) continue;
+    fs.writeFileSync(path.join(contentDir, `${embed.slug}.md`), embedPage(embed, base));
+    written.push({ slug: embed.slug, label: embed.title, group: embed.group, title: embed.title, description: embed.description });
   }
   return { pages: written, statics };
 }

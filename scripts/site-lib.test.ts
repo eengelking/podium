@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeVersions, descriptionOf, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf } from "../site/scripts/lib.mjs";
+import { computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf } from "../site/scripts/lib.mjs";
 import { PAGES } from "../site/docs-nav.mjs";
 
 const slugs = new Map<string, string>([
@@ -61,8 +61,8 @@ describe("rewriteTarget", () => {
     expect(rewriteTarget("ATLAS.md", { ...ctx, fromDir: "atlas" })).toBe("/atlas/");
   });
   it("serves the standards and images folders as they are, and the atlas page under its own address", () => {
-    expect(rewriteTarget("standards/", ctx)).toBe("/standards/index.html");
-    expect(rewriteTarget("standards/tokens.html#x", ctx)).toBe("/standards/tokens.html#x");
+    expect(rewriteTarget("standards/", ctx)).toBe("/docs/standards/index.html");
+    expect(rewriteTarget("standards/tokens.html#x", ctx)).toBe("/docs/standards/tokens.html#x");
     expect(rewriteTarget("images/podium-chaos.png", ctx)).toBe("/images/podium-chaos.png");
     expect(rewriteTarget("atlas/podium-atlas.html", ctx)).toBe("/atlas-map/index.html");
   });
@@ -144,26 +144,47 @@ describe("prepareDocs", () => {
     fs.writeFileSync(path.join(docs, "SERVER.md"), "# Server\n\nRun it. See [guide](USER_GUIDE.md).\n");
     fs.writeFileSync(path.join(docs, "USER_GUIDE.md"), "# Guide\n\nStart here.\n");
     fs.writeFileSync(path.join(docs, "standards/index.html"), "<html></html>");
+    fs.mkdirSync(path.join(root, "frontend/src/fleet/admin"), { recursive: true });
+    fs.writeFileSync(path.join(root, "frontend/src/fleet/tokens.css"), "t");
+    fs.writeFileSync(path.join(root, "frontend/src/fleet/fleet.css"), "f");
+    fs.writeFileSync(path.join(root, "frontend/src/fleet/admin/admin.css"), "a");
     fs.writeFileSync(path.join(docs, "atlas/podium-atlas.html"), "<html>atlas</html>");
     fs.writeFileSync(path.join(docs, "atlas/notes.txt"), "skipped");
     fs.writeFileSync(path.join(docs, "images/a.png"), "png");
     const contentDir = path.join(root, "content");
     const publicDir = path.join(root, "public");
-    fs.mkdirSync(path.join(publicDir, "standards"), { recursive: true });
-    fs.writeFileSync(path.join(publicDir, "standards/stale.html"), "old");
+    fs.mkdirSync(path.join(publicDir, "docs/standards"), { recursive: true });
+    fs.writeFileSync(path.join(publicDir, "docs/standards/stale.html"), "old");
     fs.mkdirSync(contentDir, { recursive: true });
     fs.writeFileSync(path.join(contentDir, "stale.md"), "old");
 
     const out = prepareDocs({ docsDir: docs, contentDir, publicDir, base: "/", ref: "main", editBase: "e/", lastUpdatedOf: (f: string) => (f === "SERVER.md" ? "2026-10-22" : undefined) });
 
-    expect((out.pages as { slug: string }[]).map((p) => p.slug)).toEqual(["user-guide", "server"]);
-    expect(out.statics).toEqual(["standards", "atlas-map", "images"]);
+    expect((out.pages as { slug: string }[]).map((p) => p.slug)).toEqual(["user-guide", "server", "design-standards", "architecture-atlas"]);
+    expect(out.statics).toEqual(["docs/standards", "atlas-map", "images"]);
     expect(fs.existsSync(path.join(contentDir, "stale.md"))).toBe(false);
-    expect(fs.existsSync(path.join(publicDir, "standards/stale.html"))).toBe(false);
+    expect(fs.existsSync(path.join(publicDir, "docs/standards/stale.html"))).toBe(false);
     expect(fs.readFileSync(path.join(contentDir, "server.md"), "utf8")).toContain("[guide](/user-guide/)");
     expect(fs.readFileSync(path.join(publicDir, "atlas-map/index.html"), "utf8")).toBe("<html>atlas</html>");
     expect(fs.existsSync(path.join(publicDir, "atlas-map/notes.txt"))).toBe(false);
     expect(fs.existsSync(path.join(publicDir, "images/a.png"))).toBe(true);
+    // the standards pages reach the app's stylesheets as ../../frontend/src/fleet/*.css from docs/standards/
+    expect(fs.readFileSync(path.join(publicDir, "frontend/src/fleet/fleet.css"), "utf8")).toBe("f");
+    expect(fs.readFileSync(path.join(publicDir, "frontend/src/fleet/admin/admin.css"), "utf8")).toBe("a");
+    expect(fs.existsSync(path.join(publicDir, "docs/standards/index.html"))).toBe(true);
+    // and each static page that exists is shown in a page of the site
+    const embedded = fs.readFileSync(path.join(contentDir, "design-standards.md"), "utf8");
+    expect(embedded).toContain('<iframe class="embed" src="/docs/standards/index.html"');
+    expect(fs.readFileSync(path.join(contentDir, "architecture-atlas.md"), "utf8")).toContain('src="/atlas-map/index.html"');
+    expect((out.pages as { slug: string }[]).map((p) => p.slug)).toContain("design-standards");
+  });
+
+  it("shows a static page in a frame under the version's base, without a table of contents", () => {
+    const md = embedPage({ slug: "design-standards", src: "docs/standards/index.html", title: "Design standards", description: "d", frame: "Frame" }, "/1.2/");
+    expect(md).toContain("tableOfContents: false");
+    expect(md).toContain("lastUpdated: false");
+    expect(md).toContain('src="/1.2/docs/standards/index.html" title="Frame"');
+    expect(md).toContain('<a href="/1.2/docs/standards/index.html">Open this on its own page</a>');
   });
 
   it("skips a folder an older release does not have", () => {
@@ -173,6 +194,7 @@ describe("prepareDocs", () => {
     const out = prepareDocs({ docsDir: path.join(root, "docs"), contentDir: path.join(root, "c"), publicDir: path.join(root, "p"), base: "/1.2/", ref: "v1.2.2", editBase: "", older: true });
     expect(out.pages).toHaveLength(1);
     expect(out.statics).toEqual([]);
+    expect(fs.existsSync(path.join(root, "c/design-standards.md"))).toBe(false);
   });
 
   it("lists every page the nav names exactly once", () => {

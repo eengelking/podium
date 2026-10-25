@@ -17,9 +17,11 @@ source, and `site/scripts/build.mjs` reads it each time. Decision 43 in `docs/DE
   first heading, a `description` from the first paragraph, `lastUpdated` from git, an edit link, and the heading removed. It rewrites
   links: a link to another doc becomes a site address, a link to `docs/standards/` or the images folder becomes the copied static
   folder, and any other file in the repository becomes a GitHub link at that version's tag. Code blocks and code spans are left alone.
-  It also copies `docs/standards/` (as it is), `docs/images/` and the atlas page (to `/atlas-map/`) into `site/public/`.
-- `site/src/content/docs/`, `site/public/standards/`, `site/public/atlas-map/`, `site/public/images/` and `site/public/llms.txt` are
-  generated and ignored by git. Never edit them; change `docs/` or `site/scripts/lib.mjs`.
+  It also copies `docs/standards/` (as it is, to `/docs/standards/`), `docs/images/` and the atlas page (to `/atlas-map/`) into
+  `site/public/`, plus the three app stylesheets the standards pages load (to `/frontend/src/fleet/`, from the same version), and
+  writes `design-standards.md` and `architecture-atlas.md`, pages that show those two static pages in a frame.
+- `site/src/content/docs/`, `site/public/docs/`, `site/public/frontend/`, `site/public/atlas-map/`, `site/public/images/` and
+  `site/public/llms.txt` are generated and ignored by git. Never edit them; change `docs/` or `site/scripts/lib.mjs`.
 - An older release may lack a page or a folder. The menu is built from what that version has, and the build never fails on a page a
   tag does not have.
 - The build fails on a broken internal link (`starlight-links-validator`). The standards pages and the atlas page are served as they

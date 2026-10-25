@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokens - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html" aria-current="page">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html">Voice</a>
+    <a href="accessibility.html">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Tokens</h1><p>Every color and font token, named by its role. They live in <code>frontend/src/fleet/tokens.css</code> and nowhere else: the app, these pages and new mockups all read that file. The swatches follow the theme and mode picked above. The values shown are Podium's own, dark and light.</p></div>
+  <section class="s-panel" id="surfaces"><h3>Surfaces</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--bg)"></span><code>--bg</code></td><td>The page behind everything, and the text color on a primary button.</td><td><code>#0d0d0d</code></td><td><code>#f9f9f7</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--surface)"></span><code>--surface</code></td><td>Cards, panels, the top bar and the KPI strip: anything that sits on the page.</td><td><code>#1a1a19</code></td><td><code>#fcfcfb</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--raised)"></span><code>--raised</code></td><td>Something that sits on a surface or floats above it: buttons, tooltips, the toast, the modal's raised parts.</td><td><code>#222220</code></td><td><code>#f1f0ec</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="ink"><h3>Ink</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--ink)"></span><code>--ink</code></td><td>Primary text, and the fill of a primary button.</td><td><code>#f0efec</code></td><td><code>#0b0b0b</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--ink2)"></span><code>--ink2</code></td><td>Secondary text: captions, chip text, quieter labels.</td><td><code>#c3c2b7</code></td><td><code>#52514e</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--muted)"></span><code>--muted</code></td><td>The quietest text: units, hints, empty values. Still meets the 4.5:1 text target.</td><td><code>#898781</code></td><td><code>#6b6a64</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="lines-and-washes"><h3>Lines and washes</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--grid)"></span><code>--grid</code></td><td>Hairline dividers between rows and cells, the track of a bar, and the area under a sparkline.</td><td><code>#2c2c2a</code></td><td><code>#e1e0d9</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--axis)"></span><code>--axis</code></td><td>A stronger line: the border of a floating panel, a chart axis, a pressed control.</td><td><code>#383835</code></td><td><code>#c3c2b7</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--border)"></span><code>--border</code></td><td>The translucent border on cards, panels, chips and fields.</td><td><code>rgba(255, 255, 255, 0.10)</code></td><td><code>rgba(11,11,11,0.10)</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--hover)"></span><code>--hover</code></td><td>The wash under a hovered row or control.</td><td><code>rgba(255, 255, 255, 0.045)</code></td><td><code>rgba(11,11,11,0.04)</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--sel)"></span><code>--sel</code></td><td>The wash under a selected or pressed control.</td><td><code>rgba(255, 255, 255, 0.08)</code></td><td><code>rgba(11,11,11,0.07)</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="models"><h3>Models</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--opus)"></span><code>--opus</code></td><td>The Opus family: its chip, its chart series and its spend.</td><td><code>#9085e9</code></td><td><code>#6250d6</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--sonnet)"></span><code>--sonnet</code></td><td>The Sonnet family. Also the color of the keyboard focus ring.</td><td><code>#3987e5</code></td><td><code>#2a78d6</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--haiku)"></span><code>--haiku</code></td><td>The Haiku family.</td><td><code>#199e70</code></td><td><code>#1baf7a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--fable)"></span><code>--fable</code></td><td>The Fable family.</td><td><code>#d95926</code></td><td><code>#eb6834</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--other)"></span><code>--other</code></td><td>A model that is not a Claude model.</td><td><code>#898781</code></td><td><code>#6b6a64</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="status"><h3>Status</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--good)"></span><code>--good</code></td><td>A mark that something is running or fine: a dot, a switch that is on.</td><td><code>#0ca30c</code></td><td><code>#0ca30c</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--good-text)"></span><code>--good-text</code></td><td>Green text, checked for 4.5:1 on the surface it sits on.</td><td><code>#3dbb3d</code></td><td><code>#006300</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--warn)"></span><code>--warn</code></td><td>Waiting on you, or something to look at: the mark and its text.</td><td><code>#fab219</code></td><td><code>#fab219</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--serious)"></span><code>--serious</code></td><td>A session whose heartbeat is lost, and a reporter that has gone silent.</td><td><code>#ec835a</code></td><td><code>#ec835a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--crit)"></span><code>--crit</code></td><td>A failure: the mark, the failure box's border and wash.</td><td><code>#d03b3b</code></td><td><code>#d03b3b</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--crit-text)"></span><code>--crit-text</code></td><td>Red text, checked for 4.5:1.</td><td><code>#ee6a6a</code></td><td><code>#b52a2a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--on-good)"></span><code>--on-good</code></td><td>Text or a tick drawn on a --good fill.</td><td><code>#fff</code></td><td><code>#fff</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="delegation-and-admin"><h3>Delegation and admin</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--deleg)"></span><code>--deleg</code></td><td>A session that is idle while agents it launched run: the ring and its marks.</td><td><code>#2fa4e0</code></td><td><code>#0a7fb8</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--deleg-text)"></span><code>--deleg-text</code></td><td>The same state as text, checked for 4.5:1.</td><td><code>#5cbcf0</code></td><td><code>#07608c</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--admin-text)"></span><code>--admin-text</code></td><td>The administrator's name in the Admin People list.</td><td><code>#bd7705</code></td><td><code>#9b6104</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="effort"><h3>Effort</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><span class="s-swatch" style="background: var(--eff-low)"></span><code>--eff-low</code></td><td>The effort meter at low.</td><td><code>#f58b57</code></td><td><code>#d9601f</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-medium)"></span><code>--eff-medium</code></td><td>The effort meter at medium.</td><td><code>#91c882</code></td><td><code>#2f8f3a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-high)"></span><code>--eff-high</code></td><td>The effort meter at high.</td><td><code>#5aa9f5</code></td><td><code>#1f78c8</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-xhigh)"></span><code>--eff-xhigh</code></td><td>The effort meter at extra high.</td><td><code>#af87ff</code></td><td><code>#7a3fe0</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-r1)"></span><code>--eff-r1</code></td><td>The first of the five bars when effort is max.</td><td><code>#eb5f57</code></td><td><code>#c9302c</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-r2)"></span><code>--eff-r2</code></td><td>The second bar at max.</td><td><code>#f58b57</code></td><td><code>#d9601f</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-r3)"></span><code>--eff-r3</code></td><td>The third bar at max.</td><td><code>#fac35f</code></td><td><code>#c99a0a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-r4)"></span><code>--eff-r4</code></td><td>The fourth bar at max.</td><td><code>#91c882</code></td><td><code>#2f8f3a</code></td></tr>
+      <tr><td><span class="s-swatch" style="background: var(--eff-r5)"></span><code>--eff-r5</code></td><td>The fifth bar at max.</td><td><code>#82aadc</code></td><td><code>#4a6fd0</code></td></tr>
+    </tbody></table></div>
+  </section>
+  <section class="s-panel" id="fonts"><h3>Fonts</h3>
+    <div class="s-table-wrap"><table class="s-table"><thead><tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Podium dark</th><th scope="col">Podium light</th></tr></thead><tbody>
+      <tr><td><code>--font-ui</code></td><td>Labels, body text and headings.</td><td><code>&quot;Schibsted Grotesk&quot;, system-ui, -apple-system, &quot;Segoe UI&quot;, sans-serif</code></td><td><code>&quot;Schibsted Grotesk&quot;, system-ui, -apple-system, &quot;Segoe UI&quot;, sans-serif</code></td></tr>
+      <tr><td><code>--font-mono</code></td><td>Figures, paths, ids and code. Digits line up in columns.</td><td><code>&quot;JetBrains Mono&quot;, ui-monospace, &quot;SF Mono&quot;, Menlo, monospace</code></td><td><code>&quot;JetBrains Mono&quot;, ui-monospace, &quot;SF Mono&quot;, Menlo, monospace</code></td></tr>
+    </tbody></table></div>
+  </section>
+  </main>
+</div>
+</body>
+</html>

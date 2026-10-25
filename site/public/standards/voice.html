@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium" data-theme="dark" data-mode="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice - Podium standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="standards.css">
+<script src="standards.js"></script>
+</head>
+<body>
+<header class="s-bar">
+  <a class="s-logo" href="index.html">Podium <span>standards</span></a>
+  <span class="s-grow"></span>
+  <label class="s-field" for="s-theme">Theme <select class="s-select" id="s-theme"><option value="podium">Podium</option><option value="solarized">Solarized</option><option value="nord">Nord</option><option value="gruvbox">Gruvbox</option><option value="catppuccin">Catppuccin (Latte, Mocha)</option><option value="github">GitHub</option></select></label>
+  <div class="s-seg" role="radiogroup" aria-label="Mode" id="s-mode">
+    <button type="button" role="radio" aria-checked="false" data-mode="light">Light</button>
+    <button type="button" role="radio" aria-checked="false" data-mode="dark">Dark</button>
+    <button type="button" role="radio" aria-checked="true" data-mode="system">System</button>
+  </div>
+</header>
+<div class="s-shell">
+  <nav class="s-nav" aria-label="Standards pages">
+    <a href="index.html">Index</a>
+    <h2>Foundations</h2>
+    <a href="tokens.html">Tokens</a>
+    <a href="themes.html">Themes</a>
+    <a href="scale.html">Type, spacing, motion</a>
+    <h2>Building blocks</h2>
+    <a href="components.html">Components</a>
+    <a href="patterns.html">Patterns</a>
+    <h2>Practice</h2>
+    <a href="voice.html" aria-current="page">Voice</a>
+    <a href="accessibility.html">Accessibility</a>
+    <a href="process.html">Process</a>
+  </nav>
+  <main class="s-main">
+  <div><h1>Voice</h1><p>How Podium's own words sound: labels, notes and errors in the app. For prose in docs, commit messages and pull requests, use the documentation voice guide too.</p></div>
+  <section class="s-panel" id="words"><h3>Wording</h3>
+    <ul><li>Plain verbs, sentence case, no filler. A button says what happens: Create user, Unlock Admin, Remove from list, Show 12 more.</li><li>The same action has the same name everywhere. A control that says Remove does not become Delete in its confirmation.</li><li>Name things as people know them: session, agent, orchestrator, reporter, wall, plan step. Not the names of the code.</li><li>Write a path in Admin as <code>Admin &gt; Settings</code>, with a greater-than sign and spaces.</li><li>A model is its name and version, such as Opus 5.5. A cost is an estimate and says so: Est. cost today.</li><li>A number has its unit or its noun next to it, and a count says what it counts: 3 selected, 2 of 5 done.</li></ul>
+  </section>
+  <section class="s-panel" id="errors"><h3>Errors and refusals</h3>
+    <ul><li>Say what went wrong and what to try, in one or two short sentences. Do not apologize and do not blame.</li><li>Do not say which part of a sign-in was wrong. The same sentence covers a wrong name and a wrong token.</li><li>Use the user's names for the options: <code>That name and token don't match. Check the userName and token options in podium-reporter.</code></li><li>Say when something is not known, not a made-up value: n/a with the reason, and No plan reported.</li></ul>
+  </section>
+  <section class="s-panel" id="notes"><h3>Notes and hints</h3>
+    <ul><li>A note says what is true now. It does not describe how the page is built.</li><li>A tooltip adds one fact. The text is always in the page for a screen reader.</li><li>A hint under a field says what the field does. It is not a second label.</li></ul>
+  </section>
+  </main>
+</div>
+</body>
+</html>

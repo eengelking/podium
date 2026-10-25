@@ -15,11 +15,10 @@ const older = process.env.DOCS_REF ? true : false;
 
 // An older release may lack a page or a static folder, so the menu lists only what this version has.
 const pages = process.env.DOCS_PAGES ? new Set(JSON.parse(process.env.DOCS_PAGES)) : null;
-const statics = process.env.DOCS_STATICS ? new Set(JSON.parse(process.env.DOCS_STATICS)) : null;
-const has = (i) => (i.slug ? !pages || pages.has(i.slug) : !statics || statics.has(i.link.split("/")[0]));
+const has = (i) => !pages || pages.has(i.slug);
 const sidebar = GROUPS.map((g) => ({
   label: g.label,
-  items: g.items.filter(has).map((i) => (i.slug ? { label: i.label, slug: i.slug } : { label: i.label, link: `${base}${i.link}` })),
+  items: g.items.filter(has).map((i) => ({ label: i.label, slug: i.slug })),
 })).filter((g) => g.items.length > 0);
 
 const description =
@@ -48,10 +47,9 @@ export default defineConfig({
       sidebar,
       plugins: [
         starlightLinksValidator({
-          // Pages of docs/standards/ and the atlas are served as they are, so they are not Starlight pages; the Markdown
-          // links to them are rewritten to static files and are not checked here. The simulator and local addresses in
-          // the docs are examples, not links.
-          exclude: ["**/standards/**", "**/atlas/*.html", "**/images/**"],
+          // The standards pages and the atlas page are served as they are, so they are not Starlight pages; the Markdown links
+          // to them are rewritten to static files and are not checked here.
+          exclude: ["**/docs/standards/**", "**/atlas-map/**", "**/images/**"],
           errorOnLocalLinks: false,
           errorOnInvalidHashes: false,
         }),

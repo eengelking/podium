@@ -4,7 +4,8 @@ out/
 .astro/
 dist/
 src/content/docs/
-public/standards/
+public/docs/
+public/frontend/
 public/atlas-map/
 public/images/
 public/llms.txt

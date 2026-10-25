@@ -124,7 +124,9 @@ lockfile, outside the npm workspaces, so the server and UI builds never install 
   root `package.json`) is built from the working tree at `/`; each older line from `FIRST_VERSION_LINE` on is built from its newest
   `vX.Y.Z` tag at `/<line>/`. Before each build `prepareDocs` in `site/scripts/lib.mjs` writes the pages (title, description and
   last-updated from the doc and git, links rewritten to site addresses or to GitHub at that tag) into the ignored
-  `site/src/content/docs/`, and copies `docs/standards/`, `docs/images/` and the atlas page unchanged.
+  `site/src/content/docs/`, and copies `docs/standards/`, `docs/images/` and the atlas page unchanged. The standards and the atlas
+  are shown in a frame inside a page of the site; the standards load the app's stylesheets by a `../../frontend/src/fleet/` path, so
+  the build serves them at `/docs/standards/` and copies those stylesheets from the same version to `/frontend/src/fleet/`.
 - `site/docs-nav.mjs` is the menu: which docs are published, in which group, at which address.
 - `site/src/styles/theme.css` maps the console's tokens onto Starlight's variables. `site/src/components/` overrides the header,
   footer, banner (older versions) and page title, and holds the version menu. `site/src/pages/index.astro` is the homepage.
