@@ -42,7 +42,7 @@ session's owner have both turned that on. It never types into a terminal.
 Run it for yourself on one machine, or point a whole team's sessions at one server and the console groups
 the wall by person. The Claude Code mod, `podium-reporter`, sends the data.
 
-New here? The [user guide](docs/USER_GUIDE.md) walks through setup and reading the dashboard, and the
+New here? The [user guide](docs/USER_GUIDE.md) walks through setup and reading the console, and the
 [documentation table](#documentation) below lists everything else.
 
 Cost in Podium is an estimate from token counts and a price table. The table starts as Anthropic's list
@@ -67,7 +67,7 @@ npm run podium:sim -- --sessions 5 --chaos
 
 `--chaos` adds sessions that go silent, more failures and more context blowouts. `--help` lists the
 other options (`--url`, `--speed`, `--seed`, `--duration`, `--agents`, `--token`, `--person`, `--unnamed`, `--print`). Stop it
-with Ctrl-C; it ends every session it started, and they leave the dashboard a few seconds later. If the
+with Ctrl-C; it ends every session it started, and they leave the console a few seconds later. If the
 server has a token (`podiumctl start` sets one), pass it: `--token "$(podiumctl token)"`.
 
 To see the people view, give the simulator people with a token each from Admin:
@@ -85,7 +85,7 @@ The docs are also published with a menu, search and a version picker at [podium.
 | Read | To |
 |---|---|
 | [Introduction](docs/INTRODUCTION.md) | What Podium is, what it does and does not do, and where to read next |
-| [User guide](docs/USER_GUIDE.md) | Set Podium up, read the dashboard and use Admin |
+| [User guide](docs/USER_GUIDE.md) | Set Podium up, read the console and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
 | [The reporter mod](docs/REPORTER.md) | Install `podium-reporter`, set its options and see what leaves a session |
 | [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |

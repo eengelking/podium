@@ -1,6 +1,12 @@
+---
+title: "User guide"
+description: "Set up Podium, read the console, answer a waiting session, use Admin and fix common problems."
+group: Getting started
+---
+
 # User guide
 
-How to set up Podium, read the dashboard and fix common problems. It is for anyone who runs Claude Code sessions and
+How to set up Podium, read the console and fix common problems. It is for anyone who runs Claude Code sessions and
 wants to watch them, and for the person who runs the server, whose part is in [Admin](#admin).
 
 Podium shows every Claude Code session on your machine in one browser tab. It watches. The one thing it can send is an
@@ -20,9 +26,9 @@ replaying it, and [GOTCHAS.md](GOTCHAS.md) for sharp edges.
 - [Set it up](#set-it-up)
 - [Something is wrong](#something-is-wrong)
 
-**Use the dashboard**
+**Use the console**
 
-- [Reading the dashboard](#reading-the-dashboard)
+- [Reading the console](#reading-the-console)
 - [The wall](#the-wall)
 - [The board](#the-board)
 - [People](#people)
@@ -57,7 +63,7 @@ replaying it, and [GOTCHAS.md](GOTCHAS.md) for sharp edges.
 
 ## Set it up
 
-There are two parts: the server (the dashboard) and the reporter mod (inside each Claude Code session).
+There are two parts: the server (the console) and the reporter mod (inside each Claude Code session).
 
 ### 1. Start the server
 
@@ -67,7 +73,7 @@ podiumctl start
 ```
 
 The first start builds the container image, generates an auth token and saves it to `~/.podium/config.env`. The
-dashboard is at http://127.0.0.1:4317/#/.
+console is at http://127.0.0.1:4317/#/.
 
 - **Plain Node process instead of a container.** Run `podiumctl build --mode standalone` once, then
   `podiumctl start --mode standalone`.
@@ -165,9 +171,9 @@ Find what you see, then follow the fix. [GOTCHAS.md](GOTCHAS.md) has more.
 The `Connection:` and `Versions:` lines say whether the mod is online, refused or out of step with the server. It does
 not print your token, but check what you paste and remove any token or other secret before posting.
 
-## Reading the dashboard
+## Reading the console
 
-The dashboard has a top bar, a left rail and a right panel.
+The console has a top bar, a left rail and a right panel.
 
 - **Logo.** The Podium logo at the top left is a link home. From History or Admin it takes you back to the fleet page.
 - **Top bar.** A pill names the page ("Fleet" on the wall, "Orchestrator" on a session's page, "History", "Admin"),
@@ -234,7 +240,7 @@ To lower it:
 - Keep fewer sessions on screen.
 - Leave the tab hidden. Animations pause while it is.
 - Use wall mode, which hides the side panes and top bar so the browser stops drawing them.
-- Close the dashboard when nobody is looking.
+- Close the console when nobody is looking.
 
 ### The wall
 
@@ -503,7 +509,7 @@ it launched are counted in those agents' panels, not here.
 
 **Report.** The **Report** group has two buttons, **Task prompt** and **Final answer**.
 
-- Click one to read the text in a window over the dashboard, with markdown shown as formatting (headings, lists, code,
+- Click one to read the text in a window over the console, with markdown shown as formatting (headings, lists, code,
   links). Esc, the X or a click outside closes it, and **Copy** copies the raw text.
 - A button is dimmed until there is something to show. The answer stays dimmed while the agent runs.
 - By default Podium only has the first 400 characters of each, and the window says so. To see the whole text, turn on the
@@ -810,7 +816,7 @@ bar.
 - The prices are the ones in **Admin > Model prices**, which start as Anthropic's published list prices. Change them
   there to match what you pay.
 - The session's figure covers the orchestrator and every agent, nested ones included. The figures for agents are each
-  agent's own use, and the dashboard labels them as estimates. The orchestrator's row in the agent tree shows the
+  agent's own use, and the console labels them as estimates. The orchestrator's row in the agent tree shows the
   session figure.
 - A session from a reporter older than 0.12.0 sends no per-model tokens, so its cost is the figure Claude Code's own
   ledger gave, and your prices do not change it.

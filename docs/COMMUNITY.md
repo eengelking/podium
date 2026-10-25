@@ -1,3 +1,9 @@
+---
+title: "Community"
+description: "How to join the Podium Discord server, and how the maintainer sets the server up and keeps it safe."
+group: Project internals
+---
+
 # Community
 
 Podium has a Discord server for questions, show-and-tell and release news. This page says how to join it and how

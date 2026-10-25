@@ -1,3 +1,9 @@
+---
+title: "Atlas tables"
+description: "A table of every part of Podium and every reporter hook, the key functions, the flows between them and where data lives."
+group: Reference
+---
+
 # Atlas
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text

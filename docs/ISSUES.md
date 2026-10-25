@@ -1,3 +1,9 @@
+---
+title: "Issues inbox"
+description: "A short-lived inbox for findings that are not yet GitHub issues, and how to file or clear them."
+group: Project internals
+---
+
 # Issues inbox
 
 A short-lived inbox for findings that turn up while doing other work and are not yet GitHub issues. It is not a

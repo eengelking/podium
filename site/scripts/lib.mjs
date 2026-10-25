@@ -2,6 +2,7 @@
 // the site shows. Plain scans rather than patterns on text that comes from the docs, so hostile input costs one pass (#487, #489).
 import fs from "node:fs";
 import path from "node:path";
+import { parseFrontmatter } from "../../scripts/docFrontmatter.mjs";
 import { PAGES, EMBEDS, STATIC_DIRS, STYLES, REPO, SITE_ORIGIN } from "../docs-nav.mjs";
 
 const MAX_DESCRIPTION = 160;
@@ -253,17 +254,20 @@ export function frontmatter(fields) {
  * @param {{ base: string, ref: string, slugs: Map<string, string>, labels?: Map<string, string>, editBase: string, lastUpdated?: string, older?: boolean }} ctx
  */
 export function preparePage(page, md, ctx) {
-  const title = page.title || titleOf(md) || page.label;
-  const body = rewriteLinks(removeTitle(withoutContents(md)), { ...ctx, fromDir: path.posix.dirname(page.file) === "." ? "" : path.posix.dirname(page.file) });
+  // A page's own frontmatter (#696) comes first; an older version's docs have none, so the heading and first paragraph stand in.
+  const { fields, body: text } = parseFrontmatter(md);
+  const title = page.title || fields.title || titleOf(text) || page.label;
+  const description = page.description || fields.description || descriptionOf(text);
+  const body = rewriteLinks(removeTitle(withoutContents(text)), { ...ctx, fromDir: path.posix.dirname(page.file) === "." ? "" : path.posix.dirname(page.file) });
   const head = frontmatter({
     title,
-    description: page.description || descriptionOf(md),
+    description,
     editUrl: ctx.editBase ? `${ctx.editBase}docs/${page.file}` : undefined,
     lastUpdated: ctx.lastUpdated,
     // Starlight shows its banner slot only when a page has this field; the site's Banner says which version it is.
     banner: ctx.older ? { content: "Older version" } : undefined,
   });
-  return { title, description: page.description || descriptionOf(md), content: head + body.replace(/^\n+/, "") };
+  return { title, description, content: head + body.replace(/^\n+/, "") };
 }
 
 function removeTitle(md) {

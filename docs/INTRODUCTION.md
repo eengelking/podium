@@ -1,3 +1,9 @@
+---
+title: "Introduction"
+description: "What Podium is, what it shows for each Claude Code session, what it will not do, and which page to read next."
+group: Getting started
+---
+
 # Introduction
 
 Podium is a live fleet console for Claude Code. Every session on one machine shows up in one browser tab.
@@ -25,7 +31,7 @@ Podium has two parts, and you run both yourself:
 
 | If you want to | Read |
 |---|---|
-| Set Podium up and read the dashboard | [User guide](USER_GUIDE.md) |
+| Set Podium up and read the console | [User guide](USER_GUIDE.md) |
 | Run the server for yourself or a team | [Running the server](SERVER.md) |
 | Install and configure the mod | [Reporter](REPORTER.md) |
 | Let your own orchestrators message each other | [Messaging](MESSAGING.md) |

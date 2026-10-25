@@ -1,3 +1,9 @@
+---
+title: "Orchestrator messaging"
+description: "Let one person's Claude Code orchestrators message each other through Podium: setup, rights, limits, what is kept and troubleshooting."
+group: Running it
+---
+
 # Orchestrator messaging
 
 One person's Claude Code orchestrators, on any of their machines, can send each other messages through Podium. This

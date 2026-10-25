@@ -1,3 +1,9 @@
+---
+title: "The reporter mod"
+description: "Install and configure podium-reporter, the Claude Code mod that sends a session's data to Podium, and see exactly what leaves a session."
+group: Running it
+---
+
 # The reporter mod
 
 `podium-reporter` is the Claude Code mod that sends a session's data to the Podium server. This page is for
@@ -54,7 +60,7 @@ The session appears in Podium once you send its first prompt. A session that has
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
 "Sessions that have not done anything yet" in [USER_GUIDE.md](USER_GUIDE.md)).
 
-- `/podium` prints the dashboard link, the connection state and report counts.
+- `/podium` prints the console link, the connection state and report counts.
 - `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
   Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The `sessionName`
   option and the worktree or folder name come after.

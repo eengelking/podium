@@ -1,8 +1,9 @@
-// What the site shows from docs/ and where. This is the one place a doc page is placed in the menu (#688), until every page
-// carries its own `title`, `description` and `group` in frontmatter (#696). A page that is not listed here is not published.
+// What the site shows from docs/ and where. This is the one place a doc page is placed in the menu (#688). Each page also names its
+// own `title`, `description` and `group` in frontmatter (#696), and the build checks the group against this list. A page that is
+// not listed here is not published.
 // `file` is the path under docs/; `slug` is the page's address on the site; `label` is its name in the menu and in links that name it.
-// `title` and `description` are optional and replace what the build derives from the doc's first heading and first paragraph, for a doc
-// where that reads badly in a menu or a search result.
+// `title` and `description` are optional and replace the page's frontmatter. An older version's docs have no frontmatter, so for them
+// the build falls back to the doc's first heading and first paragraph.
 export const GROUPS = [
   {
     label: "Getting started",

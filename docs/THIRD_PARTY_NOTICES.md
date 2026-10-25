@@ -1,3 +1,9 @@
+---
+title: "Third-party notices"
+description: "Where each Podium color theme's palette came from and the license it is used under."
+group: Project internals
+---
+
 # Third-party notices
 
 This page is for anyone who wants to know where a Podium color theme's colors came from and under what license.

@@ -1,3 +1,9 @@
+---
+title: "Specification"
+description: "The build spec: what Podium must do, its intended behavior and requirements."
+group: Reference
+---
+
 # SPEC: Podium, a live fleet console for Claude Code orchestrators
 
 | | |

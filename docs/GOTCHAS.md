@@ -1,6 +1,12 @@
+---
+title: "Gotchas"
+description: "Sharp edges you can hit when you run or work on Podium, what you see, why it happens and what to do about it."
+group: Project internals
+---
+
 # Gotchas
 
-Sharp edges that are easy to hit when you run Podium or work on it, and how to get past them. If something looks wrong, find your symptom here first.
+Sharp edges that are easy to hit when you run Podium or work on it, and how to get past them. It is for anyone who runs Podium or works on it. If something looks wrong, find your symptom here first.
 
 Every entry has the same three parts:
 
@@ -16,7 +22,7 @@ This is the short, practical list. The full list of known limitations is under "
 - [Connecting the mod](#connecting-the-mod)
 - [Reporters and machines](#reporters-and-machines)
 - [Running the server](#running-the-server)
-- [What the dashboard shows](#what-the-dashboard-shows)
+- [What the console shows](#what-the-console-shows)
 - [Orchestrator messaging](#orchestrator-messaging)
 - [Session recording](#session-recording)
 - [Developing](#developing)
@@ -55,7 +61,7 @@ correctly (SPEC 6.8).
 
 Reports still arrive in every case. Only `major.minor` is compared, so a patch release never triggers a message.
 A version the server cannot read (the simulator's `0.1.0-sim`) shows nothing. A mod older than 0.3.0 cannot show the
-message itself, but the dashboard still marks its card.
+message itself, but the console still marks its card.
 
 **Do:** For `update mod`, update the mod, then reload it in the session. A running session keeps the version it loaded
 until you do.
@@ -91,7 +97,7 @@ clears it, and the mod passes only `podium v0.11.1 ● 1 live`. We have not chec
 
 ### The effort shown is the old one after I run `/effort`
 
-**You see:** The effort bars on the dashboard still show the previous level.
+**You see:** The effort bars on the console still show the previous level.
 
 **Why:** The mod reads the effort the session sends with each model request, and the plugin API has no event for the
 setting changing.
@@ -295,9 +301,9 @@ A session whose reporter never comes back is dropped about a minute after the se
 
 **Do:** Treat the account that runs the container engine as trusted. See `.github/SECURITY.md`.
 
-### Anyone on localhost can read the dashboard
+### Anyone on localhost can read the console
 
-**You see:** The dashboard opens with no sign-in.
+**You see:** The console opens with no sign-in.
 
 **Why:** The token guards reports, hooks and deletes, and Admin has its own lock. Reads (`GET /api/fleet/*`) are open
 on localhost by design (SPEC 7.7). With `--bind` or `HOST` set to anything but `127.0.0.1`, other machines can read it
@@ -337,7 +343,7 @@ the unit. Standalone mode restarts a crashed server after 3 seconds.
 
 **Do:** Use `podiumctl start`. Or run `systemctl --user stop podium.service` and then `start`.
 
-## What the dashboard shows
+## What the console shows
 
 ### A session shows no plan
 
@@ -398,7 +404,7 @@ so a hook-only session cannot nest. The mod reads the parent from `agent.spawn` 
 
 **Do:** Nothing. The numbers catch up when you look at the tab again.
 
-### The dashboard's GPU use goes up after adding an animation
+### The console's GPU use goes up after adding an animation
 
 **You see:** GPU use climbs after a UI change that adds a CSS animation.
 

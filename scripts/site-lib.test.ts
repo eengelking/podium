@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutContents } from "../site/scripts/lib.mjs";
 import { PAGES } from "../site/docs-nav.mjs";
+import { parseFrontmatter } from "./docFrontmatter.mjs";
 
 const slugs = new Map<string, string>([
   ["SERVER.md", "server"],
@@ -159,6 +160,16 @@ describe("frontmatter and preparePage", () => {
     expect(out.content).not.toContain("Contents:");
     expect(out.content).toContain("First paragraph.");
   });
+  it("takes title and description from the page's frontmatter, drops the block from the body, and lets the menu override it", () => {
+    const md = '---\ntitle: "Running it"\ndescription: "From the frontmatter."\ngroup: Running it\n---\n\n# Heading\n\nFirst paragraph.\n';
+    const page = { file: "SERVER.md", slug: "server", label: "Server" };
+    const out = preparePage(page, md, { base: "/", ref: "main", slugs, editBase: "" });
+    expect(out.title).toBe("Running it");
+    expect(out.description).toBe("From the frontmatter.");
+    expect(out.content).not.toContain("group:");
+    expect(out.content).not.toContain("# Heading");
+    expect(preparePage({ ...page, title: "Menu title" }, md, { base: "/", ref: "main", slugs, editBase: "" }).title).toBe("Menu title");
+  });
   it("marks an older version's page for the banner, and has no edit link", () => {
     const page = { file: "SERVER.md", slug: "server", label: "Server" };
     const out = preparePage(page, "no heading here\n", { base: "/1.2/", ref: "v1.2.2", slugs, editBase: "", older: true });
@@ -263,6 +274,13 @@ describe("prepareDocs", () => {
     const slugsSeen = pages.map((p) => p.slug);
     expect(new Set(slugsSeen).size).toBe(slugsSeen.length);
     expect(new Set(pages.map((p) => p.file)).size).toBe(pages.length);
+  });
+  it("keeps each page's group in its frontmatter equal to the group the menu puts it in", () => {
+    const pages = PAGES as unknown as { file: string; group: string }[];
+    for (const p of pages) {
+      const { fields } = parseFrontmatter(fs.readFileSync(path.resolve("..", "docs", p.file), "utf8"));
+      expect(fields.group, p.file).toBe(p.group);
+    }
   });
 });
 

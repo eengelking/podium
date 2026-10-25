@@ -1,3 +1,9 @@
+---
+title: "Architecture"
+description: "How Podium was built: the shape of the system, how each part works, where the build departed from the spec, and what is still open."
+group: Project internals
+---
+
 # Architecture
 
 This is how Podium was built, written for a contributor who wants to understand the code. It covers the shape of

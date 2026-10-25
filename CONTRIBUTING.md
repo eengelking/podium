@@ -103,7 +103,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `README.md` | Orientation, quick start and the table of docs |
 | `docs/SERVER.md` | Running the server: `podiumctl`, several people on one server, server settings |
 | `docs/REPORTER.md` | The reporter mod: install, options, what leaves a session |
-| `docs/USER_GUIDE.md` | Using the dashboard, day-to-day |
+| `docs/USER_GUIDE.md` | Using the console, day-to-day |
 | `docs/MESSAGING.md` | Orchestrator messaging from start to finish: how the parts fit, setup, rights, limits, troubleshooting, the end-to-end test |
 | `docs/REPLAY.md` | Session recording and replay from start to finish: consent, what is captured, the notice, storage, limits, access, the replay, the measurement |
 | `docs/SPEC.md` | Intended behavior and requirements |
@@ -114,6 +114,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
 | `docs/DEMO.md` | A script for showing Podium to other people |
+| `docs/templates/` | The page templates (guide, reference, internals, and the index, entry, section and chapter pages of a split topic). Copy one to start a page; the rules are under "Writing docs" |
 | `CHANGELOG.md` | One entry per release |
 
 Update the docs that describe your change in the same PR, and add a line under `[Unreleased]` in
@@ -138,6 +139,50 @@ These apply when you write a new doc or change an existing one. People and agent
   commands in code blocks.
 - Do not add a new standing doc when an existing one can hold the content.
 
+**The page template**
+
+Every page in `docs/` follows one template, so a reader going from one page to the next sees the same structure.
+`docs/templates/` has a starting file for each kind of page. Copy the one that fits and fill it in. The three below are the page kinds:
+
+| Template | Use it for | Group |
+|---|---|---|
+| `docs/templates/guide.md` | A task a reader does: set up, run, configure | Getting started, Running it |
+| `docs/templates/reference.md` | Facts a reader looks up: fields, settings, rules | Reference |
+| `docs/templates/internals.md` | How it was built, why, what goes wrong | Project internals |
+
+A page that is split out of a large one (#697) uses the same rules and one more template: `index.md` for the folder's index
+page, `decision-entry.md` and `gotcha-entry.md` for a log entry (they add `date` and `status`), `spec-section.md` for a spec
+section (it adds `section`, the number other pages cite) and `chapter.md` for a part of a guide or of the architecture (it adds
+`order`). A fact that a page states is stated once; the index lists entries from their frontmatter and is not written by hand.
+
+- **Frontmatter.** The first lines of the file are a block between two `---` lines with three fields, all required:
+  `title` (the name in the menu and in search results), `description` (one sentence, under 160 characters, that says what
+  the page gives the reader) and `group` (exactly one of `Getting started`, `Running it`, `Reference`,
+  `Project internals`). The site menu puts a page in the group it names here. Put a value in double quotes when it has a
+  colon or a quote in it. `docs/standards/` is generated and has none. `docs/templates/` is exempt from the check.
+- **The opening.** One `#` heading, then a paragraph that says what the page covers and who it is for, in that order. If
+  the page leaves a neighbouring topic to another page, say which. A page over about 100 lines follows with a `Contents:`
+  list.
+- **Headings.** `##` for sections and `###` for subsections. Do not go deeper, and do not skip a level. Write headings as
+  sentence case, and as the thing the reader wants ("Run it with podiumctl"), not as a label ("Overview").
+- **Steps.** A numbered list, one action per step, with the command in its own code block and the language named. Say
+  what the reader should see when a step worked.
+- **Commands and examples.** Always in a fenced code block. Show the shortest example that is true, and use the same
+  placeholder (`<host>`, `<token>`) wherever it appears.
+- **Warnings.** A `> **Warning:**` quote, only for a step that loses data or exposes something. Everything else is
+  ordinary prose.
+- **Tables.** For facts that come in sets: settings, fields, options. A header row, the same columns in every table of that
+  kind, and a default in its own column.
+- **Links.** Relative links with the file name (`[Server](SERVER.md#built-in-tls)`), never a full URL to a doc in this
+  repo. They work on GitHub and on the site. Link the first mention of another page's topic, not every mention.
+- **Terms.** One word for one thing. The app is the **console**, its page of cards is the **wall**, a Claude Code
+  session is a **session**, and the main agent in it is the **orchestrator**. Use the words the app shows, then check
+  `docs/USER_GUIDE.md` before you coin another.
+
+To check a page against the template, run `node scripts/check-doc-frontmatter.mjs` (it also runs in `npm test`), then
+read the page's opening and headings against the list above. The script checks the frontmatter only; the rest is a
+read.
+
 **Shapes**
 
 - `docs/GOTCHAS.md`: every entry has **You see**, **Why** and **Do**, in that order.
@@ -148,8 +193,8 @@ These apply when you write a new doc or change an existing one. People and agent
 
 **Before you open the PR**
 
-1. Check that the headings other files link to still exist: `node scripts/check-doc-links.mjs` reports any
-   broken relative link or `#anchor`.
+1. Check that the page has its frontmatter (`node scripts/check-doc-frontmatter.mjs`) and that the headings other
+   files link to still exist: `node scripts/check-doc-links.mjs` reports any broken relative link or `#anchor`.
 2. Search for citations of anything you renamed, such as `SPEC 6.8`, in docs, code comments and open issues.
 3. If a doc disagrees with `docs/SPEC.md`, do not pick a reading. Say so in the PR and ask.
 4. Reread for the voice rules below.

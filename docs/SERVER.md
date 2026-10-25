@@ -1,3 +1,9 @@
+---
+title: "Running the server"
+description: "Start the Podium server, keep it running, control who can reach it and change the settings that alter how it behaves."
+group: Running it
+---
+
 # Running the server
 
 This page is for whoever runs the Podium server: how to start it and keep it running, who can reach it, and
@@ -359,4 +365,4 @@ To lower it:
 - Keep fewer sessions on screen.
 - Leave the tab hidden (animations pause while it is).
 - Use wall mode (`w`), which hides the side panes and top bar so the browser stops drawing them.
-- Close the dashboard when nobody is looking.
+- Close the console when nobody is looking.

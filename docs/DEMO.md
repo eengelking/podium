@@ -1,3 +1,9 @@
+---
+title: "Demo script"
+description: "A script and a paste-in prompt for showing Podium to other people, built to be screen-recorded."
+group: Getting started
+---
+
 # Demo script
 
 This page is for anyone showing Podium to other people. It is a script built to be screen-recorded, in

@@ -1,3 +1,9 @@
+---
+title: "Session recording and replay"
+description: "Record a session whole and play it back: the three yes answers, what is and is not captured, retention, limits and who can read it."
+group: Running it
+---
+
 # Session recording and replay
 
 Podium can record one session whole, orchestrator and agents together, and play it back later: every prompt, what the

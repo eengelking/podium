@@ -1,3 +1,9 @@
+---
+title: "Decisions"
+description: "The why log: the significant choices behind Podium, what each one costs, and which ones were later reversed."
+group: Project internals
+---
+
 # Decisions
 
 This is the "why" log. It records the significant choices behind Podium and what each one costs, newest
