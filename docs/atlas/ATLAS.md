@@ -9,8 +9,8 @@ group: Reference
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
 the first section lists the thirty parts on that page's system map, the second lists the reporter's hooks and
-timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../ARCHITECTURE.md), [Server](../SERVER.md) and
-[Reporter](../REPORTER.md); intended behavior is in [Spec](../SPEC.md).
+timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
+[Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
 Contents:
 

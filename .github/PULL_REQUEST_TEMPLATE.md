@@ -13,7 +13,7 @@
       the rest of the files `CLAUDE.md` lists; CI (the "Mod version bump check" workflow) enforces it for PRs into `main`.
 - [ ] If the report format changed, `server/src/fleet/protocol.ts` and `mod/podium-reporter/hooks/protocol.ts`
       match (`npm test` compares them).
-- [ ] If this changes intended behavior, `docs/SPEC.md` was updated (or the mismatch is called out here
+- [ ] If this changes intended behavior, `docs/spec/` was updated (or the mismatch is called out here
       and the maintainer has agreed to it). Other docs describing the change are updated in the same PR.
 - [ ] `npm test` and `npm run build` pass. If the mod changed, `npm run test:mod` and `npm run typecheck:mod`
       pass too (they need Claude Code installed).

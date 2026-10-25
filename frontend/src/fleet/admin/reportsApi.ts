@@ -1,4 +1,4 @@
-// Admin > Reporting (#484, #482, #483): the report reply as docs/SPEC.md describes it, a small client for it, the period
+// Admin > Reporting (#484, #482, #483): the report reply as docs/spec/ describes it, a small client for it, the period
 // choices, what the page remembers in this browser, and the one place a cell is turned into text. No component is here.
 import { fmtDur, fmtTok } from "../format";
 import { readJson, writeJson } from "../storage";

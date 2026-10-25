@@ -5,6 +5,7 @@ group: Project internals
 number: 0
 date: 2026-01-01
 status: accepted
+order: 1
 ---
 
 # The choice, stated as what was decided
@@ -33,3 +34,6 @@ What else was considered and why it lost. Leave this part out only when there wa
 ## Cost
 
 What the choice gives up or makes harder. Leave this part out only when there is no cost.
+
+<!-- nav:start -->
+<!-- nav:end -->

@@ -2,10 +2,9 @@
 // the site shows. Plain scans rather than patterns on text that comes from the docs, so hostile input costs one pass (#487, #489).
 import fs from "node:fs";
 import path from "node:path";
-import { parseFrontmatter } from "../../scripts/docFrontmatter.mjs";
-import { PAGES, EMBEDS, STATIC_DIRS, STYLES, REPO, SITE_ORIGIN } from "../docs-nav.mjs";
-
-const MAX_DESCRIPTION = 160;
+import { MAX_DESCRIPTION, parseFrontmatter } from "../../scripts/docFrontmatter.mjs";
+import { NAV_END, NAV_START, topicEntries } from "../../scripts/docTopics.mjs";
+import { GROUPS, EMBEDS, STATIC_DIRS, STYLES, REPO, SITE_ORIGIN } from "../docs-nav.mjs";
 
 /** Calls `fn` on each line outside a fenced code block, and passes the line through unchanged inside one. */
 function mapOutsideFences(md, fn) {
@@ -76,6 +75,8 @@ export function withoutContents(md) {
     const t = line.trimStart();
     const marker = t.startsWith("```") ? "```" : t.startsWith("~~~") ? "~~~" : "";
     if (marker && (!fence || fence === marker)) fence = fence ? "" : marker;
+    // A code block right after the contents list is content, not part of the list.
+    if (marker && fence && skip === "list") skip = "";
     if (!fence && !marker) {
       if (skip === "list") {
         const item = /^\s*([-*+]|\d+\.)\s/.test(line) || /^\s{2,}\S/.test(line) || line.trim() === "";
@@ -255,9 +256,11 @@ export function frontmatter(fields) {
  */
 export function preparePage(page, md, ctx) {
   // A page's own frontmatter (#696) comes first; an older version's docs have none, so the heading and first paragraph stand in.
-  const { fields, body: text } = parseFrontmatter(md);
+  const { fields, body: parsed } = parseFrontmatter(md);
+  // The previous / up / next footer is for readers on GitHub; the site has its own.
+  const text = withoutBlock(parsed, NAV_START, NAV_END);
   const title = page.title || fields.title || titleOf(text) || page.label;
-  const description = page.description || fields.description || descriptionOf(text);
+  const description = page.description || fields.description || descriptionOf(withoutContents(text));
   const body = rewriteLinks(removeTitle(withoutContents(text)), { ...ctx, fromDir: path.posix.dirname(page.file) === "." ? "" : path.posix.dirname(page.file) });
   const head = frontmatter({
     title,
@@ -268,6 +271,14 @@ export function preparePage(page, md, ctx) {
     banner: ctx.older ? { content: "Older version" } : undefined,
   });
   return { title, description, content: head + body.replace(/^\n+/, "") };
+}
+
+/** The text without what is between two markers and the markers themselves. */
+export function withoutBlock(md, start, end) {
+  const a = md.indexOf(start);
+  const b = md.indexOf(end, a + 1);
+  if (a === -1 || b === -1) return md;
+  return `${md.slice(0, a).replace(/\s+$/, "")}\n${md.slice(b + end.length).replace(/^\s*\n/, "")}`;
 }
 
 function removeTitle(md) {
@@ -331,22 +342,76 @@ function copyTree(from, to, only, rename = {}) {
 }
 
 /**
+ * The pages of one topic folder and its place in the menu. The folder's README.md is the first page ("Overview"), then each page in
+ * `order`; a subfolder with a README.md is a group of its own. `root` is the docs folder, `dir` the folder under it, `slug` the
+ * address of the folder's page.
+ */
+export function collectTopic(root, dir, slug, group) {
+  const pages = [];
+  const node = (rel, at, label) => {
+    const readmeFields = parseFrontmatter(fs.readFileSync(path.join(root, rel, "README.md"), "utf8")).fields;
+    pages.push({ file: `${rel}/README.md`, slug: at, label: label ?? readmeFields.title, group });
+    const items = [{ label: "Overview", slug: at }];
+    for (const e of topicEntries(root, rel)) {
+      const name = e.name.replace(/\.md$/, "");
+      if (e.isFolder) items.push(node(`${rel}/${name}`, `${at}/${name}`, e.fields.title));
+      else {
+        pages.push({ file: `${rel}/${e.name}`, slug: `${at}/${name}`, label: e.fields.title, group });
+        items.push({ label: e.fields.title, slug: `${at}/${name}` });
+      }
+    }
+    return { label: label ?? readmeFields.title, collapsed: true, items };
+  };
+  const top = node(dir, slug, undefined);
+  return { pages, sidebar: top };
+}
+
+/**
+ * What a version of the docs has: the pages to build, in menu order, and the sidebar. A topic split into a folder is expanded from
+ * its files; an older version that still has the single file shows that as one page.
+ */
+export function collectPages(docsDir) {
+  const pages = [];
+  const sidebar = [];
+  for (const g of GROUPS) {
+    const items = [];
+    for (const i of g.items) {
+      if (i.dir && fs.existsSync(path.join(docsDir, i.dir, "README.md"))) {
+        const t = collectTopic(docsDir, i.dir, i.slug, g.label);
+        // The menu's own title and description, when it gives them, win over the README's.
+        pages.push(...t.pages.map((p, n) => (n === 0 ? { ...i, ...p, label: i.label, title: i.title, description: i.description } : p)));
+        items.push({ ...t.sidebar, label: i.label });
+        continue;
+      }
+      const file = i.file ?? i.legacy;
+      if (file && fs.existsSync(path.join(docsDir, file))) {
+        pages.push({ ...i, file, group: g.label });
+        items.push({ label: i.label, slug: i.slug });
+      } else if (!file) items.push({ label: i.label, slug: i.slug, embed: true });
+    }
+    sidebar.push({ label: g.label, items });
+  }
+  return { pages, sidebar };
+}
+
+/**
  * Writes the site's pages and static folders for one version.
  * @param {{ docsDir: string, rootDir?: string, contentDir: string, publicDir: string, base: string, ref: string, editBase: string, older?: boolean, lastUpdatedOf?: (file: string) => string | undefined }} opts
- * @returns {{ pages: object[], statics: string[] }} the pages written, in menu order, and the static folders copied
+ * @returns {{ pages: object[], statics: string[], sidebar: object[] }} the pages written, in menu order, the static folders copied and the sidebar
  */
 export function prepareDocs(opts) {
   const { docsDir, contentDir, publicDir, base, ref, editBase } = opts;
   fs.rmSync(contentDir, { recursive: true, force: true });
   fs.mkdirSync(contentDir, { recursive: true });
   for (const dir of STATIC_DIRS) fs.rmSync(path.join(publicDir, dir.to), { recursive: true, force: true });
-  const slugs = new Map(PAGES.map((p) => [p.file, p.slug]));
-  const labels = new Map(PAGES.map((p) => [p.file, p.label]));
+  const plan = collectPages(docsDir);
+  const slugs = new Map(plan.pages.map((p) => [p.file, p.slug]));
+  const labels = new Map(plan.pages.map((p) => [p.file, p.label]));
   const written = [];
-  for (const page of PAGES) {
+  for (const page of plan.pages) {
     const file = path.join(docsDir, page.file);
-    if (!fs.existsSync(file)) continue;
     const out = preparePage(page, fs.readFileSync(file, "utf8"), { base, ref, slugs, labels, editBase, older: opts.older, lastUpdated: opts.lastUpdatedOf?.(page.file) });
+    fs.mkdirSync(path.dirname(path.join(contentDir, `${page.slug}.md`)), { recursive: true });
     fs.writeFileSync(path.join(contentDir, `${page.slug}.md`), out.content);
     written.push({ slug: page.slug, label: page.label, group: page.group, title: out.title, description: out.description });
   }
@@ -370,7 +435,12 @@ export function prepareDocs(opts) {
     fs.writeFileSync(path.join(contentDir, `${embed.slug}.md`), embedPage(embed, base, opts.older));
     written.push({ slug: embed.slug, label: embed.title, group: embed.group, title: embed.title, description: embed.description });
   }
-  return { pages: written, statics };
+  // The menu names an embedded page only when this version has the static folder it shows.
+  const shown = new Set(written.map((p) => p.slug));
+  const sidebar = plan.sidebar
+    .map((g) => ({ label: g.label, items: g.items.filter((i) => !i.embed || shown.has(i.slug)).map(({ embed, ...rest }) => rest) }))
+    .filter((g) => g.items.length > 0);
+  return { pages: written, statics, sidebar };
 }
 
 /** The text of `llms.txt`: what the site is and one line per page, for tools that read a site instead of a person. */

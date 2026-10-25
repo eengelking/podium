@@ -13,13 +13,11 @@ const base = process.env.DOCS_BASE || "/";
 const outDir = process.env.DOCS_OUT ? path.resolve(process.env.DOCS_OUT) : undefined;
 const older = process.env.DOCS_REF ? true : false;
 
-// An older release may lack a page or a static folder, so the menu lists only what this version has.
-const pages = process.env.DOCS_PAGES ? new Set(JSON.parse(process.env.DOCS_PAGES)) : null;
-const has = (i) => !pages || pages.has(i.slug);
-const sidebar = GROUPS.map((g) => ({
-  label: g.label,
-  items: g.items.filter(has).map((i) => ({ label: i.label, slug: i.slug })),
-})).filter((g) => g.items.length > 0);
+// The sidebar is built from the docs of the version being built (scripts/lib.mjs, collectPages): an older release may lack a page or
+// a folder, and a topic split into a folder has a group of its own with its overview first. The static list is for running Astro alone.
+const sidebar = process.env.DOCS_SIDEBAR
+  ? JSON.parse(process.env.DOCS_SIDEBAR)
+  : GROUPS.map((g) => ({ label: g.label, items: g.items.map((i) => ({ label: i.label, slug: i.slug })) }));
 
 const description =
   "Podium is a live fleet console for Claude Code. See every session's model, cost, context window, failures and git branch on one screen. It watches and never types into a terminal.";

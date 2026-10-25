@@ -148,7 +148,7 @@ describe("kanban board", () => {
     fireEvent.click(within(strip).getByRole("button", { name: "How to get steps here" }));
     expect(screen.getByRole("note")).toBeVisible();
     expect(screen.getByRole("note")).toHaveTextContent("CLAUDE_CODE_ENABLE_TODO_TOOLS=1");
-    expect(within(strip).getByRole("link", { name: "A session shows no plan" })).toHaveAttribute("href", expect.stringContaining("docs/GOTCHAS.md"));
+    expect(within(strip).getByRole("link", { name: "A session shows no plan" })).toHaveAttribute("href", expect.stringContaining("docs/gotchas/"));
   });
 
   it("pins the strip as the last thing on the page, and Escape closes its note (#359)", () => {

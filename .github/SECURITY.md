@@ -19,7 +19,7 @@ problems that matter here are:
 ### By design
 
 These are not vulnerabilities on their own. [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") and
-`docs/GOTCHAS.md` say all of this.
+`docs/gotchas/` say all of this.
 
 | Behavior | Why it is not a bug |
 |---|---|
@@ -74,7 +74,7 @@ person a reporter config file with their client certificate and key, shown once.
 certificate instead of a token. The port (4318 by default) is HTTPS with mutual TLS (`requestCert: true`,
 `rejectUnauthorized: true`): a connection without a valid client certificate is dropped in the handshake, it serves only
 the routes a reporter calls, and nothing in Podium disables certificate validation. The console and Admin stay on plain
-HTTP on 4317, since Podium does not serve HTTPS to browsers. The rules are in `docs/SPEC.md` 7.7.
+HTTP on 4317, since Podium does not serve HTTPS to browsers. The rules are in `docs/spec/` 7.7.
 
 | What TLS stops | How |
 |---|---|
@@ -117,14 +117,14 @@ a limit, or a way to read a conversation's text as anyone but its owner or an Ad
 
 | For | Read |
 |---|---|
-| Why per-person tokens, and how Admin and the shared secret relate | `docs/DECISIONS.md` 20 (per-person tokens) and 30 (Admin sign-in) |
-| Why responding exists, and what it costs | `docs/DECISIONS.md` 28 |
-| What the security sweep found, fixed and accepted | `docs/DECISIONS.md` 31, with 32 (guess throttling) and 33 (the Host check) |
-| The rules the server and the mod follow | `docs/SPEC.md` 7.7 "Hardening": "Who a report is from", "Who", "The browser's credential", "The mod never trusts the server" and "The admin log" |
-| How a person turns responding on and uses it | `docs/USER_GUIDE.md`, "Answering a session from Podium" |
-| How orchestrator messaging is set up, and what is kept | `docs/MESSAGING.md`, with the reasoning in `docs/DECISIONS.md` 37 |
-| Why Podium makes its own CA, and the rules for it | `docs/DECISIONS.md` 42, `docs/SPEC.md` 5.9, 6 and 7.7 "Built-in TLS" |
-| What is open by design | `docs/GOTCHAS.md` and [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") |
+| Why per-person tokens, and how Admin and the shared secret relate | `docs/decisions/` 20 (per-person tokens) and 30 (Admin sign-in) |
+| Why responding exists, and what it costs | `docs/decisions/` 28 |
+| What the security sweep found, fixed and accepted | `docs/decisions/` 31, with 32 (guess throttling) and 33 (the Host check) |
+| The rules the server and the mod follow | `docs/spec/` 7.7 "Hardening": "Who a report is from", "Who", "The browser's credential", "The mod never trusts the server" and "The admin log" |
+| How a person turns responding on and uses it | `docs/user-guide/`, "Answering a session from Podium" |
+| How orchestrator messaging is set up, and what is kept | `docs/MESSAGING.md`, with the reasoning in `docs/decisions/` 37 |
+| Why Podium makes its own CA, and the rules for it | `docs/decisions/` 42, `docs/spec/` 5.9, 6 and 7.7 "Built-in TLS" |
+| What is open by design | `docs/gotchas/` and [Running the server](../docs/SERVER.md#run-it-with-podiumctl) ("Several people on one Podium") |
 
 ## Reporting a vulnerability
 

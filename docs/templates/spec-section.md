@@ -3,6 +3,7 @@ title: "Section name as it appears in the spec"
 description: "One sentence, under 160 characters, that says what this section requires."
 group: Reference
 section: "0"
+order: 1
 ---
 
 # 0. Section name as it appears in the spec
@@ -23,3 +24,6 @@ The requirement.
 ## Related
 
 - [The section that owns the neighbouring rule](OTHER.md).
+
+<!-- nav:start -->
+<!-- nav:end -->

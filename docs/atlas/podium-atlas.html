@@ -483,7 +483,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       </div>
     </section>
 
-    <footer class="end">Generated from the Podium repository at version 1.3.0 (development branch). Descriptions follow <code>docs/ARCHITECTURE.md</code>, <code>docs/SERVER.md</code> and <code>docs/REPORTER.md</code>.</footer>
+    <footer class="end">Generated from the Podium repository at version 1.3.0 (development branch). Descriptions follow <code>docs/architecture/</code>, <code>docs/SERVER.md</code> and <code>docs/REPORTER.md</code>.</footer>
   </main>
 </div>
 
@@ -627,7 +627,7 @@ const N=[
  {id:"adb",l:"store",col:"b",row:4,name:"activity.sqlite",role:"Opt-in history and recordings",file:"activityDb.ts",
   what:"A second SQLite file next to the first. Holds stored activity history and session recordings. The file is opened and its empty tables created at startup, but no history or recording rows are written unless an Admin turns one of those on.",
   why:"Volume and sensitivity differ from the wall's data. A separate file can be deleted, vacuumed or sized on its own, and the purge does not lock the main database's file.",
-  how:["Own schema version, WAL and incremental auto-vacuum. No foreign key crosses files, so code removes a session's rows.","Purges run in adaptive chunks (about 25 ms each) on the same event loop, so a request can wait up to one chunk. Measured against a 14.4 million row file: <code>/state</code> p99 was 37 ms during a purge of 3.7 million rows (documented in ARCHITECTURE.md; not re-run for this page)."]},
+  how:["Own schema version, WAL and incremental auto-vacuum. No foreign key crosses files, so code removes a session's rows.","Purges run in adaptive chunks (about 25 ms each) on the same event loop, so a request can wait up to one chunk. Measured against a 14.4 million row file: <code>/state</code> p99 was 37 ms during a purge of 3.7 million rows (documented in docs/architecture/; not re-run for this page)."]},
  {id:"logs",l:"server",col:"b",row:7,name:"Logging and outside calls",role:"Structured events, opt-in shipping",file:"logging/ · updateCheck.ts",
   what:"Named, structured log events with redaction, optional shipping to VictoriaLogs, and a once-a-day check for a newer release.",
   why:"Operators need to know why a reporter was refused, without secrets in the logs.",

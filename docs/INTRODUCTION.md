@@ -31,13 +31,13 @@ Podium has two parts, and you run both yourself:
 
 | If you want to | Read |
 |---|---|
-| Set Podium up and read the console | [User guide](USER_GUIDE.md) |
+| Set Podium up and read the console | [User guide](user-guide/README.md) |
 | Run the server for yourself or a team | [Running the server](SERVER.md) |
 | Install and configure the mod | [Reporter](REPORTER.md) |
 | Let your own orchestrators message each other | [Messaging](MESSAGING.md) |
 | Record a session and play it back | [Session recording and replay](REPLAY.md) |
 | Show Podium to other people | [Demo](DEMO.md) |
-| Look up what Podium must do | [Specification](SPEC.md) |
-| Learn how it was built, and why | [Architecture](ARCHITECTURE.md) and [Decisions](DECISIONS.md) |
-| Find the fix for a sharp edge | [Gotchas](GOTCHAS.md) |
+| Look up what Podium must do | [Specification](spec/README.md) |
+| Learn how it was built, and why | [Architecture](architecture/README.md) and [Decisions](decisions/README.md) |
+| Find the fix for a sharp edge | [Gotchas](gotchas/README.md) |
 | Join the community | [Community](COMMUNITY.md) |

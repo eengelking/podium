@@ -1,7 +1,7 @@
 /* #/admin (#143, mockup approved on the issue): a grouped side menu and one page pattern, scoped under .adminv so it cannot
    restyle the fleet console. Every page is a header (.page-h) then sections (.sec), each a title and help line above a panel.
    Spacing steps are 4, 8, 12, 16, 24 and 32 px. Buttons are 30 px tall, or 26 px (.sm) inside a table row. The pattern is
-   written down in docs/ARCHITECTURE.md ("Admin page patterns"). */
+   written down in docs/architecture/ ("Admin page patterns"). */
 .podium .adminv { flex: 1 1 auto; min-height: 0; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr); }
 .adminv .solo { overflow: auto; display: flex; flex-direction: column; }
 .adminv .solo-in { padding: 24px 16px 32px; flex: 1; }

@@ -1073,7 +1073,7 @@ describe('podium-reporter end to end', () => {
       w.chunks.value = [text('Two failures. '), { kind: 'thinking', index: 1, text: 'private thoughts' }, text(`The key ${SECRET} works.`)]
       await stepOnce($, { turnId: 'ta', index: 0, model: 'claude-sonnet-5-5', messageCount: 2, agentId: 'a-sub' })
       w.chunks.value = []
-      await $.tool.call({ tool: 'Read', file_path: 'docs/SPEC.md' })
+      await $.tool.call({ tool: 'Read', file_path: 'docs/spec/README.md' })
       await w.clock.advance(1000)
     }
     const sent = (w: World) => JSON.stringify(w.posts)
@@ -1103,7 +1103,7 @@ describe('podium-reporter end to end', () => {
       expect(sub.activity!.map((e) => e.kind)).toEqual(['tool', 'text'])
       expect(sub.activity![0]!.text).toMatch(/^Bash curl -H "x-api-key: \[redacted\]/)
       expect(sub.activity![1]!.text).toBe('Two failures. The key [redacted] works.')
-      expect(r.session.activity!.map((e) => e.text)).toEqual(['Read docs/SPEC.md'])
+      expect(r.session.activity!.map((e) => e.text)).toEqual(['Read docs/spec/README.md'])
       expect(sent(w)).not.toContain(SECRET)
       expect(sent(w)).not.toContain('private thoughts')
     })

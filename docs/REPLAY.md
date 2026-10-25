@@ -14,12 +14,12 @@ limits, who can read it, how to stop and delete a recording, the replay view, wh
 It is the most Podium ever keeps of a conversation, so read [What is captured](#what-is-captured) and
 [What redaction does not cover](#what-redaction-does-not-cover) before you switch it on.
 
-The exact rules are in [SPEC.md](SPEC.md): what is recorded and kept in
-[6.4](SPEC.md#session-recording-opt-in-353), the reporter's side in
-[5.3](SPEC.md#session-recording-from-the-reporter-353) and [5.9](SPEC.md#59-mod-configuration-userconfig), who may read
-it in [7.7](SPEC.md#session-recording-353), the routes in [7.1](SPEC.md#71-endpoints), and the screens and the notice in
-[8.1](SPEC.md#session-recording-353-mockuppodium-recordinghtml). Where this page and the spec differ, the spec wins. Why
-it was built this way is [DECISIONS 40](DECISIONS.md#40-a-session-can-be-recorded-whole-with-three-yes-answers-353).
+The exact rules are in [docs/spec/](spec/README.md): what is recorded and kept in
+[6.4](spec/06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353), the reporter's side in
+[5.3](spec/05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353) and [5.9](spec/05-mod-api/05-09-mod-configuration-userconfig.md), who may read
+it in [7.7](spec/07-server/07-07-hardening.md#session-recording-353), the routes in [7.1](spec/07-server/07-01-endpoints.md), and the screens and the notice in
+[8.1](spec/08-ui/08-01-what-the-ui-must-do.md#session-recording-353-mockuppodium-recordinghtml). Where this page and the spec differ, the spec wins. Why
+it was built this way is [DECISIONS 40](decisions/40-a-session-can-be-recorded-whole-with-three-yes.md).
 
 ## Contents
 
@@ -84,11 +84,11 @@ The owner and an Admin can both start, stop and delete, and an Admin can do it w
 the notice cannot be hidden and the owner's terminal is told every time. Everyone else sees the state and no button.
 
 The Admin sets the limits in Admin > Settings > Session recording and sees every recording in the Recordings table
-there. Both are covered in the [user guide](USER_GUIDE.md#session-recording) and [SERVER.md](SERVER.md#session-recording).
+there. Both are covered in the [user guide](user-guide/04-reading-the-console/13-session-recording.md) and [SERVER.md](SERVER.md#session-recording).
 
 ## What is captured
 
-For each recorded loop, in the order things happened ([6.4](SPEC.md#session-recording-opt-in-353) is the contract):
+For each recorded loop, in the order things happened ([6.4](spec/06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353) is the contract):
 
 | Entry | What it holds |
 |---|---|
@@ -140,7 +140,7 @@ so it never reads as if the agent did not think.
 Before anything leaves the machine, the mod replaces what looks like a secret with `[redacted]`, using the same rules as
 the file diff: provider tokens, JWTs, private key blocks, credentials in URLs, authorization headers, values of keys
 whose name says they are secret, and long random-looking values. A `Read`, `Edit` or `Write` of a file on the never-send
-list (`.env`, `*.pem`, `*.key`, `id_rsa*`, `.npmrc` and the others in [6.4](SPEC.md#session-recording-opt-in-353)) keeps
+list (`.env`, `*.pem`, `*.key`, `id_rsa*`, `.npmrc` and the others in [6.4](spec/06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)) keeps
 the path and withholds the contents. The server adds no second pass.
 
 That is best effort. It does not catch:
@@ -166,7 +166,7 @@ A recorded session says so, to everyone who can open the console, for as long as
   recorded, and when it is deleted, with **Stop recording**, **Open replay** and **Delete recording** for the owner and
   an Admin.
 - In the owner's terminal, the mod writes the same words when capture starts, again after `/clear` and after a
-  compaction, and when it stops or hits a limit ([5.3](SPEC.md#session-recording-from-the-reporter-353) has the text).
+  compaction, and when it stops or hits a limit ([5.3](spec/05-mod-api/05-03-events-the-reporter-hooks.md#session-recording-from-the-reporter-353) has the text).
 
 **It cannot be dismissed.** It is not a wall notice. There is no X and no switch, on the wall or in Admin. A wall
 notice is an informational note that someone may close for everyone. Consent is not that: the people whose work is being
@@ -179,7 +179,7 @@ shows state only and never any content. The approved exception to the wall-notic
 Recordings live in the Activity history's second file, `activity.sqlite`, beside `podium.sqlite`, in their own tables
 (`rec_sessions` and `rec_entries`), so the main database's backups, vacuum and retention are not slowed by them. They
 appear in Admin > Server > Stored activity with Source set to Recordings. The data path and the tables are in
-[ARCHITECTURE.md](ARCHITECTURE.md#session-recording).
+[docs/architecture/](architecture/02-components/10-session-recording.md).
 
 **Retention** is the Admin's, in Admin > Settings > Session recording:
 
@@ -221,7 +221,7 @@ real sessions are measured.
 ## Who can read it
 
 Only the session's owner and an Admin can read, choose, stop, delete or open the replay of a recording, with the same
-sign-in and the same owner test as the Activity history ([7.7](SPEC.md#session-recording-353)). Everyone else gets `403`,
+sign-in and the same owner test as the Activity history ([7.7](spec/07-server/07-07-hardening.md#session-recording-353)). Everyone else gets `403`,
 or `404` while the flag is off.
 
 Everyone sees that a session is recorded, who started it, which loops and when it goes, and never any content. The
@@ -288,7 +288,7 @@ In short, on one Apple M5 over loopback, with 20 busy sessions of 4 loops each:
   hours. That is why the per-session default is 512 MB and the budget 4 GB.
 - The caps stopped recording as specified, and a purge of a full budget finished in under a second.
 
-The tables, the method, the caveats and the maintainer's decision are in [6.4](SPEC.md#session-recording-opt-in-353)
+The tables, the method, the caveats and the maintainer's decision are in [6.4](spec/06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)
 ("Measured write load"). **Real sessions have not been measured.**
 
 ## Open follow-ups

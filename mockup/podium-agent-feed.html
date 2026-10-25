@@ -221,7 +221,7 @@ body.modal-open { overflow: hidden; }
 // Example data. rd() marks text the mod has already replaced; the console never sees the original.
 const rd = s => '<span class="rd">' + s + '</span>';
 const SCRIPT = [
-  ["tool", "Read", "docs/SPEC.md (lines 560-600)"],
+  ["tool", "Read", "docs/spec/README.md (lines 560-600)"],
   ["text", "The spec says agent prompts and answers are redacted and cut to 400 characters. I'll follow the same pattern for the feed."],
   ["tool", "Grep", "\"promptExcerpt\" in server/src/fleet"],
   ["tool", "Read", "server/src/fleet/protocol.ts"],
@@ -245,7 +245,7 @@ const PRE = [ // already on screen when the page opens
   ["00:58","text","Fails for the expected reason: the grouping returns one band per session."],
   ["01:03","tool","Edit","server/src/fleet/people.ts"],
   ["01:11","tool","Bash","npm test -- people"],
-  ["01:17","tool","Read","docs/SPEC.md (lines 733-760)"],
+  ["01:17","tool","Read","docs/spec/README.md (lines 733-760)"],
   ["01:22","text","SPEC 7.4 already names the band order, so no ambiguity to flag."]
 ];
 const $ = id => document.getElementById(id);

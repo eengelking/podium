@@ -96,7 +96,7 @@ describe('redaction and limits', () => {
 describe('activity entries (#118)', () => {
   test('a tool call is its name and a short summary of its arguments', () => {
     expect(activityCall('Bash', { command: 'npm   test\n-- people' })).toBe('Bash npm test -- people')
-    expect(activityCall('Read', { file_path: 'docs/SPEC.md', offset: 560 })).toBe('Read docs/SPEC.md')
+    expect(activityCall('Read', { file_path: 'docs/spec/README.md', offset: 560 })).toBe('Read docs/spec/README.md')
     expect(activityCall('Grep', { pattern: 'promptExcerpt', path: 'server/src/fleet' })).toBe('Grep "promptExcerpt" in server/src/fleet')
     expect(activityCall('Agent', { description: 'Map call sites', prompt: 'long prompt' })).toBe('Agent Map call sites')
     expect(activityCall('TaskList', { tool: 'TaskList', tool_use_id: 'x', agentId: 'a' })).toBe('TaskList')

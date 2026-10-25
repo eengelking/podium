@@ -120,7 +120,7 @@ describe('reducers', () => {
     expect(s.agents.c!.parentId).toBe('p')
   })
 
-  // The order and fields a real run on Claude Code 2.1.296 produced (#101, docs/GOTCHAS.md): agent.spawn
+  // The order and fields a real run on Claude Code 2.1.296 produced (#101, docs/gotchas/): agent.spawn
   // carries the launching loop's id as parentAgentId at every depth, and $.agent.list() marks a parent
   // that waits on its child "waiting", then drops finished nested agents once their parent is done.
   test('a real nested run: subagent under subagent, fork under subagent, subagent under fork (#101)', () => {

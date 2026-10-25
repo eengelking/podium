@@ -49,7 +49,7 @@ Options and settings go in a table, one row each, with the default in its own co
 
 ## Troubleshooting
 
-Link to [GOTCHAS.md](GOTCHAS.md) for known problems. List here only what is specific to this page.
+Link to [docs/gotchas/](docs/gotchas/) for known problems. List here only what is specific to this page.
 
 ## Where to go next
 

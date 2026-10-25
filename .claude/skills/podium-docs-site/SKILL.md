@@ -6,15 +6,16 @@ description: Work on the Podium docs site (site/, published at podium.engelking.
 # The Podium docs site
 
 `site/` is a separate Astro Starlight project that publishes `docs/`. It does not copy the docs into the repo: `docs/` stays the only
-source, and `site/scripts/build.mjs` reads it each time. Decision 43 in `docs/DECISIONS.md` has the reasons.
+source, and `site/scripts/build.mjs` reads it each time. Decision 43 in `docs/decisions/` has the reasons.
 
 ## How it is built
 
 - One Starlight build per version, put together into one folder (`site/out/`). The newest release line is built from the working
   tree and served at `/`. Each older line from `FIRST_VERSION_LINE` (`site/docs-nav.mjs`) on is built from its newest `vX.Y.Z` tag and
   served at `/<line>/`. The newest is built first, because a build empties its output folder.
-- Before each build, `prepareDocs` (`site/scripts/lib.mjs`) writes `site/src/content/docs/<slug>.md` from each doc: a `title` from the
-  first heading, a `description` from the first paragraph, `lastUpdated` from git, an edit link, and the heading removed. It rewrites
+- A topic split into a folder (#697) is found from its folder: `collectPages` reads `docs/<dir>/README.md` as the first page ("Overview"), then every other page in `order`, and a subfolder with a `README.md` becomes a group of its own, so the sidebar nests as the folders do. It also hands the sidebar to Astro (`DOCS_SIDEBAR`). An older release that still has the single file (`legacy` in the nav) shows it as one page. The previous / up / next footer is for readers on GitHub and is cut from the site's pages.
+- Before each build, `prepareDocs` (`site/scripts/lib.mjs`) writes `site/src/content/docs/<slug>.md` from each doc: a `title` and `description` from the page's frontmatter (the
+  first heading and first paragraph stand in for an older release's docs, which have none), `lastUpdated` from git, an edit link, and the heading removed. It rewrites
   links: a link to another doc becomes a site address, a link to `docs/standards/` or the images folder becomes the copied static
   folder, and any other file in the repository becomes a GitHub link at that version's tag. Code blocks and code spans are left alone.
   It also copies `docs/standards/` (as it is, to `/docs/standards/`), `docs/images/` and the atlas page (to `/atlas-map/`) into
@@ -45,11 +46,11 @@ preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
 
 | To | Do |
 |---|---|
-| Add a doc page | Add it to `GROUPS` in `site/docs-nav.mjs` (file, slug, label), in the group it belongs to. A page that is not listed is not published. |
+| Add a doc page | A page in a split topic's folder (`docs/spec/`, `docs/decisions/`, `docs/gotchas/`, `docs/architecture/`, `docs/user-guide/`) needs nothing here: copy its template, set `order` in the frontmatter, run `node scripts/build-doc-indexes.mjs`, and the build finds it. Any other page, and a new topic folder (`dir`, `legacy`, `slug`, `label`), is added to `GROUPS` in `site/docs-nav.mjs`, in the group it belongs to. A page that is not listed is not published. |
 | Move or rename a page | Change `docs-nav.mjs`, then run the build; the link check lists every link that no longer resolves. A slug is a public address, so keep it unless you must change it. |
 | Change the look | `site/src/styles/theme.css` maps the app's tokens (`frontend/src/fleet/tokens.css`) onto Starlight's variables. Add no color of your own. The site's look follows `mockup/podium-docs-site.html`; a change to it needs a new mockup. |
 | Change the header, footer, banner, version menu, theme switch or the search dialog's empty state | The components in `site/src/components/` (the search hints are the script in `Header.astro`). They read the version list from `siteMeta.ts`. |
-| Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/USER_GUIDE.md`; change them together. |
+| Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/user-guide/`; change them together. |
 | Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. |
 | Change which releases are listed | `FIRST_VERSION_LINE` in `site/docs-nav.mjs`. |
 

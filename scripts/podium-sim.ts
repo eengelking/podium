@@ -276,7 +276,7 @@ interface SimSession {
 
 /** What a watched loop "does" in the simulator (#118), in turn. One is the kind of thing the mod redacts. */
 const FEED_SCRIPT: [ActivityEntry['kind'], string][] = [
-  ['tool', 'Read docs/SPEC.md'],
+  ['tool', 'Read docs/spec/README.md'],
   ['text', 'The spec says entries are redacted and cut to 300 characters. Following the same pattern here.'],
   ['tool', 'Grep "promptExcerpt" in server/src/fleet'],
   ['tool', 'Edit server/src/fleet/protocol.ts'],
@@ -320,7 +320,7 @@ function fullPrompt(task: string): string {
   return [
     `# ${task}`,
     '',
-    'You are working in the repository at `/work/app`. Read `docs/SPEC.md` first.',
+    'You are working in the repository at `/work/app`. Read `docs/spec/README.md` first.',
     '',
     '## Steps',
     '',

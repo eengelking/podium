@@ -21,4 +21,4 @@ labels: enhancement
 
 <!-- Podium watches, and it can answer a session that waits on its person when the Admin and the owner allow
      it. It never types into a terminal, stops an agent or changes permission rules, and it is one server you
-     run yourself (see "Non-goals" in docs/SPEC.md). If the request needs one of those, say why. -->
+     run yourself (see "Non-goals" in docs/spec/). If the request needs one of those, say why. -->

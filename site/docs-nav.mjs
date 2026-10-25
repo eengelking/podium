@@ -2,6 +2,9 @@
 // own `title`, `description` and `group` in frontmatter (#696), and a test (scripts/site-lib.test.ts) checks the group against this list. A page that is
 // not listed here is not published.
 // `file` is the path under docs/; `slug` is the page's address on the site; `label` is its name in the menu and in links that name it.
+// An item with `dir` is a topic split into a folder (#697): docs/<dir>/README.md is its first page and every other page in the folder
+// follows in the `order` of its frontmatter, a subfolder being a group of its own. `legacy` is the single file an older version has
+// instead, which the site still shows as one page.
 // `title` and `description` are optional and replace the page's frontmatter. An older version's docs have no frontmatter, so for them
 // the build falls back to the doc's first heading and first paragraph.
 export const GROUPS = [
@@ -9,7 +12,7 @@ export const GROUPS = [
     label: "Getting started",
     items: [
       { file: "INTRODUCTION.md", slug: "introduction", label: "Introduction" },
-      { file: "USER_GUIDE.md", slug: "user-guide", label: "User guide" },
+      { dir: "user-guide", legacy: "USER_GUIDE.md", slug: "user-guide", label: "User guide" },
       { file: "DEMO.md", slug: "demo", label: "Demo", description: "A script and a paste-in prompt for showing Podium to other people, built to be screen-recorded." },
     ],
   },
@@ -25,7 +28,7 @@ export const GROUPS = [
   {
     label: "Reference",
     items: [
-      { file: "SPEC.md", slug: "spec", label: "Specification", title: "Specification", description: "The build spec: what Podium must do, its intended behavior and requirements." },
+      { dir: "spec", legacy: "SPEC.md", slug: "spec", label: "Specification", title: "Specification", description: "The build spec: what Podium must do, its intended behavior and requirements." },
       // These two are served as they are (docs/standards/ is generated from the app, so the site never rewrites it) and shown inside
       // a page of the site, so the menu and the header stay around them. See EMBEDS.
       { slug: "design-standards", label: "Design standards" },
@@ -36,17 +39,15 @@ export const GROUPS = [
   {
     label: "Project internals",
     items: [
-      { file: "ARCHITECTURE.md", slug: "architecture", label: "Architecture" },
-      { file: "DECISIONS.md", slug: "decisions", label: "Decisions" },
-      { file: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
+      { dir: "architecture", legacy: "ARCHITECTURE.md", slug: "architecture", label: "Architecture" },
+      { dir: "decisions", legacy: "DECISIONS.md", slug: "decisions", label: "Decisions" },
+      { dir: "gotchas", legacy: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
       { file: "COMMUNITY.md", slug: "community", label: "Community" },
       { file: "THIRD_PARTY_NOTICES.md", slug: "third-party-notices", label: "Third-party notices" },
     ],
   },
 ];
 
-/** Every page the site builds from a Markdown file, in menu order. */
-export const PAGES = GROUPS.flatMap((g) => g.items.filter((i) => i.file).map((i) => ({ ...i, group: g.label })));
 
 /**
  * Pages that show a static page of the site in a frame. `dir` is the static folder that must exist in a version for its page to be

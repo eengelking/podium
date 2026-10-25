@@ -8,7 +8,7 @@ group: Project internals
 
 This page records <what: how it was built, why a choice was made, what is known to go wrong>. It is for
 <who: a contributor, a maintainer>, who wants to <understand or change what>. What the product must do is in
-[SPEC.md](SPEC.md); this page does not restate it.
+[docs/spec/](docs/spec/); this page does not restate it.
 
 Contents:
 

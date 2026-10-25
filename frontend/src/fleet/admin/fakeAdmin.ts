@@ -92,7 +92,7 @@ const SPEND_COLS = [
   { key: "unpricedSessions", label: "Unpriced sessions", unit: "count" },
 ];
 
-/** A report as the server would answer it (docs/SPEC.md "Reports (#484)"), with the query echoed back. */
+/** A report as the server would answer it (docs/spec/ "Reports (#484)"), with the query echoed back. */
 function fakeReport(report: string, url: URL) {
   const from = url.searchParams.get("from") ?? "2026-10-01";
   const to = url.searchParams.get("to") ?? "2026-10-20";

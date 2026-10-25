@@ -48,7 +48,7 @@ claude --plugin-dir /path/to/podium/mod/podium-reporter
 ```
 
 To update an installed mod, run this in a shell and then `/reload-plugins` in the session (see "Updating
-the mod" in [USER_GUIDE.md](USER_GUIDE.md)):
+the mod" in [docs/user-guide/](user-guide/README.md)):
 
 ```sh
 claude plugin marketplace update eengelking-marketplace && claude plugin update podium-reporter@eengelking-marketplace
@@ -58,7 +58,7 @@ claude plugin marketplace update eengelking-marketplace && claude plugin update 
 
 The session appears in Podium once you send its first prompt. A session that has done nothing yet is kept
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
-"Sessions that have not done anything yet" in [USER_GUIDE.md](USER_GUIDE.md)).
+"Sessions that have not done anything yet" in [docs/user-guide/](user-guide/README.md)).
 
 - `/podium` prints the console link, the connection state and report counts.
 - `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
@@ -82,7 +82,7 @@ The status line under the prompt reads:
 | ends in `· update available` | The server supports a newer mod than yours |
 
 Claude Code puts a `⚠` and the mod's name in front of the line. That is how it draws every mod's status
-line, not a Podium warning (see [GOTCHAS.md](GOTCHAS.md)).
+line, not a Podium warning (see [docs/gotchas/](gotchas/README.md)).
 
 ## Options
 
@@ -227,7 +227,7 @@ Data goes only to the server URL above, and only the items below. Podium does no
   removed line counts. At most 200 files, and never file contents or diff text.
 - The plan's step titles (from TaskCreate, TaskUpdate or TodoWrite). A session that does not use these tools
   shows "No plan reported. Agents were launched ad hoc.", and plan mode does not make a plan appear (see
-  [Gotchas](GOTCHAS.md#a-session-shows-no-plan)).
+  [Gotchas](gotchas/session-shows-no-plan.md)).
 - For the orchestrator's own loop: how many model requests it made, the name of every tool it used with how
   many times, and the skills it loaded.
 - Per agent: type, description, model, effort, status, token counts, skills it loaded, the name of every

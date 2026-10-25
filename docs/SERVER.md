@@ -8,7 +8,7 @@ group: Running it
 
 This page is for whoever runs the Podium server: how to start it and keep it running, who can reach it, and
 the settings that change how it behaves. To set Podium up for the first time, start with the
-[user guide](USER_GUIDE.md#set-it-up). The mod that sends the data is in [REPORTER.md](REPORTER.md).
+[user guide](user-guide/02-set-it-up.md). The mod that sends the data is in [REPORTER.md](REPORTER.md).
 
 Contents:
 
@@ -85,7 +85,7 @@ needs a trusted network or a TLS proxy.
 
 Admin locks after 10 idle minutes, and five wrong names or tokens lock it for 15 minutes. Admin's pages (people,
 groups, reporters, settings, model prices, certificates, the admin log) are in the "Admin" section of
-[USER_GUIDE.md](USER_GUIDE.md).
+[docs/user-guide/](user-guide/README.md).
 
 ### Several people on one Podium
 
@@ -108,7 +108,7 @@ report to it:
 4. Make each person a token in Admin. They set `serverUrl` to `http://<your host>:4317`, `token` to their
    token and `userName` to the name you gave them (see [REPORTER.md](REPORTER.md)).
 5. Once a session reports with a person's token, the console groups the wall by person (see "People" in
-   [USER_GUIDE.md](USER_GUIDE.md)).
+   [docs/user-guide/](user-guide/README.md)).
 
 **What this exposes.** Reading the console needs no token, so anyone who can reach the port sees every session:
 names, machines, paths, branches, plan steps, commands from failed calls and the excerpts listed under
@@ -126,7 +126,7 @@ names, machines, paths, branches, plan steps, commands from failed calls and the
 
 Podium can open a second port for reporters, with its own certificate authority (CA), so reports and answers are
 encrypted on the network and each reporter proves who it is with a certificate. The console and Admin stay on plain HTTP:
-Podium does not serve HTTPS to browsers, and a person who wants it puts a proxy in front. It is off until you turn it on. The design is in [SPEC.md](SPEC.md#77-hardening) (*Built-in TLS*) and
+Podium does not serve HTTPS to browsers, and a person who wants it puts a proxy in front. It is off until you turn it on. The design is in [docs/spec/](spec/07-server/07-07-hardening.md) (*Built-in TLS*) and
 DECISIONS 42. This section is the walk-through, in the order you do it.
 
 **1. Turn it on.**
@@ -198,7 +198,7 @@ One person's orchestrators can find and message each other through the server, b
 reporters only. It is off until an Admin turns on **Orchestrator messaging** (`peer-messaging`) in Admin >
 Settings > Feature flags; each change is written to the Admin log as `feature_changed`. It also needs the
 server's auth on, a person's token on each reporter (never the admin secret), and the reporter's `peers` option
-on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
+on each machine. The rules are in [docs/spec/](spec/07-server/07-07-hardening.md#orchestrator-messaging-347).
 
 - While the flag is on, Admin > Settings has an **Orchestrator messaging** section with four limits for every link
   on the server: round trips before a person approves (10), messages per minute on a link (6), the longest message
@@ -209,7 +209,7 @@ on each machine. The rules are in [SPEC.md](SPEC.md#orchestrator-messaging-347).
 - Turning the flag off keeps the rights and limits and drops every message still waiting.
 
 [MESSAGING.md](MESSAGING.md) walks through the whole setup, with the ranges in [Limits](MESSAGING.md#limits); the
-Admin's screens are under "Admin" in [USER_GUIDE.md](USER_GUIDE.md#settings).
+Admin's screens are under "Admin" in [docs/user-guide/](user-guide/05-admin/06-settings.md).
 
 ### Session recording
 
@@ -217,7 +217,7 @@ A session can be recorded whole and replayed later. It is off until an Admin tur
 (`session-recording`) in Admin > Settings > Feature flags; the change is written to the Admin log as `feature_changed`.
 It needs the server's auth on (the switch is unavailable with no token), a choice by the session's owner or an Admin,
 and the reporter's `sessionRecording` option on the machine. The rules are in
-[SPEC.md](SPEC.md#session-recording-opt-in-353) and the whole feature is in [REPLAY.md](REPLAY.md).
+[docs/spec/](spec/06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353) and the whole feature is in [REPLAY.md](REPLAY.md).
 
 - While the flag is on, Admin > Settings has a **Session recording** section with three limits: how long a recording is
   kept (6 hours, 1 hour to 7 days), the disk budget for all recordings (4 GB) and the limit for one session (512 MB).
@@ -234,7 +234,7 @@ and the reporter's `sessionRecording` option on the machine. The rules are in
 ### The release check
 
 Once a day the server asks `api.github.com` for the latest Podium release, and the wall shows a notice when it is newer
-than the version running ([SPEC.md](SPEC.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
+than the version running ([docs/spec/](spec/06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
 It is one HTTPS request with no body and nothing about your install in it. It is on by default. For a server that must
 not make outbound calls, turn **Release check** off in Admin > Settings > Feature flags and the server makes no request.
 A firewall that blocks the request needs no change: the check fails quietly and shows nothing.
@@ -251,7 +251,7 @@ not one of these:
 
 A server bound to `0.0.0.0` or `::` also takes any IP address, which a page cannot rebind. The refusal is
 logged as `http.host_refused` with the host and nothing else. The reasoning is in
-[DECISIONS.md](DECISIONS.md#33-refusing-a-host-the-server-does-not-expect-256).
+[docs/decisions/](decisions/33-refusing-a-host-the-server-does-not-expect.md).
 
 ### Behind a reverse proxy
 
@@ -295,7 +295,7 @@ Other settings (`STALE_AFTER_MS`, `RETAIN_*`, the `PODIUM_LOG_*` logging setting
 [Server settings](#server-settings)) are set with `podiumctl config set KEY=VALUE` and applied on
 `restart`.
 
-- "Logs" in the [user guide](USER_GUIDE.md#logs) covers what the server logs, sending it to VictoriaLogs, and
+- "Logs" in the [user guide](user-guide/07-logs.md) covers what the server logs, sending it to VictoriaLogs, and
   pointing an agent at it.
 - Set `PODIUMCTL_HOME` to keep `podiumctl`'s files somewhere other than `~/.podium`.
 - `podiumctl --help` lists everything.

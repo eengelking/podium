@@ -2,6 +2,7 @@
 title: "Name of the topic"
 description: "One sentence, under 160 characters, that says what this folder holds and who reads it."
 group: Project internals
+entries: list
 ---
 
 # Name of the topic
@@ -20,4 +21,8 @@ The list below is built from each entry's frontmatter. Do not edit it by hand.
 ## Add an entry
 
 Copy `docs/templates/<entry template>.md` into this folder, name the file `<number>-<short-slug>.md` and fill in its
-frontmatter. Then run the index script to rebuild the list above.
+frontmatter. Then run `node scripts/build-doc-indexes.mjs` to rebuild the list above.
+
+Copy this file to `README.md` in the topic's folder. `entries` is `list`, `table` or `by-area`: it says how the generated list is
+drawn. A page in the folder ends with the `<!-- nav:start -->` and `<!-- nav:end -->` markers so its previous / up / next footer is
+generated too.

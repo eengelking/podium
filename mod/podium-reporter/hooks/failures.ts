@@ -169,7 +169,7 @@ export interface ClassifyInput {
  *
  * Order: a denial, a refusal, an exhausted context window, an API error with no failing call, an
  * abort, then a tool error or Unknown. The window check comes before the API error because the
- * engine's `error` reason includes running out of context (see ARCHITECTURE.md, Spec questions).
+ * engine's `error` reason includes running out of context (see docs/architecture/, Spec questions).
  */
 export function classify(i: ClassifyInput): FailureClass | null {
   if (i.reason === 'answer') return null;

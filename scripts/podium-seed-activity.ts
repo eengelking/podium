@@ -63,7 +63,7 @@ const TEXT_MAX = 300;
 const PROJECTS = ['claude-dashboard', 'billing-api', 'infra-notes', 'mobile-app', 'data-pipeline'];
 const OWNERS = ['Ed', 'Priya', 'Marcus', 'Tomoko', 'Sam', 'Lena'];
 const DIRS = ['src', 'server/src/fleet', 'frontend/src/fleet', 'scripts', 'docs', 'mod/podium-reporter/hooks', 'tests/unit', 'packages/core/lib'];
-const FILES = ['index.ts', 'fleet.ts', 'activity.ts', 'App.tsx', 'tokens.css', 'SPEC.md', 'reports.ts', 'db.ts', 'package.json', 'settings.test.ts'];
+const FILES = ['index.ts', 'fleet.ts', 'activity.ts', 'App.tsx', 'tokens.css', 'docs/spec/README.md', 'reports.ts', 'db.ts', 'package.json', 'settings.test.ts'];
 const COMMANDS = ['npm test', 'git status --short', 'git diff --stat', 'npm run build', 'rg -n "TODO" src', 'ls -la', 'node --version', 'npx tsc --noEmit', 'gh pr checks --watch', 'sqlite3 data/podium.sqlite ".tables"'];
 const SENTENCES = [
   'The test fails because the fixture still carries the old field, so I will update it first.',

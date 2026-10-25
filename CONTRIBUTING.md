@@ -10,7 +10,7 @@ the reporter mod (`mod/podium-reporter/`), the server (`server/`), the UI (`fron
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and
-`docs/SPEC.md` ("Non-goals") lists them:
+`docs/spec/` ("Non-goals") lists them:
 
 - **Answers only when asked.** Podium never types into a terminal, stops or starts an agent, or changes a
   session's permission rules. It can answer a session that waits on its person, but only where the Admin and
@@ -92,7 +92,7 @@ When you fix a bug in code, add a test that fails for the right reason first, th
 Open an issue first for anything non-trivial (a new feature, a behavior change, a change to the report
 format). A small, obvious fix, such as a typo or a broken link, can go straight to a PR.
 
-`docs/SPEC.md` is the source of truth for intended behavior. If your change makes the code differ from it,
+`docs/spec/` is the source of truth for intended behavior. If your change makes the code differ from it,
 the spec wins unless the maintainer agrees to change the spec. Say so in the PR and expect that to be its
 own conversation. Other docs should link to the spec section instead of restating it.
 
@@ -103,13 +103,13 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `README.md` | Orientation, quick start and the table of docs |
 | `docs/SERVER.md` | Running the server: `podiumctl`, several people on one server, server settings |
 | `docs/REPORTER.md` | The reporter mod: install, options, what leaves a session |
-| `docs/USER_GUIDE.md` | Using the console, day-to-day |
+| `docs/user-guide/` | Using the console, day-to-day |
 | `docs/MESSAGING.md` | Orchestrator messaging from start to finish: how the parts fit, setup, rights, limits, troubleshooting, the end-to-end test |
 | `docs/REPLAY.md` | Session recording and replay from start to finish: consent, what is captured, the notice, storage, limits, access, the replay, the measurement |
-| `docs/SPEC.md` | Intended behavior and requirements |
-| `docs/ARCHITECTURE.md` | How it was built, departures from the spec, verification, known issues |
-| `docs/DECISIONS.md` | Why a significant choice was made |
-| `docs/GOTCHAS.md` | Sharp edges that are easy to hit |
+| `docs/spec/` | Intended behavior and requirements |
+| `docs/architecture/` | How it was built, departures from the spec, verification, known issues |
+| `docs/decisions/` | Why a significant choice was made |
+| `docs/gotchas/` | Sharp edges that are easy to hit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |
@@ -150,10 +150,35 @@ Every page in `docs/` follows one template, so a reader going from one page to t
 | `docs/templates/reference.md` | Facts a reader looks up: fields, settings, rules | Reference |
 | `docs/templates/internals.md` | How it was built, why, what goes wrong | Project internals |
 
-A page that is split out of a large one (#697) uses the same rules and one more template: `index.md` for the folder's index
-page, `decision-entry.md` and `gotcha-entry.md` for a log entry (they add `date` and `status`), `spec-section.md` for a spec
-section (it adds `section`, the number other pages cite) and `chapter.md` for a part of a guide or of the architecture (it adds
-`order`). A fact that a page states is stated once; the index lists entries from their frontmatter and is not written by hand.
+**When a page splits, and how**
+
+Split a page along its sections when its sections are topics a reader looks up or links to on their own, or when it is a log
+that gains an entry with every change. Keep a page whole when it is one task read from start to finish (`SERVER.md`,
+`REPORTER.md`, `MESSAGING.md`, `REPLAY.md`). Line count is a hint and not the rule: a page of 400 lines that is one procedure stays
+whole, and a short log still splits. A section that is itself a set of subsections, and long, splits again.
+
+- **One folder per split topic** under `docs/`: `docs/spec/`, `docs/decisions/`, `docs/gotchas/`, `docs/architecture/`,
+  `docs/user-guide/`. A folder holds a `README.md` and one page per section, entry or subsection. A section that splits
+  again is a subfolder with its own `README.md`.
+- **`README.md` is the index.** GitHub shows a folder's `README.md` under its file list, so a reader who opens the folder lands
+  on the overview. It keeps the topic's opening (what it is, who it is for) and ends with a list of its pages between
+  `<!-- entries:start -->` and `<!-- entries:end -->`. Each page ends with a previous / up / next footer between
+  `<!-- nav:start -->` and `<!-- nav:end -->`. Both are generated from the pages' frontmatter: run
+  `node scripts/build-doc-indexes.mjs` after you add, rename or reorder a page. `npm test` fails when they are out of date.
+- **File names** start with a zero-padded number when the order matters (`07-01-endpoints.md`) so the folder lists in
+  reading order on GitHub. A gotcha has no number and is ordered by `order`.
+- **Frontmatter** is the page's own, plus: `order` (a number, the reading order inside its folder), and for an entry
+  `number`, `date` and `status` (a decision), `area`, `date` and `status` (a gotcha), or `section` (a spec page, the string
+  other docs cite, such as `"7.7"`). A README's `entries` says how its list is drawn: `list`, `table` or `by-area`.
+- **A new decision or gotcha is one new file** from `docs/templates/decision-entry.md` or `gotcha-entry.md`, then
+  `node scripts/build-doc-indexes.mjs`. No other page changes.
+- **Citations keep working.** "SPEC 6.8" and "DECISIONS 37" name a page by its `section` or `number`, and never change.
+  `node scripts/check-doc-refs.mjs` (also in `npm test`) fails on a citation no page answers to and on a reference to the old
+  single-file paths (the five old files are short stubs that point at the folders, for links from outside the repo).
+- **Moved text is not reworded.** Only headings, frontmatter, links and the generated parts change.
+
+The templates for these pages are `topic-index.md` (the folder's `README.md`), `decision-entry.md`, `gotcha-entry.md`,
+`spec-section.md` and `chapter.md` (a part of a guide or of the architecture). A fact that a page states is stated once.
 
 - **Frontmatter.** The first lines of the file are a block between two `---` lines with three fields, all required:
   `title` (the name in the menu and in search results), `description` (one sentence, under 160 characters, that says what
@@ -177,7 +202,7 @@ section (it adds `section`, the number other pages cite) and `chapter.md` for a 
   repo. They work on GitHub and on the site. Link the first mention of another page's topic, not every mention.
 - **Terms.** One word for one thing. The app is the **console**, its page of cards is the **wall**, a Claude Code
   session is a **session**, and the main agent in it is the **orchestrator**. Use the words the app shows, then check
-  `docs/USER_GUIDE.md` before you coin another.
+  `docs/user-guide/` before you coin another.
 
 To check a page against the template, run `node scripts/check-doc-frontmatter.mjs` (it also runs in `npm test`), then
 read the page's opening and headings against the list above. The script checks the frontmatter only; the rest is a
@@ -185,18 +210,20 @@ read.
 
 **Shapes**
 
-- `docs/GOTCHAS.md`: every entry has **You see**, **Why** and **Do**, in that order.
-- `docs/DECISIONS.md`: every entry has Context, Decision, Why, Alternatives and Cost, leaving out a part only
+- `docs/gotchas/`: every entry has **You see**, **Why** and **Do**, in that order.
+- `docs/decisions/`: every entry has Context, Decision, Why, Alternatives and Cost, leaving out a part only
   when there is nothing to say for it.
-- `docs/SPEC.md`: section numbers are cited from other docs, code comments and issues. Do not renumber or
+- `docs/spec/`: section numbers are cited from other docs, code comments and issues. Do not renumber or
   rename a numbered heading. Add unnumbered subheadings inside a section instead.
 
 **Before you open the PR**
 
-1. Check that the page has its frontmatter (`node scripts/check-doc-frontmatter.mjs`) and that the headings other
-   files link to still exist: `node scripts/check-doc-links.mjs` reports any broken relative link or `#anchor`.
-2. Search for citations of anything you renamed, such as `SPEC 6.8`, in docs, code comments and open issues.
-3. If a doc disagrees with `docs/SPEC.md`, do not pick a reading. Say so in the PR and ask.
+1. Check that the page has its frontmatter (`node scripts/check-doc-frontmatter.mjs`), that its folder's index is current
+   (`node scripts/build-doc-indexes.mjs`) and that the headings other files link to still exist:
+   `node scripts/check-doc-links.mjs` reports any broken relative link or `#anchor`.
+2. Search for citations of anything you renamed, such as `SPEC 6.8`, in docs, code comments and open issues
+   (`node scripts/check-doc-refs.mjs` checks the ones in this repository).
+3. If a doc disagrees with `docs/spec/`, do not pick a reading. Say so in the PR and ask.
 4. Reread for the voice rules below.
 
 **Preview the docs site**
@@ -210,7 +237,7 @@ cd .. && node site/scripts/build.mjs --latest-only
 python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 ```
 
-The build fails on a broken link between pages. A new doc page needs a line in `site/docs-nav.mjs`, or it is not published. The
+The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
 `podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
 ### The mod version bump

@@ -3,7 +3,7 @@
 // or one JSON object per line (`json`); the JSON line is also what the shipper sends. In text, most of the events
 // added with this logger print only at debug (`quietInText`), so the default output is what it always was; a refused
 // credential (`auth.failed`) and the `tls.*` events print at their own level, folded when they repeat (#602). Debug and info go to
-// stdout, warn and error to stderr, as before. See docs/ARCHITECTURE.md "Logging".
+// stdout, warn and error to stderr, as before. See docs/architecture/ "Logging".
 import os from 'node:os';
 import { cleanFields, scrub, type FieldValue, type Fields } from './redact.js';
 

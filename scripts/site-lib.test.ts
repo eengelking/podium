@@ -3,8 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutContents } from "../site/scripts/lib.mjs";
-import { PAGES } from "../site/docs-nav.mjs";
+import { collectPages, computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutBlock, withoutContents } from "../site/scripts/lib.mjs";
 import { parseFrontmatter } from "./docFrontmatter.mjs";
 
 const slugs = new Map<string, string>([
@@ -179,17 +178,17 @@ describe("frontmatter and preparePage", () => {
   });
 });
 
-describe("prepareDocs", () => {
-  const dirs: string[] = [];
-  const tmp = () => {
-    const d = fs.mkdtempSync(path.join(os.tmpdir(), "podium-site-test-"));
-    dirs.push(d);
-    return d;
-  };
-  afterEach(() => {
-    for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
-  });
+const dirs: string[] = [];
+const tmp = () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "podium-site-test-"));
+  dirs.push(d);
+  return d;
+};
+afterEach(() => {
+  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+});
 
+describe("prepareDocs", () => {
   it("writes the pages a version has, copies its static folders and reports both", () => {
     const root = tmp();
     const docs = path.join(root, "docs");
@@ -269,18 +268,79 @@ describe("prepareDocs", () => {
     expect(fs.existsSync(path.join(root, "c/design-standards.md"))).toBe(false);
   });
 
-  it("lists every page the nav names exactly once", () => {
-    const pages = PAGES as unknown as { slug: string; file: string }[];
-    const slugsSeen = pages.map((p) => p.slug);
-    expect(new Set(slugsSeen).size).toBe(slugsSeen.length);
-    expect(new Set(pages.map((p) => p.file)).size).toBe(pages.length);
-  });
-  it("keeps each page's group in its frontmatter equal to the group the menu puts it in", () => {
-    const pages = PAGES as unknown as { file: string; group: string }[];
-    for (const p of pages) {
+  it("lists every page of the real docs exactly once, and keeps each page's group equal to the group the menu puts it in", () => {
+    const { pages } = collectPages(path.resolve("..", "docs"));
+    expect(new Set(pages.map((p: { slug: string }) => p.slug)).size).toBe(pages.length);
+    expect(new Set(pages.map((p: { file: string }) => p.file)).size).toBe(pages.length);
+    for (const p of pages as { file: string; group: string }[]) {
       const { fields } = parseFrontmatter(fs.readFileSync(path.resolve("..", "docs", p.file), "utf8"));
       expect(fields.group, p.file).toBe(p.group);
     }
+  });
+});
+
+/** docs/ with one topic split into a folder: a README, an entry, and a subfolder with its own README and a page. */
+function topicDocs() {
+  const root = tmp();
+  const put = (rel: string, fields: string, body: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, "docs", rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, "docs", rel), `---\n${fields}\n---\n\n${body}`);
+  };
+  put("spec/README.md", 'title: "Spec"\ndescription: "The spec."\ngroup: Reference', "# Spec\n\nSee [one](01-one.md) and [deep](02-sub/02-01-deep.md).\n\n<!-- entries:start -->\n- x\n<!-- entries:end -->\n");
+  put("spec/01-one.md", 'title: "1. One"\ndescription: "First."\ngroup: Reference\norder: 1', "# 1. One\n\nBack to [the spec](README.md).\n\n<!-- nav:start -->\n---\n\nUp: [Spec](README.md)\n<!-- nav:end -->\n");
+  put("spec/02-sub/README.md", 'title: "2. Sub"\ndescription: "Sub."\ngroup: Reference\norder: 2', "# 2. Sub\n");
+  put("spec/02-sub/02-01-deep.md", 'title: "2.1 Deep"\ndescription: "Deep."\ngroup: Reference\norder: 1', "# 2.1 Deep\n\nUp to [one](../01-one.md).\n");
+  return root;
+}
+
+describe("a topic split into a folder (#697)", () => {
+  it("expands the folder: the README first, entries in order, a subfolder as a group of its own", () => {
+    const root = topicDocs();
+    const { pages, sidebar } = collectPages(path.join(root, "docs"));
+    expect(pages.filter((p: { group: string }) => p.group === "Reference").map((p: { slug: string }) => p.slug)).toEqual(["spec", "spec/01-one", "spec/02-sub", "spec/02-sub/02-01-deep"]);
+    const ref = sidebar.find((g: { label: string }) => g.label === "Reference");
+    expect(ref?.items[0]).toEqual({
+      label: "Specification",
+      collapsed: true,
+      items: [
+        { label: "Overview", slug: "spec" },
+        { label: "1. One", slug: "spec/01-one" },
+        { label: "2. Sub", collapsed: true, items: [{ label: "Overview", slug: "spec/02-sub" }, { label: "2.1 Deep", slug: "spec/02-sub/02-01-deep" }] },
+      ],
+    });
+  });
+  it("writes nested pages with links resolved between them, and no generated footer", () => {
+    const root = topicDocs();
+    const out = prepareDocs({ docsDir: path.join(root, "docs"), contentDir: path.join(root, "c"), publicDir: path.join(root, "p"), base: "/", ref: "main", editBase: "https://github.com/x/edit/dev/" });
+    expect((out.pages as { slug: string }[]).map((p) => p.slug)).toEqual(["spec", "spec/01-one", "spec/02-sub", "spec/02-sub/02-01-deep"]);
+    const readme = fs.readFileSync(path.join(root, "c/spec.md"), "utf8");
+    expect(readme).toContain("[one](/spec/01-one/)");
+    expect(readme).toContain("[deep](/spec/02-sub/02-01-deep/)");
+    const one = fs.readFileSync(path.join(root, "c/spec/01-one.md"), "utf8");
+    expect(one).toContain("[the spec](/spec/)");
+    expect(one).not.toContain("Previous");
+    expect(one).not.toContain("nav:start");
+    expect(one).toContain('editUrl: "https://github.com/x/edit/dev/docs/spec/01-one.md"');
+    expect(fs.readFileSync(path.join(root, "c/spec/02-sub/02-01-deep.md"), "utf8")).toContain("[one](/spec/01-one/)");
+  });
+  it("shows the single file of an older version as one page and leaves out a topic it does not have", () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    fs.writeFileSync(path.join(root, "docs/SPEC.md"), "# SPEC: old\n\nThe old spec.\n");
+    const { pages, sidebar } = collectPages(path.join(root, "docs"));
+    expect(pages.map((p: { slug: string; file: string }) => [p.slug, p.file])).toEqual([["spec", "SPEC.md"]]);
+    const shown = sidebar.flatMap((g: { items: { embed?: boolean }[] }) => g.items).filter((i: { embed?: boolean }) => !i.embed);
+    expect(shown).toEqual([{ label: "Specification", slug: "spec" }]);
+  });
+  it("keeps a code block that follows a contents list, and does not take the contents line as a description", () => {
+    expect(withoutContents("# T\n\nContents:\n\n- [a](#a)\n```sh\nrun it\n```\n")).toBe("# T\n\n```sh\nrun it\n```\n");
+    const page = { file: "OLD.md", slug: "old", label: "Old" };
+    const out = preparePage(page, "# Old\n\nContents:\n\n- [a](#a)\n\nThe real first paragraph.\n", { base: "/", ref: "main", slugs, editBase: "" });
+    expect(out.description).toBe("The real first paragraph.");
+  });
+  it("cuts what is between two markers, and leaves a text without them alone", () => {
+    expect(withoutBlock("a\n\n<!-- s -->\nx\n<!-- e -->\n\nb\n", "<!-- s -->", "<!-- e -->")).toBe("a\nb\n");
+    expect(withoutBlock("no markers", "<!-- s -->", "<!-- e -->")).toBe("no markers");
   });
 });
 

@@ -56,7 +56,7 @@ function buildOne(version, versions, outRoot) {
   const older = version.ref !== null;
   const tmp = older ? extractDocs(version.ref) : null;
   try {
-    const { pages } = prepareDocs({
+    const { pages, sidebar } = prepareDocs({
       docsDir: path.join(tmp ?? repoRoot, "docs"),
       rootDir: tmp ?? repoRoot,
       contentDir: path.join(siteDir, "src/content/docs"),
@@ -83,7 +83,9 @@ function buildOne(version, versions, outRoot) {
         DOCS_CURRENT: version.line,
         DOCS_REF: version.ref ?? "",
         DOCS_VERSIONS: JSON.stringify(versions),
-        // What this version has: an older release may lack a page or a folder the newest one has.
+        // What this version has: an older release may lack a page or a folder the newest one has, and a topic may be one file or a folder.
+        DOCS_SIDEBAR: JSON.stringify(sidebar),
+        // The slugs this version has, so the header's "Docs" link does not point at an introduction an older release lacks.
         DOCS_PAGES: JSON.stringify(pages.map((p) => p.slug)),
       },
     });

@@ -507,7 +507,7 @@ describe('protocol', () => {
   });
 
   describe('activity feed (#118)', () => {
-    const entry = { at: 1_800_000_000_000, kind: 'tool', text: 'Read docs/SPEC.md' };
+    const entry = { at: 1_800_000_000_000, kind: 'tool', text: 'Read docs/spec/README.md' };
     const withActivity = (session: Record<string, unknown>, agent: Record<string, unknown> = {}) => {
       const f = loadFixture() as { session: Record<string, unknown>; agents: Record<string, unknown>[] };
       Object.assign(f.session, session);

@@ -184,7 +184,7 @@ The session comes back as stale and recovers as soon as its reporter sends again
 
 ## Known rough edges, so they do not surprise you on camera
 
-These come from the known issues in `docs/ARCHITECTURE.md`.
+These come from the known issues in `docs/architecture/`.
 
 - Elapsed times and the stale countdown pause when the browser tab is in the background. Keep the window
   visible while recording.
