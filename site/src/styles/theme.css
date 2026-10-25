@@ -42,7 +42,8 @@
   --sl-color-bg: var(--bg);
   --sl-color-bg-nav: var(--raised);
   --sl-color-bg-sidebar: var(--surface);
-  --sl-color-bg-inline-code: var(--tint2);
+  --sl-color-bg-inline-code: color-mix(in srgb, var(--sonnet) 28%, var(--bg));
+  --inline-code-text: color-mix(in srgb, var(--sonnet) 40%, var(--ink));
   --sl-color-text: var(--ink);
   --sl-color-text-accent: var(--accent-text);
   --sl-color-hairline: var(--axis);
@@ -113,6 +114,24 @@ mobile-starlight-toc a[aria-current="true"] {
 .sl-markdown-content a:not(.sl-link-button):not(:where(.not-content *)) { color: var(--accent-text); }
 .sl-markdown-content pre:not(:where(.not-content *)) { background: var(--raised); border: 1px solid var(--axis); }
 .sl-markdown-content .expressive-code { --ec-brdRad: 6px; }
+/* Inline code: a stronger blue tint with blue-leaning ink on it, so a command in a sentence stands out (about 8:1 in both themes). In a
+   link it keeps the link's color and underline; in a block it is left alone. */
+.sl-markdown-content :not(pre) > code:not(:where(.not-content *)) { color: var(--inline-code-text); border-radius: 4px; }
+.sl-markdown-content a > code:not(:where(.not-content *)) { color: inherit; text-decoration: underline; text-underline-offset: 0.2em; }
+
+/* A terminal frame's three title-bar dots in the macOS colors (close, minimize, zoom), from the status tokens. Same box and circles as
+   Expressive Code's own mask, drawn with gradients so each dot has its own color. */
+.expressive-code .frame.is-terminal .header::before {
+  background-color: transparent;
+  background-image:
+    radial-gradient(circle at 0.28rem 50%, var(--crit) 0.27rem, transparent 0.285rem),
+    radial-gradient(circle at 1.05rem 50%, var(--warn) 0.27rem, transparent 0.285rem),
+    radial-gradient(circle at 1.82rem 50%, var(--good) 0.27rem, transparent 0.285rem);
+  background-repeat: no-repeat;
+  -webkit-mask-image: none;
+  mask-image: none;
+  opacity: 1;
+}
 .starlight-aside { border-inline-start-width: 4px; border-radius: 6px; }
 .starlight-aside__title { font-weight: 700; font-size: 0.75rem; }
 
