@@ -3,7 +3,6 @@
 // so the page and the document name the same functions and cannot drift apart.
 import fs from 'node:fs';
 import path from 'node:path';
-import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -26,14 +25,21 @@ export const LOCATIONS = [
 // and it is not an UPPER_CASE constant or a bare value.
 const NAMED = /^(class )?([A-Za-z_]\w*)(\(\))?: (.+)$/;
 
-/** The source references (file, line, text) the page keeps for each part, by part id. */
+/** The source references (file, line, text) the page keeps for each part, by part id. The list is read as text; nothing in the page is run. */
 export function readRefs(html) {
   const consts = /const pM="([^"]*)",pS="([^"]*)",pSF="([^"]*)",pF="([^"]*)";/.exec(html);
   const start = html.indexOf('const REFS={');
   const end = html.indexOf('\n};', start);
   if (!consts || start < 0 || end < 0) throw new Error(`${HTML}: could not find the REFS list`);
-  const [, pM, pS, pSF, pF] = consts;
-  return vm.runInNewContext(`(${html.slice(start + 'const REFS='.length, end + 2)})`, { pM, pS, pSF, pF });
+  const prefix = { pM: consts[1], pS: consts[2], pSF: consts[3], pF: consts[4] };
+  const refs = {};
+  // One part to a line: ` id:[[path, line, "text"], ...],`, a path being a quoted string, or a prefix constant plus one.
+  for (const line of html.slice(start, end).split('\n')) {
+    const part = /^\s*(\w+):\[(.*)\],?\s*$/.exec(line);
+    if (!part) continue;
+    refs[part[1]] = [...part[2].matchAll(/\[(?:(p[A-Z]*)\+)?"([^"]+)",(\d+),("(?:[^"\\]|\\.)*")\]/g)].map((m) => [(prefix[m[1]] ?? '') + m[2], Number(m[3]), JSON.parse(m[4])]);
+  }
+  return refs;
 }
 
 /** The rows of the table: every named reference, in table order. */
@@ -59,7 +65,8 @@ export function readRows(html) {
 
 /** A description as a table cell: capital first letter, no trailing full stop (one is added), pipes escaped. */
 function describe(what) {
-  const text = what.replace(/\.+$/, '');
+  let text = what;
+  while (text.endsWith('.')) text = text.slice(0, -1);
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}`.replaceAll('|', '\\|');
 }
 
@@ -96,7 +103,7 @@ export function findStale(rows, root = REPO) {
   return stale;
 }
 
-function main(argv) {
+export function main(argv, root = REPO) {
   if (argv.includes('-h') || argv.includes('--help')) {
     console.log(`Usage: node scripts/atlas-functions.mjs [--check]
 
@@ -108,12 +115,12 @@ The page is the source: add or change a reference there ("name: what it does", o
   -h         show this help`);
     return 0;
   }
-  const html = fs.readFileSync(path.join(REPO, HTML), 'utf8');
+  const html = fs.readFileSync(path.join(root, HTML), 'utf8');
   const rows = readRows(html);
-  const next = render(REPO, html);
+  const next = render(root, html);
   if (argv.includes('--check')) {
-    const problems = findStale(rows);
-    if (next !== fs.readFileSync(path.join(REPO, DOC), 'utf8')) problems.unshift(`${DOC} is out of date: run node scripts/atlas-functions.mjs`);
+    const problems = findStale(rows, root);
+    if (next !== fs.readFileSync(path.join(root, DOC), 'utf8')) problems.unshift(`${DOC} is out of date: run node scripts/atlas-functions.mjs`);
     if (problems.length) {
       console.error(problems.join('\n'));
       return 1;
@@ -121,7 +128,7 @@ The page is the source: add or change a reference there ("name: what it does", o
     console.log(`ok: ${rows.length} key functions`);
     return 0;
   }
-  fs.writeFileSync(path.join(REPO, DOC), next);
+  fs.writeFileSync(path.join(root, DOC), next);
   console.log(`wrote ${rows.length} key functions to ${DOC}`);
   return 0;
 }
