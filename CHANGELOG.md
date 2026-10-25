@@ -32,6 +32,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **CodeQL action 4.39.1.** `init` and `analyze` in `.github/workflows/codeql.yml` move together from 4.39.0 to 4.39.1, in one change, because the two must run the same version. Taken from Dependabot's #692 and #693, which could not pass separately. CI only; no behavior changes.
 
+- **`jsdom` 30.1.3 for the frontend tests.** A dev-only update from 24.1.3 (six major versions) to the DOM the frontend tests run in; the image and the product are unchanged. `jsdom` 30 needs Node 22.22, 24.15 or 26 and later, which CI's Node 24 satisfies. Taken from Dependabot's #691 on top of current `development`. No behavior changes.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
