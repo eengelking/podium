@@ -20,6 +20,14 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **An architecture atlas: an interactive page and a table of every part.** `docs/atlas/podium-atlas.html` is a single page, opened in a browser, that follows a report from a hook inside a session to a card on the wall: a clickable system map of the thirty parts, step-by-step flows, the deployment modes and the request checks, what the reporter sends at each opt-in, the session lifecycle, and where each kind of data lives. `docs/atlas/ATLAS.md` is its text companion: one table of the thirty parts and one of the reporter's hooks and timers, each with where it runs and what it does. Documentation only; no behavior changes.
 
+### Fixed
+
+- **The nightly build publishes again (#698).** The `Nightly` workflow failed on every scheduled run because the generic self-hosted runners have no GitHub CLI, so `gh` was not found and no `nightly-YYYY-MM-DD` prerelease was ever made. Each job now installs a pinned `gh` (no `sudo`, checked against the release's checksums) unless the runner already has one. The "already has a nightly" check also no longer swallows a failing `gh`, which had made it always report that a nightly was needed.
+
+### Changed
+
+- **`vite` 8.3.5 and `dotenv` 18.0.8.** Patch updates to the UI build tool (with its `postcss` and `rolldown`) and to the `.env` reader, taken from Dependabot's #690 on top of current `development`. No behavior changes.
+
 ## [1.3.0] - 2026-10-22
 
 ### Added
