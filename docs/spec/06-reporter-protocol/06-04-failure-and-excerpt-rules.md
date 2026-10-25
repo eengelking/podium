@@ -145,7 +145,7 @@ With the `activityFeed` option on, the mod can send a loop's recent work.
   (`PRAGMA user_version`), WAL, and incremental auto-vacuum. `entries` holds one row per entry (session, loop,
   a sequence number per session and loop, the entry's own time `at`, the server-clock time `t` that the purge
   and the filters use, kind, text, a Bash entry's whole command and whether the mod cut it (schema version 5, #431),
-  and for an entry sent from Podium who sent it and its note);
+  and, for an entry sent from Podium, who sent it and its note);
   `stored_sessions` holds the name, project and owner so the Admin pages need no join into the main database.
 - Every entry is stored: tool calls, text, and the answers and messages sent from Podium, each keeping its
   marker. Each was already redacted and cut to 300 characters before it left the machine, and the server adds

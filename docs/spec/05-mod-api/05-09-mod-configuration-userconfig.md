@@ -32,7 +32,7 @@ supported.
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
-## Notes on three options
+## Notes on six options
 
 **`userName`**
 - Sent as `Report.userName`, with `Report.machine`. The server accepts a report made with a person's token

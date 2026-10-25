@@ -732,8 +732,9 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
   On/Off). They are stored in the server's `settings` table and sent to the wall in `StateBody.wall`, so they
   apply to every browser and survive a restart. A change reaches open tabs through the `wall` stream event.
 - All notices default to on.
-- The notices are the background-sessions note and the update notice. A later notice adds one entry to `NOTICES` in
-  `server/src/fleet/wallSettings.ts` and one to the stack in `Wall.tsx`.
+- The notices are the background-sessions note and the update notice. Only the background-sessions note is in
+  `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
+  `NOTICES` in `server/src/fleet/wallSettings.ts` and one to the stack in `Wall.tsx`.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set
@@ -1285,8 +1286,8 @@ selected first and the choice is not saved). While Files is selected the left co
     diff is never drawn under the next file's title; a 429 or 504 shows for the file in view and the buttons
     still step past it. The row shows in loading, failed and binary states too. Below 480 px the switch comes up
     beside the pager and the note takes a line of its own. Where the diff is
-    drawn, and for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
-    untracked file, and a cut diff ("Showing the first N lines of M") a plain message. Close, Esc and the dimmed
+    drawn, it fills the modal; for `binary`, `withheld`, `too-large`, `unavailable`, a deleted, renamed or
+    untracked file, and a cut diff ("Showing the first N lines of M") it shows a plain message. Close, Esc and the dimmed
     area return focus to the row.
   - Otherwise the row is not a button. With the `file-diff` flag off nothing changes, since a flag that is off
     hides its feature. With it on, a line under the list says why: "Sign in to open diffs." (signed out),

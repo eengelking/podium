@@ -12,7 +12,7 @@ order: 10
 
 ## 10.1 Repository rules (from this repo's `.claude/CLAUDE.md`)
 
-- You are on branch `feat/podium-fleet-console`. Stay on it. Never work on `main`.
+- Work on a branch, never on `main` or `development`; `.claude/CLAUDE.md` says how.
 - Commit on this branch after each task (section 9). **Do not push, open a PR, merge, tag, or rewrite history.** The coordinating session does that after review.
 - Do not commit secrets. Do not commit `data/`, `.env`, `node_modules/`, or SQLite files.
 - Do not spawn forks. If you need help, use a fresh non-fork sub-agent and state its authority in its prompt (report only, no commits). Prefer doing the work yourself, in order.

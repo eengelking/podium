@@ -519,7 +519,7 @@ so every rule here holds whatever else is set. The routes are in [7.1](07-01-end
 - A reporter is one machine plus one person's token. Rights belong to reporters.
 - A link is a pair of reporters, either way round, the same reporter twice included (two orchestrators on one
   machine). Pause link, Remove link, the messages per minute and how long messages are kept go by link.
-- A conversation is the messages between two orchestrators on a link. Round trips are counted per conversation. The reporter's side is
+- A conversation is the messages between two orchestrators on a link. Round trips are counted per conversation. The reporter's side is described in
 [5.3](../05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347). Mockups: `mockup/podium-my-reporters.html`,
 `mockup/podium-traffic.html`, `mockup/podium-peer-messages.html`.
 
@@ -730,7 +730,7 @@ Other places the warning shows:
   `done` and `failed` are booleans. A wrong type is rejected with the field's path. The new fields are dropped, not
   rejected, on an entry that is not a `tool` entry, and `output` and `outputCut` are dropped unless the session's
   `activityOutput` is true. `done`, `exitCode` and `failed` are kept with the feed whatever `activityOutput` says, and
-  count toward neither budget (#598). An older server drops them without `activityOutput`, so it ignores the new use:
+  count toward neither budget (#598). An older server drops them without `activityOutput`, so it ignores the new fields:
   its rows stay as they were. Past 200,000 characters of commands and output in one
   report, the server drops the output of the oldest entries that do not fit, then their command (the orchestrator's
   loop first, then the agents' in order, each from its newest entry back), and keeps their summaries.
