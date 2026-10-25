@@ -10,8 +10,9 @@ order: 41
 
 # After `/clear` the recording is on a different session
 
-**You see:** After `/clear` the old session's recording reads stopped, with no one named, and the new session shows it
-recording.
+**You see:** After `/clear` the old session's recording reads "Recording stopped." (or "The session ended." once that
+session has ended) with no "stopped by" name, because nobody stopped it. The replay shows "Recording stopped. Everything
+up to here was kept." The new session shows it recording.
 
 **Why:** `/clear` gives the session a new id. The server carries a running recording over to the new session, with the same
 starter and start time, and stops the old one. The owner's consent is not carried: the new session's own report must state

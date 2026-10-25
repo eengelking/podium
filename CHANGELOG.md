@@ -34,6 +34,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **Docs: passages flagged while polishing the site now say what the code does (#706).** The reporter page separates reading a Windows version string from supporting Windows, says where the mod runs without the word "untested" (DECISIONS 42 too), lists Over TLS in its contents and no longer lists Traffic as a setup step. MESSAGING names what deletes a conversation's messages. DECISIONS 37 and 39 are clearer. The `/clear` gotcha quotes the wording the owner sees, the user guide names the Blowouts cell and says an Admin, not "the owner", rotates a token, COMMUNITY.md gives the renewal date (2026-11-11), and known issue 8a now follows 8 (numbers kept, because other pages cite them). Documentation only.
 - **`vite` 8.3.5 and `dotenv` 18.0.8.** Patch updates to the UI build tool (with its `postcss` and `rolldown`) and to the `.env` reader, taken from Dependabot's #690 on top of current `development`. No behavior changes.
 
 - **CodeQL action 4.39.1.** `init` and `analyze` in `.github/workflows/codeql.yml` move together from 4.39.0 to 4.39.1, in one change, because the two must run the same version. Taken from Dependabot's #692 and #693, which could not pass separately. CI only; no behavior changes.

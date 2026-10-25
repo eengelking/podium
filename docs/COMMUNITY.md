@@ -75,7 +75,7 @@ curl -s 'https://discord.com/api/v10/invites/<code>?with_expiration=true'
 
 Read `expires_at` in the reply. `null` means it never expires, and a dead invite answers with an error message instead.
 
-About a week before the date:
+About a week before the date (2026-11-11 for the current link):
 
 1. Create a new invite with the settings above.
 2. Open it in a private window and check that it lands in `welcome-and-rules`.

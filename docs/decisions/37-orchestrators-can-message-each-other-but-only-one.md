@@ -41,7 +41,8 @@ issues, and `docs/MESSAGING.md` the setup.
     `$.prompt.submit` and `$.tool.register`.
   - The Consumer Terms forbid making an account available to anyone else, the Claude Code legal page says Pro
     and Max limits assume ordinary, individual use, and the Usage Policy in force from November 12, 2026 adds
-    services that route requests through consumer subscriptions to its list of unauthorized access. Person B's
+    services that route requests through consumer subscriptions to its list of unauthorized access (S2 on #347).
+    Person B's
     agent starting turns in person A's session may fall under those, and nothing addresses consent or a
     self-hosted relay. It stays blocked until Anthropic answers the questions on #347.
 - Claude Code's own messaging reaches another machine only through Remote Control, which needs a claude.ai
@@ -76,7 +77,7 @@ issues, and `docs/MESSAGING.md` the setup.
 - A message is another agent's text in a session. A receiving session in auto mode can act on it without asking.
   Its permission prompts still apply, but what auto mode allows is not a prompt. The #411 spike found the
   auto-mode classifier does not take a plugin's text as the person's intent, and the model refused the risky
-  requests once Podium's opening line was there. Without that line it tried one (SPEC 5.3), so in accept-edits
+  requests once Podium's opening line was there. Without that line it tried one of those risky requests (SPEC 5.3), so in accept-edits
   or bypass mode the line and the model's judgment are the only guard.
 - Conversation text is stored on disk, which responding never does, and redaction is best effort.
 - The design rests on the mods API, which is early access. The #411 spike checked it on Claude Code 2.1.303: a

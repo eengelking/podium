@@ -64,7 +64,8 @@ with an optional size cap that removes the oldest entries first (`docs/spec/` 6.
 - A backup made before a delete still holds what was deleted.
 - The size cap counts an estimate of the entries' bytes, not the file's size, because freed pages stay in the file until
   vacuum.
-- Choosing *purge when the session ends* with a restart: a session that has not ended stays live and keeps its history.
+- Choosing *purge when the session ends* and then restarting the server: the purge removes the history of sessions that
+  are no longer live. A session that had not ended is still live after the restart, so it keeps its history until it ends.
 - A load test found that scanning the table for the Stored activity list, the preview, a purge or a delete blocked the
   server for 4 to 18 s on one day of the issue's example volume (14.4 million rows). The store therefore keeps per-session
   aggregates and removes in chunks that yield to the event loop. The cost is that a very large removal takes longer in

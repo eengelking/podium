@@ -331,7 +331,7 @@ The full tour is in the user guide, [Traffic](user-guide/04-reading-the-console/
 
 | What | Where, and for how long | Who can read it |
 |---|---|---|
-| A message's text, with sender, receiver, times and delivery state | The server's database, until the Admin's "Keep conversations" days after the last message on its link (30 by default), and deleted with its sessions | The owner and an Admin |
+| A message's text, with sender, receiver, times and delivery state | The server's database, until the Admin's "Keep conversations" days after the last message on its link (30 by default), and deleted when the server deletes either session (30 days after it ends, or when an Admin deletes it) | The owner and an Admin |
 | That two orchestrators talk, the counts and the states | `GET /api/fleet/peers/traffic` | Everyone who can read the console |
 | Rights, defaults and requests | The database. Closed requests go after the same period; rights and requests about a removed reporter go too | The owner, and an Admin |
 | Admin log rows | `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_*`, `peer_access_requested`, `peer_defaults_changed`, `peer_limits_changed`: who, to whom and whose, never the text | Admin |

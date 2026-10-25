@@ -15,8 +15,8 @@ Click a card or a rail item. The page has a summary, a plan, an agent tree and a
 - Three charts for the last minute: tokens per second (its number is the average of the last 10 seconds), the largest
   context fill in any loop with blowout markers, and subagents running.
 - A bar of facts, described in the table below.
-- A colored band at the bottom of the summary that says what the session is doing. Blowouts opens the detail when a
-  context window has overflowed.
+- A colored band at the bottom of the summary that says what the session is doing. The Blowouts cell in the facts bar opens
+  the detail when a context window has overflowed.
 
 | Fact | What it shows |
 |---|---|

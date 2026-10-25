@@ -68,7 +68,8 @@ and the certificate with its private key, the way `kubeadm` and `kubectl` do. `d
 **Cost.**
 
 - The reporter needs `node`. It looks at `PODIUM_NODE`, then the `PATH` Claude Code started with, then Homebrew, `/usr/local`, nvm and Volta, and says so in the status line when it finds none.
-- `$.process` is CLI only per the engine types, so the desktop app and VS Code are untested.
+- The helper relies on `$.process`, which the engine provides only on the command line, so the mod runs there and the
+  desktop app and VS Code are not covered.
 - A stolen `/data/tls` holds the CA key, which is everything the CA signed. It needs an emergency rotation and a
   reissue, and the folder must be backed up and permissioned like a secret.
 - A stolen config file holds a person's private key until it is revoked.

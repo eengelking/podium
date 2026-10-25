@@ -41,8 +41,7 @@ Under **Create user**, type a name and choose Create user.
 - A person in the Administrators group has their name in orange.
 
 A report is accepted when its token belongs to the person whose name it also sends. The server decides who a report is
-from by the token, so a valid token with someone else's name is refused. A person cannot see or rotate their own token.
-Only the owner can.
+from by the token, so a valid token with someone else's name is refused. A person cannot see or rotate their own token. Only an Admin can, from this page.
 
 <!-- nav:start -->
 ---

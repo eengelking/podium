@@ -16,6 +16,7 @@ Contents:
 - [Install the mod](#install-the-mod)
 - [In the session](#in-the-session)
 - [Options](#options)
+- [Over TLS](#over-tls)
 - [Messaging your other orchestrators](#messaging-your-other-orchestrators)
 - [What leaves the session](#what-leaves-the-session)
 - [Sessions without the mod](#sessions-without-the-mod)
@@ -167,12 +168,15 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   request whenever it changes on disk, if it is still for the same person. That is how a renewal made by another
   session reaches this one, and how a reissued config saved over the old file is used within seconds. The server
   address stays the one read at start. `/clear` keeps the helper running.
-- Command line only for now: the desktop app and VS Code are untested, and Windows is not supported.
+- Where it runs: the Claude Code command line on macOS and Linux. The mod relies on `$.process`, which the engine
+  provides only on the command line, so the desktop app and VS Code are not covered. Windows is not a supported
+  platform; the mod can still read a Windows version string (see What leaves the session), but nothing else is
+  built or tested for it.
 
 ## Messaging your other orchestrators
 
-This section is the mod's side. To set messaging up across your machines, with the server's flag, rights, limits and
-Traffic, follow [MESSAGING.md](MESSAGING.md).
+This section is the mod's side. To set messaging up across your machines (the server's flag, rights and limits), follow
+[MESSAGING.md](MESSAGING.md). It also covers Traffic, the console page that shows who talks to whom.
 
 With `peers` on, and once the server says this session takes part, the orchestrator (the session's main loop)
 gets three tools. They are offered only then: with the option off, or in a `claude -p` run, no tool appears and
@@ -287,7 +291,8 @@ put on record:
   (`~/.claude/podium-machine-id`, or under `CLAUDE_CONFIG_DIR` when that is set). Two machines with the same
   host name stay apart, and every copy of the mod on a machine reports the same id.
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
-  `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does.
+  `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
+  string does not make Windows a supported platform; see In the session.
 - The id is random, not read from the hardware. The operating system user name and `git config` are never
   read.
 
