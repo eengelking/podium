@@ -9,7 +9,7 @@ import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
 import { issuePersonCert } from './tlsPeople.js';
 import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, TlsSettingsStore, type ServingSettings } from './tlsRenew.js';
-import { startTls } from './tlsServer.js';
+import { startTlsForTest } from './tlsTesting.js';
 
 const DAY = 86_400_000;
 const cleanup: Array<() => void> = [];
@@ -274,15 +274,6 @@ describe('ServingRenewer.renewNow and view', () => {
 });
 
 describe('the swap on a running listener', () => {
-  const freePort = async (): Promise<number> => {
-    const http = await import('node:http');
-    return new Promise((resolve) => {
-      const s = http.createServer().listen(0, '127.0.0.1', () => {
-        const { port } = s.address() as { port: number };
-        s.close(() => resolve(port));
-      });
-    });
-  };
   let client: { cert: string; key: string } | undefined;
   const get = (port: number, ca: string, agent: https.Agent) =>
     new Promise<{ serial: string; socket: unknown }>((resolve, reject) => {
@@ -301,19 +292,18 @@ describe('the swap on a running listener', () => {
     const app = express();
     app.get('/api/fleet/sessions/s1/peers', (_q, r) => void r.json({ ok: true }));
     const dbPath = path.join(root, 'podium.sqlite');
-    const port = await freePort();
-    const base = { env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger };
 
     // First run makes the certificate with the shortest lifetime and the longest renew-before, as the issue's check does.
     const settings: ServingSettings = { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true };
-    const first = (await startTls({ ...base, settings: () => settings }))!;
+    const first = await startTlsForTest({ app, dbPath, logger, settings: () => settings });
     const created = first.renewer.view().serving;
     client = await issuePersonCert({ dir: path.join(root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     await new Promise((r) => first.server.close(r));
     expect(lines.some((l) => l.event === 'tls.serving_renewed')).toBe(false);
 
     // A restart two days later finds it inside the window and renews before accepting a connection.
-    const l = (await startTls({ ...base, settings: () => settings, now: () => Date.now() + 2 * DAY }))!;
+    const l = await startTlsForTest({ app, dbPath, logger, settings: () => settings, now: () => Date.now() + 2 * DAY });
+    const port = l.port;
     try {
       const v = l.renewer.view();
       expect(v.serving.serial).not.toBe(created.serial);
@@ -340,7 +330,7 @@ describe('the swap on a running listener', () => {
   it('stops its timer when the listener closes', async () => {
     const root = scratch();
     const app = express();
-    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(await freePort()) }, app, dbPath: path.join(root, 'podium.sqlite'), bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: createLogger({ format: 'json', write: () => {} }) }))!;
+    const l = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger: createLogger({ format: 'json', write: () => {} }) });
     await new Promise((r) => l.server.close(r));
     expect((l.renewer as unknown as { timer: unknown }).timer).toBeNull();
   });

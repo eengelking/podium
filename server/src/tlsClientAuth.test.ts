@@ -2,7 +2,6 @@ import express from 'express';
 import { execFileSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
-import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,8 +12,7 @@ import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
 import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
 import { buildReporterConfig, fileSafe, issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
-import { startTls, type TlsListener } from './tlsServer.js';
-import { signDated } from './tlsTesting.js';
+import { signDated, startTlsForTest } from './tlsTesting.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -26,14 +24,6 @@ const tmp = (): string => {
   cleanup.push(() => fs.rmSync(d, { recursive: true, force: true }));
   return d;
 };
-
-const freePort = (): Promise<number> =>
-  new Promise((resolve) => {
-    const s = http.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-  });
 
 const NOW = () => Date.now();
 
@@ -52,9 +42,9 @@ async function setup() {
     const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => issuers, now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
-  const port = await freePort();
   const dbPath = path.join(root, 'podium.sqlite');
-  const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger })) as TlsListener;
+  const l = await startTlsForTest({ app, dbPath, logger });
+  const port = l.port;
   cleanup.push(() => new Promise<void>((r) => { l.server.closeAllConnections(); l.server.close(() => r()); }));
   issuers = [l.material.ca.fingerprintSha256];
   const dir = path.join(root, 'tls');

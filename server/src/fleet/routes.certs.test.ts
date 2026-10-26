@@ -3,7 +3,6 @@
 import express from 'express';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +12,8 @@ import { createAdminRouter } from '../admin/adminRouter.js';
 import { createLogger } from '../logging/logger.js';
 import { PersonCertStore } from '../tlsClientAuth.js';
 import { TlsSettingsStore } from '../tlsRenew.js';
-import { publicTlsPort, startTls, type TlsListener } from '../tlsServer.js';
+import { publicTlsPort, type TlsListener } from '../tlsServer.js';
+import { startTlsForTest } from '../tlsTesting.js';
 import { openDb, FleetDb } from './db.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { ADMINISTRATORS_GROUP, PeopleStore } from './people.js';
@@ -26,14 +26,6 @@ const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const f of cleanup.splice(0)) await f();
 });
-
-const freePort = (): Promise<number> =>
-  new Promise((resolve) => {
-    const s = http.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-  });
 
 async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: string } = {}) {
   const tlsOn = opts.tlsOn ?? true;
@@ -62,8 +54,8 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
       },
     }),
   );
-  const port = await freePort();
-  listener = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath: path.join(root, 'podium.sqlite'), bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger })) as TlsListener;
+  listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
+  const port = listener.port;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const admin = request.agent(app);
   expect((await admin.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
