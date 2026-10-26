@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { publicTlsPort, startTls, tlsPortFrom, type TlsListener } from './tlsServer.js';
-import { makeForgerCa, signClientDated } from './tlsTesting.js';
+import { publicTlsPort, startTls, tlsPortFrom } from './tlsServer.js';
+import { freePort, makeForgerCa, signClientDated, startTlsForTest } from './tlsTesting.js';
 
 const cleanup: Array<() => void> = [];
 afterEach(() => {
@@ -26,14 +26,6 @@ function setup() {
   app.get('/api/fleet/sessions/s1/peers', (req, res) => res.json({ proto: req.protocol }));
   return { root, dbPath: path.join(root, 'podium.sqlite'), lines, logger, app };
 }
-
-const freePort = (): Promise<number> =>
-  new Promise((resolve) => {
-    const s = http.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-  });
 
 const get = (port: number, ca: string, host: string, servername = 'localhost', client?: { cert: string; key: string }) =>
   new Promise<{ status: number; body: string }>((resolve, reject) => {
@@ -81,11 +73,8 @@ describe('startTls', () => {
 
   it('serves the app over HTTPS with the Host check, and keeps the same CA after a restart', async () => {
     const s = setup();
-    const port = await freePort();
-    const env = { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) };
-    const base = { env, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: ['podium.lan'], logger: s.logger };
-    const first = (await startTls(base)) as TlsListener;
-    expect(first).not.toBeNull();
+    const first = await startTlsForTest({ app: s.app, dbPath: s.dbPath, allowedHosts: ['podium.lan'], logger: s.logger });
+    const port = first.port;
     const person = await issuePersonCert({ dir: path.join(s.root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     try {
       await expect(get(port, first.material.caCert, 'localhost', 'localhost', person)).resolves.toEqual({ status: 200, body: '{"proto":"https"}' });
@@ -99,7 +88,7 @@ describe('startTls', () => {
     }
     expect(s.lines.map((l) => l.event)).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
 
-    const second = (await startTls(base)) as TlsListener;
+    const second = await startTlsForTest({ app: s.app, dbPath: s.dbPath, allowedHosts: ['podium.lan'], logger: s.logger });
     try {
       expect(second.material.ca).toEqual(first.material.ca);
       expect(second.material.serving).toEqual(first.material.serving);
@@ -111,8 +100,7 @@ describe('startTls', () => {
 
   it('logs a server error after it is listening instead of letting it escape', async () => {
     const s = setup();
-    const port = await freePort();
-    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
+    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
     try {
       l.server.emit('error', new Error('boom'));
       l.server.emit('tlsClientError', new Error('bad handshake'), { destroy() {} });
@@ -167,8 +155,8 @@ describe('the reporter port is mutual TLS only (#665)', () => {
     s.app.post('/api/fleet/report', (_req, res) => res.json({ ok: true }));
     s.app.post('/api/reporter/renew', (_req, res) => res.json({ ok: true }));
     s.app.get('/api/fleet/sessions', (_req, res) => res.json({ console: true }));
-    const port = await freePort();
-    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
+    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    const port = l.port;
     cleanup.push(() => l.server.close());
     const dir = path.join(s.root, 'tls');
     const person = await issuePersonCert({ dir, keyId: 'aaaaaaaaaaaa' });
@@ -223,8 +211,8 @@ describe('rotating the CA on a running listener (#588)', () => {
   async function start() {
     const s = setup();
     s.app.get('/api/fleet/sessions/s2/peers', (req, res) => res.json({ authorized: (req.socket as unknown as { authorized: boolean }).authorized }));
-    const port = await freePort();
-    const l = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })) as TlsListener;
+    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    const port = l.port;
     cleanup.push(() => l.server.close());
     const dir = path.join(s.root, 'tls');
     const oldCa = l.trust.currentCa();

@@ -1,8 +1,11 @@
-// Helpers for tests that need a certificate with dates the server would never issue (an expired one). Not used by the server.
+// Helpers for the TLS tests: a certificate with dates the server would never issue (an expired one), and a listener started on a free port. Not used by the server.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import type { Logger } from './logging/logger.js';
+import { startTls, type StartTlsOptions, type TlsListener } from './tlsServer.js';
 
 /** `20260404183519Z`: the form `openssl ca -startdate` and `-enddate` take. */
 export const opensslStamp = (ms: number): string => new Date(ms).toISOString().replaceAll(/[-:T]|\.\d{3}/g, '');
@@ -53,4 +56,47 @@ export function writeLegacyCa(dir: string): void {
   execFileSync('openssl', ['genpkey', '-algorithm', 'EC', '-pkeyopt', 'ec_paramgen_curve:P-256', '-out', 'ca.key'], { cwd: dir });
   execFileSync('openssl', ['req', '-new', '-x509', '-key', 'ca.key', '-config', 'x.cnf', '-extensions', 'v3', '-days', '3650', '-out', 'ca.crt'], { cwd: dir });
   fs.rmSync(path.join(dir, 'x.cnf'));
+}
+
+/** A port nothing listens on right now. Another test file can take it before it is bound, which `startTlsForTest` retries. */
+export const freePort = (): Promise<number> =>
+  new Promise((resolve) => {
+    const s = http.createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address() as { port: number };
+      s.close(() => resolve(port));
+    });
+  });
+
+export interface StartTlsForTestOptions extends Omit<StartTlsOptions, 'env' | 'bind' | 'httpPort' | 'allowedHosts'> {
+  env?: NodeJS.ProcessEnv;
+  bind?: string;
+  httpPort?: number;
+  allowedHosts?: string[];
+  /** Where the port comes from; a free one by default. A test passes its own to make the first one busy. */
+  port?: () => Promise<number>;
+}
+
+/**
+ * Starts the TLS listener for a test (#670). The port is chosen ahead of the bind, so another file can take it in between: that
+ * failure (`EADDRINUSE`) is retried on a new port, up to `tries` times. Any other reason `startTls` returned null is thrown
+ * with the reason it logged, so a failed start fails the test where it happened instead of as a `TypeError` on a null listener.
+ */
+export async function startTlsForTest(o: StartTlsForTestOptions, tries = 5): Promise<TlsListener> {
+  const { port: pick = freePort, env, bind = '127.0.0.1', httpPort = 4317, allowedHosts = [], ...rest } = o;
+  const reasons: string[] = [];
+  const logger: Logger = {
+    ...o.logger,
+    error: (event, message, fields) => {
+      if (event === 'tls.failed') reasons.push(message);
+      o.logger.error(event, message, fields);
+    },
+  };
+  for (let attempt = 1; ; attempt++) {
+    reasons.length = 0;
+    const port = await pick();
+    const listener = await startTls({ ...rest, logger, bind, httpPort, allowedHosts, env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port), ...env } });
+    if (listener) return listener;
+    const why = reasons.join('; ') || 'nothing was logged';
+    if (!why.includes('EADDRINUSE') || attempt >= tries) throw new Error(`startTls returned null after ${attempt} attempt${attempt === 1 ? '' : 's'} (port ${port}): ${why}`);
+  }
 }

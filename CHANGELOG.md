@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Fixed
+
+- **The TLS tests no longer fail intermittently when the listener cannot start (#670).** Five test files chose a port ahead of binding it, and when `startTls` returned null the test failed on a `TypeError` two lines later (it failed twice in a row on a CI run of #728). They now start the listener through one helper, `startTlsForTest` in `server/src/tlsTesting.ts`, which retries on another port when the port was taken and otherwise fails with the reason `startTls` logged. Test-only: the server is unchanged.
+
 ## [1.3.1] - 2026-10-25
 
 ### Added

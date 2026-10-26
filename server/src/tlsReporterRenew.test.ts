@@ -18,8 +18,8 @@ import { describeCert } from './tlsCa.js';
 import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
 import { issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
 import { authorizeRenewal, createReporterRenewRouter, issueForPublicKey, REPORTER_DEFAULTS, type RenewSocket } from './tlsReporterRenew.js';
-import { startTls, type TlsListener } from './tlsServer.js';
-import { makeForgerCa, signClientDated } from './tlsTesting.js';
+import type { TlsListener } from './tlsServer.js';
+import { makeForgerCa, signClientDated, startTlsForTest } from './tlsTesting.js';
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -31,14 +31,6 @@ const tmp = (): string => {
   cleanup.push(() => fs.rmSync(d, { recursive: true, force: true }));
   return d;
 };
-
-const freePort = (): Promise<number> =>
-  new Promise((resolve) => {
-    const s = http.createServer().listen(0, '127.0.0.1', () => {
-      const { port } = s.address() as { port: number };
-      s.close(() => resolve(port));
-    });
-  });
 
 const DAY = 86_400_000;
 const pubPem = (k: KeyObject): string => k.export({ type: 'spki', format: 'pem' }).toString();
@@ -75,8 +67,8 @@ async function setup(o: { lifetimeDays?: number } = {}) {
     const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => listener?.trust.trustedIssuers() ?? [], now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
-  const port = await freePort();
-  listener = (await startTls({ env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(port) }, app, dbPath: path.join(root, 'podium.sqlite'), bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger })) as TlsListener;
+  listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
+  const port = listener.port;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const ca = listener.material.caCert;
   /** What the test's clients trust: the CA the server started with, until a test says otherwise. */
