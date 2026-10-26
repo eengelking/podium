@@ -14,10 +14,6 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
-### Fixed
-
-- **The TLS tests no longer fail intermittently when the listener cannot start (#670).** Five test files chose a port ahead of binding it, and when `startTls` returned null the test failed on a `TypeError` two lines later (it failed twice in a row on a CI run of #728). They now start the listener through one helper, `startTlsForTest` in `server/src/tlsTesting.ts`, which retries on another port when the port was taken and otherwise fails with the reason `startTls` logged. Test-only: the server is unchanged.
-
 ## [1.3.1] - 2026-10-25
 
 ### Added
@@ -33,6 +29,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - **The docs site is set up to be served at podium.engelking.dev (#689).** `podium.engelking.dev` is a DNS-only `CNAME` to `eengelking.github.io`, Pages builds from the `Docs site` workflow, and the repository's homepage points at it. The site has nothing to serve until the first deploy from `main`, so the address answers once that release is out; HTTPS is enforced after that (#709). The README names it as the official homepage and documentation site, at the top and in its Documentation section. DECISIONS 44 records the layout, and `docs/COMMUNITY.md` lists the DNS record and the renewal notes. Documentation only; the console and the server do not change.
 
 ### Fixed
+
+- **The TLS tests no longer fail intermittently when the listener cannot start (#670).** Five test files chose a port ahead of binding it, and when `startTls` returned null the test failed on a `TypeError` two lines later (it failed twice in a row on a CI run of #728). They now start the listener through one helper, `startTlsForTest` in `server/src/tlsTesting.ts`, which retries on another port when the port was taken and otherwise fails with the reason `startTls` logged. Test-only: the server is unchanged.
 
 - **`npm run test:mod` passes again with Claude Code 2.1.310 (#718).** 33 of its tests failed on a clean `development` and on `v1.3.0`: the test engine now denies a faked `ask` permission check, and two tests still expected version 1.2.2. The tests answer `allow` unless one needs an `ask`, and read the version from the mod. Test-only: the mod and the server are unchanged.
 
