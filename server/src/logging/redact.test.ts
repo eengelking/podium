@@ -66,7 +66,7 @@ describe('scrub of common secret shapes (#155)', () => {
   it.each([
     'session 3f2b8c1e-9d4a-4e7b-a1c2-0123456789ab ended after 42 s',
     'model claude-sonnet-5-5 at effort high',
-    '/Users/eengelking/dev/claude-dashboard/server/src/logging/redact.ts',
+    '/Users/dev/podium/server/src/logging/redact.ts',
     'tokens=1234 token_count=5 input_tokens: 99',
     'Basic information about the bearer of this token',
     'Bearer of bad news',
