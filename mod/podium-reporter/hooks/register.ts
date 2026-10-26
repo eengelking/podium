@@ -109,7 +109,7 @@ import {
   toolDenied,
 } from './respond.ts';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 const GIT_POLL_MS = 10_000;
 /** session.end has one ~1.5 s bound for every hook and core together; stay well inside it. */
 const END_FLUSH_MS = 1000;
