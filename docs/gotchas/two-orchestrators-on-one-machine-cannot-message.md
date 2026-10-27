@@ -21,5 +21,5 @@ machine share a reporter, so they need that reporter's right to itself, which no
 <!-- nav:start -->
 ---
 
-Previous: [A session started without the mod stays "live" for ten minutes after it goes quiet](hook-only-session-stays-live-for-ten-minutes.md) · Up: [Gotchas](README.md) · Next: [A message does not arrive while the other session waits at a permission prompt](message-waits-while-the-other-session-is-at-a-prompt.md)
+Previous: [A session in the Claude desktop app stays on the wall until I delete it](desktop-session-stays-on-the-wall-until-deleted.md) · Up: [Gotchas](README.md) · Next: [A message does not arrive while the other session waits at a permission prompt](message-waits-while-the-other-session-is-at-a-prompt.md)
 <!-- nav:end -->

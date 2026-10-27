@@ -20,5 +20,5 @@ shows as stale. A session the mod reports uses the 15-second default.
 <!-- nav:start -->
 ---
 
-Previous: [A session I closed is still on the wall](closed-session-is-still-on-the-wall.md) · Up: [Gotchas](README.md) · Next: [Two orchestrators on the same machine cannot message each other](two-orchestrators-on-one-machine-cannot-message.md)
+Previous: [A session I closed is still on the wall](closed-session-is-still-on-the-wall.md) · Up: [Gotchas](README.md) · Next: [A session in the Claude desktop app stays on the wall until I delete it](desktop-session-stays-on-the-wall-until-deleted.md)
 <!-- nav:end -->

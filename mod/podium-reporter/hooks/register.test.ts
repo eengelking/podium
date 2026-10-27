@@ -654,6 +654,53 @@ describe('podium-reporter end to end', () => {
     expect(w.posts.at(-1)!.session.attached).toBe(true)
   })
 
+  test('a session the desktop app keeps open stays attached when another session is on screen (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    w.surfaces.value = []
+    await w.clock.advance(6000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    // Deleting the session from the app ends it, and that is what takes it off the wall.
+    await $.session.end({ reason: 'prompt_input_exit', sessionId: SID, resume: { id: SID } })
+    expect(w.posts.at(-1)!.session.status).toBe('done')
+  })
+
+  test('a session that starts on the desktop surface is attached even when its first roster read is empty (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+  })
+
+  test('a desktop client seen on the roster survives a failed roster read and a restart of the same session (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    w.surfaces.fail = true
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    w.surfaces.fail = false
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+  })
+
+  test('a terminal session that never had the desktop app on it still reads as detached once its roster empties (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['terminal']
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    w.surfaces.value = []
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(false)
+  })
+
   test('session.detach and session.attach pass through and the next report follows the roster', async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })

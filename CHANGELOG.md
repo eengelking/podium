@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session the Claude desktop app keeps open no longer leaves the wall because another session is on screen (#594).** The desktop app attaches a client only to the session in view, so every other open session read as "nobody attached" and left the wall a minute later behind "background sessions hidden". The reporter now counts a session as attached once a desktop client has been on it, until it ends. Deleting a session from the app's sidebar ends it, and its card leaves the wall as before; a terminal session with nobody on it is still a background session.
+
 ### Changed
 
 - **A blowout event records the context window and how full it was (#735).** A usage reset showed as a blowout on a card whose context bar read 25% (#687), and the event sequence at a reset could not be told from a real overflow. The reporter's `blow` event now carries `window` and `percent` beside the kind and the tokens before and after, for a window-exceeded stop, a server compaction and an automatic compaction. Nothing is counted differently yet: the fix that stops a reset counting waits for the next one to show which path fires. Reporter only; the console and the server do not change.

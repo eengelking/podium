@@ -40,7 +40,7 @@ interface Report {
     plan: Plan | null;
     loop: LoopReport | null;            // the main loop's own steps, tools and skills; null from a reporter older than 0.4.0
     files: FilesReport | null;          // the files the session changed (5.7); null from a reporter older than 0.6.0
-    attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit; null from a reporter older than 0.7.0 or when the roster could not be read
+    attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit, and never for a session started on or seen on the desktop surface before it ends (5.4); null from a reporter older than 0.7.0 or when the roster could not be read
     fileDiff?: boolean;                 // whether the reporter's fileDiff option is on (5.9); absent from a reporter older than the release that adds it
     activityFeed?: boolean;             // whether the reporter's activityFeed option is on (5.9); absent from a reporter older than 0.13.0
     activityOutput?: boolean;           // whether the reporter's activityOutput option is on (#431); absent from a reporter older than the release that adds it
