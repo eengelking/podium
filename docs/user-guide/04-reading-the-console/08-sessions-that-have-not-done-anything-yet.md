@@ -53,6 +53,11 @@ sidebar does, and its card leaves the wall. Quitting the desktop app has the sam
 they stop reporting, so each card goes stale after 15 seconds and leaves the wall about a minute later as "heartbeat
 lost" ([SPEC 7.5](../../spec/07-server/07-05-lifecycle-timers.md)).
 
+When you open the app again it restores only the session on screen. That card comes back on its own, with its earlier
+cost and tokens. The other sessions stay off the wall, because nothing is running for them until you open one and send it
+a message. Podium cannot start them, and it does not keep a card for a session that is not reporting. An opened session
+may come back as a new card, and its earlier card stays in History.
+
 This needs a mod with the fix for #594. Older mods show a desktop session you are not looking at as "nobody attached" and
 hide it after a minute. The gotcha
 [A session in the Claude desktop app stays on the wall until I delete it](../../gotchas/desktop-session-stays-on-the-wall-until-deleted.md)
