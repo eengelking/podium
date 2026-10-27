@@ -105,7 +105,7 @@ touches a design standard.
 
 | # | Finding | Impact | Risk | Where | Issue |
 |---|---|---|---|---|---|
-| 1 | The event stream and `/api/fleet/state` are not compressed. Gzip takes the large stream from 1.15 MB/s to about 136 KB/s and the state from 1.39 MB to 171 KB. The browser is the only consumer, so no reporter rule applies (SPEC 7.6) | High | Low | `server/src/fleet/routes.ts` | #745 |
+| 1 | The event stream and `/api/fleet/state` are not compressed. Gzip takes the large stream from 1.15 MB/s to about 136 KB/s and the state from 1.39 MB to 171 KB. The reporter never reads the stream or the state, so SPEC 6.8 does not apply (SPEC 7.6 covers the stream), and a client that sends no `Accept-Encoding`, such as the health check, `podiumctl` and the scripts, would still get plain JSON | High | Low | `server/src/fleet/routes.ts` | #745 |
 | 2 | Every `session` event carries the whole session view, rebuilt from about six queries and every agent. It is 98% of the stream. Slimming the card view or sending only what changed needs a frontend change and a change to SPEC 7.6 | High | Medium | `server/src/fleet/fleet.ts`, `derive.ts` | #746 |
 | 3 | The built page is served with no compression and no cache headers: 622 KB of script where 183 KB would do, and every visit fetches it again | High on a slow link | Low | `server/src/index.ts` | #747 |
 | 4 | No backpressure on the stream. `res.write`'s return value is ignored, so a client that stops reading makes the server buffer every message for it without limit, at about 70 MB a minute at the large size | Medium | Medium | `server/src/fleet/sse.ts`, `routes.ts` | #748 |
@@ -118,7 +118,8 @@ touches a design standard.
 | 11 | `samples` has no index on `t`. The fleet-wide token and cost queries and the hourly retention delete scan the whole table | Low now, grows with retention | Low | `server/src/fleet/db.ts` | #755 |
 | 12 | 81 compiled test files (1.3 MB) ship in `server/dist` and the container image, because the server's tsconfig has no exclude | Low | Low | `server/tsconfig.json` | #756 |
 | 13 | The reporter's report POST passes no timeout of its own, so a server that accepts the connection and never answers holds the in-flight slot until the host gives up | Low | Low | `mod/podium-reporter/hooks/transport.ts` | #757 |
-| 14 | `SessionCard` is not memoized, so each redraw renders every card. No problem is measured at 52 sessions, so measure at 200 first | Low | Medium | `frontend/src/fleet/Wall.tsx`, `SessionCard.tsx` | #758 |
+| 14 | `SessionCard` is not memoized, so each redraw renders every card. No problem is measured at 52 sessions, so measure at 200 first | Low | Medium | `frontend/src/fleet/components/Wall.tsx`, `SessionCard.tsx` | #758 |
+| 15 | The container health check fetches the whole fleet state every 30 seconds (1.39 MB and a new Node process at the large fleet), and `podiumctl` does the same. `/api/health` exists. The deeper check may be intended, so this is a decision, not a defect | Low | Low | `bin/podiumctl` | #767 |
 
 The browser GPU work stays in #280. The audit adds one number to it: the console redraws once every two seconds by default, not once a
 second, because `useHeldState` and `useNow` share the "Refresh every" interval.
