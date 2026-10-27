@@ -20,6 +20,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **The docs say what happens to Claude desktop app sessions after the app restarts (#737).** The app restores only the session on screen and leaves the others dormant, and the reporter runs inside each session, so nothing reports for a dormant session. SPEC 7.5, the user guide and the desktop gotcha now state that the on-screen session is revived under its old id, the others return when opened (possibly under a new id), and Podium keeps no card for a session that is not reporting. The lifecycle timers do not change. Documentation only.
 - **A blowout event records the context window and how full it was (#735).** A usage reset showed as a blowout on a card whose context bar read 25% (#687), and the event sequence at a reset could not be told from a real overflow. The reporter's `blow` event now carries `window` and `percent` beside the kind and the tokens before and after, for a window-exceeded stop, a server compaction and an automatic compaction. Nothing is counted differently yet: the fix that stops a reset counting waits for the next one to show which path fires. Reporter only; the console and the server do not change.
 
 ## [1.3.1] - 2026-10-25

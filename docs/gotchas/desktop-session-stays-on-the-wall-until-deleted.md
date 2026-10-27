@@ -20,7 +20,9 @@ until the session ends. Switching away and closing the view do not end it. Delet
 
 **Do:** Delete the session from the app's sidebar, and its card leaves the wall. Quitting the desktop app also clears
 them: the sessions stop reporting, so each card shows as stale after 15 seconds and leaves the wall about a minute later
-as "heartbeat lost" (the timers are in [SPEC 7.5](../spec/07-server/07-05-lifecycle-timers.md)). This needs a mod with the fix for #594.
+as "heartbeat lost" (the timers are in [SPEC 7.5](../spec/07-server/07-05-lifecycle-timers.md)). When you open the app
+again, only the session on screen returns to the wall; the others come back when you open one and send it a message,
+possibly as a new card (#737). This needs a mod with the fix for #594.
 Older mods read every desktop session you are not looking at as "nobody attached" and hide it after a minute. For a
 terminal session that is still on the wall, see
 [A session I closed is still on the wall](closed-session-is-still-on-the-wall.md).
