@@ -39,6 +39,12 @@ describe("the page title follows the route", () => {
     expect(document.title).toBe("Podium my reporters");
   });
 
+  it("names a replay, even of a session that has left the fleet", () => {
+    window.history.replaceState(null, "", "#/?open=gone&replay");
+    render(<FleetView state={stateFrom()} />);
+    expect(document.title).toBe("Replay of gone - Podium");
+  });
+
   it("names the orchestrator that is open", () => {
     window.history.replaceState(null, "", "#/?open=s1");
     render(<FleetView state={stateFrom({ sessions: [makeSession({ id: "s1", name: "api-refactor" })] })} />);

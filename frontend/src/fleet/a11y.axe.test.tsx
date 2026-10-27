@@ -19,15 +19,11 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-prac
 const NEEDS_LAYOUT = ["color-contrast", "target-size", "scrollable-region-focusable", "link-in-text-block"];
 
 /**
- * Violations that are known and explained, by rule. A page may have these and nothing else. Each one is tracked
- * in #636 or the issue it names; remove the line when the finding is fixed.
+ * Violations that are known and explained, by rule and by page. A page may have its own and nothing else. Each one is
+ * tracked in #636 or the issue it names; remove the entry when the finding is fixed.
  */
-const KNOWN: Record<string, string> = {
-  // The two resize separators sit between landmarks; they are controls, not content (#636, "known").
-  region: "resize separators between landmarks",
-  // The wall card's copy control sits inside the card's button (#759).
-  "nested-interactive": "copy control inside the card (#759)",
-};
+const SEPARATORS = "region"; // the two resize separators sit between landmarks; they are controls, not content
+const CARD_COPY = "nested-interactive"; // the wall card's copy control sits inside the card's button (#759)
 
 async function violations(root: Element | Document, known: string[] = []) {
   const r = await axe.run(root as axe.ElementContext, {
@@ -62,26 +58,26 @@ const state = () => stateFrom({ sessions });
 describe("axe on the console's pages (#636)", () => {
   it("the wall", async () => {
     const { container } = render(<FleetView state={state()} />);
-    expect(await violations(container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(container, [SEPARATORS, CARD_COPY])).toEqual([]);
   });
 
   it("an orchestrator's page", async () => {
     window.history.replaceState(null, "", "#/?open=s1");
     const { container } = render(<FleetView state={state()} />);
-    expect(await violations(container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(container, [SEPARATORS])).toEqual([]);
   });
 
   it("the board", async () => {
     const { container } = render(<FleetView board state={state()} />);
-    expect(await violations(container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(container, [])).toEqual([]);
   });
 
   it("Traffic and My reporters", async () => {
     const t = render(<FleetView traffic state={state()} />);
-    expect(await violations(t.container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(t.container, [])).toEqual([]);
     t.unmount();
     const m = render(<FleetView myReporters state={state()} />);
-    expect(await violations(m.container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(m.container, [])).toEqual([]);
   });
 
   it("History", async () => {
@@ -94,14 +90,14 @@ describe("axe on the console's pages (#636)", () => {
       ),
     );
     const { container } = render(<HistoryView initialDay="2026-10-10" />);
-    expect(await violations(container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(container, [])).toEqual([]);
   });
 
   it("the Admin lock screen", async () => {
     fakeServer();
     const { container, findByLabelText } = render(<AdminView />);
     await findByLabelText("Name");
-    expect(await violations(container, Object.keys(KNOWN))).toEqual([]);
+    expect(await violations(container, [])).toEqual([]);
   });
 });
 

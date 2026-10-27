@@ -152,7 +152,7 @@ export function labelWords(l: StateOf & Pick<TrafficLink, "messages">): string {
 export function lineLabel(l: TrafficLink): string {
   // The pill's own words come first and whole (labelWords), so the name holds what the line shows (2.5.3, #636).
   let st = `${labelWords(l)}`;
-  if (l.state === "waiting") st += ", a message waits for approval";
+  if (l.state === "waiting") st += ", a message needs approval";
   else if (l.state === "active" && !noRightToSend(l)) st += ", active";
   return `${pairWords(l)}, ${st}. Show the conversation`;
 }

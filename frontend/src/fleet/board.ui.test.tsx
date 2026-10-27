@@ -406,5 +406,17 @@ describe("a card's name holds the words it shows (2.5.3, #636)", () => {
     }
     expect(card).toHaveAccessibleName(/waiting/);
   });
-});
 
+  it("keeps the orchestrator's name when the card does not show it, as under a lane's own heading", () => {
+    render(
+      <FleetView
+        board
+        state={stateFrom({ sessions: [planned({ id: "a", name: "alpha" }, step("1", "pending", "Write notes"))] })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "By orchestrator" }));
+    const card = document.querySelector("a.kb-card") as HTMLElement;
+    expect(card.querySelector(".kb-title")).toBeNull();
+    expect(card).toHaveAccessibleName(/alpha/);
+  });
+});

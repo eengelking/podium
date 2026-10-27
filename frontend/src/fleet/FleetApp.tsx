@@ -225,7 +225,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selected = showsOrchestrator ? selSession : null;
 
   // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
-  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
+  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
   useEffect(() => {
     document.title = pageTitle;
   }, [pageTitle]);

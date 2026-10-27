@@ -54,8 +54,8 @@ function Card({ card, showOrchestrator, flash, fresh, onOpen }: { card: BoardCar
       <div className="kb-text">{work}</div>
       {whyLine && <div className="kb-wait">{whyLine}</div>}
       {step.ownerLabel && <div className="kb-own">{step.ownerLabel}</div>}
-      {/* The link is named by what it shows, so the name holds the words on it; the state is the one word added (2.5.3, #636). */}
-      <span className="vh">{`, ${card.waiting ? "waiting" : step.state}`}</span>
+      {/* The link is named by what it shows, so the name holds the words on it; the state, and the session when no title shows it, are what is added (2.5.3, #636). */}
+      <span className="vh">{`${showOrchestrator ? "" : `, ${s.name}`}, ${card.waiting ? "waiting" : step.state}`}</span>
     </a>
   );
 }

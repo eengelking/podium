@@ -132,8 +132,8 @@ export function SignInPanel() {
 }
 
 /** The top bar's dialog: the same form, closing once signed in and leaving the page as it was. */
-function SignInDialog(props: { onClose: () => void }) {
-  const f = useSignInForm(props.onClose);
+function SignInDialog(props: { onClose: () => void; onSignedIn: () => void }) {
+  const f = useSignInForm(props.onSignedIn);
   const ctx = useRespond();
   const historyOnly = ctx?.historyOnly === true;
   const recordingOnly = ctx?.recordingOnly === true;
@@ -168,14 +168,17 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
   const who = useRef<HTMLSpanElement>(null);
   const signedIn = ctx?.me?.signedIn === true;
   // The Sign in button the dialog came from is replaced by who is signed in, so focus goes there and not to the page (#636).
-  // Only for a sign-in that finishes just after the dialog closes, not one made in another tab.
-  const closedAt = useRef(0);
+  // Only for a sign-in made in this dialog, not one made in another tab: the dialog says so, and the move waits for
+  // both that and the page showing who is signed in, in either order.
+  const [moveFocus, setMoveFocus] = useState(false);
   useEffect(() => {
-    if (signedIn && Date.now() - closedAt.current < 3000) who.current?.focus();
-  }, [signedIn]);
+    if (moveFocus && signedIn) {
+      setMoveFocus(false);
+      who.current?.focus();
+    }
+  }, [moveFocus, signedIn]);
   if (!ctx?.me?.enabled) return null;
   const close = () => {
-    closedAt.current = Date.now();
     setOpen(false);
     opener.current?.focus();
   };
@@ -206,7 +209,7 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
           Sign in
         </button>
       )}
-      {open && !ctx.me.signedIn && <SignInDialog onClose={close} />}
+      {open && !ctx.me.signedIn && <SignInDialog onClose={close} onSignedIn={() => (setMoveFocus(true), close())} />}
     </>
   );
 }

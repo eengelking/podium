@@ -96,15 +96,16 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const [status, setStatus] = useState<Status>("checking");
   // The lock form is gone once Admin opens, so focus goes to the page's heading and not to the top of the document (#636).
   const focusPage = useRef(false);
+  // It looks again on each render until the heading is there, since the page may draw it a moment after it opens.
   useEffect(() => {
     if (status !== "open" || !focusPage.current) return;
-    focusPage.current = false;
     const h = document.querySelector<HTMLElement>(".adminv h1");
     if (h) {
+      focusPage.current = false;
       h.tabIndex = -1;
       h.focus();
     }
-  }, [status]);
+  });
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [build, setBuild] = useState<string | null>(null);

@@ -76,13 +76,13 @@ describe("the words", () => {
     expect(whereWords(link(A, A2))).toBe("mac, same machine");
     expect(whereWords(link(A, B))).toBe("mac and linux");
     expect(lineLabel(link(A, B, { messages: 1 }))).toBe("alpha and beta, 1 message, active. Show the conversation");
-    expect(lineLabel(link(A, B, { state: "waiting", messages: 3 }))).toBe("alpha and beta, 3 messages, waiting, a message waits for approval. Show the conversation");
+    expect(lineLabel(link(A, B, { state: "waiting", messages: 3 }))).toBe("alpha and beta, 3 messages, waiting, a message needs approval. Show the conversation");
   });
 
   it("says a link is paused while a message also waits for approval, on the label and in the line's name", () => {
     const both = link(A, B, { state: "waiting", paused: true, messages: 3 });
     expect(labelWords(both)).toBe("3 messages, waiting, paused");
-    expect(lineLabel(both)).toBe("alpha and beta, 3 messages, waiting, paused, a message waits for approval. Show the conversation");
+    expect(lineLabel(both)).toBe("alpha and beta, 3 messages, waiting, paused, a message needs approval. Show the conversation");
     expect(layoutMap([both]).edges[0]!.label).toBe("3 messages, waiting, paused");
     // Not paused: the wait alone.
     expect(labelWords(link(A, B, { state: "waiting", paused: false, messages: 3 }))).toBe("3 messages, waiting");
