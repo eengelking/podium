@@ -324,7 +324,7 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
     }
   };
   return (
-    <form className="lock" onSubmit={submit} autoComplete="off">
+    <form className="lock" onSubmit={submit}>
       <div>
         <h1>Admin</h1>
         <p className="lead">Create and revoke the tokens people use to report to this Podium. Sign in with your name and token to continue. If you are signed in to respond as an Administrator, Admin opens without this, unless you locked it with Lock Admin.</p>
@@ -335,9 +335,9 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
         </div>
       )}
       <label htmlFor="admin-name">Name</label>
-      <input className="field" id="admin-name" type="text" autoComplete="off" ref={nameField} value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
+      <input className="field" id="admin-name" type="text" autoComplete="username" ref={nameField} value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
       <label htmlFor="admin-secret">Token</label>
-      <input className="field mono" id="admin-secret" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} aria-describedby="admin-secret-hint" />
+      <input className="field mono" id="admin-secret" type="password" autoComplete="current-password" value={token} onChange={(e) => setToken(e.target.value)} aria-describedby="admin-secret-hint" />
       {err && (
         <div className="errbox" role="alert">
           {err}

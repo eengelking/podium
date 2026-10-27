@@ -85,7 +85,7 @@ function useSignInForm(onDone?: () => void) {
           ref={tokenRef}
           className="mono"
           type="password"
-          autoComplete="off"
+          autoComplete="current-password"
           value={token}
           disabled={locked}
           onChange={(e) => setToken(e.target.value)}

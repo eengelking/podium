@@ -51,6 +51,13 @@ describe("Admin lock screen", () => {
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
   });
 
+  it("lets a password manager fill the form (3.3.8, #636)", async () => {
+    fakeServer();
+    render(<AdminView />);
+    expect(await screen.findByLabelText("Name")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Token")).toHaveAttribute("autocomplete", "current-password");
+  });
+
   it("puts the cursor in the Name field when the lock screen opens", async () => {
     fakeServer();
     render(<AdminView />);

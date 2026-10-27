@@ -76,6 +76,12 @@ describe("the sign-in form", () => {
   };
   const dialog = () => within(screen.getByRole("dialog"));
 
+  it("lets a password manager fill both fields (3.3.8, #636)", async () => {
+    await open(async () => ({}));
+    expect(dialog().getByLabelText("Name")).toHaveAttribute("autocomplete", "username");
+    expect(dialog().getByLabelText("Token")).toHaveAttribute("autocomplete", "current-password");
+  });
+
   it("says what is missing and focuses the field, without calling the server", async () => {
     const a = await open(async () => ({}));
     fireEvent.click(dialog().getByRole("button", { name: "Sign in" }));
