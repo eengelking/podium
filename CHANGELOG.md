@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **A performance audit of `development`, with the scripts to repeat it (#682).** `docs/PERFORMANCE.md` records what the server, the console and the reporter cost at an idle, a small, a medium and a large fleet, and ranks fourteen findings, each filed as its own issue. `scripts/podium-perf.mjs` measures the server (CPU, memory, event-loop delay, stream bytes), `scripts/podium-perf-browser.sh` an open tab, and `scripts/podium-perf-mod.mjs` the reporter's own code. Each starts a throwaway server and stops it. No product code changed.
+
 ### Fixed
 
 - **A session in the Claude desktop app is named after the title the app shows for it (#595).** Every desktop session in one folder showed that folder's name, because the app's titles never reached the `session_title` the reporter reads from the `classic.SessionStart` and `classic.UserPromptSubmit` hooks. On a Team or Enterprise login, or a machine with managed settings, Claude Code's own guard skips every `classic.*` hook of a user-installed mod, so no title ever arrives. The reporter now also reads the `name` of the session's entry in `claude agents --json` on the first git poll and about every 30 seconds after, and uses it when no hook has given a title; a hook's title and `/podium name` still win (SPEC 6.6). The same skip also stops the other `classic.*` hooks, so on those logins background tasks and crons (`classic.Stop`), notification signals and answering permission prompts from Podium are still not reported; the gotcha "My session's name is the folder, and background tasks, notifications and permission answers are missing" says so.
