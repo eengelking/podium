@@ -127,16 +127,16 @@ describe('startTls', () => {
     try {
       const fail = (message: string, code: string | undefined, remoteAddress: string) =>
         l.server.emit('tlsClientError', Object.assign(new Error(message), { code }), { remoteAddress, destroy() {} });
-      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '10.0.0.5');
-      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '10.0.0.6');
-      fail('socket hang up', undefined, '10.0.0.7');
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '192.0.2.5');
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '192.0.2.6');
+      fail('socket hang up', undefined, '192.0.2.7');
       const [first, second, third] = s.lines.filter((x) => x.event === 'tls.handshake_failed');
-      expect(first).toMatchObject({ level: 'warn', reason: 'tlsv1 alert unknown ca', code: 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', remote: '10.0.0.5' });
+      expect(first).toMatchObject({ level: 'warn', reason: 'tlsv1 alert unknown ca', code: 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', remote: '192.0.2.5' });
       expect(first!.message).toContain('ERR_SSL_TLSV1_ALERT_UNKNOWN_CA');
       expect(first!.message).toContain('tlsv1 alert unknown ca');
-      expect(first!.message).not.toContain('10.0.0.5');
+      expect(first!.message).not.toContain('192.0.2.5');
       expect(second!.message).toBe(first!.message);
-      expect(third).toMatchObject({ reason: 'socket hang up', remote: '10.0.0.7' });
+      expect(third).toMatchObject({ reason: 'socket hang up', remote: '192.0.2.7' });
       expect(third!.message).not.toContain('undefined');
     } finally {
       await new Promise((r) => l.server.close(r));
