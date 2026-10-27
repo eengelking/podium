@@ -582,6 +582,35 @@ describe('podium-reporter end to end', () => {
     expect(w.posts.at(-1)!.session.name).toBe('explicit')
   })
 
+  test("background work comes only from classic.Stop; where Claude Code skips that hook the card shows none (#740)", async ($, on) => {
+    const w = world(on)
+    on('classic.Stop', () => ({}))
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.turn.start({ turnId: 't1', prompt: 'watch the build', agentId: undefined } as never)
+    // a background shell and a wake-up are launched; the engine offers no event or call that lists them
+    await $.tool.call({ tool: 'Bash', command: 'npm run watch', run_in_background: true } as never)
+    await $.turn.complete({ answer: 'started', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await w.clock.advance(1000)
+    // classic.Stop was skipped (Team/Enterprise guard): the session looks like one with nothing running, and waits on the person
+    expect(w.posts.at(-1)!.session.background ?? null).toBeNull()
+    expect(w.posts.at(-1)!.session).toMatchObject({ status: 'waiting', waitReason: 'input' })
+    // where the hook runs, the same session shows what it waits on
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm run watch' }],
+      session_crons: [{ id: 'c1', schedule: '*/5 * * * *', recurring: true, prompt: 'check' }],
+    })
+    await w.clock.advance(1000)
+    const shown = w.posts.at(-1)!.session
+    expect(shown.waitReason).toBeNull()
+    expect(shown.background!.tasks[0]).toMatchObject({ type: 'shell', description: 'npm run watch' })
+    expect(shown.background!.wakeAt).not.toBeNull()
+    // a Stop with no lists clears it
+    await $.classic.Stop({ stop_hook_active: false })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.background ?? null).toBeNull()
+  })
+
   test("the app's title from `claude agents --json` names a session no hook gave a title (#595)", async ($, on) => {
     const w = world(on)
     w.agents.value = [
