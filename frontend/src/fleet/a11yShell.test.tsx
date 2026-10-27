@@ -6,6 +6,8 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
+import { AdminView } from "./admin/AdminView";
+import { fakeServer } from "./admin/fakeAdmin";
 import { atWall, stateFrom } from "./testState";
 import { makeSession } from "./fixtures";
 
@@ -94,6 +96,13 @@ describe("the display settings row", () => {
     expect(screen.getByRole("region", { name: "Display settings" })).toBeInTheDocument();
   });
 
+  it("is one on Admin too", async () => {
+    vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
+    fakeServer();
+    render(<AdminView />);
+    expect(await screen.findByRole("region", { name: "Display settings" })).toBeInTheDocument();
+  });
+
   it("is one on Traffic and My reporters too", () => {
     const { unmount } = render(<FleetView traffic state={stateFrom()} />);
     expect(screen.getByRole("region", { name: "Display settings" })).toBeInTheDocument();
@@ -150,3 +159,12 @@ describe("text that sat under 4.5:1 on a selected row or a light page", () => {
     expect(css).toMatch(/\.trow \.nm \.tx em \{ color: var\(--ink2\);/);
   });
 });
+
+describe("a thing focus is moved to without being a control draws no ring (#636)", () => {
+  it("covers the Admin page heading and who is signed in", () => {
+    const css = readFileSync(resolve(__dirname, "fleet.css"), "utf8") + readFileSync(resolve(__dirname, "admin/admin.css"), "utf8");
+    expect(css).toMatch(/h1\[tabindex="-1"\]:focus[^{]*\{ outline: none; \}/);
+    expect(css).toMatch(/\.tb-who:focus[^{]*\{ outline: none; \}/);
+  });
+});
+

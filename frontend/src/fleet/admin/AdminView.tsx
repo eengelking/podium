@@ -201,7 +201,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
     <div ref={root} className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
         <StreamTopBar page="Admin" fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
-        <div className="banner has-picker">
+        <div className="banner has-picker" role="region" aria-label="Display settings">
           <span>
             <b>Admin.</b> Tokens, groups, reporters and settings for this server.
           </span>
