@@ -144,7 +144,7 @@ describe("the logo on an orchestrator's page", () => {
   const fromBoard = () => {
     window.history.replaceState(null, "", "#/board");
     const { rerender } = render(<FleetView board state={withPlan()} />);
-    fireEvent.click(screen.getByRole("link", { name: "Port endpoints, active, api-refactor" }));
+    fireEvent.click(screen.getByRole("link", { name: /endpoints.*, active$/ }));
     // The app's route change drops the board flag; the selection the click made survives it.
     rerender(<FleetView state={withPlan()} />);
   };

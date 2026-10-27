@@ -102,9 +102,6 @@ function LiveFleetApp({ fleetOptions, board, myReporters, traffic }: { fleetOpti
 }
 
 export function FleetApp(props: FleetAppProps = {}) {
-  useEffect(() => {
-    document.title = APP_NAME;
-  }, []);
   if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
   return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
 }
@@ -226,6 +223,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
   const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
   const selected = showsOrchestrator ? selSession : null;
+
+  // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
+  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
 
   const { prefs } = people;
   const spendByOwner = state.kpis?.costTodayByOwner ?? [];
@@ -483,21 +486,21 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
         ) : panes.collapsed.top ? null : myReporters ? (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>My reporters.</b> Your own machines, and which of them may message each other.
             </span>
             <ThemePicker theme={theme} />
           </div>
         ) : traffic ? (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>Traffic.</b> Which orchestrators message each other, and what they said.
             </span>
             <ThemePicker theme={theme} />
           </div>
         ) : (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
             </span>
@@ -535,6 +538,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
             ) : (
               <main className="main" id="podium-main">
+                {/* An open orchestrator and a replay carry their own h1; the wall and the board get one a screen reader can find (#636). */}
+                {!selected && !(replaying && sel) && <h1 className="vh">{board ? "Board" : "Fleet"}</h1>}
                 {notice && (
                   <div className="callout notice" role="status">
                     <div>{notice}</div>

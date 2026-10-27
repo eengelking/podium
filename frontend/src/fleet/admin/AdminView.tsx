@@ -94,6 +94,18 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const api = useMemo(() => makeApi(base), [base]);
   const client = useMemo(() => makeReportsClient(base, api), [base, api]);
   const [status, setStatus] = useState<Status>("checking");
+  // The lock form is gone once Admin opens, so focus goes to the page's heading and not to the top of the document (#636).
+  const focusPage = useRef(false);
+  // It looks again on each render until the heading is there, since the page may draw it a moment after it opens.
+  useEffect(() => {
+    if (status !== "open" || !focusPage.current) return;
+    const h = document.querySelector<HTMLElement>(".adminv h1");
+    if (h) {
+      focusPage.current = false;
+      h.tabIndex = -1;
+      h.focus();
+    }
+  });
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [build, setBuild] = useState<string | null>(null);
@@ -189,7 +201,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
     <div ref={root} className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
         <StreamTopBar page="Admin" fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
-        <div className="banner has-picker">
+        <div className="banner has-picker" role="region" aria-label="Display settings">
           <span>
             <b>Admin.</b> Tokens, groups, reporters and settings for this server.
           </span>
@@ -216,7 +228,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
           {status === "locked" && (
             <div className="solo">
               <div className="solo-in">
-                <LockForm api={api} notice={notice} onUnlocked={() => (setNotice(""), setStatus("open"))} />
+                <LockForm api={api} notice={notice} onUnlocked={() => (setNotice(""), (focusPage.current = true), setStatus("open"))} />
               </div>
               <AdminFoot version={version} build={build} />
             </div>
@@ -313,7 +325,7 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
     }
   };
   return (
-    <form className="lock" onSubmit={submit} autoComplete="off">
+    <form className="lock" onSubmit={submit}>
       <div>
         <h1>Admin</h1>
         <p className="lead">Create and revoke the tokens people use to report to this Podium. Sign in with your name and token to continue. If you are signed in to respond as an Administrator, Admin opens without this, unless you locked it with Lock Admin.</p>
@@ -324,9 +336,9 @@ function LockForm({ api, notice, onUnlocked }: { api: ReturnType<typeof makeApi>
         </div>
       )}
       <label htmlFor="admin-name">Name</label>
-      <input className="field" id="admin-name" type="text" autoComplete="off" ref={nameField} value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
+      <input className="field" id="admin-name" type="text" autoComplete="username" ref={nameField} value={name} onChange={(e) => setName(e.target.value)} aria-describedby="admin-secret-hint" />
       <label htmlFor="admin-secret">Token</label>
-      <input className="field mono" id="admin-secret" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} aria-describedby="admin-secret-hint" />
+      <input className="field mono" id="admin-secret" type="password" autoComplete="current-password" value={token} onChange={(e) => setToken(e.target.value)} aria-describedby="admin-secret-hint" />
       {err && (
         <div className="errbox" role="alert">
           {err}

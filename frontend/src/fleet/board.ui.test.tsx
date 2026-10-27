@@ -40,8 +40,8 @@ describe("kanban board", () => {
 
   it("titles a card with its orchestrator, then the work, then the agent doing it, and shows no model", () => {
     board([makeSession({ plan: { title: "t", source: "TaskCreate", steps: [step("1", "active", "Port endpoints", { activeText: "Porting endpoints", ownerLabel: "Explore · Haiku low" })] } })]);
-    const card = within(column("In progress")).getByRole("link", { name: "Port endpoints, active, api-refactor" });
-    expect([...card.children].map((c) => c.className)).toEqual(["kb-title", "kb-text", "kb-own"]);
+    const card = within(column("In progress")).getByRole("link", { name: /ing endpoints.*, active$/ });
+    expect([...card.children].map((c) => c.className)).toEqual(["kb-title", "kb-text", "kb-own", "vh"]);
     expect(card.querySelector(".kb-title")).toHaveTextContent("api-refactor");
     expect(card.querySelector(".kb-text")).toHaveTextContent(/^Porting endpoints$/);
     expect(card.querySelector(".kb-own")).toHaveTextContent("Explore · Haiku low");
@@ -57,14 +57,14 @@ describe("kanban board", () => {
 
   it("shows a session that asks its person a question in Review even though it has no plan", () => {
     board([makeSession({ id: "q", name: "asker", status: "waiting", waitReason: "permission", waitNote: 'AskUserQuestion([{"question":"Which fruit would you like?","header":"Fruit"', plan: null })]);
-    const card = within(column("Review")).getByRole("link", { name: "Waiting for your input, waiting, asker" });
+    const card = within(column("Review")).getByRole("link", { name: /asker.*, waiting$/ });
     expect(card).toHaveTextContent("Which fruit would you like?");
     expect(screen.queryByRole("region", { name: "Sessions with no open steps" })).toBeNull();
   });
 
   it("opens the orchestrator's page when a card is clicked", () => {
     const { rerender } = board([makeSession()]);
-    fireEvent.click(screen.getByRole("link", { name: "Port invoice endpoints, active, api-refactor" }));
+    fireEvent.click(screen.getByRole("link", { name: /Porting.*, active$/ }));
     expect(window.location.hash).toBe("#/?open=s1");
     // The route change is the app's; the selection the click made has to survive it.
     rerender(<FleetView state={stateFrom({ sessions: [makeSession()] })} />);
@@ -393,5 +393,30 @@ describe("kanban board", () => {
       expect(tile("Subagents running")).toHaveTextContent("6");
       expect(tile("Subagents running")).toHaveTextContent("whole fleet");
     });
+  });
+});
+
+describe("a card's name holds the words it shows (2.5.3, #636)", () => {
+  it("is its own text, its reason and its state, not a sentence that leaves the reason out", () => {
+    board([makeSession({ id: "q", name: "asker", status: "waiting", waitReason: "permission", waitNote: 'AskUserQuestion([{"question":"Which fruit would you like?","header":"Fruit"', plan: null })]);
+    const card = document.querySelector("a.kb-card") as HTMLElement;
+    for (const part of [".kb-title", ".kb-text", ".kb-wait"]) {
+      const shown = card.querySelector(part)?.textContent;
+      if (shown) expect(card).toHaveAccessibleName(expect.stringContaining(shown));
+    }
+    expect(card).toHaveAccessibleName(/waiting/);
+  });
+
+  it("keeps the orchestrator's name when the card does not show it, as under a lane's own heading", () => {
+    render(
+      <FleetView
+        board
+        state={stateFrom({ sessions: [planned({ id: "a", name: "alpha" }, step("1", "pending", "Write notes"))] })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "By orchestrator" }));
+    const card = document.querySelector("a.kb-card") as HTMLElement;
+    expect(card.querySelector(".kb-title")).toBeNull();
+    expect(card).toHaveAccessibleName(/alpha/);
   });
 });

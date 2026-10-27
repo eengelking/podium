@@ -65,7 +65,7 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     const cell = container.querySelector(".facts .fact.copy .v.mono")!;
     expect(cell.textContent).toBe("3f9a1c2e");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Copy session id 3f9a1c2e/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Session 3f9a1c2e, copy the full id/ }));
     });
     expect(writeText).toHaveBeenCalledWith(ID);
     expect(container.querySelector(".facts .fact.copy .v.mono")!.textContent).toBe("Copied");

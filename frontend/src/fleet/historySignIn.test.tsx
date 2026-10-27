@@ -76,6 +76,12 @@ describe("the sign-in form", () => {
   };
   const dialog = () => within(screen.getByRole("dialog"));
 
+  it("lets a password manager fill both fields (3.3.8, #636)", async () => {
+    await open(async () => ({}));
+    expect(dialog().getByLabelText("Name")).toHaveAttribute("autocomplete", "username");
+    expect(dialog().getByLabelText("Token")).toHaveAttribute("autocomplete", "current-password");
+  });
+
   it("says what is missing and focuses the field, without calling the server", async () => {
     const a = await open(async () => ({}));
     fireEvent.click(dialog().getByRole("button", { name: "Sign in" }));
@@ -150,3 +156,29 @@ describe("sign-in for session recording (#353)", () => {
     expect(screen.getByText("To answer and message your own sessions")).toBeInTheDocument();
   });
 });
+
+describe("focus after a successful sign-in (#636)", () => {
+  it("moves to who is signed in, because the Sign in button it came from is gone", async () => {
+    let signed = false;
+    const a = {
+      me: vi.fn(async () => (signed ? { enabled: true, signedIn: true, name: "Ed", admin: false } : OUT)),
+      signIn: vi.fn(async () => {
+        signed = true;
+        return {};
+      }),
+    } as unknown as RespondApi;
+    show(a, { flagsOn: true });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    const d = within(screen.getByRole("dialog"));
+    fireEvent.change(d.getByLabelText("Name"), { target: { value: "Ed" } });
+    fireEvent.change(d.getByLabelText("Token"), { target: { value: "tok" } });
+    fireEvent.click(d.getByRole("button", { name: "Sign in" }));
+    await flush();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toHaveClass("tb-who");
+    expect(document.activeElement).toHaveTextContent("Signed in as Ed");
+  });
+});
+

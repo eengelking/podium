@@ -60,6 +60,11 @@ node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a pers
 (`PORT=4391 PODIUM_DB=/tmp/x.sqlite PODIUM_TOKEN=secret node server/dist/index.js` after `npm run build`), seed it, and run
 `node scripts/page-shot.mjs --url 'http://127.0.0.1:4391/#/me/reporters' --width 400`. It needs Chrome or Chromium and Node 22 or later.
 
+`frontend/src/fleet/a11y.axe.test.tsx` runs axe-core over the console's pages and the standards pages inside `npm test`. A new page or a
+big new state gets a case there. It cannot judge contrast or target size, which need a real layout; scan those in a browser (inject
+`axe.min.js` in a page and run it in each theme and mode) when a change touches color or size. A violation that is known goes in its
+`KNOWN` list with the issue that tracks it, and comes out when it is fixed.
+
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
 have no Claude Code, so run those yourself when you touch the mod.
 

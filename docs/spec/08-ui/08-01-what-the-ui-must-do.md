@@ -137,7 +137,7 @@ activity panel and legend as the wall, with the board in the middle.
      there is one.
 - A Review card puts why it waits between the work and the agent.
 - The orchestrator's model is not named on a card.
-- The card is one link with the accessible name "step, state, orchestrator". A plain click opens that
+- The card is one link named by what it shows (its orchestrator when the card shows one, its work, its reason and its agent), then its state as one more word, such as "api-refactor Porting endpoints , active" (WCAG 2.5.3, #636). A plain click opens that
   orchestrator's page, exactly as a click on its card on the wall does. A modified click (a new tab) goes to
   the fleet page.
 
@@ -1046,7 +1046,7 @@ still hides and shows the top bar.
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
     paused; the label has the message count, and for waiting or paused also an icon and the word. A paused link where
     a message also waits for approval keeps the waiting line and icon, and its label reads "N messages, waiting,
-    paused", its accessible name ", a message waits for approval, paused";
+    paused", its accessible name starts with the same words, then ", a message needs approval";
   - an active link where neither side can send (both `aToB` and `bToA` false, as after Remove link) keeps the solid
     line, and its label adds No access's struck circle and "no right to send"; the line's accessible name ends
     ", no right to send". The browser works this out from `aToB` and `bToA`; the server's `state` stays `active`;
@@ -1168,8 +1168,7 @@ never moves because another has nothing to say.
   surface the card's red top edge.
 - **Session** (#322, #352) is the first eight characters of the session id in the mono face, with a copy icon.
   It is a button that copies the whole id and reads "Copied" with a check for 1.6 s, or "Copy failed" when the
-  clipboard refuses, as the card's id does. Its accessible name is "Copy session id" and the eight characters, as
-  the card's is, and its tooltip is the whole id.
+  clipboard refuses, as the card's id does. Its accessible name is "Session" and the eight characters, then ", copy the full id" (the visible words first, WCAG 2.5.3, #636; the card's own control keeps "Copy session id" and the eight characters), and its tooltip is the whole id.
 - **Resume** and **Fork** are quiet whole-cell controls with no button chrome. Each has its label (**Resume**,
   **Fork**) over "Command" and a copy icon, and behaves as Copy resume command and Copy fork command below.
   Their accessible names are "Copy resume command" and "Copy fork command".

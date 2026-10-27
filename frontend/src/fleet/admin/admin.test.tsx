@@ -44,6 +44,20 @@ describe("Admin lock screen", () => {
     expect(screen.getByRole("button", { name: /^People(?! and)/ })).toHaveAttribute("aria-current", "page");
   });
 
+  it("moves focus to the page's heading when it opens, because the form it came from is gone (#636)", async () => {
+    fakeServer();
+    render(<AdminView />);
+    await unlock();
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
+  });
+
+  it("lets a password manager fill the form (3.3.8, #636)", async () => {
+    fakeServer();
+    render(<AdminView />);
+    expect(await screen.findByLabelText("Name")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Token")).toHaveAttribute("autocomplete", "current-password");
+  });
+
   it("puts the cursor in the Name field when the lock screen opens", async () => {
     fakeServer();
     render(<AdminView />);

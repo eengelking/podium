@@ -150,10 +150,11 @@ export function labelWords(l: StateOf & Pick<TrafficLink, "messages">): string {
 
 /** A line's accessible name: who, how many, and its state in full words, the pause too while a message waits. */
 export function lineLabel(l: TrafficLink): string {
-  let st: string = l.state;
-  if (l.state === "waiting") st = l.paused ? "a message waits for approval, paused" : "a message waits for approval";
-  else if (noRightToSend(l)) st = "no right to send";
-  return `${pairWords(l)}, ${plural(l.messages, "message")}, ${st}. Show the conversation`;
+  // The pill's own words come first and whole (labelWords), so the name holds what the line shows (2.5.3, #636).
+  let st = `${labelWords(l)}`;
+  if (l.state === "waiting") st += ", a message needs approval";
+  else if (l.state === "active" && !noRightToSend(l)) st += ", active";
+  return `${pairWords(l)}, ${st}. Show the conversation`;
 }
 
 /** The round trips cell of the table. */
