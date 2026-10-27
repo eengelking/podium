@@ -92,6 +92,23 @@ describe('blowout counting', () => {
     const s = step(base(), { usage: null, stopReason: 'model_context_window_exceeded' }, T0)
     expect(s.main.blowouts).toBe(1)
   })
+  // #687: a usage reset showed as a blowout at 25% context. The event carries the fill so the next one can be told apart.
+  test('a blowout event records the window and how full it was, for each signal', () => {
+    const usage = { model: 'claude-opus-5-5', input_tokens: 150_000, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    const stopped = step(base(), { usage, stopReason: 'model_context_window_exceeded' }, T0)
+    const window = stopped.main.window!
+    const ev = stopped.events.find((e) => e.kind === 'blow')!
+    expect(ev.data).toMatchObject({ kind: 'window-exceeded', tokensBefore: 150_000, window, percent: Math.round((150_000 / window) * 100) })
+    const compacted = compaction(step(base(), { usage, stopReason: 'end_turn' }, T0), { trigger: 'auto', tokensBefore: 100_000, tokensAfter: 20_000 }, T0 + 5000)
+    expect(compacted.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'auto-compact', tokensBefore: 100_000, window, percent: Math.round((100_000 / window) * 100) })
+    const unknown = blowout(base(), null, 'auto-compact', T0, null, null)
+    expect(unknown.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ window: null, percent: null })
+    // A window but no tokens before is not guessed from the last step's fill.
+    const noTokens = blowout(step(base(), { usage, stopReason: 'end_turn' }, T0), null, 'auto-compact', T0 + 5000, null, null)
+    expect(noTokens.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ window, percent: null })
+    const server = step(base(), { usage, stopReason: 'compaction' }, T0)
+    expect(server.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'server-compaction', window, percent: Math.round((150_000 / window) * 100) })
+  })
   test('duplicate signals within 2 s for one loop count once; another loop counts on its own', () => {
     let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'haiku', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
     s = step(s, { agentId: 'a', usage: null, stopReason: 'model_context_window_exceeded' }, T0 + 1000)
