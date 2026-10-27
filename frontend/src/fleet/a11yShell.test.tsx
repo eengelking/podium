@@ -1,5 +1,7 @@
 // What every route must tell a screen reader before anything else (#636): a page title that says where the person is,
 // one h1 that names the page, and the row of display controls under the top bar inside a landmark.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, cleanup, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
@@ -121,5 +123,24 @@ describe("a control's name contains the words it shows (2.5.3)", () => {
     expect(btn.textContent).toMatch(new RegExp(`${label}\\s+${value}`));
     const name = btn.getAttribute("aria-label") ?? "";
     expect(name.toLowerCase()).toContain(`${label} ${value}`.toLowerCase());
+  });
+});
+
+// axe measured these pairs in every theme (#636); jsdom has no layout, so the test holds the rules that fixed them.
+describe("text that sat under 4.5:1 on a selected row or a light page", () => {
+  const css = readFileSync(resolve(__dirname, "fleet.css"), "utf8");
+
+  it("draws a rail row's no-plan text with a class, in --ink2 once the row is selected", () => {
+    window.history.replaceState(null, "", "#/?open=s1");
+    render(<FleetView state={stateFrom({ sessions: [makeSession({ id: "s1", plan: null })] })} />);
+    const text = screen.getAllByText("no plan reported")[0]!;
+    expect(text).toHaveClass("noplan");
+    expect(text).not.toHaveAttribute("style");
+    expect(css).toMatch(/\.ritem\[aria-current="true"\] \.noplan \{ color: var\(--ink2\); \}/);
+  });
+
+  it("mixes the attention count's amber toward the ink, and draws the agent row's label in --ink2", () => {
+    expect(css).toMatch(/\.attn \{[^}]*color: color-mix\(in srgb, var\(--warn\) 45%, var\(--ink\)\)/);
+    expect(css).toMatch(/\.trow \.nm \.tx em \{ color: var\(--ink2\);/);
   });
 });

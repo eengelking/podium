@@ -128,7 +128,7 @@ export function Rail(props: {
               </>
             ) : (
               <>
-                <span style={{ color: "var(--muted)" }}>no plan reported</span>
+                <span className="noplan">no plan reported</span>
                 <span style={{ flex: 1 }} />
               </>
             )}
