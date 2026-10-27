@@ -348,4 +348,5 @@ How hook-only sessions behave:
 - On the same login a permission prompt still shows as waiting, read from `tool.check` (#741), with responding on or
   off. Podium cannot answer it: the engine does not let a `tool.check` hook answer for the person, so the console
   says the session cannot be answered once a turn ends with no classic hook having run (#742). Questions and plan
-  feedback still work. See [the gotcha](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md).
+  feedback still work. A plan waiting for approval and a subagent's prompt show the same way, as a wait on a
+  permission (`ExitPlanMode(…)` for a plan), and the console offers a plan only feedback, not approval (#764). See [the gotcha](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md).
