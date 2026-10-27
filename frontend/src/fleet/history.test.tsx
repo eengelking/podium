@@ -90,6 +90,8 @@ describe("history page", () => {
     expect(screen.getByText("1 sessions ended")).toBeInTheDocument();
   });
 
+  // Each of these renders the whole fleet or Admin tree and clicks through it: about 0.1 s on a quiet machine, but past the 5 s default on a CI runner
+  // running coverage (#681). The limit is wide for the same reason as the Admin paging test, and the work is unchanged.
   it("opens a read-only orchestrator page from stored rows, with agent detail, and goes back", async () => {
     server([row]);
     render(<HistoryView initialDay="2026-10-10" />);
@@ -99,7 +101,7 @@ describe("history page", () => {
     expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent("Map call sites");
     fireEvent.click(screen.getByRole("button", { name: /Back to 2026-10-10/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: "api-refactor" })).toBeInTheDocument());
-  });
+  }, 30_000);
 
   it("shows the orchestrator's steps, tools and skills on its page when the session reported them (#75)", async () => {
     server([row], { loop: { skills: ["code-review"], lastTool: "Edit", toolCalls: 5, toolCounts: { Edit: 3, Read: 2 }, steps: { done: 7, total: null } } });
