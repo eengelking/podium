@@ -10,6 +10,7 @@
 import { modBuild } from './build.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from './git.ts';
+import { readAppTitle } from './agentName.ts';
 import { readFileDiff } from './fileDiff.ts';
 import { follow } from './place.ts';
 import { shortName } from './models.ts';
@@ -111,6 +112,8 @@ import {
 
 export const VERSION = '1.3.1';
 const GIT_POLL_MS = 10_000;
+/** The app's title is read on every third git poll, so about every 30 s: it costs a process each time (#595). */
+const APP_TITLE_EVERY = 3;
 /** session.end has one ~1.5 s bound for every hook and core together; stay well inside it. */
 const END_FLUSH_MS = 1000;
 const ERRORS_KEPT = 20;
@@ -162,6 +165,10 @@ interface Runtime {
   storedName: string | null;
   /** Claude Code's own name for a session, from a hook's `session_title`, with the id it was taken under; null until a hook carries one (#322). It counts only while that id is the session being reported, so a /clear or resume never inherits it. The hook's own `session_id` is not used: the reporter keys everything on `$.session.id()`. */
   claudeName: { id: string; name: string } | null;
+  /** The title the Claude desktop app shows for the session, from `claude agents --json`, with the id it was read under (#595). It names the session only while no hook has carried a `session_title` for that id: a Team or Enterprise login has Claude Code's guard skip those hooks. */
+  appName: { id: string; name: string } | null;
+  /** Git polls run so far; the app's title is read on the first and every APP_TITLE_EVERY-th after it. */
+  polls: number;
   engineVersion: string | null;
   hostSurface: string | null;
   /** Whether the session started on the desktop surface or a desktop client has been on its roster; the app keeps such a session open while another is on screen (#594). */
@@ -412,7 +419,7 @@ function metaOf(r: Runtime, now: number) {
     build: r.build,
     now,
     storedName: r.storedName,
-    claudeName: r.claudeName?.id === r.state.id ? r.claudeName.name : null,
+    claudeName: (r.claudeName?.id === r.state.id ? r.claudeName.name : null) ?? (r.appName?.id === r.state.id ? r.appName.name : null),
     optionName: opts.sessionName || null,
     userName: who.userName || null,
     machine: r.machine,
@@ -590,8 +597,22 @@ async function findBuild($: Engine): Promise<string | null> {
   }, root);
 }
 
+/** Take the title the desktop app shows for the session (#595). A failed read keeps the last title; a rename shows from the next read. */
+async function pollAppTitle($: Engine, r: Runtime): Promise<void> {
+  const id = r.state.id;
+  if (r.claudeName?.id === id) return; // a hook's title outranks the app's, so the process is not worth running
+  const name = await readAppTitle(async (argv) => {
+    const res = await $.process.run(argv, { timeoutMs: 5000 });
+    return { exitCode: res.exitCode, stdout: res.stdout };
+  }, id);
+  if (!name || r.state.id !== id || (r.appName?.id === id && r.appName.name === name)) return;
+  r.appName = { id, name };
+  r.state = { ...r.state, dirty: true };
+}
+
 async function pollGit($: Engine, r: Runtime): Promise<void> {
   try {
+    if (r.polls++ % APP_TITLE_EVERY === 0) void pollAppTitle($, r); // not awaited: a slow `claude` must not hold up the git reads
     await movePlace($, r);
     const cwd = r.state.cwd;
     const run = async (argv: string[]) => {
@@ -1701,6 +1722,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     kick: null,
     storedName: await loadName($, id),
     claudeName: same && rt ? rt.claudeName : null,
+    appName: same && rt ? rt.appName : null,
+    polls: 0,
     engineVersion: version?.version ?? null,
     hostSurface: e.surface,
     sawDesktop: e.surface === 'desktop' || (same && rt ? rt.sawDesktop : false),

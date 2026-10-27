@@ -61,7 +61,8 @@ The status line tells you where you are:
 | `podium vX.Y.Z ○ offline` | Not connected. See [Something is wrong](03-something-is-wrong.md) |
 
 A name you give a session in Claude Code, for example with `/rename`, is its title on the card, the rail and the
-orchestrator page, from your next prompt. `/podium name <text>` sets a name too, and wins over it. The card and the
+orchestrator page, from your next prompt. A session in the Claude desktop app takes the title the app shows for it,
+within about half a minute. `/podium name <text>` sets a name too, and wins over both. The card and the
 orchestrator page also show the first eight characters of the session id. Click it to copy the whole id. On the orchestrator page it is the **Session** cell of the facts grid.
 
 ## More than one login on one machine

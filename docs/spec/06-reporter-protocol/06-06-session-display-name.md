@@ -15,11 +15,16 @@ The first of these that applies, in priority order:
    that the `classic.SessionStart` and `classic.UserPromptSubmit` hooks carry, trimmed and clipped to 80
    characters, kept per session id and dropped when the id changes. A hook without a title leaves the last one
    in place, so a rename shows from the next prompt.
-3. The `sessionName` option.
-4. For a worktree, the last segment of the branch (`refactor/invoice-v2` gives `invoice-v2`) or of the
+3. The title the Claude desktop app shows for the session (#595), read from the `name` of the entry in
+   `claude agents --json` whose `sessionId` is the session's id, trimmed and clipped to 80 characters. It is read on
+   the first git poll and about every 30 seconds after, and it counts only while no hook has carried a
+   `session_title` for that id, so a Team or Enterprise login (which has Claude Code's guard skip the `classic.*`
+   hooks) still gets a name. A missing `claude`, a failed command or a session the list does not hold changes nothing.
+4. The `sessionName` option.
+5. For a worktree, the last segment of the branch (`refactor/invoice-v2` gives `invoice-v2`) or of the
    worktree directory.
-5. The repository directory's name.
-6. `session-<first 6 of id>`.
+6. The repository directory's name.
+7. `session-<first 6 of id>`.
 
 <!-- nav:start -->
 ---
