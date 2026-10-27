@@ -238,11 +238,12 @@ function acceptRotation(rotation, held) {
 
 /**
  * Writes `text` to `file` through a temporary file in the same folder and a rename, at mode 0600, so a reader sees all of the old file or all of the new.
- * A destination that is a symlink is refused (the rename would replace the link, not the file it points to), and the temporary file is created with
- * `wx`, which never follows a link: one left or planted at that name is removed and made again (#672).
+ * A destination that is a symlink is followed to the file it points to (a dotfiles manager or a mounted secret): the temporary file is made
+ * beside that file and renamed onto it, so the link stays a link. The temporary file is created with `wx`, which never follows a link:
+ * one left or planted at that name is removed and made again (#672).
  */
 export function writeAtomic(file, text) {
-  if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`${file} is a symlink; not rewriting it`);
+  if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) file = fs.realpathSync(file);
   const tmp = `${file}.${process.pid}.tmp`;
   const open = () => fs.openSync(tmp, 'wx', 0o600);
   let fd;

@@ -431,17 +431,29 @@ describe('helper.mjs: writeAtomic (#672)', () => {
     expect(fs.readdirSync(dir)).toEqual(['config.pem']);
   });
 
-  it('refuses a destination that is a symlink, and changes neither the link nor its target', async () => {
+  it('follows a destination that is a symlink: the target changes, the link stays a link, and no temporary file is left in either folder', async () => {
     const writeAtomic = await load();
     const dir = tmp();
-    const target = path.join(dir, 'target.pem');
+    const other = tmp();
+    const target = path.join(other, 'target.pem');
     const link = path.join(dir, 'config.pem');
     fs.writeFileSync(target, 'original');
     fs.symlinkSync(target, link);
-    expect(() => writeAtomic(link, 'new')).toThrow(/symlink/);
-    expect(fs.readFileSync(target, 'utf8')).toBe('original');
+    writeAtomic(link, 'new');
+    expect(fs.readFileSync(target, 'utf8')).toBe('new');
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(fs.readdirSync(dir).sort()).toEqual(['config.pem', 'target.pem']);
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+    expect(fs.readdirSync(other)).toEqual(['target.pem']);
+  });
+
+  it('throws for a symlink whose target is missing, and creates nothing', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const link = path.join(dir, 'config.pem');
+    fs.symlinkSync(path.join(dir, 'gone.pem'), link);
+    expect(() => writeAtomic(link, 'new')).toThrow();
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
   });
 
   it('does not write through a symlink planted at the temporary name', async () => {
