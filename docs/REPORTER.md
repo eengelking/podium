@@ -63,8 +63,11 @@ off the wall, because Claude Code's background daemon also runs idle twins and s
 
 - `/podium` prints the console link, the connection state and report counts.
 - `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
-  Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The `sessionName`
-  option and the worktree or folder name come after.
+  Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
+  desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is
+  the only source on a Team or Enterprise login, where Claude Code skips the mod's `classic.*` hooks (see
+  [My session's name is the folder](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md)). The
+  `sessionName` option and the worktree or folder name come after.
 - Effort is read from each model request, so a change made with `/effort` shows after the session's next
   prompt, not when you pick it.
 - With `peers` on, `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging
