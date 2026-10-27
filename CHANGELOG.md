@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Changed
+
+- **A blowout event records the context window and how full it was (#687).** A usage reset showed as a blowout on a card whose context bar read 25%, and the event sequence at a reset could not be told from a real overflow. The reporter's `blow` event now carries `window` and `percent` beside the kind and the tokens before and after, for a window-exceeded stop, a server compaction and an automatic compaction. Nothing is counted differently yet: the fix that stops a reset counting waits for the next one to show which path fires. Reporter only; the console and the server do not change.
+
 ## [1.3.1] - 2026-10-25
 
 ### Added
