@@ -96,7 +96,7 @@ describe("history page", () => {
     server([row]);
     render(<HistoryView initialDay="2026-10-10" />);
     fireEvent.click(await screen.findByRole("button", { name: "api-refactor" }));
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("api-refactor");
+    expect(await screen.findByRole("heading", { level: 1, name: /api-refactor/ })).toBeInTheDocument();
     fireEvent.click(document.querySelector('button.trow[data-agent="a1"]')!);
     expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent("Map call sites");
     fireEvent.click(screen.getByRole("button", { name: /Back to 2026-10-10/ }));
@@ -107,7 +107,7 @@ describe("history page", () => {
     server([row], { loop: { skills: ["code-review"], lastTool: "Edit", toolCalls: 5, toolCounts: { Edit: 3, Read: 2 }, steps: { done: 7, total: null } } });
     render(<HistoryView initialDay="2026-10-10" />);
     fireEvent.click(await screen.findByRole("button", { name: "api-refactor" }));
-    await screen.findByRole("heading", { level: 1 });
+    await screen.findByRole("heading", { level: 1, name: /api-refactor/ });
     fireEvent.click(document.querySelector("button.trow.root")!);
     const side = document.querySelector(".side") as HTMLElement;
     expect(side.textContent).toContain("7 model requests");
@@ -170,7 +170,7 @@ describe("history page", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Next" }));
       await screen.findByText("Page 2 of 3");
       fireEvent.click(screen.getByRole("button", { name: "api-refactor" }));
-      expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("api-refactor");
+      expect(await screen.findByRole("heading", { level: 1, name: /api-refactor/ })).toBeInTheDocument();
       expect(window.location.hash).toContain("open=s1");
       window.history.back();
       expect(await screen.findByText("Page 2 of 3")).toBeInTheDocument();

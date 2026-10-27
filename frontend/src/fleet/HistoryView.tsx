@@ -169,7 +169,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
     <div className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
         <StreamTopBar page="History" base={base} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} onSignInChange={setSignedIn} />
-        <div className="banner has-picker">
+        <div className="banner has-picker" role="region" aria-label="Display settings">
           <span>
             <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
           </span>
@@ -177,6 +177,8 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
         </div>
         <div className="history">
           <main className="main">
+            {/* An open session carries its own h1; the day's list gets one a screen reader can find (#636). */}
+            {!s && <h1 className="vh">History</h1>}
             {s ? (
               <>
                 <button type="button" className="back" style={{ padding: "0 0 10px" }} onClick={() => (window.history.state?.open ? window.history.back() : go({ open: null }))}>
