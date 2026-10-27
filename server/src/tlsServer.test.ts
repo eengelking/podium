@@ -94,7 +94,8 @@ describe('startTls', () => {
     } finally {
       await new Promise((r) => first.server.close(r));
     }
-    expect(s.lines.map((l) => l.event)).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
+    // `startTlsForTest` retries a port another test file took first and logs `tls.failed` for it; that is not part of what this checks.
+    expect(s.lines.map((l) => l.event).filter((e) => e !== 'tls.failed')).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
     // The line for the operator names the CA by whole bytes of its fingerprint and says when it ends.
     expect(s.lines.at(-1)!.message).toMatch(/for reporters \(CA ([0-9A-F]{2}:){7}[0-9A-F]{2}, expires \d{4}-/);
 
