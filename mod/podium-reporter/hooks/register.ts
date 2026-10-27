@@ -1204,6 +1204,7 @@ function permissionSeen(r: Runtime, id: string | null): void {
   if (id) {
     checks.get(id)?.cancel();
     checks.delete(id);
+    endedChecks.delete(id);
   }
   if (permissionHooks !== true) {
     permissionHooks = true;
@@ -2095,7 +2096,7 @@ export const register: Register = (on, rawOptions) => {
     safe('turn.complete', (r) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
     });
-    if (!e.agentId && opts.respond !== 'off') startHooksCheck($);
+    if (!e.agentId && opts.respond !== 'off' && !classicSeen && permissionHooks === null) startHooksCheck($);
     return res;
   }).catch(($, e, next) => next(e));
 
