@@ -49,7 +49,9 @@ An older mod's sessions are never marked.
 The Claude desktop app keeps every session in its sidebar open, and it puts a window on only the one you are looking at.
 Podium does not treat the others as background sessions. A desktop session stays on the wall, without the "nobody
 attached" chip, until it ends. Switching to another session or closing its view does not end it. Deleting it from the
-sidebar does, and its card leaves the wall.
+sidebar does, and its card leaves the wall. Quitting the desktop app has the same result for every session it had open:
+they stop reporting, so each card goes stale after 15 seconds and leaves the wall about a minute later as "heartbeat
+lost" ([SPEC 7.5](../../spec/07-server/07-05-lifecycle-timers.md)).
 
 This needs a mod with the fix for #594. Older mods show a desktop session you are not looking at as "nobody attached" and
 hide it after a minute. The gotcha
