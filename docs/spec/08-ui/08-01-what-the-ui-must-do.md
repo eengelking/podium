@@ -316,7 +316,8 @@ A card has four layers in a fixed order, divided by hairlines, with the content 
      - The id is its first eight characters, in the mono face.
      - A click copies the whole id, and the text reads "Copied" for 1.6 s, or "Copy failed" when the
        clipboard refuses.
-     - It is a `role="button"` span inside the card, and its click and Enter or Space never open the card.
+     - It is a real button that sits beside the card's own button, not inside it (#759), laid over the space the path line keeps for it. It is at least 24 by 24 px, it comes right after the card in the tab order, and a click on it never opens the card.
+     - Its accessible name is "Copy session id" and the eight characters, and while it reads "Copied" or "Copy failed" its name is that text.
    - The git line: branch icon, worktree chip or dashed "main checkout" chip, ahead/behind arrows, modified
      count or "clean".
      - The branch is one line ending in an ellipsis when too long, with the full name as its tooltip, and

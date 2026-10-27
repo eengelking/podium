@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { IconCheck, IconCopy } from "./Icons";
 
 /** How long "Copied" stays on a copy control. */
@@ -36,50 +36,17 @@ export function useCopy(text: string) {
 }
 
 /**
- * The session id, shortened, copied whole on a click (#322). On a card it sits inside the card's own button, so it is a `role="button"` span that
- * keeps its click and Enter/Space from opening the card. On the orchestrator page the id is a cell of the facts grid instead (#352).
+ * The session id, shortened, copied whole on a click (#322). A real button: on a card it is a sibling of the card's own button (placed over the
+ * path row's `.sidslot`), never a child of it (#759). While it reads "Copied" or "Copy failed" it has no `aria-label`, so its name is that text.
  */
-export function SessionId({ id, nested }: { id: string; nested?: boolean }) {
+export const SessionId = forwardRef<HTMLButtonElement, { id: string }>(function SessionId({ id }, ref) {
   const { state, copy } = useCopy(id);
   const short = id.slice(0, SHORT_ID);
   const label = state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : short;
-  const props = {
-    className: "sid",
-    title: `Copy session id ${id}`,
-    "aria-label": `Copy session id ${short}`,
-  };
-  const body = (
-    <>
+  return (
+    <button ref={ref} type="button" className="sid" title={`Copy session id ${id}`} aria-label={state === "idle" ? `Copy session id ${short}` : undefined} onClick={copy}>
       <span aria-live="polite">{label}</span>
       {state === "copied" ? <IconCheck /> : <IconCopy />}
-    </>
+    </button>
   );
-  if (!nested) {
-    return (
-      <button type="button" {...props} onClick={copy}>
-        {body}
-      </button>
-    );
-  }
-  const stop = (e: MouseEvent | KeyboardEvent) => e.stopPropagation();
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      {...props}
-      onClick={(e) => {
-        stop(e);
-        copy();
-      }}
-      onKeyDown={(e) => {
-        stop(e);
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          copy();
-        }
-      }}
-    >
-      {body}
-    </span>
-  );
-}
+});

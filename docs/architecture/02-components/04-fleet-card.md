@@ -34,8 +34,9 @@ Mockups: `mockup/podium-card.html`, `mockup/podium-session-name.html`.
   over the right end of the band (`.remove-bar`, absolutely positioned from the bottom edge, which works because
   the band has a fixed `min-height`).
 - The session id shares the path line in `.pathrow`. It is `SessionId` (`components/SessionId.tsx`), also used by
-  the orchestrator page's header. On the card it is a `role="button"` span, because a button cannot nest in the
-  card's button, and it stops its click and keys from reaching the card.
+  the orchestrator page's header. On the card it is a sibling of the card's button, because a button cannot nest in it (#759):
+  the path line keeps an empty `.sidslot`, and `CardSessionId` in `SessionCard.tsx` lays the button over it, the way
+  `PinButton` does, sizing the slot to the button so the row makes room.
 - The layout rules hang on `.card.sc`.
 
 <!-- nav:start -->
