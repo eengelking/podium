@@ -102,7 +102,7 @@ function procStats(pid) {
       const [user, sys, rss] = execFileSync('/usr/bin/python3', ['-I', '-c', PY, String(pid)], { encoding: 'utf8' }).trim().split(' ').map(Number);
       return { cpuNs: user + sys, rss };
     }
-    const [rssKb, cpu] = execFileSync('ps', ['-o', 'rss=', '-o', 'cputime=', '-p', String(pid)], { encoding: 'utf8' }).trim().split(/\s+/);
+    const [rssKb, cpu] = execFileSync('/bin/ps', ['-o', 'rss=', '-o', 'cputime=', '-p', String(pid)], { encoding: 'utf8' }).trim().split(/\s+/);
     const parts = cpu.split(/[:.]/).map(Number);
     const secs = parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
     return { cpuNs: secs * 1e9, rss: Number(rssKb) * 1024 };
@@ -169,15 +169,16 @@ class Server {
     return null;
   }
   async stop() {
-    if (this.child && this.child.exitCode === null) {
-      this.child.kill('SIGTERM');
-      await Promise.race([this.exited, sleep(5000)]);
-      if (this.child.exitCode === null) this.child.kill('SIGKILL');
-    }
+    const child = this.child;
+    if (!child || child.exitCode !== null) return;
+    child.kill('SIGTERM');
+    const force = setTimeout(() => child.kill('SIGKILL'), 5000);
+    await this.exited;
+    clearTimeout(force);
   }
   cleanup() {
-    if (KEEP) log(`kept: ${this.dir}`);
-    else rmSync(this.dir, { recursive: true, force: true });
+    if (!KEEP) rmSync(this.dir, { recursive: true, force: true });
+    else log(`kept: ${this.dir}`);
   }
 }
 
@@ -195,7 +196,11 @@ class SseClient {
     this.gz?.on('data', (c) => {
       if (this.measuring) this.gzBytes += c.length;
     });
+  }
+  /** Opens the stream. Not done in the constructor, so building a client never starts work. */
+  start() {
     this.done = this.run();
+    return this;
   }
   async run() {
     try {
@@ -249,7 +254,7 @@ async function runOnce(name, fleet, run) {
   const clients = [];
   try {
     await server.start();
-    for (let i = 0; i < CLIENTS; i++) clients.push(new SseClient(server.url, i === 0));
+    for (let i = 0; i < CLIENTS; i++) clients.push(new SseClient(server.url, i === 0).start());
     if (fleet.sessions > 0) {
       sim = spawn(path.join(ROOT, 'node_modules/.bin/tsx'), [path.join(ROOT, 'scripts/podium-sim.ts'), '--url', server.url, '--token', server.token, '--sessions', String(fleet.sessions), '--agents', String(fleet.agents), '--seed', String(SEED), '--duration', String(WARMUP + DURATION + 30)], { stdio: 'ignore', detached: true });
     }

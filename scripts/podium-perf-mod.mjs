@@ -26,10 +26,8 @@ if (args.includes('-h') || args.includes('--help')) {
   process.exit(0);
 }
 // The mod is TypeScript with parameter properties, which plain Node cannot strip; run again with the transform flag on.
-if (!process.execArgv.includes(FLAG)) {
-  const r = spawnSync(process.execPath, [FLAG, '--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url), ...args], { stdio: 'inherit' });
-  process.exit(r.status ?? 1);
-}
+const relaunch = () => spawnSync(process.execPath, [FLAG, '--no-warnings', fileURLToPath(import.meta.url), ...args], { stdio: 'inherit' }).status ?? 1;
+if (!process.execArgv.includes(FLAG)) process.exit(relaunch());
 const arg = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
 const AGENTS = arg('--agents', '0,20,200').split(',').map(Number);
 const CALLS = Number(arg('--calls', '400'));
