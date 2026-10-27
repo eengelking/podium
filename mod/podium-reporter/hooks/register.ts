@@ -164,6 +164,8 @@ interface Runtime {
   claudeName: { id: string; name: string } | null;
   engineVersion: string | null;
   hostSurface: string | null;
+  /** Whether the session started on the desktop surface or a desktop client has been on its roster; the app keeps such a session open while another is on screen (#594). */
+  sawDesktop: boolean;
   /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
   build: string | null;
   flushing: boolean;
@@ -547,11 +549,15 @@ async function readUsage($: Engine, r: Runtime): Promise<void> {
   }
 }
 
-/** The roster of attached clients. An empty one is a background session with nobody on it; a failed read says nothing. */
+/**
+ * The roster of attached clients. An empty one is a background session with nobody on it, unless the desktop app has
+ * attached to it before: it only attaches the session on screen and keeps the rest open (#594). A failed read says nothing.
+ */
 async function readSurfaces($: Engine, r: Runtime): Promise<void> {
   try {
     const clients = await $.session.surfaces();
-    r.state = setAttached(r.state, clients.length > 0);
+    if (clients.includes('desktop')) r.sawDesktop = true;
+    r.state = setAttached(r.state, clients.length > 0 || r.sawDesktop);
   } catch (err) {
     record($, 'session.surfaces', err);
   }
@@ -1697,6 +1703,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     claudeName: same && rt ? rt.claudeName : null,
     engineVersion: version?.version ?? null,
     hostSurface: e.surface,
+    sawDesktop: e.surface === 'desktop' || (same && rt ? rt.sawDesktop : false),
     flushing: false,
     peerFlushing: false,
     lastStatus: null,

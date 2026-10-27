@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Fixed
+
+- **A session the Claude desktop app keeps open no longer leaves the wall because another session is on screen (#594).** The desktop app attaches a client only to the session in view, so every other open session read as "nobody attached" and left the wall a minute later behind "background sessions hidden". The reporter now counts a session as attached once a desktop client has been on it, until it ends. Deleting a session from the app's sidebar ends it, and its card leaves the wall as before; a terminal session with nobody on it is still a background session.
+
 ## [1.3.1] - 2026-10-25
 
 ### Added
