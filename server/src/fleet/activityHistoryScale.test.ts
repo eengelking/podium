@@ -279,11 +279,12 @@ describe('removals in chunks', () => {
 
   it('compact in steps and report the bytes freed', async () => {
     const file = tmpFile();
-    const { h } = setup({}, { vacuumPages: 2, chunkRows: 500 }, file);
-    for (let i = 0; i < 4; i++) h.ingest(report(`s${i}`, T0 + i * 1000, 20, 'z'.repeat(250)), 0, META);
-    for (let b = 1; b < 30; b++) for (let i = 0; i < 4; i++) h.ingest(report(`s${i}`, T0 + b * 100_000 + i * 1000, 20, 'z'.repeat(250)), 0, META);
+    // Sized to cross two delete chunks and about a dozen vacuum steps on a small file: the old 30 buckets with two pages a step ran
+    // some 175 steps, and a slow runner took past the 5,000 ms limit on disk work alone (#680).
+    const { h } = setup({}, { vacuumPages: 8, chunkRows: 500 }, file);
+    for (let b = 0; b < 6; b++) for (let i = 0; i < 4; i++) h.ingest(report(`s${i}`, T0 + b * 100_000 + i * 1000, 20, 'z'.repeat(250)), 0, META);
     const r = await h.deleteBy({ all: true });
-    expect(r.entries).toBe(4 * 20 * 2 * 30);
+    expect(r.entries).toBe(4 * 20 * 2 * 6);
     expect(r.freed).toBeGreaterThan(50_000);
     h.close();
   });

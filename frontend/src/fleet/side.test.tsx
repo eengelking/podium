@@ -17,6 +17,8 @@ const failure: Failure = {
 
 describe("activity list", () => {
   const events = Array.from({ length: 30 }, (_, i) => makeEvent({ id: `e${i}`, t: 1_000_000 + i * 1000, text: `event ${i}` }));
+  // Each of these renders the whole fleet or Admin tree and clicks through it: about 0.2 s on a quiet machine, but past the 5 s default on a CI runner
+  // running coverage (#681). The limit is wide for the same reason as the Admin paging test, and the work is unchanged.
   it("pages 12 at a time with correct counts, and notes the memory cap", () => {
     const { container } = render(<FleetView state={stateFrom({ events })} />);
     const side = () => container.querySelector(".side")!;
@@ -35,7 +37,7 @@ describe("activity list", () => {
     expect(side().querySelectorAll(".ev li")).toHaveLength(12);
     // newest first
     expect(side().querySelector(".ev li")!.textContent).toContain("event 29");
-  });
+  }, 30_000);
 
   it("an agent row selects the orchestrator and agent and opens the detail; a failure row shows the failure box", () => {
     const s = makeSession({ agents: [makeAgent({ id: "a9", description: "Backfill dry run", status: "failed", failure })] });

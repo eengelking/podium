@@ -182,6 +182,8 @@ describe("administrator names (#182)", () => {
 });
 
 describe("deleting people (#243)", () => {
+  // Each of these renders the whole fleet or Admin tree and clicks through it: about 0.1 s on a quiet machine, but past the 5 s default on a CI runner
+  // running coverage (#681). The limit is wide for the same reason as the Admin paging test, and the work is unchanged.
   it("selects rows, confirms in a dialog that names them, and deletes exactly those", async () => {
     const s = fakeServer({ people: 4 });
     render(<AdminView />);
@@ -205,7 +207,7 @@ describe("deleting people (#243)", () => {
     expect(screen.getByText("person-003")).toBeInTheDocument();
     expect(screen.queryByText(/selected/)).toBeNull();
     expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument();
-  });
+  }, 30_000);
 
   it("selects every row on the page with the header box, and Clear drops the selection", async () => {
     fakeServer({ people: 3 });

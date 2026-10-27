@@ -20,6 +20,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **A session the Claude desktop app keeps open no longer leaves the wall because another session is on screen (#594).** The desktop app attaches a client only to the session in view, so every other open session read as "nobody attached" and left the wall a minute later behind "background sessions hidden". The reporter now counts a session as attached once a desktop client has been on it, until it ends. Deleting a session from the app's sidebar ends it, and its card leaves the wall as before; a terminal session with nobody on it is still a background session.
 
+- **Four tests that timed out at 5,000 ms on CI runners no longer do (#680, #681).** The activity history "compact in steps" test ran about 175 one-step vacuums on a file database, so a slow disk took it past the limit; it now runs a dozen steps over a smaller file and still crosses several delete chunks. The side, history and Admin delete-people tests render a large tree and are slow under coverage, so each has a 30 s limit that matches the work. No test code outside those four tests and no production code changed.
+
 ### Changed
 
 - **The docs say what happens to Claude desktop app sessions after the app restarts (#737).** The app restores only the session on screen and leaves the others dormant, and the reporter runs inside each session, so nothing reports for a dormant session. SPEC 7.5, the user guide and the desktop gotcha now state that the on-screen session is revived under its old id, the others return when opened (possibly under a new id), and Podium keeps no card for a session that is not reporting. The lifecycle timers do not change. Documentation only.
