@@ -236,10 +236,23 @@ function acceptRotation(rotation, held) {
   return { pem: rotation.ca, held: held.some((c) => new X509Certificate(c).fingerprint256 === ca.fingerprint256) };
 }
 
-/** Writes `text` to `file` through a temporary file in the same folder and a rename, at mode 0600, so a reader sees all of the old file or all of the new. */
-function writeAtomic(file, text) {
+/**
+ * Writes `text` to `file` through a temporary file in the same folder and a rename, at mode 0600, so a reader sees all of the old file or all of the new.
+ * A destination that is a symlink is refused (the rename would replace the link, not the file it points to), and the temporary file is created with
+ * `wx`, which never follows a link: one left or planted at that name is removed and made again (#672).
+ */
+export function writeAtomic(file, text) {
+  if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`${file} is a symlink; not rewriting it`);
   const tmp = `${file}.${process.pid}.tmp`;
-  const fd = fs.openSync(tmp, 'w', 0o600);
+  const open = () => fs.openSync(tmp, 'wx', 0o600);
+  let fd;
+  try {
+    fd = open();
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+    fs.rmSync(tmp, { force: true });
+    fd = open();
+  }
   try {
     fs.fchmodSync(fd, 0o600);
     fs.writeFileSync(fd, text);

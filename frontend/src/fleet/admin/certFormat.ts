@@ -29,12 +29,18 @@ export interface CertsView {
   rotation?: { previousCa: CertInfo; cross: CertInfo; startedAt: number; reporters: { onOldCa: number; total: number } } | null;
 }
 
-/** The stage of one certificate: blue at 30 days or fewer, orange at 10, red at 5, then expired (mockup #573). */
+/** The stage of one certificate: blue at `renewWithin` days or fewer (30), orange at 10, red at 5, then expired (mockup #573). */
 export type CertStage = "ok" | "soon" | "serious" | "critical" | "expired";
-export function stageOf(notAfter: string, now: number): CertStage {
+export function stageOf(notAfter: string, now: number, renewWithin = 30): CertStage {
   if (Date.parse(notAfter) < now) return "expired";
   const d = daysUntil(notAfter, now);
-  return d <= 5 ? "critical" : d <= 10 ? "serious" : d <= 30 ? "soon" : "ok";
+  return d <= 5 ? "critical" : d <= 10 ? "serious" : d <= renewWithin ? "soon" : "ok";
+}
+
+/** How many days before its end a reporter renews its certificate: 30, or half the lifetime when that is shorter (SPEC 6.8). */
+export function renewWithinDays(notBefore: string | undefined, notAfter: string): number {
+  const lifetime = (Date.parse(notAfter) - Date.parse(notBefore ?? "")) / 86_400_000;
+  return lifetime > 0 ? Math.min(30, lifetime / 2) : 30; // no start date, or one after the end: the usual 30
 }
 
 export const dateOf = (iso: string) => iso.slice(0, 10);

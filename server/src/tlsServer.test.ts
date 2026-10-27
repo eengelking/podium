@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { publicTlsPort, startTls, tlsPortFrom } from './tlsServer.js';
+import { publicTlsPort, shortReason, startTls, tlsPortFrom } from './tlsServer.js';
 import { freePort, makeForgerCa, signClientDated, startTlsForTest } from './tlsTesting.js';
 
 const cleanup: Array<() => void> = [];
@@ -62,6 +62,14 @@ describe('publicTlsPort', () => {
   });
 });
 
+describe('shortReason', () => {
+  it('keeps the reason of an OpenSSL error and nothing else, and leaves any other message alone (#672)', () => {
+    const raw = '807F90F401000000:error:0A0000C7:SSL routines:tls_process_client_certificate:peer did not return a certificate:../deps/openssl/openssl/ssl/statem/statem_srvr.c:3510:';
+    expect(shortReason(raw)).toBe('peer did not return a certificate');
+    expect(shortReason('socket hang up')).toBe('socket hang up');
+  });
+});
+
 describe('startTls', () => {
   it('does nothing unless PODIUM_TLS is on', async () => {
     const s = setup();
@@ -87,6 +95,8 @@ describe('startTls', () => {
       await new Promise((r) => first.server.close(r));
     }
     expect(s.lines.map((l) => l.event)).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
+    // The line for the operator names the CA by whole bytes of its fingerprint and says when it ends.
+    expect(s.lines.at(-1)!.message).toMatch(/for reporters \(CA ([0-9A-F]{2}:){7}[0-9A-F]{2}, expires \d{4}-/);
 
     const second = await startTlsForTest({ app: s.app, dbPath: s.dbPath, allowedHosts: ['podium.lan'], logger: s.logger });
     try {
@@ -106,6 +116,28 @@ describe('startTls', () => {
       l.server.emit('tlsClientError', new Error('bad handshake'), { destroy() {} });
       expect(s.lines.find((x) => x.event === 'tls.server_error')).toMatchObject({ level: 'error', reason: 'boom' });
       expect(s.lines.find((x) => x.event === 'tls.handshake_failed')).toMatchObject({ level: 'warn', reason: 'bad handshake' });
+    } finally {
+      await new Promise((r) => l.server.close(r));
+    }
+  });
+
+  it('names the reason and the source of a failed handshake, and words repeats alike so the text log folds them (#672)', async () => {
+    const s = setup();
+    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    try {
+      const fail = (message: string, code: string | undefined, remoteAddress: string) =>
+        l.server.emit('tlsClientError', Object.assign(new Error(message), { code }), { remoteAddress, destroy() {} });
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '10.0.0.5');
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '10.0.0.6');
+      fail('socket hang up', undefined, '10.0.0.7');
+      const [first, second, third] = s.lines.filter((x) => x.event === 'tls.handshake_failed');
+      expect(first).toMatchObject({ level: 'warn', reason: 'tlsv1 alert unknown ca', code: 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', remote: '10.0.0.5' });
+      expect(first!.message).toContain('ERR_SSL_TLSV1_ALERT_UNKNOWN_CA');
+      expect(first!.message).toContain('tlsv1 alert unknown ca');
+      expect(first!.message).not.toContain('10.0.0.5');
+      expect(second!.message).toBe(first!.message);
+      expect(third).toMatchObject({ reason: 'socket hang up', remote: '10.0.0.7' });
+      expect(third!.message).not.toContain('undefined');
     } finally {
       await new Promise((r) => l.server.close(r));
     }

@@ -240,6 +240,22 @@ describe('transport', () => {
     expect(logs).toHaveLength(1)
   })
 
+  test('a 403 from the connection helper is a refusal that is not retried soon; a 403 from the server is an outage as before (#672)', async () => {
+    const helper: HttpResult = { status: 403, ok: false, text: '', headers: { 'x-podium-helper-error': 'ROUTE_NOT_ALLOWED' } }
+    const f = fake([helper, { status: 403, ok: false, text: '{"ok":false,"error":"messaging is off"}' }])
+    const logs: string[] = []
+    const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' }, (l) => logs.push(l))
+    t.enqueue([ev(1)])
+    expect(await t.send(build, 0)).toBe('refused')
+    expect(t.queue).toHaveLength(1) // kept for when the mod and the helper agree
+    expect(t.nextAttemptAt).toBeGreaterThanOrEqual(60_000)
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toContain('connection helper')
+    expect(await t.send(build, 120_000)).toBe('failed')
+    expect(t.queue).toHaveLength(1)
+    expect(t.nextAttemptAt).toBeLessThan(120_000 + 60_000)
+  })
+
   test('a 409 (the session belongs to someone else) is a rejection, not an outage', async () => {
     const f = fake([{ status: 409, ok: false, text: '{"ok":false,"error":"that session belongs to someone else"}' }])
     const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })

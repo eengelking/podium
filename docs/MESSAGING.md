@@ -39,7 +39,7 @@ box, which gets it as a new turn once it is idle, does the work and sends the an
 
 What it is:
 
-- Messages between **one person's own** orchestrators. Every machine involved reports with that person's token.
+- Messages between **one person's own** orchestrators. Every machine involved reports as that person: with their token, or, on a server with TLS, with the certificate in their reporter config file.
 - Messages between **orchestrators** only, the main loop of a session. A subagent cannot send, and a message never
   reaches one.
 - Off until three switches are on: the Admin's flag, the `peers` option on each machine, and a right the owner gives.
@@ -84,7 +84,8 @@ orchestrators on one machine). A **conversation** is the messages between two or
 - **Authentication on.** The server needs an admin secret (`PODIUM_TOKEN`; `podiumctl start` sets one). With the
   server's auth off, messaging stays off. See [SERVER.md](SERVER.md#auth-token).
 - **A person and a token.** An Admin makes the person in Admin > People, which shows their token once. Every machine
-  that takes part reports with that token and that name. The admin secret cannot take part: its sessions belong to
+  that takes part reports with that token and that name, or with that person's reporter config file when the server
+  has TLS (the file holds the name and replaces the token; see [REPORTER.md](REPORTER.md)). The admin secret cannot take part: its sessions belong to
   no one. See [SERVER.md](SERVER.md#admin-and-per-person-tokens).
 - **A reporter that can message.** podium-reporter must be version 1.2.0 or later, the first with the `peers` option.
   An older one shows as **Reporter can't message: update it**.
@@ -117,6 +118,10 @@ On every machine that takes part, in Claude Code:
    Admin entered it, and **Message my other orchestrators** (`peers`) to on.
 3. Start a new session and send it a first prompt. A session reports from its first prompt, and once Podium answers
    that the session takes part, the mod registers the three tools.
+
+A machine that reports with a reporter config file takes part the same way. Messaging, the answers to
+permission prompts and Peers all work over the certificate connection, with no token on that machine. `peers` (and
+`respond`, `activityFeed`) still come from the options.
 
 For a terminal that should report as someone other than the saved options, start it with `PODIUM_USER` and
 `PODIUM_TOKEN` in its environment instead (see

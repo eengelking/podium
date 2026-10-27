@@ -20,7 +20,7 @@ export interface PersonRow {
   lastReportAt: number | null;
   machines: string[];
   /** The person's reporter certificate (#587): null with TLS off, or when they never had one. Never a key. */
-  certificate?: { notAfter: string; revoked: boolean } | null;
+  certificate?: { notBefore?: string; notAfter: string; revoked: boolean } | null;
 }
 /** What `GET /people` answers: the page, the groups for the Group select, and whether TLS is on (#587). */
 export interface PeopleList extends Paged<PersonRow> {

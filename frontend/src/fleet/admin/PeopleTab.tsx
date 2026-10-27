@@ -81,6 +81,12 @@ export function PeopleTab(props: {
   useEffect(() => {
     if (pending) confirmBtn.current?.focus();
   }, [pending]);
+  /** Closes the confirmation row without acting and puts focus back on that person's Actions menu, the row above it (#672). */
+  const closeConfirm = (from: HTMLElement) => {
+    const opener = from.closest("tr")?.previousElementSibling?.querySelector<HTMLElement>("summary");
+    setPending(null);
+    opener?.focus();
+  };
   const [rowErr, setRowErr] = useState("");
   // What the last menu choice did that no row shows, such as a download starting (a status line, not an error).
   const [note, setNote] = useState("");
@@ -350,7 +356,7 @@ export function PeopleTab(props: {
                           {pend && w && (
                             <tr className="confirmrow">
                               <td colSpan={COLS}>
-                                <div className="callout" role="alert">
+                                <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && closeConfirm(e.currentTarget)}>
                                   <IconWarn className="wicon" />
                                   <h3>{w.title}</h3>
                                   <p>{w.body}</p>
@@ -358,7 +364,7 @@ export function PeopleTab(props: {
                                     <button ref={confirmBtn} type="button" className={w.danger ? "btn dng" : "btn"} onClick={() => confirm(p, pend.kind)}>
                                       {w.button}
                                     </button>
-                                    <button type="button" className="btn" onClick={() => setPending(null)}>
+                                    <button type="button" className="btn" onClick={(e) => closeConfirm(e.currentTarget)}>
                                       Cancel
                                     </button>
                                   </p>

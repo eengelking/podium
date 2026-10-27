@@ -14,6 +14,9 @@ export type Level = (typeof LEVELS)[number];
 export type LogFormat = 'text' | 'json';
 
 const RANK: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+/** The two tls.* lines an operator needs without debug: where reporters connect, and that the CA folder needs a backup (#672). */
+const PRINTED_TLS = new Set(['tls.listening', 'tls.ca_created']);
+
 /**
  * Events added with the logger (#140) that the server did not print before. In the text format they are printed
  * only at debug, so the default output stays what it was; the JSON format and the shipper carry them at their own
@@ -26,7 +29,7 @@ export function quietInText(event: string): boolean {
     event.startsWith('session.') ||
     event.startsWith('reporter.') ||
     event.startsWith('admin.') ||
-    event.startsWith('tls.') || // below warn; a refusal at warn or error is folded instead
+    (event.startsWith('tls.') && !PRINTED_TLS.has(event)) || // below warn; a refusal at warn or error is folded instead
     event === 'sweep.removed' ||
     event === 'report.conflict' ||
     event === 'report.accepted' ||

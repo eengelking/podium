@@ -297,10 +297,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   });
 
   /** The person's live certificate, or the latest revoked one, or null when they never had one. */
-  function certificateOf(personId: number): { notAfter: string; revoked: boolean } | null {
+  function certificateOf(personId: number): { notBefore: string; notAfter: string; revoked: boolean } | null {
     const all = certs?.people?.store.listFor(personId) ?? [];
     const c = all.find((x) => x.revokedAt === null) ?? all[0];
-    return c ? { notAfter: new Date(c.notAfter).toISOString(), revoked: c.revokedAt !== null } : null;
+    return c ? { notBefore: new Date(c.notBefore).toISOString(), notAfter: new Date(c.notAfter).toISOString(), revoked: c.revokedAt !== null } : null;
   }
 
   router.post('/people', async (req, res) => {

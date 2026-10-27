@@ -76,6 +76,8 @@ export interface HttpResult {
   status: number;
   ok: boolean;
   text: string;
+  /** Present when the reply came through the connection helper (#672); a plain fetch sets none. */
+  headers?: Record<string, string>;
 }
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<HttpResult>;
 
@@ -272,6 +274,19 @@ export class Transport {
           this.log(`podium-reporter: server rejected a report (${res.status}): ${res.text.slice(0, 200)}`);
         }
         return 'rejected';
+      }
+      if (res.status === 403 && res.headers?.['x-podium-helper-error'] === 'ROUTE_NOT_ALLOWED') {
+        // The connection helper, not the server, refused: it does not carry this route, so asking again changes nothing until the mod and the helper agree.
+        // A server's own 403 (a feature that is off) has no such header and falls through to the outage path (#672).
+        // The events stay queued: they go out once the mod and the helper agree.
+        this.nextAttemptAt = now + REFUSED_RETRY_MS;
+        this.lastSentAt = now;
+        this.lastError = 'the connection helper does not carry this route (403)';
+        if (!this.loggedReject) {
+          this.loggedReject = true;
+          this.log('podium-reporter: the connection helper refused a report (403 ROUTE_NOT_ALLOWED): update podium-reporter, then restart the session');
+        }
+        return 'refused';
       }
       if (res.status === 401) {
         // The token is wrong, revoked, or does not belong to the configured name. Keep the events, wait a long

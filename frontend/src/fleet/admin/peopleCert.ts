@@ -1,6 +1,6 @@
 // The Reporter certificate cell on Admin > People (#587, T9): the badge a person's certificate gets and what its note says.
 import type { PersonRow } from "./adminApi";
-import { dateOf, leftText, stageOf, type CertStage } from "./certFormat";
+import { dateOf, leftText, renewWithinDays, stageOf, type CertStage } from "./certFormat";
 
 export interface CertCell {
   /** Shape, word and color come from the stage; `off` is the grey of a credential that is not in use. */
@@ -22,7 +22,7 @@ export function certCell(p: PersonRow, tls: boolean, now: number): CertCell | nu
   if (c.revoked) return { stage: "off", text: "revoked", note: "Revoked. The reporter is refused.", live: false, downloadable: false };
   const date = dateOf(c.notAfter);
   // An expired certificate is not renewed (#665): the reporter cannot reach the reporter port with it, so an Admin reissues the config.
-  const stage = stageOf(c.notAfter, now);
+  const stage = stageOf(c.notAfter, now, renewWithinDays(c.notBefore, c.notAfter));
   if (stage === "expired") return { stage, text: "expired", note: `Expired ${date}. The reporter is refused and cannot renew. Reissue the config.`, live: false, downloadable: true };
   if (stage === "ok") return { stage: "ok", text: "valid", note: `Expires ${date}, ${leftText(c.notAfter, now)}.`, live: true, downloadable: true };
   // Ten days or fewer and still not renewed: the reporter has not connected in weeks, so the Admin should reissue in time.
