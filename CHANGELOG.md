@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **A performance audit of `development`, with the scripts to repeat it (#682).** `docs/PERFORMANCE.md` records what the server, the console and the reporter cost at an idle, a small, a medium and a large fleet, and ranks fifteen findings, each filed as its own issue. `scripts/podium-perf.mjs` measures the server (CPU, memory, event-loop delay, stream bytes), `scripts/podium-perf-browser.sh` an open tab, and `scripts/podium-perf-mod.mjs` the reporter's own code. Each starts a throwaway server and stops it. No product code changed.
+
 ### Fixed
 
 - **A permission prompt reaches the card on a Team or Enterprise login, and the console says sooner that it cannot be answered from Podium (#742).** Claude Code's guard `cc-plugin-sec-default` skips the mod's `classic.PermissionRequest` there, so the prompt never showed. The reporter now records it from `tool.check` resolving `ask` (waiting on a permission, with the tool and its input) once, even if the hook arrives late, and a session whose turn ended with no classic hook having run is marked as one that cannot be answered before its first prompt, not only after it. A `tool.check` hook cannot answer for the person, so answering stays in the terminal; plan feedback and questions still work. See SPEC 5.3 and the gotcha. Reporter only; the console and the server do not change.

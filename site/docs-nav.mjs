@@ -42,6 +42,7 @@ export const GROUPS = [
       { dir: "architecture", legacy: "ARCHITECTURE.md", slug: "architecture", label: "Architecture" },
       { dir: "decisions", legacy: "DECISIONS.md", slug: "decisions", label: "Decisions" },
       { dir: "gotchas", legacy: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
+      { file: "PERFORMANCE.md", slug: "performance", label: "Performance" },
       { file: "COMMUNITY.md", slug: "community", label: "Community" },
       { file: "THIRD_PARTY_NOTICES.md", slug: "third-party-notices", label: "Third-party notices" },
     ],
