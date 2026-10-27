@@ -322,8 +322,18 @@ keep planning" and messages can.
   one is not taken as final.
 - Verified: `tool.check` carries the call's `tool_use_id`, and where the hooks run it resolves to `ask` 3 to
   11 ms before `classic.PermissionRequest` fires, for Bash and for ExitPlanMode alike.
-- **Unverified (no managed setup available):** that no PermissionRequest fires in a managed setup, and so that
-  the method catches it.
+- **Observed on a Team or Enterprise login (#595, #742):** Claude Code's guard `cc-plugin-sec-default` runs first
+  and passes `classic.*` events on past the mod, so no PermissionRequest fires. Not reproduced here: no managed
+  setup was available, so the fallbacks are tested against the mock engine only.
+- Where the hook doesn't run, the `ask` records the prompt as a wait (waiting on a permission, with the tool and
+  its input), once even if the hook arrives late, with responding on or off (#741, #742). `no-permission-hooks` is
+  set as soon as a main-loop turn ends with no classic hook having run, not only after the first prompt; any
+  `classic.*` hook clears the doubt. A session whose only turns before its first hook were not user prompts reads
+  as "cannot be answered" until a PermissionRequest fires.
+- A `tool.check` hook cannot answer: it gives the verdict and never who answers it, and its `allow` does not
+  dismiss a dialog the person must answer. So a tool permission is answered in the terminal.
+- `classic.Stop` is the only source of `background`. Where it is skipped the reporter sends none and the wait
+  reads as `input` (#740).
 - The safety net for plans is the approval's `not-taken` fallback: an approval the session doesn't take is
   reported and left to the terminal. A tool ask needs none: it is announced from the PermissionRequest hook, so
   where that hook doesn't run there is no tool ask to answer.

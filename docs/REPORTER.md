@@ -341,3 +341,11 @@ How hook-only sessions behave:
 - A finishing subagent does not mark the session as waiting on you. The `Stop` hook does, unless it lists
   background work or a scheduled wake-up still in flight. Then the session shows what it is waiting on
   instead. Podium reads the hook's `background_tasks` and `session_crons`, never a shell's command.
+- Where Claude Code skips the `classic.*` hooks (a Team or Enterprise login, or managed settings, where its guard
+  `cc-plugin-sec-default` runs first and passes the event on past the mod), the `Stop` hook never runs and the
+  engine offers no other call that lists background shells, monitors or wake-ups. The card shows no background
+  work, and a session idle on it reads as waiting for you. Background subagents still show as agent cards (#740).
+- On the same login a permission prompt still shows as waiting, read from `tool.check` (#741), with responding on or
+  off. Podium cannot answer it: the engine does not let a `tool.check` hook answer for the person, so the console
+  says the session cannot be answered once a turn ends with no classic hook having run (#742). Questions and plan
+  feedback still work. See [the gotcha](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md).
