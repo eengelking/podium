@@ -94,3 +94,13 @@ describe("the display settings row", () => {
     expect(screen.getByRole("region", { name: "Display settings" })).toBeInTheDocument();
   });
 });
+
+describe("the Agents tree", () => {
+  it("has no table row without a table around it, and its sort buttons are a labelled group", () => {
+    window.history.replaceState(null, "", "#/?open=s1");
+    render(<FleetView state={stateFrom({ sessions: [makeSession({ id: "s1", name: "api-refactor" })] })} />);
+    expect(screen.queryAllByRole("row")).toHaveLength(0);
+    const sort = screen.getByRole("group", { name: "Sort the agents" });
+    expect(within(sort).getByRole("button", { name: "Cost" })).toBeInTheDocument();
+  });
+});

@@ -61,7 +61,7 @@ export function AgentTree(props: {
         </span>
       </div>
       <div className="tw" style={{ "--deep": deep } as CSSProperties}>
-        <div className="trow hd" role="row">
+        <div className="trow hd" role="group" aria-label="Sort the agents">
           <div>Task</div>
           {HEADERS.map((h) => {
             const on = sort.key === h.key;
