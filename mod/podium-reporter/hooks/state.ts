@@ -504,10 +504,13 @@ export function blowout(s: SessionState, agentId: string | null, kind: string, n
   const ctx = tokensAfter !== null && loop.window ? tokensAfter : loop.ctxTokens;
   let next = putLoop(s, agentId, { ...loop, blowouts: n, blowTimes: [...loop.blowTimes, now].slice(-20), ctxTokens: ctx });
   const after = tokensAfter !== null && loop.window ? `, compacted to ${Math.round((tokensAfter / loop.window) * 100)}%` : '';
+  // The window and the fill are recorded so a blowout that fired with the context far from full can be told apart (#687).
   next = addEvent(next, 'blow', agentId, `context window exceeded (blowout #${n}) ${loopLabel(s, agentId)}${after}`, now, {
     kind,
     tokensBefore,
     tokensAfter,
+    window: loop.window ?? null,
+    percent: loop.window && tokensBefore !== null ? Math.round((tokensBefore / loop.window) * 100) : null,
   });
   return next;
 }

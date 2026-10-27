@@ -84,7 +84,7 @@ evaluates to the result)
   `usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, model } | null`.
 - Per loop: record the model and the **observed effort**. Context tokens are `input + cache_read +
   cache_creation` of the latest step. Accumulate token totals and cost.
-- If `stopReason === "model_context_window_exceeded"` or `"compaction"`, record a blowout.
+- If `stopReason === "model_context_window_exceeded"` or `"compaction"`, record a blowout. The `blow` event's `data` carries the loop's `window` and how full it was (`percent`, `null` when the window or the tokens before are unknown), so a blowout that fired far from full can be told apart (#687).
 - With the `activityFeed` option on and the loop watched ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)):
   - read the stream with `for await (const chunk of stream)`;
   - yield every chunk on, unchanged and in order;
