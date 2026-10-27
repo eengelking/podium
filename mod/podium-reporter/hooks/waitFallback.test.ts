@@ -36,8 +36,10 @@ function world(on: On) {
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('http.fetch', (_$, e) => {
     const body = JSON.parse(e.init?.body ?? '{}') as Report
+    // Responding adds calls of its own (an ask's announcement, its answer poll): only the report is a report.
+    if (!new URL(e.url).pathname.endsWith('/report')) return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true }) } }
     posts.push(body)
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 1, watch: [], serverVersion: '1.1.0', serverBuild: null }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 1, watch: [], respond: true, messages: [], serverVersion: '1.1.0', serverBuild: null }) } }
   })
   on('session.start', () => ({ cwd: CWD }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -119,5 +121,35 @@ describe('waiting on a permission prompt without classic hooks (#741)', () => {
     await $.tool.check({ ...BASH, tool_use_id: 'toolu_w4' } as never)
     await w.clock.advance(2500)
     expect(waits(w)).toHaveLength(0)
+  })
+})
+
+// #764: an ExitPlanMode ask, or a subagent's, takes the same path as any other tool's, so the card says what it says
+// with the classic hooks, and the session offers only what can work without them.
+describe('a plan or a subagent prompt without classic hooks (#764)', () => {
+  const ON = { respond: 'everything', activityFeed: true }
+  const PLAN = { plan: '# Plan\n\n1. Page it', planFilePath: '/Users/dev/.claude/plans/wise.md' }
+
+  test('a plan ask is a wait on the card, and the session stops offering approval but keeps feedback', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.tool.check({ tool: 'ExitPlanMode', input: PLAN, tool_use_id: 'toolu_plan1' } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(1000)
+    const last = w.posts.at(-1)!.session
+    expect(last).toMatchObject({ status: 'waiting', waitReason: 'permission' })
+    expect(last.waitNote).toMatch(/^ExitPlanMode\(/)
+    expect(last.respond!.limits).toContain('no-permission-hooks')
+    expect(last.respond!.accepts).not.toContain('plan-approve')
+    expect(last.respond!.accepts).toContain('plan-feedback')
+  })
+
+  test('a subagent prompt waits the session, the same as a main-loop one', async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.tool.check({ ...BASH, tool_use_id: 'toolu_sub1', agentId: 'agent-1' } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ status: 'waiting', waitReason: 'permission', waitNote: 'Bash(rm -rf dist)' })
   })
 })
