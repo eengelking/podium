@@ -301,6 +301,8 @@ let classicSeen = false;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** Calls that ended while their tool.check was still waiting for a PermissionRequest: answered, so no prompt is left to show (#741). */
+let endedChecks = new Set<string>();
 /** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
 let callSeqs = new Map<string, number>();
 /** A /clear or /compact sent from Podium and running now: the first mark of that kind is Podium's, and only while the command runs (#353). */
@@ -1250,7 +1252,7 @@ function startPermissionCheck($: Engine, id: string, tool: string, input: unknow
       if (lastPermissionAt >= startedAt || !rt) return;
       permissionHooks = false;
       rt.state = { ...rt.state, dirty: true };
-      recordPermission(rt, tool, input);
+      if (!endedChecks.delete(id)) recordPermission(rt, tool, input);
     });
     checks.set(id, h);
   } catch {
@@ -1998,6 +2000,7 @@ export const register: Register = (on, rawOptions) => {
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  endedChecks = new Set();
   callSeqs = new Map();
   ranFromPodium = null;
   messagesLineShown = false;
@@ -2191,6 +2194,7 @@ export const register: Register = (on, rawOptions) => {
     }
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
+      if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
@@ -2208,7 +2212,8 @@ export const register: Register = (on, rawOptions) => {
     const res = await next(e);
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
-      if (opts.respond !== 'off' && id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input);
+      // Not gated on responding (#741): the wait on the card does not depend on Podium answering.
+      if (id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input);
     });
     return res;
   }).catch(($, e, next) => next(e));
