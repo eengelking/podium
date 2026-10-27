@@ -44,6 +44,18 @@ Close the note with its X to turn it off. Admin > Settings turns it back on and 
 wall. A one-off `claude -p` run reads the same way, because it never has a window. This needs the mod at 0.7.0 or later.
 An older mod's sessions are never marked.
 
+## Sessions in the Claude desktop app
+
+The Claude desktop app keeps every session in its sidebar open, and it puts a window on only the one you are looking at.
+Podium does not treat the others as background sessions. A desktop session stays on the wall, without the "nobody
+attached" chip, until it ends. Switching to another session or closing its view does not end it. Deleting it from the
+sidebar does, and its card leaves the wall.
+
+This needs a mod with the fix for #594. Older mods show a desktop session you are not looking at as "nobody attached" and
+hide it after a minute. The gotcha
+[A session in the Claude desktop app stays on the wall until I delete it](../../gotchas/desktop-session-stays-on-the-wall-until-deleted.md)
+has the short version.
+
 <!-- nav:start -->
 ---
 
