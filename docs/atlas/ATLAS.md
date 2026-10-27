@@ -117,7 +117,7 @@ passed on, so a bug in Podium cannot fail a tool call.
 | Reporter | `tool.check` | Runs where a permission prompt is about to show, and checks that a permission request follows. If none does, the permission hooks are not running here. |
 | Reporter | `session.compact` | Records a compaction and its before and after token counts. |
 | Reporter | `classic.SessionStart`, `classic.UserPromptSubmit` | Carry Claude Code's own session title, so a `/rename` shows from the next prompt. Also notice a move to a new folder. |
-| Reporter | Git timer | Reads the branch, ahead and behind counts and changed files every 10 s. |
+| Reporter | Git timer | Reads the branch, ahead and behind counts and changed files every 10 s, and on every third run the Claude desktop app's title for the session (`claude agents --json`). |
 | Reporter | `command.run` (`/podium`) | The `/podium` command: shows the link and connection state, names the session, and answers a messaging request. |
 | Reporter | `session.attach`, `session.detach` | A client joining or leaving: reads the list of attached clients at once, so a background session is told from one with someone on it. |
 | Reporter | `skill.prompt` | Records a skill loading, unless a `Skill` tool call or a running agent already accounts for it. |

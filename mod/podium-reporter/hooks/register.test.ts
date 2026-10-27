@@ -52,6 +52,8 @@ interface World {
   devBuild: { value: string | null }
   /** What `hostname` and macOS's `scutil --get LocalHostName` print; `local` null is a machine with no `scutil` (it exits 1). */
   hosts: { hostname: string; local: string | null }
+  /** What `claude agents --json` lists (#595); null is a machine where the command fails. */
+  agents: { value: { sessionId: string; name?: string }[] | null }
   /** Every status line the plugin set. */
   statuses: (string | undefined)[]
   /** What the server's reply says about itself: its build (#400). */
@@ -95,6 +97,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const gitAt: World['gitAt'] = {}
   const devBuild: World['devBuild'] = { value: null }
   const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
+  const agents: World['agents'] = { value: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
   const fetched: World['fetched'] = []
@@ -133,6 +136,9 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('ui.log', () => ({ value: undefined }))
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
+    if (e.argv[0] === 'claude' && e.argv[1] === 'agents') {
+      return { value: { exitCode: agents.value === null ? 1 : 0, stdout: agents.value === null ? '' : JSON.stringify(agents.value), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (e.argv[1] === '-C') {
       // the mod's own folder: a dev checkout names a commit, an installed copy is no repository (#400)
       const sub = e.argv.slice(3).join(' ')
@@ -194,7 +200,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -574,6 +580,50 @@ describe('podium-reporter end to end', () => {
     await $.command.run(podium('name explicit'))
     await w.clock.advance(1000)
     expect(w.posts.at(-1)!.session.name).toBe('explicit')
+  })
+
+  test("the app's title from `claude agents --json` names a session no hook gave a title (#595)", async ($, on) => {
+    const w = world(on)
+    w.agents.value = [
+      { sessionId: 'someone-else', name: 'Other session' },
+      { sessionId: SID, name: '  Panel de agentes  ' },
+    ]
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    expect(w.ran).toContainEqual(['claude', 'agents', '--json'])
+    expect(w.posts.at(-1)!.session.name).toBe('Panel de agentes')
+    // the app's rename shows from the next poll
+    w.agents.value = [{ sessionId: SID, name: 'Renamed in the sidebar' }]
+    await w.clock.advance(30_000)
+    expect(w.posts.at(-1)!.session.name).toBe('Renamed in the sidebar')
+  })
+
+  test("a hook's title outranks the app's, and /podium name outranks both (#595)", async ($, on) => {
+    const w = world(on)
+    w.agents.value = [{ sessionId: SID, name: 'From the app' }]
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'From the hook' })
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.name).toBe('From the hook')
+    await $.command.run(podium('name explicit'))
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.name).toBe('explicit')
+  })
+
+  test("a failing or unlisted `claude agents --json` leaves the name alone, and the app's title does not carry over to a new id (#595)", async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.name).toBe('x')
+    w.agents.value = [{ sessionId: SID, name: 'From the app' }]
+    await w.clock.advance(30_000)
+    expect(w.posts.at(-1)!.session.name).toBe('From the app')
+    w.sessionId.value = 'sess-after-clear'
+    w.agents.value = null
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.id).toBe('sess-after-clear')
+    expect(w.posts.at(-1)!.session.name).toBe('x')
   })
 
   test("Claude Code's name does not carry over to a new session id (#322)", async ($, on) => {
