@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRespond, type SignInResult } from "../useRespond";
 import { Modal } from "./Modal";
 
@@ -165,8 +165,17 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
   const ctx = useRespond();
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
+  const who = useRef<HTMLSpanElement>(null);
+  const signedIn = ctx?.me?.signedIn === true;
+  // The Sign in button the dialog came from is replaced by who is signed in, so focus goes there and not to the page (#636).
+  // Only for a sign-in that finishes just after the dialog closes, not one made in another tab.
+  const closedAt = useRef(0);
+  useEffect(() => {
+    if (signedIn && Date.now() - closedAt.current < 3000) who.current?.focus();
+  }, [signedIn]);
   if (!ctx?.me?.enabled) return null;
   const close = () => {
+    closedAt.current = Date.now();
     setOpen(false);
     opener.current?.focus();
   };
@@ -175,7 +184,7 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
       <span className="tb-sep" aria-hidden="true" />
       {ctx.me.signedIn ? (
         <span className="tb-me">
-          <span className="tb-who">
+          <span className="tb-who" ref={who} tabIndex={-1}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <circle cx="8" cy="5.5" r="2.7" />
               <path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4" />

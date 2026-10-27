@@ -94,6 +94,17 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   const api = useMemo(() => makeApi(base), [base]);
   const client = useMemo(() => makeReportsClient(base, api), [base, api]);
   const [status, setStatus] = useState<Status>("checking");
+  // The lock form is gone once Admin opens, so focus goes to the page's heading and not to the top of the document (#636).
+  const focusPage = useRef(false);
+  useEffect(() => {
+    if (status !== "open" || !focusPage.current) return;
+    focusPage.current = false;
+    const h = document.querySelector<HTMLElement>(".adminv h1");
+    if (h) {
+      h.tabIndex = -1;
+      h.focus();
+    }
+  }, [status]);
   const [notice, setNotice] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [build, setBuild] = useState<string | null>(null);
@@ -216,7 +227,7 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
           {status === "locked" && (
             <div className="solo">
               <div className="solo-in">
-                <LockForm api={api} notice={notice} onUnlocked={() => (setNotice(""), setStatus("open"))} />
+                <LockForm api={api} notice={notice} onUnlocked={() => (setNotice(""), (focusPage.current = true), setStatus("open"))} />
               </div>
               <AdminFoot version={version} build={build} />
             </div>

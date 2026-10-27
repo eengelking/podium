@@ -150,3 +150,29 @@ describe("sign-in for session recording (#353)", () => {
     expect(screen.getByText("To answer and message your own sessions")).toBeInTheDocument();
   });
 });
+
+describe("focus after a successful sign-in (#636)", () => {
+  it("moves to who is signed in, because the Sign in button it came from is gone", async () => {
+    let signed = false;
+    const a = {
+      me: vi.fn(async () => (signed ? { enabled: true, signedIn: true, name: "Ed", admin: false } : OUT)),
+      signIn: vi.fn(async () => {
+        signed = true;
+        return {};
+      }),
+    } as unknown as RespondApi;
+    show(a, { flagsOn: true });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    const d = within(screen.getByRole("dialog"));
+    fireEvent.change(d.getByLabelText("Name"), { target: { value: "Ed" } });
+    fireEvent.change(d.getByLabelText("Token"), { target: { value: "tok" } });
+    fireEvent.click(d.getByRole("button", { name: "Sign in" }));
+    await flush();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toHaveClass("tb-who");
+    expect(document.activeElement).toHaveTextContent("Signed in as Ed");
+  });
+});
+
