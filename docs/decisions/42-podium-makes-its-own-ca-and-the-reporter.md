@@ -29,7 +29,7 @@ and the certificate with its private key, the way `kubeadm` and `kubectl` do. `d
 - The reporter makes its TLS connection through a small Node helper, started per session, because the mod's
   `$.http.fetch` accepts no CA or certificate. The mod sends its requests to the helper over a Unix socket.
 - Revoking the certificate, the token, or both are separate actions. The server checks revocation on every
-  request. Plain HTTP stays on the address the server is bound to (any address, loopback or `0.0.0.0`), so an Admin can always sign in (33 still applies to both ports).
+  request. The console stays on plain HTTP on the address the server is bound to (any address, loopback or `0.0.0.0`), so an Admin can always sign in (33 still applies to both ports). The reporter routes on that port are refused unless an Admin has allowed reporters over HTTP or the caller is on loopback (#665, #672).
 - Serving certificates renew themselves, person certificates renew from the reporter, and the CA rotates only
   by hand, with a cross-signed overlap when planned.
 - Reporters over HTTP are an Admin switch, on for an existing install and off for a fresh one that enables TLS.

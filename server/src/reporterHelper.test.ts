@@ -417,6 +417,58 @@ describe('helper.mjs: it forwards the reporter routes and nothing else (#668)', 
   });
 });
 
+describe('helper.mjs: writeAtomic (#672)', () => {
+  const load = async () => ((await import(/* @vite-ignore */ HELPER)) as { writeAtomic: (file: string, text: string) => void }).writeAtomic;
+
+  it('writes the file at mode 0600 and leaves no temporary file', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const file = path.join(dir, 'config.pem');
+    writeAtomic(file, 'one');
+    writeAtomic(file, 'two');
+    expect(fs.readFileSync(file, 'utf8')).toBe('two');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+  });
+
+  it('follows a destination that is a symlink: the target changes, the link stays a link, and no temporary file is left in either folder', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const other = tmp();
+    const target = path.join(other, 'target.pem');
+    const link = path.join(dir, 'config.pem');
+    fs.writeFileSync(target, 'original');
+    fs.symlinkSync(target, link);
+    writeAtomic(link, 'new');
+    expect(fs.readFileSync(target, 'utf8')).toBe('new');
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+    expect(fs.readdirSync(other)).toEqual(['target.pem']);
+  });
+
+  it('throws for a symlink whose target is missing, and creates nothing', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const link = path.join(dir, 'config.pem');
+    fs.symlinkSync(path.join(dir, 'gone.pem'), link);
+    expect(() => writeAtomic(link, 'new')).toThrow();
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+  });
+
+  it('does not write through a symlink planted at the temporary name', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const file = path.join(dir, 'config.pem');
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'untouched');
+    fs.symlinkSync(victim, `${file}.${process.pid}.tmp`);
+    writeAtomic(file, 'new');
+    expect(fs.readFileSync(victim, 'utf8')).toBe('untouched');
+    expect(fs.readFileSync(file, 'utf8')).toBe('new');
+  });
+});
+
 describe('helper.mjs: headerUser', () => {
   it('reads the name from the user line, line by line, however many blanks surround it', async () => {
     const { headerUser } = (await import(/* @vite-ignore */ HELPER)) as { headerUser: (t: string) => string };

@@ -62,6 +62,16 @@ describe("the Reporter certificate cell", () => {
     expect(dead.note).toBe(`Expired ${day(-8).slice(0, 10)}. The reporter is refused and cannot renew. Reissue the config.`);
     expect(certCell(person({ notAfter: day(-51), revoked: false }), true, NOW)).toMatchObject({ stage: "expired", text: "expired" });
   });
+  it("is due when the reporter would renew: 30 days left, or half the lifetime when that is shorter (#672)", () => {
+    // A 30-day certificate, 29 days left: the reporter waits until day 15, so it is not due yet.
+    expect(certCell(person({ notBefore: day(-1), notAfter: day(29), revoked: false }), true, NOW)).toMatchObject({ stage: "ok", text: "valid" });
+    expect(certCell(person({ notBefore: day(-16), notAfter: day(14), revoked: false }), true, NOW)).toMatchObject({ stage: "soon", text: "renewal due" });
+    // A 90-day certificate keeps the 30-day line, and a row with no start date does too.
+    expect(certCell(person({ notBefore: day(-40), notAfter: day(50), revoked: false }), true, NOW)).toMatchObject({ stage: "ok" });
+    expect(certCell(person({ notBefore: day(-70), notAfter: day(20), revoked: false }), true, NOW)).toMatchObject({ stage: "soon" });
+    expect(certCell(person({ notAfter: day(29), revoked: false }), true, NOW)).toMatchObject({ stage: "soon" });
+    expect(certCell(person({ notBefore: day(40), notAfter: day(29), revoked: false }), true, NOW)).toMatchObject({ stage: "soon" });
+  });
 });
 
 describe("the People table", () => {
@@ -230,6 +240,18 @@ describe("the confirmation row", () => {
     fireEvent.click(within(confirmRow() as HTMLElement).getByRole("button", { name: "Cancel" }));
     expect(confirmRow()).toBeNull();
     expect(s.calls.filter((c) => c.startsWith("POST /people/"))).toEqual([]);
+  });
+
+  it("Escape and Cancel close the confirmation and return focus to that row's Actions button (#672)", async () => {
+    await open();
+    for (const close of ["Escape", "Cancel"]) {
+      choose("person-000", "Revoke certificate");
+      const ask = confirmRow() as HTMLElement;
+      if (close === "Escape") fireEvent.keyDown(within(ask).getByRole("button", { name: "Revoke certificate" }), { key: "Escape" });
+      else fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+      expect(confirmRow()).toBeNull();
+      expect(within(rowOf("person-000")).getByLabelText("Actions for person-000"), close).toHaveFocus();
+    }
   });
 
   it("tells an Administrator's revoke that their open Admin session locks, and shows a refusal in place", async () => {
