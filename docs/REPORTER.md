@@ -149,7 +149,7 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   | `config too open` | Others can read the file. Run `chmod 600` on it |
   | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
   | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
-  | `config unreadable` | The file is missing or is not a Podium reporter config. When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
+  | `config unreadable` | The file is missing or is not a Podium reporter config. The status line adds the reason when the helper gave one (for example that the file holds more than one person certificate). When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
   | `certificate expired` | Your certificate expired on the date the message gives, and an expired certificate is not renewed. Ask an Admin to generate a new reporter config |
   | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |
@@ -341,3 +341,12 @@ How hook-only sessions behave:
 - A finishing subagent does not mark the session as waiting on you. The `Stop` hook does, unless it lists
   background work or a scheduled wake-up still in flight. Then the session shows what it is waiting on
   instead. Podium reads the hook's `background_tasks` and `session_crons`, never a shell's command.
+- Where Claude Code skips the `classic.*` hooks (a Team or Enterprise login, or managed settings, where its guard
+  `cc-plugin-sec-default` runs first and passes the event on past the mod), the `Stop` hook never runs and the
+  engine offers no other call that lists background shells, monitors or wake-ups. The card shows no background
+  work, and a session idle on it reads as waiting for you. Background subagents still show as agent cards (#740).
+- On the same login a permission prompt still shows as waiting, read from `tool.check` (#741), with responding on or
+  off. Podium cannot answer it: the engine does not let a `tool.check` hook answer for the person, so the console
+  says the session cannot be answered once a turn ends with no classic hook having run (#742). Questions and plan
+  feedback still work. A plan waiting for approval and a subagent's prompt show the same way, as a wait on a
+  permission (`ExitPlanMode(…)` for a plan), and the console offers a plan only feedback, not approval (#764). See [the gotcha](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md).

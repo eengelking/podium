@@ -79,6 +79,12 @@ function reporterPortOnly(app: RequestListener): RequestListener {
   };
 }
 
+/** OpenSSL's "<id>:error:<code>:SSL routines:<function>:<reason>:<file>:<line>:" down to the reason, so the same refusal reads alike and a log line stays short. The full text stays in the `reason` field. */
+export function shortReason(message: string): string {
+  const m = /routines:[^:]*:([^:]+):/.exec(message);
+  return m?.[1] ?? message;
+}
+
 /** Starts HTTPS when `PODIUM_TLS=on`. Resolves to null when it is off or could not start; HTTP is never touched. */
 export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> {
   if (o.env.PODIUM_TLS !== 'on') return null;
@@ -179,9 +185,13 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
   }
   // Without a handler a later socket-level error would be an uncaught exception that takes HTTP down with it.
   server.on('error', (err) => o.logger.error('tls.server_error', `podium: the HTTPS server reported an error: ${err.message}`, { reason: err.message }));
-  server.on('tlsClientError', (err) => o.logger.warn('tls.handshake_failed', `podium: a TLS handshake failed: ${err.message}`, { reason: err.message }));
+  // The message names the reason Node gives and not the source, so a scanner's repeats fold into one text line (`foldedInText`); the source is a field.
+  server.on('tlsClientError', (err: Error & { code?: string }, socket: TLSSocket) => {
+    const reason = err.code ? `${err.code}: ${shortReason(err.message)}` : shortReason(err.message);
+    o.logger.warn('tls.handshake_failed', `podium: a TLS handshake failed: ${reason}`, { reason: err.message, code: err.code, remote: socket.remoteAddress });
+  });
   const serving = renewer.view().serving;
-  o.logger.info('tls.listening', `Podium HTTPS listening on https://${o.bind}:${p.port}`, {
+  o.logger.info('tls.listening', `Podium HTTPS listening on https://${o.bind}:${p.port} for reporters (CA ${material.ca.fingerprintSha256.slice(0, 23)}, expires ${material.ca.notAfter})`, {
     bind: o.bind,
     port: p.port,
     ca_fingerprint_sha256: material.ca.fingerprintSha256,

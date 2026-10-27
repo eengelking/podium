@@ -391,7 +391,7 @@ menu and the page scroll on their own.
   gives the date and what happens next; the token's is `pdm_<key id>`, as the Reporters page names it, and no
   page ever shows any of the secret (#218). There is no Status column. The Group select sits under the person's
   name and "created" under Last report (#587).
-- **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left; the reporter renews it itself),
+- **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left, or half the certificate's lifetime when that is shorter, the point where the reporter renews it itself),
   *lapses soon* (the certificate is close to its end and the reporter has not renewed it, so reissue the config in
   time), *expired* (the reporter is refused and cannot renew: reissue the config), *revoked* or *none*. With TLS off the cell says "TLS is off" and the certificate actions
   are disabled.

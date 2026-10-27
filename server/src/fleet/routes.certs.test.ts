@@ -155,7 +155,7 @@ describe('creating a person with TLS on', () => {
 });
 
 describe('the People list (#587)', () => {
-  const list = async (s: Awaited<ReturnType<typeof setup>>) => (await s.admin.get('/api/admin/people').set(H)).body as { tls: boolean; rows: { name: string; certificate: { notAfter: string; revoked: boolean } | null }[] };
+  const list = async (s: Awaited<ReturnType<typeof setup>>) => (await s.admin.get('/api/admin/people').set(H)).body as { tls: boolean; rows: { name: string; certificate: { notBefore: string; notAfter: string; revoked: boolean } | null }[] };
 
   it('says each person\'s certificate: its expiry while live, revoked after, and none for a person without one', async () => {
     const s = await setup();
@@ -167,7 +167,7 @@ describe('the People list (#587)', () => {
     expect(out.tls).toBe(true);
     expect(out).not.toHaveProperty('graceDays');
     const by = Object.fromEntries(out.rows.map((r) => [r.name, r.certificate]));
-    expect(by.Alma).toEqual({ notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
+    expect(by.Alma).toEqual({ notBefore: new Date(s.store.current(a.person.id)!.notBefore).toISOString(), notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
     expect(by.Bo).toMatchObject({ revoked: true });
     expect(by.Cy).toBeNull();
     expect(JSON.stringify(out)).not.toContain('PRIVATE KEY');

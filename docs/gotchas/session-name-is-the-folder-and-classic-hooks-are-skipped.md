@@ -22,9 +22,24 @@ organization's settings hooks without running the mod's. The reporter's `classic
 `classic.Notification` and `classic.PermissionRequest`.
 
 **Do:** Update the mod to the release with the fix for #595. It reads the session's title from `claude agents --json`
-instead ([SPEC 6.6](../spec/06-reporter-protocol/06-06-session-display-name.md)), so the name is right again. Background
-tasks, crons, notification signals and answering permission prompts have no such fallback yet and wait on the
-organization allowing the mod's `classic.*` hooks; set the name by hand with `/podium name <text>` in the meantime.
+instead ([SPEC 6.6](../spec/06-reporter-protocol/06-06-session-display-name.md)), so the name is right again. The other
+three hooks:
+
+- `classic.Stop` (#740): no fix exists. It is the only place Claude Code lists a session's background tasks and
+  crons. `$.agent.list()` covers agents only, `claude agents --json` has no task list, and mirroring `tool.call`
+  for `run_in_background`, `Monitor` and `CronCreate` gives launches but never completions. The card shows no
+  background work, and a session idle on it reads as waiting for you. Background subagents still show as agent cards.
+- `classic.Notification` (#741): a permission prompt still puts the session on the wall as waiting. The reporter
+  reads it from `tool.check` resolving `ask` when no `PermissionRequest` follows within 2 seconds, with responding on
+  or off, and drops the wait if the call ends first. Idle needs nothing, since `turn.complete` marks the session
+  idle. Other notification types (`auth_success`, `elicitation_dialog`) have no other source, and the reporter never
+  used them.
+- `classic.PermissionRequest` (#742): the prompt reaches the card from `tool.check`, and the console says the session
+  cannot be answered from Podium as soon as a turn ends with no classic hook having run, not only after the first
+  prompt. The engine does not let a `tool.check` hook answer for the person, so answer a permission prompt in the
+  terminal. Plan feedback and questions still work. Plan approval needs the hook.
+
+Set the name by hand with `/podium name <text>` in the meantime if the app's title does not come through.
 
 <!-- nav:start -->
 ---

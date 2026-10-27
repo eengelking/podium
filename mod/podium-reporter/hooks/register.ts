@@ -284,6 +284,8 @@ const HOLD_SECONDS = 20;
 const APPROVAL_CONFIRM_MS = 5000;
 /** How long after tool.check says `ask` a PermissionRequest must fire before the hooks are taken as not running. */
 const PERMISSION_CHECK_MS = 2000;
+/** The `checks` key of the watch for a turn that ended with no classic hook run (#742). */
+const HOOKS_CHECK = 'hooks-check';
 
 let asks = new Map<string, OpenAsk>();
 let outbox: OutItem[] = [];
@@ -294,9 +296,13 @@ let diffsDone: string[] = [];
 /** null until known; false once a prompt showed with no PermissionRequest; true once one fired. */
 let permissionHooks: boolean | null = null;
 let lastPermissionAt = 0;
+/** Whether any classic hook has run in this session; a login that skips them never sets it (#742). */
+let classicSeen = false;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** Calls that ended while their tool.check was still waiting for a PermissionRequest: answered, so no prompt is left to show (#741). */
+let endedChecks = new Set<string>();
 /** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
 let callSeqs = new Map<string, number>();
 /** A /clear or /compact sent from Podium and running now: the first mark of that kind is Podium's, and only while the command runs (#353). */
@@ -1198,6 +1204,7 @@ function permissionSeen(r: Runtime, id: string | null): void {
   if (id) {
     checks.get(id)?.cancel();
     checks.delete(id);
+    endedChecks.delete(id);
   }
   if (permissionHooks !== true) {
     permissionHooks = true;
@@ -1205,8 +1212,39 @@ function permissionSeen(r: Runtime, id: string | null): void {
   }
 }
 
-/** tool.check said a prompt is about to show: if no PermissionRequest follows, the hooks don't run here (SPEC 5.3). */
-function startPermissionCheck($: Engine, id: string): void {
+/** A prompt on the card, once: the PermissionRequest hook and the tool.check fallback (#742) may both report the same one. */
+function recordPermission(r: Runtime, tool: string, input: unknown): void {
+  const next = permissionRequest(r.state, tool, input, nowMs());
+  if (r.state.waitReason === 'permission' && r.state.waitNote === next.waitNote) return;
+  r.state = next;
+}
+
+/**
+ * A turn ended and no classic hook has run at all: a login that skips them (#742), so a prompt cannot be answered
+ * from Podium, said now and not only after the first prompt.
+ */
+function startHooksCheck($: Engine): void {
+  checks.get(HOOKS_CHECK)?.cancel();
+  try {
+    checks.set(
+      HOOKS_CHECK,
+      $.clock.after(PERMISSION_CHECK_MS, () => {
+        checks.delete(HOOKS_CHECK);
+        if (classicSeen || permissionHooks !== null || !rt) return;
+        permissionHooks = false;
+        rt.state = { ...rt.state, dirty: true };
+      }),
+    );
+  } catch {
+    // no clock: leave it unknown
+  }
+}
+
+/**
+ * tool.check said a prompt is about to show: if no PermissionRequest follows, the hooks don't run here (SPEC 5.3), and
+ * the prompt is put on the card from what tool.check saw (#742).
+ */
+function startPermissionCheck($: Engine, id: string, tool: string, input: unknown): void {
   const startedAt = nowMs();
   checks.get(id)?.cancel();
   try {
@@ -1215,6 +1253,7 @@ function startPermissionCheck($: Engine, id: string): void {
       if (lastPermissionAt >= startedAt || !rt) return;
       permissionHooks = false;
       rt.state = { ...rt.state, dirty: true };
+      if (!endedChecks.delete(id)) recordPermission(rt, tool, input);
     });
     checks.set(id, h);
   } catch {
@@ -1958,9 +1997,11 @@ export const register: Register = (on, rawOptions) => {
   acted = [];
   permissionHooks = null;
   lastPermissionAt = 0;
+  classicSeen = false;
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  endedChecks = new Set();
   callSeqs = new Map();
   ranFromPodium = null;
   messagesLineShown = false;
@@ -2055,6 +2096,7 @@ export const register: Register = (on, rawOptions) => {
     safe('turn.complete', (r) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
     });
+    if (!e.agentId && opts.respond !== 'off' && !classicSeen && permissionHooks === null) startHooksCheck($);
     return res;
   }).catch(($, e, next) => next(e));
 
@@ -2153,6 +2195,7 @@ export const register: Register = (on, rawOptions) => {
     }
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
+      if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
@@ -2170,7 +2213,8 @@ export const register: Register = (on, rawOptions) => {
     const res = await next(e);
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
-      if (opts.respond !== 'off' && id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id);
+      // Not gated on responding (#741): the wait on the card does not depend on Podium answering.
+      if (id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input);
     });
     return res;
   }).catch(($, e, next) => next(e));
@@ -2201,8 +2245,9 @@ export const register: Register = (on, rawOptions) => {
 
   on('classic.PermissionRequest', async ($, e, next) => {
     const agentId = (e as { agent_id?: string }).agent_id;
+    classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
-      r.state = permissionRequest(r.state, e.tool_name, e.tool_input, nowMs());
+      recordPermission(r, e.tool_name, e.tool_input);
       const call = lastCalls.get(loopKey(agentId));
       permissionSeen(r, call && call.tool === e.tool_name ? call.id : null);
     });
@@ -2222,6 +2267,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.Notification', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.Notification', (r) => {
       r.state = notification(r.state, e.notification_type, e.message, nowMs());
     });
@@ -2230,12 +2276,14 @@ export const register: Register = (on, rawOptions) => {
 
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
     return next(e);
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
     return next(e);
@@ -2244,6 +2292,7 @@ export const register: Register = (on, rawOptions) => {
   // The Stop hook lists the background work and scheduled wake-ups still in flight (#119): a session idle on
   // them is not waiting on the person.
   on('classic.Stop', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.Stop', (r) => {
       const now = nowMs();
       const crons = (e.session_crons ?? []).map((c) => ({ ...c, nextAt: nextCronAt(c.schedule, now) }));

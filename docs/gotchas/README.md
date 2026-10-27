@@ -64,6 +64,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [Rows that read "Not since restart" and never go away](not-since-restart-rows-never-go-away.md): A container's address changes on each restart and leaves an addr row behind; remove the rows in Admin or turn on Forget old reporters.
 - [I changed my reporter settings and a running session did not change who it reports as](running-session-keeps-its-old-identity.md): A session takes its name and token once, when it starts; quit Claude Code and start a new session, or set PODIUM_USER and PODIUM_TOKEN.
 - [The status line says "refused: session belongs to someone else"](refused-session-belongs-to-someone-else.md): The server refuses reports for a session owned by another person; quit Claude Code and start a new session.
+- [A refused client certificate shows as "socket hang up", not a TLS alert](refused-client-certificate-looks-like-a-reset.md): Under TLS 1.3 the reporter port refuses a bad client certificate after the handshake, so it reads as a reset; check the certificate, not the network.
 
 **Running the server**
 

@@ -115,6 +115,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/architecture/` | How it was built, departures from the spec, verification, known issues |
 | `docs/decisions/` | Why a significant choice was made |
 | `docs/gotchas/` | Sharp edges that are easy to hit |
+| `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
 | `docs/atlas/ATLAS.md` | A table of every part of Podium and every reporter hook, and where each runs. `docs/atlas/podium-atlas.html` is its interactive companion |

@@ -20,5 +20,5 @@ order: 15
 <!-- nav:start -->
 ---
 
-Previous: [podiumctl start fails with "port N ... is already in use"](podiumctl-start-port-already-in-use.md) · Up: [Gotchas](README.md) · Next: [On macOS the first podiumctl start takes a while](first-start-on-macos-takes-a-while.md)
+Previous: [A refused client certificate shows as "socket hang up", not a TLS alert](refused-client-certificate-looks-like-a-reset.md) · Up: [Gotchas](README.md) · Next: [On macOS the first podiumctl start takes a while](first-start-on-macos-takes-a-while.md)
 <!-- nav:end -->

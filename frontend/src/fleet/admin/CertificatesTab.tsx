@@ -23,6 +23,12 @@ export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminA
   const [renewErr, setRenewErr] = useState("");
   const [asking, setAsking] = useState(false);
   const cancelBtn = useRef<HTMLButtonElement>(null);
+  const rotateBtn = useRef<HTMLButtonElement>(null);
+  /** Closes the question without acting and puts focus back on the button that opened it (#672). */
+  const closeAsk = () => {
+    setAsking(false);
+    rotateBtn.current?.focus();
+  };
   // The safe choice takes focus when the question opens: moved in code, not with autoFocus, which Sonar flags (S9379).
   useEffect(() => {
     if (asking) cancelBtn.current?.focus();
@@ -124,12 +130,12 @@ export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminA
               <p className="hint ink2">Creates a new CA. Reporters keep working through an overlap while they pick up the new CA when they renew. You retire the old CA when none are left.</p>
               {noOverlap && <p className="hint ink2">This CA was made before rotation with an overlap was possible, so only a rotation that ends the overlap now is open to it.</p>}
             </div>
-            <button type="button" className={caExpired ? "btn pri" : "btn dng"} disabled={busy} aria-expanded={asking} onClick={() => setAsking(true)}>
+            <button ref={rotateBtn} type="button" className={caExpired ? "btn pri" : "btn dng"} disabled={busy} aria-expanded={asking} onClick={() => setAsking(true)}>
               Rotate CA…
             </button>
           </div>
           {asking && (
-            <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && setAsking(false)}>
+            <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && closeAsk()}>
               <IconWarn className="wicon" />
               <h3>Rotate the certificate authority?</h3>
               {noOverlap ? (
@@ -149,7 +155,7 @@ export function CertificatesTab({ api, onLocked, now = Date.now }: { api: AdminA
                 <button type="button" className="btn dng" onClick={() => void rotate(true)}>
                   Rotate CA and end the overlap now
                 </button>
-                <button ref={cancelBtn} type="button" className="btn" onClick={() => setAsking(false)}>
+                <button ref={cancelBtn} type="button" className="btn" onClick={closeAsk}>
                   Cancel
                 </button>
               </p>

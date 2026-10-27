@@ -191,11 +191,18 @@ function startupWords(line: string): [string, string] | null {
   return code ? [code, space < 0 ? '' : rest.slice(space).trim()] : null;
 }
 
+const STATUS_REASON_MAX = 60
+
+/** `config unreadable`, with the helper's reason after it (cut to fit a status line) so the status says what is wrong with the file (#672). */
+function configStatus(reason: string | undefined): string {
+  const short = reason && reason.length > STATUS_REASON_MAX ? `${reason.slice(0, STATUS_REASON_MAX - 1)}…` : reason
+  return short ? `config unreadable: ${short}` : 'config unreadable'
+}
 export function problemFromStartup(line: string, path: string): Problem {
   const w = startupWords(line);
   const code = w?.[0] ?? 'HELPER_EXITED';
   if (code === 'CONFIG_PERMISSIONS') return { code, status: 'config too open', text: `The reporter config file ${path} can be read by other people, and it holds your private key. Run: chmod 600 ${path}` };
-  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: 'config unreadable', text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
+  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: configStatus(w?.[1]), text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
   return { code, status: 'helper stopped', text: `The Podium connection helper stopped${w ? `: ${w[1] || code}` : ''}. It restarts on the next session.` };
 }
 
