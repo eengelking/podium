@@ -256,7 +256,7 @@ version files alone. The maintainer decides when `development` is ready to relea
 `package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
-fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `CLAUDE.md`,
+fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
 "Releases", has the full list of files and how the bump level is chosen.
 
 If the bump is a new minor version, also move `max` in `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to

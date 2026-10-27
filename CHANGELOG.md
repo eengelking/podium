@@ -7,7 +7,7 @@ and this project follows [Semantic Versioning](https://semver.org/). Podium is
 pre-1.0, so a minor release can include breaking changes.
 
 Podium and its reporter mod, `podium-reporter`, share one version number, the way Kubernetes versions its
-parts together. A release sets that number in every file `CLAUDE.md` lists under "Releases", in the same
+parts together. A release sets that number in every file `.claude/PROJECT.md` lists under "Releases", in the same
 commit. Releases 0.2.0 to 0.14.3 were cut retroactively: each is the commit where the reporter's version
 changed, and its section holds the changes that landed since the one before it. 0.14.3 also holds
 the changes merged after the reporter's 0.14.3 bump, because it is the first release to carry both versions.
@@ -17,6 +17,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 ### Added
 
 - **A performance audit of `development`, with the scripts to repeat it (#682).** `docs/PERFORMANCE.md` records what the server, the console and the reporter cost at an idle, a small, a medium and a large fleet, and ranks fifteen findings, each filed as its own issue. `scripts/podium-perf.mjs` measures the server (CPU, memory, event-loop delay, stream bytes), `scripts/podium-perf-browser.sh` an open tab, and `scripts/podium-perf-mod.mjs` the reporter's own code. Each starts a throwaway server and stops it. No product code changed.
+
+### Changed
+
+- **`.claude/CLAUDE.md` is now the standard baseline, and everything specific to Podium is in `.claude/PROJECT.md` (#772).** `CLAUDE.md` matches the baseline policy file used across projects, apart from naming `docs/architecture/` and `docs/spec/` where the baseline names single files, and it loads `PROJECT.md` with an `@PROJECT.md` import. `PROJECT.md` holds the overview, the Podium Do Nots, the worktree rule, the `Closes #N` override, the project skills, the UI standards, the release steps and the PR trace, atlas and release checks. The rules are unchanged; they moved. Docs and comments that cited a moved section now cite `PROJECT.md`.
 
 ### Fixed
 
