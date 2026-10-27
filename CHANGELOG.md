@@ -16,7 +16,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
-- **A performance audit of `development`, with the scripts to repeat it (#682).** `docs/PERFORMANCE.md` records what the server, the console and the reporter cost at an idle, a small, a medium and a large fleet, and ranks fifteen findings, each filed as its own issue. `scripts/podium-perf.mjs` measures the server (CPU, memory, event-loop delay, stream bytes), `scripts/podium-perf-browser.sh` an open tab, and `scripts/podium-perf-mod.mjs` the reporter's own code. Each starts a throwaway server and stops it. No product code changed.
+- **A performance audit of `development`, with the scripts to repeat it (#682).** `docs/PERFORMANCE.md` records what the server, the console and the reporter cost at an idle, a small, a medium and a large fleet, and ranks fifteen findings, each filed as its own issue. `scripts/podium-perf.mjs` measures the server (CPU, memory, event-loop delay, stream bytes), `scripts/podium-perf-browser.sh` an open tab, and `scripts/podium-perf-mod.mjs` the reporter's own code. Each starts a throwaway server and stops it. No product code changed. Finding 2 (a smaller `session` event, #746) was measured and closed as not planned, since compression is worth far more.
 
 ### Fixed
 
