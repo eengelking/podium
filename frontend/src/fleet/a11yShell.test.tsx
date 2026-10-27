@@ -104,3 +104,22 @@ describe("the Agents tree", () => {
     expect(within(sort).getByRole("button", { name: "Cost" })).toBeInTheDocument();
   });
 });
+
+describe("a control's name contains the words it shows (2.5.3)", () => {
+  const open = () => {
+    window.history.replaceState(null, "", "#/?open=s1abcdef123");
+    render(<FleetView state={stateFrom({ sessions: [makeSession({ id: "s1abcdef123", name: "api-refactor", resumeCommand: "cd /x && claude --resume s1", forkCommand: "cd /x && claude --resume s1 --fork-session" })] })} />);
+  };
+
+  it.each([
+    ["Resume", "Command"],
+    ["Fork", "Command"],
+    ["Session", "s1abcdef"],
+  ])("%s: its label and its value read as two words, and its name holds both", (label, value) => {
+    open();
+    const btn = screen.getByText(label, { selector: ".cellbtn .k" }).closest("button") as HTMLElement;
+    expect(btn.textContent).toMatch(new RegExp(`${label}\\s+${value}`));
+    const name = btn.getAttribute("aria-label") ?? "";
+    expect(name.toLowerCase()).toContain(`${label} ${value}`.toLowerCase());
+  });
+});
