@@ -20,6 +20,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The wall card's "Copy session id" is a real button beside the card, and big enough to hit (#759).** It was a `span role="button"` inside the card's own button, a control within a control that some screen readers skip or read oddly, about 19 px tall, and named "Copy session id 3f9a1c2e" while it read "Copied". It now sits next to the card's button, as the pin does, is at least 24 by 24 px, comes right after the card in the tab order, and is named by what it says. The card looks the same, but the path line is about 5 px taller.
+
 - **Every page says where it is, to a screen reader (#636, the first part of the accessibility pass).** The page title now follows the route: "Podium board", "Podium traffic", "Podium my reporters", "<name> - Podium" for an open orchestrator and "Replay of <name> - Podium" for a replay (History and Admin already had theirs). The wall, the board and History each have one `h1` that is hidden from view and read by a screen reader ("Fleet", "Board", "History"); an open orchestrator and a replay keep their own. The row under the top bar that holds the refresh and theme controls is now a landmark named "Display settings", on Admin too. Nothing changes on screen.
 
 - **Focus no longer falls to the top of the page after a sign-in (#636).** After you signed in from the top bar, or unlocked Admin, the form or button you used was replaced and keyboard focus dropped to the page, so the next Tab started again at the logo. Focus now moves to "Signed in as ..." in the top bar, or to the Admin page's heading. Neither draws a focus ring, since neither is a control.

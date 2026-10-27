@@ -85,7 +85,7 @@ export const SAMPLES: Sample[] = [
     purpose: "One session on the wall: who it is, what it is doing, what it costs and how healthy it is, with a status band at the foot.",
     use: ["Showing a session on the wall.", "Showing a state: running, waiting on you, done, or heartbeat lost."],
     avoid: ["Putting a second primary action inside the card. The whole card opens the session.", "Showing status by color alone. The band carries an icon and a word."],
-    a11y: "The card is one button that opens the session. Remove sits beside it, not inside it, so there is no button within a button. The session id is a role=button span that keeps its own click and keys.",
+    a11y: "The card is one button that opens the session. Remove sits beside it, not inside it, so there is no button within a button. The session id is a button beside the card's button, not inside it, at least 24 by 24 px.",
     cases: inWall([
       { label: "Running", screen: "wall", selector: card("s1") },
       { label: "Waiting on you", screen: "wall", selector: card("s2") },
