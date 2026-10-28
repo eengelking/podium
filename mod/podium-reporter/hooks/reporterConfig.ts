@@ -42,21 +42,22 @@ export function parseConfigHeaders(text: string): ConfigHeaders | null {
   return { user, server, issuedAt, expires: h.get('expires') || null, fingerprint: h.get('fingerprint') || null };
 }
 
-export interface ConfigCandidate {
-  path: string;
-  text: string;
+/** The epoch (seconds) a config file's name carries, `reporter-config-<name>-<epoch>.pem`; null for a name that has none. */
+export function nameEpoch(base: string): number | null {
+  if (!/^reporter-config-.+\.pem$/.test(base)) return null;
+  const stem = base.slice(0, -'.pem'.length);
+  const digits = stem.slice(stem.lastIndexOf('-') + 1);
+  return /^\d+$/.test(digits) && Number.isSafeInteger(Number(digits)) ? Number(digits) : null;
 }
 
-/** The newest `reporter-config-*.pem` by its issued-at header, whatever its name says; anything else is ignored. */
-export function newestConfig(files: ConfigCandidate[]): { path: string; headers: ConfigHeaders } | null {
-  let best: { path: string; headers: ConfigHeaders } | null = null;
-  for (const f of files) {
-    const base = f.path.slice(f.path.lastIndexOf('/') + 1);
-    if (!/^reporter-config-.+\.pem$/.test(base)) continue;
-    const headers = parseConfigHeaders(f.text);
-    if (headers && (!best || headers.issuedAt > best.headers.issuedAt)) best = { path: f.path, headers };
-  }
-  return best;
+/**
+ * The config file names in the order to try them (#607): newest epoch in the name first, then names with no epoch in
+ * name order. The mod reads the text of one file at a time in this order, so a private key it does not choose is never read.
+ */
+export function configNamesNewestFirst(names: string[]): string[] {
+  const rows = names.filter((n) => /^reporter-config-.+\.pem$/.test(n)).map((name) => ({ name, epoch: nameEpoch(name) }));
+  rows.sort((a, b) => (a.epoch === null ? (b.epoch === null ? 0 : 1) : b.epoch === null ? -1 : b.epoch - a.epoch) || a.name.localeCompare(b.name));
+  return rows.map((r) => r.name);
 }
 
 /** `~/.podium/`, also podiumctl's home. */
