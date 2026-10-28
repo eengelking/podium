@@ -3,7 +3,11 @@
 import type { FleetDb } from '../fleet/db.js';
 import type { PeopleStore } from '../fleet/people.js';
 import type { ReporterStore } from '../fleet/reporters.js';
-import type { PeerReporterLookup } from '../fleet/peerTypes.js';
+import type { Actor, AnswerOutcome, ConversationSummary, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerListing, PeerReporterLookup, Refusal, RightsTrail, SendOutcome, LeftOut } from '../fleet/peerTypes.js';
+import type { PeerRights } from '../fleet/peerRights.js';
+import type { PeerSettings } from '../fleet/peerSettings.js';
+import type { AdminPeersView, OwnerPeersView, PeerReply } from '../fleet/peers.js';
+import type { PeerAnswer, PeerResult, Report } from '../fleet/protocol.js';
 import type { ReportQueries } from './reportQueries.js';
 import type { FeatureFlags } from '../fleet/featureFlags.js';
 import type { ModelPriceStore } from '../fleet/modelPrices.js';
@@ -31,6 +35,62 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 export type ReporterStoreApi = Async<Omit<ReporterStore, 'db' | 'peerLookup'>> & {
   peerLookup(): AsyncPeerReporterLookup;
 };
+
+/** What the peer service needs from the server that opens it. */
+export interface PeerStoreOptions {
+  now: () => number;
+  /** The Admin's `peer-messaging` flag. */
+  flagOn: () => boolean;
+  /** When the server started: a reporter last heard before it is "Not since restart". */
+  startedAt: number;
+}
+
+/**
+ * Orchestrator messaging (#347, SPEC 7.7): the rights, the messages and the Admin's limits, with the live directory of
+ * orchestrators they work from. Each method that touches storage is one step: a rights check and the insert it allows,
+ * an answer and the delivery it causes, a retention pass, all happen without another peer call between them. The one
+ * method that reads memory only (`messages.live`) answers at once, so a route can check and act in one turn.
+ */
+export interface PeerStoreApi {
+  /** The reporters the service reads, as the table has them. */
+  readonly reporters: AsyncPeerReporterLookup;
+  /** The Admin's `peer-messaging` flag. */
+  flagOn(): boolean;
+  /** Replaced by the routes, so a right's event reaches the logs. It runs inside the step that caused it, with a lookup of machine names that answers at once. */
+  onRights: (t: RightsTrail, machine: MachineName) => void;
+  /** Replaced by the routes, so a message's event reaches the logs. */
+  onMessage: (t: MessageTrail, machine: MachineName) => void;
+  /** Replaced by the routes: runs `fn` with `src` as the address the log rows it causes name. */
+  withSource: <T>(src: string, fn: () => T) => T;
+  readonly settings: Async<Pick<PeerSettings, 'get' | 'set' | 'limits' | 'retainMs'>>;
+  readonly rights: Async<Pick<PeerRights, 'effective' | 'rightsOf' | 'defaults' | 'limits' | 'setRight' | 'pauseLink' | 'pauseReporter' | 'propose' | 'requestAccess' | 'openRequests'>>;
+  readonly messages: {
+    /** The live directory is memory, so this answers at once. */
+    live(sessionId: string): LiveOrchestrator | null;
+    list(sessionId: string): Promise<{ peers: PeerListing[]; leftOut: LeftOut[] }>;
+    send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
+    result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
+    conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
+    conversation(a: string, b: string): Promise<MessageRow[]>;
+  };
+  /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
+  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void>;
+  replyFor(sessionId: string, allowed: boolean): Promise<PeerReply>;
+  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
+  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
+  removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
+  /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
+  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<ReturnType<PeerRights['setDefaults']>>;
+  ownerView(owner: string, now: number): Promise<OwnerPeersView>;
+  adminView(key: string): Promise<AdminPeersView | null>;
+  /** The orchestrator is forgotten, and what still waits for it is dropped. */
+  ended(sessionId: string): Promise<void>;
+  deleted(sessionIds: string[]): Promise<void>;
+  /** The flag went off: every held message is dropped. */
+  dropAll(): Promise<void>;
+  /** The hourly sweep of conversations, closed requests and messages whose session is gone. */
+  retain(): Promise<{ messages: number; requests: number }>;
+}
 
 /** The Admin's feature flags, one `settings` row each. */
 export type FeatureFlagsApi = Async<FeatureFlags>;
@@ -75,6 +135,8 @@ export interface Storage {
   readonly recordingSettings: RecordingSettingsApi;
   /** The store is built per server, since what a policy may be depends on whether a sign-in token is set. */
   activityHistorySettings(authOn: boolean): ActivityHistorySettingsApi;
+  /** Built per server, since the live directory, the flag and the start time are its own. */
+  peers(opts: PeerStoreOptions): PeerStoreApi;
   readonly tlsSettings: TlsSettingsApi;
   readonly personCerts: PersonCertsApi;
   /** Runs `fn` in one transaction across the stores: commits when it resolves, rolls back and rethrows when it rejects. */

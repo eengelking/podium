@@ -7,13 +7,14 @@
 // signed-in person's own reporters. One open read, /peers/traffic, gives the counts and states Traffic draws for
 // everyone, never the text. The text of a message is never logged here: the Admin log and the server log get who, to
 // whom, whose and what happened.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import express, { type Request, type RequestHandler, type Response, type Router } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PersonRow } from './people.js';
-import type { PeopleStoreApi } from '../storage/types.js';
+import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
-import type { Actor, LiveOrchestrator, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
+import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import { LEVEL_WORDS, type PeerReply } from './peers.js';
 import type { SessionRow } from './db.js';
 import type { Logger } from '../logging/logger.js';
@@ -64,22 +65,16 @@ function send(res: Response, out: Refusal): void {
  * wrapper the routes use so a row names the address of the request that caused it ('server' for a sweep or a report).
  */
 export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
-  let source = 'server';
-  const withSource = <T>(src: string, fn: () => T): T => {
-    source = src;
-    try {
-      return fn();
-    } finally {
-      source = 'server';
-    }
-  };
-  const machine = (key: string): string => fleet.peers.reporters.get(key)?.machine ?? key;
+  // The peer calls run later, under the storage lock, so the address is carried with the call and not in a variable
+  // the caller resets as soon as it has started them.
+  const sources = new AsyncLocalStorage<string>();
+  const withSource = <T>(src: string, fn: () => T): T => sources.run(src, fn);
   const actorName = (a: Actor): string => (a.name === ADMIN_OWNER ? ADMIN_SECRET_ACTOR : a.name);
   const pair = (m: MessageRow): string => `${m.fromName} on ${m.fromMachine} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
     // Called from the peer service's synchronous events: the entry is queued now, in order, and the server-log line follows it.
-    const from = source;
+    const from = sources.getStore() ?? 'server';
     void Promise.resolve(people?.log(kind, detail, from, fleet.now(), actor))
       .then(() => logger.info(`peers.${kind.replace(/^peer_/, '')}`, `podium: ${detail}`, { ...fields, source: from }))
       .catch((err: Error) => logger.warn('peers.trail_failed', `podium: could not log a messaging event: ${err.message}`, { reason: err.message }));
@@ -97,12 +92,12 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
     else row('peer_dropped', `Message from ${pair(m)}: dropped, ${PEER_DROP_WORDS[t.why] ?? t.why} [${short(m.id)}]`, m.owner, { ...fields, why: t.why });
   };
 
-  const requestRow = (kind: string, r: PeerRequestRow, actor: string, prefix = '') => {
+  const requestRow = (machine: MachineName, kind: string, r: PeerRequestRow, actor: string, prefix = '') => {
     const what = r.kind === 'message' ? 'a message' : `${machine(r.fromKey)} to ${machine(r.toKey)}: ${r.level ? LEVEL_WORDS[r.level] : ''}`;
     row(kind, `${prefix}${what}, ${r.owner}'s [${short(r.id)}]`, actor, { owner: r.owner, request_id: short(r.id), request_kind: r.kind });
   };
 
-  fleet.peers.onRights = (t: RightsTrail) => {
+  fleet.peers.onRights = (t: RightsTrail, machine: MachineName) => {
     switch (t.kind) {
       case 'set':
         row('peer_right_set', `${machine(t.right.from)} to ${machine(t.right.to)}, ${t.right.owner}'s: ${LEVEL_WORDS[t.right.level]}`, actorName(t.actor), { owner: t.right.owner, from_key: t.right.from, to_key: t.right.to, level: t.right.level, admin: t.actor.admin });
@@ -113,12 +108,12 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
         row(`peer_right_${t.kind}`, `Link between ${machine(t.a)} and ${machine(t.b)}, ${t.owner}'s: ${t.kind}`, actorName(t.actor), { owner: t.owner, a_key: t.a, b_key: t.b, admin: t.actor.admin });
         break;
       case 'access-requested':
-        requestRow('peer_access_requested', t.request, t.request.owner, `${t.request.by} asked for `);
+        requestRow(machine, 'peer_access_requested', t.request, t.request.owner, `${t.request.by} asked for `);
         break;
       case 'proposed':
       case 'accepted':
       case 'declined':
-        requestRow(`peer_right_${t.kind}`, t.request, actorName(t.actor));
+        requestRow(machine, `peer_right_${t.kind}`, t.request, actorName(t.actor));
         break;
       case 'defaults':
         row('peer_defaults_changed', `Messaging defaults changed, ${t.owner}'s`, actorName(t.actor), { owner: t.owner, admin: t.actor.admin });
@@ -130,11 +125,8 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
 }
 
 /** For the report route: the messaging fields of the reply (6.1). Off unless every switch the server knows of is on. */
-export function peerReplyFor(fleet: Fleet, token: string | null, sessionId: string, id: Identity): PeerReply {
-  const o = fleet.peers.messages.live(sessionId);
-  const ref = o ? fleet.peers.reporters.get(o.reporterKey) : null;
-  const on = peersEnabled(fleet, token) && id.kind === 'person' && o?.peers === true && !!ref && !ref.adminSecret;
-  return fleet.peers.reply(sessionId, on);
+export function peerReplyFor(fleet: Fleet, token: string | null, sessionId: string, id: Identity): Promise<PeerReply> {
+  return fleet.peers.replyFor(sessionId, peersEnabled(fleet, token) && id.kind === 'person');
 }
 
 export function mountPeerRoutes(router: Router, d: PeerDeps): void {
@@ -183,7 +175,7 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   router.get('/sessions/:id/peers', d.requireToken, asyncHandler(async (req, res) => {
     const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
-    res.json({ ok: true, ...fleet.peers.messages.list(m.row.id) });
+    res.json({ ok: true, ...(await fleet.peers.messages.list(m.row.id)) });
   }));
 
   router.post('/sessions/:id/peers/messages', d.requireToken, json, asyncHandler(async (req, res) => {
@@ -194,7 +186,7 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     const text = str(body.text);
     if (to === null || !to.trim() || to.length > PEER_LIMITS.address) return void res.status(400).json({ ok: false, error: 'to must be name@machine', path: '$.to' });
     if (text === null) return void res.status(400).json({ ok: false, error: 'text must be a string', path: '$.text' });
-    const out = withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, text));
+    const out = await withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, text));
     if (!out.ok) {
       refuse(req, res, out.status, out.error);
       return;
@@ -210,9 +202,9 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     const reason = str(body.reason) ?? '';
     if (body.right !== 'see' && body.right !== 'send') return void res.status(400).json({ ok: false, error: 'right must be see or send', path: '$.right' });
     if (to === null || !to.trim() || to.length > PEER_LIMITS.address) return void res.status(400).json({ ok: false, error: 'to must be a machine, or name@machine', path: '$.to' });
-    const target = reporterNamed(fleet.peers.reporters.ofOwner(m.o.owner), to);
+    const target = reporterNamed(await fleet.peers.reporters.ofOwner(m.o.owner), to);
     if ('error' in target) return void refuse(req, res, target.status, target.error);
-    const out = withSource(sourceOf(req), () =>
+    const out = await withSource(sourceOf(req), () =>
       fleet.peers.rights.requestAccess({ owner: m.o.owner, fromKey: m.o.reporterKey, toKey: target.key, right: body.right as 'see' | 'send', reason, by: m.o.name, fromSession: m.row.id }),
     );
     if (!out.ok) return void refuse(req, res, out.status, out.error);
@@ -226,12 +218,11 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!m) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
-    const out = withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
+    const { out, paused } = await withSource(sourceOf(req), () => fleet.peers.answerPaused(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
     const applied = 'applied' in out ? out.applied : null;
     // A delivered message on a paused link waits for Resume link, so /podium deliver says so rather than "when its turn ends".
-    const paused = 'message' in out && out.message.deliver && fleet.peers.rights.effective(out.request.fromKey, out.request.toKey).paused;
     res.json({ ok: true, outcome: out.request.outcome, ...(applied ? { level: applied.level } : {}), ...(paused ? { paused: true } : {}) });
   }));
 
@@ -240,18 +231,18 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!m) return;
     const result = (req.body as { result?: unknown } | undefined)?.result;
     if (!(PEER_RESULTS as readonly unknown[]).includes(result)) return void res.status(400).json({ ok: false, error: 'result must be took, queued or refused', path: '$.result' });
-    const out = withSource(sourceOf(req), () => fleet.peers.messages.result(m.row.id, req.params.deliveryId!, result as PeerResult));
+    const out = await withSource(sourceOf(req), () => fleet.peers.messages.result(m.row.id, req.params.deliveryId!, result as PeerResult));
     if (out === 'unknown') return void res.status(404).json({ ok: false, error: 'unknown delivery' });
     res.json({ ok: true });
   }));
 
   /** Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. */
-  router.get('/peers/traffic', (req, res) => {
+  router.get('/peers/traffic', asyncHandler(async (req, res) => {
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
     if (!enabled()) return void res.json({ enabled: false, conversations: [] });
-    res.json({ enabled: true, conversations: fleet.peers.messages.conversations(range), retainDays: fleet.peers.settings.get().retainDays, serverTime: now() });
-  });
+    res.json({ enabled: true, conversations: await fleet.peers.messages.conversations(range), retainDays: (await fleet.peers.settings.get()).retainDays, serverTime: now() });
+  }));
 }
 
 /** One of the owner's reporters by its machine name (or the machine part of `name@machine`), case-insensitively. */
@@ -304,19 +295,19 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   browser.get('/peers', asyncHandler(async (req, res) => {
     const me = await owner(req, res);
     if (!me) return;
-    const server = fleet.peers.serverLimits();
     const t = now();
+    const v = await fleet.peers.ownerView(me.name, t);
     res.json({
       enabled: true,
       owner: me.name,
       // Each reporter's state and last report as Admin > Reporters has them (#415), timed by the server's clock as there.
       serverTime: t,
-      serverStartedAt: fleet.peers.reporters.startedAt,
-      reporters: fleet.peers.reporters.ofOwnerSeen(me.name, t).filter((r) => !r.adminSecret).map((r) => ({ ...r, live: liveOn(r.key) })),
-      rights: fleet.peers.rights.rightsOf(me.name),
-      defaults: fleet.peers.rights.defaults(me.name),
-      limits: { server, effective: fleet.peers.rights.limits(me.name, server) },
-      requests: fleet.peers.rights.openRequests(me.name).map((r) => fleet.peers.ownerRequestView(r)),
+      serverStartedAt: v.serverStartedAt,
+      reporters: v.reporters.map((r) => ({ ...r, live: liveOn(r.key) })),
+      rights: v.rights,
+      defaults: v.defaults,
+      limits: v.limits,
+      requests: v.requests,
     });
   }));
 
@@ -326,7 +317,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (!(PEER_LEVELS as readonly unknown[]).includes(b.level)) return void res.status(400).json({ ok: false, error: 'level must be none, see, ask or send', path: '$.level' });
     if (typeof b.from !== 'string' || typeof b.to !== 'string') return void res.status(400).json({ ok: false, error: 'from and to must be reporter keys' });
-    const out = withSource(sourceOf(req), () => fleet.peers.rights.setRight(me.name, b.from as string, b.to as string, b.level as PeerLevel, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.rights.setRight(me.name, b.from as string, b.to as string, b.level as PeerLevel, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -337,7 +328,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string' || typeof b.paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys, paused a boolean' });
-    const out = withSource(sourceOf(req), () => fleet.peers.rights.pauseLink(me.name, b.a as string, b.b as string, b.paused as boolean, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.rights.pauseLink(me.name, b.a as string, b.b as string, b.paused as boolean, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -348,7 +339,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys' });
-    const out = withSource(sourceOf(req), () => fleet.peers.removeLink(me.name, b.a as string, b.b as string, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.removeLink(me.name, b.a as string, b.b as string, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -356,7 +347,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   browser.put('/peers/defaults', asyncHandler(async (req, res) => {
     const me = await owner(req, res);
     if (!me) return;
-    const out = withSource(sourceOf(req), () => fleet.peers.rights.setDefaults(me.name, (req.body ?? {}) as Record<string, unknown>, fleet.peers.serverLimits(), me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.setDefaults(me.name, (req.body ?? {}) as Record<string, unknown>, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -366,7 +357,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
-    const out = withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, me.name, answer as PeerAnswer, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, me.name, answer as PeerAnswer, me.actor));
     if (!out.ok) return void send(res, out);
     res.json({ ok: true, outcome: out.request.outcome });
   }));
@@ -376,7 +367,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
-    res.json({ conversations: fleet.peers.messages.conversations({ ...range, owner: me.name }) });
+    res.json({ conversations: await fleet.peers.messages.conversations({ ...range, owner: me.name }) });
   }));
 
   /** One conversation's messages, with their text: only its owner, or an Admin (the admin secret or an Administrator). */
@@ -384,7 +375,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!enabled()) return void refuse(req, res, 403, 'orchestrator messaging is off');
     const v = await h.viewerOf(req);
     if (!v) return void refuse(req, res, 403, 'sign in to read a conversation');
-    const rows = fleet.peers.messages.conversation(req.params.a!, req.params.b!);
+    const rows = await fleet.peers.messages.conversation(req.params.a!, req.params.b!);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     if (!v.admin && nameKey(rows[0]!.owner) !== nameKey(v.name)) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
     res.json({ messages: rows.map(messageView) });

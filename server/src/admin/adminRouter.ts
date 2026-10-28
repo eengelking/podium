@@ -5,7 +5,7 @@
 import { randomBytes } from 'node:crypto';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, type PersonRow } from '../fleet/people.js';
-import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi, Storage } from '../storage/types.js';
+import type { PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
@@ -17,7 +17,6 @@ import { REPORTER_STATES, type ForgetSetting, type IgnoreKind, type ReporterStat
 import { FEATURES, isFeatureId, RESPOND } from '../fleet/featureFlags.js';
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
-import type { PeerService } from '../fleet/peers.js';
 import { messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
@@ -54,7 +53,7 @@ export interface AdminRouterOptions {
   /** Every reporter the server has heard from (#142). Without it the Reporters tab has nothing to list. */
   reporters?: ReporterStoreApi;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
-  peers?: PeerService;
+  peers?: PeerStoreApi;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
   activityHistory?: { history: ActivityHistory; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
@@ -612,27 +611,11 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const peerFail = (res: Response, out: Refusal) => res.status(out.status).json({ ok: false, error: out.error });
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
-  router.get('/reporters/:key/peers', (req, res) => {
-    const ref = peers?.reporters.get(req.params.key);
-    if (!peers || !ref) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
-    const owner = ref.owner;
-    const mine = owner && !ref.adminSecret ? peers.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
-    // The stored rights and requests of every pair of the owner's reporters, not only this one's: the page's Grid draws
-    // them all, in one read (#416). The effective levels are this reporter's pairs only, for Pause all links: working
-    // them out for every pair would cost a few queries per pair on each poll, and the Grid reads levels from the rights.
-    const keys = new Set(mine.map((r) => r.key));
-    res.json({
-      reporter: ref,
-      peers: mine,
-      trust: owner && mine.length ? peers.rights.defaults(owner).trust : false,
-      rights: owner ? peers.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
-      effective: mine.flatMap((o) => [
-        { from: ref.key, to: o.key, ...peers.rights.effective(ref.key, o.key) },
-        ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...peers.rights.effective(o.key, ref.key) }]),
-      ]),
-      requests: mine.length && owner ? peers.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => peers.ownerRequestView(r)) : [],
-    });
-  });
+  router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
+    const view = peers ? await peers.adminView(req.params.key) : null;
+    if (!view) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
+    res.json(view);
+  }));
 
   router.post('/reporters/:key/peers/propose', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
@@ -641,7 +624,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (typeof b.to !== 'string' || !(PEER_LEVELS as readonly unknown[]).includes(b.level)) return void res.status(400).json({ ok: false, error: 'to must be a reporter key, level one of none, see, ask, send' });
     if (from !== req.params.key && b.to !== req.params.key) return void res.status(400).json({ ok: false, error: 'a proposal on this page must involve this reporter' });
     const actor = await peerActor(req);
-    const out = withPeerSource(req, () => peers.rights.propose(from, b.to as string, b.level as PeerLevel, actor));
+    const out = await withPeerSource(req, () => peers.rights.propose(from, b.to as string, b.level as PeerLevel, actor));
     if (!out.ok) return void peerFail(res, out);
     res.status(202).json({ ok: true, requestId: out.request.id });
   }));
@@ -651,7 +634,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const paused = (req.body as { paused?: unknown } | undefined)?.paused;
     if (typeof paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'paused must be true or false' });
     const actor = await peerActor(req);
-    const out = withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
+    const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
     res.json(out);
   }));
@@ -659,25 +642,25 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   router.delete('/reporters/:key/peers/:other', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     const actor = await peerActor(req);
-    const out = withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
+    const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
     res.json(out);
   }));
 
-  router.get('/peers/conversations', (req, res) => {
+  router.get('/peers/conversations', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
     // As the browser's read (SPEC 7.1): `live` is the default.
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
-    res.json({ conversations: peers.messages.conversations(range) });
-  });
+    res.json({ conversations: await peers.messages.conversations(range) });
+  }));
 
-  router.get('/peers/conversations/:a/:b', (req, res) => {
+  router.get('/peers/conversations/:a/:b', asyncHandler(async (req, res) => {
     if (!peers) return void res.status(404).json({ ok: false, error: 'not available' });
-    const rows = peers.messages.conversation(req.params.a, req.params.b);
+    const rows = await peers.messages.conversation(req.params.a, req.params.b);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     res.json({ messages: rows.map(messageView) });
-  });
+  }));
 
   router.delete('/reporters/:key', asyncHandler(async (req, res) => {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
@@ -709,7 +692,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       cardTitleMachine: wall?.cardTitleMachine() ?? false,
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
       forgetReporters: (await reporters?.forgetSetting()) ?? { enabled: false, days: 30 },
-      ...(peers ? { peerMessaging: peers.settings.get() } : {}),
+      ...(peers ? { peerMessaging: await peers.settings.get() } : {}),
       ...(history ? { activityHistory: activityState(history) } : {}),
       ...(rec ? { recording: recordingState(rec) } : {}),
     });
@@ -746,7 +729,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if ('peerMessaging' in body) {
       const p = body.peerMessaging;
       if (!peers || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'peerMessaging must give roundTrips, perMinute, maxChars and/or retainDays' });
-      const out = peers.settings.set(p);
+      const out = await peers.settings.set(p);
       if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
       const v = out.settings;
       await audit(req, 'peer_limits_changed', `Orchestrator messaging limits: ${v.roundTrips} round trips, ${v.perMinute} a minute, ${v.maxChars} characters, kept ${v.retainDays} days`, { ...v });

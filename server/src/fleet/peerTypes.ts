@@ -57,6 +57,9 @@ export interface ReporterRef {
   version: string;
 }
 
+/** A reporter's machine name by key, or the key itself when it is unknown. A trail handler gets one that answers at once. */
+export type MachineName = (key: string) => string;
+
 /** Looks a reporter up by key, and lists one owner's reporters (compared case-insensitively, `nameKey`). */
 export interface ReporterLookup {
   get(key: string): ReporterRef | null;

@@ -12,6 +12,7 @@ import { TlsSettingsStore } from '../../tlsRenew.js';
 import { PersonCertStore } from '../../tlsClientAuth.js';
 import { AsyncLock } from './lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
+import { asyncLookupOver, peerStoreOver } from './peers.js';
 
 const NOT_WRAPPED = new Set(['constructor', 'tx', 'close']);
 
@@ -66,13 +67,7 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
   const lock = new AsyncLock();
   const fleet = new FleetDb(db);
   const reporters = new ReporterStore(db, now);
-  const lookup = reporters.peerLookup();
-  const asyncLookup: AsyncPeerReporterLookup = {
-    startedAt: lookup.startedAt,
-    ofOwnerSeen: (owner, at) => lock.run(() => lookup.ofOwnerSeen(owner, at)),
-    get: (key) => lock.run(() => lookup.get(key)),
-    ofOwner: (owner) => lock.run(() => lookup.ofOwner(owner)),
-  };
+  const asyncLookup: AsyncPeerReporterLookup = asyncLookupOver(reporters.peerLookup(), lock);
   return {
     sqliteHandle: db,
     fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) } as FleetStore,
@@ -83,6 +78,7 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
     modelPrices: wrap(new ModelPriceStore(db), lock),
     recordingSettings: wrap(new RecordingSettingsStore(db), lock),
     activityHistorySettings: (authOn) => wrap(new ActivityHistorySettingsStore(db, authOn), lock),
+    peers: (opts) => peerStoreOver(db, lock, opts),
     tlsSettings: wrap(new TlsSettingsStore(db), lock),
     personCerts: wrap(new PersonCertStore(db), lock),
     tx: (fn) =>

@@ -4,7 +4,7 @@
 import { FleetDb, ROLLUP_KEEP_MS, SAME_USAGE } from './db.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { CostOf, RetentionPolicy, SessionRow } from './db.js';
-import type { FleetStore } from '../storage/types.js';
+import type { FleetStore, PeerStoreApi } from '../storage/types.js';
 import type { SqliteStorage } from '../storage/sqlite/index.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
 import { serverBuild } from './build.js';
@@ -25,8 +25,6 @@ import { SessionRecordings } from './recordings.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
-import { PeerService } from './peers.js';
-import { ReporterStore } from './reporters.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
 import { silentLogger, type Logger } from '../logging/logger.js';
@@ -135,7 +133,7 @@ export class Fleet {
   /** Responding from Podium (#206): asks, answers and messages, in memory only. */
   readonly respond: RespondStore;
   /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
-  readonly peers: PeerService;
+  readonly peers: PeerStoreApi;
   /** The daily check for a newer Podium release (#499); the wall's update notice reads its answer. */
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
@@ -184,7 +182,7 @@ export class Fleet {
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       // Messaging going off drops every message still waiting; the rights stay.
-      if (id === PEER_MESSAGING && !on) this.peers.dropAll();
+      if (id === PEER_MESSAGING && !on) this.peers.dropAll().catch((err: Error) => this.logger.error('peers.drop_failed', `podium: could not drop the held messages: ${err.message}`, { reason: err.message }));
       // Recording going off stops every recording and keeps what it holds until it expires (#353).
       if (id === SESSION_RECORDING && !on) for (const sid of this.recordings.stopAll('Admin')) this.recordingChanged(sid);
       // The release check going on looks straight away instead of waiting for the next daily run.
@@ -249,7 +247,7 @@ export class Fleet {
         },
       },
     );
-    this.peers = new PeerService(raw, new ReporterStore(raw, this.startedAt).peerLookup(), now, () => this.features.featureOn(PEER_MESSAGING));
+    this.peers = storage.peers({ now, flagOn: () => this.features.featureOn(PEER_MESSAGING), startedAt: this.startedAt });
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
       this.settingsEpoch++;
       void this.broadcastWall();
@@ -766,7 +764,7 @@ export class Fleet {
     this.recordings.removeSession(id).catch((err: Error) => this.logger.error('recording.delete_failed', `podium: could not remove the recording of session ${id}: ${err.message}`, { session_id: id, reason: err.message }));
     this.diffs.drop(id);
     this.respond.dropSession(id);
-    this.peers.deleted([id]);
+    await this.peers.deleted([id]);
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -811,7 +809,7 @@ export class Fleet {
     this.diffs.drop(row.id);
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
-    this.peers.ended(row.id);
+    await this.peers.ended(row.id);
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);
@@ -936,7 +934,7 @@ export class Fleet {
     this.recordings.dropMissingSessions((id) => this.syncDb.getSession(id) !== undefined).catch((err: Error) => {
       this.logger.error('retention.recording_failed', `podium: could not remove the recordings of expired sessions: ${err.message}`, { reason: err.message });
     });
-    const peers = this.peers.retain();
+    const peers = await this.peers.retain();
     return { ...out, peerMessages: peers.messages, peerRequests: peers.requests };
   }
 

@@ -264,7 +264,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         );
         if (key) opts.transport?.note(key, !refusableOverHttp(req), fleet.now());
         // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
-        if (key && id.kind === 'person' && !asHooks) fleet.peers.note(out.sessionId, key, id.person.name, r);
+        if (key && id.kind === 'person' && !asHooks) await fleet.peers.note(out.sessionId, key, id.person.name, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,
@@ -275,7 +275,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {

@@ -4,7 +4,7 @@ import { openSqliteStorage } from './sqlite/index.js';
 import type { Storage } from './types.js';
 
 export type { Storage, FleetStore, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
-  FeatureFlagsApi, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
+  FeatureFlagsApi, PeerStoreApi, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
 export { openSqliteStorage, type SqliteStorage } from './sqlite/index.js';
 
 /** Opens the storage a target names. `target` is what follows the kind: a file for SQLite. */

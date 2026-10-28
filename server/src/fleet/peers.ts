@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings, type PeerLimits } from './peerSettings.js';
-import { isIdle, type Actor, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
+import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from './protocol.js';
 
 /** A level in the words My reporters and the terminal use. */
@@ -20,14 +20,34 @@ export interface PeerReply {
 
 export { isIdle } from './peerTypes.js';
 
+/** What `ownerView` gives the owner's read: the parts of GET /respond/peers that come from the stores. */
+export interface OwnerPeersView {
+  serverStartedAt: number;
+  reporters: SeenReporterRef[];
+  rights: RightRow[];
+  defaults: OwnerDefaults;
+  limits: { server: PeerLimits; effective: PeerLimits };
+  requests: OwnerRequestView[];
+}
+
+/** What `adminView` gives Admin > Reporters > a reporter. */
+export interface AdminPeersView {
+  reporter: ReporterRef;
+  peers: ReporterRef[];
+  trust: boolean;
+  rights: RightRow[];
+  effective: ({ from: string; to: string } & EffectiveRight)[];
+  requests: OwnerRequestView[];
+}
+
 export class PeerService {
   readonly settings: PeerSettings;
   readonly rights: PeerRights;
   readonly messages: PeerMessages;
   /** Replaced by the routes, so a right's event reaches the logs. */
-  onRights: (t: RightsTrail) => void = () => {};
+  onRights: (t: RightsTrail, machine: MachineName) => void = () => {};
   /** Replaced by the routes, so a message's event reaches the logs. */
-  onMessage: (t: MessageTrail) => void = () => {};
+  onMessage: (t: MessageTrail, machine: MachineName) => void = () => {};
   /** Replaced by the routes: runs `fn` with `src` as the address the log rows it causes name. */
   withSource: <T>(src: string, fn: () => T) => T = (_src, fn) => fn();
 
@@ -39,7 +59,7 @@ export class PeerService {
     readonly flagOn: () => boolean = () => false,
   ) {
     this.settings = new PeerSettings(db);
-    this.rights = new PeerRights(db, reporters, now, (t) => this.onRights(t));
+    this.rights = new PeerRights(db, reporters, now, (t) => this.onRights(t, this.machineOf));
     this.messages = new PeerMessages(
       db,
       {
@@ -50,9 +70,12 @@ export class PeerService {
       },
       reporters,
       now,
-      (t) => this.onMessage(t),
+      (t) => this.onMessage(t, this.machineOf),
     );
   }
+
+  /** A reporter's machine name, read at once from the table, for a trail handler that names machines in its log line. */
+  private readonly machineOf: MachineName = (key) => this.reporters.get(key)?.machine ?? key;
 
   /** After every accepted report from a reporter the server recorded (not the simulator, not settings hooks). */
   note(sessionId: string, reporterKey: string, owner: string, report: Report): void {
@@ -82,6 +105,16 @@ export class PeerService {
     return { peers: true, peerDeliveries: this.messages.deliveriesFor(sessionId, isIdle(o)), peerRequests: requests.map((r) => this.requestView(r)) };
   }
 
+  /**
+   * `reply` with the routes' gate worked out here, in the same step as the reply: the orchestrator is live with the `peers`
+   * option on and its reporter is a person's. `allowed` is authentication, the flag, and a person's credential.
+   */
+  replyFor(sessionId: string, allowed: boolean): PeerReply {
+    const o = this.messages.live(sessionId);
+    const ref = o ? this.reporters.get(o.reporterKey) : null;
+    return this.reply(sessionId, allowed && o?.peers === true && !!ref && !ref.adminSecret);
+  }
+
   /** A request as the owner's sessions and My reporters show it: machines by name, and a message's text for its approval. */
   requestView(r: PeerRequestRow): PeerRequest {
     const machine = (key: string) => this.reporters.get(key)?.machine ?? key;
@@ -102,6 +135,11 @@ export class PeerService {
   /** A request as the owner's read lists it: `requestView`, plus both reporters by key and the message it is about. */
   ownerRequestView(r: PeerRequestRow): OwnerRequestView {
     return { ...this.requestView(r), fromKey: r.fromKey, toKey: r.toKey, messageId: r.messageId };
+  }
+
+  /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
+  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): ReturnType<PeerRights['setDefaults']> {
+    return this.rights.setDefaults(owner, patch, this.settings.limits(), actor);
   }
 
   serverLimits(): PeerLimits {
@@ -132,6 +170,54 @@ export class PeerService {
       );
     }
     return out;
+  }
+
+  /**
+   * `answer`, and for a delivered message whether its link is paused, read in the same step so the answer's `paused` flag
+   * is the one the delivery was made under.
+   */
+  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): { out: AnswerOutcome | Refusal; paused: boolean } {
+    const out = this.answer(id, owner, answer, actor);
+    const paused = out.ok && 'message' in out && out.message.deliver && this.rights.effective(out.request.fromKey, out.request.toKey).paused;
+    return { out, paused };
+  }
+
+  /** What My reporters (GET /respond/peers) shows of one owner, read in one step. */
+  ownerView(owner: string, now: number): OwnerPeersView {
+    const server = this.settings.limits();
+    return {
+      serverStartedAt: this.reporters.startedAt,
+      reporters: this.reporters.ofOwnerSeen(owner, now).filter((r) => !r.adminSecret),
+      rights: this.rights.rightsOf(owner),
+      defaults: this.rights.defaults(owner),
+      limits: { server, effective: this.rights.limits(owner, server) },
+      requests: this.rights.openRequests(owner).map((r) => this.ownerRequestView(r)),
+    };
+  }
+
+  /**
+   * Admin > Reporters > a reporter (#347), or null for an unknown key. The stored rights and requests of every pair of the
+   * owner's reporters, not only this one's: the page's Grid draws them all, in one read (#416). The effective levels are
+   * this reporter's pairs only, for Pause all links: working them out for every pair would cost a few queries per pair on
+   * each poll, and the Grid reads levels from the rights.
+   */
+  adminView(key: string): AdminPeersView | null {
+    const ref = this.reporters.get(key);
+    if (!ref) return null;
+    const owner = ref.owner;
+    const mine = owner && !ref.adminSecret ? this.reporters.ofOwner(owner).filter((r) => !r.adminSecret) : [];
+    const keys = new Set(mine.map((r) => r.key));
+    return {
+      reporter: ref,
+      peers: mine,
+      trust: owner && mine.length ? this.rights.defaults(owner).trust : false,
+      rights: owner ? this.rights.rightsOf(owner).filter((r) => keys.has(r.from) && keys.has(r.to)) : [],
+      effective: mine.flatMap((o) => [
+        { from: ref.key, to: o.key, ...this.rights.effective(ref.key, o.key) },
+        ...(o.key === ref.key ? [] : [{ from: o.key, to: ref.key, ...this.rights.effective(o.key, ref.key) }]),
+      ]),
+      requests: mine.length && owner ? this.rights.openRequests(owner).filter((r) => keys.has(r.fromKey) && keys.has(r.toKey)).map((r) => this.ownerRequestView(r)) : [],
+    };
   }
 
   /** Removes a link, and drops what still waits on it. */
