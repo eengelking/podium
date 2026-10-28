@@ -89,6 +89,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     activityFeed: null,
     activityOutput: null,
     fileDiff: null,
+    fileDiffPreload: null,
     respond: null,
     asks: [],
     clearedFrom: null,

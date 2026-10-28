@@ -49,7 +49,7 @@ to do travels back in the reply to a report.
 | Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. |
 | Reporter | TLS helper | A script the mod starts once per session. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. |
 | Reporter | Collectors | Small readers for what hooks do not carry: git branch and changed files, machine id, build, models. |
-| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff on request, and a whole-session recording. Each is redacted and size-capped. |
+| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. |
 | Reporter | Simulator, settings hooks | Other ways to report: a simulator that fakes a busy fleet, and Claude Code's settings hooks for sessions started without the mod. |
 
 ### Network
@@ -89,7 +89,7 @@ to do travels back in the reply to a report.
 |---|---|---|
 | Console | The wall | One card per session: model, effort, plan, agents, context fill, cost and branch, grouped by person. |
 | Console | Live store | Loads `/state`, then applies stream messages with a pure reducer so every tab shows the same state. |
-| Console | Orchestrator page | One orchestrator in detail: plan, changed files, each agent's task and answer, failures and the live activity feed. |
+| Console | Orchestrator page | One orchestrator in detail: plan, changed files (their diffs loaded in the background), each agent's task and answer, failures and the live activity feed. |
 | Console | Respond modal | Lets a session's owner answer a question, approve a plan or a tool call, send a message, or run `/clear` and `/compact`. |
 | Console | Admin | The Admin pages, in four groups: people and access, server, reporting, and activity. |
 | Console | Reporters, Traffic, Replay | Rights between your orchestrators, a map of messages between machines, and a recorded session played back. |
@@ -166,7 +166,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Reporter | `machineIdPath` | Where the random machine id is kept. In `mod/podium-reporter/hooks/machine.ts`. |
 | Reporter | `osFromSwVers` | Reads the macOS version. In `mod/podium-reporter/hooks/machine.ts`. |
 | Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `mod/podium-reporter/hooks/recording.ts`. |
-| Reporter | `handleDiffs` | Reads one file's diff when its owner asks. In `mod/podium-reporter/hooks/register.ts`. |
+| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `mod/podium-reporter/hooks/register.ts`. |
 | Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `mod/podium-reporter/hooks/diffRedact.ts`. |
 | Reporter | `setWatched` | Records which loops someone is watching. In `mod/podium-reporter/hooks/state.ts`. |
 | Reporter | `ingestHook` | Takes a settings-hook report, giving a reduced view. In `server/src/fleet/fleet.ts`. |
@@ -238,6 +238,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `visibleSessions` | What the current filter shows. In `frontend/src/fleet/store.ts`. |
 | Console | `OrchestratorDetail` | Plan, files, agents and activity for one orchestrator. In `frontend/src/fleet/components/OrchestratorDetail.tsx`. |
 | Console | `readEvery` | How often the activity feed polls. In `frontend/src/fleet/useActivityFeed.ts`. |
+| Console | `class DiffPreloader` | Loads every changed file's diff in page memory, 2 at a time. In `frontend/src/fleet/diffPreload.ts`. |
 | Console | `RespondModal` | Answer a question, plan or permission prompt. In `frontend/src/fleet/components/Respond.tsx`. |
 | Console | `MyReportersPage` | Rights between your orchestrators. In `frontend/src/fleet/MyReporters.tsx`. |
 | Console | `TrafficPage` | The map of messages between machines. In `frontend/src/fleet/Traffic.tsx`. |

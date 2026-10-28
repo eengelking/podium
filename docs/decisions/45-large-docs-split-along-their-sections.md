@@ -50,5 +50,5 @@ a number must name one page.
 <!-- nav:start -->
 ---
 
-Previous: [44. The docs live at podium.engelking.dev, a CNAME to GitHub Pages (#689)](44-the-docs-live-at-podium-engelking-dev-a-cname.md) · Up: [Decisions](README.md)
+Previous: [44. The docs live at podium.engelking.dev, a CNAME to GitHub Pages (#689)](44-the-docs-live-at-podium-engelking-dev-a-cname.md) · Up: [Decisions](README.md) · Next: [46. Load every changed file's diff while the page is open, in the browser only (#631)](46-load-every-diff-while-the-page-is-open-in-the.md)
 <!-- nav:end -->

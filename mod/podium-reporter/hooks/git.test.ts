@@ -98,6 +98,40 @@ describe('changed files', () => {
     expect(r!.files).toMatchObject({ total: 6, added: 12 + 40 + 7 + 2, removed: 3 + 9 + 1 })
   })
 
+  test('each listed file that still exists carries a content marker, so a same-count edit is seen (#631)', async () => {
+    const H = (c: string) => c.repeat(40)
+    const m = { ...top, '-C /repo hash-object -- logo.png notes.txt src/a.ts src/new.ts x/now.ts': { stdout: [H('1'), H('2'), H('3'), H('4'), H('5')].join('\n') + '\n' } }
+    const r = await readChanges(runner(m), '/repo', BASE)
+    expect(r!.files.files.map((f) => [f.path, f.rev])).toEqual([
+      ['logo.png', H('1')],
+      ['notes.txt', H('2')],
+      ['old.md', undefined],
+      ['src/a.ts', H('3')],
+      ['src/new.ts', H('4')],
+      ['x/now.ts', H('5')],
+    ])
+  })
+
+  test('one file that cannot be hashed does not take the markers of the others in its chunk (#631)', async () => {
+    const H = (c: string) => c.repeat(40)
+    const m = { ...top, '-C /repo hash-object -- notes.txt': { stdout: H('2') + '\n' }, '-C /repo hash-object -- src/a.ts': { stdout: H('3') + '\n' } }
+    const r = await readChanges(runner(m), '/repo', BASE)
+    expect(r!.files.files.map((f) => [f.path, f.rev])).toEqual([
+      ['logo.png', undefined],
+      ['notes.txt', H('2')],
+      ['old.md', undefined],
+      ['src/a.ts', H('3')],
+      ['src/new.ts', undefined],
+      ['x/now.ts', undefined],
+    ])
+  })
+
+  test('a failed marker query leaves the markers off and the list intact', async () => {
+    const r = await readChanges(runner(top), '/repo', BASE)
+    expect(r!.files.files).toHaveLength(6)
+    expect(r!.files.files.every((f) => f.rev === undefined)).toBe(true)
+  })
+
   test('the first read takes HEAD as the starting commit', async () => {
     const m = { ...top }
     m[`-C /repo merge-base --is-ancestor ${HEAD} HEAD`] = { exitCode: 0 }
@@ -169,6 +203,10 @@ describe('changed files', () => {
       if (argv.includes('grep')) {
         const paths = argv.slice(argv.indexOf('--') + 1)
         return { exitCode: 0, stdout: paths.map((p) => `${p}${Z}3\n`).join('') }
+      }
+      if (argv.includes('hash-object')) {
+        const paths = argv.slice(argv.indexOf('--') + 1)
+        return { exitCode: 0, stdout: paths.map(() => 'e'.repeat(40) + '\n').join('') }
       }
       const m: Record<string, { exitCode?: number; stdout?: string }> = {
         ...top,

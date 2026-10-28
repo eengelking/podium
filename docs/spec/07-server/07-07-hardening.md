@@ -248,7 +248,11 @@ A file's diff is source code. Reads are open by design, so this is the one read 
   admin secret. A session with no owner has no one who can. Everyone else gets `403`. Opening is kept to the
   owner because a diff is source code and fewer people who can read it means fewer places it can leak.
 - Each diff opened is not written to the admin log with its text. The log records only that the diff of a
-  path was opened, by whom (`file_diff_opened`: actor, session, path), never the text.
+  path was opened, by whom (`file_diff_opened`: actor, session, path), never the text. A diff loaded ahead
+  (#631, `GET …/files/diff?path=…&ahead=1`, refused with `403` unless the reporter sent `fileDiffPreload`)
+  is logged when it is loaded as `file_diff_loaded` with the same fields. Opening one that was already loaded
+  makes no diff request, so the browser tells the server with `POST …/files/diff/opened`, owner only, which
+  writes `file_diff_opened`.
 - Signed out, or for a session that is not yours, the Files row shows the counts and no link, with a line
   that says why ([8.1](../08-ui/08-01-what-the-ui-must-do.md)).
 

@@ -480,6 +480,12 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
+    // A load ahead (#631) is the console reading the file before anyone opened it; the reporter must have allowed that.
+    const ahead = req.query.ahead === '1';
+    if (ahead && fleet.diffs.preloadOn(row.id) !== true) {
+      refuse(req, res, 403, 'loading diffs ahead is off');
+      return;
+    }
     const got = await fleet.diffs.ask(row.id, path);
     if (got === 'busy') {
       res.status(429).json({ ok: false, error: 'too many diffs are waiting for this session' });
@@ -489,9 +495,44 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(504).json({ ok: false, error: 'no answer' });
       return;
     }
-    people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
-    logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
+    const kind = ahead ? 'loaded' : 'opened';
+    people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    logger.info(`file_diff.${kind}`, `podium: a file diff was ${kind} in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
     res.json(got);
+  });
+
+  // The person opened a diff the console had already loaded ahead (#631): no request carried that open, so the browser says so.
+  browser.post('/sessions/:id/files/diff/opened', (req, res) => {
+    if (!diffEnabled()) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    const v = viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, 'sign in to open diffs');
+      return;
+    }
+    const row = fleet.db.getSession(req.params.id!);
+    if (!row || !fleet.isLive(row.id)) {
+      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return;
+    }
+    const path = typeof req.body?.path === 'string' ? req.body.path : '';
+    if (!path || path.length > LIMITS.filePath) {
+      res.status(400).json({ ok: false, error: 'path is needed', path: '$.path' });
+      return;
+    }
+    if (fleet.diffs.optionOn(row.id) !== true || fleet.diffs.preloadOn(row.id) !== true) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: 'loaded ahead', source: sourceOf(req) });
+    res.status(204).end();
   });
 
   browser.get('/sessions/:id/asks/:askId', (req, res) => {

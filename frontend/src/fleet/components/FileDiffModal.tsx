@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import type { DiffPreloader } from "../diffPreload";
 import { parseDiff, sideBySide, splitRedacted, type SideCell } from "../diffRows";
 import { RespondError } from "../respondApi";
 import type { ChangedFile, FileDiffReply, FilesReport } from "../types";
@@ -266,7 +267,18 @@ function Foot({ load, step, wrap, onWrap }: { load: Load; step: Step; wrap: bool
   );
 }
 
-export function FileDiffModal(props: { sessionId: string; files: ChangedFile[]; index: number; since: FilesReport["since"]; onStep: (index: number) => void; onClose: () => void }) {
+/**
+ * The slot the loader holds for a file, as the modal draws it (#631). While a reload is under way the old text stays; a file
+ * the loader has not reached is loading, the same state the modal showed before diffs were loaded ahead.
+ */
+function loadFrom(preload: DiffPreloader | undefined, path: string): Load | null {
+  const slot = preload?.get(path);
+  if (!slot) return null;
+  if (slot.state === "failed") return { state: "failed", why: failure(slot.error) };
+  return slot.reply ? { state: "done", reply: slot.reply } : { state: "loading" };
+}
+
+export function FileDiffModal(props: { sessionId: string; files: ChangedFile[]; index: number; since: FilesReport["since"]; preload?: DiffPreloader; onStep: (index: number) => void; onClose: () => void }) {
   const ctx = useRespond();
   const [held, setHeld] = useState<Held | null>(null);
   const asked = useRef(false);
@@ -277,12 +289,37 @@ export function FileDiffModal(props: { sessionId: string; files: ChangedFile[]; 
     writeJson(WRAP_KEY, !wrap);
     setWrap(!wrap);
   };
-  const { files, index, sessionId } = props;
+  const { files, index, sessionId, preload } = props;
   const file = files[index]!;
   const api = ctx?.api;
-  const load: Load = held?.path === file.path ? held.load : { state: "loading" };
+  // Re-drawn whenever the loader changes a slot.
+  useSyncExternalStore(
+    (cb) => preload?.subscribe(cb) ?? (() => {}),
+    () => preload?.snapshot() ?? 0,
+  );
+  const loaded = loadFrom(preload, file.path);
+  const load: Load = loaded ?? (held?.path === file.path ? held.load : { state: "loading" });
+  const slot = preload?.get(file.path);
+  const openedAhead = slot?.state === "done" && slot.ahead;
+
+  // The loader moves the open file to the front of its queue, and lets it go when the person steps on or closes.
+  useEffect(() => {
+    if (!preload) return;
+    preload.want(file.path);
+    return () => preload.release(file.path);
+  }, [preload, file.path]);
+
+  // A diff that arrived before anyone asked for it was not an open to the server; say so once the person is looking at it.
+  // Once per file shown: a reload of the same file passes through loading and back, and is not another open.
+  const told = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openedAhead || told.current === file.path) return;
+    told.current = file.path;
+    void api?.fileDiffOpened?.(sessionId, file.path).catch(() => {});
+  }, [openedAhead, api, sessionId, file.path]);
 
   useEffect(() => {
+    if (preload) return;
     let live = true;
     const path = file.path;
     const fileDiff = api?.fileDiff;
@@ -302,7 +339,7 @@ export function FileDiffModal(props: { sessionId: string; files: ChangedFile[]; 
       live = false;
       if (wait) clearTimeout(wait);
     };
-  }, [api, sessionId, file.path]);
+  }, [api, sessionId, file.path, preload]);
 
   const binary = file.added === null || file.removed === null;
   const base = load.state === "done" && load.reply.base ? ` ${load.reply.base}` : "";

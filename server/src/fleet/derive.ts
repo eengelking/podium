@@ -211,6 +211,8 @@ export interface SessionInput {
   activityOutput?: boolean | null;
   /** Whether the reporter has the fileDiff option on (#319), held in memory; null when unknown. */
   fileDiff?: boolean | null;
+  /** Whether the reporter allows reading every changed file's diff ahead (#631); null when unknown. */
+  fileDiffPreload?: boolean | null;
   /** Report.session.respond as last reported (#206), held in memory; null when unknown. */
   respond?: RespondInfo | null;
   /** The session's asks without their content, from the respond store. */
@@ -284,6 +286,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     activityFeed: input.activityFeed ?? null,
     activityOutput: input.activityOutput ?? null,
     fileDiff: input.fileDiff ?? null,
+    fileDiffPreload: input.fileDiffPreload ?? null,
     respond: input.respond ?? null,
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),

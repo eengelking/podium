@@ -567,8 +567,9 @@ features that can be switched off appear here."
     while the panel is open." Off by default.
   - **Respond from Podium** (`respond`, #206, [7.7](../07-server/07-07-hardening.md)).
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
-    the console. The diff is source code, read from the machine only when asked and never stored. Needs the
-    reporter's fileDiff option on the machine as well."
+    the console. The diff is source code, read from the machine while the owner has the session's page open (or only when
+    asked, where the reporter's fileDiffPreload is off) and never stored by the server. Needs the reporter's fileDiff
+    option on the machine as well."
   - **Orchestrator messaging** (`peer-messaging`, #347, [7.7](../07-server/07-07-hardening.md#orchestrator-messaging-347)): "Lets a person's
     orchestrators find and message each other, on the machines they choose, through this server. Only between one
     person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
@@ -1282,7 +1283,12 @@ selected first and the choice is not saved). While Files is selected the left co
     file: src/b.ts") and has that as its tooltip, and is disabled at the first and last file (no wrap). The
     modal's content changes in place: the title, counts and diff, the scroll back to the top, the Wrap lines
     choice kept, and focus on the button used (or on the other one when the used one has just been disabled).
-    Only the file in view is asked for, 120 ms after the last step so that holding a key down asks for the file it stops on and not each one it passes (the server holds four a session), and a reply for a file the person has left is dropped, so the last file's
+    With the session's `fileDiffPreload` on (#631) the page loads every listed file's diff in the background when it opens
+    (`DiffPreloader`: first-listed first, two at a time, the file being opened moved to the front with one more place, nothing
+    while the tab is hidden, held in the page's memory only and dropped when the page, the session or the access goes), so a
+    loaded file opens at once. A file whose status, counts, `from` or `rev` changed is loaded again and its old text stays
+    until the new one swaps in; a failed one shows today's message and is asked for again when opened, not in the background.
+    With it off, only the file in view is asked for, 120 ms after the last step so that holding a key down asks for the file it stops on and not each one it passes (the server holds four a session), and a reply for a file the person has left is dropped, so the last file's
     diff is never drawn under the next file's title; a 429 or 504 shows for the file in view and the buttons
     still step past it. The row shows in loading, failed and binary states too. Below 480 px the switch comes up
     beside the pager and the note takes a line of its own. Where the diff is

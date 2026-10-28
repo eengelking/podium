@@ -26,6 +26,7 @@ supported.
 | `activityFeed` | boolean | `false` | When true, send the activity feed (see below). Title "Send an agent's recent activity". |
 | `activityOutput` | boolean | `false` | When true, the mod sends a Bash command's output with its activity entry, only for a loop a viewer has the feed open on (see below). Title "Send a Bash command's output". Needs `activityFeed` on. |
 | `fileDiff` | boolean | `false` | When true, the mod reads one file's diff when the console asks for it (see below). Title "Send a file's diff on request". |
+| `fileDiffPreload` | boolean | `true` | Needs `fileDiff`. When true, the console may ask for every changed file's diff while the owner has the session's page open (#631, see below). Title "Read every changed file's diff while its page is open". |
 | `respond` | string, one of `off`, `questions`, `questions-and-plans`, `everything` | `off` | What this session accepts from Podium (see below). Title "Respond from Podium". |
 | `peers` | boolean | `false` | When true, this machine's orchestrators can message the owner's other orchestrators through Podium, within the rights the owner set ([5.3](05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347)). Title "Message my other orchestrators". Set once per machine; the server cannot change it. The server takes it in the report (`session.peers`, #412). Read from `register`'s options (#414); the report sends `session.peers` true only with the option on and an interactive session. |
 | `sessionRecording` | boolean | `false` | When true, this machine's sessions may be recorded whole when someone with the right chooses to ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)). Title "Allow session recording". Set once per machine; the server cannot change it. The report sends `session.sessionRecording`. |
@@ -70,6 +71,12 @@ Read the options via the `options` argument of `register`. A config change reloa
 - A diff is source code and can hold a secret. The mod redacts what looks like one before it leaves the machine
   ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), but that is best effort and not a guarantee. This option, the Admin's
   flag and the owner-or-Admin gate are the control, and the User Guide says so.
+
+**`fileDiffPreload`** (#631)
+- Default true, and acts only with `fileDiff` on. The mod sends `session.fileDiffPreload` (true only when both are on),
+  and the server refuses a diff request marked `ahead` while it is not true ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)).
+- False reads a diff only when the owner opens that file, as before. True reads files nobody opened, so more source
+  code leaves the machine; the redaction and the never-send list are the same, and the User Guide says so.
 
 **`respond`** (#206, [5.3](05-03-events-the-reporter-hooks.md#responding-from-podium))
 - `off`: nothing.
