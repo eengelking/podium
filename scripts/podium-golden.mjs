@@ -61,6 +61,10 @@ if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
   process.exit(argv.length === 0 ? 2 : 0);
 }
 const cmd = argv[0];
+// Plain string order for stable output; a Map entry sorts by its key.
+const byText = (a, b) => a.localeCompare(b);
+const byKey = ([a], [b]) => byText(a, b);
+
 const opt = (n, d) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -186,8 +190,8 @@ function makeNormalizer(ctx) {
   return {
     walk,
     report: () => ({
-      rules: Object.fromEntries([...hits].sort()),
-      fields: Object.fromEntries([...fields].sort()),
+      rules: Object.fromEntries([...hits].sort(byKey)),
+      fields: Object.fromEntries([...fields].sort(byKey)),
       // Names that are always replaced when present, and the number ranges treated as epoch-ms and durations.
       keyRules: KEY_RULES.map(([re, ph]) => `${re.source} -> ${ph}`),
       durationKeys: [...DURATION_WORDS, 'serverTime'],
@@ -323,7 +327,7 @@ async function capture() {
   }
   const today = new Date();
   days.add(`${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`);
-  for (const day of [...days].sort()) await read(`${F}/history?day=${day}`);
+  for (const day of [...days].sort(byText)) await read(`${F}/history?day=${day}`);
   await read(`${F}/history?day=2026-02-31`); // an error path
   await read(`${F}/events?before=abc`); // an error path
 
@@ -390,7 +394,7 @@ async function capture() {
   const owners = new Set(['Admin']);
   for (const s of sessions) if (typeof s.owner === 'string' && s.owner) owners.add(s.owner);
   for (const r of Array.isArray(people.body?.rows) ? people.body.rows : []) if (typeof r.name === 'string') owners.add(r.name);
-  for (const o of [...owners].sort()) await read(`${A}/reports/spend/today/${encodeURIComponent(o)}`, 'admin');
+  for (const o of [...owners].sort(byText)) await read(`${A}/reports/spend/today/${encodeURIComponent(o)}`, 'admin');
   await read(`${A}/reports/nope`, 'admin'); // an error path
   await read(`${A}/people/999999/certificate.pem`, 'admin'); // an error path
 
@@ -441,7 +445,8 @@ async function firstSse(u) {
       const end = buf.indexOf('\n\n');
       if (end >= 0) {
         const block = buf.slice(0, end);
-        const event = /^event: *(.*)$/m.exec(block)?.[1] ?? 'message';
+        const eventLine = block.split('\n').find((l) => l.startsWith('event:'));
+        const event = eventLine === undefined ? 'message' : eventLine.slice(6).trimStart();
         const data = block
           .split('\n')
           .filter((l) => l.startsWith('data:'))

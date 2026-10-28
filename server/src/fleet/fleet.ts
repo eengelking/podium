@@ -186,7 +186,7 @@ export class Fleet {
       }
       // The release check going on looks straight away instead of waiting for the next daily run.
       if (id === UPDATE_CHECK && on) void this.updates.check();
-      this.broadcastSnapshot();
+      void this.broadcastSnapshot();
     });
     const authOn = history.authOn ?? true;
     this.activityHistorySettings = new LiveActivityHistorySettings(storage.activityHistorySettings(authOn));
@@ -267,7 +267,7 @@ export class Fleet {
       this.settingsEpoch++;
       this.costMinuteCache = null; // the sparkline follows the prices too (#270)
       this.priceEpoch++;
-      this.broadcastSnapshot();
+      void this.broadcastSnapshot();
     });
   }
 

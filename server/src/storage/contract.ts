@@ -19,7 +19,7 @@ export function session(over: Partial<SessionRow> = {}): SessionRow {
 }
 
 const seen: ReporterSeen = {
-  kind: 'mod', machineId: 'm1', machineName: 'box', source: '10.0.0.1', owner: 'ed', credential: 'person',
+  kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', credential: 'person',
   version: '0.1.0', engineVersion: null, sessionId: 's1',
 };
 

@@ -3,7 +3,7 @@
 // its setting once, answers reads from memory, and writes through: a write goes to storage first and the memory changes only
 // when that write has resolved, then the change callback runs. Writes to one setting run one at a time, in the order they were
 // asked for, so the last one to resolve is the one stored and the one held. This server is the only writer of these rows.
-import { FEATURES, featureDefault, isFeatureId, isNoticeId } from '../storage/rows.js';
+import { FEATURES, NOTICES, featureDefault, isFeatureId } from '../storage/rows.js';
 import { Pricing, type PriceOverrides } from './pricing.js';
 import { Serializer } from './serial.js';
 import { RECORDING_DEFAULTS, type ModelPricesView, type RecordingSettings, type WallSettingsView } from './protocol.js';
@@ -44,7 +44,9 @@ export class LiveFeatureFlags {
     return this.writes.run(WRITES, async () => {
       const was = this.featureOn(id);
       await this.store.setFeature(id, on);
-      this.flags = { ...this.flags, [id]: on };
+      // The key comes from the table of known flags, never from the request, so a request value is not used as a property name.
+      const known = FEATURES.find((f) => f.id === id);
+      if (known) this.flags = { ...this.flags, [known.id]: on };
       if (was !== on) this.onChange(id, on);
       return was !== on;
     });
@@ -77,10 +79,11 @@ export class LiveWallSettings {
 
   /** Resolves false for an id that is not a known notice. */
   setNotice(id: string, on: boolean): Promise<boolean> {
-    if (!isNoticeId(id)) return Promise.resolve(false);
+    const known = NOTICES.find((n) => n.id === id);
+    if (!known) return Promise.resolve(false);
     return this.write(async () => {
       const { changed } = await this.store.setNotice(id, on);
-      this.shown = { ...this.shown, notices: { ...this.shown.notices, [id]: on } };
+      this.shown = { ...this.shown, notices: { ...this.shown.notices, [known.id]: on } };
       return changed;
     }).then(() => true);
   }
