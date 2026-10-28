@@ -786,6 +786,17 @@ describe("podiumctl context (#606)", () => {
     });
   });
 
+  it("a contexts file that is there but cannot be read is reported and left alone", () => {
+    withHome((home) => {
+      const file = path.join(home, "contexts.json");
+      fs.mkdirSync(file); // reading a directory fails with EISDIR, not ENOENT
+      const r = ctl(home, "context", "add", "x", "reporter-config-Dana-100.pem");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/cannot be read \(EISDIR\)/);
+      expect(fs.statSync(file).isDirectory()).toBe(true);
+    });
+  });
+
   it("an unknown verb and a wrong argument count are usage errors", () => {
     withHome((home) => {
       expect(ctl(home, "context", "frobnicate").status).toBe(1);

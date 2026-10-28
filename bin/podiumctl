@@ -834,7 +834,9 @@ function cmdContext(args) {
   const [verb = 'list', ...rest] = args;
   if (!CONTEXT_VERBS.includes(verb)) fail(`unknown context command "${verb}". Use one of: ${CONTEXT_VERBS.join(', ')}.`);
   const file = path.join(homeDir(), CONTEXTS_FILE);
-  const fileText = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  // One read, not an existence check and then a read: a file that appears or goes between the two is not a race this way.
+  let fileText = null;
+  try { fileText = fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') fail(`${file} exists but cannot be read (${e.code}), so nothing was changed.`); }
   const contexts = fileText === null ? { current: null, contexts: {} } : parseContexts(fileText);
   if (!contexts) fail(`${file} is not a valid contexts file, so nothing was changed. Fix or delete it.`);
   const resolve = (f) => (f.startsWith('/') ? f : path.join(homeDir(), f));
