@@ -726,7 +726,8 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - Each has an X (accessible name "Close notice: `<name>`"). Its action link, if it has one, stays in the note.
 - Closing a notice turns it off for everyone (`POST /api/fleet/notices/:id/close`) and shows a confirmation,
   bottom right, that names the notice and links to `#/admin/settings`. The confirmation clears itself after
-  about 9 seconds and has its own X.
+  about 9 seconds and has its own X. It waits while the pointer is over it or focus is inside it, and the 9 seconds
+  start again when both have left.
 - Errors and connection problems are not notices. They keep their place and have no X, and so does the short
   status message at the top of the main column that clears itself after 6 seconds.
 - The switches live in Admin > Settings > Wall notices, one row per notice (name, one-line description,
