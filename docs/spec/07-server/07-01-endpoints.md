@@ -73,7 +73,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   need the `respond` flag: sign-in is open to the owner and an Admin whenever a keep policy is on and a token is
   set. `Cache-Control: no-store`. The text is never logged.
 
-**`GET /api/fleet/respond/sessions/:id/files/diff?path=`** (#319)
+**`GET /api/fleet/respond/sessions/:id/files/diff?path=&ahead=1`** (#319, #631)
 - The console's request for one file's diff. It needs a respond session ([7.7](07-07-hardening.md), *File diff*),
   not just a read: this is the one read that returns source code.
 - It is held until the mod answers or 15 seconds pass. `200 { path, status, text, truncated, shownLines,
@@ -82,7 +82,14 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
 - `401` signed out, `403 { error: "not your session", owner }` for anyone who is not the owner (an Admin included),
   `403 { error: "file diff is off" }` while a switch the server knows of is off, `404` for an unknown or
   not-live session, `400` for a missing path.
+- `ahead=1` marks a load nobody asked for yet (#631): `403 { error: "loading diffs ahead is off" }` unless the
+  reporter sent `fileDiffPreload`, and the admin log records `file_diff_loaded` instead of `file_diff_opened`.
 - `Cache-Control: no-store`. The text is never logged and never kept ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)).
+
+**`POST /api/fleet/respond/sessions/:id/files/diff/opened`** (#631)
+- Body `{ path }`. The owner opened a diff the console had already loaded, which no request carried, so the
+  browser says so and the admin log records `file_diff_opened`. `204`. Owner only, with the same refusals as the
+  diff route (`401`, `403`, `404`, `400` for a missing path); `403` unless `fileDiff` and `fileDiffPreload` are both on.
 
 **`GET /api/fleet/history?day=YYYY-MM-DD&page=N&pageSize=N`**
 - Ended or dropped sessions that day, newest first, summary rows only (name, project, model, duration, cost,

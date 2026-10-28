@@ -36,10 +36,11 @@ function setup(opts: { secret?: string | null; fileDiff?: boolean } = {}) {
   return { app, fleet, people, db, ed, alex, boss };
 }
 
-function report(userName: string | null, over: { id?: string; fileDiff?: boolean | null } = {}): Report {
+function report(userName: string | null, over: { id?: string; fileDiff?: boolean | null; fileDiffPreload?: boolean } = {}): Report {
   const r = fixtureReport();
   r.session = { ...r.session, id: over.id ?? 'sess-ed' };
   if (over.fileDiff !== null) r.session.fileDiff = over.fileDiff ?? true;
+  if (over.fileDiffPreload !== undefined) r.session.fileDiffPreload = over.fileDiffPreload;
   if (userName) r.userName = userName;
   return r;
 }
@@ -221,5 +222,54 @@ describe('the mod\'s answer route', () => {
     await send(app, ed.token, report('Ed'));
     const big = { ...okReply, text: 'é'.repeat(FILE_DIFF_LIMITS.answerBytes / 2 + 10) };
     expect((await request(app).put('/api/fleet/sessions/sess-ed/diffs/x').set('X-Podium-Token', ed.token).send(big)).status).toBe(413);
+  });
+});
+
+describe('loading ahead (#631)', () => {
+  const AHEAD_URL = `${DIFF_URL}&ahead=1`;
+  const OPENED_URL = '/api/fleet/respond/sessions/sess-ed/files/diff/opened';
+  const answerNext = async (app: express.Express, token: string) => {
+    for (let i = 0; i < 50; i++) {
+      const list = (await send(app, token, report('Ed', { fileDiffPreload: true }))).body.diffs as { id: string }[];
+      if (list.length) return request(app).put(`/api/fleet/sessions/sess-ed/diffs/${list[0]!.id}`).set('X-Podium-Token', token).send(okReply);
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    throw new Error('no request listed');
+  };
+
+  it('refuses a load ahead when the reporter has not allowed it', async () => {
+    const { app, ed } = setup();
+    await send(app, ed.token, report('Ed'));
+    const a = await signedIn(app, 'Ed', ed.token);
+    const res = await a.get(AHEAD_URL);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('loading diffs ahead is off');
+  });
+  it('logs a load ahead as file_diff_loaded and not as an open, with no text', async () => {
+    const { app, people, ed } = setup();
+    await send(app, ed.token, report('Ed', { fileDiffPreload: true }));
+    const a = await signedIn(app, 'Ed', ed.token);
+    const waiting = a.get(AHEAD_URL).then((r) => r);
+    await new Promise((r) => setTimeout(r, 30));
+    expect((await answerNext(app, ed.token)).status).toBe(200);
+    expect((await waiting).status).toBe(200);
+    const rows = people.listLog({ page: 1, pageSize: 50 }).rows;
+    expect(rows.find((r) => r.kind === 'file_diff_opened')).toBeUndefined();
+    const log = rows.find((r) => r.kind === 'file_diff_loaded');
+    expect(log).toMatchObject({ actor: 'Ed' });
+    expect(log!.detail).toContain('src/a.ts');
+    expect(JSON.stringify(rows).includes('UNIQUE-DIFF-LINE-9137')).toBe(false);
+  });
+  it('logs an open of a diff that was loaded ahead, for the owner only', async () => {
+    const { app, people, ed, alex } = setup();
+    await send(app, ed.token, report('Ed', { fileDiffPreload: true }));
+    const a = await signedIn(app, 'Ed', ed.token);
+    expect((await a.post(OPENED_URL).set(H).send({ path: 'src/a.ts' })).status).toBe(204);
+    const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'file_diff_opened');
+    expect(log).toMatchObject({ actor: 'Ed' });
+    expect(log!.detail).toContain('src/a.ts');
+    const other = await signedIn(app, 'Alex', alex.token);
+    expect((await other.post(OPENED_URL).set(H).send({ path: 'src/a.ts' })).status).toBe(403);
+    expect((await a.post(OPENED_URL).set(H).send({})).status).toBe(400);
   });
 });

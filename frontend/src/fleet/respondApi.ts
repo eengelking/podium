@@ -49,7 +49,9 @@ export const respondApi = {
   message: (sessionId: string, body: { text: string } | { command: "clear" | "compact" }) =>
     callRespond<{ ok: true; deliveryId: string; queued: boolean }>("POST", `${sessionPath(sessionId)}/messages`, body),
   /** One file's diff (#319): held until the session's machine answers, so it can take up to 15 seconds. */
-  fileDiff: (sessionId: string, path: string) => callRespond<FileDiffReply>("GET", `${sessionPath(sessionId)}/files/diff?path=${encodeURIComponent(path)}`),
+  fileDiff: (sessionId: string, path: string, ahead = false) => callRespond<FileDiffReply>("GET", `${sessionPath(sessionId)}/files/diff?path=${encodeURIComponent(path)}${ahead ? "&ahead=1" : ""}`),
+  /** The person opened a diff that was loaded ahead (#631), which no request carried; the server logs it. */
+  fileDiffOpened: (sessionId: string, path: string) => callRespond<unknown>("POST", `${sessionPath(sessionId)}/files/diff/opened`, { path }),
   /** One page of a loop's stored Activity (#432), oldest first; the owner and the Admin only. `before` is a page's `olderBefore`. */
   activityHistory: (sessionId: string, loop: string, before?: number | null, limit?: number) =>
     callRespond<ActivityHistoryPage>(
@@ -80,7 +82,7 @@ export const respondApi = {
 type RecordingCalls = "recordingPage" | "recordingConsent" | "recordingStart" | "recordingStop" | "recordingDelete";
 
 /** The browser's side of responding. `fileDiff`, `activityHistory` and the recording calls are optional so a test's fake can leave them out; the real one has them. */
-export type RespondApi = Omit<typeof respondApi, "fileDiff" | "activityHistory" | RecordingCalls> & Partial<Pick<typeof respondApi, "fileDiff" | "activityHistory" | RecordingCalls>>;
+export type RespondApi = Omit<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls> & Partial<Pick<typeof respondApi, "fileDiff" | "fileDiffOpened" | "activityHistory" | RecordingCalls>>;
 
 /**
  * My reporters (#347, #415, SPEC 7.1 "Browser routes for orchestrator messaging"): on the same router and sign-in as

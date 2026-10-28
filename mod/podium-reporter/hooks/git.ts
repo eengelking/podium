@@ -201,6 +201,34 @@ export async function readChanges(run: Runner, cwd: string, base: string | null)
       f.added = got[j]!.added;
       f.removed = got[j]!.removed;
     });
+    // One `git hash-object` per chunk marks the content of every listed file still on disk, so an edit that leaves the counts alone still shows (#631).
+    const listed = all.slice(0, MAX_FILES);
+    const hashable = listed.filter((f) => f.status !== 'deleted' && !f.path.includes('\n'));
+    let singles = NUMSTAT_LIMIT;
+    for (let i = 0; i < hashable.length; i += GREP_CHUNK) {
+      const chunk = hashable.slice(i, i + GREP_CHUNK);
+      try {
+        const hashes = (await out(git('hash-object', '--', ...chunk.map((f) => f.path)))).split('\n');
+        chunk.forEach((f, j) => {
+          if (/^[0-9a-f]{40,64}$/.test(hashes[j] ?? '')) f.rev = hashes[j];
+        });
+      } catch {
+        // One file that vanished mid-read, or a directory (a submodule), fails the whole chunk: hash its files one by one so the rest keep their marker.
+        // At most NUMSTAT_LIMIT such processes in a read, so a repository where every call fails does not run one per file.
+        const rest = chunk.slice(0, singles);
+        singles -= rest.length;
+        await Promise.all(
+          rest.map(async (f) => {
+            try {
+              const h = (await out(git('hash-object', '--', f.path))).trim();
+              if (/^[0-9a-f]{40,64}$/.test(h)) f.rev = h;
+            } catch {
+              // This file stays unmarked; the list is unaffected.
+            }
+          }),
+        );
+      }
+    }
     const sum = (k: 'added' | 'removed') => all.reduce((n, f) => n + (f[k] ?? 0), 0);
     return { base: start, files: { files: all.slice(0, MAX_FILES), total: all.length, added: sum('added'), removed: sum('removed'), since } };
   } catch {

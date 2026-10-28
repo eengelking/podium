@@ -37,10 +37,10 @@ git diff --numstat -z -M <base>                  → added and removed lines per
 git ls-files -z --others --exclude-standard --full-name   → untracked files
 git grep --no-index -I -c -z '' -- <paths>       → their line counts, one process per 100 files; it leaves out empty and binary files
 git diff --no-index --numstat -- /dev/null <path> → those left-out files, one process each, for at most 20 per read
+git hash-object -- <paths>                       → each listed file's content hash (`rev`, #631), one process per 100 files; a deleted file has none
 ```
 
-Only paths and counts are read, never file contents or diff text. The one exception is a file's diff opened on
-demand from the console (#319, [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), which is off unless two switches are on.
+Only paths, counts and a hash of each file's content (`rev`, which lets the console see an edit that leaves the counts alone) are read, never file contents or diff text. The one exception is a file's diff opened or loaded ahead from the console (#319, #631, [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), which is off unless two switches are on.
 
 - The list is sorted by path and cut at 200 files.
 - `total`, `added` and `removed` cover every file, with one exception: an untracked file past the 200th is

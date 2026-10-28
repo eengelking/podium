@@ -43,6 +43,8 @@ export interface ReportMeta {
   activityOutput?: boolean;
   /** The `fileDiff` option: answer requests for one file's diff (#319). */
   fileDiff?: boolean;
+  /** The `fileDiffPreload` option: the console may ask for every changed file's diff while its page is open (#631). */
+  fileDiffPreload?: boolean;
   /** The `sessionRecording` option: the owner's consent to be recorded (#353). */
   sessionRecording?: boolean;
   /** Whether and how far the session can be answered from Podium (#206); omitted by nothing that responds. */
@@ -288,6 +290,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       activityFeed: activity,
       activityOutput: meta.activityOutput === true,
       fileDiff: meta.fileDiff === true,
+      fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
       sessionRecording: meta.sessionRecording === true,
       ...(activity && s.main.activity.length ? { activity: feed(s.main.activity, meta.activityOutput === true) } : {}),
       ...(meta.respond ? { respond: meta.respond } : {}),

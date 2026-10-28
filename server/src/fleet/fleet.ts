@@ -289,6 +289,7 @@ export class Fleet {
       this.logger.error('activity.ingest_failed', `podium: could not store the activity of session ${res.sessionId}: ${(err as Error).message}`, { session_id: res.sessionId, reason: (err as Error).message });
     }
     if (typeof report.session.fileDiff === 'boolean') this.diffs.noteOption(res.sessionId, report.session.fileDiff);
+    if (typeof report.session.fileDiffPreload === 'boolean') this.diffs.notePreload(res.sessionId, report.session.fileDiffPreload);
     // The owner's consent to be recorded, from this report (#353). After a /clear the new session inherits a running recording.
     this.recordings.noteOption(res.sessionId, report.session.sessionRecording);
     if (res.created && report.session.clearedFrom) {
@@ -427,6 +428,7 @@ export class Fleet {
         activityFeed: this.activity.feedOn(row.id),
         activityOutput: this.activity.outputOptionOn(row.id),
         fileDiff: this.diffs.optionOn(row.id),
+        fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),
         asks: this.respond.summaries(row.id),
         recording: this.recordings.view(row.id),

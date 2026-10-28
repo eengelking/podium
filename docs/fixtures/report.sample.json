@@ -44,6 +44,7 @@
     "activityFeed": true,
     "activityOutput": true,
     "fileDiff": true,
+    "fileDiffPreload": true,
     "sessionRecording": true,
     "activity": [
       { "at": 1791647850000, "kind": "tool", "text": "Agent Port invoice endpoints" },

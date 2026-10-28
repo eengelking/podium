@@ -80,6 +80,12 @@
       "description": "When the owner of a session opens a changed file in Podium's Files list, read that one file's diff and send it. Anything that looks like a secret is replaced with [redacted] before it leaves this machine, and .env, key and credentials files are never sent. Nothing is sent for a file nobody opens, and the server keeps no copy. Off by default.",
       "default": false
     },
+    "fileDiffPreload": {
+      "type": "boolean",
+      "title": "Read every changed file's diff while its page is open",
+      "description": "Needs 'Send a file's diff on request' on. While the owner has a session's page open in Podium, read the diff of each changed file in the background so a file opens with no wait, and read it again when the file changes. The diffs are redacted the same way and the server keeps no copy; they sit in the owner's browser page and are thrown away when the page closes. Turn this off to read a diff only when the owner opens that file. On by default when the file diff option is on.",
+      "default": true
+    },
     "respond": {
       "type": "string",
       "title": "Respond from Podium",

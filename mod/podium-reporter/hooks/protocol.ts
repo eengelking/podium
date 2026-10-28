@@ -67,6 +67,8 @@ export interface ChangedFile {
   removed: number | null;
   /** The old path of a renamed file. */
   from: string | null;
+  /** The git hash of the file's content on disk (#631), so an edit that leaves the counts alone still shows. Absent for a deleted file, an older reporter, or when git could not hash it. */
+  rev?: string;
 }
 
 /**
@@ -298,6 +300,8 @@ export interface SessionReport {
   activityOutput?: boolean;
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
+  /** Whether the reporter's `fileDiffPreload` option is on (#631): the console may ask for every changed file's diff while its page is open. Absent from a reporter older than the release that adds it. */
+  fileDiffPreload?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
   activity?: ActivityEntry[];
   /** Whether and how far the session can be answered from Podium (#206). Absent from a reporter older than 0.14.0. */

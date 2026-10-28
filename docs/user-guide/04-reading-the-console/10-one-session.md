@@ -47,6 +47,7 @@ and removed (a binary file shows the word "binary"), 20 to a page. The column ge
 - The list comes from `git diff` against the commit the session began on, so two sessions in the same checkout see the
   same changes. Use a worktree to keep them apart.
 - It needs podium-reporter 0.6.0 or later, and says so when the reporter is older.
+- An archived session on the History page shows no diffs. The machine that could read them is gone, and Podium does not keep them yet.
 
 ## The agent tree
 

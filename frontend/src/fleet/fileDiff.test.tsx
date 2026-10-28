@@ -513,3 +513,81 @@ describe("stepping through the files (#630)", () => {
     expect(document.activeElement).toBe(row);
   });
 });
+
+describe("loading ahead (#631)", () => {
+  const withOpened = (fileDiff: RespondApi["fileDiff"]) => {
+    const api = fakeApi(fileDiff) as RespondApi & { fileDiffOpened: ReturnType<typeof vi.fn> };
+    api.fileDiffOpened = vi.fn(async () => ({}));
+    return api;
+  };
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  afterEach(() => setHidden(false));
+
+  it("loads every changed file's diff when the page opens, marked as ahead, and opens a loaded one with no wait", async () => {
+    const fileDiff = vi.fn(async (_id: string, path: string, _ahead?: boolean) => ok({ path }));
+    const api = withOpened(fileDiff);
+    await show({ api, s: { fileDiffPreload: true } });
+    expect(fileDiff.mock.calls.map((c) => [c[1], c[2]])).toEqual([["src/a.ts", true], ["docs/new.md", true], ["img/logo.png", true]]);
+    fileDiff.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    expect(screen.queryByText(/^Loading/)).toBeNull();
+    expect(screen.getAllByText(/process\.env\.KEY/).length).toBeGreaterThan(0);
+    await flush();
+    expect(fileDiff).not.toHaveBeenCalled();
+    expect(api.fileDiffOpened).toHaveBeenCalledWith("sess-ed", "src/a.ts");
+  });
+  it("reads a diff only when it is opened where the reporter has not allowed reading ahead", async () => {
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: false } });
+    expect(fileDiff).not.toHaveBeenCalled();
+    cleanup();
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: null } });
+    expect(fileDiff).not.toHaveBeenCalled();
+  });
+  it("loads nothing where the viewer cannot open diffs", async () => {
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true, owner: "Alex" } });
+    expect(fileDiff).not.toHaveBeenCalled();
+  });
+  it("loads nothing while the tab is hidden, and starts when it is shown", async () => {
+    setHidden(true);
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true } });
+    expect(fileDiff).not.toHaveBeenCalled();
+    setHidden(false);
+    await flush();
+    expect(fileDiff).toHaveBeenCalled();
+  });
+  it("reloads a file whose content marker moved, keeping the old text on screen, and asks for a new file", async () => {
+    let text = "first";
+    const fileDiff = vi.fn(async (_id: string, path: string) => ok({ path, text: `@@ -1 +1 @@\n-x\n+${text}` }));
+    const session = makeSession({ id: "sess-ed", owner: "Ed", status: "running", fileDiff: true, fileDiffPreload: true });
+    const tree = (report: FilesReport) => (
+      <RespondProvider api={withOpened(fileDiff)} flagsOn={false} diffOn>
+        <FilesList report={report} hint={null} session={session} />
+      </RespondProvider>
+    );
+    const view = render(tree(REPORT));
+    await flush();
+    fileDiff.mockClear();
+    text = "second";
+    const edited: FilesReport = { ...REPORT, files: [{ ...REPORT.files[0]!, rev: "new" }, ...REPORT.files.slice(1), { path: "z.ts", status: "added", from: null, added: 1, removed: 0 }], total: 4 };
+    view.rerender(tree(edited));
+    await flush();
+    expect(fileDiff.mock.calls.map((c) => c[1]).sort()).toEqual(["src/a.ts", "z.ts"]);
+  });
+  it("throws the diffs away when the page is left, and keeps nothing in the browser", async () => {
+    const before = JSON.stringify({ ...localStorage });
+    const fileDiff = vi.fn(async () => ok());
+    const { unmount } = await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true } });
+    unmount();
+    fileDiff.mockClear();
+    await flush();
+    expect(fileDiff).not.toHaveBeenCalled();
+    expect(JSON.stringify({ ...localStorage })).toBe(before);
+    expect(document.cookie).toBe("");
+  });
+});

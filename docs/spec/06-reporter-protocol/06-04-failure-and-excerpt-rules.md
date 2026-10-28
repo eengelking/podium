@@ -431,7 +431,8 @@ notice, [8.1](../08-ui/08-01-what-the-ui-must-do.md#session-recording-353-mockup
 ## File diff (opt-in, on request, #319)
 
 With the `fileDiff` option on, the mod can send the diff of one file in the Files list
-([5.7](../05-mod-api/05-07-git-queries.md)) when someone asks for it.
+([5.7](../05-mod-api/05-07-git-queries.md)) when someone asks for it, and, with `fileDiffPreload` on as well (#631), the diff of every
+file in the list while the owner has the session's page open.
 
 **What is sent**
 - The diff of one path against the same base the list counts from (the session's starting commit, or the
@@ -477,18 +478,36 @@ With the `fileDiff` option on, the mod can send the diff of one file in the File
 - The console draws each `[redacted]` in bold, in the critical color.
 
 **When it is sent**
-- Nothing is read for a file nobody opens. The console asks only when a signed-in owner or Admin opens a
-  file's modal, the server lists the request in the next reply's `diffs`, and the mod answers once. A request
-  the mod has not answered in 15 seconds is dropped and the console says so.
+- With `fileDiffPreload` off, nothing is read for a file nobody opens. The console asks only when the signed-in
+  owner opens a file's modal, the server lists the request in the next reply's `diffs`, and the mod answers once.
+  A request the mod has not answered in 15 seconds is dropped and the console says so.
+- With `fileDiffPreload` on (the default when `fileDiff` is on, #631), the console asks for the diffs of the
+  session's files when the owner's page for the session opens, so a diff is there when the file is opened. The
+  mod reads a file's diff that nobody opened, redacted the same way, and more of the session's source code
+  leaves the machine and sits in the owner's browser page than before; the User Guide says so. The reporter
+  sends `session.fileDiffPreload` (true only when `fileDiff` is on too), and the server refuses a request marked
+  `ahead` while it is not true.
+  - The loader runs in the browser page and nowhere else: first-listed file first, two requests at a time, a
+    file the person opens moved to the front (one more request allowed for it), nothing while the tab is hidden,
+    nothing where the viewer cannot open diffs. A `429` puts the file back and holds the queue for 3 seconds. A
+    diff that fails is not retried in the background; it is asked for again when opened.
+  - Each `files[]` entry carries `rev`, the git hash of the file's content on disk (`git hash-object`), absent
+    for a deleted file or when git could not hash it. A file whose `status`, counts, `from` or `rev` differ from
+    what was loaded is asked for again in the background, and the old text stays on screen until the new one
+    arrives. A new file is loaded when it appears and a file that leaves the list is dropped.
+  - Leaving the page throws every diff away and cancels the queue. Nothing is written to `localStorage`, a
+    cookie or the server.
+  - An archived session on the History page has no machine to ask, so it loads nothing and shows no diff until
+    the diffs are stored (#632).
 
 **What the server does**
 - It hands the text to the one browser request that is waiting and then forgets it. It keeps no copy: not in
   the database, not in the state or the stream, not in a log line, an error or the admin log, and not for a
-  second viewer. Opening the modal again asks again.
+  second viewer. With loading ahead off, opening the modal again asks again.
 - It drops a pending request when its session leaves the live set or is deleted, and on restart.
 
 **Switches**
-- Three must be on: the reporter's `fileDiff` option on the machine, the server's `file-diff` feature flag
+- Three must be on: the reporter's `fileDiff` option on the machine (and `fileDiffPreload`, default on, to load ahead), the server's `file-diff` feature flag
   (Admin > Settings > Feature flags, [8.1](../08-ui/08-01-what-the-ui-must-do.md)), off by default, and authentication
   ([7.7](../07-server/07-07-hardening.md)). Who may ask is under *File diff* in [7.7](../07-server/07-07-hardening.md).
 - With the option off the mod reads nothing and ignores `diffs`. With the flag off the server lists no

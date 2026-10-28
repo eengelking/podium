@@ -138,6 +138,8 @@ interface Options {
   activityOutput: boolean;
   /** Answer requests for one file's diff (#319). */
   fileDiff: boolean;
+  /** Tell the console it may read every changed file's diff while its page is open (#631). On unless set to false. */
+  fileDiffPreload: boolean;
   /** What this session accepts from Podium (#206). */
   respond: RespondLevel;
   /** Message the owner's other orchestrators through Podium (#347, #414). */
@@ -216,6 +218,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     activityFeed: o.activityFeed === true,
     activityOutput: o.activityOutput === true,
     fileDiff: o.fileDiff === true,
+    fileDiffPreload: o.fileDiffPreload !== false,
     respond: respondLevel(o.respond),
     peers: o.peers === true,
     sessionRecording: o.sessionRecording === true,
@@ -437,6 +440,7 @@ function metaOf(r: Runtime, now: number) {
     activity: opts.activityFeed,
     activityOutput: opts.activityOutput,
     fileDiff: opts.fileDiff,
+    fileDiffPreload: opts.fileDiffPreload,
     sessionRecording: opts.sessionRecording,
     respond: respondNow(r),
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,

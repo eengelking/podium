@@ -15,6 +15,8 @@ export class DiffBroker {
   private readonly pending = new Map<string, Pending>();
   /** Session id -> whether its reporter has the fileDiff option on, from the last report that said. */
   private readonly option = new Map<string, boolean>();
+  /** Session id -> whether its reporter allows reading every changed file's diff ahead (#631). */
+  private readonly preload = new Map<string, boolean>();
 
   /** How many requests are waiting. */
   get size(): number {
@@ -61,6 +63,15 @@ export class DiffBroker {
     this.option.set(sessionId, on);
   }
 
+  /** The reporter's fileDiffPreload option from its last report (#631); null when it never said. */
+  notePreload(sessionId: string, on: boolean): void {
+    this.preload.set(sessionId, on);
+  }
+
+  preloadOn(sessionId: string): boolean | null {
+    return this.preload.get(sessionId) ?? null;
+  }
+
   /** The reporter's fileDiff option from its last report; null when it never said (older reporter, or since a restart). */
   optionOn(sessionId: string): boolean | null {
     return this.option.get(sessionId) ?? null;
@@ -70,6 +81,7 @@ export class DiffBroker {
   drop(sessionId: string): void {
     for (const p of [...this.pending.values()]) if (p.sessionId === sessionId) this.settle(p.id, null);
     this.option.delete(sessionId);
+    this.preload.delete(sessionId);
   }
 
   /** The Admin turned the feature off. */
