@@ -75,12 +75,13 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
 <main class="review">
   <h1 class="t">Turning off the single-key shortcuts</h1>
   <p>The keys <code>\</code> <code>[</code> <code>]</code> and <code>w</code> work anywhere on the page outside a text field, and nothing can turn them off or change them. WCAG 2.1.4 (character key shortcuts) asks that a shortcut made of one printable key can be turned off, remapped, or works only while its control has focus. Someone using speech input, or hitting keys by accident, now collapses a pane or starts wall mode by mistake. <code>Esc</code> is not a printable key, so it needs nothing.</p>
-  <p>Below are three ways to meet it. Each frame is live: press the switches, then press <code>\</code> <code>[</code> <code>]</code> or <code>w</code> anywhere on this page to see what the option would do. Use the demo bar for dark, light and a 380 px width.</p>
+  <p><b>Decided: Option A</b>, a Shortcuts switch in Display settings, off by default. Options B and C were considered and are kept lower down, marked not chosen. Each frame is live: press the switches, then press <code>\</code> <code>[</code> <code>]</code> or <code>w</code> anywhere on this page to see what the option would do. Use the demo bar for dark, light and a 380 px width.</p>
   <p class="legend"><i></i>New in this option</p>
 
-  <h2 class="t">Option A: a switch in Display settings (per browser)</h2>
+  <h2 class="t">Option A (accepted): a Shortcuts switch in Display settings, off by default</h2>
   <div class="opt">
-    <p>Display settings is the row under the top bar that already holds Refresh every and Theme. Both are remembered per browser in <code>localStorage</code>, which is also how the collapsed panes, pins and the Board choice are kept. One more field, <b>Shortcuts</b>, with the same switch Admin uses. On by default, so nobody who uses the keys today notices a change.</p>
+    <p>Display settings is the row under the top bar that already holds Refresh every and Theme. Both are remembered per browser in <code>localStorage</code>, which is also how the collapsed panes, pins and the Board choice are kept. One more field, <b>Shortcuts</b>, with the same switch Admin uses. <b>Off by default</b>: the frame opens with the keys not working and the pane tips not naming them. Press the switch to see On, the alternate.</p>
+    <p><b>Consequence.</b> People who use <code>\</code> <code>[</code> <code>]</code> and <code>w</code> today lose them until they turn Shortcuts on. This is a visible change and goes in the CHANGELOG. A person finds the keys from the switch itself: its hint, shown on hover and keyboard focus and read by a screen reader, names all four.</p>
   </div>
   <div class="frame podium" data-frame>
     <header class="top"><span class="logo">Podium</span><span class="pill">Fleet</span><span class="spacer"></span><a class="btn" href="#" onclick="return false">Board</a><a class="btn" href="#" onclick="return false">History</a></header>
@@ -88,16 +89,16 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
       <span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span>
       <div class="bannerctl">
         <label class="field"><span>Refresh every</span><select class="sel"><option>5s</option><option>10s</option></select></label>
-        <span class="field isnew"><span id="a-n">Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="a-n a-s" aria-describedby="a-d" id="a-sw"></button><span id="a-s">On</span></span></span>
+        <span class="field isnew"><span id="a-n">Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="false" aria-labelledby="a-n a-s" aria-describedby="a-d" id="a-sw" title="Press \ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode."></button><span id="a-s">Off</span></span></span>
         <div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>
           <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false">Light</button><button type="button" role="radio" aria-checked="false">Dark</button><button type="button" role="radio" aria-checked="true">System</button></div></div>
       </div>
     </div>
     <div class="stage">
       <span class="rail" aria-hidden="true"></span>
-      <button type="button" class="edge-tab edge-tab-left show-tip" aria-label="Collapse the left pane" data-tip="Collapse the left pane ([)" id="a-tab"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
-      <span id="a-d">With Shortcuts on: <span class="keys"><code>\</code> top bar, <code>[</code> left pane, <code>]</code> right pane, <code>w</code> wall mode, <code>Esc</code> leaves wall mode. Off: only <code>Esc</code> and the buttons.</span></span>
-      <span>The hover tip on each pane control names its key while Shortcuts is on, and drops it when off.</span>
+      <button type="button" class="edge-tab edge-tab-left show-tip" aria-label="Collapse the left pane" data-tip="Collapse the left pane" id="a-tab"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
+      <span id="a-d">The switch's hint (hover, focus, screen reader): <span class="keys"><code>\</code> top bar, <code>[</code> left pane, <code>]</code> right pane, <code>w</code> wall mode, <code>Esc</code> leaves wall mode.</span></span>
+      <span>The hover tip on each pane control names its key only while Shortcuts is on. Off, as drawn, it names none.</span>
     </div>
     <p class="verdict" id="a-v" aria-live="polite"></p>
   </div>
@@ -106,19 +107,23 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
       <div><b>Pros</b><ul>
         <li>Meets 2.1.4 by letting the person turn the keys off, on the page where they already choose how the console looks.</li>
         <li>A person's own choice, not an Admin one: it follows the person who needs it, on their browser.</li>
-        <li>Default on keeps wall displays and current habits working.</li>
+        <li>Off by default, nobody is caught by a stray key or speech input before they have chosen.</li>
         <li>Reuses the Display settings region, the <code>.field</code> and the Admin switch (<code>.sw</code>). No new component.</li>
       </ul></div>
       <div><b>Cons</b><ul>
-        <li>Per browser: someone on three machines turns it off three times.</li>
-        <li>The row is hidden when the top bar is collapsed. The bar comes back with the tab (and <code>\</code>, when keys are on), so the switch is reachable but one step away.</li>
+        <li>Off by default, people who use the keys today lose them until they turn Shortcuts on, on each browser. A wall display needs it switched on once.</li>
+        <li>Per browser: someone on three machines sets it three times.</li>
+        <li>The row is hidden when the top bar is collapsed. The bar comes back with the tab (and <code>\</code>, when Shortcuts is on), so the switch is reachable but one step away.</li>
         <li>History carries the same row (spec 8.1, Theme picker), so the setting would need wiring there too.</li>
         <li>A new key in <code>localStorage</code>, say <code>podium.shortcuts</code>, and a spec line.</li>
       </ul></div>
     </div>
   </div>
 
-  <h2 class="t">Option B: a switch in Admin &gt; Settings (everyone on the server)</h2>
+  <h2 class="t">Considered and not chosen</h2>
+  <p>B and C stay here with their pros and cons, so the reasoning is kept. Neither will be built.</p>
+
+  <h2 class="t">Option B (not chosen): a switch in Admin &gt; Settings (everyone on the server)</h2>
   <div class="opt">
     <p>Admin &gt; Settings holds server-wide switches: Feature flags, Wall notices, The wall. A row here, in The wall, would switch the keys off for every person on this server. It does not conflict with the wall-notice rule: that rule is about informational notes, and this is not a notice. Admin would own the answer for people who may never see Admin.</p>
   </div>
@@ -154,7 +159,7 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
     </div>
   </div>
 
-  <h2 class="t">Option C: a modifier key, no setting</h2>
+  <h2 class="t">Option C (not chosen): a modifier key, no setting</h2>
   <div class="opt">
     <p>Change the keys to <code>Shift</code> plus the key. A shortcut that needs a modifier is not a character key shortcut, so 2.1.4 no longer applies. Nothing to switch, nothing stored. The tips name the new keys. Ctrl, Meta and Alt stay out of it because browsers and screen readers use them.</p>
   </div>
@@ -193,25 +198,32 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
 
   <h2 class="t">Side by side</h2>
   <table class="cmp">
-    <tr><th>Question</th><th>A: Display settings</th><th>B: Admin &gt; Settings</th><th>C: Shift + key</th></tr>
+    <tr><th>Question</th><th>A: Display settings (accepted)</th><th>B: Admin &gt; Settings (not chosen)</th><th>C: Shift + key (not chosen)</th></tr>
     <tr><td>Who decides</td><td>Each person</td><td>The Admin, for all</td><td>Nobody; fixed</td></tr>
     <tr><td>Stored</td><td>Per browser (<code>localStorage</code>)</td><td>On the server</td><td>Not stored</td></tr>
-    <tr><td>Today's habits</td><td>Kept (default on)</td><td>Kept (default on)</td><td>Broken</td></tr>
+    <tr><td>Today's habits</td><td>Lost until turned on (default off)</td><td>Kept (default on)</td><td>Broken</td></tr>
     <tr><td>New component</td><td>None</td><td>None</td><td>None</td></tr>
     <tr><td>Meets 2.1.4 by</td><td>Turn off</td><td>Turn off (not by the person)</td><td>Modifier required</td></tr>
   </table>
 
-  <h2 class="t">Recommendation and open questions</h2>
+  <h2 class="t">Decision and open questions</h2>
   <div class="pick">
-    <b>Recommend A.</b> It is the one the person who needs the change can use themselves, it keeps today's behavior by default, and it adds no component. B and C can be added later if wanted; A does not block them.
-    <p style="margin-top:8px">Questions for the maintainer</p>
+    <b>Decision: Option A.</b>
+    <ul>
+      <li>A Shortcuts switch in the Display settings row, kept per browser in <code>localStorage</code>.</li>
+      <li>Off by default. People who use <code>\</code> <code>[</code> <code>]</code> and <code>w</code> today lose them until they turn Shortcuts on. This is a visible change for the CHANGELOG.</li>
+      <li>The label is "Shortcuts". Its hint names the four keys.</li>
+      <li>While it is off, the pane tips and the Wall mode button's title do not name the keys.</li>
+      <li>History's Display settings row carries the same switch.</li>
+    </ul>
+    <p style="margin-top:8px">Questions, as answered</p>
     <ol>
-      <li>Where is a per-person preference kept? The spec only has per-browser <code>localStorage</code> for display choices (theme, refresh interval, collapsed panes, pins) and says pins are "not per person and the server does not know about them". It names no server-side per-person display setting. Is per browser acceptable here, or should this follow the signed-in person?</li>
-      <li>Default on or off? On keeps current habits. Off is safest for the criterion. A is drawn with on.</li>
-      <li>Label: "Shortcuts", "Keyboard shortcuts" or "Single-key shortcuts"? The frame says "Shortcuts" to fit the row at 380 px.</li>
-      <li>When off, should the pane tips and the Wall mode button's title stop naming the keys? A drops them, since the keys would not work.</li>
-      <li>Should the setting also appear on History's row, which carries the same Display settings?</li>
-      <li>Do you want A and C together later (off, plus a modifier when on)? Not drawn.</li>
+      <li>Where is a per-person preference kept? Per browser. The spec has no per-person display setting: it keeps theme, refresh interval, collapsed panes and pins per browser in <code>localStorage</code>, and says pins are "not per person and the server does not know about them".</li>
+      <li>Default on or off? Answered: off.</li>
+      <li>Label? Answered: "Shortcuts".</li>
+      <li>When off, do the tips drop the key names? Answered: yes.</li>
+      <li>Does History's row carry the switch? Answered: yes.</li>
+      <li>A and C together later? Not chosen.</li>
     </ol>
   </div>
   <p class="note">Not mocked: "active only while a control has focus". The keys exist to collapse panes from anywhere, for example on a wall display with nothing focused, so a focus-only rule would remove their purpose. If you want it drawn, say so.</p>
@@ -219,10 +231,10 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
 
 <script>
 var $ = function (id) { return document.getElementById(id); };
-var ON = { a: true, b: true };
+var ON = { a: false, b: true };
 function msg(k) {
   var a = ON.a;
-  $("a-v").innerHTML = a ? "<b>Shortcuts on.</b> The four keys work outside a text field, as today." : "<b>Shortcuts off.</b> The four keys do nothing. Esc still leaves wall mode, and every button still works.";
+  $("a-v").innerHTML = a ? "<b>Shortcuts on.</b> The four keys work outside a text field, and the pane tips name them." : "<b>Shortcuts off (default).</b> The four keys do nothing and the tips name none. Esc still leaves wall mode, and every button still works.";
   $("b-v").innerHTML = ON.b ? "<b>Single-key shortcuts on.</b> Every person on this server has the four keys." : "<b>Single-key shortcuts off.</b> Nobody on this server has the four keys. Only the Admin could turn them back on.";
   $("c-v").innerHTML = "<b>Shift + key.</b> The keys work only with Shift held. There is no setting.";
   $("a-s").textContent = a ? "On" : "Off"; $("b-s").textContent = ON.b ? "On" : "Off";
@@ -242,7 +254,7 @@ document.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = func
 document.querySelectorAll("[data-w]").forEach(function (b) { b.onclick = function () {
   document.querySelectorAll("[data-frame]").forEach(function (f) { f.style.setProperty("--w", b.dataset.w); });
   document.querySelectorAll("[data-w]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
-$("reset").onclick = function () { ON.a = true; ON.b = true; msg(); document.querySelector(".demo b").textContent = "Podium shortcuts, mockup (#636)"; };
+$("reset").onclick = function () { ON.a = false; ON.b = true; msg(); document.querySelector(".demo b").textContent = "Podium shortcuts, mockup (#636)"; };
 var q = new URLSearchParams(location.search);
 if (q.get("theme")) { document.documentElement.dataset.theme = q.get("theme"); }
 msg();
