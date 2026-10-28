@@ -215,7 +215,13 @@ p { margin: 0; max-width: 78ch; color: var(--ink2); }
       var ok = w >= 24 && h >= 24;
       var hit = [];
       c.querySelectorAll('[data-nb]').forEach(function (n) { var o = overlap(r, n.getBoundingClientRect()); if (o) hit.push(n.getAttribute('data-nb') + ' by ' + o + ' px'); });
-      c.querySelector('[data-size]').innerHTML = 'box ' + w + ' x ' + h + ' px, <span class="' + (ok ? 'mk-ok' : 'mk-bad') + '">' + (ok ? 'meets 24' : 'under 24') + '</span>' + (hit.length ? '; overlaps ' + hit.join(', ') : '; overlaps no other target');
+      // Text nodes, not innerHTML: the neighbour names come from data-nb attributes in the page.
+      var size = c.querySelector('[data-size]'), verdict = document.createElement('span');
+      verdict.className = ok ? 'mk-ok' : 'mk-bad';
+      verdict.textContent = ok ? 'meets 24' : 'under 24';
+      size.textContent = 'box ' + w + ' x ' + h + ' px, ';
+      size.appendChild(verdict);
+      size.appendChild(document.createTextNode(hit.length ? '; overlaps ' + hit.join(', ') : '; overlaps no other target'));
     });
   }
   measure();
