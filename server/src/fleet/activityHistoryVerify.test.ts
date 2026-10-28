@@ -5,7 +5,7 @@ import { openActivityDb } from './activityDb.js';
 import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_LOG_KINDS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
-import type { PeopleStoreApi } from '../storage/types.js';
+import type { ActivityHistoryApi, PeopleStoreApi } from '../storage/types.js';
 import { type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory } from './sweeper.js';
 import { fixtureReport } from './testing.js';
@@ -146,7 +146,7 @@ describe('the Admin log words for the purge', () => {
 
   async function purgeWith(settings: ActivityHistorySettings, result: { entries: number; bytes: number; sessions: number }) {
     const people = openSqliteStorage(':memory:').people;
-    const history = { purge: vi.fn().mockResolvedValue({ ...result, freed: 0 }), current: () => settings } as unknown as ActivityHistory;
+    const history = { purge: vi.fn().mockResolvedValue({ ...result, freed: 0 }), current: () => settings } as unknown as ActivityHistoryApi;
     await purgeActivityHistory(history, people, logger, T0);
     return await rows(people);
   }

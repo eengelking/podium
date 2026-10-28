@@ -2,10 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { PeopleStoreApi } from '../storage/types.js';
-import { openActivityDb } from './activityDb.js';
-import { ActivityHistory } from './activityHistory.js';
-import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
-import { SessionRecordings } from './recordings.js';
+import { LiveActivityHistorySettings } from './liveSettings.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS } from './protocol.js';
 import { HOUR_MS } from './recordingSettings.js';
 import { purgeRecordings, purgeStored } from './sweeper.js';
@@ -14,29 +11,28 @@ import { scrubStored } from '../logging/redact.js';
 const T0 = 1_800_000_000_000;
 const BODY = 'UNIQUE-RECORDED-TEXT-3318';
 
-function setup() {
+async function setup() {
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const people = storage.people;
-  const activity = openActivityDb(':memory:');
   const clock = { now: T0 };
-  const settings = new ActivityHistorySettingsStore(db, true);
-  const history = new ActivityHistory(activity, { now: () => clock.now, settings: () => settings.get(), isLive: () => false, authOn: true });
-  const rec = new SessionRecordings(activity, {
-    now: () => clock.now,
-    settings: () => RECORDING_DEFAULTS,
-    flagOn: () => true,
-    authOn: true,
-    isLive: () => true,
-    loopsOf: () => [{ loop: MAIN_LOOP, name: 'Orchestrator' }],
-    exclusive: (fn) => history.runExclusive(fn),
-    compact: () => history.compactNow(),
+  const settings = new LiveActivityHistorySettings(storage.activityHistorySettings(true));
+  await settings.load();
+  const { history, recordings: rec } = storage.activity({
+    history: { now: () => clock.now, settings: () => settings.get(), isLive: () => false, agentsOf: async () => [], authOn: true },
+    recordings: {
+      now: () => clock.now,
+      settings: () => RECORDING_DEFAULTS,
+      flagOn: () => true,
+      authOn: true,
+      isLive: () => true,
+      loopsOf: async () => [{ loop: MAIN_LOOP, name: 'Orchestrator' }],
+    },
   });
   const info = vi.fn();
   const logger = { info } as never;
   rec.noteOption('s1', true);
-  rec.start('s1', [MAIN_LOOP], 'Ed', { name: 'billing', project: null, owner: 'Ed' });
-  rec.ingest('s1', { v: 1, sentAt: T0, entries: [{ loop: MAIN_LOOP, seq: 1, at: T0, kind: 'tool', text: BODY }] });
+  await rec.start('s1', [MAIN_LOOP], 'Ed', { name: 'billing', project: null, owner: 'Ed' });
+  await rec.ingest('s1', { v: 1, sentAt: T0, entries: [{ loop: MAIN_LOOP, seq: 1, at: T0, kind: 'tool', text: BODY }] });
   return { rec, people, history, clock, info, logger };
 }
 
@@ -44,14 +40,14 @@ const rows = async (people: PeopleStoreApi) => (await people.listLog({ page: 1, 
 
 describe('purgeRecordings', () => {
   it('is silent when nothing is older than the keep time', async () => {
-    const { rec, people, logger, info } = setup();
+    const { rec, people, logger, info } = await setup();
     await purgeRecordings(rec, people, logger, T0 + HOUR_MS);
     expect(await rows(people)).toEqual([]);
     expect(info).not.toHaveBeenCalled();
   });
 
   it('writes one Admin log row and one log line for a run that removed something, with counts and never text', async () => {
-    const { rec, people, logger, info } = setup();
+    const { rec, people, logger, info } = await setup();
     await purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
     const log = await rows(people);
     expect(log).toHaveLength(1);
@@ -62,7 +58,7 @@ describe('purgeRecordings', () => {
   });
 
   it('skips a run that starts while the last is still going', async () => {
-    const { rec, people, logger } = setup();
+    const { rec, people, logger } = await setup();
     const first = purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
     await purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
     await first;
@@ -76,7 +72,7 @@ describe('purgeRecordings', () => {
 
 describe('purgeStored', () => {
   it('runs the history and the recordings, and throws the first failure after both have finished', async () => {
-    const { rec, people, history, logger } = setup();
+    const { rec, people, history, logger } = await setup();
     const purged = vi.spyOn(history, 'purge');
     await purgeStored(history, rec, people, logger, T0 + 7 * HOUR_MS);
     expect(purged).toHaveBeenCalled();

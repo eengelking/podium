@@ -210,6 +210,7 @@ describe('a failing history write never reaches the answer path', () => {
     expect(() => fleet.respond.result(r.session.id, second.delivery.id, 'refused')).not.toThrow();
     expect(fleet.activity.watch(r.session.id, MAIN_LOOP, 5).entries).toHaveLength(1);
 
+    await fleet.flush(); // the Podium-entry writes are queued (#313)
     expect(errors.map((e) => e.event)).toEqual(['activity.podium_failed', 'activity.podium_failed', 'activity.podium_failed', 'activity.podium_failed']);
     expect(errors[0]!.msg).toContain('disk full');
     expect(errors.map((e) => /could not (\w+)/.exec(e.msg)![1])).toEqual(['add', 'update', 'add', 'remove']);

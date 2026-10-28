@@ -122,7 +122,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     expect(res.body).toMatchObject({ ok: true, stored: 3, recording: { state: 'recording', loops: [MAIN_LOOP, 'a1'] } });
     expect(res.body.recording.bytes).toBeGreaterThan(0);
     expect((await post(app, ed.token, b)).body.stored).toBe(0);
-    expect(fleet.recordings.page(SID, null, 10, null).total).toBe(3);
+    expect((await fleet.recordings.page(SID, null, 10, null)).total).toBe(3);
   });
 
   it('is 401 without a credential, 400 for a body that fails validation, 413 above the body limit', async () => {
@@ -143,7 +143,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ ok: false, error: 'recording is off' });
     await fleet.features.setFeature('session-recording', true);
-    expect(fleet.recordings.page(SID, null, 10, null).total).toBe(1); // only the stop mark the flag going off wrote
+    expect((await fleet.recordings.page(SID, null, 10, null)).total).toBe(1); // only the stop mark the flag going off wrote
   });
 
   it('is 403 when the session was never chosen, when the reporter does not allow it, and once it is stopped', async () => {
@@ -158,7 +158,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(200);
     await a.post(`${BASE}/stop`).set(H);
     expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 2, 'at the stop', { at: T0 })))).status).toBe(200);
-    expect(s.fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped', 'tool']);
+    expect((await s.fleet.recordings.page(SID, null, 10, null)).entries.map((e) => e.kind)).toEqual(['tool', 'stopped', 'tool']);
   });
 
   it('takes the last interval after a stop: late entries are stored, later ones are not, and the reply says stopped', async () => {
@@ -168,7 +168,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 2, 'late', { at: T0 }), entry(MAIN_LOOP, 3, 'too late', { at: T0 + 1 })));
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, stored: 1, recording: { state: 'stopped' } });
-    expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.text)).toEqual([`${BODY} 1`, '', 'late']);
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries.map((e) => e.text)).toEqual([`${BODY} 1`, '', 'late']);
   });
 
   it('still refuses a late batch for a recording stopped by a limit, a deleted one, and one whose flag is off', async () => {
@@ -335,7 +335,7 @@ describe('PUT /respond/sessions/:id/recording (start)', () => {
     expect(limit.body.error).toContain('delete it to start again');
     expect((await a.delete(BASE).set(H)).status).toBe(200);
     // the budget: the stored total is still above it
-    vi.spyOn(fleet.recordings, 'totalBytes').mockReturnValue(100);
+    vi.spyOn(fleet.recordings, 'totalBytes').mockResolvedValue(100);
     const budget = await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] });
     expect(budget.status).toBe(409);
     expect(budget.body.error).toBe('the disk budget has no room for a new recording');
@@ -346,15 +346,31 @@ describe('PUT /respond/sessions/:id/recording (start)', () => {
     // hold the delete's turn in the file, so its rows are still going when the browser asks
     let release = () => {};
     const gate = new Promise<void>((resolve) => (release = resolve));
-    vi.spyOn(fleet.activityHistory, 'runExclusive').mockImplementation(async (fn) => {
+    // (the file's turn is held by a retention run of the Activity history that waits at its last question about a stored session)
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('activity-feed', true);
+    const stored = fixtureReport();
+    stored.session.id = 'held';
+    stored.session.activityFeed = true;
+    stored.session.activity = [{ at: T0, kind: 'tool', text: 'Read a' }];
+    stored.agents = [];
+    expect(await fleet.activityHistory.ingest(stored, 0, { name: 'held', project: null, owner: 'Ed' })).toBe(1);
+    let asked = 0;
+    let holding = () => {};
+    const held = new Promise<void>((resolve) => (holding = resolve));
+    const hold = fleet.activityHistory.dropMissingSessions(async () => {
+      if (++asked === 1) return false;
+      holding();
       await gate;
-      return fn();
+      return true;
     });
+    await held;
     const pending = fleet.recordings.removeMany([SID]);
     const res = await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] });
     expect(res.status).toBe(409);
     expect(res.body.error).toContain('still being deleted');
     release();
+    await hold;
     await pending;
   });
 });
@@ -479,18 +495,18 @@ describe('what the server does on its own is logged', () => {
     const { app, ed, fleet, people } = await chosen();
     await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
     await fleet.features.setFeature('session-recording', false);
-    expect(fleet.recordings.stateFor(SID)).toBe('stopped');
+    expect(await fleet.recordings.stateFor(SID)).toBe('stopped');
     expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
     expect((await logRows(people)).find((r) => r.kind === 'recording_stopped')?.detail).toContain('the Admin turned session recording off');
     await fleet.features.setFeature('session-recording', true);
-    expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
   });
 
   it('a /clear carries a running recording to the new session, and says so in the log', async () => {
     const { app, ed, fleet, people } = await chosen();
     const next = report(true, { id: 'sess-new', clearedFrom: SID });
     expect((await send(app, ed.token, next)).body.recording).toMatchObject({ state: 'recording', loops: [MAIN_LOOP], startedBy: 'Ed', consent: { chosen: true, owner: true } });
-    expect(fleet.recordings.stateFor(SID)).toBe('stopped');
+    expect(await fleet.recordings.stateFor(SID)).toBe('stopped');
     expect((await logRows(people)).find((r) => r.kind === 'recording_started' && r.detail.includes('continues after /clear'))).toBeTruthy();
   });
 
@@ -508,10 +524,11 @@ describe('what the server does on its own is logged', () => {
     await fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: ACCEPTS }));
     expect(fleet.respond.message(SID, 'Boss', { text: `${BODY} please also update the guide` }).ok).toBe(true);
-    expect(fleet.recordings.page(SID, null, 10, null).entries).toEqual([]);
+    await fleet.flush(); // the Podium entry's write is queued
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries).toEqual([]);
     const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 1, `${BODY} please also update the guide`, { kind: 'prompt', at: T0 + 1 })));
     expect(res.body.stored).toBe(1);
-    const rows = fleet.recordings.page(SID, null, 10, null).entries;
+    const rows = (await fleet.recordings.page(SID, null, 10, null)).entries;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ kind: 'prompt', by: 'Boss', loop: MAIN_LOOP });
   });
@@ -523,9 +540,10 @@ describe('what the server does on its own is logged', () => {
     expect(fleet.respond.message(SID, 'Boss', { text: '/clear' }).ok).toBe(true);
     const taken = fleet.respond.message(SID, 'Boss', { text: 'never mind this one' });
     expect(taken.ok && fleet.respond.discard(taken.delivery.id, 'Boss', false)).toBe('ok');
+    await fleet.flush(); // the Podium entries' writes are queued
     // a person typed prompts that hold the same words
     await post(app, ed.token, batch(entry(MAIN_LOOP, 1, `${BODY} how do I /clear the cache`, { kind: 'prompt', at: T0 + 1 }), entry(MAIN_LOOP, 2, 'never mind this one', { kind: 'prompt', at: T0 + 2 })));
-    expect(fleet.recordings.page(SID, null, 10, null).entries.map((r) => [r.kind, r.by])).toEqual([
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries.map((r) => [r.kind, r.by])).toEqual([
       ['prompt', undefined],
       ['prompt', undefined],
     ]);
@@ -543,7 +561,7 @@ describe('what the server does on its own is logged', () => {
       ),
     );
     expect(res.body.stored).toBe(3);
-    expect(fleet.recordings.page(SID, null, 10, null).entries.map((r) => [r.kind, r.name, r.callSeq, r.failed, r.by])).toEqual([
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries.map((r) => [r.kind, r.name, r.callSeq, r.failed, r.by])).toEqual([
       ['tool', 'Bash', undefined, undefined, undefined],
       ['decision', 'permission', 1, true, 'Boss'],
       ['compact', undefined, undefined, undefined, 'Boss'],
@@ -558,6 +576,7 @@ describe('what the server does on its own is logged', () => {
       throw new Error('file is locked');
     });
     expect(fleet.respond.message(SID, 'Boss', { text: 'hello' }).ok).toBe(true);
+    await fleet.flush(); // the Podium entry's write is queued
     expect(lines.join('\n')).toContain('could not add a Podium entry');
   });
 });
@@ -569,8 +588,8 @@ describe('deleting the session', () => {
     expect(await fleet.deleteSession(SID)).toBe(true);
     await fleet.recordings.removeMany([]); // let the chunked delete finish
     await new Promise((r) => setImmediate(r));
-    expect(fleet.recordings.has(SID)).toBe(false);
-    expect(fleet.recordings.page(SID, null, 10, null).entries).toEqual([]);
+    expect(await fleet.recordings.has(SID)).toBe(false);
+    expect((await fleet.recordings.page(SID, null, 10, null)).entries).toEqual([]);
   });
 
   it('logs a recording that could not be removed, and goes on', async () => {
@@ -586,7 +605,7 @@ describe('deleting the session', () => {
     await fleet.db.deleteSession(SID);
     await fleet.retain();
     await new Promise((r) => setTimeout(r, 20));
-    expect(fleet.recordings.has(SID)).toBe(false);
+    expect(await fleet.recordings.has(SID)).toBe(false);
     vi.spyOn(fleet.recordings, 'dropMissingSessions').mockRejectedValue(new Error('disk is gone'));
     await fleet.retain();
     await new Promise((r) => setImmediate(r));

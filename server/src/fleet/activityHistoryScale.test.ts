@@ -8,6 +8,7 @@ import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recompu
 import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
+import type { ActivityHistoryApi } from '../storage/types.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
@@ -439,7 +440,7 @@ describe('through the fleet', () => {
       await gate;
       return { entries: 3, bytes: 300, sessions: 1, freed: 0 };
     });
-    const history = { purge, current: () => ({ ...ACTIVITY_HISTORY_DEFAULTS, policy: 'end' as const }) } as unknown as ActivityHistory;
+    const history = { purge, current: () => ({ ...ACTIVITY_HISTORY_DEFAULTS, policy: 'end' as const }) } as unknown as ActivityHistoryApi;
     const first = purgeActivityHistory(history, people, logger, T0);
     await purgeActivityHistory(history, people, logger, T0 + 1);
     await purgeActivityHistory(history, people, logger, T0 + 2);
@@ -455,7 +456,7 @@ describe('through the fleet', () => {
   it('a purge that fails frees the slot for the next tick', async () => {
     const people = openSqliteStorage(':memory:').people;
     const purge = vi.fn().mockRejectedValueOnce(new Error('locked')).mockResolvedValue({ entries: 0, bytes: 0, sessions: 0, freed: 0 });
-    const history = { purge, current: () => ACTIVITY_HISTORY_DEFAULTS } as unknown as ActivityHistory;
+    const history = { purge, current: () => ACTIVITY_HISTORY_DEFAULTS } as unknown as ActivityHistoryApi;
     await expect(purgeActivityHistory(history, people, { info() {} } as never, T0)).rejects.toThrow('locked');
     await purgeActivityHistory(history, people, { info() {} } as never, T0 + 1);
     expect(purge).toHaveBeenCalledTimes(2);

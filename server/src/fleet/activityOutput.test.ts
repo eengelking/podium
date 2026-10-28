@@ -5,8 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { activityDbPath, openActivityDb } from './activityDb.js';
-import { openSqliteStorage } from '../storage/sqlite/index.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { createFleetRouter } from './routes.js';
@@ -22,14 +21,17 @@ let dir: string;
 let clock: number;
 let lines: string[];
 let open: Fleet[];
+let stores: SqliteStorage[];
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'podium-output-'));
   clock = T0;
   lines = [];
   open = [];
+  stores = [];
 });
-afterEach(() => {
+afterEach(async () => {
   for (const f of open) f.close();
+  while (stores.length) await stores.pop()!.close();
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -37,7 +39,9 @@ afterEach(() => {
 async function server(flags: { output?: boolean } = { output: true }) {
   const dbPath = path.join(dir, 'podium.sqlite');
   const logger = createLogger({ level: 'debug', format: 'json', write: (l) => lines.push(l) });
-  const fleet = new Fleet(openSqliteStorage(dbPath), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath }, () => clock, logger, { db: openActivityDb(activityDbPath(dbPath)), authOn: true });
+  const storage = openSqliteStorage(dbPath);
+  stores.push(storage);
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath }, () => clock, logger, { authOn: true });
   await fleet.init();
   open.push(fleet);
   if (flags.output) await fleet.features.setFeature('activity-output', true);
@@ -205,7 +209,7 @@ describe('how a call ended, without output (#598)', () => {
     expect(lines.join('\n')).not.toContain(SECRET);
     expect(raw()).not.toContain(SECRET);
     expect(raw()).toContain('npm test -- --run');
-    const page = s.fleet.activityHistory.page(fixtureReport().session.id, AID, null, 20).entries;
+    const page = (await s.fleet.activityHistory.page(fixtureReport().session.id, AID, null, 20)).entries;
     expect(page).toEqual([expect.objectContaining({ command: 'npm test -- --run' })]);
     for (const k of ['done', 'failed', 'exitCode', 'output']) expect(page[0]).not.toHaveProperty(k);
   });
@@ -232,7 +236,7 @@ describe('where output goes', () => {
     expect(raw()).not.toContain(SECRET);
     // the command is stored, which is why the history read has it
     expect(raw()).toContain('npm test -- --run');
-    const page = s.fleet.activityHistory.page(fixtureReport().session.id, AID, null, 20).entries;
+    const page = (await s.fleet.activityHistory.page(fixtureReport().session.id, AID, null, 20)).entries;
     expect(page).toEqual([expect.objectContaining({ command: 'npm test -- --run' })]);
     expect(JSON.stringify(page)).not.toContain(SECRET);
   });

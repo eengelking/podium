@@ -3,12 +3,11 @@ import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
-import { openActivityDb } from '../fleet/activityDb.js';
-import { ActivityHistory } from '../fleet/activityHistory.js';
 import { LiveActivityHistorySettings } from '../fleet/liveSettings.js';
 import { ACTIVITY_LOG_KINDS } from '../fleet/activityHistoryTypes.js';
 import { fixtureReport } from '../fleet/testing.js';
-import type { Report } from '../fleet/protocol.js';
+import { RECORDING_DEFAULTS, type Report } from '../fleet/protocol.js';
+import type { ActivityHistoryApi } from '../storage/types.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -21,7 +20,10 @@ async function setup(over: { withHistory?: boolean; onChanged?: () => void } = {
   const people = storage.people;
   const settings = new LiveActivityHistorySettings(storage.activityHistorySettings(true));
   await settings.load();
-  const history = new ActivityHistory(openActivityDb(':memory:'), { now: () => T0, settings: () => settings.get(), isLive: () => false, authOn: true });
+  const { history } = storage.activity({
+    history: { now: () => T0, settings: () => settings.get(), isLive: () => false, agentsOf: async () => [], authOn: true },
+    recordings: { now: () => T0, settings: () => ({ ...RECORDING_DEFAULTS }), flagOn: () => true, authOn: true, isLive: () => false, loopsOf: async () => [] },
+  });
   const app = express();
   app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, onActivityHistoryChanged: over.onChanged, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
   return { app, people, settings, history };
@@ -34,12 +36,12 @@ async function unlocked(over: Parameters<typeof setup>[0] = {}) {
   return { ...s, agent };
 }
 
-async function store(history: ActivityHistory, settings: LiveActivityHistorySettings, id: string, owner = 'Ed', n = 2) {
+async function store(history: ActivityHistoryApi, settings: LiveActivityHistorySettings, id: string, owner = 'Ed', n = 2) {
   await settings.set({ policy: 'all' });
   const r: Report = fixtureReport();
   r.session = { ...r.session, id, activity: Array.from({ length: n }, (_, i) => ({ at: T0 - 7_200_000 + i, kind: 'tool' as const, text: `${SECRET_TEXT} ${i}` })) };
   r.agents = [];
-  history.ingest(r, 0, { name: `name-${id}`, project: 'acme/billing', owner });
+  await history.ingest(r, 0, { name: `name-${id}`, project: 'acme/billing', owner });
 }
 
 const logRows = async (people: SqliteStorage['people']) => (await people.listLog({ page: 1, pageSize: 100 })).rows;
@@ -124,7 +126,7 @@ describe('POST /activity-history/preview', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ entries: 2, bytes: expect.any(Number), sessions: 1, stopsCapturing: false });
     expect(settings.get().policy).toBe('all');
-    expect(history.totals().entries).toBe(2);
+    expect((await history.totals()).entries).toBe(2);
   });
 
   it('for the default policy reports what is stored and that capture would stop', async () => {
@@ -208,7 +210,7 @@ describe('POST /stored-activity/delete', () => {
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ ids: ['s2'] });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 3, sessions: 1, bytes: expect.any(Number), freed: expect.any(Number) });
-    expect(history.totals().entries).toBe(2);
+    expect((await history.totals()).entries).toBe(2);
     const rows = (await logRows(people)).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.detail).toMatch(/^Deleted 3 entries \(\d+(\.\d)? (B|KB)\) from 1 session, chosen: ticked sessions$/);
@@ -232,7 +234,7 @@ describe('POST /stored-activity/delete', () => {
     await store(history, settings, 's1', 'Ed', 1);
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(res.body).toMatchObject({ entries: 1, sessions: 1 });
-    expect(history.totals().entries).toBe(0);
+    expect((await history.totals()).entries).toBe(0);
     expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/^Deleted 1 entry .* from 1 session, chosen: everything$/);
   });
 
@@ -259,7 +261,7 @@ describe('POST /stored-activity/delete', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Pick a filter, or delete everything.');
     }
-    expect(history.totals().entries).toBe(2);
+    expect((await history.totals()).entries).toBe(2);
   });
 
   it.each([
