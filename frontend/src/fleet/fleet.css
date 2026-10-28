@@ -717,6 +717,8 @@ body.modal-open #root { filter: blur(5px); }
   .podium .hcs { width: 100%; }
   .podium .hc { flex: 1; width: auto; }
   .podium .top, .podium .banner, .podium .main { padding-inline: 16px; }
+  /* The bar wraps here, and its tab reaches 12 px up into it: 4 px more than the 8 px padding, so the tab would sit on the last button (#787). */
+  .podium .top { padding-bottom: 12px; }
 }
 /* The page follows its own width (#165). */
 @container (max-width: 700px) {
