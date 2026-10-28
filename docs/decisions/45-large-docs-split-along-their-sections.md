@@ -50,5 +50,5 @@ a number must name one page.
 <!-- nav:start -->
 ---
 
-Previous: [44. The docs live at podium.engelking.dev, a CNAME to GitHub Pages (#689)](44-the-docs-live-at-podium-engelking-dev-a-cname.md) · Up: [Decisions](README.md)
+Previous: [44. The docs live at podium.engelking.dev, a CNAME to GitHub Pages (#689)](44-the-docs-live-at-podium-engelking-dev-a-cname.md) · Up: [Decisions](README.md) · Next: [46. A context names one reporter config file, in ~/.podium/contexts.json (#606)](46-a-context-names-one-reporter-config-file-in-podium-contexts-json.md)
 <!-- nav:end -->

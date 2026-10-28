@@ -336,8 +336,8 @@ export class Transport {
   }
 
   /** `problem` is what the TLS link says is wrong (#584), shown ahead of the connection state. */
-  statusText(problem?: string | null): string {
-    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}`;
+  statusText(problem?: string | null, context?: string | null): string {
+    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}${context ? ` [${context}]` : ''}`;
     if (problem) return `${name} ○ ${problem}`;
     if (this.refused) return `${name} ○ token refused`;
     if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;

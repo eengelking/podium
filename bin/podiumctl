@@ -47,6 +47,7 @@ Commands:
   url                 Print the dashboard URL
   token               Print the admin secret (--rotate makes a new one; restart to apply)
   config              Show the settings; \`config set KEY=VALUE [KEY=VALUE ...]\` and \`config unset KEY [KEY ...]\` change them
+  context [verb]      Which Podium server the reporter uses on this machine: list, show, add NAME FILE, rename NAME NEW, remove NAME, use NAME
   enable              Start on boot / login (launchd on macOS, a systemd user unit on Linux)
   disable             Stop starting on boot
   shell               Open a shell in the container (container mode)
@@ -72,6 +73,7 @@ Files (set PODIUMCTL_HOME to move them; default ~/.podium):
   tls/           The CA and serving certificate when TLS is on (container mode; standalone keeps them in data/tls).
                  Back it up and keep it private: it holds the CA key. rm and rm --purge keep it.
   podium.log     Server log (standalone mode); container mode: \`podiumctl logs\`.
+  contexts.json  The reporter's contexts (\`podiumctl context\`): a name for each reporter config file. The reporter reads it; so does /podium context.
 
 Auth: the first \`start\` generates the admin secret and saves it as PODIUM_TOKEN in config.env. Open the
 dashboard (\`podiumctl url\`), go to Admin and sign in with the name Admin and the secret to make a token for each person. On your own machine a reporter can
@@ -744,11 +746,137 @@ function cmdRm(cfg, flags) {
   } else say(`${tlsDir} is kept: it holds the CA. Delete it with --purge-tls --yes, which means every reporter config must be reissued.`);
 }
 
+// ---------- contexts (#606) ----------
+// A context names one reporter config file, kept in contexts.json beside config.env. The reporter (mod/podium-reporter/hooks/contexts.ts)
+// reads the same file; scripts/podiumctl.test.ts checks that the two agree on the format.
+
+export const CONTEXTS_FILE = 'contexts.json';
+const CONTEXT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const CONTEXT_VERBS = ['list', 'show', 'add', 'rename', 'remove', 'use'];
+const NEXT_SESSION = 'It applies from the next session; sessions already running keep the context they started with.';
+
+const contextFileOk = (f) => typeof f === 'string' && f !== '' && !f.includes('\0') && (f.startsWith('/') ? !f.endsWith('/') : !f.includes('/') && f !== '.' && f !== '..');
+
+/** The contexts in a file's text, or null when it is not a contexts file. A `current` that names no context is dropped. */
+export function parseContexts(text) {
+  let raw;
+  try { raw = JSON.parse(text); } catch { return null; }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const { current, contexts } = raw;
+  if (typeof contexts !== 'object' || contexts === null || Array.isArray(contexts)) return null;
+  if (current !== undefined && current !== null && typeof current !== 'string') return null;
+  for (const [name, file] of Object.entries(contexts)) if (!CONTEXT_NAME.test(name) || !contextFileOk(file)) return null;
+  return { current: typeof current === 'string' && Object.hasOwn(contexts, current) ? current : null, contexts: { ...contexts } };
+}
+
+export function serializeContexts(c) {
+  return `${JSON.stringify({ current: c.current, contexts: c.contexts }, null, 2)}\n`;
+}
+
+/** The headers of a reporter config file, or null when it is not a v1 file with a name, an https server and an issued-at line. */
+export function configHeaders(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== '# podium-reporter-config v1') return null;
+  const h = new Map();
+  for (const line of lines.slice(1)) {
+    if (!line.startsWith('#')) break;
+    const body = line.slice(1).trimStart();
+    const colon = body.indexOf(':');
+    const key = colon > 0 ? body.slice(0, colon) : '';
+    if (/^[a-z-]+$/.test(key) && !h.has(key)) h.set(key, body.slice(colon + 1).trim());
+  }
+  const user = h.get('user');
+  const server = h.get('server');
+  const issuedAt = Number((h.get('issued-at') ?? '').split(/\s+/).pop());
+  if (!user || !server || !Number.isFinite(issuedAt) || issuedAt <= 0) return null;
+  try { if (new URL(server).protocol !== 'https:') return null; } catch { return null; }
+  return { user, server };
+}
+
+/** One change to the contexts: [new contexts, what to say], or a Fail. `read` gives a config file's text or null. */
+export function changeContexts(c, verb, args, read) {
+  const [a, b] = args;
+  const need = (n, usage) => { if (args.length !== n || args.some((x) => !x)) throw new Fail(`usage: podiumctl context ${usage}`); };
+  const has = (n) => Object.hasOwn(c.contexts, n);
+  const validName = (n) => { if (!CONTEXT_NAME.test(n)) throw new Fail(`"${n}" is not a usable context name. Use letters, digits, dots, dashes and underscores, starting with a letter or digit, up to 64 characters.`); };
+  if (verb === 'add') {
+    need(2, 'add <name> <config file>   (a file name in the Podium folder, or an absolute path)');
+    validName(a);
+    if (!contextFileOk(b)) throw new Fail(`"${b}" is not a config file name or an absolute path.`);
+    if (has(a)) throw new Fail(`There is already a context named "${a}". Remove it first, or choose another name.`);
+    const text = read(b);
+    if (text === null) throw new Fail(`No such file: ${b.startsWith('/') ? b : path.join(homeDir(), b)}. Nothing was added.`);
+    if (!configHeaders(text)) throw new Fail(`${b} is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line). Nothing was added.`);
+    return [{ current: c.current ?? a, contexts: { ...c.contexts, [a]: b } }, [`Added context "${a}" for ${b}.`, c.current ? '' : `"${a}" is now the current context. ${NEXT_SESSION}`].filter(Boolean).join(' ')];
+  }
+  if (verb === 'rename') {
+    need(2, 'rename <name> <new name>');
+    if (!has(a)) throw new Fail(`There is no context named "${a}".`);
+    validName(b);
+    if (has(b)) throw new Fail(`There is already a context named "${b}".`);
+    const contexts = {};
+    for (const [n, f] of Object.entries(c.contexts)) contexts[n === a ? b : n] = f;
+    return [{ current: c.current === a ? b : c.current, contexts }, `Renamed context "${a}" to "${b}".`];
+  }
+  if (verb === 'remove') {
+    need(1, 'remove <name>');
+    if (!has(a)) throw new Fail(`There is no context named "${a}".`);
+    const contexts = { ...c.contexts };
+    delete contexts[a];
+    return [{ current: c.current === a ? null : c.current, contexts }, `Removed context "${a}" (its config file is untouched).${c.current === a ? ' It was the current context, so there is none now: the newest reporter config file is used.' : ''}`];
+  }
+  need(1, 'use <name>');
+  if (!has(a)) throw new Fail(`There is no context named "${a}".`);
+  return [{ ...c, current: a }, `The current context is now "${a}". ${NEXT_SESSION}`];
+}
+
+function cmdContext(args) {
+  const [verb = 'list', ...rest] = args;
+  if (!CONTEXT_VERBS.includes(verb)) fail(`unknown context command "${verb}". Use one of: ${CONTEXT_VERBS.join(', ')}.`);
+  const file = path.join(homeDir(), CONTEXTS_FILE);
+  const fileText = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  const contexts = fileText === null ? { current: null, contexts: {} } : parseContexts(fileText);
+  if (!contexts) fail(`${file} is not a valid contexts file, so nothing was changed. Fix or delete it.`);
+  const resolve = (f) => (f.startsWith('/') ? f : path.join(homeDir(), f));
+  const read = (f) => { try { return fs.readFileSync(resolve(f), 'utf8'); } catch { return null; } };
+  const fromEnv = process.env.PODIUM_REPORTER_CONTEXT || undefined;
+  const describe = (f) => {
+    const text = read(f);
+    if (text === null) return 'file missing';
+    const h = configHeaders(text);
+    return h ? `${h.user} at ${h.server.replace(/^https:\/\//, '')}` : 'not a Podium reporter config';
+  };
+  if (verb === 'list') {
+    const names = Object.keys(contexts.contexts);
+    if (!names.length) { say('No contexts. The newest reporter config file is used. Add one: podiumctl context add <name> <config file>'); return; }
+    for (const n of names) say(`${n === contexts.current ? '*' : ' '} ${n}  ${describe(contexts.contexts[n])}${n === fromEnv ? '  (this terminal: PODIUM_REPORTER_CONTEXT)' : ''}`);
+    say('');
+    say(`* is the current context.${fromEnv ? ` PODIUM_REPORTER_CONTEXT in this terminal is "${fromEnv}" and wins over it.` : ''}`);
+    return;
+  }
+  if (verb === 'show') {
+    const which = rest[0] ?? fromEnv ?? contexts.current;
+    if (!which) { say('There is no current context. The newest reporter config file is used.'); return; }
+    const f = Object.hasOwn(contexts.contexts, which) ? contexts.contexts[which] : undefined;
+    if (!f) fail(`There is no context named "${which}".`);
+    say(`Context: ${which}${which === contexts.current ? ' (current)' : ''}${which === fromEnv ? ' (set by PODIUM_REPORTER_CONTEXT)' : ''}`);
+    say(`File: ${resolve(f)}`);
+    say(`Reports as: ${describe(f)}`);
+    return;
+  }
+  const [next, message] = changeContexts(contexts, verb, rest, read);
+  fs.mkdirSync(homeDir(), { recursive: true });
+  fs.writeFileSync(file, serializeContexts(next));
+  say(message);
+  if (verb === 'use' && fromEnv && fromEnv !== rest[0]) say(`PODIUM_REPORTER_CONTEXT is "${fromEnv}" in this terminal and wins over it here.`);
+}
+
 // ---------- main ----------
 
 export async function main(argv) {
   const { cmd, args, flags } = parseArgs(argv);
   if (!cmd || flags.help || cmd === 'help') { say(HELP); return cmd || flags.help ? 0 : 1; }
+  if (cmd === 'context') { cmdContext(args); return 0; }
   const persist = ['build', 'start', 'restart', 'enable'].includes(cmd);
   const cfg = loadCfg(flags, { persist });
   switch (cmd) {

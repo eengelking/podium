@@ -128,7 +128,32 @@ run `chmod 600` on it: it holds your private key, and the reporter refuses a fil
 connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is still sent, inside the TLS connection, and the server ignores it when your certificate is present. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
-file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
+file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes. If you use more than one Podium server, name each file with a context (below).
+
+### Contexts: more than one Podium server
+
+With more than one config file (a home server and a work one, or a test server beside the real one), the newest file wins
+unless you say otherwise. A context is a name for one file, and the current context is the one new sessions use.
+
+```
+/podium context add home reporter-config-Dana-1767225600.pem
+/podium context add work reporter-config-Dana-1769904000.pem
+/podium context              # list them; * marks the current one
+/podium context use work     # the next session reports to work
+```
+
+`podiumctl context` does the same from a shell, on the same file (`~/.podium/contexts.json`). The other verbs are `show`,
+`rename` and `remove`; `remove` never deletes the config file.
+
+- **Switching never touches a running session.** It keeps the server and the person it started with. Start a new
+  session to use the new context.
+- **Two servers at once.** Set `PODIUM_REPORTER_CONTEXT=work` in one terminal before starting Claude Code there. It wins over
+  the current context for that terminal only. `PODIUM_REPORTER_CONFIG` still wins over both.
+- **The status line and `/podium`** show the context, such as `podium v1.4.0 [work] ● 3 live`.
+- **A context that does not work** (the name is not defined, or its file is missing or not a reporter config) shows
+  under `Context problem:` in `/podium`, and the reporter uses the newest file so it keeps reporting. Fix it with
+  `/podium context`.
+- **With no contexts, nothing changes.**
 
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A

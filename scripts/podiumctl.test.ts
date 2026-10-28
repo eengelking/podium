@@ -4,8 +4,10 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import * as modContexts from "../mod/podium-reporter/hooks/contexts.ts";
+import { parseConfigHeaders } from "../mod/podium-reporter/hooks/reporterConfig.ts";
 import {
-  bootUnitStale, buildId, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, stableNodePath, systemdUnit, tlsStorageWarning,
+  bootUnitStale, buildId, changeContexts, configHeaders, parseContexts, serializeContexts, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, stableNodePath, systemdUnit, tlsStorageWarning,
 // @ts-expect-error bin/podiumctl has no extension, so tsc cannot find it; vitest loads it as ESM
 } from "../bin/podiumctl";
 
@@ -715,4 +717,95 @@ esac
       fs.chmodSync(home, 0o700);
     }
   }));
+});
+
+describe("podiumctl context (#606)", () => {
+  const cfg = (user: string, server: string, issued: number) =>
+    `# podium-reporter-config v1\n# user: ${user}\n# server: ${server}\n# issued-at: x ${issued}\n# expires: 2099-01-01T00:00:00.000Z\n# fingerprint: AA\n-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----\n`;
+  const withHome = (run: (home: string) => void) => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "podiumctl-ctx-"));
+    try {
+      fs.writeFileSync(path.join(home, "reporter-config-Dana-100.pem"), cfg("Dana", "https://home.lan:4318", 100));
+      fs.writeFileSync(path.join(home, "reporter-config-Dana-200.pem"), cfg("Dana", "https://work.lan:4318", 200));
+      fs.writeFileSync(path.join(home, "reporter-config-Junk-1.pem"), "garbage");
+      run(home);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  };
+  const saved = (home: string) => JSON.parse(fs.readFileSync(path.join(home, "contexts.json"), "utf8"));
+
+  it("lists nothing when there are no contexts, and does not create a file or start the server", () => {
+    withHome((home) => {
+      const r = ctl(home, "context");
+      expect(r.status).toBe(0);
+      expect(r.stdout).toMatch(/No contexts/);
+      expect(fs.existsSync(path.join(home, "contexts.json"))).toBe(false);
+      expect(fs.existsSync(path.join(home, "config.env"))).toBe(false);
+    });
+  });
+
+  it("adds, lists, switches, renames and removes, writing the file the reporter reads", () => {
+    withHome((home) => {
+      expect(ctl(home, "context", "add", "home", "reporter-config-Dana-100.pem").stdout).toMatch(/Added context "home"/);
+      expect(ctl(home, "context", "add", "work", "reporter-config-Dana-200.pem").status).toBe(0);
+      expect(saved(home)).toEqual({ current: "home", contexts: { home: "reporter-config-Dana-100.pem", work: "reporter-config-Dana-200.pem" } });
+      const list = ctl(home, "context", "list").stdout;
+      expect(list).toMatch(/\* home .*Dana at home\.lan:4318/);
+      expect(list).toMatch(/ {2}work .*work\.lan:4318/);
+      expect(ctl(home, "context", "use", "work").stdout).toMatch(/next session/);
+      expect(saved(home).current).toBe("work");
+      expect(ctl(home, "context", "show").stdout).toMatch(/Context: work \(current\)/);
+      expect(ctl(home, "context", "rename", "work", "office").status).toBe(0);
+      expect(saved(home).current).toBe("office");
+      expect(ctl(home, "context", "remove", "office").stdout).toMatch(/Removed/);
+      expect(saved(home)).toEqual({ current: null, contexts: { home: "reporter-config-Dana-100.pem" } });
+      expect(fs.existsSync(path.join(home, "reporter-config-Dana-200.pem"))).toBe(true);
+    });
+  });
+
+  it("add refuses a missing file and a file that is not a reporter config, and writes nothing", () => {
+    withHome((home) => {
+      const missing = ctl(home, "context", "add", "x", "reporter-config-Nobody-1.pem");
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toMatch(/No such file/);
+      const junk = ctl(home, "context", "add", "x", "reporter-config-Junk-1.pem");
+      expect(junk.status).toBe(1);
+      expect(junk.stderr).toMatch(/not a Podium reporter config/);
+      expect(fs.existsSync(path.join(home, "contexts.json"))).toBe(false);
+    });
+  });
+
+  it("refuses to change a contexts file it cannot read, and leaves it alone", () => {
+    withHome((home) => {
+      fs.writeFileSync(path.join(home, "contexts.json"), "garbage");
+      const r = ctl(home, "context", "use", "x");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/not a valid contexts file/);
+      expect(fs.readFileSync(path.join(home, "contexts.json"), "utf8")).toBe("garbage");
+    });
+  });
+
+  it("an unknown verb and a wrong argument count are usage errors", () => {
+    withHome((home) => {
+      expect(ctl(home, "context", "frobnicate").status).toBe(1);
+      expect(ctl(home, "context", "add", "only-a-name").stderr).toMatch(/usage: podiumctl context add/);
+    });
+  });
+
+  it("a name the contexts file does not have is reported", () => {
+    expect(() => changeContexts({ current: null, contexts: {} }, "use", ["nope"], () => null)).toThrow(/no context named "nope"/);
+  });
+
+  it("agrees with the reporter on the file: what one writes the other reads, and both refuse the same text", () => {
+    const sample = { current: "home", contexts: { home: "reporter-config-Dana-100.pem", srv: "/srv/p.pem" } };
+    expect(modContexts.parseContexts(serializeContexts(sample))).toEqual(sample);
+    expect(parseContexts(modContexts.serializeContexts(sample))).toEqual(sample);
+    for (const text of ["", "[]", "{\"current\":1,\"contexts\":{}}", "{\"current\":null,\"contexts\":{\"a b\":\"x.pem\"}}", "{\"current\":null,\"contexts\":{\"a\":\"../x.pem\"}}", "{\"current\":\"gone\",\"contexts\":{\"a\":\"x.pem\"}}"]) {
+      expect(parseContexts(text)).toEqual(modContexts.parseContexts(text));
+    }
+    for (const text of [cfg("Dana", "https://h:1", 5), cfg("Dana", "http://h:1", 5), "garbage", cfg("", "https://h:1", 5)]) {
+      expect(configHeaders(text) !== null).toBe(parseConfigHeaders(text) !== null);
+    }
+  });
 });
