@@ -37,9 +37,18 @@ export function NoticeStack({ items, onClose }: { items: NoticeItem[]; onClose: 
  * The confirmation after a notice is closed: which notice, and the link to Admin > Settings. It has its own X. A notice that
  * only hides one release (the update notice) passes `until`, the release it hid, and says it comes back for a newer one.
  */
-export function NoticeClosed({ name, until, onDismiss }: { name: string; until?: string; onDismiss: () => void }) {
+export function NoticeClosed({ name, until, onDismiss, onHold }: { name: string; until?: string; onDismiss: () => void; onHold: (held: boolean) => void }) {
   return (
-    <div className="toast" role="status">
+    <div
+      className="toast"
+      role="status"
+      onMouseEnter={() => onHold(true)}
+      onMouseLeave={() => onHold(false)}
+      onFocus={() => onHold(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onHold(false);
+      }}
+    >
       <div className="t">
         <b>{until ? "Notice dismissed" : "Notice turned off"}</b>
         <span>
