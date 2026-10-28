@@ -65,7 +65,7 @@ to do travels back in the reply to a report.
 | Location | Item | Description |
 |---|---|---|
 | Server | Ingest | Validates each report field by field, then stores it in one database transaction. |
-| Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). |
+| Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). It takes one `Storage`, loads its settings in `init()` before the server listens, and sends every broadcast through one ordered queue. |
 | Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. |
 | Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes. |
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
@@ -80,8 +80,8 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. |
-| Storage | `activity.sqlite` | A second file for opt-in activity history and session recordings. Nothing is written to it unless an Admin turns one of them on. |
+| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. The app reaches it through the async `Storage` interfaces in `server/src/storage/`; `openStorage` picks the implementation from `PODIUM_DB`, and the SQLite adapter in `storage/sqlite/` runs every call behind one lock per connection. |
+| Storage | `activity.sqlite` | A second file for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 
 ### Console
 
@@ -184,8 +184,13 @@ code. A function's line number is on the page, not here, because it moves.
 |---|---|---|
 | Server | `validateReport` | Checks every field of a report by hand. In `server/src/fleet/protocol.ts`. |
 | Server | `ingestReport` | Stores a validated report in one transaction. In `server/src/fleet/ingest.ts`. |
-| Server | `class Fleet` | The live set, the clock and the views. In `server/src/fleet/fleet.ts`. |
+| Server | `class Fleet` | The live set, the clock and the views, over one Storage. In `server/src/fleet/fleet.ts`. |
+| Server | `init` | Loads the stored settings and the live candidates; the server listens only after it. In `server/src/fleet/fleet.ts`. |
 | Server | `state()` | The snapshot for a browser's first paint. In `server/src/fleet/fleet.ts`. |
+| Server | `enqueue` | Every broadcast goes through one ordered queue. In `server/src/fleet/fleet.ts`. |
+| Server | `flush` | Waits until every queued message is sent; shutdown calls it before the databases close. In `server/src/fleet/fleet.ts`. |
+| Server | `class Serializer` | One turn at a time per session id, and exclusive jobs for sweeps. In `server/src/fleet/serial.ts`. |
+| Server | `class LiveFeatureFlags` | A write-through cache, read synchronously and written asynchronously. In `server/src/fleet/liveSettings.ts`. |
 | Server | `sessionView` | Turns database rows into the SessionView the browsers get. In `server/src/fleet/derive.ts`. |
 | Server | `sessionStatus` | Done, stale (silent too long) or the status last reported. In `server/src/fleet/derive.ts`. |
 | Server | `startSweeper` | The one-second housekeeping loop. In `server/src/fleet/sweeper.ts`. |
@@ -199,10 +204,10 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `securityHeaders` | Security headers and the Content-Security-Policy. In `server/src/securityHeaders.ts`. |
 | Server | `createAdminRouter` | The Admin API with its own sign-in and log. In `server/src/admin/adminRouter.ts`. |
 | Server | `class Lockout` | Locks an address out after five wrong tries. In `server/src/fleet/lockout.ts`. |
-| Server | `class PeerService` | Finds live orchestrators and carries messages. In `server/src/fleet/peers.ts`. |
-| Server | `class PeerRights` | Who may message whom, and the limits. In `server/src/fleet/peerRights.ts`. |
-| Server | `pair` | The same-owner rule for messaging rights. In `server/src/fleet/peerRights.ts`. |
-| Server | `class PeerMessages` | Stores, checks and hands over messages. In `server/src/fleet/peerMessages.ts`. |
+| Server | `class PeerService` | Finds live orchestrators and carries messages. In `server/src/storage/sqlite/peerService.ts`. |
+| Server | `class PeerRights` | Who may message whom, and the limits. In `server/src/storage/sqlite/peerRights.ts`. |
+| Server | `pair` | The same-owner rule for messaging rights. In `server/src/storage/sqlite/peerRights.ts`. |
+| Server | `class PeerMessages` | Stores, checks and hands over messages. In `server/src/storage/sqlite/peerMessages.ts`. |
 | Server | `peerReplyFor` | The messaging items that ride a report's reply. In `server/src/fleet/peerRoutes.ts`. |
 | Server | `ensureTls` | Makes or reads the CA. In `server/src/tlsCa.ts`. |
 | Server | `issueServing` | The serving certificate. In `server/src/tlsCa.ts`. |
@@ -223,7 +228,12 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/fleet/recordings.ts`. |
+| Storage | `openStorage` | The one place the implementation is chosen, from PODIUM_DB. In `server/src/storage/index.ts`. |
+| Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
+| Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
+| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |
+| Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
+| Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
 
 ### Console
 
@@ -273,7 +283,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Location | Item | Description |
 |---|---|---|
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
-| Storage | `podium.sqlite` | The main database in WAL mode: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
+| Storage | `podium.sqlite` | The main database in WAL mode, behind the async `Storage` interfaces: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
 | Storage | `activity.sqlite` | Opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
 | Storage | Certificates and config | The CA and serving keys in `/data/tls`, podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
 | Console | Preferences and cookies | Convenience only: theme, pins and collapsed panes. The respond and Admin cookies are `HttpOnly` and `SameSite=Strict`. Tokens are never written to storage. |
