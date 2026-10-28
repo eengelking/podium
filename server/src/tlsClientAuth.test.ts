@@ -10,7 +10,8 @@ import { openSqliteStorage } from './storage/sqlite/index.js';
 import type { PeopleStoreApi } from './storage/types.js';
 import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
-import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
+import { certAuth, type ClientSocket } from './tlsClientAuth.js';
+import type { PersonCertsApi } from './storage/types.js';
 import { buildReporterConfig, fileSafe, issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
 import { signDated, startTlsForTest } from './tlsTesting.js';
 
@@ -34,7 +35,7 @@ async function setup() {
   cleanup.push(() => storage.close());
   const db = storage.sqliteHandle;
   const people = storage.people;
-  const certs = new PersonCertStore(db);
+  const certs = storage.personCerts;
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
   let issuers: string[] = [];
@@ -53,7 +54,7 @@ async function setup() {
   const issueFor = async (name: string, days?: number) => {
     const { person } = await people.createPerson(name);
     const issued = await issuePersonCert({ dir, keyId: person.keyId, days });
-    certs.replace(person.id, issued, NOW());
+    await certs.replace(person.id, issued, NOW());
     return { person, issued };
   };
   const get = (client?: { cert: string; key: string }, agent?: https.Agent) =>
@@ -149,13 +150,13 @@ describe('PersonCertStore', () => {
   it('stores the certificate by fingerprint, reissue revokes the earlier one, and the key is nowhere in the row', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
-    const first = s.certs.find(issued.info.fingerprintSha256)!;
+    const first = (await s.certs.find(issued.info.fingerprintSha256))!;
     expect(first).toMatchObject({ personId: person.id, serial: issued.info.serial, issuerFingerprint: s.l.material.ca.fingerprintSha256, revokedAt: null });
     const again = await issuePersonCert({ dir: s.dir, keyId: person.keyId });
-    s.certs.replace(person.id, again, NOW());
-    expect(s.certs.find(issued.info.fingerprintSha256)).toMatchObject({ revokedAt: expect.any(Number), reason: 'reissued' });
-    expect(s.certs.current(person.id)!.fingerprint).toBe(again.info.fingerprintSha256);
-    expect(s.certs.listFor(person.id)).toHaveLength(2);
+    await s.certs.replace(person.id, again, NOW());
+    expect((await s.certs.find(issued.info.fingerprintSha256))).toMatchObject({ revokedAt: expect.any(Number), reason: 'reissued' });
+    expect((await s.certs.current(person.id))!.fingerprint).toBe(again.info.fingerprintSha256);
+    expect((await s.certs.listFor(person.id))).toHaveLength(2);
     const dump = JSON.stringify(s.db.prepare('SELECT * FROM person_certificates').all());
     expect(dump).not.toContain('PRIVATE KEY');
     expect(dump).not.toContain(issued.key.split('\n')[1]!);
@@ -164,24 +165,24 @@ describe('PersonCertStore', () => {
   it('revokeFor revokes the live certificates once and says so', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
-    expect(s.certs.revokeFor(person.id, 'revoked', NOW())).toBe(1);
-    expect(s.certs.revokeFor(person.id, 'revoked', NOW())).toBe(0);
-    expect(s.certs.current(person.id)).toBeUndefined();
+    expect((await s.certs.revokeFor(person.id, 'revoked', NOW()))).toBe(1);
+    expect((await s.certs.revokeFor(person.id, 'revoked', NOW()))).toBe(0);
+    expect((await s.certs.current(person.id))).toBeUndefined();
   });
 
   it('deleting the person deletes their certificates', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
     await s.people.deleteMany([person.id]);
-    expect(s.certs.listFor(person.id)).toEqual([]);
+    expect((await s.certs.listFor(person.id))).toEqual([]);
   });
 
   it('rolls back a reissue that fails, leaving the earlier certificate live', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
     const broken = { ...issued, info: { ...issued.info } } as IssuedPersonCert; // the same fingerprint: the primary key refuses it
-    expect(() => s.certs.replace(person.id, broken, NOW())).toThrow();
-    expect(s.certs.current(person.id)!.fingerprint).toBe(issued.info.fingerprintSha256);
+    await expect(s.certs.replace(person.id, broken, NOW())).rejects.toThrow();
+    expect((await s.certs.current(person.id))!.fingerprint).toBe(issued.info.fingerprintSha256);
   });
 });
 
@@ -232,7 +233,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
     signDated(work, { csr: 'c.csr', caCrt: path.join(s.dir, 'ca.crt'), caKey: path.join(s.dir, 'ca.key'), extFile: 'c.cnf', ext: 'v3', from: Date.UTC(2020, 0, 1), to: Date.UTC(2020, 0, 2), out: 'c.pem' });
     const pem = fs.readFileSync(path.join(work, 'c.pem'), 'utf8');
     const x = new X509Certificate(pem);
-    s.certs.replace(person.id, { cert: pem, info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
+    await s.certs.replace(person.id, { cert: pem, info: { fingerprintSha256: x.fingerprint256, subject: x.subject, notBefore: new Date(x.validFrom).toISOString(), notAfter: new Date(x.validTo).toISOString(), serial: x.serialNumber }, issuerFingerprint: s.l.material.ca.fingerprintSha256 }, NOW());
     await expect(s.get({ cert: pem, key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') })).rejects.toBeDefined();
   });
 
@@ -256,7 +257,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
     cleanup.push(() => agent.destroy());
     const client = { cert: issued.cert, key: issued.key };
     expect(await s.get(client, agent)).toEqual({ kind: 'person', name: 'Dana' });
-    s.certs.revokeFor(person.id, 'revoked', NOW());
+    await s.certs.revokeFor(person.id, 'revoked', NOW());
     expect(await s.get(client, agent)).toEqual({ kind: 'refused', reason: 'client certificate was revoked' });
   });
 
@@ -264,7 +265,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
     expect(await s.people.revoke(person.id, NOW())).toBe(true);
-    expect(s.certs.current(person.id)).toBeDefined();
+    expect((await s.certs.current(person.id))).toBeDefined();
     expect(await s.get({ cert: issued.cert, key: issued.key })).toEqual({ kind: 'refused', reason: 'client certificate was revoked' });
   });
 
@@ -289,7 +290,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
 });
 
 describe('certAuth with a stand-in socket', () => {
-  const deps = { certs: {} as PersonCertStore, people: {} as PeopleStoreApi, trustedIssuers: () => [], now: NOW };
+  const deps = { certs: {} as PersonCertsApi, people: {} as PeopleStoreApi, trustedIssuers: () => [], now: NOW };
   it('treats plain HTTP and a certificate-less handshake as none', async () => {
     expect(await certAuth({}, deps)).toEqual({ kind: 'none' });
     expect(await certAuth({ encrypted: true, getPeerCertificate: () => ({}) }, deps)).toEqual({ kind: 'none' });
@@ -309,7 +310,7 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
   const store = () => {
     const storage = openSqliteStorage(':memory:');
     cleanup.push(() => storage.close());
-    return { people: storage.people, certs: new PersonCertStore(storage.sqliteHandle) };
+    return { people: storage.people, certs: storage.personCerts };
   };
 
   it('counts each person once, by their newest live certificate', async () => {
@@ -318,12 +319,12 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     const b = (await people.createPerson('B')).person;
     const c = (await people.createPerson('C')).person;
     const future = Date.now() + 86_400_000;
-    certs.replace(a.id, issued('old', '1', future), 1000);
-    certs.replace(b.id, issued('old', '2', future), 1000);
+    await certs.replace(a.id, issued('old', '1', future), 1000);
+    await certs.replace(b.id, issued('old', '2', future), 1000);
     // B renewed onto the new CA and still holds the old, live certificate: B is on the new CA.
-    certs.add(b.id, issued('new', '3', future), 2000);
-    certs.replace(c.id, issued('new', '4', future), 1000);
-    expect(certs.reportersByIssuer(Date.now())).toEqual({ total: 3, byIssuer: { old: 1, new: 2 } });
+    await certs.add(b.id, issued('new', '3', future), 2000);
+    await certs.replace(c.id, issued('new', '4', future), 1000);
+    expect((await certs.reportersByIssuer(Date.now()))).toEqual({ total: 3, byIssuer: { old: 1, new: 2 } });
   });
 
   it('leaves out a revoked certificate and one that ended before the cutoff', async () => {
@@ -332,12 +333,12 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     const b = (await people.createPerson('B')).person;
     const c = (await people.createPerson('C')).person;
     const now = Date.now();
-    certs.replace(a.id, issued('old', '1', now + 1000), 1000);
-    certs.revokeFor(a.id, 'revoked', 2000);
-    certs.replace(b.id, issued('old', '2', now - 40 * 86_400_000), 1000);
-    certs.replace(c.id, issued('old', '3', now - 10 * 86_400_000), 1000);
+    await certs.replace(a.id, issued('old', '1', now + 1000), 1000);
+    await certs.revokeFor(a.id, 'revoked', 2000);
+    await certs.replace(b.id, issued('old', '2', now - 40 * 86_400_000), 1000);
+    await certs.replace(c.id, issued('old', '3', now - 10 * 86_400_000), 1000);
     // the cutoff is 30 days ago
-    expect(certs.reportersByIssuer(now - 30 * 86_400_000)).toEqual({ total: 1, byIssuer: { old: 1 } });
+    expect((await certs.reportersByIssuer(now - 30 * 86_400_000))).toEqual({ total: 1, byIssuer: { old: 1 } });
   });
 });
 

@@ -238,7 +238,7 @@ describe('messages', () => {
     let reads = 0;
     storage.fleet.fleetCostPerMinute = async () => {
       reads++;
-      if (reads === 1) fleet.prices.set('sonnet-5-5', { std: { input: 33, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 } });
+      if (reads === 1) void fleet.prices.set('sonnet-5-5', { std: { input: 33, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 } });
       return [{ m: 1, v: reads === 1 ? 111 : 222 }];
     };
     await fleet.kpis();

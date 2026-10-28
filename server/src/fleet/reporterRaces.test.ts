@@ -48,7 +48,7 @@ async function setup() {
     fleet.close();
     await storage.close();
   });
-  fleet.features.setFeature('respond', true);
+  await fleet.features.setFeature('respond', true);
   const people = slow(storage.people);
   const reporters = slow(storage.reporters);
   const app = express();

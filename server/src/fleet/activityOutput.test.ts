@@ -40,8 +40,8 @@ async function server(flags: { output?: boolean } = { output: true }) {
   const fleet = new Fleet(openSqliteStorage(dbPath), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath }, () => clock, logger, { db: openActivityDb(activityDbPath(dbPath)), authOn: true });
   await fleet.init();
   open.push(fleet);
-  if (flags.output) fleet.features.setFeature('activity-output', true);
-  fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
+  if (flags.output) await fleet.features.setFeature('activity-output', true);
+  await fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
   const seen: string[] = [];
   fleet.hub.add({ write: (c: string) => void seen.push(c), end: () => {} });
   const app = express();
@@ -173,7 +173,7 @@ describe('how a call ended, without output (#598)', () => {
     clock += 10;
     await s.send(s.live([bash(clock + 1)]));
     await s.send(s.live([withOutput(clock + 1)]));
-    s.fleet.features.setFeature('activity-output', false);
+    await s.fleet.features.setFeature('activity-output', false);
     const e = (await s.feed()).body.entries;
     expect(e[0]).toMatchObject(STATUS);
     expect(JSON.stringify(e)).not.toContain(SECRET);
@@ -253,11 +253,11 @@ describe('where output goes', () => {
 
   it('is gone when the flag goes off, with the lease still live', async () => {
     const s = await withSecret();
-    s.fleet.features.setFeature('activity-output', false);
+    await s.fleet.features.setFeature('activity-output', false);
     const got = (await s.feed()).body;
     expect(got.entries).toHaveLength(1);
     expect(JSON.stringify(got)).not.toContain(SECRET);
-    s.fleet.features.setFeature('activity-output', true);
+    await s.fleet.features.setFeature('activity-output', true);
     expect(JSON.stringify((await s.feed()).body)).not.toContain(SECRET);
     await s.fleet.flush();
     expect(s.seen.join('')).not.toContain(SECRET);
@@ -265,9 +265,9 @@ describe('where output goes', () => {
 
   it('is gone when the activity-feed flag goes off, and when the session leaves the live set', async () => {
     const s = await withSecret();
-    s.fleet.features.setFeature('activity-feed', false);
+    await s.fleet.features.setFeature('activity-feed', false);
     expect(JSON.stringify((await s.feed()).body)).not.toContain(SECRET);
-    s.fleet.features.setFeature('activity-feed', true);
+    await s.fleet.features.setFeature('activity-feed', true);
     expect((await s.feed()).body.entries).toEqual([]);
     expect(await s.fleet.deleteSession(fixtureReport().session.id)).toBe(true);
     expect(raw()).not.toContain(SECRET);

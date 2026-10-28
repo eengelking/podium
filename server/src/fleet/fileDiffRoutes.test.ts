@@ -29,7 +29,7 @@ async function setup(opts: { secret?: string | null; fileDiff?: boolean } = {}) 
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
   closers.push(() => fleet.close());
-  if (opts.fileDiff !== false) fleet.features.setFeature('file-diff', true);
+  if (opts.fileDiff !== false) await fleet.features.setFeature('file-diff', true);
   const ed = await people.createPerson('Ed');
   const alex = await people.createPerson('Alex');
   const boss = await people.createPerson('Boss');
@@ -92,7 +92,7 @@ describe('the switches', () => {
     await send(app, ed.token, report('Ed'));
     void fleet.diffs.ask('sess-ed', 'a.ts');
     expect((await send(app, ed.token, report('Ed'))).body.diffs).toHaveLength(1);
-    fleet.features.setFeature('file-diff', false);
+    await fleet.features.setFeature('file-diff', false);
     expect((await send(app, ed.token, report('Ed'))).body.diffs).toEqual([]);
   });
 });
@@ -183,7 +183,7 @@ describe('the round trip', () => {
     const a = await signedIn(app, 'Ed', ed.token);
     const waiting = a.get(DIFF_URL).then((r) => r);
     await new Promise((r) => setTimeout(r, 30));
-    fleet.features.setFeature('file-diff', false);
+    await fleet.features.setFeature('file-diff', false);
     const res = await waiting;
     expect(res.status).toBe(504);
     expect(res.body.error).toBe('no answer');
@@ -215,7 +215,7 @@ describe('the mod\'s answer route', () => {
     expect((await put({ ...okReply, status: 'maybe' })).status).toBe(400);
     expect((await request(app).put('/api/fleet/sessions/sess-ed/diffs/x').send(okReply)).status).toBe(401);
     expect((await request(app).put('/api/fleet/sessions/nope/diffs/x').set('X-Podium-Token', ed.token).send(okReply)).status).toBe(404);
-    fleet.features.setFeature('file-diff', false);
+    await fleet.features.setFeature('file-diff', false);
     expect((await put(okReply)).status).toBe(403);
   });
   it('refuses an answer over 300,000 bytes with 413', async () => {

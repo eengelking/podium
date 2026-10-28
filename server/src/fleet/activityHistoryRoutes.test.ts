@@ -33,8 +33,8 @@ async function setup(opts: { secret?: string | null; policy?: 'default' | 'after
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
   closers.push(() => fleet.close());
-  fleet.features.setFeature('activity-feed', true);
-  if (opts.policy && opts.policy !== 'default') fleet.activityHistorySettings.set({ policy: opts.policy });
+  await fleet.features.setFeature('activity-feed', true);
+  if (opts.policy && opts.policy !== 'default') await fleet.activityHistorySettings.set({ policy: opts.policy });
   const ed = await people.createPerson('Ed');
   const alex = await people.createPerson('Alex');
   const boss = await people.createPerson('Boss');
@@ -118,7 +118,7 @@ describe('GET /respond/sessions/:id/activity-history', () => {
   it('is 404 under the default policy, even for the owner', async () => {
     const s = await stored('all');
     const a = await signedIn(s.app, 'Ed', s.ed.token);
-    s.fleet.activityHistorySettings.set({ policy: 'default' });
+    await s.fleet.activityHistorySettings.set({ policy: 'default' });
     const res = await a.get(READ);
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('no activity is kept');
@@ -252,7 +252,7 @@ describe('the history note on the live activity reply', () => {
 
   it('names when the newest entry goes under policy after', async () => {
     const { app, ed, fleet } = await setup();
-    fleet.activityHistorySettings.set({ policy: 'after', n: 2, unit: 'days' });
+    await fleet.activityHistorySettings.set({ policy: 'after', n: 2, unit: 'days' });
     await send(app, ed.token, report(entries(3)));
     const h = (await request(app).get(LIVE)).body.history;
     expect(h.policy).toBe('after');

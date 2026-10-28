@@ -40,7 +40,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), logger }));
   await fleet.init();
   closers.push(() => fleet.close());
-  if (opts.flag !== false) fleet.features.setFeature('session-recording', true);
+  if (opts.flag !== false) await fleet.features.setFeature('session-recording', true);
   const ed = await people.createPerson('Ed');
   const alex = await people.createPerson('Alex');
   const boss = await people.createPerson('Boss');
@@ -138,11 +138,11 @@ describe('POST /sessions/:id/recording (the mod)', () => {
 
   it('is 403 "recording is off" while the flag is off, with nothing stored', async () => {
     const { app, ed, fleet } = await chosen();
-    fleet.features.setFeature('session-recording', false);
+    await fleet.features.setFeature('session-recording', false);
     const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ ok: false, error: 'recording is off' });
-    fleet.features.setFeature('session-recording', true);
+    await fleet.features.setFeature('session-recording', true);
     expect(fleet.recordings.page(SID, null, 10, null).total).toBe(1); // only the stop mark the flag going off wrote
   });
 
@@ -182,7 +182,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     expect((await post(del.app, del.ed.token, batch(entry(MAIN_LOOP, 1, 'late', { at: T0 })))).status).toBe(403);
     const off = await chosen();
     await off.a.post(`${BASE}/stop`).set(H);
-    off.fleet.features.setFeature('session-recording', false);
+    await off.fleet.features.setFeature('session-recording', false);
     expect((await post(off.app, off.ed.token, batch(entry(MAIN_LOOP, 1, 'late', { at: T0 })))).status).toBe(403);
   });
 
@@ -232,7 +232,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
 describe('the browser routes: who may use them', () => {
   it('are 404 while the flag is off, even for the owner signed in', async () => {
     const { app, ed, a, fleet } = await chosen();
-    fleet.features.setFeature('session-recording', false);
+    await fleet.features.setFeature('session-recording', false);
     for (const res of [await a.get(BASE), await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] }), await a.post(`${BASE}/stop`).set(H), await a.delete(BASE).set(H)]) {
       expect(res.status).toBe(404);
     }
@@ -478,11 +478,11 @@ describe('what the server does on its own is logged', () => {
   it('turning the flag off stops the recording, keeps what it holds, and tells the log', async () => {
     const { app, ed, fleet, people } = await chosen();
     await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
-    fleet.features.setFeature('session-recording', false);
+    await fleet.features.setFeature('session-recording', false);
     expect(fleet.recordings.stateFor(SID)).toBe('stopped');
     expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
     expect((await logRows(people)).find((r) => r.kind === 'recording_stopped')?.detail).toContain('the Admin turned session recording off');
-    fleet.features.setFeature('session-recording', true);
+    await fleet.features.setFeature('session-recording', true);
     expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
   });
 
@@ -505,7 +505,7 @@ describe('what the server does on its own is logged', () => {
 
   it('a message Podium delivers to a recorded loop is marked on the mod entry that carries it, and not stored twice', async () => {
     const { fleet, app, ed } = await chosen();
-    fleet.features.setFeature('respond', true);
+    await fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: ACCEPTS }));
     expect(fleet.respond.message(SID, 'Boss', { text: `${BODY} please also update the guide` }).ok).toBe(true);
     expect(fleet.recordings.page(SID, null, 10, null).entries).toEqual([]);
@@ -518,7 +518,7 @@ describe('what the server does on its own is logged', () => {
 
   it('only a message is remembered for marking: a command, and a message taken back before the mod got it, leave no mark behind', async () => {
     const { fleet, app, ed } = await chosen();
-    fleet.features.setFeature('respond', true);
+    await fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: { level: 'everything', accepts: ['message', 'command'], limits: [] } as unknown as Report['session']['respond'] }));
     expect(fleet.respond.message(SID, 'Boss', { text: '/clear' }).ok).toBe(true);
     const taken = fleet.respond.message(SID, 'Boss', { text: 'never mind this one' });
@@ -552,7 +552,7 @@ describe('what the server does on its own is logged', () => {
 
   it('a failing write of such a prompt is logged and does not refuse the message', async () => {
     const { fleet, lines, app, ed } = await chosen();
-    fleet.features.setFeature('respond', true);
+    await fleet.features.setFeature('respond', true);
     await send(app, ed.token, report(true, { respond: ACCEPTS }));
     vi.spyOn(fleet.recordings, 'notePodiumPrompt').mockImplementation(() => {
       throw new Error('file is locked');
@@ -621,9 +621,9 @@ describe('what History and the picker learn (#353)', () => {
   it('leaves the mark out while the session-recording flag is off, since the replay routes answer 404 then', async () => {
     const s = await chosen();
     const url = await ended(s);
-    s.fleet.features.setFeature('session-recording', false);
+    await s.fleet.features.setFeature('session-recording', false);
     expect((await s.a.get(url)).body.sessions[0]).not.toHaveProperty('recording');
-    s.fleet.features.setFeature('session-recording', true);
+    await s.fleet.features.setFeature('session-recording', true);
     expect((await s.a.get(url)).body.sessions[0].recording).toBeDefined();
   });
 
@@ -663,7 +663,7 @@ describe('what History and the picker learn (#353)', () => {
     const alex = await signedIn(s.app, 'Alex', s.alex.token);
     expect((await alex.get(`${BASE}/consent`)).status).toBe(403);
     const a = await signedIn(s.app, 'Ed', s.ed.token);
-    s.fleet.features.setFeature('session-recording', false);
+    await s.fleet.features.setFeature('session-recording', false);
     expect((await a.get(`${BASE}/consent`)).status).toBe(404);
   });
 });

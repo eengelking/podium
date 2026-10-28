@@ -364,7 +364,7 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
   app.use('/api/admin', createAdminRouter({ secret, storage, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
   closers.push(() => fleet.close());
-  if (opts.respond !== false) fleet.features.setFeature('respond', true);
+  if (opts.respond !== false) await fleet.features.setFeature('respond', true);
   const ed = await people.createPerson('Ed');
   const alex = await people.createPerson('Alex');
   return { app, fleet, people, ed, alex };
@@ -409,7 +409,7 @@ describe('the switches', () => {
     expect((await request(flagOff.app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', flagOff.ed.token).send(QUESTION)).status).toBe(403);
 
     const feedOff = await setup();
-    feedOff.fleet.features.setFeature('activity-feed', false);
+    await feedOff.fleet.features.setFeature('activity-feed', false);
     expect((await request(feedOff.app).get('/api/fleet/respond/me')).body.enabled).toBe(false);
   });
 
@@ -417,7 +417,7 @@ describe('the switches', () => {
     const { app, fleet, ed } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [QUESTION]));
     expect(fleet.respond.summaries('sess-ed')).toHaveLength(1);
-    fleet.features.setFeature('respond', false);
+    await fleet.features.setFeature('respond', false);
     expect(fleet.respond.summaries('sess-ed')).toEqual([]);
   });
 });
@@ -724,7 +724,7 @@ describe('answering, end to end', () => {
       const b = await signedIn(app, 'Ed', ed.token);
       const msg = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #333' });
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
-      fleet.features.setFeature('respond', false);
+      await fleet.features.setFeature('respond', false);
       await new Promise((r) => setImmediate(r)); // the delivery log line is written once the session's name has been read (#313)
       const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows.map((r) => r.detail).sort()).toEqual(
@@ -903,7 +903,7 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     const priya = await people.createPerson('Priya', admins.id);
     // nothing needs a sign-in yet
     expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Priya', token: priya.token })).status).toBe(403);
-    expect(fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
+    expect(await fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
@@ -917,9 +917,9 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     const { app, fleet, people } = await setup({ respond: false });
     const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
     const priya = await people.createPerson('Priya', admins.id);
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const agent = await signedIn(app, 'Priya', priya.token);
-    fleet.activityHistorySettings.set({ policy: 'default' });
+    await fleet.activityHistorySettings.set({ policy: 'default' });
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
     expect((await agent.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false, signedIn: false });
   });

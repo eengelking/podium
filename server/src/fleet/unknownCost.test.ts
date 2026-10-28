@@ -47,7 +47,7 @@ describe('the unpriced caption follows the Admin prices (#276)', () => {
     r.agents = [];
     await fleet.ingest(r);
     expect((await fleet.kpis()).unpricedSessions).toBe(1);
-    expect(fleet.prices.set('qwen3-coder', { std: S })).toBeNull();
+    expect(await fleet.prices.set('qwen3-coder', { std: S })).toBeNull();
     expect((await fleet.liveViews())[0]!.costUsd).toBeCloseTo(3, 9);
     expect((await fleet.kpis()).unpricedSessions).toBe(0);
   });

@@ -48,7 +48,7 @@ describe('Fleet prices model usage (#117)', () => {
     const { fleet, r } = await setup();
     await fleet.ingest(r, 'Dana K.');
     expect((await fleet.kpis()).costToday).toBeCloseTo(4, 9);
-    expect(fleet.prices.set('sonnet-5-5', { std: S })).toBeNull();
+    expect(await fleet.prices.set('sonnet-5-5', { std: S })).toBeNull();
     const c = await cost(fleet);
     expect(c.session).toBeCloseTo(6, 9);
     expect(c.agents[0]).toBeCloseTo(0.75, 9);
@@ -62,8 +62,8 @@ describe('Fleet prices model usage (#117)', () => {
   it('reset brings the built-in figures back', async () => {
     const { fleet, r } = await setup();
     await fleet.ingest(r);
-    fleet.prices.set('sonnet-5-5', { std: S });
-    fleet.prices.reset('sonnet-5-5');
+    await fleet.prices.set('sonnet-5-5', { std: S });
+    await fleet.prices.reset('sonnet-5-5');
     expect((await cost(fleet)).session).toBeCloseTo(4, 9);
   });
 
@@ -82,7 +82,7 @@ describe('Fleet prices model usage (#117)', () => {
     r.session.costUsd = 7;
     r.agents[0]!.costUsdEst = 1.5;
     await fleet.ingest(r);
-    fleet.prices.set('sonnet-5-5', { std: S });
+    await fleet.prices.set('sonnet-5-5', { std: S });
     const c = await cost(fleet);
     expect(c.session).toBe(7);
     expect(c.agents[0]).toBe(1.5);
@@ -101,7 +101,7 @@ describe('Fleet prices model usage (#117)', () => {
     }
     await fleet.ingest(r);
     expect((await cost(fleet)).session).toBeNull();
-    expect(fleet.prices.set('llama3.1:8b', { std: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } })).toBeNull();
+    expect(await fleet.prices.set('llama3.1:8b', { std: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } })).toBeNull();
     expect((await cost(fleet)).session).toBeCloseTo(1, 9);
   });
 
@@ -111,7 +111,7 @@ describe('Fleet prices model usage (#117)', () => {
     await fleet.ingest(r);
     const hist = async () => (await fleet.history(NOW - 3_600_000, NOW + 3_600_000))[0]!.costUsd;
     expect(await hist()).toBeCloseTo(4, 9);
-    fleet.prices.set('sonnet-5-5', { std: S });
+    await fleet.prices.set('sonnet-5-5', { std: S });
     expect(await hist()).toBeCloseTo(6, 9);
   });
 
@@ -120,7 +120,7 @@ describe('Fleet prices model usage (#117)', () => {
     await fleet.ingest(r);
     const seen: string[] = [];
     fleet.hub.add({ write: (c: string) => { seen.push(c); return true; } } as never);
-    fleet.prices.set('sonnet-5-5', { std: S });
+    await fleet.prices.set('sonnet-5-5', { std: S });
     await fleet.flush();
     expect(seen.join('')).toContain('event: snapshot');
   });
@@ -155,7 +155,7 @@ describe('Fleet prices model usage (#117)', () => {
       const step = (await fleet.liveViews())[0]!.costUsd! - fleet.prices.pricing().costOf(use('claude-sonnet-5-5', M))!;
       expect(step).toBeGreaterThan(0);
       expect(await minuteSum(fleet)).toBeCloseTo(step, 9);
-      expect(fleet.prices.set('sonnet-5-5', { std: S })).toBeNull();
+      expect(await fleet.prices.set('sonnet-5-5', { std: S })).toBeNull();
       expect(await minuteSum(fleet)).toBeCloseTo(3, 9); // 1M more input at the Admin's 3 USD
     });
 
@@ -184,7 +184,7 @@ describe('Fleet prices model usage (#117)', () => {
       expect(rows.filter((r) => r.usage_json !== '=')).toHaveLength(3);
       now = NOW;
       expect(await minuteSum(fleet)).toBeCloseTo(fleet.prices.pricing().costOf(use('claude-sonnet-5-5', M))!, 9);
-      fleet.prices.set('sonnet-5-5', { std: S });
+      await fleet.prices.set('sonnet-5-5', { std: S });
       expect(await minuteSum(fleet)).toBeCloseTo(3, 9);
     });
 

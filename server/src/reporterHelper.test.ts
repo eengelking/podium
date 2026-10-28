@@ -15,7 +15,6 @@ import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { REPORTER_ROUTE_TEMPLATES } from './tlsHttp.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
-import { PersonCertStore } from './tlsClientAuth.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
 import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
@@ -506,7 +505,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
   const storage = openSqliteStorage(':memory:');
   cleanup.push(() => storage.close());
   const people = storage.people;
-  const certs = new PersonCertStore(storage.sqliteHandle);
+  const certs = storage.personCerts;
   const person = (await people.createPerson('Dana Lee')).person;
   const caFp = new X509Certificate(p.caCert).fingerprint256;
   let cert: string;
@@ -518,7 +517,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     ({ cert, key } = signClientDated({ caCrt: path.join(p.dir, 'ca.crt'), caKey: path.join(p.dir, 'ca.key'), keyId: person.keyId, ...dates }));
   }
   const info = describeCert(cert);
-  certs.replace(person.id, { cert, info, issuerFingerprint: caFp }, Date.now());
+  await certs.replace(person.id, { cert, info, issuerFingerprint: caFp }, Date.now());
   p.person = { cert, key, info };
   const seen: string[] = [];
   const app = express();
@@ -536,7 +535,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     res.json({ ok: true });
   });
   const url = await upstream(p, (req, res) => app(req, res), { requireClient: false });
-  const live = () => certs.listFor(person.id).filter((c) => c.revokedAt === null);
+  const live = async () => (await certs.listFor(person.id)).filter((c) => c.revokedAt === null);
   return { p, url, certs, person, seen, live, calls: () => renewCalls, original: new X509Certificate(cert).fingerprint256 };
 }
 
@@ -573,13 +572,13 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(f.text).toMatch(/^# user: Dana Lee$/m);
     expect(f.text).toContain(`# fingerprint: ${person.fingerprint256}`);
     expect(f.text).toContain(`# expires: ${new Date(person.validTo).toISOString()}`);
-    expect(r.live()).toHaveLength(2);
+    expect(await r.live()).toHaveLength(2);
     // the next request is made with the new certificate
     const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(a.status).toBe(200);
     expect(r.seen.at(-1)).toBe(person.fingerprint256);
     // the old certificate still works until it expires
-    expect(r.live().map((c) => c.fingerprint)).toContain(r.original);
+    expect((await r.live()).map((c) => c.fingerprint)).toContain(r.original);
   }, 30_000);
 
   it('does not renew while more than the threshold remains', async () => {
@@ -589,7 +588,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   });
 
   it('does not renew a short-lived certificate the moment it is issued: it waits until half its life is gone', async () => {
@@ -600,7 +599,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   });
 
   it.each([
@@ -619,7 +618,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(r.seen).toEqual([]);
     expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
     // it says the same on every request, and still asks the server for nothing
     const b = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(b.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
@@ -637,7 +636,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
     expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   }, 30_000);
 
   it('a server that cannot renew right now does not stop the request, and the file is left alone', async () => {
@@ -675,8 +674,8 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(person.checkPrivateKey(createPrivateKey(f.key))).toBe(true);
     expect(f.mode).toBe(0o600);
     // the old certificate and the one new certificate; the second session took the first's instead of making a third
-    expect(r.live()).toHaveLength(2);
-    expect(r.live().map((c) => c.fingerprint)).toContain(person.fingerprint256);
+    expect(await r.live()).toHaveLength(2);
+    expect((await r.live()).map((c) => c.fingerprint)).toContain(person.fingerprint256);
     expect(fs.readdirSync(path.dirname(a.config)).filter((n) => n.includes('.tmp'))).toEqual([]);
     // both sessions now use the file's certificate
     r.seen.length = 0;

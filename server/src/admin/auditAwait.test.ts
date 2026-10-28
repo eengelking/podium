@@ -8,8 +8,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { ensureTls, serverNames } from '../tlsCa.js';
-import { PersonCertStore } from '../tlsClientAuth.js';
-import { TlsSettingsStore } from '../tlsRenew.js';
+import { LiveTlsSettings } from '../tlsLive.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -37,8 +36,10 @@ async function setup() {
   const material = await ensureTls({ dir, names: serverNames('127.0.0.1', []) });
   const storage = openSqliteStorage(':memory:');
   const people = storage.people;
-  const store = new PersonCertStore(storage.sqliteHandle);
-  const certificates = { settings: new TlsSettingsStore(storage.sqliteHandle), renewer: () => null, people: { store, issuer: () => ({ dir, port: 8443, caCerts: () => [material.caCert] }) } };
+  const store = storage.personCerts;
+  const tls = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+  await tls.load();
+  const certificates = { settings: tls, renewer: () => null, people: { store, issuer: () => ({ dir, port: 8443, caCerts: () => [material.caCert] }) } };
   const app = express();
   app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, people, log: () => {}, certificates }));
   const agent = request.agent(app);

@@ -10,8 +10,7 @@ import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { createLogger } from '../logging/logger.js';
-import { PersonCertStore } from '../tlsClientAuth.js';
-import { TlsSettingsStore } from '../tlsRenew.js';
+import { LiveTlsSettings } from '../tlsLive.js';
 import { publicTlsPort, type TlsListener } from '../tlsServer.js';
 import { startTlsForTest } from '../tlsTesting.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
@@ -37,7 +36,9 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
   await fleet.init();
   cleanup.push(() => fleet.close());
   const people = storage.people;
-  const store = new PersonCertStore(db);
+  const store = storage.personCerts;
+  const tlsSettings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+  await tlsSettings.load();
   const logger = createLogger({ format: 'json', write: () => {} });
   let listener: TlsListener | null = null;
   let openssl = opts.openssl;
@@ -51,7 +52,7 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
       people,
       logger,
       certificates: {
-        settings: new TlsSettingsStore(db),
+        settings: tlsSettings,
         renewer: () => listener?.renewer ?? null,
         people: { store, issuer: () => (tlsOn && listener ? { dir: path.join(root, 'tls'), port: publicTlsPort(opts.publicPort, listener.port), caCerts: () => [listener!.material.caCert], openssl } : null) },
       },
@@ -120,7 +121,7 @@ describe('creating a person with TLS on', () => {
     expect(lines[2]).toBe(`# server: https://127.0.0.1:${s.port}`);
     const parts = partsOf(f.content);
     expect(parts.cas).toEqual([s.listener.material.caCert]);
-    expect(f.fingerprint).toBe(s.store.current(body.person.id)!.fingerprint);
+    expect(f.fingerprint).toBe((await s.store.current(body.person.id))!.fingerprint);
 
     // The database holds the certificate, and nothing of the key.
     const keyBody = parts.key.split('\n')[1]!;
@@ -170,7 +171,7 @@ describe('the People list (#587)', () => {
     expect(out.tls).toBe(true);
     expect(out).not.toHaveProperty('graceDays');
     const by = Object.fromEntries(out.rows.map((r) => [r.name, r.certificate]));
-    expect(by.Alma).toEqual({ notBefore: new Date(s.store.current(a.person.id)!.notBefore).toISOString(), notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
+    expect(by.Alma).toEqual({ notBefore: new Date((await s.store.current(a.person.id))!.notBefore).toISOString(), notAfter: new Date((await s.store.current(a.person.id))!.notAfter).toISOString(), revoked: false });
     expect(by.Bo).toMatchObject({ revoked: true });
     expect(by.Cy).toBeNull();
     expect(JSON.stringify(out)).not.toContain('PRIVATE KEY');
@@ -244,7 +245,7 @@ describe('revoking', () => {
     expect((await s.admin.post(`/api/admin/people/${body.person.id}/revoke`).set(H)).status).toBe(200);
     expect((await request(s.app).post('/api/fleet/report').set('X-Podium-Token', body.token).send({ ...(fixtureReport() as object), userName: 'Dana' })).status).toBe(401);
     expect((await s.reportWith(parts, 'Dana')).status).toBe(401);
-    expect(s.store.current(body.person.id)).toBeUndefined();
+    expect((await s.store.current(body.person.id))).toBeUndefined();
     expect((await logRows(s)).find((r) => r.kind === 'token_revoked')!.detail).toContain('and their certificate');
   });
 
@@ -302,7 +303,7 @@ describe('reissue', () => {
     expect(next.cert).not.toBe(oldParts.cert);
     expect((await s.reportWith(oldParts, 'Dana')).status).toBe(401);
     expect((await s.reportWith(next, 'Dana')).status).toBe(200);
-    expect(s.store.listFor(body.person.id).map((c) => c.reason)).toEqual([null, 'reissued']);
+    expect((await s.store.listFor(body.person.id)).map((c) => c.reason)).toEqual([null, 'reissued']);
     expect((await s.people.getPerson(body.person.id))!.revokedAt).toBeNull();
   });
 
@@ -324,7 +325,7 @@ describe('reissue', () => {
     const res = await s.admin.post(`/api/admin/people/${body.person.id}/certificate/reissue`).set(H);
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/earlier one is still valid/);
-    expect(s.store.listFor(body.person.id)).toHaveLength(1);
+    expect((await s.store.listFor(body.person.id))).toHaveLength(1);
     expect((await s.reportWith(parts, 'Dana')).status).toBe(200);
   });
 });

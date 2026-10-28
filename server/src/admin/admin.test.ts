@@ -3,20 +3,18 @@ import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
-import { WallSettings } from '../fleet/wallSettings.js';
-import { ModelPriceStore } from '../fleet/modelPrices.js';
-import { FeatureFlags } from '../fleet/featureFlags.js';
+import { LiveFeatureFlags, LiveModelPrices, LiveWallSettings } from '../fleet/liveSettings.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
 
-function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: number; onRespondOn?: () => void } = {}) {
+async function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: number; onRespondOn?: () => void } = {}) {
   const storage = openSqliteStorage(':memory:', 0);
-  const db = storage.sqliteHandle;
   const people = storage.people;
-  const wall = new WallSettings(db);
-  const prices = new ModelPriceStore(db);
-  const features = new FeatureFlags(db);
+  const wall = new LiveWallSettings(storage.wallSettings);
+  const prices = new LiveModelPrices(storage.modelPrices, storage.tx);
+  const features = new LiveFeatureFlags(storage.featureFlags);
+  await Promise.all([wall.load(), prices.load(), features.load()]);
   const reporters = storage.reporters;
   const clock = { t: 1_000_000 };
   const lines: string[] = [];
@@ -44,7 +42,7 @@ function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: nu
 const H = { 'X-Podium-Admin': '1' };
 
 async function unlocked(over: Parameters<typeof setup>[0] = {}) {
-  const s = setup(over);
+  const s = await setup(over);
   const agent = request.agent(s.app);
   const res = await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
   expect(res.status).toBe(200);
@@ -53,7 +51,7 @@ async function unlocked(over: Parameters<typeof setup>[0] = {}) {
 
 describe('unlocking', () => {
   it('refuses every other endpoint until unlocked, and the right secret unlocks with an HttpOnly SameSite=Strict cookie', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     for (const [m, p] of [['get', '/people'], ['post', '/people'], ['get', '/groups'], ['get', '/log'], ['get', '/settings'], ['get', '/reporters'], ['get', '/reporters/x'], ['delete', '/reporters/x'], ['put', '/settings'], ['post', '/activity-history/preview'], ['get', '/stored-activity'], ['post', '/stored-activity/delete']] as const) {
       expect((await request(app)[m](`/api/admin${p}`).set(H)).status).toBe(401);
     }
@@ -67,7 +65,7 @@ describe('unlocking', () => {
   });
 
   it('rejects a wrong secret and logs it without the secret', async () => {
-    const { app, people, lines } = setup();
+    const { app, people, lines } = await setup();
     const res = await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: 'wrong-guess-value' });
     expect(res.status).toBe(401);
     const log = (await people.listLog({ page: 1, pageSize: 50 })).rows;
@@ -76,7 +74,7 @@ describe('unlocking', () => {
   });
 
   it('locks after 5 wrong tries for 15 minutes, even for the right secret, then lets it through', async () => {
-    const { app, clock, people } = setup();
+    const { app, clock, people } = await setup();
     for (let i = 0; i < 5; i++) {
       expect((await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: 'nope' + i })).status).toBe(401);
     }
@@ -89,7 +87,7 @@ describe('unlocking', () => {
   });
 
   it('is off when the server runs without a token', async () => {
-    const { app } = setup({ secret: null });
+    const { app } = await setup({ secret: null });
     expect((await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: '' })).status).toBe(403);
     expect((await request(app).get('/api/admin/people').set(H)).status).toBe(403);
   });
@@ -110,7 +108,7 @@ describe('unlocking', () => {
   it('reports whether this browser is unlocked', async () => {
     const { agent } = await unlocked();
     expect((await agent.get('/api/admin/session').set(H)).body).toEqual({ unlocked: true, enabled: true, version: expect.any(String), build: null });
-    expect((await request(setup().app).get('/api/admin/session').set(H)).body).toEqual({ unlocked: false, enabled: true, version: expect.any(String), build: null });
+    expect((await request((await setup()).app).get('/api/admin/session').set(H)).body).toEqual({ unlocked: false, enabled: true, version: expect.any(String), build: null });
   });
 });
 
@@ -246,7 +244,7 @@ describe('groups and settings', () => {
 
   describe('feature flags (#118)', () => {
     it('refuses the flags before unlocking', async () => {
-      const { app } = setup();
+      const { app } = await setup();
       expect((await request(app).put('/api/admin/settings').set(H).send({ features: { 'activity-feed': false } })).status).toBe(401);
     });
 
@@ -353,7 +351,7 @@ describe('groups and settings', () => {
     const put = (agent: Awaited<ReturnType<typeof unlocked>>['agent'], body: unknown) => agent.put('/api/admin/settings').set(H).send(body as object);
 
     it('lists every built-in row with its price, and refuses it before unlocking', async () => {
-      const { app } = setup();
+      const { app } = await setup();
       expect((await request(app).get('/api/admin/settings').set(H)).status).toBe(401);
       const { agent } = await unlocked();
       const v = (await agent.get('/api/admin/settings').set(H)).body.modelPrices;

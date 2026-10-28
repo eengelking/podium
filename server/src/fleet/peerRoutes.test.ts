@@ -38,7 +38,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
-  if (opts.flag !== false) fleet.features.setFeature(PEER_MESSAGING, true);
+  if (opts.flag !== false) await fleet.features.setFeature(PEER_MESSAGING, true);
   const ed = await people.createPerson('Ed');
   const alex = await people.createPerson('Alex');
   return { app, fleet, people, ed, alex, lines, db, tick: (ms: number) => (clock += ms) };
@@ -99,7 +99,7 @@ describe('the report reply (#412)', () => {
     const r = await devReport(s);
     expect(r.body).toMatchObject({ peers: true, peerDeliveries: [], peerRequests: [] });
     expect((await devReport(s, { peers: false })).body.peers).toBe(false);
-    s.fleet.features.setFeature(PEER_MESSAGING, false);
+    await s.fleet.features.setFeature(PEER_MESSAGING, false);
     expect((await devReport(s)).body.peers).toBe(false);
   });
 
@@ -246,12 +246,12 @@ describe('the flag going off (#412)', () => {
   it('drops what is held, makes every reply say peers: false, and refuses a send', async () => {
     const s = await linked('ask');
     await send(s, 'waiting for approval');
-    s.fleet.features.setFeature(PEER_MESSAGING, false);
+    await s.fleet.features.setFeature(PEER_MESSAGING, false);
     const r = await testerReport(s);
     expect(r.body).toMatchObject({ peers: false, peerDeliveries: [], peerRequests: [] });
     expect((await send(s, 'later')).status).toBe(403);
     expect(await logKinds(s)).toContain('peer_dropped');
-    s.fleet.features.setFeature(PEER_MESSAGING, true);
+    await s.fleet.features.setFeature(PEER_MESSAGING, true);
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
   });
 });
@@ -325,7 +325,7 @@ describe('the owner’s routes (#412)', () => {
     expect((await request(s.app).get('/api/fleet/respond/peers')).status).toBe(403);
     const admin = await signedIn(s, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/peers')).status).toBe(403);
-    s.fleet.features.setFeature(PEER_MESSAGING, false);
+    await s.fleet.features.setFeature(PEER_MESSAGING, false);
     expect((await s.edBrowser.get('/api/fleet/respond/peers')).status).toBe(403);
   });
 
@@ -449,7 +449,7 @@ describe('Traffic’s open read (#412)', () => {
     expect(t.body.retainDays).toBe(30);
     expect(t.body.serverTime).toEqual(expect.any(Number));
     expect((await request(s.app).get('/api/fleet/peers/traffic?range=forever')).status).toBe(400);
-    s.fleet.features.setFeature(PEER_MESSAGING, false);
+    await s.fleet.features.setFeature(PEER_MESSAGING, false);
     expect((await request(s.app).get('/api/fleet/peers/traffic')).body).toEqual({ enabled: false, conversations: [] });
   });
 });

@@ -6,9 +6,8 @@ import request from 'supertest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { openActivityDb } from '../fleet/activityDb.js';
 import { ActivityHistory } from '../fleet/activityHistory.js';
-import { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
+import { LiveActivityHistorySettings, LiveRecordingSettings } from '../fleet/liveSettings.js';
 import { SessionRecordings } from '../fleet/recordings.js';
-import { RecordingSettingsStore } from '../fleet/recordingSettings.js';
 import { MAIN_LOOP } from '../fleet/protocol.js';
 import { createAdminRouter } from './adminRouter.js';
 
@@ -17,11 +16,11 @@ const H = { 'X-Podium-Admin': '1' };
 const T0 = 1_800_000_000_000;
 const BODY = 'UNIQUE-RECORDED-TEXT-9042';
 
-function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
+async function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const people = storage.people;
-  const settings = new RecordingSettingsStore(db);
+  const settings = new LiveRecordingSettings(storage.recordingSettings);
+  await settings.load();
   const activity = openActivityDb(':memory:');
   const service = new SessionRecordings(activity, {
     now: () => T0,
@@ -31,7 +30,8 @@ function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
     isLive: () => true,
     loopsOf: () => [{ loop: MAIN_LOOP, name: 'Orchestrator' }],
   });
-  const histSettings = new ActivityHistorySettingsStore(db, true);
+  const histSettings = new LiveActivityHistorySettings(storage.activityHistorySettings(true));
+  await histSettings.load();
   const history = new ActivityHistory(activity, { now: () => T0, settings: () => histSettings.get(), isLive: () => false, authOn: true });
   const changed = vi.fn();
   const app = express();
@@ -47,11 +47,11 @@ function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
       ...(over.withHistory ? { activityHistory: { history, settings: histSettings } } : {}),
     }),
   );
-  return { app, people, settings, service, changed };
+  return { app, people, settings, service, changed, storage };
 }
 
 async function unlocked(over: Parameters<typeof setup>[0] = {}) {
-  const s = setup(over);
+  const s = await setup(over);
   const agent = request.agent(s.app);
   expect((await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
   return { ...s, agent };
@@ -125,18 +125,21 @@ describe('GET and PUT /settings carry session recording', () => {
   });
 
   it('reads a damaged saved row as the defaults, field by field', async () => {
-    const { settings } = setup();
-    const db = (settings as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } }).db;
+    const { settings, storage } = await setup();
+    const db = storage.sqliteHandle;
     db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run('recording_settings', '{"keepHours":24,"budgetMb":"big","sessionMb":9999999}');
+    await settings.load();
     expect(settings.get()).toEqual({ keepHours: 24, budgetMb: 4096, sessionMb: 512 });
     db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('not json', 'recording_settings');
+    await settings.load();
     expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
     db.prepare('UPDATE settings SET value = ? WHERE key = ?').run('7', 'recording_settings');
+    await settings.load();
     expect(settings.get()).toEqual({ keepHours: 6, budgetMb: 4096, sessionMb: 512 });
   });
 
   it('needs the Admin unlocked and the cross-site header', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     expect((await request(app).get('/api/admin/recordings')).status).toBe(401);
     const { agent } = await unlocked();
     expect((await agent.put('/api/admin/settings').send({ recording: { keepHours: 12 } })).status).toBe(403);
@@ -189,7 +192,7 @@ describe('POST /recordings/:id/stop and DELETE /recordings/:id', () => {
   });
 
   it('names the administrator who stopped it on the mark', async () => {
-    const s = setup();
+    const s = await setup();
     const boss = await s.people.createPerson('Boss');
     await s.people.setGroup(boss.person.id, await s.people.administratorsGroupId());
     const agent = request.agent(s.app);

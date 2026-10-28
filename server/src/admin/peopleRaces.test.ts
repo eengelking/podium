@@ -10,8 +10,7 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { createAdminRouter } from './adminRouter.js';
-import { PersonCertStore } from '../tlsClientAuth.js';
-import { TlsSettingsStore } from '../tlsRenew.js';
+import { LiveTlsSettings } from '../tlsLive.js';
 import { newPersonToken } from '../fleet/tokens.js';
 import type { ReporterSeen } from '../fleet/reporters.js';
 
@@ -46,7 +45,7 @@ function setup(over: Partial<Parameters<typeof createAdminRouter>[0]> = {}) {
   closers.push(() => storage.close());
   const tx = NAIVE ? <T>(fn: () => Promise<T>) => fn() : storage.tx;
   const app = express();
-  const certStore = new PersonCertStore(storage.sqliteHandle);
+  const certStore = storage.personCerts;
   app.use(
     '/api/admin',
     createAdminRouter({
@@ -54,7 +53,7 @@ function setup(over: Partial<Parameters<typeof createAdminRouter>[0]> = {}) {
       storage: { tx },
       people: slow(storage.people),
       reporters: slow(storage.reporters),
-      certificates: { settings: new TlsSettingsStore(storage.sqliteHandle), renewer: () => null, people: { store: certStore, issuer: () => ({}) as never } },
+      certificates: { settings: new LiveTlsSettings(storage.tlsSettings, storage.tx), renewer: () => null, people: { store: certStore, issuer: () => ({}) as never } },
       now: () => 1_000_000,
       log: () => undefined,
       ...over,

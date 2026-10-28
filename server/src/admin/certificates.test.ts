@@ -9,8 +9,8 @@ import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { createLogger } from '../logging/logger.js';
 import { ensureTls, serverNames } from '../tlsCa.js';
-import { PersonCertStore } from '../tlsClientAuth.js';
-import { ServingRenewer, TlsSettingsStore } from '../tlsRenew.js';
+import { ServingRenewer } from '../tlsRenew.js';
+import { LiveTlsSettings } from '../tlsLive.js';
 import { issuePersonCert } from '../tlsPeople.js';
 import { caCanOverlap, retireCa, rotateCa, TrustStore } from '../tlsRotation.js';
 import { writeLegacyCa } from '../tlsTesting.js';
@@ -34,7 +34,8 @@ async function setup(tlsOn = true, openssl?: string) {
   const storage = openSqliteStorage(':memory:');
   const db = storage.sqliteHandle;
   const people = storage.people;
-  const settings = new TlsSettingsStore(db);
+  const settings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+    await settings.load();
   const swaps: unknown[] = [];
   const transport = new ReporterTransport();
   const logger = createLogger({ format: 'json', write: () => {} });
@@ -105,7 +106,8 @@ describe('GET /api/admin/certificates/ca.pem', () => {
     const names = serverNames('127.0.0.1', []);
     const material = await ensureTls({ dir: path.join(root, 'tls'), names });
     const storage = openSqliteStorage(':memory:');
-    const settings = new TlsSettingsStore(storage.sqliteHandle);
+    const settings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+    await settings.load();
     const renewer = new ServingRenewer({ dir: path.join(root, 'tls'), names, server: { setSecureContext: () => {} }, serving: material.serving, settings: () => settings.get(), logger: createLogger({ format: 'json', write: () => {} }) }, material.cert);
     const app = express();
     app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, people: storage.people, log: () => {}, certificates: { settings, renewer: () => renewer } }));
@@ -218,8 +220,9 @@ describe('rotating and retiring the CA (#588)', () => {
     const storage = openSqliteStorage(':memory:');
     const db = storage.sqliteHandle;
     const people = storage.people;
-    const settings = new TlsSettingsStore(db);
-    const store = new PersonCertStore(db);
+    const settings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+    await settings.load();
+    const store = storage.personCerts;
     const trust = new TrustStore(dir);
     const swaps: unknown[] = [];
     const logger = createLogger({ format: 'json', write: () => {} });
@@ -278,10 +281,10 @@ describe('rotating and retiring the CA (#588)', () => {
     const { agent, people, store, dir, material, swaps } = await rotatable();
     const dana = (await people.createPerson('Dana')).person;
     const eli = (await people.createPerson('Eli')).person;
-    store.replace(dana.id, await issuePersonCert({ dir, keyId: dana.keyId }), Date.now());
+    await store.replace(dana.id, await issuePersonCert({ dir, keyId: dana.keyId }), Date.now());
     const res = await agent.post('/api/admin/certificates/rotate-ca').set(H).send({ endOverlap: false });
     expect(res.status).toBe(200);
-    store.replace(eli.id, await issuePersonCert({ dir, keyId: eli.keyId }), Date.now());
+    await store.replace(eli.id, await issuePersonCert({ dir, keyId: eli.keyId }), Date.now());
     expect(res.body.ca.fingerprintSha256).not.toBe(material.ca.fingerprintSha256);
     const read = await agent.get('/api/admin/certificates').set(H);
     expect(read.body.rotation.previousCa.fingerprintSha256).toBe(material.ca.fingerprintSha256);
@@ -349,7 +352,7 @@ describe('reporters over HTTP (#589)', () => {
 
   it('turns it on again, and writes nothing when it did not change', async () => {
     const { agent, people, settings } = await setup();
-    settings.set({ 'tls.allowReportersOverHttp': false });
+    await settings.set({ 'tls.allowReportersOverHttp': false });
     await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': true });
     expect((await people.listLog({ page: 1, pageSize: 20 })).rows.find((r) => r.kind === 'tls_http_changed')?.detail).toBe('Allowed reporters to connect over HTTP');
     await agent.put('/api/admin/certificates').set(H).send({ 'tls.allowReportersOverHttp': true });

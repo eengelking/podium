@@ -185,8 +185,8 @@ describe('a failing history write never reaches the answer path', () => {
     let now = T0;
     const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => now, logger, { authOn: true });
     await fleet.init();
-    fleet.activityHistorySettings.set({ policy: 'all' });
-    fleet.features.setFeature('respond', true);
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('respond', true);
     const r = fixtureReport();
     r.session.activityFeed = true;
     r.session.respond = { level: 'everything', accepts: ['message', 'command'], limits: [] };

@@ -3,9 +3,7 @@ import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
-import { WallSettings } from '../fleet/wallSettings.js';
-import { ModelPriceStore } from '../fleet/modelPrices.js';
-import { FeatureFlags } from '../fleet/featureFlags.js';
+import { LiveFeatureFlags, LiveModelPrices, LiveWallSettings } from '../fleet/liveSettings.js';
 import { createAdminRouter } from './adminRouter.js';
 
 const SECRET = 'the-admin-secret-0123456789';
@@ -13,8 +11,11 @@ const H = { 'X-Podium-Admin': '1' };
 
 async function setup() {
   const storage = openSqliteStorage(':memory:', 0);
-  const db = storage.sqliteHandle;
   const people = storage.people;
+  const wall = new LiveWallSettings(storage.wallSettings);
+  const prices = new LiveModelPrices(storage.modelPrices, storage.tx);
+  const features = new LiveFeatureFlags(storage.featureFlags);
+  await Promise.all([wall.load(), prices.load(), features.load()]);
   const clock = { t: 1_000_000 };
   const app = express();
   app.use(
@@ -23,9 +24,9 @@ async function setup() {
       secret: SECRET,
       storage,
       people,
-      wall: new WallSettings(db),
-      prices: new ModelPriceStore(db),
-      features: new FeatureFlags(db),
+      wall,
+      prices,
+      features,
       reporters: storage.reporters,
       now: () => clock.t,
       log: () => undefined,

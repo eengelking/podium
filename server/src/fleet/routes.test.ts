@@ -362,7 +362,7 @@ describe('the activity feed (#118)', () => {
     expect(fleet.activity.size).toBe(2);
 
     // Turning it off drops every lease and entry at once.
-    fleet.features.setFeature('activity-feed', false);
+    await fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.size).toBe(0);
     expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'session-recording': false, 'update-check': true, 'activity-history': false });
 
@@ -379,7 +379,7 @@ describe('the activity feed (#118)', () => {
     expect((await request(app).get(url(r, 'no-such-agent'))).status).toBe(404);
 
     // Back on: the next fetch takes a lease as usual and starts empty.
-    fleet.features.setFeature('activity-feed', true);
+    await fleet.features.setFeature('activity-feed', true);
     const on = await request(app).get(url(r, aid));
     expect(on.body).toMatchObject({ entries: [], live: true, enabled: true });
     expect(typeof on.body.since).toBe('number');
@@ -391,7 +391,7 @@ describe('the activity feed (#118)', () => {
     const seen: string[] = [];
     fleet.hub.add({ write: (c: string) => void seen.push(c), end: () => {} });
     seen.length = 0;
-    fleet.features.setFeature('activity-feed', false);
+    await fleet.features.setFeature('activity-feed', false);
     await fleet.flush();
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
@@ -522,19 +522,19 @@ describe('the update notice (#499)', () => {
     const { fleet } = await setup();
     const sent: string[] = [];
     fleet.hub.add({ write: (c: string) => (sent.push(c), true), end() {} } as never);
-    fleet.wall.dismissUpdate('99.0.0');
+    await fleet.wall.dismissUpdate('99.0.0');
     await fleet.flush();
     expect(sent.join('')).toContain('event: wall');
     expect(sent.join('')).toContain('"update":null');
-    fleet.wall.dismissUpdate('99.0.0');
+    await fleet.wall.dismissUpdate('99.0.0');
     await fleet.flush();
     expect(sent.join('').match(/event: wall/g)).toHaveLength(1);
   });
 
   it('never moves a dismissal back to an older release', async () => {
     const { fleet } = await setup();
-    fleet.wall.dismissUpdate('99.0.1');
-    fleet.wall.dismissUpdate('99.0.0');
+    await fleet.wall.dismissUpdate('99.0.1');
+    await fleet.wall.dismissUpdate('99.0.0');
     expect(fleet.wall.updateDismissed()).toBe('99.0.1');
   });
 
@@ -564,11 +564,11 @@ describe('the update notice (#499)', () => {
   it('makes no request to GitHub and shows no notice while the Release check is off, and checks as soon as it is turned on', async () => {
     stubRelease('v99.0.0');
     const { app, fleet } = await setup();
-    fleet.features.setFeature('update-check', false);
+    await fleet.features.setFeature('update-check', false);
     await fleet.updates.check();
     expect(fetch).not.toHaveBeenCalled();
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
-    fleet.features.setFeature('update-check', true);
+    await fleet.features.setFeature('update-check', true);
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
     await vi.waitFor(async () => expect((await request(app).get('/api/fleet/state')).body.wall.update?.latest).toBe('99.0.0'));
   });
@@ -577,7 +577,7 @@ describe('the update notice (#499)', () => {
     stubRelease('v99.0.0');
     const { app, fleet } = await setup();
     await fleet.updates.check();
-    fleet.features.setFeature('update-check', false);
+    await fleet.features.setFeature('update-check', false);
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
   });
 
@@ -612,7 +612,7 @@ describe('wall notices', () => {
     const { fleet, storage } = await setup();
     const sent: string[] = [];
     fleet.hub.add({ write: (c: string) => (sent.push(c), true), end() {} } as never);
-    fleet.wall.setNotice('background-sessions', false);
+    await fleet.wall.setNotice('background-sessions', false);
     await fleet.flush();
     expect(sent.join('')).toContain('event: wall');
     const restarted = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });

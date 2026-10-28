@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { describeCert } from './tlsCa.js';
-import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
+import { certAuth, type ClientSocket } from './tlsClientAuth.js';
 import { issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
 import { authorizeRenewal, createReporterRenewRouter, issueForPublicKey, REPORTER_DEFAULTS, type RenewSocket } from './tlsReporterRenew.js';
 import type { TlsListener } from './tlsServer.js';
@@ -41,7 +41,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
   cleanup.push(() => storage.close());
   const db = storage.sqliteHandle;
   const people = storage.people;
-  const certs = new PersonCertStore(db);
+  const certs = storage.personCerts;
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
   let listener: TlsListener | null = null;
@@ -81,7 +81,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
   const issueFor = async (name: string, days = 90) => {
     const person = await personWith(name);
     const issued = await issuePersonCert({ dir, keyId: person.keyId, days });
-    store(person.id, issued);
+    await store(person.id, issued);
     return { person, issued };
   };
   /** A genuine certificate, signed by the real CA and stored, with the dates given. */
@@ -90,7 +90,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
     const pair = signClientDated({ caCrt: path.join(dir, 'ca.crt'), caKey: path.join(dir, 'ca.key'), keyId: person.keyId, from, to });
     const info = describeCert(pair.cert);
     const issued: IssuedPersonCert = { ...pair, info, issuerFingerprint: listener!.material.ca.fingerprintSha256 };
-    store(person.id, issued);
+    await store(person.id, issued);
     return { person, issued };
   };
 
@@ -202,7 +202,7 @@ describe('authorizeRenewal', () => {
   it('refuses a revoked certificate', async () => {
     const { s, d } = await deps();
     const { person, issued } = await s.issueFor('Dana');
-    s.certs.revokeFor(person.id, 'revoked', Date.now());
+    await s.certs.revokeFor(person.id, 'revoked', Date.now());
     expect(await authorizeRenewal(sock(peer(issued.cert), null), d)).toMatchObject({ ok: false, code: 'REVOKED' });
   });
 
@@ -253,7 +253,7 @@ describe('authorizeRenewal', () => {
       const { s, d } = await deps();
       const { person, issued } = await s.issueFor('Dana');
       const f = forged(issued.cert, person.keyId);
-      s.certs.replace(person.id, { cert: f.cert, info: describeCert(f.cert), issuerFingerprint: new X509Certificate(s.ca).fingerprint256 }, Date.now());
+      await s.certs.replace(person.id, { cert: f.cert, info: describeCert(f.cert), issuerFingerprint: new X509Certificate(s.ca).fingerprint256 }, Date.now());
       expect(await authorizeRenewal(sock(peer(f.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
     });
 
@@ -280,7 +280,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     expect(res.body.expires).toBe(new Date(x.validTo).toISOString());
     expect(res.body.fingerprint).toBe(x.fingerprint256);
     // both are live rows for the person, and both authenticate
-    expect(s.certs.listFor(person.id).filter((c) => c.revokedAt === null)).toHaveLength(2);
+    expect((await s.certs.listFor(person.id)).filter((c) => c.revokedAt === null)).toHaveLength(2);
     expect(await s.whoami(issued)).toEqual({ kind: 'person', name: 'Dana' });
     expect(await s.whoami({ cert, key: k.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() })).toEqual({ kind: 'person', name: 'Dana' });
     expect(s.lines.some((l) => l.event === 'tls.reporter_renewed')).toBe(true);
@@ -301,7 +301,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     for (const [from, to] of [[100, 5], [200, 40]]) {
       const e = await s.issueDated(`Dana ${from}`, Date.now() - from * DAY, Date.now() - to * DAY);
       await expect(s.post(e.issued, { publicKey: pubPem(newKey().publicKey) })).rejects.toBeDefined();
-      expect(s.certs.listFor(e.person.id)).toHaveLength(1);
+      expect((await s.certs.listFor(e.person.id))).toHaveLength(1);
     }
     expect(s.lines.some((l) => l.event === 'tls.reporter_renewed')).toBe(false);
   });
@@ -313,7 +313,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     const f = signClientDated({ ...fca, keyId: person.keyId, from: Date.now() - 100 * DAY, to: Date.now() - 5 * DAY, serial: `0x${new X509Certificate(issued.cert).serialNumber}` });
     // the server's TLS stack talks to the forgery as it would to the genuine expired certificate
     await expect(s.post(f, { publicKey: pubPem(newKey().publicKey) })).rejects.toBeDefined();
-    expect(s.certs.listFor(person.id)).toHaveLength(1);
+    expect((await s.certs.listFor(person.id))).toHaveLength(1);
   });
 
   describe('the limit: a certificate is renewed at most once an hour (#612)', () => {
@@ -328,7 +328,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       expect(res.headers['retry-after']).toMatch(/^\d+$/);
       expect(Number(res.headers['retry-after'])).toBeGreaterThan(3500);
       expect(Number(res.headers['retry-after'])).toBeLessThanOrEqual(3600);
-      expect(s.certs.listFor(person.id)).toHaveLength(1);
+      expect((await s.certs.listFor(person.id))).toHaveLength(1);
       expect(s.lines.some((l) => l.event === 'tls.reporter_renew_refused' && l.code === 'TOO_SOON')).toBe(true);
     });
 
@@ -343,7 +343,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       // the new certificate counts: asking again straight away is limited
       const second = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
       expect(second.status).toBe(429);
-      expect(s.certs.listFor(person.id)).toHaveLength(2);
+      expect((await s.certs.listFor(person.id))).toHaveLength(2);
     });
 
     it('never asks for more than an hour, even if the server clock was stepped back', async () => {
@@ -360,7 +360,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       s.setClock(() => Date.now());
       const e = await s.issueDated('Dana', Date.now() - 100 * DAY, Date.now() - 5 * DAY);
       for (let i = 0; i < 3; i++) await expect(s.post(e.issued, { publicKey: pubPem(newKey().publicKey) })).rejects.toBeDefined();
-      expect(s.certs.listFor(e.person.id)).toHaveLength(1);
+      expect((await s.certs.listFor(e.person.id))).toHaveLength(1);
     });
 
     it('lets only one of several renewals sent at the same moment through', async () => {
@@ -369,7 +369,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       const results = await Promise.all([1, 2, 3, 4].map(() => s.post(issued, { publicKey: pubPem(newKey().publicKey) })));
       expect(results.filter((r) => r.status === 200)).toHaveLength(1);
       expect(results.filter((r) => r.status === 429)).toHaveLength(3);
-      expect(s.certs.listFor(person.id)).toHaveLength(2);
+      expect((await s.certs.listFor(person.id))).toHaveLength(2);
     });
 
     it('limits each person on their own', async () => {
@@ -381,14 +381,14 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       expect((await s.post(b.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(429);
       s.setClock(() => Date.now() + 2 * 3_600_000);
       expect((await s.post(a.issued, { publicKey: pubPem(newKey().publicKey) })).status).toBe(200);
-      expect(s.certs.listFor(b.person.id)).toHaveLength(1);
+      expect((await s.certs.listFor(b.person.id))).toHaveLength(1);
     });
   });
 
   it('refuses a revoked certificate', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
-    s.certs.revokeFor(person.id, 'revoked', Date.now());
+    await s.certs.revokeFor(person.id, 'revoked', Date.now());
     const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
@@ -401,7 +401,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
-    expect(s.certs.listFor(person.id)).toHaveLength(1);
+    expect((await s.certs.listFor(person.id))).toHaveLength(1);
   });
 
   it('drops a connection with no certificate at the handshake', async () => {
@@ -417,7 +417,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
       expect(res.status).toBe(400);
       expect(res.body.ok).toBe(false);
     }
-    expect(s.certs.listFor(person.id)).toHaveLength(1);
+    expect((await s.certs.listFor(person.id))).toHaveLength(1);
   });
 
   it('answers 503 while TLS has no issuer, and 500 without leaking why when openssl fails', async () => {
@@ -430,7 +430,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
     expect(res.status).toBe(500);
     expect(JSON.stringify(res.body)).not.toContain('nonexistent');
-    expect(s.certs.listFor(person.id)).toHaveLength(1);
+    expect((await s.certs.listFor(person.id))).toHaveLength(1);
     expect(s.lines.some((l) => l.event === 'tls.reporter_renew_failed')).toBe(true);
   });
 
@@ -443,11 +443,11 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     s.setOpenssl(slow);
     const pending = s.post(issued, { publicKey: pubPem(newKey().publicKey) });
     await new Promise((r) => setTimeout(r, 200));
-    s.certs.revokeFor(person.id, 'revoked', Date.now());
+    await s.certs.revokeFor(person.id, 'revoked', Date.now());
     const res = await pending;
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
-    expect(s.certs.listFor(person.id)).toHaveLength(1);
+    expect((await s.certs.listFor(person.id))).toHaveLength(1);
   });
 
   it('is not reachable over plain HTTP', async () => {

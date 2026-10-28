@@ -5,7 +5,7 @@ import request from 'supertest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { openActivityDb } from '../fleet/activityDb.js';
 import { ActivityHistory } from '../fleet/activityHistory.js';
-import { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
+import { LiveActivityHistorySettings } from '../fleet/liveSettings.js';
 import { ACTIVITY_LOG_KINDS } from '../fleet/activityHistoryTypes.js';
 import { fixtureReport } from '../fleet/testing.js';
 import type { Report } from '../fleet/protocol.js';
@@ -16,11 +16,11 @@ const H = { 'X-Podium-Admin': '1' };
 const T0 = 1_800_000_000_000;
 const SECRET_TEXT = 'UNIQUE-ENTRY-TEXT-5521';
 
-function setup(over: { withHistory?: boolean; onChanged?: () => void } = {}) {
+async function setup(over: { withHistory?: boolean; onChanged?: () => void } = {}) {
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const people = storage.people;
-  const settings = new ActivityHistorySettingsStore(db, true);
+  const settings = new LiveActivityHistorySettings(storage.activityHistorySettings(true));
+  await settings.load();
   const history = new ActivityHistory(openActivityDb(':memory:'), { now: () => T0, settings: () => settings.get(), isLive: () => false, authOn: true });
   const app = express();
   app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, onActivityHistoryChanged: over.onChanged, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
@@ -28,14 +28,14 @@ function setup(over: { withHistory?: boolean; onChanged?: () => void } = {}) {
 }
 
 async function unlocked(over: Parameters<typeof setup>[0] = {}) {
-  const s = setup(over);
+  const s = await setup(over);
   const agent = request.agent(s.app);
   expect((await agent.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
   return { ...s, agent };
 }
 
-function store(history: ActivityHistory, settings: ActivityHistorySettingsStore, id: string, owner = 'Ed', n = 2) {
-  settings.set({ policy: 'all' });
+async function store(history: ActivityHistory, settings: LiveActivityHistorySettings, id: string, owner = 'Ed', n = 2) {
+  await settings.set({ policy: 'all' });
   const r: Report = fixtureReport();
   r.session = { ...r.session, id, activity: Array.from({ length: n }, (_, i) => ({ at: T0 - 7_200_000 + i, kind: 'tool' as const, text: `${SECRET_TEXT} ${i}` })) };
   r.agents = [];
@@ -119,7 +119,7 @@ describe('telling open consoles', () => {
 describe('POST /activity-history/preview', () => {
   it('says what saving would remove, without saving', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1');
+    await store(history, settings, 's1');
     const res = await agent.post('/api/admin/activity-history/preview').set(H).send({ settings: { policy: 'after', n: 1, unit: 'hours', capGb: null } });
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ entries: 2, bytes: expect.any(Number), sessions: 1, stopsCapturing: false });
@@ -129,7 +129,7 @@ describe('POST /activity-history/preview', () => {
 
   it('for the default policy reports what is stored and that capture would stop', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1');
+    await store(history, settings, 's1');
     const res = await agent.post('/api/admin/activity-history/preview').set(H).send({ settings: { policy: 'default', n: 30, unit: 'days', capGb: null } });
     expect(res.body).toMatchObject({ entries: 2, sessions: 1, stopsCapturing: true });
   });
@@ -155,8 +155,8 @@ describe('POST /activity-history/preview', () => {
 describe('GET /stored-activity', () => {
   it('lists the stored sessions with the totals and the filter choices', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1', 'Ed');
-    store(history, settings, 's2', 'Alex', 3);
+    await store(history, settings, 's1', 'Ed');
+    await store(history, settings, 's2', 'Alex', 3);
     const res = await agent.get('/api/admin/stored-activity?page=1&pageSize=25').set(H);
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ total: 2, page: 1, pageSize: 25, totals: { entries: 5, sessions: 2 }, match: { entries: 5, sessions: 2 }, projects: ['acme/billing'], owners: ['Alex', 'Ed'] });
@@ -165,8 +165,8 @@ describe('GET /stored-activity', () => {
 
   it('applies the filter and the paging', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1', 'Ed');
-    store(history, settings, 's2', 'Alex', 3);
+    await store(history, settings, 's1', 'Ed');
+    await store(history, settings, 's2', 'Alex', 3);
     const byOwner = await agent.get('/api/admin/stored-activity?owner=Alex&loop=main&q=name-s2&project=acme%2Fbilling&olderThanDays=0&from=1&to=99999999999999').set(H);
     expect(byOwner.status).toBe(200);
     expect(byOwner.body.rows.map((r: { sessionId: string }) => r.sessionId)).toEqual(['s2']);
@@ -203,8 +203,8 @@ describe('GET /stored-activity', () => {
 describe('POST /stored-activity/delete', () => {
   it('deletes ticked sessions and writes one log row with counts and no entry text', async () => {
     const { agent, history, settings, people } = await unlocked();
-    store(history, settings, 's1');
-    store(history, settings, 's2', 'Alex', 3);
+    await store(history, settings, 's1');
+    await store(history, settings, 's2', 'Alex', 3);
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ ids: ['s2'] });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 3, sessions: 1, bytes: expect.any(Number), freed: expect.any(Number) });
@@ -217,8 +217,8 @@ describe('POST /stored-activity/delete', () => {
 
   it('deletes by a filter, and says so', async () => {
     const { agent, history, settings, people } = await unlocked();
-    store(history, settings, 's1', 'Ed');
-    store(history, settings, 's2', 'Alex');
+    await store(history, settings, 's1', 'Ed');
+    await store(history, settings, 's2', 'Alex');
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { owner: 'Ed' } });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 2, sessions: 1 });
@@ -229,7 +229,7 @@ describe('POST /stored-activity/delete', () => {
 
   it('deletes everything, and says so; one entry reads in the singular', async () => {
     const { agent, history, settings, people } = await unlocked();
-    store(history, settings, 's1', 'Ed', 1);
+    await store(history, settings, 's1', 'Ed', 1);
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(res.body).toMatchObject({ entries: 1, sessions: 1 });
     expect(history.totals().entries).toBe(0);
@@ -238,7 +238,7 @@ describe('POST /stored-activity/delete', () => {
 
   it('formats a large delete in megabytes', async () => {
     const { agent, history, settings, people } = await unlocked();
-    store(history, settings, 's1', 'Ed', 30);
+    await store(history, settings, 's1', 'Ed', 30);
     await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/\(\d+\.\d KB\)/);
   });
@@ -253,7 +253,7 @@ describe('POST /stored-activity/delete', () => {
 
   it('refuses an empty filter, and a filter that only says all', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1');
+    await store(history, settings, 's1');
     for (const match of [{}, { loop: 'all' }, { q: '  ' }]) {
       const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match });
       expect(res.status).toBe(400);
@@ -287,7 +287,7 @@ describe('POST /stored-activity/delete', () => {
 
   it('refuses more than 200 ids, and takes 200 of the longest length (over the 8 KB default limit)', async () => {
     const { agent, history, settings } = await unlocked();
-    store(history, settings, 's1');
+    await store(history, settings, 's1');
     const many = Array.from({ length: 201 }, (_, i) => `s${i}`);
     expect((await agent.post('/api/admin/stored-activity/delete').set(H).send({ ids: many })).status).toBe(400);
     const big = Array.from({ length: 200 }, (_, i) => `${i}`.padEnd(200, 'x'));

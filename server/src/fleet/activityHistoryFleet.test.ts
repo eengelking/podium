@@ -49,7 +49,7 @@ describe('a failing history file', () => {
     const logger = { ...silentLogger, error: vi.fn() };
     const fleet = new Fleet(storage, CFG, () => clock, logger, { authOn: true });
     await fleet.init();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     vi.spyOn(fleet.activityHistory, 'ingest').mockImplementation(() => {
       throw new Error('disk full');
     });
@@ -72,7 +72,7 @@ describe('what the report reply asks the mod to send', () => {
     const fleet = await makeFleet();
     const r = report([]);
     expect(runningAgents(r).length).toBeGreaterThan(0);
-    expect(fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
+    expect(await fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
     await fleet.ingest(r);
     expect(fleet.activity.watched(r.session.id)).toEqual([MAIN_LOOP, ...runningAgents(r)]);
     // a lease on an agent already listed is not listed twice, and one on another loop is kept
@@ -83,7 +83,7 @@ describe('what the report reply asks the mod to send', () => {
 
   it('adds nothing for a reporter with the option off or one that has not said', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const off = report([], [], false);
     await fleet.ingest(off);
     expect(fleet.activity.watched(off.session.id)).toEqual([]);
@@ -92,15 +92,15 @@ describe('what the report reply asks the mod to send', () => {
 
   it('lists nothing while the activity-feed flag is off', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const r = report([]);
     await fleet.ingest(r);
-    fleet.features.setFeature('activity-feed', false);
+    await fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.watched(r.session.id)).toEqual([]);
   });
 
   it('lists nothing for a keep policy saved before the token was removed', async () => {
-    (await makeFleet()).activityHistorySettings.set({ policy: 'all' });
+    await (await makeFleet()).activityHistorySettings.set({ policy: 'all' });
     const fleet = await makeFleet(false);
     const r = report([]);
     await fleet.ingest(r);
@@ -111,7 +111,7 @@ describe('what the report reply asks the mod to send', () => {
 describe('capture through the fleet', () => {
   it('stores every loop of a report with no lease, and the live window still needs one', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const r = report([tool(T0 + 1), tool(T0 + 2)], [tool(T0 + 3)]);
     await fleet.ingest(r);
     await fleet.ingest(report([tool(T0 + 1), tool(T0 + 2), tool(T0 + 4)], [tool(T0 + 3)]));
@@ -124,7 +124,7 @@ describe('capture through the fleet', () => {
 
   it('keeps the live window as it was: entries come only after a lease, the last 20', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const r = report([]);
     await fleet.ingest(r);
     fleet.activity.watch(r.session.id, MAIN_LOOP, 5);
@@ -148,17 +148,17 @@ describe('capture through the fleet', () => {
 
   it('stores nothing while the flag is off, and starts again when it is back on', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
-    fleet.features.setFeature('activity-feed', false);
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('activity-feed', false);
     await fleet.ingest(report([tool(T0 + 1)]));
     expect(fleet.activityHistory.totals().entries).toBe(0);
-    fleet.features.setFeature('activity-feed', true);
+    await fleet.features.setFeature('activity-feed', true);
     await fleet.ingest(report([tool(T0 + 1)]));
     expect(fleet.activityHistory.totals().entries).toBe(1);
   });
 
   it('stores nothing without a token', async () => {
-    (await makeFleet()).activityHistorySettings.set({ policy: 'all' });
+    await (await makeFleet()).activityHistorySettings.set({ policy: 'all' });
     const fleet = await makeFleet(false);
     await fleet.ingest(report([tool(T0 + 1)]));
     expect(fleet.activityHistory.totals().entries).toBe(0);
@@ -166,8 +166,8 @@ describe('capture through the fleet', () => {
 
   it('stores what is sent from Podium with its sender, updates its note and removes it when the session never took it', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
-    fleet.features.setFeature('respond', true);
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('respond', true);
     const r = report([]);
     r.session.respond = { level: 'everything', accepts: ['message', 'command'], limits: [] };
     await fleet.ingest(r);
@@ -188,7 +188,7 @@ describe('capture through the fleet', () => {
 
   it('skips a Podium entry for a session the main database does not hold', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     fleet.respond.noteReport(report([]), true);
     expect(() => fleet.respond.message('ghost', 'Ed', { text: 'hi' })).not.toThrow();
     expect(fleet.activityHistory.totals().entries).toBe(0);
@@ -198,7 +198,7 @@ describe('capture through the fleet', () => {
 describe('removal through the fleet', () => {
   it('deleting a session deletes its stored rows', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const a = report([tool(T0 + 1)]);
     const b = { ...report([tool(T0 + 2)]), session: { ...report([tool(T0 + 2)]).session, id: 'second-session' } };
     await fleet.ingest(a);
@@ -211,7 +211,7 @@ describe('removal through the fleet', () => {
 
   it('keeps the rows when a session only leaves the wall, and picks up where it left off if it reports again', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const r = report([tool(T0 + 1)]);
     await fleet.ingest(r);
     clock += 75_000;
@@ -224,7 +224,7 @@ describe('removal through the fleet', () => {
 
   it('the session retention removes the rows too, whatever the policy', async () => {
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const old = report([tool(T0 - 31 * DAY)]);
     old.session.id = 'old-session';
     old.session.status = 'done';
@@ -260,7 +260,7 @@ describe('the purge in the sweeper', () => {
   it('writes one Admin log row for a run that removed something and none for one that removed nothing', async () => {
     const fleet = await makeFleet();
     const people = storage.people;
-    fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
+    await fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
     await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
     expect(await ADMIN_LOG(people)).toEqual([]);
 
@@ -280,7 +280,7 @@ describe('the purge in the sweeper', () => {
   it('writes the size in the unit that fits', async () => {
     const fleet = await makeFleet();
     const people = storage.people;
-    fleet.activityHistorySettings.set({ policy: 'end' });
+    await fleet.activityHistorySettings.set({ policy: 'end' });
     const spy = vi.spyOn(fleet.activityHistory, 'purge');
     for (const [bytes, text] of [[2048, '2.0 KB'], [3 * 1024 ** 2, '3.0 MB'], [2 * 1024 ** 3, '2.0 GB']] as const) {
       spy.mockResolvedValueOnce({ entries: 5, bytes, sessions: 1, freed: 0 });
@@ -325,9 +325,9 @@ describe('the console state', () => {
   it('carries a derived activity-history entry that is true only with a keep policy, a token and the feed flag', async () => {
     const fleet = await makeFleet();
     expect((await fleet.state()).features['activity-history']).toBe(false);
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     expect((await fleet.state()).features['activity-history']).toBe(true);
-    fleet.features.setFeature('activity-feed', false);
+    await fleet.features.setFeature('activity-feed', false);
     expect((await fleet.state()).features['activity-history']).toBe(false);
     expect((await (await makeFleet(false)).state()).features['activity-history']).toBe(false);
   });
@@ -335,8 +335,8 @@ describe('the console state', () => {
   it('keeps it out of the Admin flags: the flag view, FEATURES and the stored rows', async () => {
     const { FEATURES } = await import('./featureFlags.js');
     const fleet = await makeFleet();
-    fleet.activityHistorySettings.set({ policy: 'all' });
-    fleet.features.setFeature('activity-feed', true);
+    await fleet.activityHistorySettings.set({ policy: 'all' });
+    await fleet.features.setFeature('activity-feed', true);
     expect(fleet.features.view()).not.toHaveProperty('activity-history');
     expect(FEATURES.map((f) => f.id)).not.toContain('activity-history');
     const rows = storage.sqliteHandle.prepare("SELECT key FROM settings WHERE key LIKE 'feature%'").all() as { key: string }[];
