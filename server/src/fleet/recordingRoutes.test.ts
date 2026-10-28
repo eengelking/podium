@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
@@ -27,16 +27,18 @@ const BODY = 'UNIQUE-RECORDED-TEXT-7731';
 /** What the reporter says it takes from Podium, so a message can be sent to it. */
 const ACCEPTS = { level: 'everything', accepts: ['message'], limits: [] } as unknown as Report['session']['respond'];
 
-function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
+async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const db = openDb(':memory:');
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
   const clock = { now: T0 };
   const lines: string[] = [];
   const logger = loggerFromLine((l) => lines.push(l));
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => clock.now, logger, { authOn: secret !== null, secret });
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => clock.now, logger, { authOn: secret !== null, secret });
   const people = new PeopleStore(db);
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), logger }));
+  await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) fleet.features.setFeature('session-recording', true);
   const ed = people.createPerson('Ed');
@@ -71,7 +73,7 @@ const post = (app: express.Express, token: string, b: unknown) => request(app).p
 
 /** A live session of Ed's whose reporter allows recording, with Ed's browser signed in and the orchestrator and a1 chosen. */
 async function chosen(over: Parameters<typeof setup>[0] = {}, loops = [MAIN_LOOP, 'a1']) {
-  const s = setup(over);
+  const s = await setup(over);
   expect((await send(s.app, s.ed.token, report())).status).toBe(200);
   const a = await signedIn(s.app, 'Ed', s.ed.token);
   expect((await a.put(BASE).set(H).send({ loops })).status).toBe(200);
@@ -83,13 +85,13 @@ const kinds = (people: PeopleStore) => logRows(people).map((r) => r.kind);
 
 describe('the report reply carries the consent', () => {
   it('says off, with the Admin answer, while the flag is off', async () => {
-    const { app, ed } = setup({ flag: false });
+    const { app, ed } = await setup({ flag: false });
     const res = await send(app, ed.token, report());
     expect(res.body.recording).toMatchObject({ state: 'off', consent: { admin: false, chosen: false, owner: true }, loops: [] });
   });
 
   it('says off when the flag is on and no one has chosen, and shows whether the owner allows it', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     expect((await send(app, ed.token, report(true))).body.recording.consent).toEqual({ admin: true, chosen: false, owner: true });
     expect((await send(app, ed.token, report(null))).body.recording.consent.owner).toBe(false);
   });
@@ -105,7 +107,7 @@ describe('the report reply carries the consent', () => {
   });
 
   it('says off to a server with no token, whatever the flag says', async () => {
-    const { app } = setup({ secret: null });
+    const { app } = await setup({ secret: null });
     const res = await request(app).post('/api/fleet/report').send(report());
     expect(res.body.recording).toMatchObject({ state: 'off', consent: { admin: false } });
   });
@@ -145,7 +147,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
   });
 
   it('is 403 when the session was never chosen, when the reporter does not allow it, and once it is stopped', async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report());
     expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(403);
     const a = await signedIn(s.app, 'Ed', s.ed.token);
@@ -200,7 +202,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     const kept = await post(app, ed.token, batch(entry(MAIN_LOOP, 2)));
     expect(kept.status).toBe(409);
     expect(kept.body.error).toBe('the session has ended');
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report());
     (s.fleet as unknown as { live: Map<string, unknown> }).live.delete(SID);
     expect((await post(s.app, s.ed.token, batch(entry(MAIN_LOOP, 1)))).status).toBe(404);
@@ -212,7 +214,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     const hundred = 'x'.repeat(100);
     const res = await post(app, ed.token, batch(entry(MAIN_LOOP, 1, hundred), entry(MAIN_LOOP, 2, hundred), entry(MAIN_LOOP, 3, hundred)));
     expect(res.body).toMatchObject({ ok: true, stored: 2, recording: { state: 'limit', limit: 'session', loops: [] } });
-    expect(fleet.view(SID)?.recording).toMatchObject({ state: 'limit', limit: 'session' });
+    expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'limit', limit: 'session' });
     expect((await post(app, ed.token, batch(entry(MAIN_LOOP, 4)))).status).toBe(403);
     expect(logRows(people).find((r) => r.kind === 'recording_limit')?.detail).toMatch(/stopped: the session reached its limit/);
   });
@@ -239,7 +241,7 @@ describe('the browser routes: who may use them', () => {
   });
 
   it('are 404 on a server with no token', async () => {
-    const { app } = setup({ secret: null });
+    const { app } = await setup({ secret: null });
     expect((await request(app).get(BASE)).status).toBe(404);
   });
 
@@ -283,14 +285,14 @@ describe('the browser routes: who may use them', () => {
   });
 
   it('lets a browser sign in when only recording is on', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     expect((await request(app).get('/api/fleet/respond/me')).body).toMatchObject({ enabled: true });
   });
 });
 
 describe('PUT /respond/sessions/:id/recording (start)', () => {
   it('starts, answers the grant, writes the Admin log with who did it, and the card shows it to everyone', async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report(false)); // the reporter does not allow it: the choice is still recorded
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     const res = await a.put(BASE).set(H).send({ loops: [MAIN_LOOP, 'a1', 'a1'] });
@@ -443,7 +445,7 @@ describe('POST …/stop and DELETE …', () => {
   });
 
   it('stop is 404 when there is no recording', async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report());
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     expect((await a.post(`${BASE}/stop`).set(H)).status).toBe(404);
@@ -459,7 +461,7 @@ describe('POST …/stop and DELETE …', () => {
     expect(res.body.bytes).toBeGreaterThan(0);
     expect(logRows(people).find((r) => r.kind === 'recording_deleted')?.detail).toContain('Ed deleted the recording (2 entries');
     expect((await post(app, ed.token, batch(entry(MAIN_LOOP, 3)))).status).toBe(403);
-    expect(fleet.view(SID)?.recording).toBeUndefined();
+    expect((await fleet.view(SID))?.recording).toBeUndefined();
     expect((await a.get(BASE)).status).toBe(404);
   });
 
@@ -478,7 +480,7 @@ describe('what the server does on its own is logged', () => {
     await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
     fleet.features.setFeature('session-recording', false);
     expect(fleet.recordings.stateFor(SID)).toBe('stopped');
-    expect(fleet.view(SID)?.recording).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
+    expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
     expect(logRows(people).find((r) => r.kind === 'recording_stopped')?.detail).toContain('the Admin turned session recording off');
     fleet.features.setFeature('session-recording', true);
     expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
@@ -564,7 +566,7 @@ describe('deleting the session', () => {
   it('removes its recording with it, and the session list no longer shows one', async () => {
     const { app, ed, fleet } = await chosen();
     await post(app, ed.token, batch(entry(MAIN_LOOP, 1)));
-    expect(fleet.deleteSession(SID)).toBe(true);
+    expect(await fleet.deleteSession(SID)).toBe(true);
     await fleet.recordings.removeMany([]); // let the chunked delete finish
     await new Promise((r) => setImmediate(r));
     expect(fleet.recordings.has(SID)).toBe(false);
@@ -574,19 +576,19 @@ describe('deleting the session', () => {
   it('logs a recording that could not be removed, and goes on', async () => {
     const { fleet, lines } = await chosen();
     vi.spyOn(fleet.recordings, 'removeSession').mockRejectedValue(new Error('disk is gone'));
-    expect(fleet.deleteSession(SID)).toBe(true);
+    expect(await fleet.deleteSession(SID)).toBe(true);
     await new Promise((r) => setImmediate(r));
     expect(lines.join('\n')).toContain('could not remove the recording of session');
   });
 
   it('retention removes the recordings of sessions the main database dropped, and logs a failure', async () => {
     const { fleet, lines } = await chosen();
-    fleet.db.deleteSession(SID);
-    fleet.retain();
+    await fleet.db.deleteSession(SID);
+    await fleet.retain();
     await new Promise((r) => setTimeout(r, 20));
     expect(fleet.recordings.has(SID)).toBe(false);
     vi.spyOn(fleet.recordings, 'dropMissingSessions').mockRejectedValue(new Error('disk is gone'));
-    fleet.retain();
+    await fleet.retain();
     await new Promise((r) => setImmediate(r));
     expect(lines.join('\n')).toContain('could not remove the recordings of expired sessions');
   });
@@ -626,14 +628,14 @@ describe('what History and the picker learn (#353)', () => {
   });
 
   it('marks nothing for a session with no recording', async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report(true, { status: 'done', endReason: 'clear' }));
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     expect((await a.get(`/api/fleet/history?day=${dayOf(T0)}`)).body.sessions[0]).not.toHaveProperty('recording');
   });
 
   it("tells the owner and an Admin, before Start, whether the session's reporter allows recording", async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report(false));
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     const no = await a.get(`${BASE}/consent`);
@@ -646,7 +648,7 @@ describe('what History and the picker learn (#353)', () => {
   });
 
   it("carries the Admin's keep time, so the picker can state it", async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report());
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     expect((await a.get(`${BASE}/consent`)).body.keepHours).toBe(6);
@@ -655,7 +657,7 @@ describe('what History and the picker learn (#353)', () => {
   });
 
   it('refuses the consent to anyone else, to a signed-out browser, and while the flag is off', async () => {
-    const s = setup();
+    const s = await setup();
     await send(s.app, s.ed.token, report());
     expect((await request(s.app).get(`${BASE}/consent`)).status).toBe(401);
     const alex = await signedIn(s.app, 'Alex', s.alex.token);

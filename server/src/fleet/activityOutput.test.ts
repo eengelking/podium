@@ -6,7 +6,7 @@ import path from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { activityDbPath, openActivityDb } from './activityDb.js';
-import { FleetDb, openDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { createFleetRouter } from './routes.js';
@@ -34,10 +34,11 @@ afterEach(() => {
 });
 
 /** A server on two files in `dir`, as `podium.sqlite` and `activity.sqlite` sit beside each other. */
-function server(flags: { output?: boolean } = { output: true }) {
+async function server(flags: { output?: boolean } = { output: true }) {
   const dbPath = path.join(dir, 'podium.sqlite');
   const logger = createLogger({ level: 'debug', format: 'json', write: (l) => lines.push(l) });
-  const fleet = new Fleet(new FleetDb(openDb(dbPath)), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath }, () => clock, logger, { db: openActivityDb(activityDbPath(dbPath)), authOn: true });
+  const fleet = new Fleet(openSqliteStorage(dbPath), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath }, () => clock, logger, { db: openActivityDb(activityDbPath(dbPath)), authOn: true });
+  await fleet.init();
   open.push(fleet);
   if (flags.output) fleet.features.setFeature('activity-output', true);
   fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
@@ -71,7 +72,7 @@ function raw(): string {
 
 describe('the reply and the feed', () => {
   it('lists watchOutput as the loops under a live viewer lease, never one the history lists alone', async () => {
-    const s = server();
+    const s = await server();
     const r1 = await s.send(s.live([]));
     // the keep policy lists the loops for the history, with no viewer
     expect(r1.body.watch.length).toBeGreaterThan(0);
@@ -83,7 +84,7 @@ describe('the reply and the feed', () => {
   });
 
   it('lists nothing while the activity-output flag is off, takes no output and serves none', async () => {
-    const s = server({ output: false });
+    const s = await server({ output: false });
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -96,7 +97,7 @@ describe('the reply and the feed', () => {
   });
 
   it('serves a call as the entry it is: the command first, then its output and status on the same entry', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -109,7 +110,7 @@ describe('the reply and the feed', () => {
   });
 
   it('an older mod (no new fields, no option) behaves exactly as before', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([], null));
     await s.feed();
     clock += 10;
@@ -118,7 +119,7 @@ describe('the reply and the feed', () => {
   });
 
   it('drops output sent for a session whose option is off, and keeps nothing for a loop no viewer has open', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([withOutput(T0 + 1)], true));
     expect((await s.feed()).body.entries).toEqual([]);
     await s.send(s.live([withOutput(clock + 20)], false));
@@ -131,7 +132,7 @@ describe('how a call ended, without output (#598)', () => {
   const STATUS = { done: true, exitCode: 1, failed: true };
 
   it('serves done, failed and exitCode with the flag and the option off, and no output', async () => {
-    const s = server({ output: false });
+    const s = await server({ output: false });
     await s.send(s.live([], false));
     await s.feed();
     clock += 10;
@@ -145,7 +146,7 @@ describe('how a call ended, without output (#598)', () => {
   });
 
   it('attaches the status to a call held without it, keeping its place and number', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -158,7 +159,7 @@ describe('how a call ended, without output (#598)', () => {
   });
 
   it('does not hold a call from before the lease began, status or not', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     await s.send(s.live([ended(T0 - 10_000)]));
@@ -166,7 +167,7 @@ describe('how a call ended, without output (#598)', () => {
   });
 
   it('keeps the status when the activity-output flag goes off, and drops the output', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -179,7 +180,7 @@ describe('how a call ended, without output (#598)', () => {
   });
 
   it('keeps the status when the session turns the option off', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -191,14 +192,15 @@ describe('how a call ended, without output (#598)', () => {
   });
 
   it('is not stored: the history holds the command only, and a secret in the output of a status-only call is never kept', async () => {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
     await s.send(s.live([bash(clock + 1)], false));
     await s.send(s.live([withOutput(clock + 1)], false));
     expect((await s.feed()).body.entries[0]).toMatchObject(STATUS);
-    expect(JSON.stringify(s.fleet.state())).not.toContain(SECRET);
+    expect(JSON.stringify((await s.fleet.state()))).not.toContain(SECRET);
+    await s.fleet.flush();
     expect(s.seen.join('')).not.toContain(SECRET);
     expect(lines.join('\n')).not.toContain(SECRET);
     expect(raw()).not.toContain(SECRET);
@@ -211,7 +213,7 @@ describe('how a call ended, without output (#598)', () => {
 
 describe('where output goes', () => {
   async function withSecret() {
-    const s = server();
+    const s = await server();
     await s.send(s.live([]));
     await s.feed();
     clock += 10;
@@ -223,7 +225,8 @@ describe('where output goes', () => {
 
   it('is never in the state, the stream, a log line, or either database, while the lease is live', async () => {
     const s = await withSecret();
-    expect(JSON.stringify(s.fleet.state())).not.toContain(SECRET);
+    expect(JSON.stringify((await s.fleet.state()))).not.toContain(SECRET);
+    await s.fleet.flush();
     expect(s.seen.join('')).not.toContain(SECRET);
     expect(lines.join('\n')).not.toContain(SECRET);
     expect(raw()).not.toContain(SECRET);
@@ -256,6 +259,7 @@ describe('where output goes', () => {
     expect(JSON.stringify(got)).not.toContain(SECRET);
     s.fleet.features.setFeature('activity-output', true);
     expect(JSON.stringify((await s.feed()).body)).not.toContain(SECRET);
+    await s.fleet.flush();
     expect(s.seen.join('')).not.toContain(SECRET);
   });
 
@@ -265,7 +269,7 @@ describe('where output goes', () => {
     expect(JSON.stringify((await s.feed()).body)).not.toContain(SECRET);
     s.fleet.features.setFeature('activity-feed', true);
     expect((await s.feed()).body.entries).toEqual([]);
-    expect(s.fleet.deleteSession(fixtureReport().session.id)).toBe(true);
+    expect(await s.fleet.deleteSession(fixtureReport().session.id)).toBe(true);
     expect(raw()).not.toContain(SECRET);
   });
 
@@ -273,7 +277,7 @@ describe('where output goes', () => {
     const s = await withSecret();
     s.fleet.close();
     open.length = 0;
-    const again = server({});
+    const again = await server({});
     const got = (await again.feed()).body;
     expect(JSON.stringify(got)).not.toContain(SECRET);
     expect(got.entries).toEqual([]);

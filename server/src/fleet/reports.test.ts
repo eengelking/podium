@@ -13,7 +13,7 @@ const SECRET = 'the-admin-secret-0123456789';
 const H = { 'X-Podium-Admin': '1' };
 
 async function api(w: World, rollup = true) {
-  if (rollup) writeRollups(w.fdb, NOW, costFn(w.deps.pricing()), { sessionsMs: 30 * DAY_MS });
+  if (rollup) await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), { sessionsMs: 30 * DAY_MS });
   const app = express();
   app.use('/api/admin', createAdminRouter({ secret: SECRET, people: w.people, reports: w.deps, now: () => NOW }));
   const agentReq = request.agent(app);
@@ -22,15 +22,15 @@ async function api(w: World, rollup = true) {
   return { app, get };
 }
 
-const filled = () => {
+const filled = async () => {
   const w = world();
-  populate(w);
+  await populate(w);
   return w;
 };
 
 describe('access and validation', () => {
   it('is for an unlocked Administrator only, and is not mounted without its dependencies', async () => {
-    const w = filled();
+    const w = await filled();
     const { app } = await api(w);
     for (const p of ['usage', 'retention', 'spend/projection', 'spend/today/Priya']) expect((await request(app).get(`/api/admin/reports/${p}`).set(H)).status).toBe(401);
     const bare = express();
@@ -41,7 +41,7 @@ describe('access and validation', () => {
   });
 
   it('answers 400 to a bad period, bucket, filter, breakdown, format or kind, and 404 to an unknown report', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const bad = [
       'usage?from=2026-13-01', 'usage?from=nope', 'usage?to=2026-10-21', 'usage?from=2026-10-20&to=2026-10-19', 'usage?from=2025-01-01&to=2026-10-20',
       'usage?by=year', 'usage?by=day&by=week', `usage?person=${'x'.repeat(201)}`, 'spend?breakdown=planet', 'sessions?breakdown=person', 'failures?breakdown=outcome',
@@ -57,7 +57,7 @@ describe('access and validation', () => {
 
 describe('the reply', () => {
   it('has the envelope, the zone, the oldest rollup day and says what it is based on', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('usage')).body as ReportReply;
     expect(r).toMatchObject({ report: 'usage', from: addDays(TODAY, -29), to: TODAY, by: 'day', basedOn: 'rollups and live', oldestDay: addDays(TODAY, -3), partial: true });
     expect(r.tz.length).toBeGreaterThan(0);
@@ -67,7 +67,7 @@ describe('the reply', () => {
   });
 
   it('says partial and returns no rows for a period before the first rollup day, without zeros', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get(`usage?from=${addDays(TODAY, -60)}&to=${addDays(TODAY, -40)}`)).body as ReportReply;
     expect(r).toMatchObject({ rows: [], partial: true });
     const whole = (await get(`usage?from=${addDays(TODAY, -3)}&to=${TODAY}`)).body as ReportReply;
@@ -75,10 +75,10 @@ describe('the reply', () => {
   });
 
   it('reads today live and every earlier day from the rollups', async () => {
-    const w = filled();
+    const w = await filled();
     const { get } = await api(w);
     // Neither today's new session nor a changed old one is in the rollups until the next run, except today, which is live.
-    w.fdb.upsertSession(session({ id: 'late', owner: 'Dana', started_at: at(0, 12), last_seen_at: at(0, 13), ended_at: at(0, 13), cost_usd: 10 }));
+    await w.fdb.upsertSession(session({ id: 'late', owner: 'Dana', started_at: at(0, 12), last_seen_at: at(0, 13), ended_at: at(0, 13), cost_usd: 10 }));
     const r = (await get('spend?breakdown=person')).body as ReportReply;
     const today = r.rows.filter((x) => x.period === TODAY);
     expect(today.find((x) => x.key === 'Dana')).toMatchObject({ sessions: 1, costUsd: 10 });
@@ -88,7 +88,7 @@ describe('the reply', () => {
 
 describe('usage', () => {
   it('counts people, reporters, sessions and the peak per period, and once over the whole period in total', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('usage')).body as ReportReply;
     const today = r.rows.find((x) => x.period === TODAY)!;
     expect(today).toMatchObject({ people: 2, sessions: 2 });
@@ -109,7 +109,7 @@ const parseDay = (d: string): Date => new Date(Number(d.slice(0, 4)), Number(d.s
 
 describe('spend', () => {
   it('breaks cost down by person, group, model and project, null where nothing was priced', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const none = (await get('spend')).body as ReportReply;
     expect(none.columns.map((c) => c.key)).toEqual(['period', 'sessions', 'tokIn', 'tokOut', 'costUsd', 'unpricedSessions']);
     expect(none.rows.every((x) => !('key' in x))).toBe(true);
@@ -129,7 +129,7 @@ describe('spend', () => {
 
 describe('people', () => {
   it('lists everyone, active, quiet or never, with the versions in use', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('people')).body as ReportReply & { summary: Record<string, unknown> };
     const state = Object.fromEntries(r.rows.map((x) => [x.person, x.state]));
     expect(state).toEqual({ Admin: 'active', Dana: 'active', Priya: 'active', Quiet: 'never' });
@@ -143,7 +143,7 @@ describe('people', () => {
 
 describe('sessions', () => {
   it('counts by outcome, model, effort and plan with durations, agents, blowouts and context', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('sessions')).body as ReportReply;
     expect(r.columns.map((c) => c.key)).toEqual(['period', 'key', 'sessions', 'avgDurationS', 'maxDurationS', 'agentsPerSession', 'blowouts', 'maxContextPct']);
     expect(r.rows.map((x) => x.key)).toEqual(expect.arrayContaining(['completed', 'error', 'running']));
@@ -158,7 +158,7 @@ describe('sessions', () => {
 
 describe('failures', () => {
   it('counts by class, tool and person, with the sessions to look at while they are stored', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('failures')).body as ReportReply;
     expect(r.total).toMatchObject({ count: 3, people: 1 });
     const perm = r.rows.filter((x) => x.key === 'permission');
@@ -172,15 +172,15 @@ describe('failures', () => {
   it('gives no more than ten session ids and none once the sessions are gone', async () => {
     const w = world();
     for (let i = 0; i < 12; i++) {
-      w.fdb.upsertSession(session({ id: `f${i}`, owner: 'Dana', last_seen_at: at(1, 10), started_at: at(1, 9), ended_at: at(1, 10) }));
-      w.fdb.upsertAgent(agent(`f${i}`, 'a', { failure_json: JSON.stringify({ class: 'oom', tool: null }) }));
+      await w.fdb.upsertSession(session({ id: `f${i}`, owner: 'Dana', last_seen_at: at(1, 10), started_at: at(1, 9), ended_at: at(1, 10) }));
+      await w.fdb.upsertAgent(agent(`f${i}`, 'a', { failure_json: JSON.stringify({ class: 'oom', tool: null }) }));
     }
     const { get } = await api(w);
     const r = (await get('failures')).body as ReportReply;
     expect(r.rows).toHaveLength(1);
     expect(r.rows[0]).toMatchObject({ key: 'oom', count: 12 });
     expect((r.rows[0]!.sessionIds as string[]).length).toBe(10);
-    w.fdb.db.prepare('DELETE FROM sessions').run();
+    w.storage.sqliteHandle.prepare('DELETE FROM sessions').run();
     const gone = (await get('failures')).body as ReportReply;
     expect(gone.rows[0]).toMatchObject({ count: 12 });
     expect('sessionIds' in gone.rows[0]!).toBe(false);
@@ -189,7 +189,7 @@ describe('failures', () => {
 
 describe('activity and Data kept', () => {
   it('reads the Admin log by period and kind, newest first', async () => {
-    const w = filled();
+    const w = await filled();
     w.people.log('person_created', 'Created Dana', '10.0.0.1', at(1, 9));
     w.people.log('unlock', '=HYPERLINK("x")', '10.0.0.2', at(0, 9));
     w.people.log('person_created', 'Created Quiet', '10.0.0.1', at(5, 9));
@@ -204,7 +204,7 @@ describe('activity and Data kept', () => {
   });
 
   it('says when the log is longer than the 1,000 rows it returns (#529)', async () => {
-    const w = filled();
+    const w = await filled();
     for (let i = 0; i < 1001; i++) w.people.log('unlock', `entry ${i}`, '10.0.0.1', at(0, 9) + i);
     const { get } = await api(w);
     const r = (await get(`activity?from=${addDays(TODAY, -1)}`)).body as ReportReply;
@@ -218,7 +218,7 @@ describe('activity and Data kept', () => {
   });
 
   it('lists the rollup tables and how long everything is kept', async () => {
-    const { get } = await api(filled());
+    const { get } = await api(await filled());
     const r = (await get('retention')).body as { tables: { name: string; rows: number; oldestDay: string | null; keptDays: number }[]; detail: { name: string; keptDays: number }[]; tz: string };
     expect(r.tables.map((t) => t.name)).toEqual(['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily']);
     expect(r.tables[0]).toMatchObject({ oldestDay: addDays(TODAY, -3), keptDays: 395 });
@@ -231,9 +231,9 @@ describe('activity and Data kept', () => {
 
 describe('CSV', () => {
   it('returns the same columns and rows as RFC 4180 text, as an attachment, with spreadsheet formulas neutralized', async () => {
-    const w = filled();
+    const w = await filled();
     w.people.createPerson('=cmd|calc', null, NOW);
-    w.fdb.upsertSession(session({ id: 'evil', owner: '=cmd|calc', model: '+1,"quoted"', last_seen_at: at(1, 10), started_at: at(1, 9), ended_at: at(1, 10) }));
+    await w.fdb.upsertSession(session({ id: 'evil', owner: '=cmd|calc', model: '+1,"quoted"', last_seen_at: at(1, 10), started_at: at(1, 9), ended_at: at(1, 10) }));
     const { get } = await api(w);
     const res = await get('spend?breakdown=person&format=csv');
     expect(res.status).toBe(200);
@@ -275,24 +275,24 @@ describe('CSV', () => {
 });
 
 /** Fourteen complete days of history: Priya and Dana work most days, Rare on two, a model nobody priced on a few. */
-function history(w: World): void {
+async function history(w: World): Promise<void> {
   const priya = w.people.createPerson('Priya', w.people.createGroup('Backend', NOW).id, NOW).person;
   w.people.createPerson('Dana', null, NOW);
   w.people.createPerson('Rare', null, NOW);
   void priya;
   for (let d = 1; d <= 14; d++) {
-    w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
-    if (d % 2 === 0) w.fdb.upsertSession(session({ id: `D${d}`, owner: 'Dana', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 1 }));
-    if (d <= 2) w.fdb.upsertSession(session({ id: `R${d}`, owner: 'Rare', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 7 }));
-    if (d === 3) w.fdb.upsertSession(session({ id: 'U3', owner: 'Dana', model: 'llama-local', cost_usd: null, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10) }));
+    await w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
+    if (d % 2 === 0) await w.fdb.upsertSession(session({ id: `D${d}`, owner: 'Dana', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 1 }));
+    if (d <= 2) await w.fdb.upsertSession(session({ id: `R${d}`, owner: 'Rare', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 7 }));
+    if (d === 3) await w.fdb.upsertSession(session({ id: 'U3', owner: 'Dana', model: 'llama-local', cost_usd: null, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10) }));
   }
-  w.fdb.upsertSession(session({ id: 'T', owner: 'Priya', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 5 }));
+  await w.fdb.upsertSession(session({ id: 'T', owner: 'Priya', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 5 }));
 }
 
 describe('projection (#483)', () => {
   it('projects the rest of the month from the run rate of the trailing window, today kept out of the rate', async () => {
     const w = world();
-    history(w);
+    await history(w);
     const { get } = await api(w);
     const r = (await get('spend/projection')).body as ReportReply;
     expect(r).toMatchObject({ report: 'spend/projection', horizon: 'month', window: { from: addDays(TODAY, -14), to: addDays(TODAY, -1), days: 14 }, historyDays: 14, unpricedSessions: 1 });
@@ -312,7 +312,7 @@ describe('projection (#483)', () => {
 
   it('projects thirty times the run rate for the next 30 days and follows the window and grouping asked for', async () => {
     const w = world();
-    history(w);
+    await history(w);
     const { get } = await api(w);
     const r = (await get('spend/projection?horizon=30d&window=7&by=group')).body as ReportReply;
     expect(r.window).toMatchObject({ days: 7, from: addDays(TODAY, -7) });
@@ -324,7 +324,7 @@ describe('projection (#483)', () => {
 
   it('says there is not enough history instead of guessing when the server has fewer than 7 complete days', async () => {
     const w = world();
-    for (let d = 1; d <= 5; d++) w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
+    for (let d = 1; d <= 5; d++) await w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
     const { get } = await api(w);
     const r = (await get('spend/projection')).body as ReportReply;
     expect(r.historyDays).toBe(5);
@@ -336,11 +336,12 @@ describe('projection (#483)', () => {
 
 describe('Spend breakdown (#482)', () => {
   it('cuts a person\'s spend since midnight by session, model and source, adding up to the table row', async () => {
-    const w = filled();
+    const w = await filled();
     // Priya's p4 spent 4 today, half of it on agents (their estimates add up to half the session's cost, 2 of 4).
     const { get } = await api(w);
-    const fleet = new Fleet(w.fdb, { ...DEFAULT_CONFIG, home: '/h', dbPath: ':memory:' }, () => NOW);
-    const row = fleet.kpis([]).costTodayByOwner.find((o) => o.owner === 'Priya')!;
+    const fleet = new Fleet(w.storage, { ...DEFAULT_CONFIG, home: '/h', dbPath: ':memory:' }, () => NOW);
+    await fleet.init();
+    const row = (await fleet.kpis([])).costTodayByOwner.find((o) => o.owner === 'Priya')!;
     const r = (await get('spend/today/Priya')).body;
     expect(r.owner).toBe('Priya');
     expect(r.total).toBe(row.costUsd);
@@ -354,9 +355,9 @@ describe('Spend breakdown (#482)', () => {
   });
 
   it('cuts a group by person first, counts sessions on models without a price, and takes - for no owner', async () => {
-    const w = filled();
-    w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', model: 'llama-local', cost_usd: null, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null }));
-    w.fdb.upsertSession(session({ id: 'mix', owner: 'Priya', cost_usd: 6, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null, usage_json: JSON.stringify([
+    const w = await filled();
+    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', model: 'llama-local', cost_usd: null, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null }));
+    await w.fdb.upsertSession(session({ id: 'mix', owner: 'Priya', cost_usd: 6, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null, usage_json: JSON.stringify([
       { model: 'claude-opus-5-5', tier: 'std', tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
       { model: 'llama-local', tier: 'std', tokens: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
     ]) }));
@@ -376,9 +377,10 @@ describe('Spend breakdown (#482)', () => {
     expect((await get('spend/today/Nobody')).body).toMatchObject({ total: 0, bySession: [], byModel: [], unpriced: 0 });
   });
 
-  it('wires a running Fleet into the report routes', () => {
-    const w = filled();
-    const fleet = new Fleet(w.fdb, { ...DEFAULT_CONFIG, home: '/h', dbPath: ':memory:' }, () => NOW);
+  it('wires a running Fleet into the report routes', async () => {
+    const w = await filled();
+    const fleet = new Fleet(w.storage, { ...DEFAULT_CONFIG, home: '/h', dbPath: ':memory:' }, () => NOW);
+    await fleet.init();
     const deps = reportDepsOf(fleet);
     expect(deps.now()).toBe(NOW);
     expect(deps.retention).toBe(fleet.cfg.retention);
@@ -387,18 +389,18 @@ describe('Spend breakdown (#482)', () => {
 });
 
 describe('spendToday reads each session once (#529)', () => {
-  it('asks for no session or agent cost one by one, and counts the sessions on a model without a price', () => {
+  it('asks for no session or agent cost one by one, and counts the sessions on a model without a price', async () => {
     const w = world();
-    populate(w);
+    await populate(w);
     const sessionOf = vi.spyOn(w.fdb, 'getSession');
     const agentsOf = vi.spyOn(w.fdb, 'agentCostsSince');
-    const reply = spendToday(w.deps, 'Priya', false);
+    const reply = await spendToday(w.deps, 'Priya', false);
     expect(reply.total).toBeGreaterThan(0);
     expect(reply.bySource.agents).toBeGreaterThan(0);
     expect(sessionOf).not.toHaveBeenCalled();
     expect(agentsOf).toHaveBeenCalledTimes(1);
     expect(reply.unpriced).toBe(0);
-    w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: null, model: 'llama-local' }));
-    expect(spendToday(w.deps, 'Priya', false).unpriced).toBe(1);
+    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: null, model: 'llama-local' }));
+    expect((await spendToday(w.deps, 'Priya', false)).unpriced).toBe(1);
   });
 });

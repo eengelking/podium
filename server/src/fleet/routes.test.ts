@@ -5,7 +5,7 @@ import express from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter, HISTORY_PAGE_SIZES } from './routes.js';
 import { MAIN_LOOP, type Report } from './protocol.js';
@@ -16,18 +16,20 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-function setup(token: string | null = null, cfg: Partial<typeof DEFAULT_CONFIG> = {}) {
+async function setup(token: string | null = null, cfg: Partial<typeof DEFAULT_CONFIG> = {}) {
   const logs: string[] = [];
-  const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:', ...cfg });
+  const storage = openSqliteStorage(':memory:');
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:', ...cfg });
+  await fleet.init();
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token, log: (l) => logs.push(l) }));
   closers.push(() => fleet.close());
-  return { app, fleet, logs };
+  return { app, fleet, logs, storage };
 }
 
 describe('POST /api/fleet/report', () => {
   it('ingests a valid report and acks its events', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const res = await request(app).post('/api/fleet/report').send(fixtureReport());
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, ackedEvents: 3 });
@@ -35,7 +37,7 @@ describe('POST /api/fleet/report', () => {
   });
 
   it('tells an older, a matching and a newer reporter where it stands, and accepts all three', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const send = async (version: string) => {
       const r = fixtureReport();
       r.reporter.version = version;
@@ -54,7 +56,7 @@ describe('POST /api/fleet/report', () => {
   });
 
   it('400 with error and path for an invalid report, logging the path but not the body', async () => {
-    const { app, logs } = setup();
+    const { app, logs } = await setup();
     const res = await request(app).post('/api/fleet/report').send({ ...fixtureReport(), v: 2, secret: 'sk-ant-should-not-be-logged' });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ ok: false, error: 'unsupported protocol version', path: '$.v' });
@@ -64,21 +66,21 @@ describe('POST /api/fleet/report', () => {
   });
 
   it('400 for malformed JSON', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const res = await request(app).post('/api/fleet/report').set('Content-Type', 'application/json').send('{"v":1,');
     expect(res.status).toBe(400);
     expect(res.body).toMatchObject({ ok: false, error: 'malformed JSON' });
   });
 
   it('413 over 512 KB', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const big = { ...fixtureReport(), pad: 'x'.repeat(600 * 1024) };
     const res = await request(app).post('/api/fleet/report').send(big);
     expect(res.status).toBe(413);
   });
 
   it('401 without the token when one is configured', async () => {
-    const { app } = setup('s3cret');
+    const { app } = await setup('s3cret');
     expect((await request(app).post('/api/fleet/report').send(fixtureReport())).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'nope').send(fixtureReport())).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 's3cret').send(fixtureReport())).status).toBe(200);
@@ -89,7 +91,7 @@ describe('POST /api/fleet/report', () => {
 
 describe('reads', () => {
   it('GET /state lists live sessions, KPIs and events', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     await request(app).post('/api/fleet/report').send(fixtureReport());
     const res = await request(app).get('/api/fleet/state');
     expect(res.status).toBe(200);
@@ -101,7 +103,7 @@ describe('reads', () => {
   });
 
   it('GET /sessions/:id returns a view, 404 when unknown', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').send(r);
     const ok = await request(app).get(`/api/fleet/sessions/${r.session.id}`);
@@ -111,7 +113,7 @@ describe('reads', () => {
   });
 
   it('GET /sessions/:id/agents/:agentId/text serves the full text, 404 when there is none', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = fixtureReport();
     r.agents[0]!.promptText = '# Task\n\nDo it.';
     await request(app).post('/api/fleet/report').send(r);
@@ -123,7 +125,7 @@ describe('reads', () => {
   });
 
   it('the session view carries the text lengths, never the text', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = fixtureReport();
     r.agents[0]!.promptText = '# Task\n\nDo it.';
     await request(app).post('/api/fleet/report').send(r);
@@ -135,7 +137,7 @@ describe('reads', () => {
   });
 
   it('GET /events pages newest first with before and limit', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = fixtureReport();
     const events = Array.from({ length: 30 }, (_, i) => ({ id: `e${i}`, t: 1000 + i, kind: 'note' as const, agentId: null, text: `n${i}`, data: null }));
     const rep: Report = { ...r, events: events.slice(0, 20) };
@@ -155,7 +157,7 @@ describe('reads', () => {
   });
 
   it('GET /health', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     await request(app).post('/api/fleet/report').send(fixtureReport());
     const res = await request(app).get('/api/fleet/health');
     expect(res.body).toMatchObject({ ok: true, dbPath: ':memory:', liveSessions: 1, reporterVersionsSeen: ['0.14.2'] });
@@ -164,7 +166,7 @@ describe('reads', () => {
   });
 
   it('GET /history lists ended sessions of a day', async () => {
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').send({ ...r, session: { ...r.session, status: 'done', endReason: 'clear' } });
     const d = new Date(fleet.now());
@@ -185,7 +187,7 @@ describe('reads', () => {
     /** Ends `n` sessions named s1..sn, and returns the app and today's date. */
     const endMany = async (n: number) => {
       // An hour's throttle keeps the per-session broadcast timers from firing, so no tick reads agents during a request (#494).
-      const ctx = setup(null, { throttleMs: 3_600_000 });
+      const ctx = await setup(null, { throttleMs: 3_600_000 });
       const r = fixtureReport();
       for (let i = 1; i <= n; i++) {
         const session = { ...r.session, id: `5f0c2a8e-1b7d-4c3e-9a51-${String(i).padStart(12, '0')}`, name: `s${i}`, status: 'done' as const, endReason: 'clear' };
@@ -216,8 +218,8 @@ describe('reads', () => {
     });
 
     it('builds rows for the requested page only (#273)', async () => {
-      const { app, day } = await endMany(60);
-      const agents = vi.spyOn(FleetDb.prototype, 'getAgents');
+      const { app, day, fleet } = await endMany(60);
+      const agents = vi.spyOn(fleet.db, 'getAgents');
       try {
         await request(app).get(`/api/fleet/history?day=${day}&page=3&pageSize=25`);
         expect(agents).toHaveBeenCalledTimes(10);
@@ -244,13 +246,13 @@ describe('reads', () => {
     });
 
     it('answers an empty day with page 1 and a total of 0', async () => {
-      const { app } = setup();
+      const { app } = await setup();
       const res = await request(app).get('/api/fleet/history?day=2020-01-01');
       expect(res.body).toMatchObject({ sessions: [], total: 0, page: 1, pageSize: 50 });
     });
 
     it('rejects a page or page size that is not allowed', async () => {
-      const { app } = setup();
+      const { app } = await setup();
       for (const q of ['page=0', 'page=abc', 'page=-1', 'pageSize=10', 'pageSize=abc', 'pageSize=1000']) {
         const r = await request(app).get(`/api/fleet/history?day=2024-02-29&${q}`);
         expect(r.status, q).toBe(400);
@@ -272,7 +274,7 @@ describe('the activity feed (#118)', () => {
   const url = (r: Report, loop: string, every = '') => `/api/fleet/sessions/${encodeURIComponent(r.session.id)}/agents/${encodeURIComponent(loop)}/activity${every}`;
 
   it('the report reply lists no loop while nobody watches, and the agent once a viewer fetches', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = live();
     const first = await request(app).post('/api/fleet/report').send(r);
     expect(first.body.watch).toEqual([]);
@@ -285,7 +287,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('serves what the reporter sent for a watched loop, numbered, and the orchestrator under @orchestrator', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = live();
     await request(app).post('/api/fleet/report').send(r);
     await request(app).get(url(r, r.agents[0]!.id));
@@ -305,7 +307,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('keeps nothing for a loop nobody watches, and never puts entries in the session view', async () => {
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const r = live([{ at: Date.now(), kind: 'tool', text: 'Read a' }]);
     await request(app).post('/api/fleet/report').send(r);
     expect(fleet.activity.size).toBe(0);
@@ -316,7 +318,8 @@ describe('the activity feed (#118)', () => {
 
   it('404 for an unknown session or agent; a session that has left the live set answers live: false and takes no lease', async () => {
     let t = Date.now();
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => t);
+    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => t);
+    await fleet.init();
     closers.push(() => fleet.close());
     const app = express();
     app.use('/api/fleet', createFleetRouter(fleet, { log: () => {} }));
@@ -330,7 +333,7 @@ describe('the activity feed (#118)', () => {
     done.session.endReason = 'prompt_input_exit';
     await request(app).post('/api/fleet/report').send(done);
     t += DEFAULT_CONFIG.lingerMs + 1;
-    fleet.sweep();
+    await fleet.sweep();
     expect(fleet.isLive(r.session.id)).toBe(false);
     expect(fleet.activity.size).toBe(0);
     const got = await request(app).get(url(r, r.agents[0]!.id));
@@ -340,7 +343,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('says enabled: true while the Admin flag is on', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const r = live();
     await request(app).post('/api/fleet/report').send(r);
     expect((await request(app).get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
@@ -348,7 +351,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('with the Admin flag off: no lease, enabled: false, nothing watched, nothing kept; back on resumes', async () => {
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const r = live();
     const aid = r.agents[0]!.id;
     await request(app).post('/api/fleet/report').send(r);
@@ -383,31 +386,32 @@ describe('the activity feed (#118)', () => {
     expect((await request(app).post('/api/fleet/report').send(live())).body.watch).toEqual([aid]);
   });
 
-  it('a flag change reaches open browsers as a fresh snapshot carrying the flags', () => {
-    const { fleet } = setup();
+  it('a flag change reaches open browsers as a fresh snapshot carrying the flags', async () => {
+    const { fleet } = await setup();
     const seen: string[] = [];
     fleet.hub.add({ write: (c: string) => void seen.push(c), end: () => {} });
     seen.length = 0;
     fleet.features.setFeature('activity-feed', false);
+    await fleet.flush();
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
     expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"session-recording":false,"update-check":true,"activity-history":false}');
   });
 
   it('a session that is deleted takes its feed with it', async () => {
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const r = live();
     await request(app).post('/api/fleet/report').send(r);
     await request(app).get(url(r, r.agents[0]!.id));
     expect(fleet.activity.size).toBe(1);
-    fleet.deleteSession(r.session.id);
+    await fleet.deleteSession(r.session.id);
     expect(fleet.activity.size).toBe(0);
   });
 });
 
 describe('DELETE /sessions/:id', () => {
   it('removes a session; requires the token when configured; 404 when unknown', async () => {
-    const { app } = setup('t');
+    const { app } = await setup('t');
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 't').send(r);
     expect((await request(app).delete(`/api/fleet/sessions/${r.session.id}`)).status).toBe(401);
@@ -419,13 +423,14 @@ describe('DELETE /sessions/:id', () => {
 
 describe('POST /sessions/:id/drop', () => {
   it('removes a stale session without a token; 409 while it is not stale; 404 when unknown', async () => {
-    const { app, fleet } = setup('t');
+    const { app, fleet, storage } = await setup('t');
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 't').send(r);
     expect((await request(app).post(`/api/fleet/sessions/${r.session.id}/drop`)).status).toBe(409);
     expect((await request(app).post('/api/fleet/sessions/nope/drop')).status).toBe(404);
     // A restarted server treats stored sessions as stale until they report again.
-    const restarted = new Fleet(fleet.db, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    const restarted = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    await restarted.init();
     closers.push(() => restarted.close());
     const app2 = express();
     app2.use('/api/fleet', createFleetRouter(restarted, { token: 't', log: () => {} }));
@@ -437,7 +442,7 @@ describe('POST /sessions/:id/drop', () => {
 
 describe('GET /stream', () => {
   it('streams a snapshot, then session and activity messages, with SSE headers', async () => {
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const server = app.listen(0, '127.0.0.1');
     closers.push(() => server.close());
     await new Promise<void>((r) => server.once('listening', () => r()));
@@ -465,7 +470,7 @@ describe('GET /stream', () => {
     // wait for the snapshot, then report
     while (!received.join('').includes('event: snapshot')) await new Promise((r) => setTimeout(r, 10));
     expect(fleet.hub.size).toBe(1);
-    fleet.ingest(fixtureReport());
+    await fleet.ingest(fixtureReport());
     await done;
     const all = received.join('');
     expect(all.startsWith('retry: 2000')).toBe(true);
@@ -484,7 +489,7 @@ describe('the update notice (#499)', () => {
 
   it('carries a newer release in the state body, with the release link', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
     await fleet.updates.check();
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toEqual({
@@ -495,14 +500,14 @@ describe('the update notice (#499)', () => {
 
   it('shows nothing when the release is not newer than the running server', async () => {
     stubRelease('v0.0.1');
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     await fleet.updates.check();
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
   });
 
   it('dismisses the release it names for everyone, without a token, and shows a still newer release again', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup('t');
+    const { app, fleet } = await setup('t');
     await fleet.updates.check();
     const res = await request(app).post('/api/fleet/update-notice/close').send({ version: '99.0.0' });
     expect(res.status).toBe(200);
@@ -514,18 +519,20 @@ describe('the update notice (#499)', () => {
   });
 
   it('keeps a dismissal across a restart and tells open streams', async () => {
-    const { fleet } = setup();
+    const { fleet } = await setup();
     const sent: string[] = [];
     fleet.hub.add({ write: (c: string) => (sent.push(c), true), end() {} } as never);
     fleet.wall.dismissUpdate('99.0.0');
+    await fleet.flush();
     expect(sent.join('')).toContain('event: wall');
     expect(sent.join('')).toContain('"update":null');
     fleet.wall.dismissUpdate('99.0.0');
+    await fleet.flush();
     expect(sent.join('').match(/event: wall/g)).toHaveLength(1);
   });
 
-  it('never moves a dismissal back to an older release', () => {
-    const { fleet } = setup();
+  it('never moves a dismissal back to an older release', async () => {
+    const { fleet } = await setup();
     fleet.wall.dismissUpdate('99.0.1');
     fleet.wall.dismissUpdate('99.0.0');
     expect(fleet.wall.updateDismissed()).toBe('99.0.1');
@@ -533,7 +540,7 @@ describe('the update notice (#499)', () => {
 
   it('refuses to close a release newer than the one on offer, or when none is on offer, so a made-up version cannot silence every later release', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     const close = (version: string) => request(app).post('/api/fleet/update-notice/close').send({ version });
     const none = await close('99.0.0');
     expect(none.status).toBe(400);
@@ -546,7 +553,7 @@ describe('the update notice (#499)', () => {
   });
 
   it('rejects a version that is not MAJOR.MINOR.PATCH', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     for (const body of [{}, { version: 5 }, { version: 'latest' }, { version: '1.2' }, { version: '1.2.3-rc.1' }, { version: 'v1.2.3' }]) {
       const res = await request(app).post('/api/fleet/update-notice/close').send(body);
       expect(res.status).toBe(400);
@@ -556,7 +563,7 @@ describe('the update notice (#499)', () => {
 
   it('makes no request to GitHub and shows no notice while the Release check is off, and checks as soon as it is turned on', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     fleet.features.setFeature('update-check', false);
     await fleet.updates.check();
     expect(fetch).not.toHaveBeenCalled();
@@ -568,7 +575,7 @@ describe('the update notice (#499)', () => {
 
   it('removes a notice that was showing when the Release check is turned off', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup();
+    const { app, fleet } = await setup();
     await fleet.updates.check();
     fleet.features.setFeature('update-check', false);
     expect((await request(app).get('/api/fleet/state')).body.wall.update).toBeNull();
@@ -576,9 +583,9 @@ describe('the update notice (#499)', () => {
 
   it('ignores a dismissal that is not a version it can read, so a bad stored value never hides a release', async () => {
     stubRelease('v99.0.0');
-    const { app, fleet } = setup();
+    const { app, fleet, storage } = await setup();
     await fleet.updates.check();
-    fleet.db.db.prepare("INSERT INTO settings (key, value) VALUES ('wall_update_dismissed', 'junk')").run();
+    storage.sqliteHandle.prepare("INSERT INTO settings (key, value) VALUES ('wall_update_dismissed', 'junk')").run();
     expect(fleet.wall.updateDismissed()).toBeNull();
     expect((await request(app).get('/api/fleet/state')).body.wall.update?.latest).toBe('99.0.0');
   });
@@ -586,7 +593,7 @@ describe('the update notice (#499)', () => {
 
 describe('wall notices', () => {
   it('closes a known notice without a token, rejects an unknown one, and carries the switches in the state body', async () => {
-    const { app, fleet } = setup('t');
+    const { app, fleet } = await setup('t');
     expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false, update: null });
     expect((await request(app).post('/api/fleet/notices/nope/close')).status).toBe(400);
     expect((await request(app).post('/api/fleet/notices/background-sessions/close')).status).toBe(200);
@@ -595,19 +602,21 @@ describe('wall notices', () => {
   });
 
   it('sets the background-sessions setting without a token and rejects a non-boolean', async () => {
-    const { app } = setup('t');
+    const { app } = await setup('t');
     expect((await request(app).put('/api/fleet/wall/background-sessions').send({ show: 'yes' })).status).toBe(400);
     expect((await request(app).put('/api/fleet/wall/background-sessions').send({ show: true })).status).toBe(200);
     expect((await request(app).get('/api/fleet/state')).body.wall.showBackgroundSessions).toBe(true);
   });
 
   it('keeps the switches across a restart and tells open streams when one changes', async () => {
-    const { fleet } = setup();
+    const { fleet, storage } = await setup();
     const sent: string[] = [];
     fleet.hub.add({ write: (c: string) => (sent.push(c), true), end() {} } as never);
     fleet.wall.setNotice('background-sessions', false);
+    await fleet.flush();
     expect(sent.join('')).toContain('event: wall');
-    const restarted = new Fleet(fleet.db, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    const restarted = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    await restarted.init();
     closers.push(() => restarted.close());
     expect(restarted.wall.noticeOn('background-sessions')).toBe(false);
   });

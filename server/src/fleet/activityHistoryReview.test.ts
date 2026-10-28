@@ -7,7 +7,7 @@ import path from 'node:path';
 import { openActivityDb } from './activityDb.js';
 import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from './activityHistoryTypes.js';
-import { FleetDb, openDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
@@ -48,7 +48,7 @@ function report(id: string, main: ActivityEntry[], agent: ActivityEntry[] = []):
 const tool = (at: number, text = `Read f${at}`): ActivityEntry => ({ at, kind: 'tool', text });
 
 describe('the note and the page never count a loop', () => {
-  it('reads the per-loop aggregates only: no statement touches `entries` by count, min or max', () => {
+  it('reads the per-loop aggregates only: no statement touches `entries` by count, min or max', async () => {
     const prepared: string[] = [];
     const wrap = (db: Db): Db =>
       new Proxy(db, {
@@ -90,7 +90,7 @@ describe('the note and the page never count a loop', () => {
     expect(h.note('s1', 'a1')).toBeNull();
   });
 
-  it('page reports the total, since and keptUntil from the same row', () => {
+  it('page reports the total, since and keptUntil from the same row', async () => {
     const { h } = setup({ policy: 'after', n: 2, unit: 'hours' });
     h.ingest(report('s1', Array.from({ length: 30 }, (_, i) => tool(T0 + i))), 0, META);
     const p = h.page('s1', MAIN_LOOP, null, 10);
@@ -179,18 +179,19 @@ describe('counting is bounded by rows, not by time', () => {
 describe('a failing history write never reaches the answer path', () => {
   const CFG: FleetConfig = { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' };
 
-  it('logs activity.podium_failed for add, update and remove, and leaves the live feed updated', () => {
+  it('logs activity.podium_failed for add, update and remove, and leaves the live feed updated', async () => {
     const errors: { event: string; msg: string }[] = [];
     const logger = { info() {}, warn() {}, debug() {}, error: (event: string, msg: string) => errors.push({ event, msg }) } as never;
     let now = T0;
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), CFG, () => now, logger, { authOn: true });
+    const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => now, logger, { authOn: true });
+    await fleet.init();
     fleet.activityHistorySettings.set({ policy: 'all' });
     fleet.features.setFeature('respond', true);
     const r = fixtureReport();
     r.session.activityFeed = true;
     r.session.respond = { level: 'everything', accepts: ['message', 'command'], limits: [] };
     r.sentAt = now;
-    fleet.ingest(r);
+    await fleet.ingest(r);
     fleet.activity.watch(r.session.id, MAIN_LOOP, 5);
     const boom = () => {
       throw new Error('disk full');
@@ -250,7 +251,7 @@ describe('a store closed during a delete', () => {
 });
 
 describe('the dedupe key follows the stored text', () => {
-  it('does not store an over-long entry again after a restart', () => {
+  it('does not store an over-long entry again after a restart', async () => {
     const file = tmpFile();
     const long = tool(T0, 'L'.repeat(400));
     const first = setup({}, {}, file);
@@ -270,7 +271,7 @@ describe('the dedupe key follows the stored text', () => {
     fourth.h.close();
   });
 
-  it('rebuilds the whole run of entries stored at the newest time after a restart, however long (more than one batch)', () => {
+  it('rebuilds the whole run of entries stored at the newest time after a restart, however long (more than one batch)', async () => {
     const file = tmpFile();
     const run = Array.from({ length: 130 }, (_, k) => tool(T0 + 5, `same instant ${k}`));
     const first = setup({}, {}, file);
@@ -281,7 +282,7 @@ describe('the dedupe key follows the stored text', () => {
     second.h.close();
   });
 
-  it('after a restart with only Podium entries or no entries in a loop, starts from the stored sequence', () => {
+  it('after a restart with only Podium entries or no entries in a loop, starts from the stored sequence', async () => {
     const file = tmpFile();
     const first = setup({}, {}, file);
     first.h.addPodium('s1', MAIN_LOOP, 'd1', { at: T0, text: 'hi', by: 'Ed', note: null }, META);

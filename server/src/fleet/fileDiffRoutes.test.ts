@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
@@ -20,10 +20,12 @@ const SECRET = 'admin-secret';
 const H = { 'X-Podium-Respond': '1' };
 const DIFF = '@@ -1 +1 @@\n-const a = 1\n+const a = 2 // UNIQUE-DIFF-LINE-9137';
 
-function setup(opts: { secret?: string | null; fileDiff?: boolean } = {}) {
+async function setup(opts: { secret?: string | null; fileDiff?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const db = openDb(':memory:');
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  await fleet.init();
   const people = new PeopleStore(db);
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
@@ -59,26 +61,26 @@ const okReply = { path: 'src/a.ts', status: 'ok', text: DIFF, truncated: false, 
 
 describe('the switches', () => {
   it('refuses with the flag off, and with authentication off', async () => {
-    const off = setup({ fileDiff: false });
+    const off = await setup({ fileDiff: false });
     await send(off.app, off.ed.token, report('Ed'));
     const a = await signedIn(off.app, 'Ed', off.ed.token).catch(() => null);
     // Sign-in itself is closed while neither feature is on.
     expect(a).toBeNull();
-    const noAuth = setup({ secret: null });
+    const noAuth = await setup({ secret: null });
     expect((await request(noAuth.app).get(DIFF_URL)).status).toBe(403);
   });
   it('lets a person sign in with only the file-diff flag on', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: true, signedIn: true, name: 'Ed' });
   });
   it('is signed out: 401, and the same for a cookie from nowhere', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     expect((await request(app).get(DIFF_URL)).status).toBe(401);
   });
   it('says the file diff is off when the reporter has the option off or never said', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const a = await signedIn(app, 'Ed', ed.token);
     await send(app, ed.token, report('Ed', { fileDiff: false }));
     const off = await a.get(DIFF_URL);
@@ -87,7 +89,7 @@ describe('the switches', () => {
     await send(app, ed.token, report('Ed', { id: 'sess-ed', fileDiff: null }));
   });
   it('lists no request to a reporter while the flag is off', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     void fleet.diffs.ask('sess-ed', 'a.ts');
     expect((await send(app, ed.token, report('Ed'))).body.diffs).toHaveLength(1);
@@ -98,7 +100,7 @@ describe('the switches', () => {
 
 describe('who may open a diff', () => {
   it('lets only the owner: not another person, not an Administrator, not the admin secret', async () => {
-    const { app, ed, alex, boss } = setup();
+    const { app, ed, alex, boss } = await setup();
     await send(app, ed.token, report('Ed'));
     const own = await signedIn(app, 'Ed', ed.token);
     void own;
@@ -110,7 +112,7 @@ describe('who may open a diff', () => {
     }
   });
   it('lets the admin secret open a session owned by Admin, and nobody else', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, SECRET, report(null, { id: 'sess-ed' }));
     const admin = await signedIn(app, 'Admin', SECRET);
     const waiting = admin.get(DIFF_URL).then((r) => r);
@@ -123,14 +125,14 @@ describe('who may open a diff', () => {
     expect((await e.get(DIFF_URL)).status).toBe(403);
   });
   it('has no one who can open a session with no owner', async () => {
-    const { app, ed } = setup({ secret: SECRET });
+    const { app, ed } = await setup({ secret: SECRET });
     // Reported with no credential at all, so no owner is recorded (7.7), though authentication is on for the sign-in.
     await request(app).post('/api/fleet/report').send(report(null));
     const a = await signedIn(app, 'Ed', ed.token);
     expect([403, 404]).toContain((await a.get(DIFF_URL)).status);
   });
   it('refuses a missing path and an unknown session', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.get('/api/fleet/respond/sessions/sess-ed/files/diff')).status).toBe(400);
@@ -140,7 +142,7 @@ describe('who may open a diff', () => {
 
 describe('the round trip', () => {
   it('asks the mod through the report reply and returns its answer once, keeping nothing', async () => {
-    const { app, fleet, people, db, ed } = setup();
+    const { app, fleet, people, db, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const a = await signedIn(app, 'Ed', ed.token);
     const waiting = a.get(DIFF_URL).then((r) => r);
@@ -169,7 +171,7 @@ describe('the round trip', () => {
       db.prepare('SELECT * FROM admin_log').all(),
       db.prepare('SELECT * FROM sessions').all(),
       db.prepare('SELECT * FROM events').all(),
-      fleet.state(),
+      await fleet.state(),
     ]);
     expect(everything.includes('UNIQUE-DIFF-LINE-9137')).toBe(false);
     const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'file_diff_opened');
@@ -177,7 +179,7 @@ describe('the round trip', () => {
     expect(log!.detail).toContain('src/a.ts');
   });
   it('answers 504 when the flag goes off while the browser waits', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const a = await signedIn(app, 'Ed', ed.token);
     const waiting = a.get(DIFF_URL).then((r) => r);
@@ -188,7 +190,7 @@ describe('the round trip', () => {
     expect(res.body.error).toBe('no answer');
   });
   it('answers 429 past four waiting requests for one session', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     for (let i = 0; i < FILE_DIFF_LIMITS.pending; i++) void fleet.diffs.ask('sess-ed', `f${i}.ts`);
     const a = await signedIn(app, 'Ed', ed.token);
@@ -196,17 +198,17 @@ describe('the round trip', () => {
     fleet.diffs.clear();
   });
   it('drops a waiting request when its session is deleted', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const p = fleet.diffs.ask('sess-ed', 'a.ts');
-    fleet.deleteSession('sess-ed');
+    await fleet.deleteSession('sess-ed');
     expect(await p).toBeNull();
   });
 });
 
 describe('the mod\'s answer route', () => {
   it('refuses with the flag off, a foreign session or a body that is not a diff, and takes a late answer quietly', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const put = (body: unknown, token = ed.token) => request(app).put('/api/fleet/sessions/sess-ed/diffs/whatever').set('X-Podium-Token', token).send(body as object);
     expect((await put(okReply)).status).toBe(200); // late: nothing is waiting, the text is discarded
@@ -218,7 +220,7 @@ describe('the mod\'s answer route', () => {
     expect((await put(okReply)).status).toBe(403);
   });
   it('refuses an answer over 300,000 bytes with 413', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const big = { ...okReply, text: 'é'.repeat(FILE_DIFF_LIMITS.answerBytes / 2 + 10) };
     expect((await request(app).put('/api/fleet/sessions/sess-ed/diffs/x').set('X-Podium-Token', ed.token).send(big)).status).toBe(413);
@@ -238,7 +240,7 @@ describe('loading ahead (#631)', () => {
   };
 
   it('refuses a load ahead when the reporter has not allowed it', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, ed.token, report('Ed'));
     const a = await signedIn(app, 'Ed', ed.token);
     const res = await a.get(AHEAD_URL);
@@ -246,7 +248,7 @@ describe('loading ahead (#631)', () => {
     expect(res.body.error).toBe('loading diffs ahead is off');
   });
   it('logs a load ahead as file_diff_loaded and not as an open, with no text', async () => {
-    const { app, people, ed } = setup();
+    const { app, people, ed } = await setup();
     await send(app, ed.token, report('Ed', { fileDiffPreload: true }));
     const a = await signedIn(app, 'Ed', ed.token);
     const waiting = a.get(AHEAD_URL).then((r) => r);
@@ -261,7 +263,7 @@ describe('loading ahead (#631)', () => {
     expect(JSON.stringify(rows).includes('UNIQUE-DIFF-LINE-9137')).toBe(false);
   });
   it('logs an open of a diff that was loaded ahead, for the owner only', async () => {
-    const { app, people, ed, alex } = setup();
+    const { app, people, ed, alex } = await setup();
     await send(app, ed.token, report('Ed', { fileDiffPreload: true }));
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.post(OPENED_URL).set(H).send({ path: 'src/a.ts' })).status).toBe(204);

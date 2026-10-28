@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { ReporterStore } from './reporters.js';
@@ -22,12 +22,13 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
+async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const db = openDb(':memory:');
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
   let clock = 1_800_000_000_000;
   const now = () => clock;
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now);
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now);
   const people = new PeopleStore(db);
   const reporters = new ReporterStore(db, now());
   const lockout = new Lockout(now);
@@ -37,6 +38,7 @@ function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
   app.use('/api/admin', createAdminRouter({ secret, people, reporters, peers: fleet.peers, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
+  await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) fleet.features.setFeature(PEER_MESSAGING, true);
   const ed = people.createPerson('Ed');
@@ -44,7 +46,7 @@ function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   return { app, fleet, people, ed, alex, lines, db, tick: (ms: number) => (clock += ms) };
 }
 
-type S = ReturnType<typeof setup>;
+type S = Awaited<ReturnType<typeof setup>>;
 
 /** One orchestrator's report: a session on a machine, with the `peers` option on unless told otherwise. */
 function report(userName: string, sid: string, name: string, machine: { name: string; id: string }, over: Partial<Report['session']> = {}): Report {
@@ -80,7 +82,7 @@ async function adminAgent(s: S) {
 
 /** Ed's two machines reporting, and Ed signed in with Mac to Linux set to `level`. */
 async function linked(level: 'see' | 'ask' | 'send' = 'send', opts: Parameters<typeof setup>[0] = {}) {
-  const s = setup(opts);
+  const s = await setup(opts);
   expect((await devReport(s)).status).toBe(200);
   expect((await testerReport(s)).status).toBe(200);
   expect((await alexReport(s)).status).toBe(200);
@@ -95,7 +97,7 @@ const storedMessages = (s: S) => (s.db.prepare('SELECT COUNT(*) AS n FROM peer_m
 
 describe('the report reply (#412)', () => {
   it('says peers: true only with authentication, the flag, a person token and the peers option', async () => {
-    const s = setup();
+    const s = await setup();
     const r = await devReport(s);
     expect(r.body).toMatchObject({ peers: true, peerDeliveries: [], peerRequests: [] });
     expect((await devReport(s, { peers: false })).body.peers).toBe(false);
@@ -104,9 +106,9 @@ describe('the report reply (#412)', () => {
   });
 
   it('says peers: false with authentication off, and for a reporter on the admin secret', async () => {
-    const open = setup({ secret: null });
+    const open = await setup({ secret: null });
     expect((await request(open.app).post('/api/fleet/report').send(report('Ed', 'sess-x', 'x', MAC))).body.peers).toBe(false);
-    const s = setup();
+    const s = await setup();
     const r = report('Admin', 'sess-admin', 'admin-one', MAC);
     delete r.userName;
     expect((await request(s.app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send(r)).body.peers).toBe(false);
@@ -269,7 +271,7 @@ describe('sessions ending and being deleted (#412)', () => {
     const s = await linked('send');
     await send(s, 'kept until deleted');
     expect(storedMessages(s)).toBe(1);
-    s.fleet.deleteSession('sess-tester');
+    await s.fleet.deleteSession('sess-tester');
     expect(storedMessages(s)).toBe(0);
   });
 });
@@ -330,7 +332,7 @@ describe('the owner’s routes (#412)', () => {
   });
 
   it('let a browser sign in while only messaging needs it', async () => {
-    const s = setup();
+    const s = await setup();
     expect((await request(s.app).get('/api/fleet/respond/me')).body.enabled).toBe(true);
   });
 
@@ -456,7 +458,7 @@ describe('Traffic’s open read (#412)', () => {
 
 describe('the Admin’s side (#412)', () => {
   it('reads and sets the limits and the retention, validated and logged', async () => {
-    const s = setup();
+    const s = await setup();
     const admin = await adminAgent(s);
     expect((await admin.get('/api/admin/settings')).body.peerMessaging).toEqual({ roundTrips: 10, perMinute: 6, maxChars: 20_000, retainDays: 30 });
     const ok = await admin.put('/api/admin/settings').set(HA).send({ peerMessaging: { roundTrips: 4, retainDays: 7 } });
@@ -542,7 +544,7 @@ describe('retention (#412)', () => {
     const s = await linked('send');
     await send(s, 'old news');
     s.tick(31 * 86_400_000);
-    expect(s.fleet.retain().peerMessages).toBe(1);
+    expect((await s.fleet.retain()).peerMessages).toBe(1);
     expect(storedMessages(s)).toBe(0);
   });
 });

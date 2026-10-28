@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
@@ -13,10 +13,12 @@ afterEach(() => {
   for (const c of closers.splice(0)) c();
 });
 
-function setup(adminSecret: string | null = 'admin-secret') {
+async function setup(adminSecret: string | null = 'admin-secret') {
   const logs: string[] = [];
-  const db = openDb(':memory:');
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  await fleet.init();
   const people = new PeopleStore(db);
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: adminSecret, people, log: (l) => logs.push(l) }));
@@ -36,7 +38,7 @@ const owners = async (app: express.Express) =>
 
 describe('reporting with a person token', () => {
   it('accepts the right token with the right name (any case) and records the owner', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const { token } = people.createPerson('Dana');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', token).send(report('dana'));
     expect(res.status).toBe(200);
@@ -46,7 +48,7 @@ describe('reporting with a person token', () => {
   });
 
   it('refuses a valid token that carries another person’s name, and shows nothing', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const dana = people.createPerson('Dana');
     people.createPerson('Eli');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Eli'));
@@ -55,7 +57,7 @@ describe('reporting with a person token', () => {
   });
 
   it('refuses a missing name, an unknown name and the right name with a wrong token', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const dana = people.createPerson('Dana');
     const eli = people.createPerson('Eli');
     const post = (token: string, name: string | null) =>
@@ -68,7 +70,7 @@ describe('reporting with a person token', () => {
   });
 
   it('refuses a revoked token, and an old token after a rotation', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const a = people.createPerson('Dana');
     people.revoke(a.person.id);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(401);
@@ -78,7 +80,7 @@ describe('reporting with a person token', () => {
   });
 
   it('never echoes the token in a refusal or a log line', async () => {
-    const { app, people, logs } = setup();
+    const { app, people, logs } = await setup();
     const a = people.createPerson('Dana');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Eli'));
     expect(JSON.stringify(res.body)).not.toContain(a.token);
@@ -86,7 +88,7 @@ describe('reporting with a person token', () => {
   });
 
   it('takes the owner of a classic hook from the token alone', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const a = people.createPerson('Dana');
     const res = await request(app)
       .post('/api/fleet/hook')
@@ -97,7 +99,7 @@ describe('reporting with a person token', () => {
   });
 
   it('lets any valid credential delete a session, and refuses a revoked one', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const a = people.createPerson('Dana');
     await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'));
     people.revoke(a.person.id);
@@ -108,7 +110,7 @@ describe('reporting with a person token', () => {
 
 describe('session ownership', () => {
   it('refuses a report for a session id that already belongs to someone else', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const dana = people.createPerson('Dana');
     const eli = people.createPerson('Eli');
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana', 'shared'))).status).toBe(200);
@@ -119,14 +121,14 @@ describe('session ownership', () => {
 
 describe('reporting with the admin secret', () => {
   it('puts the session in the Admin band whatever name it carries', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report('Dana'));
     expect(res.status).toBe(200);
     expect(await owners(app)).toEqual(['Admin']);
   });
 
   it('is refused once the owner turns admin-secret reporting off, while person tokens keep working', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     people.setAdminReporting(false);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report(null))).status).toBe(401);
     const a = people.createPerson('Dana');
@@ -134,7 +136,7 @@ describe('reporting with the admin secret', () => {
   });
 
   it('refuses a wrong secret and a missing token', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'nope').send(report(null))).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').send(report(null))).status).toBe(401);
   });
@@ -142,13 +144,13 @@ describe('reporting with the admin secret', () => {
 
 describe('reporting with authentication off', () => {
   it('accepts a report with no token and no name as Unassigned (no owner)', async () => {
-    const { app } = setup(null);
+    const { app } = await setup(null);
     expect((await request(app).post('/api/fleet/report').send(report(null))).status).toBe(200);
     expect(await owners(app)).toEqual([null]);
   });
 
   it('still checks a person token when one is presented', async () => {
-    const { app, people } = setup(null);
+    const { app, people } = await setup(null);
     const a = people.createPerson('Dana');
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Eli'))).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(200);
@@ -157,7 +159,7 @@ describe('reporting with authentication off', () => {
 
 describe('the people view fields (issue #34)', () => {
   it('shows each session’s owner, its group and its machine, and splits today’s spend by owner', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const backend = people.createGroup('Backend');
     const priya = people.createPerson('Priya N.', backend.id);
     const dana = people.createPerson('Dana K.');
@@ -185,11 +187,11 @@ describe('the people view fields (issue #34)', () => {
   });
 
   it('keeps a session’s machine when a later settings-hook payload carries none', async () => {
-    const { app, people, fleet } = setup();
+    const { app, people, fleet } = await setup();
     const priya = people.createPerson('Priya N.');
     await request(app).post('/api/fleet/report').set('X-Podium-Token', priya.token).send({ ...report('Priya N.', 'p1'), machine: { name: 'priya-mbp', id: 'aaaa1111' } });
-    fleet.ingestHook({ session_id: 'p1', hook_event_name: 'Notification', cwd: '/tmp', message: 'Claude needs your permission' }, 'Priya N.');
-    expect(fleet.view('p1')?.machine).toEqual({ name: 'priya-mbp', id: 'aaaa1111' });
+    await fleet.ingestHook({ session_id: 'p1', hook_event_name: 'Notification', cwd: '/tmp', message: 'Claude needs your permission' }, 'Priya N.');
+    expect((await fleet.view('p1'))?.machine).toEqual({ name: 'priya-mbp', id: 'aaaa1111' });
   });
 });
 
@@ -198,7 +200,7 @@ describe('guessing the admin secret through X-Podium-Token (#255)', () => {
     request(app).post('/api/fleet/report').set('X-Podium-Token', `guess-${n}`).send(report(null));
 
   it('ends many different wrong secrets from one address in 429s with Retry-After, and a person token still works', async () => {
-    const { app, people, logs } = setup();
+    const { app, people, logs } = await setup();
     const { token } = people.createPerson('Dana');
     const statuses: number[] = [];
     for (let i = 0; i < 12; i++) {
@@ -214,21 +216,21 @@ describe('guessing the admin secret through X-Podium-Token (#255)', () => {
   });
 
   it('refuses even the right secret from a throttled address, so a guess cannot be confirmed', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     for (let i = 0; i < 6; i++) await guess(app, i);
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report(null));
     expect(res.status).toBe(429);
   });
 
   it('does not count one stale credential sent again and again, so a misconfigured reporter locks nobody out', async () => {
-    const { app } = setup();
+    const { app } = await setup();
     for (let i = 0; i < 20; i++) expect((await guess(app, 0)).status).toBe(401);
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report(null));
     expect(res.status).toBe(200);
   });
 
   it('does not count a revoked or unknown person token', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const dana = people.createPerson('Dana');
     const eli = people.createPerson('Eli');
     people.revoke(dana.person.id);

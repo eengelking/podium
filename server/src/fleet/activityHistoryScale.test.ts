@@ -7,7 +7,8 @@ import path from 'node:path';
 import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from './activityDb.js';
 import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
-import { FleetDb, openDb } from './db.js';
+import { openDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { PeopleStore } from './people.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
@@ -423,10 +424,10 @@ describe('through the fleet', () => {
 
   it('deleting a session returns at once and logs a failure of the background removal', async () => {
     const errors: string[] = [];
-    const db = new FleetDb(openDb(':memory:'));
-    const fleet = new Fleet(db, CFG, () => T0, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
+    const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => T0, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
+    await fleet.init();
     vi.spyOn(fleet.activityHistory, 'deleteSession').mockRejectedValue(new Error('disk full'));
-    expect(() => fleet.deleteSession('whatever')).not.toThrow();
+    await expect(fleet.deleteSession('whatever')).resolves.toBeDefined();
     await new Promise((r) => setImmediate(r));
     expect(errors.join('\n')).toContain('disk full');
   });
@@ -464,7 +465,8 @@ describe('through the fleet', () => {
 
   it('the sweeper logs a hook that rejects after its first chunk, and keeps ticking', async () => {
     vi.useFakeTimers();
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), CFG, () => T0, undefined, { authOn: true });
+    const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => T0, undefined, { authOn: true });
+    await fleet.init();
     const logs: string[] = [];
     const hook = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('locked')).mockResolvedValue(undefined);
     const stop = startSweeper(fleet, { sweepMs: 1000, tickMs: 2000, retentionMs: 3_600_000, activityPurgeMs: 5000 }, (l) => logs.push(l), undefined, hook);

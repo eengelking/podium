@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FleetDb, openDb } from '../server/src/fleet/db.ts';
+import { openDb } from '../server/src/fleet/db.ts';
+import { openSqliteStorage } from '../server/src/storage/sqlite/index.ts';
 import { projectionReport, runReport, type ReportDeps } from '../server/src/fleet/reports.ts';
 import { DEFAULT_CONFIG } from '../server/src/fleet/fleet.ts';
 import { Pricing } from '../server/src/fleet/pricing.ts';
@@ -29,7 +30,7 @@ const dump = (file: string): string => {
   db.close();
   return out;
 };
-const deps = (file: string): ReportDeps => ({ db: new FleetDb(openDb(file)), now: () => NOW, pricing: () => new Pricing({}), retention: DEFAULT_CONFIG.retention });
+const deps = (file: string): ReportDeps => ({ db: openSqliteStorage(file).fleet, now: () => NOW, pricing: () => new Pricing({}), retention: DEFAULT_CONFIG.retention });
 
 describe('podium-seed-history: which database it will write', () => {
   const home = '/nowhere/home';
@@ -135,22 +136,22 @@ describe('podium-seed-history: the history', () => {
     after.close();
   });
 
-  it('feeds the reports: a projection with Sam marked "not enough history", and the long-period reports', () => {
+  it('feeds the reports: a projection with Sam marked "not enough history", and the long-period reports', async () => {
     const f = path.join(tmp(), 'h.db');
     seedHistory(f, { days: 45, seed: 1, today: TODAY });
     const d = deps(f);
-    const p = projectionReport(d, {});
+    const p = await projectionReport(d, {});
     expect(p.historyDays).toBe(14);
     expect(p.rows.find((r) => r.key === 'Sam')).toMatchObject({ projected: null, reason: 'history' });
     expect(p.rows.find((r) => r.key === 'Ed')!.projected).toBeGreaterThan(0);
     expect(p.rows.find((r) => r.key === 'Lena')).toBeUndefined();
-    const usage = runReport(d, 'usage', { from: '2026-09-05', to: TODAY, by: 'week' });
+    const usage = await runReport(d, 'usage', { from: '2026-09-05', to: TODAY, by: 'week' });
     expect(usage).toMatchObject({ partial: false, oldestDay: '2026-09-05' });
     expect(usage.rows.length).toBeGreaterThanOrEqual(6);
-    const spend = runReport(d, 'spend', { breakdown: 'model', by: 'month', from: '2026-09-05', to: TODAY });
+    const spend = await runReport(d, 'spend', { breakdown: 'model', by: 'month', from: '2026-09-05', to: TODAY });
     expect(spend.rows.find((r) => r.key === 'local-llama-3')).toMatchObject({ costUsd: null });
-    expect(runReport(d, 'people', {}).rows.find((r) => r.person === 'Lena')).toMatchObject({ state: 'never' });
-    expect(runReport(d, 'activity', { from: '2026-09-05', to: TODAY }).rows.length).toBe(18);
+    expect((await runReport(d, 'people', {})).rows.find((r) => r.person === 'Lena')).toMatchObject({ state: 'never' });
+    expect((await runReport(d, 'activity', { from: '2026-09-05', to: TODAY })).rows.length).toBe(18);
   });
 });
 
