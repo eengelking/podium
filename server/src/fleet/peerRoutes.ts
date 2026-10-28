@@ -16,6 +16,7 @@ import type { Actor, LiveOrchestrator, MessageRow, MessageTrail, PeerRequestRow,
 import { LEVEL_WORDS, type PeerReply } from './peers.js';
 import type { SessionRow } from './db.js';
 import type { Logger } from '../logging/logger.js';
+import { asyncHandler } from './asyncHandler.js';
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -148,13 +149,16 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     res.status(status).json({ ok: false, error: reason });
   };
 
-  /** The orchestrator a mod route is about, when messaging is on and a person's token owns its session; otherwise answers and returns null. */
-  const modPeer = (req: Request, res: Response): { row: SessionRow; o: LiveOrchestrator; person: PersonRow } | null => {
+  /**
+   * The orchestrator a mod route is about, when messaging is on and a person's token owns its session; otherwise answers and returns null.
+   * `row` is the session as the handler just read it. This is synchronous so that the checks and what the handler does after them
+   * run in one turn, with nothing able to end or delete the session in between.
+   */
+  const modPeer = (req: Request, res: Response, row: SessionRow | undefined): { row: SessionRow; o: LiveOrchestrator; person: PersonRow } | null => {
     if (!enabled()) {
       refuse(req, res, 403, 'orchestrator messaging is off');
       return null;
     }
-    const row = fleet.db.getSession(req.params.id!);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -176,14 +180,14 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     return { row, o, person: id.person };
   };
 
-  router.get('/sessions/:id/peers', d.requireToken, (req, res) => {
-    const m = modPeer(req, res);
+  router.get('/sessions/:id/peers', d.requireToken, asyncHandler(async (req, res) => {
+    const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
     res.json({ ok: true, ...fleet.peers.messages.list(m.row.id) });
-  });
+  }));
 
-  router.post('/sessions/:id/peers/messages', d.requireToken, json, (req, res) => {
-    const m = modPeer(req, res);
+  router.post('/sessions/:id/peers/messages', d.requireToken, json, asyncHandler(async (req, res) => {
+    const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const to = str(body.to);
@@ -196,10 +200,10 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
       return;
     }
     res.status(202).json(out);
-  });
+  }));
 
-  router.post('/sessions/:id/peers/access', d.requireToken, json, (req, res) => {
-    const m = modPeer(req, res);
+  router.post('/sessions/:id/peers/access', d.requireToken, json, asyncHandler(async (req, res) => {
+    const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
     const body = (req.body ?? {}) as Record<string, unknown>;
     const to = str(body.to);
@@ -215,10 +219,10 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (out.state === 'asked') res.status(202).json({ ok: true, state: 'asked', requestId: out.request.id, to: target.machine });
     else if (out.state === 'allowed') res.json({ ok: true, state: 'allowed', level: out.applied.level, to: target.machine });
     else res.json({ ok: true, state: 'declined', to: target.machine });
-  });
+  }));
 
-  router.post('/sessions/:id/peers/requests/:requestId', d.requireToken, json, (req, res) => {
-    const m = modPeer(req, res);
+  router.post('/sessions/:id/peers/requests/:requestId', d.requireToken, json, asyncHandler(async (req, res) => {
+    const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
@@ -229,17 +233,17 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     // A delivered message on a paused link waits for Resume link, so /podium deliver says so rather than "when its turn ends".
     const paused = 'message' in out && out.message.deliver && fleet.peers.rights.effective(out.request.fromKey, out.request.toKey).paused;
     res.json({ ok: true, outcome: out.request.outcome, ...(applied ? { level: applied.level } : {}), ...(paused ? { paused: true } : {}) });
-  });
+  }));
 
-  router.post('/sessions/:id/peers/deliveries/:deliveryId/result', d.requireToken, json, (req, res) => {
-    const m = modPeer(req, res);
+  router.post('/sessions/:id/peers/deliveries/:deliveryId/result', d.requireToken, json, asyncHandler(async (req, res) => {
+    const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
     if (!m) return;
     const result = (req.body as { result?: unknown } | undefined)?.result;
     if (!(PEER_RESULTS as readonly unknown[]).includes(result)) return void res.status(400).json({ ok: false, error: 'result must be took, queued or refused', path: '$.result' });
     const out = withSource(sourceOf(req), () => fleet.peers.messages.result(m.row.id, req.params.deliveryId!, result as PeerResult));
     if (out === 'unknown') return void res.status(404).json({ ok: false, error: 'unknown delivery' });
     res.json({ ok: true });
-  });
+  }));
 
   /** Traffic's open read (8.1): which orchestrators talk, and how much, for anyone who can read the console. Never the text. */
   router.get('/peers/traffic', (req, res) => {

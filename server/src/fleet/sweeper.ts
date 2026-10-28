@@ -86,16 +86,19 @@ export function forgetReporters(reporters: ReporterStore, people: PeopleStore, l
 /** `log` is the server's logger, or a plain line sink as before the logger existed (#140). */
 export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void, onActivityPurge?: () => void | Promise<void>): () => void {
   const logger = typeof log === 'function' ? loggerFromLine(log) : log;
-  const guard = (name: string, fn: () => void) => () => {
+  // A body may be async (the fleet's reads are): a rejection is logged the same way as a throw.
+  const guard = (name: string, fn: () => unknown) => () => {
+    const failed = (err: unknown) => logger.error('sweeper.failed', `podium sweeper: ${name} failed: ${(err as Error).message}`, { timer: name, reason: (err as Error).message });
     try {
-      fn();
+      const out = fn();
+      if (out instanceof Promise) out.catch(failed);
     } catch (err) {
-      logger.error('sweeper.failed', `podium sweeper: ${name} failed: ${(err as Error).message}`, { timer: name, reason: (err as Error).message });
+      failed(err);
     }
   };
   // Each job is guarded on its own, so a failing one never stops the other.
   const retention = () => {
-    guard('retention', () => void fleet.retain())();
+    guard('retention', () => fleet.retain())();
     guard('forget-reporters', () => onRetention?.())();
   };
   // The purge is async: a failure after its first chunk arrives as a rejection, which is logged the same way.

@@ -4,14 +4,15 @@ import type { FleetDb } from '../fleet/db.js';
 import type { PeopleStore } from '../fleet/people.js';
 import type { ReporterStore } from '../fleet/reporters.js';
 import type { PeerReporterLookup } from '../fleet/peerTypes.js';
+import type { ReportQueries } from './reportQueries.js';
 
 /** A function becomes one returning a Promise of the same result; anything else is kept. */
 export type Async<T> = {
   [K in keyof T]: T[K] extends (...args: infer A) => infer R ? (...args: A) => Promise<Awaited<R>> : T[K];
 };
 
-/** Sessions, agents, events, blowouts, samples and spend. */
-export type FleetStore = Async<Omit<FleetDb, 'db' | 'tx' | 'close'>>;
+/** Sessions, agents, events, blowouts, samples and spend, and the report and rollup queries (#484). */
+export type FleetStore = Async<Omit<FleetDb, 'db' | 'tx' | 'close'>> & Async<ReportQueries>;
 
 /** People, groups, the admin log and the settings they own. */
 export type PeopleStoreApi = Async<Omit<PeopleStore, 'db'>>;

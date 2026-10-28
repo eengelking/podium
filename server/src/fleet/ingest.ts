@@ -1,7 +1,8 @@
 // Report -> rows, events, blowouts and samples (SPEC 7.3 steps 1-4). One transaction per report.
 import type { AgentReport, Plan, PlanStepView, PlanView, Report, TokenCounts } from './protocol.js';
 import { SAME_USAGE } from './db.js';
-import type { AgentRow, EventRow, FleetDb, SampleRow, SessionRow } from './db.js';
+import type { AgentRow, EventRow, SampleRow, SessionRow } from './db.js';
+import type { Storage } from '../storage/types.js';
 import { family } from './derive.js';
 
 // An older reporter prices a non-Claude model as Sonnet; Podium has no price for it, so drop the figure. A non-Claude model has no ledger price, and a loop that has not reported a model yet has no spend worth showing
@@ -181,27 +182,28 @@ export class OwnerConflict extends Error {}
  * Stores one validated report. `serverTime` (never the reporter's clock) sets last_seen_at.
  * `owner` is the name the server decided from the token; null (auth off) leaves a stored owner alone.
  */
-export function ingestReport(f: FleetDb, report: Report, serverTime: number, owner: string | null = null): IngestResult {
-  return f.tx(() => {
+export function ingestReport(storage: Storage, report: Report, serverTime: number, owner: string | null = null): Promise<IngestResult> {
+  const f = storage.fleet;
+  return storage.tx(async () => {
     const sid = report.session.id;
-    const prev = f.getSession(sid);
+    const prev = await f.getSession(sid);
     if (owner !== null && prev?.owner && prev.owner !== owner) throw new OwnerConflict('session belongs to another owner');
     const row = sessionRow(report, prev, serverTime, owner);
-    f.upsertSession(row);
+    await f.upsertSession(row);
     const ended = report.session.status === 'done';
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);
 
     // 2. Agents: upsert what was reported; never delete one that is missing (a reload may lose it).
     for (const a of report.agents) {
-      f.upsertAgent(agentRow(sid, a));
+      await f.upsertAgent(agentRow(sid, a));
       if (a.promptText || a.answerText) {
-        f.upsertAgentTexts(sid, a.id, {
+        await f.upsertAgentTexts(sid, a.id, {
           ...(a.promptText ? { prompt: a.promptText } : {}),
           ...(a.answerText ? { answer: a.answerText } : {}),
         });
       }
     }
-    if (ended) f.abortOpenAgents(sid, serverTime);
+    if (ended) await f.abortOpenAgents(sid, serverTime);
 
     // 3. Events, idempotent by id. A blow event that is new adds a blowouts row.
     const newEvents: EventRow[] = [];
@@ -215,11 +217,11 @@ export function ingestReport(f: FleetDb, report: Report, serverTime: number, own
         text: e.text,
         data_json: json(e.data),
       };
-      if (!f.insertEvent(ev)) continue;
+      if (!(await f.insertEvent(ev))) continue;
       newEvents.push(ev);
       const kind = e.data && typeof e.data.kind === 'string' ? e.data.kind : null;
       if (e.kind === 'blow' && kind) {
-        f.insertBlowout({
+        await f.insertBlowout({
           session_id: sid,
           agent_id: e.agentId,
           t: e.t,
@@ -231,13 +233,13 @@ export function ingestReport(f: FleetDb, report: Report, serverTime: number, own
     }
 
     // 4. Sample for this second: totals over every stored agent, delta against the previous second.
-    const agents = f.getAgents(sid);
+    const agents = await f.getAgents(sid);
     const tokensTotal = tokenSum(row) + agents.reduce((n, a) => n + tokenSum(a), 0);
     const second = Math.floor(serverTime / 1000);
-    const before = f.sampleBefore(sid, second);
+    const before = await f.sampleBefore(sid, second);
     const running = agents.filter((a) => a.status === 'running');
     const peakPct = Math.max(row.context_percent ?? 0, ...running.map((a) => a.context_percent ?? 0));
-    f.upsertSample({
+    await f.upsertSample({
       session_id: sid,
       t: second,
       tokens_total: tokensTotal,

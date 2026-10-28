@@ -4,7 +4,7 @@ import { openSqliteStorage } from './sqlite/index.js';
 import type { Storage } from './types.js';
 
 export type { Storage, FleetStore, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup } from './types.js';
-export { openSqliteStorage } from './sqlite/index.js';
+export { openSqliteStorage, type SqliteStorage } from './sqlite/index.js';
 
 /** Opens the storage a target names. `target` is what follows the kind: a file for SQLite. */
 export type StorageOpener = (target: string) => Storage;

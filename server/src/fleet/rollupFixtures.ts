@@ -1,5 +1,6 @@
 // Shared builders for the rollup and report tests (#484). Not used at run time.
-import { openDb, FleetDb, type AgentRow, type SessionRow } from './db.js';
+import type { AgentRow, SessionRow } from './db.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { PeopleStore } from './people.js';
 import { Pricing } from './pricing.js';
 import type { ReportDeps } from './reports.js';
@@ -43,7 +44,11 @@ export const failure = (cls: string, tool: string | null): string =>
   JSON.stringify({ class: cls, at: 1, tool, call: 'secret command line', exitCode: 1, outputTail: ['secret output'], evidence: [], explanation: null, retriedAs: null });
 
 export interface World {
-  fdb: FleetDb;
+  /** The storage over the one in-memory database; `storage.fleet` is the async fleet store. */
+  storage: SqliteStorage;
+  /** The async fleet store, `storage.fleet`. */
+  fdb: SqliteStorage['fleet'];
+  /** The synchronous people store over the same connection (a test helper; it is not under the storage lock). */
   people: PeopleStore;
   clock: { t: number };
   deps: ReportDeps;
@@ -51,40 +56,42 @@ export interface World {
 
 /** An empty database with the clock at NOW, the default prices and the default retention. */
 export function world(): World {
-  const fdb = new FleetDb(openDb(':memory:'));
-  const people = new PeopleStore(fdb.db);
+  const storage = openSqliteStorage(':memory:');
+  const fdb = storage.fleet;
+  const people = new PeopleStore(storage.sqliteHandle);
   const clock = { t: NOW };
   const pricing = new Pricing({});
-  return { fdb, people, clock, deps: { db: fdb, now: () => clock.t, pricing: () => pricing, retention: DEFAULT_CONFIG.retention } };
+  return { storage, fdb, people, clock, deps: { db: fdb, now: () => clock.t, pricing: () => pricing, retention: DEFAULT_CONFIG.retention } };
 }
 
 /**
  * Two groups of people and a spread of sessions over the last days: Priya (Backend) and Dana (no group) report, Quiet is
  * known and has not, and a session of the Admin has no group. Returns the session ids by name.
  */
-export function populate(w: World): void {
+export async function populate(w: World): Promise<void> {
   const backend = w.people.createGroup('Backend', NOW);
   const priya = w.people.createPerson('Priya', backend.id, NOW - 60 * DAY_MS).person;
   w.people.createPerson('Dana', null, NOW - 60 * DAY_MS);
   w.people.createPerson('Quiet', null, NOW - 60 * DAY_MS);
-  w.fdb.db.prepare('UPDATE people SET last_report_at = ? WHERE id = ?').run(at(0, 10), priya.id);
-  w.fdb.db.prepare("UPDATE people SET last_report_at = ? WHERE name = 'Dana'").run(at(2, 10));
+  const raw = w.storage.sqliteHandle;
+  raw.prepare('UPDATE people SET last_report_at = ? WHERE id = ?').run(at(0, 10), priya.id);
+  raw.prepare("UPDATE people SET last_report_at = ? WHERE name = 'Dana'").run(at(2, 10));
   const add = (s: Parameters<typeof session>[0]) => w.fdb.upsertSession(session(s));
   // Priya: three days of work, one on a model nobody priced, one with agents and a failure.
-  add({ id: 'p1', owner: 'Priya', started_at: at(3, 9), last_seen_at: at(3, 11), ended_at: at(3, 11), cost_usd: 2, usage_json: JSON.stringify([{ model: 'claude-opus-5-5', tier: 'std', tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } }]), plan_json: JSON.stringify({ title: null, source: 'TodoWrite', steps: [] }), machine_json: JSON.stringify({ name: 'mbp', id: 'm1' }), blowouts: 1, context_percent: 91 });
-  add({ id: 'p2', owner: 'Priya', started_at: at(2, 9), last_seen_at: at(2, 12), ended_at: at(2, 12), cost_usd: null, model: 'llama-local', end_reason: 'error' });
-  add({ id: 'p3', owner: 'Priya', started_at: at(1, 9), last_seen_at: at(1, 10), ended_at: at(1, 10), cost_usd: 3, repo_name: 'api', reporter_version: '1.2.1' });
-  add({ id: 'p4', owner: 'Priya', started_at: at(1, 22), last_seen_at: at(0, 1), ended_at: null, status: 'running', end_reason: null, cost_usd: 4 });
-  add({ id: 'd1', owner: 'Dana', started_at: at(2, 9), last_seen_at: at(2, 10), ended_at: at(2, 10), cost_usd: 1.5, model: 'claude-sonnet-5-5', effort: null });
-  add({ id: 'a1', owner: 'Admin', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 0.5 });
-  add({ id: 'n1', owner: null, started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: 0.25, repo_name: null, model: null, effort: null });
+  await add({ id: 'p1', owner: 'Priya', started_at: at(3, 9), last_seen_at: at(3, 11), ended_at: at(3, 11), cost_usd: 2, usage_json: JSON.stringify([{ model: 'claude-opus-5-5', tier: 'std', tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } }]), plan_json: JSON.stringify({ title: null, source: 'TodoWrite', steps: [] }), machine_json: JSON.stringify({ name: 'mbp', id: 'm1' }), blowouts: 1, context_percent: 91 });
+  await add({ id: 'p2', owner: 'Priya', started_at: at(2, 9), last_seen_at: at(2, 12), ended_at: at(2, 12), cost_usd: null, model: 'llama-local', end_reason: 'error' });
+  await add({ id: 'p3', owner: 'Priya', started_at: at(1, 9), last_seen_at: at(1, 10), ended_at: at(1, 10), cost_usd: 3, repo_name: 'api', reporter_version: '1.2.1' });
+  await add({ id: 'p4', owner: 'Priya', started_at: at(1, 22), last_seen_at: at(0, 1), ended_at: null, status: 'running', end_reason: null, cost_usd: 4 });
+  await add({ id: 'd1', owner: 'Dana', started_at: at(2, 9), last_seen_at: at(2, 10), ended_at: at(2, 10), cost_usd: 1.5, model: 'claude-sonnet-5-5', effort: null });
+  await add({ id: 'a1', owner: 'Admin', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 0.5 });
+  await add({ id: 'n1', owner: null, started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: 0.25, repo_name: null, model: null, effort: null });
   // p4 ran over midnight: its last sample before it had spent nothing, so all 4 of its cost came today.
-  w.fdb.insertSampleIfAbsent({ session_id: 'p4', t: Math.floor(at(1, 23) / 1000), tokens_total: 0, tokens_delta: 0, peak_context: 0, running_agents: 0, cost_usd: 0 });
-  w.fdb.upsertAgent(agent('p1', 'g1', { cost_usd_est: 0.5, failure_json: failure('permission', 'Bash') }));
-  w.fdb.upsertAgent(agent('p1', 'g2', { cost_usd_est: 0.5, failure_json: failure('timeout', 'WebFetch') }));
-  w.fdb.upsertAgent(agent('p3', 'g3', { cost_usd_est: 1.5, failure_json: failure('permission', 'Bash') }));
-  w.fdb.upsertAgent(agent('p4', 'g4', { cost_usd_est: 1 }));
-  w.fdb.upsertAgent(agent('p4', 'g5', { cost_usd_est: 1 }));
-  w.fdb.db.prepare("INSERT INTO reporters (key, kind, machine_id, owner, reporter_version, engine_version, first_seen_at, last_seen_at) VALUES ('m1', 'mod', 'm1', 'Priya', '1.2.2', '2.1.301', 1, 2)").run();
-  w.fdb.db.prepare("INSERT INTO reporter_sessions (reporter_key, session_id) VALUES ('m1', 'p1'), ('m1', 'p3')").run();
+  await w.fdb.insertSampleIfAbsent({ session_id: 'p4', t: Math.floor(at(1, 23) / 1000), tokens_total: 0, tokens_delta: 0, peak_context: 0, running_agents: 0, cost_usd: 0 });
+  await w.fdb.upsertAgent(agent('p1', 'g1', { cost_usd_est: 0.5, failure_json: failure('permission', 'Bash') }));
+  await w.fdb.upsertAgent(agent('p1', 'g2', { cost_usd_est: 0.5, failure_json: failure('timeout', 'WebFetch') }));
+  await w.fdb.upsertAgent(agent('p3', 'g3', { cost_usd_est: 1.5, failure_json: failure('permission', 'Bash') }));
+  await w.fdb.upsertAgent(agent('p4', 'g4', { cost_usd_est: 1 }));
+  await w.fdb.upsertAgent(agent('p4', 'g5', { cost_usd_est: 1 }));
+  raw.prepare("INSERT INTO reporters (key, kind, machine_id, owner, reporter_version, engine_version, first_seen_at, last_seen_at) VALUES ('m1', 'mod', 'm1', 'Priya', '1.2.2', '2.1.301', 1, 2)").run();
+  raw.prepare("INSERT INTO reporter_sessions (reporter_key, session_id) VALUES ('m1', 'p1'), ('m1', 'p3')").run();
 }

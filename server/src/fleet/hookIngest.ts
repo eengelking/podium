@@ -51,6 +51,9 @@ function backgroundOf(payload: Record<string, unknown>): BackgroundWait | null {
   return tasks.length ? { tasks, wakeAt: null } : null;
 }
 
+/** The session id a hook payload names, as `hookToReport` reads it (so a caller can queue work under the id the report will carry). */
+export const hookSessionId = (payload: unknown): string | null => (isObj(payload) ? str(payload.session_id) : null);
+
 const lastSegment = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
 
 function storedSession(row: SessionRow | undefined, id: string, cwd: string, now: number): SessionReport {

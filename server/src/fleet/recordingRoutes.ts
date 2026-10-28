@@ -14,6 +14,7 @@ import { MAIN_LOOP, RECORDING_LIMITS, validateRecordingBatch, validateRecordingS
 import type { SessionRow } from './db.js';
 import type { RecordingTrail } from './recordings.js';
 import type { Logger } from '../logging/logger.js';
+import { asyncHandler } from './asyncHandler.js';
 
 /** The mod's batch is at most 480,000 bytes of JSON; the router's body limit is the report's. */
 const BATCH_BODY_LIMIT = '512kb';
@@ -34,9 +35,13 @@ export function logRecording(people: PeopleStore | null, logger: Logger, now: nu
 /** Writes what the server did to a recording on its own (a limit, the flag going off, a /clear) to the Admin log and the server log. */
 export function wireRecordingLogs(fleet: Fleet, people: PeopleStore | null, logger: Logger): void {
   fleet.recordings.trail = (t: RecordingTrail) => {
-    const name = fleet.db.getSession(t.sessionId)?.name ?? 'a session';
-    const where = `${name} (${id8(t.sessionId)})`;
+    // The store calls this mid-change and cannot wait for a read: the line is written when the session's name arrives.
+    void writeTrail(t).catch((err: Error) => logger.warn('recording.trail_failed', `podium: could not log what became of a recording in session ${t.sessionId}`, { session_id: t.sessionId, error: String(err) }));
+  };
+  const writeTrail = async (t: RecordingTrail) => {
     const now = fleet.now();
+    const name = (await fleet.db.getSession(t.sessionId))?.name ?? 'a session';
+    const where = `${name} (${id8(t.sessionId)})`;
     if (t.kind === 'limit') {
       const why = t.which === 'budget' ? 'the disk budget was reached' : `the session reached its limit (${sizeText(t.bytes)})`;
       logRecording(people, logger, now, 'recording_limit', `Recording of ${where} stopped: ${why}`, 'server', null, { session_id: t.sessionId, limit: t.which, bytes: t.bytes });
@@ -50,14 +55,14 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStore | null, logg
 }
 
 /** What a session's recording starts from: its name, project and owner in the main database. */
-const metaOf = (fleet: Fleet, row: SessionRow) => fleet.historyMeta(row.id) ?? { name: row.name, project: null, owner: row.owner };
+const metaOf = async (fleet: Fleet, row: SessionRow) => (await fleet.historyMeta(row.id)) ?? { name: row.name, project: null, owner: row.owner };
 
 /** The mod's route (SPEC 7.1). */
 export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
   const json = express.json({ limit: BATCH_BODY_LIMIT });
 
-  router.post('/sessions/:id/recording', d.requireToken, json, (req, res) => {
+  router.post('/sessions/:id/recording', d.requireToken, json, asyncHandler(async (req, res) => {
     const v = validateRecordingBatch(req.body);
     if (!v.ok) {
       res.status(400).json({ ok: false, error: v.error, path: v.path });
@@ -69,7 +74,9 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     };
     const off = () => refuse(403, 'recording is off');
     if (!recordingEnabled(fleet, d.token)) return off();
-    const row = fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id!);
+    // The batch is stored in the same turn as the checks below, with nothing awaited between: the session cannot end in between.
+    const meta = row ? await metaOf(fleet, row) : undefined;
     if (!row) return refuse(404, 'unknown session', '$.id');
     if (!credentialOwns(d.identityOf(res), row)) return refuse(409, 'that session belongs to someone else', '$.session.id');
     // A session that has ended is not accepted again: its recording is kept as it is.
@@ -77,12 +84,12 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     // A recording a person stopped still takes the entries captured before the stop (the mod's last interval); ingest drops later ones.
     if (fleet.recordings.acceptsUntil(row.id) === null) return off();
     const before = fleet.recordings.grant(row.id).state;
-    const stored = fleet.recordings.ingest(row.id, v.batch, metaOf(fleet, row));
+    const stored = fleet.recordings.ingest(row.id, v.batch, meta!);
     const recording = fleet.recordings.grant(row.id);
     if (recording.state !== before) fleet.recordingChanged(row.id);
     logger.debug('recording.batch', `podium: stored ${stored} of ${v.batch.entries.length} recorded entries of session ${row.id}`, { session_id: row.id, stored, received: v.batch.entries.length, state: recording.state });
     res.json({ ok: true, stored, recording });
-  });
+  }));
 }
 
 /** The browser's routes (SPEC 7.1), mounted on responding's /respond router. */
@@ -95,8 +102,11 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     res.status(status).json({ ok: false, error: reason, ...extra });
   };
 
-  /** The signed-in viewer and the session they may use (its owner, or an Admin); otherwise answers and returns null. */
-  const access = (req: Request, res: Response) => {
+  /**
+   * The signed-in viewer and the session they may use (its owner, or an Admin); otherwise answers and returns null. `row` is the session
+   * as the handler just read it; this is synchronous so the checks and what the handler does next run in one turn.
+   */
+  const access = (req: Request, res: Response, row: SessionRow | undefined) => {
     if (!recordingEnabled(fleet, d.token)) {
       res.status(404).json({ ok: false, error: 'session recording is off' });
       return null;
@@ -106,7 +116,6 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       refuse(req, res, 401, 'sign in to open the recording');
       return null;
     }
-    const row = fleet.db.getSession(req.params.id!);
     if (!row) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -121,8 +130,8 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const audit = (req: Request, v: { actor: string }, row: SessionRow, kind: string, detail: string, fields: Record<string, string | number | boolean | null> = {}) =>
     logRecording(people, logger, now(), kind, `${detail} in ${row.name} (${id8(row.id)})`, sourceOf(req), v.actor, { session_id: row.id, ...fields });
 
-  browser.get('/sessions/:id/recording', (req, res) => {
-    const got = access(req, res);
+  browser.get('/sessions/:id/recording', asyncHandler(async (req, res) => {
+    const got = access(req, res, await fleet.db.getSession(req.params.id!));
     if (!got) return;
     const bad = (error: string, path: string) => void res.status(400).json({ ok: false, error, path });
     const num = (raw: unknown, min: number): number | null | 'bad' => {
@@ -145,24 +154,26 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     if (before === null) audit(req, got.v, got.row, 'recording_read', `${got.v.name} opened the replay${loop ? ` of ${loop === MAIN_LOOP ? 'the orchestrator' : 'one agent'}` : ''}`, { entries: page.entries.length });
     const body: RecordingPage = { ...page, grant: fleet.recordings.grant(got.row.id), loops, owner: got.row.owner };
     res.json(body);
-  });
+  }));
 
   // The consent as it stands before anything is chosen, so the picker can say whether the owner allows recording (SPEC 7.1). It
   // carries no text, and a recording need not exist.
-  browser.get('/sessions/:id/recording/consent', (req, res) => {
-    const got = access(req, res);
+  browser.get('/sessions/:id/recording/consent', asyncHandler(async (req, res) => {
+    const got = access(req, res, await fleet.db.getSession(req.params.id!));
     if (!got) return;
     res.json({ ok: true, grant: fleet.recordings.grant(got.row.id), keepHours: fleet.recordingSettings.get().keepHours });
-  });
+  }));
 
-  browser.put('/sessions/:id/recording', (req, res) => {
-    const got = access(req, res);
+  browser.put('/sessions/:id/recording', asyncHandler(async (req, res) => {
+    const got = access(req, res, await fleet.db.getSession(req.params.id!));
     if (!got) return;
     const v = validateRecordingStart(req.body);
     if (!v.ok) {
       res.status(400).json({ ok: false, error: v.error, path: v.path });
       return;
     }
+    // Read before the checks below, so nothing is awaited between them and the start: the session cannot end in between.
+    const meta = await metaOf(fleet, got.row);
     // PROVISIONAL (#353): capture needs a running session, so a session that has ended cannot be started.
     if (!fleet.isLive(got.row.id)) {
       res.status(409).json({ ok: false, error: 'the session is not running' });
@@ -173,7 +184,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       res.status(400).json({ ok: false, error: 'the session has no such loop', path: '$.loops' });
       return;
     }
-    const out = fleet.recordings.start(got.row.id, v.request.loops, got.v.name, metaOf(fleet, got.row));
+    const out = fleet.recordings.start(got.row.id, v.request.loops, got.v.name, meta);
     if (out !== 'ok') {
       const why = { limit: 'the recording stopped for its limit; delete it to start again', budget: 'the disk budget has no room for a new recording', busy: 'the last recording of this session is still being deleted' }[out];
       res.status(409).json({ ok: false, error: why });
@@ -182,10 +193,10 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     audit(req, got.v, got.row, 'recording_started', `${got.v.name} chose to record ${v.request.loops.length === 1 ? '1 loop' : `${v.request.loops.length} loops`}`, { loops: v.request.loops.length, by: got.v.name });
     fleet.recordingChanged(got.row.id);
     res.json({ ok: true, grant: fleet.recordings.grant(got.row.id) });
-  });
+  }));
 
-  browser.post('/sessions/:id/recording/stop', (req, res) => {
-    const got = access(req, res);
+  browser.post('/sessions/:id/recording/stop', asyncHandler(async (req, res) => {
+    const got = access(req, res, await fleet.db.getSession(req.params.id!));
     if (!got) return;
     const out = fleet.recordings.stop(got.row.id, got.v.name);
     if (!out) {
@@ -197,10 +208,10 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       fleet.recordingChanged(got.row.id);
     }
     res.json({ ok: true, grant: out.grant });
-  });
+  }));
 
-  browser.delete('/sessions/:id/recording', (req, res) => {
-    const got = access(req, res);
+  browser.delete('/sessions/:id/recording', asyncHandler(async (req, res) => {
+    const got = access(req, res, await fleet.db.getSession(req.params.id!));
     if (!got) return;
     if (!fleet.recordings.has(got.row.id)) {
       res.status(404).json({ ok: false, error: 'this session has no recording' });
@@ -214,5 +225,5 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       },
       () => void res.status(500).json({ ok: false, error: 'could not delete the recording' }),
     );
-  });
+  }));
 }

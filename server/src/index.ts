@@ -11,7 +11,7 @@ loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 import fs from "node:fs";
 import express from "express";
 import { createRouter } from "./routes.js";
-import { FleetDb, openDb } from "./fleet/db.js";
+import { openSqliteStorage } from "./storage/index.js";
 import { configFromEnv, Fleet } from "./fleet/fleet.js";
 import { createFleetRouter } from "./fleet/routes.js";
 import { reportDepsOf } from "./fleet/reportDeps.js";
@@ -55,22 +55,26 @@ if (TOKEN && TOKEN.length < 24) {
 
 warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
 
-const fleetDb = new FleetDb(openDb(DB_PATH));
+const storage = openSqliteStorage(DB_PATH);
+// TODO(#313 stage 5): the stores below still read the raw connection; each moves onto `storage` as its stage lands.
+const sqlite = storage.sqliteHandle;
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
 // The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
 const activityDb = openActivityDb(activityDbPath(DB_PATH));
-const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null, secret: TOKEN });
-const people = new PeopleStore(fleetDb.db);
-const tlsSettings = new TlsSettingsStore(fleetDb.db);
+const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null, secret: TOKEN });
+// The live set is read from the database before anything listens or sweeps.
+await fleet.init();
+const people = new PeopleStore(sqlite);
+const tlsSettings = new TlsSettingsStore(sqlite);
 let tlsListener: TlsListener | null = null;
 // Which reporters are on HTTP and which on HTTPS, for the Admin's switch and its count (#589).
 const reporterTransport = new ReporterTransport();
 // People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
-const personCerts = new PersonCertStore(fleetDb.db);
+const personCerts = new PersonCertStore(sqlite);
 const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
 const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsListener.port), caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
-const reporters = new ReporterStore(fleetDb.db, Date.now());
+const reporters = new ReporterStore(sqlite, Date.now());
 const stopSweeper = startSweeper(
   fleet,
   undefined,
@@ -115,7 +119,7 @@ app.use("/api", failureLimiter({ logger, max: parseFailureLimit(process.env.PODI
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
 app.use(createRouter());
@@ -176,10 +180,12 @@ function shutdown(signal: string) {
   fleet.close();
   tlsListener?.server.close();
   server.close(() => {
-    fleetDb.close();
-    fleet.activityHistory.close();
-    // The last lines (this shutdown among them) go out before the process does, for at most a second.
-    void logging.close(1000).finally(() => process.exit(0));
+    // Messages and writes already asked for finish before the database closes.
+    void fleet.flush().then(() => storage.close()).catch(() => undefined).then(() => {
+      fleet.activityHistory.close();
+      // The last lines (this shutdown among them) go out before the process does, for at most a second.
+      void logging.close(1000).finally(() => process.exit(0));
+    });
   });
   // SSE sockets were ended above; anything still open after 2 s is cut.
   setTimeout(() => process.exit(0), 2000).unref();

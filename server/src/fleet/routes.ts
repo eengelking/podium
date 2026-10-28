@@ -17,6 +17,7 @@ import { mountRecordingBrowserRoutes, mountRecordingRoutes, recordingEnabled, wi
 import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
 import { refusableOverHttp, type ReporterTransport } from '../tlsHttp.js';
+import { asyncHandler } from './asyncHandler.js';
 import { certAuth, type ClientSocket, type PersonCertStore } from '../tlsClientAuth.js';
 
 export interface FleetRouterOptions {
@@ -195,7 +196,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   };
   const identityOf = (res: Response): Identity => res.locals.identity as Identity;
 
-  router.post('/report', requireToken, json, (req, res) => {
+  router.post('/report', requireToken, json, asyncHandler(async (req, res) => {
     const result = validateReport(req.body);
     if (!result.ok) {
       logger.warn('report.rejected', `podium: rejected report at ${result.path}: ${result.error}`, {
@@ -237,7 +238,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     try {
-      const out = fleet.ingest(result.report, ownerOf(id));
+      const out = await fleet.ingest(result.report, ownerOf(id));
       if (id.kind === 'person') opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
@@ -273,7 +274,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...replyFor(fleet, opts.token ?? null, out.sessionId), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...peerReplyFor(fleet, opts.token ?? null, out.sessionId, id), recording: fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
@@ -293,15 +294,15 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       });
       res.status(500).json({ ok: false, error: 'ingest failed', path: '$' });
     }
-  });
+  }));
 
   // Classic settings hooks (T5.1): each hook POSTs its stdin payload here.
-  router.post('/hook', requireToken, json, (req, res) => {
+  router.post('/hook', requireToken, json, asyncHandler(async (req, res) => {
     try {
       const id = identityOf(res);
       const hookSession = typeof req.body?.session_id === 'string' ? (req.body.session_id as string) : '';
       if (refuseIgnored(opts, logger, fleet, req, res, { ...keyTarget(opts, { kind: 'hooks', machineId: null, source: machineOf(req), sessionId: hookSession }), source: machineOf(req), version: 'hooks' })) return;
-      const out = fleet.ingestHook(req.body, ownerOf(id));
+      const out = await fleet.ingestHook(req.body, ownerOf(id));
       if (!out.ok) {
         logger.warn('hook.rejected', `podium: rejected hook payload at ${out.path}: ${out.error}`, {
           reason: out.error,
@@ -337,13 +338,13 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       logger.error('ingest.failed', `podium: hook ingest failed: ${(err as Error).message}`, { reason: (err as Error).message, status: 500, route: routeName(req) });
       res.status(500).json({ ok: false, error: 'ingest failed', path: '$' });
     }
-  });
+  }));
 
-  router.get('/state', (_req, res) => {
-    res.json(fleet.state());
-  });
+  router.get('/state', asyncHandler(async (_req, res) => {
+    res.json(await fleet.state());
+  }));
 
-  router.get('/stream', (req, res) => {
+  router.get('/stream', asyncHandler(async (req, res) => {
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -356,49 +357,47 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     res.flushHeaders();
     req.socket.setNoDelay(true);
     req.socket.setTimeout(0);
-    const id = fleet.hub.add(
-      {
-        write: (chunk: string) => {
-          if (res.writableEnded || res.destroyed) throw new Error('closed');
-          res.write(chunk);
-        },
-        end: () => res.end(),
+    // The client joins in the message queue, behind everything asked for before it, with the snapshot as its first message.
+    const id = await fleet.attach({
+      write: (chunk: string) => {
+        if (res.writableEnded || res.destroyed) throw new Error('closed');
+        res.write(chunk);
       },
-      [fleet.snapshotMessage()],
-    );
+      end: () => res.end(),
+    });
     // null here means the client vanished while being added: there is nobody left to tell.
     if (id === null) return;
     const drop = () => fleet.hub.remove(id);
     req.on('close', drop);
     res.on('error', drop);
-  });
+  }));
 
-  router.get('/sessions/:id', (req, res) => {
-    const view = fleet.view(req.params.id);
+  router.get('/sessions/:id', asyncHandler(async (req, res) => {
+    const view = await fleet.view(req.params.id);
     if (!view) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
     res.json(view);
-  });
+  }));
 
   // The whole prompt and answer, fetched when the console opens them (issue #97). Not in the state or
   // the stream: they can be tens of kilobytes per agent.
-  router.get('/sessions/:id/agents/:agentId/text', (req, res) => {
-    const t = fleet.db.getAgentTexts(req.params.id, req.params.agentId);
+  router.get('/sessions/:id/agents/:agentId/text', asyncHandler(async (req, res) => {
+    const t = await fleet.db.getAgentTexts(req.params.id, req.params.agentId);
     if (!t) {
       res.status(404).json({ ok: false, error: 'no full text for this agent', path: '$.agentId' });
       return;
     }
     res.json(t);
-  });
+  }));
 
   // An agent's recent activity (#118). Each fetch takes or renews the viewer's lease on that loop for `every` seconds
   // plus a margin; the reply to the next report then asks the mod for its entries. `@orchestrator` is the main loop.
   // In memory only, never in the state or the stream. No token, like the other reads.
-  router.get('/sessions/:id/agents/:agentId/activity', (req, res) => {
+  router.get('/sessions/:id/agents/:agentId/activity', asyncHandler(async (req, res) => {
     const { id, agentId } = req.params;
-    if (!fleet.db.getSession(id) || (agentId !== MAIN_LOOP && !fleet.db.getAgents(id).some((a) => a.id === agentId))) {
+    if (!(await fleet.db.getSession(id)) || (agentId !== MAIN_LOOP && !(await fleet.db.getAgents(id)).some((a) => a.id === agentId))) {
       res.status(404).json({ ok: false, error: 'unknown session or agent', path: '$.agentId' });
       return;
     }
@@ -411,24 +410,24 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     // default policy the reply is exactly what it was. `canRead` is the viewer's own sign-in; it never refuses the request.
     const note = fleet.activityHistory.note(id, agentId);
     if (note) {
-      const row = fleet.db.getSession(id);
+      const row = await fleet.db.getSession(id);
       body.history = { ...note, canRead: !!row && (respondAccess?.canRead(req, row) ?? false), owner: row?.owner ?? null };
     }
     res.set('Cache-Control', 'no-store').json(body);
-  });
+  }));
 
-  router.delete('/sessions/:id', requireToken, (req, res) => {
-    if (!fleet.deleteSession(req.params.id)) {
+  router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
+    if (!(await fleet.deleteSession(req.params.id))) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
     }
     res.json({ ok: true });
-  });
+  }));
 
   // Remove on a heartbeat-lost card. It only hides a card the server was about to drop anyway, so it takes
   // no token, like the other reads the dashboard makes. SPEC 7.1, 7.5.
-  router.post('/sessions/:id/drop', (req, res) => {
-    const out = fleet.dropSession(req.params.id);
+  router.post('/sessions/:id/drop', asyncHandler(async (req, res) => {
+    const out = await fleet.dropSession(req.params.id);
     if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
@@ -438,7 +437,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     res.json({ ok: true });
-  });
+  }));
 
   // Closing a wall notice and the Show/Hide link on the background-sessions note. Both only change how the wall
   // looks, like Remove above, so they take no token (and no admin cookie: the wall has none). SPEC 7.1, 8.1.
@@ -483,7 +482,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     res.json({ ok: true });
   });
 
-  router.get('/events', (req, res) => {
+  router.get('/events', asyncHandler(async (req, res) => {
     const before = intParam(req.query.before);
     const limit = intParam(req.query.limit);
     const sessionId = req.query.sessionId;
@@ -492,10 +491,10 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     const n = Math.max(1, Math.min(200, limit ?? 50));
-    res.json({ events: fleet.events({ sessionId: sessionId || null, before, limit: n }) });
-  });
+    res.json({ events: await fleet.events({ sessionId: sessionId || null, before, limit: n }) });
+  }));
 
-  router.get('/history', (req, res) => {
+  router.get('/history', asyncHandler(async (req, res) => {
     const day = typeof req.query.day === 'string' ? req.query.day : '';
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
     if (!m) {
@@ -521,13 +520,13 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     const to = new Date(y, mo - 1, d + 1).getTime();
     // A page past the end is the last page, so a day that shrank under an open tab still shows rows.
     // A row says its recording is kept only to the session's owner and an Admin (#353).
-    const { rows, total, page: at } = fleet.historyPage(from, to, page ?? 1, pageSize, (row) => respondAccess?.canRead(req, row) ?? false);
+    const { rows, total, page: at } = await fleet.historyPage(from, to, page ?? 1, pageSize, (row) => respondAccess?.canRead(req, row) ?? false);
     res.json({ day, sessions: rows, total, page: at, pageSize });
-  });
+  }));
 
-  router.get('/health', (_req, res) => {
-    res.json(fleet.health());
-  });
+  router.get('/health', asyncHandler(async (_req, res) => {
+    res.json(await fleet.health());
+  }));
 
   // Orchestrator messaging (#347): the mod's routes here, the owner's on responding's browser router below.
   const peerDeps: PeerDeps = { fleet, token: opts.token ?? null, people: opts.people ?? null, logger, requireToken, identityOf };

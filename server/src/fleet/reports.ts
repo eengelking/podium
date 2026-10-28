@@ -1,7 +1,9 @@
 // The reports behind Admin > Reporting (#484), the Spend breakdown (#482) and the Spend projection (#483), SPEC 7.1 "Reports".
 // Pure over the database: today is read live with the rollup builder, every earlier day from the rollup tables.
 import { startOfDay } from './derive.js';
-import type { CostOf, FleetDb, RetentionPolicy } from './db.js';
+import type { CostOf, RetentionPolicy } from './db.js';
+import type { FleetStore } from '../storage/types.js';
+import type { RollupRaw, RollupTable } from '../storage/reportQueries.js';
 import { ROLLUP_KEEP_MS } from './db.js';
 import type { ModelUsage } from './protocol.js';
 import type { Pricing } from './pricing.js';
@@ -23,7 +25,7 @@ import {
 } from './rollups.js';
 
 export interface ReportDeps {
-  db: FleetDb;
+  db: FleetStore;
   now: () => number;
   pricing: () => Pricing | undefined;
   retention: RetentionPolicy;
@@ -33,6 +35,8 @@ export interface ReportDeps {
 export class ReportError extends Error {}
 
 export type ReportName = 'usage' | 'spend' | 'people' | 'sessions' | 'failures' | 'activity';
+const ROLLUP_TABLES: readonly RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
+
 export const REPORT_NAMES: readonly ReportName[] = ['usage', 'spend', 'people', 'sessions', 'failures', 'activity'];
 
 export interface Column {
@@ -137,48 +141,46 @@ interface Facts {
   live: DayRollups;
 }
 
-type Raw = Record<string, string | number | null>;
+type Raw = RollupRaw;
 
 const usageOf = (r: Raw): UsageDay => ({ day: String(r.day), owner: String(r.owner), group: String(r.group_name), model: String(r.model), project: String(r.project), sessions: Number(r.sessions), agents: Number(r.agents), costUsd: Number(r.cost_usd), unpricedSessions: Number(r.unpriced_sessions), tokIn: Number(r.tok_in), tokOut: Number(r.tok_out), tokCr: Number(r.tok_cr), tokCw: Number(r.tok_cw) });
 const sessionsOf = (r: Raw): SessionsDay => ({ day: String(r.day), outcome: String(r.outcome), model: String(r.model), effort: String(r.effort), plan: String(r.plan), sessions: Number(r.sessions), durationS: Number(r.duration_s), maxDurationS: Number(r.max_duration_s), agents: Number(r.agents), blowouts: Number(r.blowouts), maxContextPct: Number(r.max_context_pct) });
 const failureOf = (r: Raw): FailureDay => ({ day: String(r.day), owner: String(r.owner), cls: String(r.class), tool: String(r.tool), count: Number(r.count) });
 const fleetOf = (r: Raw): FleetDay => ({ day: String(r.day), activePeople: Number(r.active_people), activeReporters: Number(r.active_reporters), sessionsStarted: Number(r.sessions_started), peakLive: Number(r.peak_live_sessions), reporterVersions: JSON.parse(String(r.reporter_versions_json)) as Record<string, number>, engineVersions: JSON.parse(String(r.engine_versions_json)) as Record<string, number> });
 
-function select(db: FleetDb, table: string, from: string, to: string): Raw[] {
-  return db.db.prepare(`SELECT * FROM ${table} WHERE day >= ? AND day <= ? ORDER BY day`).all(from, to) as unknown as Raw[];
-}
+const select = (db: FleetStore, table: RollupTable, from: string, to: string): Promise<RollupRaw[]> => db.rollupRows(table, from, to);
 
 /** The first day the rollups hold, or today when they hold none yet (today is always read live). */
-export function oldestRollupDay(db: FleetDb, today: string): string {
+export async function oldestRollupDay(db: FleetStore, today: string): Promise<string> {
   let oldest = today;
-  for (const t of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily']) {
-    const d = (db.db.prepare(`SELECT MIN(day) AS d FROM ${t}`).get() as { d: string | null }).d;
+  for (const t of ROLLUP_TABLES) {
+    const d = await db.rollupOldestDay(t);
     if (d !== null && d < oldest) oldest = d;
   }
   return oldest;
 }
 
-function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false): Facts {
+async function loadFacts(deps: ReportDeps, from: string, to: string, today: string, cost: CostOf, withSessions = false): Promise<Facts> {
   const { db } = deps;
   const stored = to < today ? to : addDays(today, -1);
-  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], oldestDay: oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], failureSessions: [] } };
+  const f: Facts = { usage: [], sessions: [], failures: [], fleet: [], oldestDay: await oldestRollupDay(db, today), live: { usage: [], sessions: [], failures: [], fleet: [], failureSessions: [] } };
   if (from <= stored) {
-    f.usage = select(db, 'usage_daily', from, stored).map(usageOf);
-    f.sessions = select(db, 'sessions_daily', from, stored).map(sessionsOf);
-    f.failures = select(db, 'failures_daily', from, stored).map(failureOf);
-    f.fleet = select(db, 'fleet_daily', from, stored).map(fleetOf);
+    f.usage = (await select(db, 'usage_daily', from, stored)).map(usageOf);
+    f.sessions = (await select(db, 'sessions_daily', from, stored)).map(sessionsOf);
+    f.failures = (await select(db, 'failures_daily', from, stored)).map(failureOf);
+    f.fleet = (await select(db, 'fleet_daily', from, stored)).map(fleetOf);
   }
   // Failures keep which sessions had them only while the sessions are stored, so the History link reads those live.
   const floor = addDays(today, -31);
   // A period that ends before today needs nothing live unless the History links want the stored sessions.
-  if (to === today || withSessions) f.live = buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
+  if (to === today || withSessions) f.live = await buildRollups(db, cost, dayStart(withSessions ? (from > floor ? from : floor) : today));
   if (to === today) {
-    const peaks = peakLiveByDay(db);
+    const peaks = await peakLiveByDay(db);
     const keep = (d: string) => d === today;
     f.usage.push(...f.live.usage.filter((r) => keep(r.day)));
     f.sessions.push(...f.live.sessions.filter((r) => keep(r.day)));
     f.failures.push(...f.live.failures.filter((r) => keep(r.day)));
-    const storedPeak = (db.db.prepare('SELECT peak_live_sessions AS p FROM fleet_daily WHERE day = ?').get(today) as { p: number } | undefined)?.p ?? 0;
+    const storedPeak = (await db.storedPeak(today)) ?? 0;
     const liveFleet = f.live.fleet.find((r) => keep(r.day));
     if (liveFleet) f.fleet.push({ ...liveFleet, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0) });
     else if (storedPeak || peaks.get(today)) f.fleet.push({ day: today, activePeople: 0, activeReporters: 0, sessionsStarted: 0, peakLive: Math.max(storedPeak, peaks.get(today) ?? 0), reporterVersions: {}, engineVersions: {} });
@@ -186,8 +188,7 @@ function loadFacts(deps: ReportDeps, from: string, to: string, today: string, co
   return f;
 }
 
-const ownerGroups = (db: FleetDb): Map<string, string> =>
-  new Map((db.db.prepare('SELECT p.name AS n, COALESCE(g.name, \'\') AS g FROM people p LEFT JOIN groups g ON g.id = p.group_id').all() as unknown as { n: string; g: string }[]).map((r) => [r.n, r.g]));
+const ownerGroups = async (db: FleetStore): Promise<Map<string, string>> => new Map((await db.ownerGroupNames()).map((r) => [r.n, r.g]));
 
 function envelope(p: Params, report: string, by: string | null, f: Facts, columns: Column[], rows: Row[], total: Row): ReportReply {
   return {
@@ -209,9 +210,9 @@ function envelope(p: Params, report: string, by: string | null, f: Facts, column
 
 const keyedSort = <T extends Row>(rows: T[]): T[] => rows.sort((a, b) => String(a.period ?? '').localeCompare(String(b.period ?? '')) || String(a.key ?? '').localeCompare(String(b.key ?? '')));
 
-function usageReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
+async function usageReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
-  const f = loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
   const match = (r: UsageDay) => (p.person === null || r.owner === p.person) && (p.group === null || r.group === p.group) && (p.model === null || r.model === p.model);
   const filtered = p.person !== null || p.group !== null || p.model !== null;
   interface Acc { people: Set<string>; reporters: number; sessions: number; peak: number }
@@ -254,10 +255,10 @@ function spendKey(r: UsageDay, breakdown: string): string {
   }
 }
 
-function spendReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
+async function spendReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'spend');
-  const f = loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
   interface Acc { sessions: number; tokIn: number; tokOut: number; costUsd: number; unpriced: number }
   const add = (a: Acc, r: UsageDay) => {
     a.sessions += r.sessions;
@@ -290,9 +291,9 @@ function spendReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
   return envelope(p, 'spend', p.by, f, columns, rows, row(null, null, all));
 }
 
-function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
+async function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
-  const f = loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
   const db = deps.db;
   const sessions = new Map<string, number>();
   const groupOf = new Map<string, string>();
@@ -301,7 +302,7 @@ function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
     sessions.set(r.owner, (sessions.get(r.owner) ?? 0) + r.sessions);
     if (r.group) groupOf.set(r.owner, r.group);
   }
-  const known = db.db.prepare('SELECT p.name AS name, g.name AS grp, p.last_report_at AS last FROM people p LEFT JOIN groups g ON g.id = p.group_id').all() as unknown as { name: string; grp: string | null; last: number | null }[];
+  const known = await db.knownPeople();
   const rows: Row[] = known.map((k) => ({ person: k.name, group: k.grp, sessions: sessions.get(k.name) ?? 0, lastReportAt: k.last, state: sessions.has(k.name) ? 'active' : k.last === null ? 'never' : 'quiet' }));
   const names = new Set(known.map((k) => k.name));
   // Someone the rollups name who is no longer a person (the Admin, or a deleted account) is still a row.
@@ -313,17 +314,17 @@ function peopleReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
     for (const d of f.fleet) for (const [v, n] of Object.entries(pick(d))) out[v] = Math.max(out[v] ?? 0, n);
     return out;
   };
-  const reporters = (db.db.prepare('SELECT COUNT(*) AS n FROM reporters').get() as { n: number }).n;
-  const groups = (db.db.prepare('SELECT COUNT(*) AS n FROM groups').get() as { n: number }).n;
+  const reporters = await db.countReporters();
+  const groups = await db.countGroups();
   const out = envelope(p, 'people', null, f, [col('person', 'Person', 'text'), col('group', 'Group', 'text'), col('sessions', 'Sessions', 'count'), col('lastReportAt', 'Last report', 'time'), col('state', 'State', 'text')], kept, { people: kept.length, sessions: kept.reduce((n, r) => n + Number(r.sessions), 0) });
   out.summary = { people: known.length, groups, reporters, reporterVersions: versions((d) => d.reporterVersions), engineVersions: versions((d) => d.engineVersions) };
   return out;
 }
 
-function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
+async function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'sessions');
-  const f = loadFacts(deps, p.from, p.to, p.today, cost);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost);
   interface Acc { sessions: number; dur: number; max: number; agents: number; blow: number; ctx: number }
   const fresh = (): Acc => ({ sessions: 0, dur: 0, max: 0, agents: 0, blow: 0, ctx: 0 });
   const add = (a: Acc, r: SessionsDay) => {
@@ -363,11 +364,11 @@ function sessionsReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
 
 const SESSION_IDS_MAX = 10;
 
-function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
+async function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): Promise<ReportReply> {
   const p = parseParams(q, localDay(deps.now()));
   const breakdown = pick(q, 'failures');
-  const f = loadFacts(deps, p.from, p.to, p.today, cost, true);
-  const groups = ownerGroups(deps.db);
+  const f = await loadFacts(deps, p.from, p.to, p.today, cost, true);
+  const groups = await ownerGroups(deps.db);
   const match = (owner: string) => (p.person === null || owner === p.person) && (p.group === null || (groups.get(owner) ?? '') === p.group);
   const keyOf = (r: { owner: string; cls: string; tool: string }) => (breakdown === 'class' ? r.cls : breakdown === 'tool' ? r.tool : r.owner);
   const buckets = new Map<string, { period: string; key: string; count: number; people: Set<string>; ids: Set<string> }>();
@@ -402,17 +403,15 @@ function failuresReport(deps: ReportDeps, q: Query, cost: CostOf): ReportReply {
 /** The most entries the Admin activity report returns; a longer log is cut and says so (`truncated`). */
 const ACTIVITY_MAX = 1000;
 
-function activityReport(deps: ReportDeps, q: Query): ReportReply {
+async function activityReport(deps: ReportDeps, q: Query): Promise<ReportReply> {
   const today = localDay(deps.now());
   const p = parseParams({ ...q, by: undefined }, today);
   const kind = one(q, 'kind');
   if (kind !== undefined && kind !== '' && !/^[A-Za-z0-9_.-]{1,64}$/.test(kind)) throw new ReportError('kind is not a kind of Admin log entry');
-  const sql = `SELECT t, kind, detail, source FROM admin_log WHERE t >= ? AND t < ?${kind ? ' AND kind = ?' : ''} ORDER BY id DESC LIMIT ${ACTIVITY_MAX + 1}`;
-  const args = [dayStart(p.from), dayStart(addDays(p.to, 1)), ...(kind ? [kind] : [])];
-  const found = deps.db.db.prepare(sql).all(...args) as unknown as Row[];
+  const found = (await deps.db.adminLogRows(dayStart(p.from), dayStart(addDays(p.to, 1)), kind || undefined, ACTIVITY_MAX + 1)) as unknown as Row[];
   const truncated = found.length > ACTIVITY_MAX;
   const rows = truncated ? found.slice(0, ACTIVITY_MAX) : found;
-  const facts = { oldestDay: oldestRollupDay(deps.db, today) } as Facts;
+  const facts = { oldestDay: await oldestRollupDay(deps.db, today) } as Facts;
   const out = envelope(p, 'activity', null, facts, [col('t', 'Time', 'time'), col('kind', 'Kind', 'text'), col('detail', 'Detail', 'text'), col('source', 'Source', 'text')], rows, { count: rows.length });
   out.partial = false;
   out.truncated = truncated;
@@ -421,18 +420,19 @@ function activityReport(deps: ReportDeps, q: Query): ReportReply {
 }
 
 /** Each rollup table with its rows and oldest day, and how long retention keeps the other tables (Data kept). */
-export function retentionReport(deps: ReportDeps): Record<string, unknown> {
+export async function retentionReport(deps: ReportDeps): Promise<Record<string, unknown>> {
   const keepMs = deps.retention.rollupMs ?? ROLLUP_KEEP_MS;
   const days = (ms: number) => Math.round(ms / 86_400_000);
-  const tables = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'].map((name) => {
-    const r = deps.db.db.prepare(`SELECT COUNT(*) AS n, MIN(day) AS d FROM ${name}`).get() as { n: number; d: string | null };
-    return { name, rows: r.n, oldestDay: r.d, keptDays: days(keepMs) };
-  });
+  const tables = [];
+  for (const name of ROLLUP_TABLES) {
+    const r = await deps.db.rollupStats(name);
+    tables.push({ name, rows: r.n, oldestDay: r.d, keptDays: days(keepMs) });
+  }
   const r = deps.retention;
   return { report: 'retention', tz: serverZone(), tables, detail: [{ name: 'samples', keptDays: round(r.samplesMs / 86_400_000, 2) }, { name: 'events', keptDays: days(r.eventsMs) }, { name: 'sessions', keptDays: days(r.sessionsMs) }, { name: 'admin_log', keptDays: days(r.adminLogMs) }] };
 }
 
-export function runReport(deps: ReportDeps, name: ReportName, q: Query): ReportReply {
+export function runReport(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> {
   const cost = costFn(deps.pricing());
   switch (name) {
     case 'usage':
@@ -457,7 +457,7 @@ export const PROJECTION_MIN_ACTIVE_DAYS = 3;
 const HORIZONS = ['month', '30d'] as const;
 const WINDOWS = [7, 14, 30] as const;
 
-export function projectionReport(deps: ReportDeps, q: Query): ReportReply {
+export async function projectionReport(deps: ReportDeps, q: Query): Promise<ReportReply> {
   const now = deps.now();
   const today = localDay(now);
   const horizon = one(q, 'horizon') ?? 'month';
@@ -471,7 +471,7 @@ export function projectionReport(deps: ReportDeps, q: Query): ReportReply {
   const winTo = addDays(today, -1);
   const winFrom = addDays(winTo, -(windowDays - 1));
   const monthFrom = `${today.slice(0, 8)}01`;
-  const oldest = oldestRollupDay(deps.db, today);
+  const oldest = await oldestRollupDay(deps.db, today);
   const historyDays = Math.max(0, Math.min(windowDays, daysBetween(oldest, winTo) + 1));
   const cost = costFn(deps.pricing());
   const keyOf = (r: UsageDay) => label(by === 'person' ? r.owner : r.group);
@@ -486,8 +486,8 @@ export function projectionReport(deps: ReportDeps, q: Query): ReportReply {
   const sum: Acc = { window: 0, month: 0, days: new Set() };
   let unpriced = 0;
   const rows = [
-    ...select(deps.db, 'usage_daily', winFrom < monthFrom ? winFrom : monthFrom, winTo).map(usageOf),
-    ...buildRollups(deps.db, cost, dayStart(today)).usage.filter((r) => r.day === today),
+    ...(await select(deps.db, 'usage_daily', winFrom < monthFrom ? winFrom : monthFrom, winTo)).map(usageOf),
+    ...(await buildRollups(deps.db, cost, dayStart(today))).usage.filter((r) => r.day === today),
   ];
   for (const r of rows) {
     const a = acc(keyOf(r));
@@ -546,12 +546,12 @@ export interface SpendTodayReply {
  * One person's (or group's) spend since local midnight, cut by session, by model and by orchestrator against agents. It
  * reads the same per-session figure `kpis.costTodayByOwner` adds up, in the same order, so every cut adds up to the table's row.
  */
-export function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): SpendTodayReply {
+export async function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): Promise<SpendTodayReply> {
   const since = startOfDay(deps.now());
   const pricing = deps.pricing();
   const cost = costFn(pricing);
   const want = unlabel(owner);
-  const mine = deps.db.sessionSpendSince(since, cost).filter((r) => {
+  const mine = (await deps.db.sessionSpendSince(since, cost)).filter((r) => {
     const name = isGroup ? r.grp : r.owner;
     return want === '' ? name === null : name === want;
   });
@@ -559,7 +559,7 @@ export function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): S
   const share = (n: number) => (total > 0 ? n / total : 0);
   const spent = mine.filter((r) => r.priced && r.usd > 0);
   const unpriced = mine.filter((r) => !r.priced && r.lastSeenAt >= since).length;
-  const agentCosts = deps.db.agentCostsSince(since, cost);
+  const agentCosts = await deps.db.agentCostsSince(since, cost);
 
   const bySession = spent.map((r) => ({ id: r.id, name: r.name, model: r.model, costUsd: r.usd, share: share(r.usd) })).sort((a, b) => b.costUsd - a.costUsd || a.name.localeCompare(b.name));
 

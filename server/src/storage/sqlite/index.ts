@@ -1,8 +1,10 @@
+import type { DatabaseSync } from 'node:sqlite';
 import { FleetDb, openDb } from '../../fleet/db.js';
 import { PeopleStore } from '../../fleet/people.js';
 import { ReporterStore } from '../../fleet/reporters.js';
 import type { Async, AsyncPeerReporterLookup, FleetStore, PeopleStoreApi, ReporterStoreApi, Storage } from '../types.js';
 import { AsyncLock } from './lock.js';
+import { SqliteReportQueries } from './reportQueries.js';
 
 const NOT_WRAPPED = new Set(['constructor', 'tx', 'close']);
 
@@ -17,8 +19,18 @@ function wrap<T extends object>(target: T, lock: AsyncLock): Async<T> {
   return out as Async<T>;
 }
 
+/**
+ * The SQLite storage, with the raw connection the stores not yet converted still use.
+ * TODO(#313 stage 5): remove `sqliteHandle`, with the stores that need it. A call made on it is a synchronous call that does
+ * not take the lock, so it can run inside another task's open `tx` and see (or write) its uncommitted rows. It exists only
+ * until stages 3 to 5 move those stores onto the async interface.
+ */
+export interface SqliteStorage extends Storage {
+  readonly sqliteHandle: DatabaseSync;
+}
+
 /** Opens `file` (`:memory:` for tests) and puts the fleet, people and reporter stores on its one connection. */
-export function openSqliteStorage(file: string, now: number = Date.now()): Storage {
+export function openSqliteStorage(file: string, now: number = Date.now()): SqliteStorage {
   const db = openDb(file);
   const lock = new AsyncLock();
   const fleet = new FleetDb(db);
@@ -31,7 +43,8 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Stora
     ofOwner: (owner) => lock.run(() => lookup.ofOwner(owner)),
   };
   return {
-    fleet: wrap(fleet, lock) as FleetStore,
+    sqliteHandle: db,
+    fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) } as FleetStore,
     people: wrap(new PeopleStore(db), lock) as PeopleStoreApi,
     reporters: { ...wrap(reporters, lock), peerLookup: () => asyncLookup } as ReporterStoreApi,
     tx: (fn) =>
