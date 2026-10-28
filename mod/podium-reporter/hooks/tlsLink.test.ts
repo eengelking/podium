@@ -90,7 +90,7 @@ const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundCo
   path: '/home/d/.podium/reporter-config-Dana-Lee-1.pem',
   headers: { user, server: 'https://podium.lan:4318', issuedAt: 1, expires, fingerprint: 'AA' },
 })
-const env = { config: undefined, home: '/home/d', node: undefined, tmp: undefined }
+const env = { config: undefined, context: undefined, home: '/home/d', node: undefined, tmp: undefined }
 
 describe('finding the reporter config (#584)', () => {
   test('no file means no link: the reporter works as today', async () => {
@@ -117,7 +117,8 @@ describe('finding the reporter config (#584)', () => {
     }
     const r = await findConfig(f.$, env)
     expect(r.found?.path).toBe(`${dir}/reporter-config-Dana-500.pem`)
-    expect(reads).toEqual([`${dir}/reporter-config-Dana-500.pem`])
+    // The contexts file is looked for first (#606); no config file but the newest is read.
+    expect(reads.filter((r) => !r.endsWith('/contexts.json'))).toEqual([`${dir}/reporter-config-Dana-500.pem`])
   })
 
   test('a newest file that is not a usable config falls through to the next newest (#607)', async () => {
@@ -145,6 +146,125 @@ describe('finding the reporter config (#584)', () => {
     const r = await findConfig(fake({ files: { '/x/mine.pem': 'nope' } }).$, { ...env, config: '/x/mine.pem' })
     expect(r.found).toBeNull()
     expect(r.problem?.code).toBe('CONFIG_INVALID')
+  })
+})
+
+describe('finding the reporter config by context (#606)', () => {
+  const dir = '/home/d/.podium'
+  const home = `${dir}/reporter-config-Dana-100.pem`
+  const work = `${dir}/reporter-config-Dana-200.pem`
+  const newest = `${dir}/reporter-config-Dana-900.pem`
+  const contexts = (current: string | null) => JSON.stringify({ current, contexts: { home: 'reporter-config-Dana-100.pem', work: 'reporter-config-Dana-200.pem' } })
+  const files = (current: string | null) => ({ [home]: text('Dana', 100), [work]: text('Dana', 200), [newest]: text('Dana', 900), [`${dir}/contexts.json`]: contexts(current) })
+
+  test('the current context wins over a newer file', async () => {
+    const r = await findConfig(fake({ files: files('home') }).$, env)
+    expect(r.found?.path).toBe(home)
+    expect(r.found?.context).toBe('home')
+    expect(r.contextProblem).toBeNull()
+  })
+
+  test('PODIUM_REPORTER_CONTEXT picks another for one terminal', async () => {
+    const r = await findConfig(fake({ files: files('home') }).$, { ...env, context: 'work' })
+    expect(r.found?.path).toBe(work)
+    expect(r.found?.context).toBe('work')
+  })
+
+  test('PODIUM_REPORTER_CONFIG still comes first, and no context is named', async () => {
+    const f = fake({ files: { ...files('home'), '/x/mine.pem': text('Dana', 5) } })
+    const r = await findConfig(f.$, { ...env, config: '/x/mine.pem', context: 'work' })
+    expect(r.found?.path).toBe('/x/mine.pem')
+    expect(r.found?.context).toBeUndefined()
+  })
+
+  test('only the chosen context\'s file is read, so another key is never read', async () => {
+    const f = fake({ files: files('home') })
+    const reads: string[] = []
+    const read = f.$.fs.read
+    f.$.fs.read = async (p) => {
+      reads.push(p)
+      return read(p)
+    }
+    await findConfig(f.$, env)
+    expect(reads).toEqual([`${dir}/contexts.json`, home])
+  })
+
+  test('no contexts file, or none current: the newest file wins as before, with no problem', async () => {
+    const none = await findConfig(fake({ files: { [home]: text('Dana', 100), [newest]: text('Dana', 900) } }).$, env)
+    expect(none.found?.path).toBe(newest)
+    expect(none.found?.context).toBeUndefined()
+    expect(none.contextProblem).toBeNull()
+    const noCurrent = await findConfig(fake({ files: files(null) }).$, env)
+    expect(noCurrent.found?.path).toBe(newest)
+    expect(noCurrent.contextProblem).toBeNull()
+  })
+
+  test('a context that does not exist is a problem, and the newest file is used', async () => {
+    const r = await findConfig(fake({ files: files('home') }).$, { ...env, context: 'nope' })
+    expect(r.found?.path).toBe(newest)
+    expect(r.found?.context).toBeUndefined()
+    expect(r.contextProblem?.code).toBe('CONTEXT_INVALID')
+    expect(r.contextProblem?.text).toContain('"nope"')
+  })
+
+  test('a context whose file is gone or is not a config is a problem, and the newest file is used', async () => {
+    const gone = files('home')
+    delete (gone as Record<string, string>)[home]
+    const a = await findConfig(fake({ files: gone }).$, env)
+    expect(a.found?.path).toBe(newest)
+    expect(a.contextProblem?.code).toBe('CONTEXT_INVALID')
+    expect(a.contextProblem?.text).toContain('"home"')
+    const b = await findConfig(fake({ files: { ...files('home'), [home]: 'garbage' } }).$, env)
+    expect(b.found?.path).toBe(newest)
+    expect(b.contextProblem?.code).toBe('CONTEXT_INVALID')
+  })
+
+  test('an unreadable contexts file is a problem too, and the newest file is used', async () => {
+    const r = await findConfig(fake({ files: { ...files('home'), [`${dir}/contexts.json`]: 'garbage' } }).$, env)
+    expect(r.found?.path).toBe(newest)
+    expect(r.contextProblem?.code).toBe('CONTEXT_INVALID')
+  })
+
+  test('a file this session already holds from a context is kept when the current context changes (a reload)', async () => {
+    const f = fake({ files: files('work') })
+    const r = await findConfig(f.$, env, { path: home, context: 'home' })
+    expect(r.found?.path).toBe(home)
+    expect(r.found?.context).toBe('home')
+    const gone = await findConfig(fake({ files: files('work') }).$, env, { path: `${dir}/reporter-config-Dana-5.pem`, context: 'old' })
+    expect(gone.found?.path).toBe(work)
+  })
+
+  test('a contexts file that is there but cannot be read is a problem, not an absent file', async () => {
+    const f = fake({ files: files('home') })
+    const read = f.$.fs.read
+    f.$.fs.read = async (p) => {
+      if (p.endsWith('contexts.json')) throw new Error('EACCES')
+      return read(p)
+    }
+    const r = await findConfig(f.$, env)
+    expect(r.contextProblem?.code).toBe('CONTEXT_INVALID')
+    expect(r.contextProblem?.text).toContain('cannot be read')
+    expect(r.found?.path).toBe(newest)
+  })
+
+  test('two contexts reach two different servers and people', async () => {
+    const other = (user: string, server: string, issued: number) => text(user, issued).replace('https://podium.lan:4318', server).replace(`# user: ${user}`, `# user: ${user}`)
+    const f = fake({
+      files: {
+        [home]: other('Dana', 'https://home.lan:4318', 100),
+        [work]: other('dana.e', 'https://work.lan:4318', 200),
+        [`${dir}/contexts.json`]: contexts('home'),
+      },
+    })
+    const a = await findConfig(f.$, env)
+    expect([a.found?.headers.user, a.found?.headers.server]).toEqual(['Dana', 'https://home.lan:4318'])
+    const b = await findConfig(f.$, { ...env, context: 'work' })
+    expect([b.found?.headers.user, b.found?.headers.server]).toEqual(['dana.e', 'https://work.lan:4318'])
+  })
+
+  test('a context may name a file by absolute path', async () => {
+    const f = fake({ files: { '/srv/p.pem': text('Dana', 7), [`${dir}/contexts.json`]: JSON.stringify({ current: 'srv', contexts: { srv: '/srv/p.pem' } }) } })
+    expect((await findConfig(f.$, env)).found?.path).toBe('/srv/p.pem')
   })
 })
 

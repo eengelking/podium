@@ -14,7 +14,8 @@ Under **Create user**, type a name and choose Create user.
   Podium keeps only a hash and cannot show the token again. With TLS on, the same box also gives the person's reporter
   config, one file named `reporter-config-<name>-<epoch>.pem`: choose **Download reporter config**, save it in
   `~/.podium/` on the machine where Claude Code runs, and start a new Claude Code session. A session that is already
-  running does not pick it up, and podium-reporter needs Node.js on the machine's PATH. Podium keeps only the
+  running does not pick it up, and podium-reporter needs Node.js on the machine's PATH. A person who uses more than one
+  Podium server names each file with a context (`/podium context add`; see [REPORTER.md](../../REPORTER.md#contexts-more-than-one-podium-server)). Podium keeps only the
   certificate, so the file is shown once.
 - The list has a **Reporter certificate** cell and a **Console token** cell, each with its own badge. Hover a badge (or
   tab to it) for the note: the certificate's date and what happens next, or the token's `pdm_` key id. The Group select
