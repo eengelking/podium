@@ -6,8 +6,7 @@ import { sizeText } from './sizeText.js';
 import { capWords, countWords, policyWords } from './activityHistoryWords.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import type { Fleet } from './fleet.js';
-import type { PeopleStore } from './people.js';
-import type { ReporterStore } from './reporters.js';
+import type { PeopleStoreApi, Storage } from '../storage/types.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 
 export interface SweeperIntervals {
@@ -28,7 +27,7 @@ const purging = new WeakSet<ActivityHistory>();
  * a run that removed nothing is silent. The purge works in chunks, so this returns when it is done; a run that starts while
  * the last one is still going is skipped.
  */
-export async function purgeActivityHistory(history: ActivityHistory, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+export async function purgeActivityHistory(history: ActivityHistory, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   if (purging.has(history)) return;
   purging.add(history);
   try {
@@ -37,7 +36,7 @@ export async function purgeActivityHistory(history: ActivityHistory, people: Peo
     const current = history.current();
     const policy = current.policy;
     const cap = current.capGb === null ? '' : `, ${capWords(current)}`;
-    people.log(ACTIVITY_LOG_KINDS.purged, `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed under ${policyWords(current)}${cap}`, 'sweeper', now);
+    await people.log(ACTIVITY_LOG_KINDS.purged, `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed under ${policyWords(current)}${cap}`, 'sweeper', now);
     logger.info('activity.purged', `podium: activity history purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed, policy });
   } finally {
     purging.delete(history);
@@ -51,13 +50,13 @@ const purgingRecordings = new WeakSet<SessionRecordings>();
  * within a few minutes. A run that removed something writes one Admin log row and one log line, with counts and sizes and never
  * any text; a run that removed nothing is silent. A run that starts while the last is still going is skipped.
  */
-export async function purgeRecordings(recordings: SessionRecordings, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+export async function purgeRecordings(recordings: SessionRecordings, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   if (purgingRecordings.has(recordings)) return;
   purgingRecordings.add(recordings);
   try {
     const r = await recordings.purge(now);
     if (r.entries === 0) return;
-    people.log('recording_purged', `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed from ${countWords(r.sessions, 'recording', 'recordings')}`, 'sweeper', now);
+    await people.log('recording_purged', `${countWords(r.entries, 'entry', 'entries')} (${sizeText(r.bytes)}) removed from ${countWords(r.sessions, 'recording', 'recordings')}`, 'sweeper', now);
     logger.info('recording.purged', `podium: recording purge removed ${r.entries} entries`, { entries: r.entries, bytes: r.bytes, sessions: r.sessions, freed: r.freed });
   } finally {
     purgingRecordings.delete(recordings);
@@ -65,7 +64,7 @@ export async function purgeRecordings(recordings: SessionRecordings, people: Peo
 }
 
 /** The 5-minute run: the Activity history's purge and the recordings', each finishing even if the other fails; the first failure is thrown after both. */
-export async function purgeStored(history: ActivityHistory, recordings: SessionRecordings, people: PeopleStore, logger: Logger, now: number): Promise<void> {
+export async function purgeStored(history: ActivityHistory, recordings: SessionRecordings, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   const results = await Promise.allSettled([purgeActivityHistory(history, people, logger, now), purgeRecordings(recordings, people, logger, now)]);
   for (const r of results) if (r.status === 'rejected') throw r.reason;
 }
@@ -74,17 +73,21 @@ export async function purgeStored(history: ActivityHistory, recordings: SessionR
  * Removes reporters not heard from for the Admin's number of days, when that setting is on (issue #167), and says so in the
  * log and the Admin log. Silent when nothing went.
  */
-export function forgetReporters(reporters: ReporterStore, people: PeopleStore, logger: Logger, now: number): void {
-  const removed = reporters.forgetStale(now);
-  if (removed === 0) return;
-  const { days } = reporters.forgetSetting();
-  const detail = `Forgot ${removed} reporter${removed === 1 ? '' : 's'} not heard from for ${days} days`;
-  people.log('reporters_forgotten', detail, 'sweeper', now);
-  logger.info('reporters.forgotten', `podium: ${detail}`, { count: removed, days });
+export async function forgetReporters(storage: Pick<Storage, 'people' | 'reporters' | 'tx'>, logger: Logger, now: number): Promise<void> {
+  // One transaction, so the days the entry names are the days the sweep used, even if the Admin changes the setting meanwhile.
+  const done = await storage.tx(async () => {
+    const removed = await storage.reporters.forgetStale(now);
+    if (removed === 0) return null;
+    const { days } = await storage.reporters.forgetSetting();
+    const detail = `Forgot ${removed} reporter${removed === 1 ? '' : 's'} not heard from for ${days} days`;
+    await storage.people.log('reporters_forgotten', detail, 'sweeper', now);
+    return { removed, days, detail };
+  });
+  if (done) logger.info('reporters.forgotten', `podium: ${done.detail}`, { count: done.removed, days: done.days });
 }
 
 /** `log` is the server's logger, or a plain line sink as before the logger existed (#140). */
-export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void, onActivityPurge?: () => void | Promise<void>): () => void {
+export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void | Promise<void>, onActivityPurge?: () => void | Promise<void>): () => void {
   const logger = typeof log === 'function' ? loggerFromLine(log) : log;
   // A body may be async (the fleet's reads are): a rejection is logged the same way as a throw.
   const guard = (name: string, fn: () => unknown) => () => {

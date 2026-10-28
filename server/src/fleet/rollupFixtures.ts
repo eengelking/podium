@@ -1,7 +1,6 @@
 // Shared builders for the rollup and report tests (#484). Not used at run time.
 import type { AgentRow, SessionRow } from './db.js';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
-import { PeopleStore } from './people.js';
 import { Pricing } from './pricing.js';
 import type { ReportDeps } from './reports.js';
 import { DEFAULT_CONFIG } from './fleet.js';
@@ -48,8 +47,8 @@ export interface World {
   storage: SqliteStorage;
   /** The async fleet store, `storage.fleet`. */
   fdb: SqliteStorage['fleet'];
-  /** The synchronous people store over the same connection (a test helper; it is not under the storage lock). */
-  people: PeopleStore;
+  /** The async people store, `storage.people`. */
+  people: SqliteStorage['people'];
   clock: { t: number };
   deps: ReportDeps;
 }
@@ -58,7 +57,7 @@ export interface World {
 export function world(): World {
   const storage = openSqliteStorage(':memory:');
   const fdb = storage.fleet;
-  const people = new PeopleStore(storage.sqliteHandle);
+  const people = storage.people;
   const clock = { t: NOW };
   const pricing = new Pricing({});
   return { storage, fdb, people, clock, deps: { db: fdb, now: () => clock.t, pricing: () => pricing, retention: DEFAULT_CONFIG.retention } };
@@ -69,10 +68,10 @@ export function world(): World {
  * known and has not, and a session of the Admin has no group. Returns the session ids by name.
  */
 export async function populate(w: World): Promise<void> {
-  const backend = w.people.createGroup('Backend', NOW);
-  const priya = w.people.createPerson('Priya', backend.id, NOW - 60 * DAY_MS).person;
-  w.people.createPerson('Dana', null, NOW - 60 * DAY_MS);
-  w.people.createPerson('Quiet', null, NOW - 60 * DAY_MS);
+  const backend = await w.people.createGroup('Backend', NOW);
+  const priya = (await w.people.createPerson('Priya', backend.id, NOW - 60 * DAY_MS)).person;
+  await w.people.createPerson('Dana', null, NOW - 60 * DAY_MS);
+  await w.people.createPerson('Quiet', null, NOW - 60 * DAY_MS);
   const raw = w.storage.sqliteHandle;
   raw.prepare('UPDATE people SET last_report_at = ? WHERE id = ?').run(at(0, 10), priya.id);
   raw.prepare("UPDATE people SET last_report_at = ? WHERE name = 'Dana'").run(at(2, 10));

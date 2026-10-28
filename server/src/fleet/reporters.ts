@@ -415,12 +415,14 @@ export class ReporterStore {
   /** Removes these reporters in one step; unknown keys are skipped. Returns how many went. Sessions are not touched. */
   removeMany(keys: string[]): number {
     let n = 0;
-    this.db.exec('BEGIN');
+    // Called inside a storage transaction (the Admin adds an ignore rule and counts what went in one), it joins that one.
+    const own = !this.db.isTransaction;
+    if (own) this.db.exec('BEGIN');
     try {
       for (const k of keys) n += Number(this.stmt('DELETE FROM reporters WHERE key = ?').run(k).changes);
-      this.db.exec('COMMIT');
+      if (own) this.db.exec('COMMIT');
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      if (own) this.db.exec('ROLLBACK');
       throw err;
     }
     return n;

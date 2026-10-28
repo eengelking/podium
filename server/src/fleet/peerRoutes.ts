@@ -10,7 +10,8 @@
 import express, { type Request, type RequestHandler, type Response, type Router } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PeopleStore, type PersonRow } from './people.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PersonRow } from './people.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import { LEVEL_WORDS, type PeerReply } from './peers.js';
@@ -22,7 +23,7 @@ export interface PeerDeps {
   fleet: Fleet;
   /** The admin secret; null when authentication is off, and messaging with it. */
   token: string | null;
-  people: PeopleStore | null;
+  people: PeopleStoreApi | null;
   logger: Logger;
   requireToken: RequestHandler;
   identityOf: (res: Response) => Identity;
@@ -30,7 +31,7 @@ export interface PeerDeps {
 
 /** What responding's browser router lends the owner's routes. */
 export interface BrowserHelpers {
-  viewerOf: (req: Request) => { name: string; actor: string; admin: boolean; personId: number | null } | null;
+  viewerOf: (req: Request) => Promise<{ name: string; actor: string; admin: boolean; personId: number | null } | null>;
 }
 
 /** A message holds at most 20,000 characters, up to four bytes each, plus the JSON around it. */
@@ -62,7 +63,7 @@ function send(res: Response, out: Refusal): void {
  * Writes every right and message event to the Admin log and the server log, never a message's text. Returns the
  * wrapper the routes use so a row names the address of the request that caused it ('server' for a sweep or a report).
  */
-export function wirePeerLogs(fleet: Fleet, people: PeopleStore | null, logger: Logger): <T>(src: string, fn: () => T) => T {
+export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
   let source = 'server';
   const withSource = <T>(src: string, fn: () => T): T => {
     source = src;
@@ -77,12 +78,11 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStore | null, logger: L
   const pair = (m: MessageRow): string => `${m.fromName} on ${m.fromMachine} to ${m.toName} on ${m.toMachine}, ${m.owner}'s`;
   const short = (id: string): string => id.slice(0, 12);
   const row = (kind: string, detail: string, actor: string | null, fields: Record<string, unknown>) => {
-    try {
-      people?.log(kind, detail, source, fleet.now(), actor);
-      logger.info(`peers.${kind.replace(/^peer_/, '')}`, `podium: ${detail}`, { ...fields, source });
-    } catch (err) {
-      logger.warn('peers.trail_failed', `podium: could not log a messaging event: ${(err as Error).message}`, { reason: (err as Error).message });
-    }
+    // Called from the peer service's synchronous events: the entry is queued now, in order, and the server-log line follows it.
+    const from = source;
+    void Promise.resolve(people?.log(kind, detail, from, fleet.now(), actor))
+      .then(() => logger.info(`peers.${kind.replace(/^peer_/, '')}`, `podium: ${detail}`, { ...fields, source: from }))
+      .catch((err: Error) => logger.warn('peers.trail_failed', `podium: could not log a messaging event: ${err.message}`, { reason: err.message }));
   };
 
   fleet.peers.onMessage = (t: MessageTrail) => {
@@ -277,12 +277,12 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   };
 
   /** The signed-in person whose reporters a route manages; the admin secret has none. Otherwise answers and returns null. */
-  const owner = (req: Request, res: Response): { name: string; actor: Actor } | null => {
+  const owner = async (req: Request, res: Response): Promise<{ name: string; actor: Actor } | null> => {
     if (!enabled()) {
       refuse(req, res, 403, 'orchestrator messaging is off');
       return null;
     }
-    const v = h.viewerOf(req);
+    const v = await h.viewerOf(req);
     if (!v) {
       refuse(req, res, 403, 'sign in to manage your reporters');
       return null;
@@ -301,8 +301,8 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
       .filter((o): o is LiveOrchestrator => !!o && o.reporterKey === key)
       .map((o) => ({ sessionId: o.sessionId, name: o.name, status: o.status, peers: o.peers === true }));
 
-  browser.get('/peers', (req, res) => {
-    const me = owner(req, res);
+  browser.get('/peers', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const server = fleet.peers.serverLimits();
     const t = now();
@@ -318,10 +318,10 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
       limits: { server, effective: fleet.peers.rights.limits(me.name, server) },
       requests: fleet.peers.rights.openRequests(me.name).map((r) => fleet.peers.ownerRequestView(r)),
     });
-  });
+  }));
 
-  browser.put('/peers/rights', (req, res) => {
-    const me = owner(req, res);
+  browser.put('/peers/rights', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (!(PEER_LEVELS as readonly unknown[]).includes(b.level)) return void res.status(400).json({ ok: false, error: 'level must be none, see, ask or send', path: '$.level' });
@@ -329,66 +329,66 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const out = withSource(sourceOf(req), () => fleet.peers.rights.setRight(me.name, b.from as string, b.to as string, b.level as PeerLevel, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
-  });
+  }));
 
   /** Pause link or Resume link: both directions, at once, keeping the rights. */
-  browser.put('/peers/links', (req, res) => {
-    const me = owner(req, res);
+  browser.put('/peers/links', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string' || typeof b.paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys, paused a boolean' });
     const out = withSource(sourceOf(req), () => fleet.peers.rights.pauseLink(me.name, b.a as string, b.b as string, b.paused as boolean, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
-  });
+  }));
 
   /** Remove link: both directions lose every right, and a message still waiting on it is dropped. */
-  browser.delete('/peers/links', (req, res) => {
-    const me = owner(req, res);
+  browser.delete('/peers/links', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys' });
     const out = withSource(sourceOf(req), () => fleet.peers.removeLink(me.name, b.a as string, b.b as string, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
-  });
+  }));
 
-  browser.put('/peers/defaults', (req, res) => {
-    const me = owner(req, res);
+  browser.put('/peers/defaults', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const out = withSource(sourceOf(req), () => fleet.peers.rights.setDefaults(me.name, (req.body ?? {}) as Record<string, unknown>, fleet.peers.serverLimits(), me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
-  });
+  }));
 
-  browser.post('/peers/requests/:requestId', (req, res) => {
-    const me = owner(req, res);
+  browser.post('/peers/requests/:requestId', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
     const out = withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, me.name, answer as PeerAnswer, me.actor));
     if (!out.ok) return void send(res, out);
     res.json({ ok: true, outcome: out.request.outcome });
-  });
+  }));
 
-  browser.get('/peers/conversations', (req, res) => {
-    const me = owner(req, res);
+  browser.get('/peers/conversations', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
     if (!me) return;
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
     res.json({ conversations: fleet.peers.messages.conversations({ ...range, owner: me.name }) });
-  });
+  }));
 
   /** One conversation's messages, with their text: only its owner, or an Admin (the admin secret or an Administrator). */
-  browser.get('/peers/conversations/:a/:b', (req, res) => {
+  browser.get('/peers/conversations/:a/:b', asyncHandler(async (req, res) => {
     if (!enabled()) return void refuse(req, res, 403, 'orchestrator messaging is off');
-    const v = h.viewerOf(req);
+    const v = await h.viewerOf(req);
     if (!v) return void refuse(req, res, 403, 'sign in to read a conversation');
     const rows = fleet.peers.messages.conversation(req.params.a!, req.params.b!);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
     if (!v.admin && nameKey(rows[0]!.owner) !== nameKey(v.name)) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
     res.json({ messages: rows.map(messageView) });
-  });
+  }));
 }
 
 /** A message as a conversation shows it: who, to whom, when, where it is, and its text drawn as text by the page. */

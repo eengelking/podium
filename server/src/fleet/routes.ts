@@ -6,8 +6,9 @@ import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
 import { OwnerConflict } from './ingest.js';
-import { ADMIN_OWNER, nameKey, sourceAddress, type PeopleStore, type PersonRow } from './people.js';
+import { ADMIN_OWNER, nameKey, sourceAddress, type PersonRow } from './people.js';
 import { ReporterStore, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from './reporters.js';
+import type { PeopleStoreApi, ReporterStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
@@ -24,9 +25,9 @@ export interface FleetRouterOptions {
   /** The admin secret (PODIUM_TOKEN). When set, POST /report, DELETE and POST /hook need a credential in X-Podium-Token: this, or a person's token. */
   token?: string | null;
   /** Per-person tokens. Without it only the admin secret works. */
-  people?: PeopleStore | null;
+  people?: PeopleStoreApi | null;
   /** Where every accepted report's sender is recorded, for the Admin's Reporters page (#142). */
-  reporters?: ReporterStore | null;
+  reporters?: ReporterStoreApi | null;
   /** The server's logger (#140). Never given a report body, a token or typed text. */
   logger?: Logger;
   /** A plain line sink, kept for callers from before the logger: text lines, as `logger` would print them. */
@@ -51,11 +52,11 @@ export const BODY_LIMIT = '512kb';
 export type Identity = { kind: 'person'; person: PersonRow } | { kind: 'admin' } | { kind: 'open' };
 
 /** Who a request is, or why it was refused (the reason goes to the log, never to the client, and never the token). */
-function identify(opts: FleetRouterOptions, given: unknown): Identity | { refused: string } {
+async function identify(opts: FleetRouterOptions, given: unknown): Promise<Identity | { refused: string }> {
   const presented = typeof given === 'string' ? given : '';
   const parsed = presented ? parsePersonToken(presented) : null;
   if (parsed && opts.people) {
-    const person = opts.people.findByKeyId(parsed.keyId);
+    const person = await opts.people.findByKeyId(parsed.keyId);
     if (!person) return { refused: 'unknown person token' };
     if (person.revokedAt !== null) return { refused: 'revoked person token' };
     if (!tokenMatches(presented, person.tokenHash)) return { refused: 'wrong person token' };
@@ -64,7 +65,7 @@ function identify(opts: FleetRouterOptions, given: unknown): Identity | { refuse
   if (opts.token) {
     if (!presented) return { refused: 'missing token' };
     if (!safeEqualStr(opts.token, presented)) return { refused: 'wrong token' };
-    return !opts.people || opts.people.adminReportingAllowed() ? { kind: 'admin' } : { refused: 'reporting with the admin secret is off' };
+    return !opts.people || (await opts.people.adminReportingAllowed()) ? { kind: 'admin' } : { refused: 'reporting with the admin secret is off' };
   }
   // Authentication is off. A token that was presented but is not a person's is simply ignored.
   return { kind: 'open' };
@@ -80,9 +81,9 @@ const credentialOf = (id: Identity): string | null => (id.kind === 'person' ? `p
 const SIMULATOR_SURFACE = 'simulator';
 
 /** Bookkeeping for the Reporters page must never turn a stored report into a failed one. Returns the reporter's key, or null. */
-function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: ReporterSeen, now: number): string | null {
+async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: ReporterSeen, now: number): Promise<string | null> {
   try {
-    return opts.reporters?.record(seen, now) ?? null;
+    return (await opts.reporters?.record(seen, now)) ?? null;
   } catch (err) {
     logger.warn('reporter.record_failed', `podium: could not note the reporter: ${(err as Error).message}`, { reason: (err as Error).message });
     return null;
@@ -90,10 +91,10 @@ function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: ReporterSe
 }
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
-function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null }): { key: string; otherKeys: string[] } {
+async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null }): Promise<{ key: string; otherKeys: string[] }> {
   const own = ReporterStore.keyOf(s);
   try {
-    const keys = opts.reporters?.keysFor(s) ?? [own];
+    const keys = (await opts.reporters?.keysFor(s)) ?? [own];
     return { key: own, otherKeys: keys.filter((k) => k !== own) };
   } catch {
     return { key: own, otherKeys: [] };
@@ -101,17 +102,17 @@ function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machine
 }
 
 /** Refuses a report from a reporter the Admin ignores (issue #167): says so, notes it, and returns true. Nothing is stored. */
-function refuseIgnored(opts: FleetRouterOptions, logger: Logger, fleet: Fleet, req: Request, res: Response, who: IgnoreTarget): boolean {
+async function refuseIgnored(opts: FleetRouterOptions, logger: Logger, fleet: Fleet, req: Request, res: Response, who: IgnoreTarget): Promise<boolean> {
   let rule: IgnoreRule | undefined;
   try {
-    rule = opts.reporters?.ignoredBy(who);
+    rule = await opts.reporters?.ignoredBy(who);
   } catch (err) {
     logger.warn('reporter.ignore_check_failed', `podium: could not check the ignore rules: ${(err as Error).message}`, { reason: (err as Error).message });
   }
   if (!rule) return false;
   const reason = 'this reporter is ignored by the Admin';
   logger.warn('report.ignored', `podium: refused ${routeName(req)} from ${machineOf(req) ?? 'unknown'}: ${reason}`, { route: routeName(req), method: req.method, status: 403, reason, rule_id: rule.id, source: machineOf(req) });
-  opts.reporters?.rejected(machineOf(req), reason, fleet.now());
+  await opts.reporters?.rejected(machineOf(req), reason, fleet.now());
   res.status(403).json({ ok: false, error: reason, path: '$' });
   return true;
 }
@@ -142,13 +143,13 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   /** A person's token is 192 random bits, so it cannot be guessed and is never throttled; anything else could be a guess at the admin secret. */
   const mayBeGuess = (given: unknown): given is string => typeof given === 'string' && given !== '' && !(opts.people && parsePersonToken(given));
 
-  const requireToken = (req: Request, res: Response, next: NextFunction) => {
+  const requireToken = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
     const given = req.get('x-podium-token');
     const source = machineOf(req) ?? 'unknown';
     // A client certificate is checked on every request, so a revoke reaches a connection that is still open. One that is
     // presented but not trusted is refused outright and never falls back to a token (SPEC 6, *Authenticating by certificate*).
     if (opts.certs && opts.people) {
-      const c = certAuth(req.socket as unknown as ClientSocket, { certs: opts.certs.store, people: opts.people, trustedIssuers: opts.certs.trustedIssuers, now: fleet.now });
+      const c = await certAuth(req.socket as unknown as ClientSocket, { certs: opts.certs.store, people: opts.people, trustedIssuers: opts.certs.trustedIssuers, now: fleet.now });
       if (c.kind === 'person') {
         res.locals.identity = { kind: 'person', person: c.person } satisfies Identity;
         return next();
@@ -156,7 +157,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       if (c.kind === 'refused') {
         const route = routeName(req);
         logger.warn('auth.failed', `podium: refused ${req.method} ${route} from ${source}: ${c.reason}`, { route, method: req.method, status: 401, reason: c.reason, source: machineOf(req) });
-        opts.reporters?.rejected(machineOf(req), c.reason, fleet.now());
+        await opts.reporters?.rejected(machineOf(req), c.reason, fleet.now());
         res.status(401).json({ ok: false, error: 'client certificate refused', path: '$' });
         return;
       }
@@ -172,12 +173,12 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         reason: 'too many wrong secrets',
         source,
       });
-      opts.reporters?.rejected(machineOf(req), 'too many wrong secrets', fleet.now());
+      await opts.reporters?.rejected(machineOf(req), 'too many wrong secrets', fleet.now());
       res.set('Retry-After', String(Math.ceil(lockedFor / 1000)));
       res.status(429).json({ ok: false, error: 'too many wrong tries', retryAfterSec: Math.ceil(lockedFor / 1000) });
       return;
     }
-    const id = identify(opts, given);
+    const id = await identify(opts, given);
     if ('refused' in id && opts.token && mayBeGuess(given) && id.refused === 'wrong token') guesses.fail(source, given);
     if (!('refused' in id)) {
       res.locals.identity = id;
@@ -191,9 +192,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       reason: id.refused,
       source: machineOf(req),
     });
-    opts.reporters?.rejected(machineOf(req), id.refused, fleet.now());
+    await opts.reporters?.rejected(machineOf(req), id.refused, fleet.now());
     res.status(401).json({ ok: false, error: 'missing or wrong X-Podium-Token', path: '$' });
-  };
+  });
   const identityOf = (res: Response): Identity => res.locals.identity as Identity;
 
   router.post('/report', requireToken, json, asyncHandler(async (req, res) => {
@@ -205,7 +206,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: 400,
         source: machineOf(req),
       });
-      opts.reporters?.rejected(machineOf(req), `${result.error} (${result.path})`, fleet.now());
+      await opts.reporters?.rejected(machineOf(req), `${result.error} (${result.path})`, fleet.now());
       res.status(400).json({ ok: false, error: result.error, path: result.path });
       return;
     }
@@ -221,7 +222,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         source: machineOf(req),
         session_id: result.report.session.id,
       });
-      opts.reporters?.rejected(machineOf(req), 'the token does not belong to that name', fleet.now());
+      await opts.reporters?.rejected(machineOf(req), 'the token does not belong to that name', fleet.now());
       res.status(401).json({ ok: false, error: 'the token does not belong to that name', path: '$.userName' });
       return;
     }
@@ -229,21 +230,21 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     const asHooks = result.report.reporter.hostSurface === 'settings-hooks';
     if (
       result.report.reporter.hostSurface !== SIMULATOR_SURFACE &&
-      refuseIgnored(opts, logger, fleet, req, res, {
-        ...keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) }),
+      (await refuseIgnored(opts, logger, fleet, req, res, {
+        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
         source: machineOf(req),
         version: result.report.reporter.version,
-      })
+      }))
     ) {
       return;
     }
     try {
       const out = await fleet.ingest(result.report, ownerOf(id));
-      if (id.kind === 'person') opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
+      if (id.kind === 'person') await opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
       if (r.reporter.hostSurface !== SIMULATOR_SURFACE) {
-        const key = noteReporter(
+        const key = await noteReporter(
           opts,
           logger,
           {
@@ -301,7 +302,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     try {
       const id = identityOf(res);
       const hookSession = typeof req.body?.session_id === 'string' ? (req.body.session_id as string) : '';
-      if (refuseIgnored(opts, logger, fleet, req, res, { ...keyTarget(opts, { kind: 'hooks', machineId: null, source: machineOf(req), sessionId: hookSession }), source: machineOf(req), version: 'hooks' })) return;
+      if (await refuseIgnored(opts, logger, fleet, req, res, { ...(await keyTarget(opts, { kind: 'hooks', machineId: null, source: machineOf(req), sessionId: hookSession })), source: machineOf(req), version: 'hooks' })) return;
       const out = await fleet.ingestHook(req.body, ownerOf(id));
       if (!out.ok) {
         logger.warn('hook.rejected', `podium: rejected hook payload at ${out.path}: ${out.error}`, {
@@ -310,12 +311,12 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
           status: 400,
           source: machineOf(req),
         });
-        opts.reporters?.rejected(machineOf(req), `${out.error} (${out.path})`, fleet.now());
+        await opts.reporters?.rejected(machineOf(req), `${out.error} (${out.path})`, fleet.now());
         res.status(400).json(out);
         return;
       }
-      if (id.kind === 'person') opts.people?.touch(id.person.id, machineOf(req), fleet.now());
-      const hookKey = noteReporter(
+      if (id.kind === 'person') await opts.people?.touch(id.person.id, machineOf(req), fleet.now());
+      const hookKey = await noteReporter(
         opts,
         logger,
         { kind: 'hooks', machineId: null, machineName: null, source: machineOf(req), owner: ownerOf(id), credential: credentialOf(id), version: 'hooks', engineVersion: null, sessionId: out.sessionId },
@@ -411,7 +412,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     const note = fleet.activityHistory.note(id, agentId);
     if (note) {
       const row = await fleet.db.getSession(id);
-      body.history = { ...note, canRead: !!row && (respondAccess?.canRead(req, row) ?? false), owner: row?.owner ?? null };
+      body.history = { ...note, canRead: !!row && ((await respondAccess?.reader(req))?.(row) ?? false), owner: row?.owner ?? null };
     }
     res.set('Cache-Control', 'no-store').json(body);
   }));
@@ -441,18 +442,18 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
 
   // Closing a wall notice and the Show/Hide link on the background-sessions note. Both only change how the wall
   // looks, like Remove above, so they take no token (and no admin cookie: the wall has none). SPEC 7.1, 8.1.
-  router.post('/notices/:id/close', (req, res) => {
+  router.post('/notices/:id/close', asyncHandler(async (req, res) => {
     if (!fleet.wall.setNotice(req.params.id, false)) {
       res.status(400).json({ ok: false, error: 'unknown notice', path: '$.id' });
       return;
     }
-    opts.people?.log('wall_notice_changed', `Wall notice ${req.params.id} turned off from the wall`, machineOf(req) ?? '', fleet.now());
+    await opts.people?.log('wall_notice_changed', `Wall notice ${req.params.id} turned off from the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_notice_changed', `podium: wall notice ${req.params.id} turned off from the wall`, { action: 'wall_notice_changed', setting: req.params.id, on: false, source: machineOf(req) });
     res.json({ ok: true });
-  });
+  }));
 
   // Closing the update notice hides the release it names for everyone; a still newer release shows it again (#499, SPEC 8.1).
-  router.post('/update-notice/close', json, (req, res) => {
+  router.post('/update-notice/close', json, asyncHandler(async (req, res) => {
     const v = req.body?.version;
     if (typeof v !== 'string' || !/^\d+\.\d+\.\d+$/.test(v)) {
       res.status(400).json({ ok: false, error: 'version must be MAJOR.MINOR.PATCH', path: '$.version' });
@@ -465,22 +466,22 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     fleet.wall.dismissUpdate(v);
-    opts.people?.log('wall_update_dismissed', `Update notice for ${v} closed on the wall`, machineOf(req) ?? '', fleet.now());
+    await opts.people?.log('wall_update_dismissed', `Update notice for ${v} closed on the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_update_dismissed', `podium: update notice for ${v} closed on the wall`, { action: 'wall_update_dismissed', version: v, source: machineOf(req) });
     res.json({ ok: true });
-  });
+  }));
 
-  router.put('/wall/background-sessions', json, (req, res) => {
+  router.put('/wall/background-sessions', json, asyncHandler(async (req, res) => {
     const v = req.body?.show;
     if (typeof v !== 'boolean') {
       res.status(400).json({ ok: false, error: 'show must be true or false', path: '$.show' });
       return;
     }
     fleet.wall.setShowBackgroundSessions(v);
-    opts.people?.log('wall_background_changed', `Background sessions ${v ? 'shown' : 'hidden'} on the wall`, machineOf(req) ?? '', fleet.now());
+    await opts.people?.log('wall_background_changed', `Background sessions ${v ? 'shown' : 'hidden'} on the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_background_changed', `podium: background sessions ${v ? 'shown' : 'hidden'} on the wall`, { action: 'wall_background_changed', on: v, source: machineOf(req) });
     res.json({ ok: true });
-  });
+  }));
 
   router.get('/events', asyncHandler(async (req, res) => {
     const before = intParam(req.query.before);
@@ -520,7 +521,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     const to = new Date(y, mo - 1, d + 1).getTime();
     // A page past the end is the last page, so a day that shrank under an open tab still shows rows.
     // A row says its recording is kept only to the session's owner and an Admin (#353).
-    const { rows, total, page: at } = await fleet.historyPage(from, to, page ?? 1, pageSize, (row) => respondAccess?.canRead(req, row) ?? false);
+    const { rows, total, page: at } = await fleet.historyPage(from, to, page ?? 1, pageSize, (await respondAccess?.reader(req)) ?? (() => false));
     res.json({ day, sessions: rows, total, page: at, pageSize });
   }));
 

@@ -10,7 +10,8 @@ import { randomBytes } from 'node:crypto';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PeopleStore } from './people.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress } from './people.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
 import type { Lockout } from './lockout.js';
@@ -28,7 +29,7 @@ export interface RespondDeps {
   fleet: Fleet;
   /** The admin secret; null when authentication is off, and responding with it. */
   token: string | null;
-  people: PeopleStore | null;
+  people: PeopleStoreApi | null;
   logger: Logger;
   lockout: Lockout;
   requireToken: RequestHandler;
@@ -104,10 +105,10 @@ function answerError(res: Response, err: AnswerError): void {
 /** What the fleet router asks of the sign-in once the respond routes are mounted. */
 export interface RespondAccess {
   /**
-   * Whether the request carries a valid sign-in of the session's owner or an Admin. It never refuses or throws, so a route
-   * that has no sign-in of its own can ask without changing who it answers.
+   * Reads the request's sign-in once and returns whether it is the sign-in of a given session's owner or an Admin. It never
+   * refuses or throws, so a route that has no sign-in of its own can ask without changing who it answers.
    */
-  canRead: (req: Request, row: SessionRow) => boolean;
+  reader: (req: Request) => Promise<(row: SessionRow) => boolean>;
 }
 
 export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAccess {
@@ -172,10 +173,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     const row = await fleet.db.getSession(t.sessionId);
     const where = `${logWords(t.delivery)} in ${row?.name ?? 'a session'} (${t.sessionId.slice(0, 8)}) [${shortDeliveryId(t.delivery)}]`;
     if (t.kind === 'result') {
-      people?.log('respond_result', `${where}: ${RESULT_WORDS[t.result]}`, trailSource, at, actorOf(t.delivery.by));
+      await people?.log('respond_result', `${where}: ${RESULT_WORDS[t.result]}`, trailSource, at, actorOf(t.delivery.by));
       logger.info('respond.result', `podium: ${logWords(t.delivery).toLowerCase()} in session ${t.sessionId} came back ${t.result}`, { session_id: t.sessionId, kind: t.delivery.kind, result: t.result });
     } else {
-      people?.log('respond_dropped', `${where}: ${DROP_WORDS[t.why]}`, trailSource, at, actorOf(t.by));
+      await people?.log('respond_dropped', `${where}: ${DROP_WORDS[t.why]}`, trailSource, at, actorOf(t.by));
       logger.info('respond.dropped', `podium: ${logWords(t.delivery).toLowerCase()} in session ${t.sessionId} was dropped (${t.why})`, { session_id: t.sessionId, kind: t.delivery.kind, why: t.why });
     }
   };
@@ -322,7 +323,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.use(json);
 
   /** Who a request's cookie says is signed in, or null. A revoked or rotated token, or an idle sign-in, ends it. */
-  const viewerOf = (req: Request): Viewer | null => {
+  const viewerOf = async (req: Request): Promise<Viewer | null> => {
     const sid = readCookie(req, COOKIE);
     const s = sid ? signIns.get(sid) : undefined;
     if (!sid || !s) return null;
@@ -330,13 +331,16 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     if (now() - s.last <= idleMs) {
       if (s.personId === null) viewer = d.token !== null ? { name: ADMIN_OWNER, actor: ADMIN_SECRET_ACTOR, admin: true, personId: null } : null;
       else {
-        const p = people?.getPerson(s.personId);
-        if (p && p.revokedAt === null && p.tokenHash === s.tokenHash) viewer = { name: p.name, actor: p.name, admin: people!.isAdministrator(p.id), personId: p.id };
+        const p = await people?.getPerson(s.personId);
+        if (p && p.revokedAt === null && p.tokenHash === s.tokenHash) viewer = { name: p.name, actor: p.name, admin: await people!.isAdministrator(p.id), personId: p.id };
       }
     }
+    // A sign-out that came in while the person was being read ends this sign-in: do not put it back.
+    const current = signIns.get(sid);
+    if (!current) return null;
     signIns.delete(sid);
     if (!viewer) return null;
-    signIns.set(sid, { ...s, last: now() }); // re-inserted, so the oldest entry is the least recently used
+    signIns.set(sid, { ...current, last: now() }); // re-inserted, so the oldest entry is the least recently used
     return viewer;
   };
 
@@ -345,8 +349,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       const sid = readCookie(req, COOKIE);
       return sid ? signIns.get(sid) : undefined;
     };
-    d.bridge.administratorOf = (req) => {
-      const v = signInEnabled() ? viewerOf(req) : null;
+    d.bridge.administratorOf = async (req) => {
+      const v = signInEnabled() ? await viewerOf(req) : null;
       return v?.admin && !signInOf(req)?.adminHeld ? { personId: v.personId } : null;
     };
     d.bridge.hold = (req) => {
@@ -359,13 +363,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     };
   }
 
-  browser.get('/me', (req, res) => {
-    const v = signInEnabled() ? viewerOf(req) : null;
+  browser.get('/me', asyncHandler(async (req, res) => {
+    const v = signInEnabled() ? await viewerOf(req) : null;
     const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
     res.json(me);
-  });
+  }));
 
-  browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), (req, res) => {
+  browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), asyncHandler(async (req, res) => {
     if (!signInEnabled()) {
       refuse(req, res, 403, 'responding is off');
       return;
@@ -385,18 +389,24 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // A person's token only with that person's name; the admin secret only with the name Admin (7.7).
     let signIn: SignIn | null = null;
     let viewer: Viewer | null = null;
-    const found = checkNameToken(people, d.token, name, token);
+    const found = await checkNameToken(people, d.token, name, token);
+    // The sign-in was counted against this address while the person was being read: a lockout reached meanwhile refuses this one too, right or wrong.
+    const lockedNow = lockout.lockedFor(src);
+    if (lockedNow > 0) {
+      res.status(429).json({ ok: false, error: 'too many wrong tries', retryAfterSec: Math.ceil(lockedNow / 1000) });
+      return;
+    }
     if (found?.person) {
       const p = found.person;
       signIn = { personId: p.id, tokenHash: p.tokenHash, last: now() };
-      viewer = { name: p.name, actor: p.name, admin: people!.isAdministrator(p.id), personId: p.id };
+      viewer = { name: p.name, actor: p.name, admin: await people!.isAdministrator(p.id), personId: p.id };
     } else if (found) {
       signIn = { personId: null, tokenHash: null, last: now() };
       viewer = { name: ADMIN_OWNER, actor: ADMIN_SECRET_ACTOR, admin: true, personId: null };
     }
     if (!signIn || !viewer) {
       const { n, locked } = lockout.fail(src);
-      people?.log('respond_sign_in_failed', locked ? `Wrong name or token (${n}); locked for ${Math.round(lockout.lockMs / 60_000)} minutes` : `Wrong name or token (${n})`, src, now(), null);
+      await people?.log('respond_sign_in_failed', locked ? `Wrong name or token (${n}); locked for ${Math.round(lockout.lockMs / 60_000)} minutes` : `Wrong name or token (${n})`, src, now(), null);
       logger.warn('respond.sign_in_failed', `podium: a sign-in to respond from ${src} was refused`, { source: src, failures: n, locked });
       res.status(401).json({ ok: false, error: 'wrong name or token' });
       return;
@@ -408,10 +418,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // A browser signed in before #215 holds a cookie at the old, narrower path; it is sent first and would shadow this one.
     res.clearCookie(COOKIE, { path: LEGACY_COOKIE_PATH });
     res.cookie(COOKIE, sid, { httpOnly: true, sameSite: 'strict', path: COOKIE_PATH, secure: req.secure });
-    people?.log('respond_sign_in', 'Signed in to respond', src, now(), viewer.actor);
+    await people?.log('respond_sign_in', 'Signed in to respond', src, now(), viewer.actor);
     logger.info('respond.sign_in', `podium: ${viewer.name} signed in to respond from ${src}`, { source: src, admin: viewer.admin });
     res.json({ ok: true, name: viewer.name, admin: viewer.admin });
-  });
+  }));
 
   browser.post('/sign-out', (req, res) => {
     const sid = readCookie(req, COOKIE);
@@ -421,17 +431,21 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     res.json({ ok: true });
   });
 
-  /** The signed-in viewer and the live session they may respond to; otherwise answers and returns null. `row` is the session as the handler just read it; this is synchronous so the checks and the handler's next steps run in one turn. */
-  const browserSession = (req: Request, res: Response, row: SessionRow | undefined): { v: Viewer; row: SessionRow } | null => {
+  /**
+   * The signed-in viewer and the live session they may respond to; otherwise answers and returns null. The viewer is read first and
+   * the session last, so the checks after the session is read and the handler's next steps run in one turn.
+   */
+  const browserSession = async (req: Request, res: Response): Promise<{ v: Viewer; row: SessionRow } | null> => {
     if (!enabled()) {
       refuse(req, res, 403, 'responding is off');
       return null;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 403, 'sign in to respond');
       return null;
     }
+    const row = await fleet.db.getSession(req.params.id!);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -444,9 +458,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   };
 
   /** Each answer, message and command the server takes: the admin log and the server log, never its text (7.7). */
-  const audit = (req: Request, v: Viewer, row: SessionRow, delivery: Delivery) => {
+  const audit = async (req: Request, v: Viewer, row: SessionRow, delivery: Delivery): Promise<void> => {
     const src = sourceOf(req);
-    people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${row.id.slice(0, 8)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
+    await people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${row.id.slice(0, 8)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
     logger.info('respond.sent', `podium: ${logWords(delivery).toLowerCase()} in session ${row.id}`, { session_id: row.id, kind: delivery.kind, admin: v.admin, source: src });
   };
 
@@ -460,7 +474,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 401, 'sign in to open diffs');
       return;
@@ -499,7 +513,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     const kind = ahead ? 'loaded' : 'opened';
-    people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    await people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
     logger.info(`file_diff.${kind}`, `podium: a file diff was ${kind} in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
     res.json(got);
   }));
@@ -510,7 +524,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 401, 'sign in to open diffs');
       return;
@@ -533,13 +547,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
-    people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    await people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
     logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: 'loaded ahead', source: sourceOf(req) });
     res.status(204).end();
   }));
 
   browser.get('/sessions/:id/asks/:askId', asyncHandler(async (req, res) => {
-    const got = browserSession(req, res, await fleet.db.getSession(req.params.id!));
+    const got = await browserSession(req, res);
     if (!got) return;
     const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at);
     if (!detail) {
@@ -550,7 +564,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   }));
 
   browser.post('/sessions/:id/asks/:askId/answer', asyncHandler(async (req, res) => {
-    const got = browserSession(req, res, await fleet.db.getSession(req.params.id!));
+    const got = await browserSession(req, res);
     if (!got) return;
     const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body);
     if (!out.ok) {
@@ -558,28 +572,28 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       answerError(res, out.err);
       return;
     }
-    audit(req, got.v, got.row, out.delivery);
+    await audit(req, got.v, got.row, out.delivery);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id });
   }));
 
   browser.post('/sessions/:id/messages', asyncHandler(async (req, res) => {
-    const got = browserSession(req, res, await fleet.db.getSession(req.params.id!));
+    const got = await browserSession(req, res);
     if (!got) return;
     const out = fleet.respond.message(got.row.id, got.v.name, req.body);
     if (!out.ok) {
       answerError(res, out.err);
       return;
     }
-    audit(req, got.v, got.row, out.delivery);
+    await audit(req, got.v, got.row, out.delivery);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id, queued: got.row.status === 'running' });
   }));
 
-  browser.delete('/deliveries/:deliveryId', (req, res) => {
+  browser.delete('/deliveries/:deliveryId', asyncHandler(async (req, res) => {
     if (!enabled()) {
       refuse(req, res, 403, 'responding is off');
       return;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 403, 'sign in to respond');
       return;
@@ -589,7 +603,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     else if (out === 'forbidden') refuse(req, res, 403, 'not your answer');
     else if (out === 'handed-over') res.status(409).json({ ok: false, error: 'handed over' });
     else res.json({ ok: true });
-  });
+  }));
 
   /**
    * A loop's stored Activity history, a page at a time (#432). Only the session's owner or an Admin, signed in. It works with
@@ -597,7 +611,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
    * never logged.
    */
   browser.get('/sessions/:id/activity-history', asyncHandler(async (req, res) => {
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 401, 'sign in to open the stored activity');
       return;
@@ -633,9 +647,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
   return {
-    canRead: (req, row) => {
-      const v = viewerOf(req);
-      return v !== null && viewerOwns(v, row);
+    reader: async (req) => {
+      const v = await viewerOf(req);
+      return (row) => v !== null && viewerOwns(v, row);
     },
   };
 }

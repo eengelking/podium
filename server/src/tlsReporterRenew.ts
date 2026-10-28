@@ -10,7 +10,9 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { X509Certificate, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PeopleStore, PersonRow } from './fleet/people.js';
+import type { PersonRow } from './fleet/people.js';
+import type { PeopleStoreApi, Storage } from './storage/types.js';
+import { asyncHandler } from './fleet/asyncHandler.js';
 import type { Logger } from './logging/logger.js';
 import { TlsError } from './tlsCa.js';
 import type { ClientSocket, PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
@@ -72,7 +74,7 @@ export type RenewAuth = { ok: true; person: PersonRow; cert: PersonCertRow } | {
 
 export interface RenewAuthDeps {
   certs: PersonCertStore;
-  people: PeopleStore;
+  people: PeopleStoreApi;
   /** SHA-256 fingerprints of the CA certificate(s) a client certificate may have been issued by. */
   trustedIssuers: () => string[];
   now: () => number;
@@ -84,7 +86,7 @@ const refuse = (code: RenewRefusal, reason: string): RenewAuth => ({ ok: false, 
  * Who may renew, from the certificate on the connection: one that Node verified against the Podium CA(s), looked up by its
  * fingerprint. Anything Node did not verify, an expired certificate included, is refused (there is no grace).
  */
-export function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): RenewAuth {
+export async function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): Promise<RenewAuth> {
   if (!socket.encrypted || typeof socket.getPeerCertificate !== 'function') return refuse('NO_CERTIFICATE', 'no client certificate');
   const peer = socket.getPeerCertificate();
   if (!peer.raw || !peer.fingerprint256) return refuse('NO_CERTIFICATE', 'no client certificate');
@@ -104,7 +106,7 @@ export function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): RenewAu
   if (!row) return refuse('NOT_RECOGNISED', 'client certificate is not one Podium issued');
   if (row.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
   if (!d.trustedIssuers().includes(row.issuerFingerprint)) return refuse('NOT_TRUSTED', 'client certificate was issued by a CA that is not trusted');
-  const person = d.people.getPerson(row.personId);
+  const person = await d.people.getPerson(row.personId);
   if (!person) return refuse('NOT_RECOGNISED', 'client certificate belongs to a person who no longer exists');
   if (person.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
   return { ok: true, person, cert: row };
@@ -119,7 +121,9 @@ const WORDS: Record<RenewRefusal, string> = {
 
 export interface ReporterRenewDeps {
   certs: PersonCertStore;
-  people: PeopleStore;
+  people: PeopleStoreApi;
+  /** Runs a callback in one storage transaction: the check after signing and the stored row are one step. */
+  tx: Storage['tx'];
   logger: Logger;
   now: () => number;
   settings: () => ReporterSettings;
@@ -135,8 +139,8 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
   /** People with a renewal between the check and the stored row; a second request in that window would pass the hourly limit. */
   const inFlight = new Set<number>();
 
-  const authenticate = (req: Request, res: Response, next: NextFunction): void => {
-    const auth = authorizeRenewal(req.socket as unknown as RenewSocket, {
+  const authenticate = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    const auth = await authorizeRenewal(req.socket as unknown as RenewSocket, {
       certs: d.certs,
       people: d.people,
       trustedIssuers: d.trustedIssuers,
@@ -161,7 +165,7 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
     res.once('close', () => inFlight.delete(auth.person.id));
     res.locals.renewal = auth;
     next();
-  };
+  });
 
   router.post('/renew', authenticate, json, (req, res) => {
     const auth = res.locals.renewal as Extract<RenewAuth, { ok: true }>;
@@ -170,13 +174,16 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
     const body: unknown = req.body;
     const publicKey = body && typeof body === 'object' ? (body as { publicKey?: unknown }).publicKey : undefined;
     void issueForPublicKey({ dir: issuer.dir, keyId: auth.person.keyId, publicKey: publicKey as string, days: d.settings().lifetimeDays, openssl: issuer.openssl })
-      .then((issued) => {
+      .then(async (issued) => {
         // Revoked, or the person removed, while OpenSSL was signing: do not hand a live certificate to someone who lost theirs.
-        const person = d.people.getPerson(auth.person.id);
-        if (d.certs.find(auth.cert.fingerprint)?.revokedAt !== null || !person || person.revokedAt !== null) {
-          return void res.status(401).json({ ok: false, code: 'REVOKED', error: WORDS.REVOKED });
-        }
-        d.certs.add(auth.person.id, issued, d.now());
+        // The check and the stored row are one step, so a revoke cannot land between them.
+        const kept = await d.tx(async () => {
+          const person = await d.people.getPerson(auth.person.id);
+          if (d.certs.find(auth.cert.fingerprint)?.revokedAt !== null || !person || person.revokedAt !== null) return false;
+          d.certs.add(auth.person.id, issued, d.now());
+          return true;
+        });
+        if (!kept) return void res.status(401).json({ ok: false, code: 'REVOKED', error: WORDS.REVOKED });
         d.logger.info('tls.reporter_renewed', `podium: renewed ${auth.person.name}'s certificate`, {
           person: auth.person.name,
           previous_fingerprint_sha256: auth.cert.fingerprint,

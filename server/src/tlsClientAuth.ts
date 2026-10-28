@@ -3,7 +3,8 @@
 // when Node verified the chain against the Podium CA(s) (`socket.authorized`, which means nothing unless the listener was
 // given `ca`), and the row is checked again on every request, so a revoke takes effect on a connection that is still open.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import type { PeopleStore, PersonRow } from './fleet/people.js';
+import type { PersonRow } from './fleet/people.js';
+import type { PeopleStoreApi } from './storage/types.js';
 import type { IssuedPersonCert } from './tlsPeople.js';
 
 /** What is kept of an issued certificate: never the key. */
@@ -145,7 +146,7 @@ export type CertAuth =
 
 export interface CertAuthDeps {
   certs: PersonCertStore;
-  people: PeopleStore;
+  people: PeopleStoreApi;
   /** SHA-256 fingerprints of the CA certificate(s) a client certificate may have been issued by. */
   trustedIssuers: () => string[];
   now: () => number;
@@ -156,7 +157,7 @@ export interface CertAuthDeps {
  * without a certificate); `refused` is one that presented a certificate that must not be trusted, and the caller must not
  * fall back to a token for it. Revoking a person's token revokes their certificate rows too (the Admin route does it); the person's own revocation is checked as well, in case a path forgets.
  */
-export function certAuth(socket: ClientSocket, d: CertAuthDeps): CertAuth {
+export async function certAuth(socket: ClientSocket, d: CertAuthDeps): Promise<CertAuth> {
   if (!socket.encrypted || typeof socket.getPeerCertificate !== 'function') return { kind: 'none' };
   const fingerprint = socket.getPeerCertificate().fingerprint256;
   if (!fingerprint) return { kind: 'none' };
@@ -169,7 +170,7 @@ export function certAuth(socket: ClientSocket, d: CertAuthDeps): CertAuth {
   if (cert.revokedAt !== null) return { kind: 'refused', reason: 'client certificate was revoked' };
   if (cert.notAfter < d.now()) return { kind: 'refused', reason: 'client certificate has expired' };
   if (!d.trustedIssuers().includes(cert.issuerFingerprint)) return { kind: 'refused', reason: 'client certificate was issued by a CA that is not trusted' };
-  const person = d.people.getPerson(cert.personId);
+  const person = await d.people.getPerson(cert.personId);
   if (!person) return { kind: 'refused', reason: 'client certificate belongs to a person who no longer exists' };
   // Defense in depth: a token revoked without the certificate rows must not leave the certificate working.
   if (person.revokedAt !== null) return { kind: 'refused', reason: 'client certificate was revoked' };
