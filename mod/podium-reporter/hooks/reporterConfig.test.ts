@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { newestConfig, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
+import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
 
 const file = (user: string, issued: number, extra = '') =>
   [
@@ -36,20 +36,23 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
     expect(parseConfigHeaders(file('Dana', 1).replace('https://', 'http://'))).toBeNull()
   })
 
-  test('the newest by issued-at wins, whatever the names say, and other files are ignored', () => {
-    const picked = newestConfig([
-      { path: '/h/reporter-config-Dana-9999999999.pem', text: file('Dana', 100) },
-      { path: '/h/reporter-config-Dana-5.pem', text: file('Dana', 300) },
-      { path: '/h/reporter-config-Dana-7.pem', text: 'garbage' },
-      { path: '/h/notes.pem', text: file('Dana', 900) },
-    ])
-    expect(picked?.path).toBe('/h/reporter-config-Dana-5.pem')
-    expect(picked?.headers.issuedAt).toBe(300)
+  test('the epoch is the number at the end of the name (#607)', () => {
+    expect(nameEpoch('reporter-config-Dana-1770000000.pem')).toBe(1770000000)
+    expect(nameEpoch('reporter-config-Dana-Lee-5.pem')).toBe(5)
+    expect(nameEpoch('reporter-config-Dana-copy.pem')).toBeNull()
+    expect(nameEpoch('reporter-config-.pem')).toBeNull()
+    expect(nameEpoch('notes-5.pem')).toBeNull()
   })
 
-  test('no file, or none that parses, is no config', () => {
-    expect(newestConfig([])).toBeNull()
-    expect(newestConfig([{ path: '/h/reporter-config-x-1.pem', text: 'nope' }])).toBeNull()
+  test('names are tried newest epoch first, names with no epoch last, and other files are ignored (#607)', () => {
+    expect(configNamesNewestFirst(['reporter-config-D-5.pem', 'notes.pem', 'reporter-config-D-copy.pem', 'reporter-config-D-300.pem', 'reporter-config-A-copy.pem', 'reporter-config-D-70.pem'])).toEqual([
+      'reporter-config-D-300.pem',
+      'reporter-config-D-70.pem',
+      'reporter-config-D-5.pem',
+      'reporter-config-A-copy.pem',
+      'reporter-config-D-copy.pem',
+    ])
+    expect(configNamesNewestFirst([])).toEqual([])
   })
 
   test('the Podium folder is under the home folder', () => {

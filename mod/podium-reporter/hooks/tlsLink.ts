@@ -1,7 +1,7 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { newestConfig, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+import { configNamesNewestFirst, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
 
@@ -74,7 +74,7 @@ export interface FoundConfig {
   headers: ConfigHeaders;
 }
 
-/** `PODIUM_REPORTER_CONFIG` if set, otherwise the newest `reporter-config-*.pem` in `~/.podium/`. Null: no config, the reporter works as today. */
+/** `PODIUM_REPORTER_CONFIG` if set, otherwise the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name. Null: no config, the reporter works as today. */
 export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ found: FoundConfig | null; problem: Problem | null; env: EnvValues }> {
   const e = env ?? (await readEnv($));
   if (e.config) {
@@ -95,13 +95,13 @@ export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ foun
   } catch {
     return { found: null, problem: null, env: e };
   }
-  const files: Array<{ path: string; text: string }> = [];
-  for (const n of names) {
-    if (n.kind !== 'file' || !/^reporter-config-.+\.pem$/.test(n.name)) continue;
-    const text = await readText($, `${dir}/${n.name}`);
-    if (text !== null) files.push({ path: `${dir}/${n.name}`, text });
+  // Newest by the epoch in the name, and the first that parses wins: the key of a file that is not chosen is never read (#607).
+  for (const name of configNamesNewestFirst(names.filter((n) => n.kind === 'file').map((n) => n.name))) {
+    const text = await readText($, `${dir}/${name}`);
+    const headers = text === null ? null : parseConfigHeaders(text);
+    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, env: e };
   }
-  return { found: newestConfig(files), problem: null, env: e };
+  return { found: null, problem: null, env: e };
 }
 
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */

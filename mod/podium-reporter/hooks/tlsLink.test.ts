@@ -104,6 +104,37 @@ describe('finding the reporter config (#584)', () => {
     expect((await findConfig(f.$, env)).found?.path).toBe('/home/d/.podium/reporter-config-Dana-2.pem')
   })
 
+  test('with five files, only the newest by the epoch in its name is read, and the others\' keys never are (#607)', async () => {
+    const dir = '/home/d/.podium'
+    const files: Record<string, string> = {}
+    for (const e of [100, 200, 500, 300, 400]) files[`${dir}/reporter-config-Dana-${e}.pem`] = text('Dana', e)
+    const f = fake({ files })
+    const reads: string[] = []
+    const read = f.$.fs.read
+    f.$.fs.read = async (p) => {
+      reads.push(p)
+      return read(p)
+    }
+    const r = await findConfig(f.$, env)
+    expect(r.found?.path).toBe(`${dir}/reporter-config-Dana-500.pem`)
+    expect(reads).toEqual([`${dir}/reporter-config-Dana-500.pem`])
+  })
+
+  test('a newest file that is not a usable config falls through to the next newest (#607)', async () => {
+    const dir = '/home/d/.podium'
+    const f = fake({ files: { [`${dir}/reporter-config-Dana-9.pem`]: 'garbage', [`${dir}/reporter-config-Dana-5.pem`]: text('Dana', 5), [`${dir}/reporter-config-Dana-3.pem`]: text('Dana', 3) } })
+    expect((await findConfig(f.$, env)).found?.path).toBe(`${dir}/reporter-config-Dana-5.pem`)
+  })
+
+  test('a file whose name carries no epoch is read only when no file with one is usable (#607)', async () => {
+    const dir = '/home/d/.podium'
+    const odd = `${dir}/reporter-config-Dana-copy.pem`
+    const withOdd = fake({ files: { [odd]: text('Dana', 999), [`${dir}/reporter-config-Dana-5.pem`]: text('Dana', 5) } })
+    expect((await findConfig(withOdd.$, env)).found?.path).toBe(`${dir}/reporter-config-Dana-5.pem`)
+    const onlyOdd = fake({ files: { [odd]: text('Dana', 999) } })
+    expect((await findConfig(onlyOdd.$, env)).found?.path).toBe(odd)
+  })
+
   test('PODIUM_REPORTER_CONFIG names the file and the folder is not read', async () => {
     const f = fake({ files: { '/x/mine.pem': text('Dana', 5), '/home/d/.podium/reporter-config-Dana-9.pem': text('Dana', 900) } })
     const r = await findConfig(f.$, { ...env, config: '/x/mine.pem' })

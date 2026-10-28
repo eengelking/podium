@@ -136,8 +136,11 @@ Everything it needs is in one file the Admin gives the person once. Designed in 
   it does not know.
 - **Where it is found.** `PODIUM_REPORTER_CONFIG`, if set, names the file. It is a plain environment variable
   read with `$.env.get`, not a `userConfig` option. Otherwise the newest `reporter-config-*.pem` in `~/.podium/`
-  wins, by its `issued-at` header line, and every other file there is ignored (a reissue leaves older files
-  beside the new one, and the old certificate is revoked). `~/.podium/` is also `podiumctl`'s home, and the
+  wins, by the epoch its name carries (`<epoch>` in `reporter-config-<name>-<epoch>.pem`), and every other file there
+  is ignored (a reissue leaves older files beside the new one, and the old certificate is revoked). The mod reads
+  one file at a time, newest name first, and takes the first whose header lines are valid, so the private key of a
+  file that is not chosen is never read (#607). A name with no epoch is tried last. A file renamed so its epoch
+  no longer matches its `issued-at` line is ranked by its name. `~/.podium/` is also `podiumctl`'s home, and the
   names do not collide.
 - **No file.** The reporter keeps working as today: the `serverUrl` and `token` options over HTTP, if the server
   allows reporters over HTTP.
