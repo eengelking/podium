@@ -1887,8 +1887,9 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
   const r = rt;
   const verb = parseAnswer(args);
   if (verb) return answerRequest($, verb.answer, verb.id);
-  const ctx = /^context(?:\s+([\s\S]*))?$/.exec(args.trim());
-  if (ctx) return contextVerb($, ctx[1] ?? '');
+  // The word `context`, alone or followed by whitespace; startsWith and a one-character test, so no pattern can backtrack over the rest.
+  const trimmed = args.trim();
+  if (trimmed.startsWith('context') && (trimmed.length === 7 || /\s/.test(trimmed.charAt(7)))) return contextVerb($, trimmed.slice(7));
   const name = nameArg(args);
   if (name !== null && r) {
     try {

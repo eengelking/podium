@@ -1528,6 +1528,14 @@ describe('podium-reporter over the TLS helper (#584)', () => {
       expect(w.statuses.at(-1)).toContain('[context unusable]')
     })
 
+    test('only the word context starts the command: contexts and contextual are not it', async ($, on) => {
+      helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      expect((await $.command.run(podium('contexts'))).text).not.toContain('* home')
+      expect((await $.command.run(podium('contextual use work'))).text).not.toContain('The current context is now')
+      expect((await $.command.run(podium('  context\tuse work  '))).text).toContain('The current context is now "work"')
+    })
+
     test('/podium context lists the contexts', async ($, on) => {
       helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
       await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
