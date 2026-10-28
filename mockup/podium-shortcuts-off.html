@@ -1,0 +1,247 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium single-key shortcuts (#636)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #636 (WCAG 2.1.4, character key shortcuts). The keys \ [ ] w fire anywhere outside a text field and cannot be turned off.
+   Three ways to fix it are shown for the maintainer to choose from. Everything inside a frame is the app's own markup and classes
+   (.top, .banner.has-picker, .bannerctl, .field, .sw, .edge-tab, .adminv .asec .panel .srow). Colors come from tokens.css; this file
+   has no :root block and no color of its own. Only the demo chrome (.demo, .note, .legend, .stage, .verdict, .opt) is the mockup's. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible, .frame button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.review { max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
+h1.t { font-size: 18px; margin: 0 0 4px; }
+h2.t { font-size: 15px; font-weight: 650; margin: 36px 0 6px; }
+h3.t { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+.review p { margin: 0 0 8px; color: var(--ink2); max-width: 74ch; }
+.review code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.note { margin: 8px 0 0; font-size: 12px; color: var(--muted); max-width: 74ch; }
+.legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink2); margin: 0 16px 8px 0; }
+.legend i { width: 22px; height: 12px; border: 2px dashed var(--sonnet); border-radius: 4px; display: inline-block; }
+.frame.podium { width: var(--w, 100%); max-width: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: auto; }
+.isnew { outline: 2px dashed var(--sonnet); outline-offset: 2px; border-radius: 6px; }
+.stage { position: relative; min-height: 120px; padding: 48px 16px 14px 36px; background: var(--bg); color: var(--ink2); font-size: 12px; display: grid; gap: 6px; align-content: start; }
+.stage .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 24px; border-right: 1px solid var(--border); background: var(--surface); }
+.stage .edge-tab { position: absolute; }
+.podium .edge-tab.show-tip::after { opacity: 1; }
+.review p.verdict { max-width: none; }
+.verdict { margin: 0; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--ink2); }
+.verdict b { color: var(--ink); }
+.keys { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.opt { display: grid; gap: 4px; }
+.opt .pc { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 6px; }
+.opt .pc div { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 8px 12px; }
+.opt .pc b { display: block; margin-bottom: 4px; font-weight: 600; color: var(--ink); }
+.opt .pc ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; color: var(--ink2); }
+.pick { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 14px; max-width: 74ch; }
+.pick ol, .pick ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; color: var(--ink2); }
+table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 900px; }
+.cmp th, .cmp td { text-align: left; padding: 6px 12px 6px 0; vertical-align: top; border-bottom: 1px solid var(--grid); }
+.cmp th { color: var(--muted); font-weight: 600; }
+.cmp td:first-child { color: var(--ink); font-weight: 500; }
+@media (max-width: 520px) {
+  .cmp { display: block; overflow-x: auto; }
+  .stage { padding-left: 32px; }
+}
+</style>
+
+<div class="demo">
+  <b>Podium shortcuts, mockup (#636)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="100%" aria-pressed="true">Wide</button>
+    <button type="button" data-w="380px" aria-pressed="false">Narrow, 380 px</button>
+  </span>
+  <button type="button" id="reset">Reset</button>
+</div>
+
+<main class="review">
+  <h1 class="t">Turning off the single-key shortcuts</h1>
+  <p>The keys <code>\</code> <code>[</code> <code>]</code> and <code>w</code> work anywhere on the page outside a text field, and nothing can turn them off or change them. WCAG 2.1.4 (character key shortcuts) asks that a shortcut made of one printable key can be turned off, remapped, or works only while its control has focus. Someone using speech input, or hitting keys by accident, now collapses a pane or starts wall mode by mistake. <code>Esc</code> is not a printable key, so it needs nothing.</p>
+  <p>Below are three ways to meet it. Each frame is live: press the switches, then press <code>\</code> <code>[</code> <code>]</code> or <code>w</code> anywhere on this page to see what the option would do. Use the demo bar for dark, light and a 380 px width.</p>
+  <p class="legend"><i></i>New in this option</p>
+
+  <h2 class="t">Option A: a switch in Display settings (per browser)</h2>
+  <div class="opt">
+    <p>Display settings is the row under the top bar that already holds Refresh every and Theme. Both are remembered per browser in <code>localStorage</code>, which is also how the collapsed panes, pins and the Board choice are kept. One more field, <b>Shortcuts</b>, with the same switch Admin uses. On by default, so nobody who uses the keys today notices a change.</p>
+  </div>
+  <div class="frame podium" data-frame>
+    <header class="top"><span class="logo">Podium</span><span class="pill">Fleet</span><span class="spacer"></span><a class="btn" href="#" onclick="return false">Board</a><a class="btn" href="#" onclick="return false">History</a></header>
+    <div class="banner has-picker" role="region" aria-label="Display settings">
+      <span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span>
+      <div class="bannerctl">
+        <label class="field"><span>Refresh every</span><select class="sel"><option>5s</option><option>10s</option></select></label>
+        <span class="field isnew"><span id="a-n">Shortcuts</span><span class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="a-n a-s" aria-describedby="a-d" id="a-sw"></button><span id="a-s">On</span></span></span>
+        <div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>
+          <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false">Light</button><button type="button" role="radio" aria-checked="false">Dark</button><button type="button" role="radio" aria-checked="true">System</button></div></div>
+      </div>
+    </div>
+    <div class="stage">
+      <span class="rail" aria-hidden="true"></span>
+      <button type="button" class="edge-tab edge-tab-left show-tip" style="left:24px;top:14px;transform:translateX(-50%)" aria-label="Collapse the left pane" data-tip="Collapse the left pane ([)" id="a-tab"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
+      <span id="a-d">With Shortcuts on: <span class="keys"><code>\</code> top bar, <code>[</code> left pane, <code>]</code> right pane, <code>w</code> wall mode, <code>Esc</code> leaves wall mode. Off: only <code>Esc</code> and the buttons.</span></span>
+      <span>The hover tip on each pane control names its key while Shortcuts is on, and drops it when off.</span>
+    </div>
+    <p class="verdict" id="a-v" aria-live="polite"></p>
+  </div>
+  <div class="opt">
+    <div class="pc">
+      <div><b>Pros</b><ul>
+        <li>Meets 2.1.4 by letting the person turn the keys off, on the page where they already choose how the console looks.</li>
+        <li>A person's own choice, not an Admin one: it follows the person who needs it, on their browser.</li>
+        <li>Default on keeps wall displays and current habits working.</li>
+        <li>Reuses the Display settings region, the <code>.field</code> and the Admin switch (<code>.sw</code>). No new component.</li>
+      </ul></div>
+      <div><b>Cons</b><ul>
+        <li>Per browser: someone on three machines turns it off three times.</li>
+        <li>The row is hidden when the top bar is collapsed. The bar comes back with the tab (and <code>\</code>, when keys are on), so the switch is reachable but one step away.</li>
+        <li>History carries the same row (spec 8.1, Theme picker), so the setting would need wiring there too.</li>
+        <li>A new key in <code>localStorage</code>, say <code>podium.shortcuts</code>, and a spec line.</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <h2 class="t">Option B: a switch in Admin &gt; Settings (everyone on the server)</h2>
+  <div class="opt">
+    <p>Admin &gt; Settings holds server-wide switches: Feature flags, Wall notices, The wall. A row here, in The wall, would switch the keys off for every person on this server. It does not conflict with the wall-notice rule: that rule is about informational notes, and this is not a notice. Admin would own the answer for people who may never see Admin.</p>
+  </div>
+  <div class="frame podium" data-frame>
+    <header class="top"><span class="logo">Podium</span><span class="pill" style="color:var(--admin-text)">Admin</span><span class="spacer"></span><a class="btn" href="#" onclick="return false">Fleet</a></header>
+    <div class="adminv" style="padding:16px">
+      <div class="apage-in" style="display:grid;gap:16px">
+        <div class="page-h"><div><h1>Settings</h1><p class="lead">Server-wide choices. A change applies to everyone on this server.</p></div></div>
+        <section class="asec" aria-labelledby="b-h">
+          <div class="asec-h"><div><h2 id="b-h">The wall</h2></div></div>
+          <div class="panel">
+            <div class="srow"><div class="setname"><b id="b0-n">Show background sessions on the wall</b><p class="hint ink2">Sessions nobody is attached to are set aside after a minute. Turn this on to keep them in view. Off by default.</p></div>
+              <div class="sw"><button type="button" role="switch" aria-checked="false" aria-labelledby="b0-n b0-s"></button><span id="b0-s">Off</span></div></div>
+            <div class="srow isnew"><div class="setname"><b id="b-n">Single-key shortcuts</b><span class="fid">shortcuts</span><p class="hint ink2">Lets people collapse panes and start wall mode with the keys \ [ ] and w. Off, those keys do nothing for anyone, and the buttons still work. On by default.</p></div>
+              <div class="sw"><button type="button" role="switch" aria-checked="true" aria-labelledby="b-n b-s" id="b-sw"></button><span id="b-s">On</span></div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <p class="verdict" id="b-v" aria-live="polite"></p>
+  </div>
+  <div class="opt">
+    <div class="pc">
+      <div><b>Pros</b><ul>
+        <li>One place, set once. Fits the existing Admin pattern: a row, a one-line description, an On/Off switch.</li>
+        <li>Suits a shared wall display where one admin wants the keys gone for everyone.</li>
+      </ul></div>
+      <div><b>Cons</b><ul>
+        <li>The person who needs the change is rarely the Admin. They must ask, and everyone else loses the keys too. This is the weakest fit for 2.1.4, which is about the person's control.</li>
+        <li>Admin reaches the server through a separate unlock, so a person cannot fix it themselves.</li>
+        <li>Adds an Admin flag (and an atlas row and a server-side store), more than the problem needs.</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <h2 class="t">Option C: a modifier key, no setting</h2>
+  <div class="opt">
+    <p>Change the keys to <code>Shift</code> plus the key. A shortcut that needs a modifier is not a character key shortcut, so 2.1.4 no longer applies. Nothing to switch, nothing stored. The tips name the new keys. Ctrl, Meta and Alt stay out of it because browsers and screen readers use them.</p>
+  </div>
+  <div class="frame podium" data-frame>
+    <header class="top"><span class="logo">Podium</span><span class="pill">Fleet</span><span class="spacer"></span><a class="btn" href="#" onclick="return false">Board</a><a class="btn" href="#" onclick="return false">History</a><button type="button" class="btn" title="Collapse everything for a wall display (Shift+W)">Wall mode</button></header>
+    <div class="banner has-picker" role="region" aria-label="Display settings">
+      <span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span>
+      <div class="bannerctl">
+        <label class="field"><span>Refresh every</span><select class="sel"><option>5s</option><option>10s</option></select></label>
+        <div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>
+          <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false">Light</button><button type="button" role="radio" aria-checked="false">Dark</button><button type="button" role="radio" aria-checked="true">System</button></div></div>
+      </div>
+    </div>
+    <div class="stage">
+      <span class="rail" aria-hidden="true"></span>
+      <button type="button" class="edge-tab edge-tab-left show-tip isnew" style="left:24px;top:14px;transform:translateX(-50%)" aria-label="Collapse the left pane" data-tip="Collapse the left pane (Shift+[)"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
+      <span><span class="keys"><code>Shift+\</code> top bar, <code>Shift+[</code> left pane, <code>Shift+]</code> right pane, <code>Shift+W</code> wall mode, <code>Esc</code> leaves wall mode.</span></span>
+      <span>A plain <code>w</code> or <code>[</code> does nothing.</span>
+    </div>
+    <p class="verdict" id="c-v" aria-live="polite"></p>
+  </div>
+  <div class="opt">
+    <div class="pc">
+      <div><b>Pros</b><ul>
+        <li>No setting, no storage, no spec flag. Meets 2.1.4 by design.</li>
+        <li>Stray keys and speech input can no longer fire a shortcut.</li>
+      </ul></div>
+      <div><b>Cons</b><ul>
+        <li>Breaks the keys people use now, with no way back. Wall-display users retrain.</li>
+        <li>Shift changes the character: <code>Shift+[</code> reports <code>{</code> and <code>Shift+\</code> reports <code>|</code>. The code must match the physical key (<code>e.code</code>), which differs on non-US layouts, so a key can be awkward or missing.</li>
+        <li>Four two-key chords are harder to remember and reach than four single keys.</li>
+        <li>Someone who wanted fewer shortcuts still has them. There is no off.</li>
+      </ul></div>
+    </div>
+  </div>
+
+  <h2 class="t">Side by side</h2>
+  <table class="cmp">
+    <tr><th>Question</th><th>A: Display settings</th><th>B: Admin &gt; Settings</th><th>C: Shift + key</th></tr>
+    <tr><td>Who decides</td><td>Each person</td><td>The Admin, for all</td><td>Nobody; fixed</td></tr>
+    <tr><td>Stored</td><td>Per browser (<code>localStorage</code>)</td><td>On the server</td><td>Not stored</td></tr>
+    <tr><td>Today's habits</td><td>Kept (default on)</td><td>Kept (default on)</td><td>Broken</td></tr>
+    <tr><td>New component</td><td>None</td><td>None</td><td>None</td></tr>
+    <tr><td>Meets 2.1.4 by</td><td>Turn off</td><td>Turn off (not by the person)</td><td>Modifier required</td></tr>
+  </table>
+
+  <h2 class="t">Recommendation and open questions</h2>
+  <div class="pick">
+    <b>Recommend A.</b> It is the one the person who needs the change can use themselves, it keeps today's behavior by default, and it adds no component. B and C can be added later if wanted; A does not block them.
+    <p style="margin-top:8px">Questions for the maintainer</p>
+    <ol>
+      <li>Where is a per-person preference kept? The spec only has per-browser <code>localStorage</code> for display choices (theme, refresh interval, collapsed panes, pins) and says pins are "not per person and the server does not know about them". It names no server-side per-person display setting. Is per browser acceptable here, or should this follow the signed-in person?</li>
+      <li>Default on or off? On keeps current habits. Off is safest for the criterion. A is drawn with on.</li>
+      <li>Label: "Shortcuts", "Keyboard shortcuts" or "Single-key shortcuts"? The frame says "Shortcuts" to fit the row at 380 px.</li>
+      <li>When off, should the pane tips and the Wall mode button's title stop naming the keys? A drops them, since the keys would not work.</li>
+      <li>Should the setting also appear on History's row, which carries the same Display settings?</li>
+      <li>Do you want A and C together later (off, plus a modifier when on)? Not drawn.</li>
+    </ol>
+  </div>
+  <p class="note">Not mocked: "active only while a control has focus". The keys exist to collapse panes from anywhere, for example on a wall display with nothing focused, so a focus-only rule would remove their purpose. If you want it drawn, say so.</p>
+</main>
+
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var ON = { a: true, b: true };
+function msg(k) {
+  var a = ON.a;
+  $("a-v").innerHTML = a ? "<b>Shortcuts on.</b> The four keys work outside a text field, as today." : "<b>Shortcuts off.</b> The four keys do nothing. Esc still leaves wall mode, and every button still works.";
+  $("b-v").innerHTML = ON.b ? "<b>Single-key shortcuts on.</b> Every person on this server has the four keys." : "<b>Single-key shortcuts off.</b> Nobody on this server has the four keys. Only the Admin could turn them back on.";
+  $("c-v").innerHTML = "<b>Shift + key.</b> The keys work only with Shift held. There is no setting.";
+  $("a-s").textContent = a ? "On" : "Off"; $("b-s").textContent = ON.b ? "On" : "Off";
+  $("a-sw").setAttribute("aria-checked", a); $("b-sw").setAttribute("aria-checked", ON.b);
+  $("a-tab").setAttribute("data-tip", a ? "Collapse the left pane ([)" : "Collapse the left pane");
+}
+$("a-sw").onclick = function () { ON.a = !ON.a; msg(); };
+$("b-sw").onclick = function () { ON.b = !ON.b; msg(); };
+document.addEventListener("keydown", function (e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.target.closest("input, select, textarea")) return;
+  if (["\\", "[", "]", "w", "W"].indexOf(e.key) < 0) return;
+  var out = (ON.a ? "A: fires." : "A: ignored.") + " " + (ON.b ? "B: fires." : "B: ignored.") + " C: ignored without Shift.";
+  var d = document.querySelector(".demo b"); d.textContent = "Key " + e.key + " pressed. " + out;
+});
+document.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = function () { document.documentElement.dataset.theme = b.dataset.mode;
+  document.querySelectorAll("[data-mode]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+document.querySelectorAll("[data-w]").forEach(function (b) { b.onclick = function () {
+  document.querySelectorAll("[data-frame]").forEach(function (f) { f.style.setProperty("--w", b.dataset.w); });
+  document.querySelectorAll("[data-w]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+$("reset").onclick = function () { ON.a = true; ON.b = true; msg(); document.querySelector(".demo b").textContent = "Podium shortcuts, mockup (#636)"; };
+var q = new URLSearchParams(location.search);
+if (q.get("theme")) { document.documentElement.dataset.theme = q.get("theme"); }
+msg();
+</script>
