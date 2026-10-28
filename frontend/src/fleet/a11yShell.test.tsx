@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, within, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, within, fireEvent, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
@@ -176,9 +176,10 @@ describe("the Admin title names the section (2.4.2)", () => {
     render(<AdminView />);
     expect(document.title).toBe("Podium admin");
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
-    expect(document.title).toBe("Settings - Podium admin");
+    // The title is set by an effect, which can run after the heading shows when the machine is busy.
+    await waitFor(() => expect(document.title).toBe("Settings - Podium admin"));
     fireEvent.click(screen.getByRole("button", { name: "People" }));
-    expect(document.title).toBe("People - Podium admin");
+    await waitFor(() => expect(document.title).toBe("People - Podium admin"));
   });
 });
 

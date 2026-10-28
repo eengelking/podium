@@ -14,6 +14,9 @@ import { fakeServer } from "./admin/fakeAdmin";
 import { atWall, stateFrom } from "./testState";
 import { makeSession } from "./fixtures";
 
+// A scan takes 15 to 280 ms on an idle machine, and themes.html timed out at the 5 second default when four test runs shared it.
+vi.setConfig({ testTimeout: 30000 });
+
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"];
 /** Rules jsdom cannot judge: they need layout or paint. */
 const NEEDS_LAYOUT = ["color-contrast", "target-size", "scrollable-region-focusable", "link-in-text-block"];
