@@ -645,9 +645,14 @@ body.modal-open #root { filter: blur(5px); }
 .podium .ev .evb { display: grid; grid-template-columns: 58px 8px 1fr; gap: 8px; padding: 6px 14px; align-items: baseline; width: 100%; }
 .podium button.evb:hover { background: var(--hover); }
 .podium .ev li.cur .evb { background: var(--sel); }
+/* The muted gray on the selected row's wash is 3.8:1 in the dark themes; the rail's selected row does the same (#636). */
+.podium .ev li.cur time, .podium .ev li.cur .go { color: var(--ink2); }
 .podium .ev .go { color: var(--muted); font-size: 11px; display: flex; gap: 4px; align-items: center; margin-top: 1px; }
 .podium .ev .go svg { width: 11px; height: 11px; }
-.podium .ev li.gone .evb { cursor: default; opacity: .65; }
+/* A row whose session has gone is dimmed by its text color and weight, not by opacity: opacity dropped the time and the "go to" hint to 1.4:1 to 3.2:1 (#636). */
+.podium .ev li.gone .evb { cursor: default; }
+.podium .ev li.gone:not(.bad) .tt { color: var(--ink2); }
+.podium .ev li.gone .tt b { font-weight: 500; }
 .podium .ev li.blowev .tt { color: var(--ink); }
 .podium .ev li.blowev .evb { box-shadow: inset 3px 0 0 var(--warn); }
 .podium .ev li.bad .evb { box-shadow: inset 3px 0 0 var(--crit); }
