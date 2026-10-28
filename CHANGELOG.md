@@ -20,6 +20,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **A gotcha for an Activity section that asks you to turn on `activityFeed` when it is on.** A session reads its reporter options once, when the plugin loads, so one that started before the option was turned on keeps saying it is off until `/reload-plugins` is run in it. Documentation only.
 - **`.claude/CLAUDE.md` is now the standard baseline, and everything specific to Podium is in `.claude/PROJECT.md` (#772).** `CLAUDE.md` matches the baseline policy file used across projects, apart from naming `docs/architecture/` and `docs/spec/` where the baseline names single files, and it loads `PROJECT.md` with an `@PROJECT.md` import. `PROJECT.md` holds the overview, the Podium Do Nots, the worktree rule, the `Closes #N` override, the project skills, the UI standards, the release steps and the PR trace, atlas and release checks. The rules are unchanged; they moved. Docs and comments that cited a moved section now cite `PROJECT.md`.
 
 ### Fixed
