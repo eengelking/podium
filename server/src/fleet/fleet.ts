@@ -98,7 +98,11 @@ interface LiveEntry {
 /** Whether the viewer asking may know that a session has a recording (its owner or an Admin, signed in). */
 export type RecordingKnown = (row: SessionRow) => boolean;
 
-const metaOfRow = (row: SessionRow | undefined): SessionMeta | undefined => (row ? { name: row.name, project: row.repo_name ?? row.project_root, owner: row.owner } : undefined);
+export function metaOfRow(row: SessionRow): SessionMeta;
+export function metaOfRow(row: SessionRow | undefined): SessionMeta | undefined;
+export function metaOfRow(row: SessionRow | undefined): SessionMeta | undefined {
+  return row ? { name: row.name, project: row.repo_name ?? row.project_root, owner: row.owner } : undefined;
+}
 
 /** When a session ended: dropped, else ended, else last seen. */
 const endedAtOf = (row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
@@ -387,9 +391,12 @@ export class Fleet {
     const res = await ingestReport(this.storage, report, this.now(), owner);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
+    // The stored session, read once: the Stored activity table and a recording's carry-over start from it, and so does the live set below.
+    const row = await this.db.getSession(res.sessionId);
+    const meta = metaOfRow(row);
     // The report is already saved: a failure of the second file (a full disk, say) is logged and must not refuse the report.
     try {
-      if (this.activityHistory.enabled()) await this.activityHistory.ingest(report, res.clockSkewMs, (await this.historyMeta(res.sessionId)) ?? { name: report.session.name, project: null, owner });
+      if (this.activityHistory.enabled()) await this.activityHistory.ingest(report, res.clockSkewMs, meta ?? { name: report.session.name, project: null, owner });
     } catch (err) {
       this.logger.error('activity.ingest_failed', `podium: could not store the activity of session ${res.sessionId}: ${(err as Error).message}`, { session_id: res.sessionId, reason: (err as Error).message });
     }
@@ -398,7 +405,6 @@ export class Fleet {
     // The owner's consent to be recorded, from this report (#353). After a /clear the new session inherits a running recording.
     this.recordings.noteOption(res.sessionId, report.session.sessionRecording);
     if (res.created && report.session.clearedFrom) {
-      const meta = await this.historyMeta(res.sessionId);
       try {
         if (meta) await this.recordings.carryOver(report.session.clearedFrom, res.sessionId, meta);
       } catch (err) {
@@ -408,7 +414,6 @@ export class Fleet {
     this.respond.noteReport(report, this.respondFlagsOn());
     this.noteReporter(report, owner);
     const entry = this.live.get(res.sessionId);
-    const row = await this.db.getSession(res.sessionId);
     if (entry) {
       entry.heard = true;
     } else if (!(res.ended && res.wasDone)) {

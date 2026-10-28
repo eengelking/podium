@@ -253,12 +253,13 @@ describe('startSweeper', () => {
     const tick = vi.spyOn(fleet, 'tick');
     const logs: string[] = [];
     const stop = startSweeper(fleet, { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000 }, (l) => logs.push(l));
-    vi.advanceTimersByTime(4000);
+    // The sweep is async and a run is not started while the last is going, so each second is let finish before the next.
+    await vi.advanceTimersByTimeAsync(4000);
     expect(sweep).toHaveBeenCalledTimes(4);
     expect(tick).toHaveBeenCalledTimes(2);
     expect(logs).toEqual(['podium sweeper: sweep failed: boom']);
     stop();
-    vi.advanceTimersByTime(4000);
+    await vi.advanceTimersByTimeAsync(4000);
     expect(sweep).toHaveBeenCalledTimes(4);
   });
 });
@@ -275,7 +276,7 @@ describe('forgetting reporters by age (issue #167)', () => {
     const stop = startSweeper(fleet, { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000 }, (l) => logs.push(l), hook);
     expect(hook).toHaveBeenCalledTimes(1);
     expect(retain).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(3600_000);
+    await vi.advanceTimersByTimeAsync(3600_000);
     expect(hook).toHaveBeenCalledTimes(2);
     expect(retain).toHaveBeenCalledTimes(2);
     expect(logs.filter((l) => l.includes('boom'))).toHaveLength(1);

@@ -1024,8 +1024,13 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     res.json({ ...(await people.listLog(paging(req))), ...(opts.logRetainMs === undefined ? {} : { retainMs: opts.logRetainMs }) });
   }));
 
-  router.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  router.use((err: Error & { type?: string }, req: Request, res: Response, _next: NextFunction) => {
     void _next;
+    // A body the parser refused is the client's. Anything else reached here from a handler that rejected (a store that failed, say) and
+    // is answered the same way, but it is logged, or the failure would leave no trace.
+    if (!(err instanceof SyntaxError) && !err.type?.startsWith('entity.')) {
+      logger.error('request.failed', `podium: admin request failed: ${err.message}`, { route: `${req.baseUrl}${req.path}`, method: req.method, reason: err.message, status: 400 });
+    }
     res.status(400).json({ ok: false, error: err instanceof SyntaxError ? 'bad JSON' : 'bad request' });
   });
 

@@ -87,20 +87,33 @@ export async function forgetReporters(storage: Pick<Storage, 'people' | 'reporte
 /** `log` is the server's logger, or a plain line sink as before the logger existed (#140). */
 export function startSweeper(fleet: Fleet, intervals: SweeperIntervals = DEFAULT_INTERVALS, log: Logger | ((line: string) => void) = createLogger(), onRetention?: () => void | Promise<void>, onActivityPurge?: () => void | Promise<void>): () => void {
   const logger = typeof log === 'function' ? loggerFromLine(log) : log;
-  // A body may be async (the fleet's reads are): a rejection is logged the same way as a throw.
-  const guard = (name: string, fn: () => unknown) => () => {
-    const failed = (err: unknown) => logger.error('sweeper.failed', `podium sweeper: ${name} failed: ${(err as Error).message}`, { timer: name, reason: (err as Error).message });
-    try {
-      const out = fn();
-      if (out instanceof Promise) out.catch(failed);
-    } catch (err) {
-      failed(err);
-    }
+  // A body may be async (the fleet's reads are): a rejection is logged the same way as a throw. A body whose last run has not
+  // finished is not started again: the sweep and the retention queue behind every report (`Serializer.exclusive`), so one
+  // started every interval while the last is still running would pile up without end and hold every report back behind them.
+  const guard = (name: string, fn: () => unknown) => {
+    let running = false;
+    return () => {
+      if (running) return;
+      const failed = (err: unknown) => logger.error('sweeper.failed', `podium sweeper: ${name} failed: ${(err as Error).message}`, { timer: name, reason: (err as Error).message });
+      try {
+        const out = fn();
+        if (out instanceof Promise) {
+          running = true;
+          out.catch(failed).finally(() => {
+            running = false;
+          });
+        }
+      } catch (err) {
+        failed(err);
+      }
+    };
   };
   // Each job is guarded on its own, so a failing one never stops the other.
+  const retainJob = guard('retention', () => fleet.retain());
+  const forgetJob = guard('forget-reporters', () => onRetention?.());
   const retention = () => {
-    guard('retention', () => fleet.retain())();
-    guard('forget-reporters', () => onRetention?.())();
+    retainJob();
+    forgetJob();
   };
   // The purge is async: a failure after its first chunk arrives as a rejection, which is logged the same way.
   const activityPurge = guard('activity-purge', () => {

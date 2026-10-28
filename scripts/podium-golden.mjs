@@ -112,9 +112,9 @@ function makeNormalizer(ctx) {
       });
     };
     sub(PEM, '<pem>', 'pem block');
-    if (out.includes(origin)) sub(new RegExp(origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<server>', 'server origin');
-    if (out.includes(hostPort)) sub(new RegExp(hostPort.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<host:port>', 'server host:port');
-    for (const d of dirs) if (d && out.includes(d)) sub(new RegExp(d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<dbdir>', 'database directory');
+    if (out.includes(origin)) sub(new RegExp(origin.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<server>', 'server origin');
+    if (out.includes(hostPort)) sub(new RegExp(hostPort.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<host:port>', 'server host:port');
+    for (const d of dirs) if (d && out.includes(d)) sub(new RegExp(d.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '<dbdir>', 'database directory');
     sub(PDM, 'pdm_<token>', 'pdm_ token in text');
     sub(UUID, '<uuid>', 'uuid in text');
     sub(ISO, '<iso-time>', 'ISO time in text');

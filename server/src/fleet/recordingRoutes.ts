@@ -5,7 +5,7 @@
 // the signed-in person to be the session's owner or an Admin. A recording's text goes to the one reader and nowhere else: it is
 // never logged, and the Admin log carries only who did what to which session, with counts.
 import express, { Router, type Request, type Response } from 'express';
-import type { Fleet } from './fleet.js';
+import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
 import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
@@ -53,9 +53,6 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStoreApi | null, l
   };
 }
 
-/** What a session's recording starts from: its name, project and owner in the main database. */
-const metaOf = async (fleet: Fleet, row: SessionRow) => (await fleet.historyMeta(row.id)) ?? { name: row.name, project: null, owner: row.owner };
-
 /** The mod's route (SPEC 7.1). */
 export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
@@ -74,13 +71,12 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     const off = () => refuse(403, 'recording is off');
     if (!recordingEnabled(fleet, d.token)) return off();
     const row = await fleet.db.getSession(req.params.id!);
-    const meta = row ? await metaOf(fleet, row) : undefined;
     if (!row) return refuse(404, 'unknown session', '$.id');
     if (!credentialOwns(d.identityOf(res), row)) return refuse(409, 'that session belongs to someone else', '$.session.id');
     // The checks and the write are one step of the store: the session cannot end, and the consent cannot change, in between.
     // A session that has ended is not accepted again (its recording is kept as it is). A recording a person stopped still takes the
     // entries captured before the stop (the mod's last interval); the store drops later ones.
-    const out = await fleet.recordings.accept(row.id, v.batch, meta!);
+    const out = await fleet.recordings.accept(row.id, v.batch, metaOfRow(row));
     if (out.kind === 'ended') return out.held ? refuse(409, 'the session has ended', '$.id') : refuse(404, 'unknown session', '$.id');
     if (out.kind === 'off') return off();
     const { stored, recording } = out;
@@ -172,7 +168,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       return;
     }
     // Read before the step below, so the step that checks and starts waits for nothing: the session cannot end in between.
-    const meta = await metaOf(fleet, got.row);
+    const meta = metaOfRow(got.row);
     const loops = (await fleet.recordings.loopInfo(got.row.id)).map((l) => l.loop);
     // PROVISIONAL (#353): capture needs a running session, so a session that has ended cannot be started.
     const out = await fleet.recordings.choose(got.row.id, v.request.loops, got.v.name, meta, loops);
