@@ -122,4 +122,5 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md): Installed copies update only when the plugin.json version changes, and that bump happens in the release-prep PR.
 - [A new color theme shows up in the dropdown but the page stays on Podium's colors](new-color-theme-has-no-effect.md): A theme lives in themes.ts, tokens.css and the inline script in index.html; update all three.
 - [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md): A fake tool.check that answers ask is denied by Claude Code 2.1.310's test engine; the mod's tests answer allow and set ask only where a test needs it.
+- [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md): Every storage call returns a promise; a missing await passes the type checker. Await it, and keep Storage.tx free of other waits.
 <!-- entries:end -->
