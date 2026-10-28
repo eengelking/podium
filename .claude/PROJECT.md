@@ -112,16 +112,14 @@ The design system is `docs/standards/` (open `index.html`): tokens, themes, ever
 
 ## Releases
 
-`github-release` owns the general steps and `podium-release` owns this repo's: the gate, the sequence, the files a version touches, hotfixes and the release check. These are the rules.
+`github-release` (with its development-branch resource) owns the steps, and `podium-release` owns what is specific to this repo: the gate, the files a version touches, what publishing means here and the release check. These are the rules that are this repo's own.
 
 - **One version for the whole product.** Podium and `podium-reporter` share one `MAJOR.MINOR.PATCH`, the way Kubernetes versions its parts together. Every versioned file carries the same number at all times; `scripts/versions.test.ts` fails if any of them differ. Releases 0.2.0 to 0.14.3 were cut retroactively at the commit where the reporter's version changed.
 - **Feature PRs never bump the version.** A feature or fix PR into `development` adds its entry under `[Unreleased]` and leaves every versioned file alone, including the mod's `plugin.json` (installed copies update at the next release). CI's `mod-version-check` runs on PRs into `main`, so it checks the release PR.
-- **A release is the maintainer's decision that `development` is a release candidate.** Do not start one unprompted. `npm test` and `npm run build` pass on the tip of `development` (and `npm run test:mod` and `npm run typecheck:mod` if the mod changed since the last release), and the release PR's CI is green. `development` may be broken between releases; fix it with ordinary PRs, and do not open the release PR with a known failure.
-- **The bump level comes from `[Unreleased]`.** Read everything that accumulated since the last release (a hotfix counts as one, so the base is the newest tag on `main`). Any breaking entry is a major release, otherwise any new behavior (`feat:`) is a minor release, otherwise a patch. Choose by what the entries change, never by an issue's label: an `enhancement` that only removes unused code or tidies internals is a patch, and one that adds behavior a person can see is a minor. Entries that change only documentation, comments, CI or chores ride along and do not justify a release alone. Never infer major from how big the diff feels; when it is unclear whether a change is a patch or a minor, or breaking at all, ask. A minor release may include breaking changes only before 1.0.0.
-- **The release is published as the docs site and nothing else.** There is no package registry and no container registry; users build the image with `podiumctl build`.
-- **The tag is the maintainer's to approve.** It is `vMAJOR.MINOR.PATCH`, annotated, on the merge commit on `main`, with the CHANGELOG section as its notes. Propose it and wait for approval; never push one unprompted.
-- **The release PR into `main` is merged with a regular merge commit, never squashed**, and carries no `Closes #N`.
-- **A hotfix never moves `[Unreleased]`**, writes its failing test first, and waits for the user to say so before its backport. If a release-prep PR is already merged but unreleased, stop and ask how to order them.
+- **A release is the maintainer's decision that `development` is a release candidate.** Do not start one unprompted, and do not open the release PR with a known failure; `development` may be broken between releases.
+- **The bump level is chosen by what the `[Unreleased]` entries change, never by an issue's label:** an `enhancement` that only removes unused code or tidies internals is a patch, and one that adds behavior a person can see is a minor. A minor release may include breaking changes only before 1.0.0.
+- **The release is published as the docs site and nothing else.** There is no package registry and no container registry.
+- **The release PR carries no `Closes #N`** (see "Closing issues" above), and the tag waits for the maintainer's approval.
 
 ## Delegation and Checks
 

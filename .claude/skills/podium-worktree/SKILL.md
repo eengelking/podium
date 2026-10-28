@@ -23,9 +23,8 @@ cd .claude/worktrees/<branch-slug> && npm ci --ignore-scripts
 
 ## Clean up
 
-Only when the merge is confirmed, not before. A worktree outlives its branch's merge, and one that still holds a branch checked out blocks deleting that branch, so the order matters:
+Only when the merge is confirmed, not before. A worktree outlives its branch's merge, and one that still holds a branch checked out blocks deleting that branch, so remove the worktree first. Deleting the branch itself, locally and on the remote, and verifying it, is `github-pr-merge`'s cleanup; run it between these two steps.
 
 1. `git worktree remove .claude/worktrees/<branch-slug>`
-2. Delete the branch locally and on the remote.
-3. `git worktree prune`
-4. `git worktree list` shows only what is still in use.
+2. Delete the branch (`github-pr-merge`).
+3. `git worktree prune`, then check `git worktree list` shows only what is still in use.

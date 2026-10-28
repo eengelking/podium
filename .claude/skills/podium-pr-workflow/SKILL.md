@@ -52,4 +52,4 @@ This repo closes issues when the PR into `development` merges, but GitHub only a
 gh issue close <N> --comment "Fixed in #<PR>; ships with the next release."
 ```
 
-Say in the issue that the change is on `development` and ships with the next release. Then clean up with `podium-worktree`. A hotfix PR into `main` closes its issue by itself; its backport PR carries `Refs #N`.
+Say in the issue that the change is on `development` and ships with the next release. Then clean up with `podium-worktree`.
