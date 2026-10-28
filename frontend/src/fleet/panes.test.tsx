@@ -179,6 +179,8 @@ describe("FleetView collapsible shell", () => {
   const lost = () => ({ ...stateFrom(), phase: "disconnected" as const });
   const left = () => screen.getByRole("button", { name: /left pane/i });
   const right = () => screen.getByRole("button", { name: /right pane/i });
+  // The single-key shortcuts are off by default (#636); these tests are about what the keys do, so they start with Shortcuts on.
+  beforeEach(() => localStorage.setItem("podium.shortcuts", "true"));
 
   it("collapses and expands the left pane from its tab and from [", () => {
     const { container } = render(<FleetView state={stateFrom()} />);

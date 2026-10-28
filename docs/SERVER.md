@@ -365,7 +365,7 @@ To lower it:
 
 - Keep fewer sessions on screen.
 - Leave the tab hidden (animations pause while it is).
-- Use wall mode (`w`), which hides the side panes and top bar so the browser stops drawing them.
+- Use wall mode (the Wall mode button, or `w` once Shortcuts is on), which hides the side panes and top bar so the browser stops drawing them.
 - Close the console when nobody is looking.
 
 A hidden tab still receives and parses the stream and redraws on its refresh interval (#751), so closing the console saves more than hiding it. [Performance](PERFORMANCE.md) has measured figures for the server and the tab at four fleet sizes, and the ranked list of what would lower them.

@@ -47,8 +47,8 @@ pages, responding, the orchestrator page and the right panel.
 - A theme with no palette for the chosen mode uses Podium's palette for that mode.
 
 **Refresh every** (#138, `mockup/podium-update-interval.html`)
-- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), immediately left
-  of the Theme dropdown.
+- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), left of the
+  Shortcuts switch and the Theme dropdown.
 - It is remembered in `localStorage` under `podium.updateEvery`, with try/catch. A stored value that is not one
   of the six is ignored.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
@@ -78,11 +78,18 @@ pages, responding, the orchestrator page and the right panel.
 **Collapsing**
 - The left pane, the right pane and the top bar each collapse and expand on their own, from a visible control
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
+- The single-key shortcuts (`[`, `]`, `\`, `w`) are off by default (WCAG 2.1.4, #636). A **Shortcuts** switch (the
+  Admin `.sw` switch in a `.field`) in the Display settings row turns them on. It sits beside Refresh every and Theme
+  on the wall, the Board, the orchestrator page, Traffic and My reporters, and beside Theme on History. It is kept per
+  browser in `localStorage` under `podium.shortcuts` (`true` or `false`), the way the theme and the refresh interval
+  are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
+  pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
+  (its `title` and `aria-describedby`) names all four keys.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
   the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
   new collapse or open control uses it. A pane's pill sits in the `.cols` grid beside the pane, straddling its
-  inner edge near the top, and the tip names the shortcut ("Collapse the left pane ([)").
+  inner edge near the top, and, while Shortcuts is on, the tip names the shortcut ("Collapse the left pane ([)").
 - A collapsed pane leaves a 24 px edge strip holding the same pill as its expand button (`aria-expanded`, `aria-controls`). Its
   content is `hidden`, so it is out of the tab order and the accessibility tree, and its saved width comes
   back when it opens.
@@ -726,7 +733,8 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - Each has an X (accessible name "Close notice: `<name>`"). Its action link, if it has one, stays in the note.
 - Closing a notice turns it off for everyone (`POST /api/fleet/notices/:id/close`) and shows a confirmation,
   bottom right, that names the notice and links to `#/admin/settings`. The confirmation clears itself after
-  about 9 seconds and has its own X.
+  about 9 seconds and has its own X. It waits while the pointer is over it or focus is inside it, and the 9 seconds
+  start again when both have left.
 - Errors and connection problems are not notices. They keep their place and have no X, and so does the short
   status message at the top of the main column that clears itself after 6 seconds.
 - The switches live in Admin > Settings > Wall notices, one row per notice (name, one-line description,
@@ -1030,7 +1038,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     reporters for the console, as it does from the Board.
   - The console's own messages, such as a failed Remove in the rail, show at the top of the page in the wall's
     `.callout.notice`.
-  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. `[` and `]` open and
+  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. With Shortcuts on, `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)

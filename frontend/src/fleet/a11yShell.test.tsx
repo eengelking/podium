@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup, within, fireEvent, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { HistoryView } from "./HistoryView";
 import { AdminView } from "./admin/AdminView";
@@ -165,6 +165,21 @@ describe("a thing focus is moved to without being a control draws no ring (#636)
     const css = readFileSync(resolve(__dirname, "fleet.css"), "utf8") + readFileSync(resolve(__dirname, "admin/admin.css"), "utf8");
     expect(css).toMatch(/h1\[tabindex="-1"\]:focus[^{]*\{ outline: none; \}/);
     expect(css).toMatch(/\.tb-who:focus[^{]*\{ outline: none; \}/);
+  });
+});
+
+describe("the Admin title names the section (2.4.2)", () => {
+  it("says Podium admin until Admin opens, then the section and Podium admin", async () => {
+    vi.stubGlobal("EventSource", class { onerror = null; readyState = 1; addEventListener() {} close() {} });
+    fakeServer({ unlocked: true });
+    window.history.replaceState(null, "", "#/admin/settings");
+    render(<AdminView />);
+    expect(document.title).toBe("Podium admin");
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
+    // The title is set by an effect, which can run after the heading shows when the machine is busy.
+    await waitFor(() => expect(document.title).toBe("Settings - Podium admin"));
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await waitFor(() => expect(document.title).toBe("People - Podium admin"));
   });
 });
 

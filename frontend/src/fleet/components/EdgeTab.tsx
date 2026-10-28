@@ -41,7 +41,7 @@ export function EdgeTab(props: {
 }
 
 /** A side pane's tab (#33). The chevron points the way the pane will move: toward its edge to close, away from it to open. */
-export function PaneEdgeTab(props: { side: "left" | "right"; collapsed: boolean; onToggle: () => void }) {
+export function PaneEdgeTab(props: { side: "left" | "right"; collapsed: boolean; onToggle: () => void; /** Name the key in the tip only while the single-key shortcuts are on (#636). */ shortcuts: boolean }) {
   const { side, collapsed } = props;
   const name = `${collapsed ? "Expand" : "Collapse"} the ${side} pane`;
   const shortcut = side === "left" ? "[" : "]";
@@ -49,7 +49,7 @@ export function PaneEdgeTab(props: { side: "left" | "right"; collapsed: boolean;
     <EdgeTab
       place={side}
       name={name}
-      tip={`${name} (${shortcut})`}
+      tip={props.shortcuts ? `${name} (${shortcut})` : name}
       points={(side === "left") !== collapsed ? "left" : "right"}
       controls={side === "left" ? "podium-rail-body" : "podium-side-body"}
       expanded={!collapsed}

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, within, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, within, fireEvent, cleanup, act } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { GitLine } from "./components/Chips";
 import { SessionCard, cardTitle } from "./components/SessionCard";
@@ -508,6 +508,67 @@ describe("wall notices (#114)", () => {
     fireEvent.click(within(toast).getByRole("button", { name: "Close this message" }));
     expect(screen.queryByText("Notice turned off")).toBeNull();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the confirmation while the pointer or focus is on it, and clears it a full wait after both leave (WCAG 2.2.1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))));
+    render(<FleetView state={hidden()} />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Background sessions" }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const toast = screen.getByText("Notice turned off").closest(".toast") as HTMLElement;
+      fireEvent.mouseEnter(toast);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.mouseLeave(toast);
+      act(() => void vi.advanceTimersByTime(8_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      const link = within(toast).getByRole("link", { name: /Open Admin > Settings/ });
+      fireEvent.focus(link);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: within(toast).getByRole("button", { name: "Close this message" }) });
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: null });
+      act(() => void vi.advanceTimersByTime(8_999));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      act(() => void vi.advanceTimersByTime(2));
+      expect(screen.queryByText("Notice turned off")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the confirmation when the pointer leaves while focus is still inside it (WCAG 2.2.1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))));
+    render(<FleetView state={hidden()} />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Background sessions" }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const toast = screen.getByText("Notice turned off").closest(".toast") as HTMLElement;
+      const link = within(toast).getByRole("link", { name: /Open Admin > Settings/ });
+      fireEvent.focus(link);
+      fireEvent.mouseEnter(toast);
+      fireEvent.mouseLeave(toast);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: null });
+      act(() => void vi.advanceTimersByTime(9_001));
+      expect(screen.queryByText("Notice turned off")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not render a notice that is switched off in Admin", () => {
