@@ -101,7 +101,7 @@ if (fs.existsSync(pagePath)) {
 app.use(hostCheck({ bind: HOST, allowed: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }));
 app.use(securityHeaders({ scriptHashes: pageScripts }));
 // With TLS on and the Admin's switch off, the HTTP listener refuses the routes a reporter calls, except from loopback (#589).
-app.use(reporterHttpGate({ active: () => tlsListener !== null, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => void reporters.rejected(source, reason, Date.now()) }));
+app.use(reporterHttpGate({ active: () => tlsListener !== null, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => void reporters.rejected(source, reason, Date.now()).catch((err: Error) => logger.warn("reporters.reject_note_failed", `podium: could not note a refused reporter request: ${err.message}`, { reason: err.message })) }));
 app.use(requestLog(logger));
 // Five wrong credentials from one address lock it out of Admin's unlock and the sign-in to respond together (#206).
 const lockout = new Lockout();
@@ -163,7 +163,7 @@ void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dbPath
   tlsListener = l;
   // A signal that arrived while the CA was being made has already started the shutdown.
   if (closing) l?.server.close();
-});
+}).catch((err: Error) => logger.error("tls.start_failed", `podium: could not finish starting TLS: ${err.message}`, { reason: err.message }));
 
 let closing = false;
 function shutdown(signal: string) {

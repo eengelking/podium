@@ -54,10 +54,9 @@ function wallSettingsOver(db: DatabaseSync, lock: AsyncLock): WallSettingsApi {
 }
 
 /**
- * The SQLite storage, with the raw connection the stores not yet converted still use.
- * TODO(#313 stage 5): remove `sqliteHandle`, with the stores that need it. A call made on it is a synchronous call that does
- * not take the lock, so it can run inside another task's open `tx` and see (or write) its uncommitted rows. It exists only
- * until stages 3 to 5 move those stores onto the async interface.
+ * The SQLite storage, with the raw connection kept as a test-only seam: `sqliteHandle` and `activityHandle` let a test look at rows or
+ * set a database up directly. A call made on them is synchronous and does not take the lock, so it can run inside another task's
+ * open `tx` and see (or write) its uncommitted rows; production code goes through the async interfaces and never uses them.
  */
 export interface SqliteStorage extends Storage {
   readonly sqliteHandle: DatabaseSync;

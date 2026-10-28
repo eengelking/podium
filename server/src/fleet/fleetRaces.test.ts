@@ -97,6 +97,8 @@ describe('two reports for one session', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  // Guards the owner check inside `ingestReport`'s transaction, not the Serializer: it passes with `Serializer.run` a pass-through (checked),
+  // because the storage lock queues the two transactions. It fails if the owner check and the insert stop being one transaction.
   it('from two owners: exactly one is refused, and the stored owner is the one that got in', async () => {
     const { fleet } = await setup();
     const out = await Promise.allSettled([fleet.ingest(report('s1'), 'ed'), fleet.ingest(report('s1'), 'amy')]);

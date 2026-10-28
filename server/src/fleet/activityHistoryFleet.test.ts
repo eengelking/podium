@@ -53,7 +53,7 @@ describe('a failing history file', () => {
     vi.spyOn(fleet.activityHistory, 'ingest').mockImplementation(() => {
       throw new Error('disk full');
     });
-    await expect(fleet.ingest(report([tool(T0)]))).resolves.toBeDefined();
+    await expect(fleet.ingest(report([tool(T0)]))).resolves.not.toThrow();
     expect(logger.error).toHaveBeenCalledWith('activity.ingest_failed', expect.stringContaining('disk full'), expect.anything());
   });
 });
@@ -252,7 +252,7 @@ describe('removal through the fleet', () => {
     const fleet = new Fleet(storage, CFG, () => clock, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
     await fleet.init();
     vi.spyOn(fleet.activityHistory, 'dropMissingSessions').mockRejectedValue(new Error('disk full'));
-    await expect(fleet.retain()).resolves.toBeDefined();
+    await expect(fleet.retain()).resolves.not.toThrow();
     await fleet.activityHistory.idle();
     await new Promise((r) => setImmediate(r));
     expect(errors.join('\n')).toContain('disk full');

@@ -27,6 +27,25 @@ const fileDb = (): string => {
   return path.join(d, 'podium.sqlite');
 };
 
+/**
+ * The same store, but the nth call made through it first waits `delays[n % delays.length]` ms. Writes asked for together, if nothing queued
+ * them, would reach storage in the order of their delays rather than the order asked for, so a missing queue shows as a different last value.
+ */
+function staggered<T extends object>(target: T, delays: number[]): T {
+  let n = 0;
+  return new Proxy(target, {
+    get(t, key) {
+      const v = (t as Record<string | symbol, unknown>)[key];
+      if (typeof v !== 'function') return v;
+      return async (...args: unknown[]) => {
+        const wait = delays[n++ % delays.length]!;
+        await new Promise((r) => setTimeout(r, wait));
+        return (v as (...a: unknown[]) => unknown).apply(t, args);
+      };
+    },
+  });
+}
+
 const PRICE = { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 1.25, cacheWrite1h: 2 };
 
 describe('LiveFeatureFlags', () => {
@@ -143,7 +162,8 @@ describe('LiveWallSettings', () => {
   it('holds the last of overlapping writes, in storage and in memory', async () => {
     const storage = memory();
     const seen: boolean[] = [];
-    const wall: LiveWallSettings = new LiveWallSettings(storage.wallSettings, () => seen.push(wall.showBackgroundSessions()));
+    // Stored out of order (the second, then the third, then the first) unless the writes are queued: the stored value would end up true, false, false.
+    const wall: LiveWallSettings = new LiveWallSettings(staggered(storage.wallSettings, [30, 0, 15]), () => seen.push(wall.showBackgroundSessions()));
     await Promise.all([wall.setShowBackgroundSessions(true), wall.setShowBackgroundSessions(false), wall.setShowBackgroundSessions(true)]);
     expect(seen).toEqual([true, false, true]);
     expect(wall.showBackgroundSessions()).toBe(true);
@@ -184,7 +204,9 @@ describe('LiveModelPrices', () => {
   it('leaves the last of overlapping saves stored and held', async () => {
     const storage = memory();
     const seen: number[] = [];
-    const prices: LiveModelPrices = new LiveModelPrices(storage.modelPrices, storage.tx, () => seen.push(prices.pricing().rowOf('m')?.std.input ?? 0));
+    // The transaction is entered in a different order than asked for (the second, the third, then the first) unless the saves are queued.
+    const tx = staggered({ tx: storage.tx }, [30, 0, 15]).tx;
+    const prices: LiveModelPrices = new LiveModelPrices(storage.modelPrices, tx, () => seen.push(prices.pricing().rowOf('m')?.std.input ?? 0));
     const at = (n: number) => prices.set('m', { std: { ...PRICE, input: n } });
     await Promise.all([at(3), at(4), at(5)]);
     expect(seen).toEqual([3, 4, 5]);
@@ -232,8 +254,9 @@ describe('LiveRecordingSettings and LiveActivityHistorySettings', () => {
 
   it('leaves the last of overlapping saves stored and held', async () => {
     const storage = memory();
-    const rec = new LiveRecordingSettings(storage.recordingSettings);
-    const history = new LiveActivityHistorySettings(storage.activityHistorySettings(true));
+    // (The load is the first call through each, so the delays start after it.) Each store's saves reach it in a different order than asked for (the second, the third, then the first) unless they are queued.
+    const rec = new LiveRecordingSettings(staggered(storage.recordingSettings, [0, 30, 0, 15]));
+    const history = new LiveActivityHistorySettings(staggered(storage.activityHistorySettings(true), [0, 20, 0]));
     await Promise.all([rec.load(), history.load()]);
     await Promise.all([rec.set({ keepHours: 2 }), rec.set({ keepHours: 3 }), rec.set({ keepHours: 4 })]);
     await Promise.all([history.set({ n: 2 }), history.set({ n: 9 })]);

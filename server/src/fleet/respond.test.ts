@@ -725,8 +725,10 @@ describe('answering, end to end', () => {
       const msg = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #333' });
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
       await fleet.features.setFeature('respond', false);
-      await new Promise((r) => setImmediate(r)); // the delivery log line is written once the session's name has been read (#313)
-      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
+      // The delivery log lines are written once the session's name has been read (#313): wait, for at most 2 s, until both are there.
+      const dropped = async () => (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
+      for (let waited = 0; (await dropped()).length < 2 && waited < 2000; waited += 5) await new Promise((r) => setTimeout(r, 5));
+      const rows = await dropped();
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
           `Sent a message in invoice-v2 (sess-ed) [${msg.body.deliveryId.slice(0, 12)}]: responding was turned off first, before any result came back`,

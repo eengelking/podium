@@ -60,6 +60,8 @@ const sent = (r: SendOutcome | Refusal): SendOutcome => {
 const rows = (w: World, sql: string, ...args: (string | number)[]) => w.storage.sqliteHandle.prepare(sql).all(...args) as Record<string, unknown>[];
 
 describe('peer store: approve is one step', () => {
+  // Guards the design that `answer` is one synchronous step (read the request, decide, deliver); it passes with the lock removed too (checked).
+  // It fails if `answer` is split across an await. The lock itself is checked by the open-transaction test below.
   it('delivers a message once when the owner answers twice at the same time', async () => {
     const w = await world('ask');
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
@@ -95,6 +97,7 @@ describe('peer store: approve is one step', () => {
     expect(rows(w, 'SELECT closed_at FROM peer_requests WHERE kind = ?', 'message').every((r) => r.closed_at !== null)).toBe(true);
   });
 
+  // Guards the same design property (answer and pause are each one synchronous step); it does not depend on the lock.
   it('holds a delivered message back when the link is paused at the same time', async () => {
     const w = await world('ask');
     const out = sent(await w.peers.messages.send('sa', 'beta@box-b', 'hello'));
@@ -116,6 +119,7 @@ describe('peer store: approve is one step', () => {
 });
 
 describe('peer store: sends and the rate limit', () => {
+  // Guards the design that `send` counts and inserts in one synchronous step; it does not depend on the lock (checked).
   it('lets through exactly the per-minute limit when many sends start at once', async () => {
     const w = await world('send', 'send');
     expect((await w.peers.settings.set({ perMinute: 3 })).ok).toBe(true);
@@ -159,6 +163,7 @@ describe('peer store: sends and the rate limit', () => {
 });
 
 describe('peer store: ended and deleted sessions', () => {
+  // Guards the design that `send` and `ended` are each one synchronous step; it does not depend on the lock (checked).
   it('leaves no held message and no open request when the receiver ends while a send is made, either way round', async () => {
     for (const sendFirst of [true, false]) {
       const w = await world('ask');

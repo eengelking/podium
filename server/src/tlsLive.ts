@@ -11,6 +11,8 @@ import type { Storage, TlsSettingsApi } from './storage/types.js';
 type Saved = Awaited<ReturnType<TlsSettingsApi['set']>>;
 export type TlsSetResult = (Extract<Saved, { ok: true }> & { wasAllowed: boolean }) | Extract<Saved, { ok: false }>;
 
+type Held = { serving: ServingSettings; reporter: ReporterSettings; allowHttp: boolean };
+
 export class LiveTlsSettings {
   private serving: ServingSettings = { ...SERVING_DEFAULTS };
   private reporter: ReporterSettings = { lifetimeDays: REPORTER_DAYS };
@@ -23,13 +25,18 @@ export class LiveTlsSettings {
   ) {}
 
   async load(): Promise<void> {
-    await this.tx(() => this.read());
+    this.hold(await this.tx(() => this.read()));
   }
 
-  private async read(): Promise<void> {
-    this.serving = await this.store.get();
-    this.reporter = await this.store.getReporter();
-    this.allowHttp = await this.store.allowReportersOverHttp();
+  /** The stored values. The held copy changes only after the transaction around the read has committed, so a rollback leaves it alone. */
+  private async read(): Promise<Held> {
+    return { serving: await this.store.get(), reporter: await this.store.getReporter(), allowHttp: await this.store.allowReportersOverHttp() };
+  }
+
+  private hold(h: Held): void {
+    this.serving = h.serving;
+    this.reporter = h.reporter;
+    this.allowHttp = h.allowHttp;
   }
 
   get(): ServingSettings {
@@ -47,24 +54,24 @@ export class LiveTlsSettings {
 
   /** The first time TLS runs: on for an install that already has reporters, off for a fresh one. A row that exists is left alone. */
   seedAllowReportersOverHttp(existingInstall: boolean): Promise<void> {
-    return this.writes.run('write', () =>
-      this.tx(async () => {
+    return this.writes.run('write', async () => {
+      this.allowHttp = await this.tx(async () => {
         await this.store.seedAllowReportersOverHttp(existingInstall);
-        this.allowHttp = await this.store.allowReportersOverHttp();
-      }),
-    );
+        return this.store.allowReportersOverHttp();
+      });
+    });
   }
 
   /** Saves the given settings and holds what is stored. Every value is checked first and nothing is saved when one fails. */
   set(patch: Record<string, unknown>): Promise<TlsSetResult> {
     return this.writes.run('write', async () => {
       const wasAllowed = this.allowHttp;
-      const out = await this.tx(async () => {
+      const { saved, held } = await this.tx(async () => {
         const saved = await this.store.set(patch);
-        if (saved.ok) await this.read();
-        return saved;
+        return { saved, held: saved.ok ? await this.read() : null };
       });
-      return out.ok ? { ...out, wasAllowed } : out;
+      if (held) this.hold(held);
+      return saved.ok ? { ...saved, wasAllowed } : saved;
     });
   }
 }

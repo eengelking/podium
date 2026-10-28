@@ -216,13 +216,13 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       res.status(404).json({ ok: false, error: 'this session has no recording' });
       return;
     }
-    fleet.recordings.removeMany([got.row.id]).then(
-      async (out) => {
-        await audit(req, got.v, got.row, 'recording_deleted', `${got.v.name} deleted the recording (${out.entries} entries, ${sizeText(out.bytes)})`, { entries: out.entries, bytes: out.bytes });
-        fleet.recordingChanged(got.row.id);
-        res.json({ ok: true, entries: out.entries, bytes: out.bytes });
-      },
-      () => void res.status(500).json({ ok: false, error: 'could not delete the recording' }),
-    );
+    try {
+      const out = await fleet.recordings.removeMany([got.row.id]);
+      await audit(req, got.v, got.row, 'recording_deleted', `${got.v.name} deleted the recording (${out.entries} entries, ${sizeText(out.bytes)})`, { entries: out.entries, bytes: out.bytes });
+      fleet.recordingChanged(got.row.id);
+      res.json({ ok: true, entries: out.entries, bytes: out.bytes });
+    } catch {
+      res.status(500).json({ ok: false, error: 'could not delete the recording' });
+    }
   }));
 }

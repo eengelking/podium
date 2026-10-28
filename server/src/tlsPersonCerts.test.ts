@@ -26,6 +26,8 @@ const cert = (n: number): CertToStore => ({
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('the person certificate store over the async storage (#313)', () => {
+  // Guards the design, not the lock: `replace` is one synchronous SAVEPOINT inside one lock step, so these pass with the lock removed too
+  // (checked). They fail only if `replace` is split across an await, or its revoke-then-add stops being one unit.
   it('leaves exactly one live certificate when replaces overlap, and the newest one asked for is it', async () => {
     const storage = setup();
     const { person } = await storage.people.createPerson('Ann');
@@ -38,6 +40,7 @@ describe('the person certificate store over the async storage (#313)', () => {
     expect(all.filter((c) => c.revokedAt !== null).every((c) => c.reason === 'reissued')).toBe(true);
   });
 
+  // Guards the same design property as the test above (one step per replace); it does not depend on the lock.
   it('keeps one live certificate per person when different people are replaced at once', async () => {
     const storage = setup();
     const ann = (await storage.people.createPerson('Ann')).person;

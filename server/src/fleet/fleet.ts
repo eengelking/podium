@@ -756,6 +756,19 @@ export class Fleet {
 
   // ---- writes ---------------------------------------------------------------------------------
 
+  /**
+   * Puts the reporting orchestrator in the peer directory, in the session's own turn and only if the session is still there: a delete or an end
+   * that ran after this report was stored, or a done report that followed it, is not undone by a note that arrives late (#313).
+   */
+  noteOrchestrator(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void> {
+    return this.serial.run(sessionId, async () => {
+      if (!this.live.has(sessionId)) return;
+      const row = await this.db.getSession(sessionId);
+      if (!row || (row.status === 'done' && report.session.status !== 'done')) return;
+      await this.peers.note(sessionId, reporterKey, owner, report);
+    });
+  }
+
   /** Deletes a session after any report for it that was already taken in; a report taken in later stores it again, as ever. */
   deleteSession(id: string): Promise<boolean> {
     return this.serial.run(id, () => this.deleteNow(id));

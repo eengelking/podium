@@ -263,7 +263,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         );
         if (key) opts.transport?.note(key, !refusableOverHttp(req), fleet.now());
         // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
-        if (key && id.kind === 'person' && !asHooks) await fleet.peers.note(out.sessionId, key, id.person.name, r);
+        if (key && id.kind === 'person' && !asHooks) await fleet.noteOrchestrator(out.sessionId, key, id.person.name, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,
@@ -365,8 +365,11 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       },
       end: () => res.end(),
     });
-    // null here means the client vanished while being added: there is nobody left to tell.
-    if (id === null) return;
+    // null: the hub filled while this connect waited its turn (the check above ran before the wait), or the client vanished while being added.
+    if (id === null) {
+      if (!res.writableEnded && !res.destroyed) res.end('event: error\ndata: {"error":"too many clients"}\n\n');
+      return;
+    }
     const drop = () => fleet.hub.remove(id);
     req.on('close', drop);
     res.on('error', drop);

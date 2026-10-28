@@ -364,7 +364,20 @@ describe('PUT /respond/sessions/:id/recording (start)', () => {
       await gate;
       return true;
     });
-    await held;
+    // Fail fast and readably if the retention run stops asking `exists` twice, instead of waiting for the test timeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const gaveUp = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`dropMissingSessions asked exists ${asked} time(s) in 2 s; the test needs it to stop at the second question`)), 2000);
+    });
+    try {
+      await Promise.race([held, gaveUp]);
+    } catch (err) {
+      release();
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+    expect(asked).toBe(2);
     const pending = fleet.recordings.removeMany([SID]);
     const res = await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] });
     expect(res.status).toBe(409);

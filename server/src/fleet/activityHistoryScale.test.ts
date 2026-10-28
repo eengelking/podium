@@ -426,7 +426,7 @@ describe('through the fleet', () => {
     const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => T0, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
     await fleet.init();
     vi.spyOn(fleet.activityHistory, 'deleteSession').mockRejectedValue(new Error('disk full'));
-    await expect(fleet.deleteSession('whatever')).resolves.toBeDefined();
+    await expect(fleet.deleteSession('whatever')).resolves.not.toThrow();
     await new Promise((r) => setImmediate(r));
     expect(errors.join('\n')).toContain('disk full');
   });
