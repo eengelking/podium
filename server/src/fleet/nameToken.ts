@@ -1,6 +1,6 @@
 // The name-and-token check shared by the console's sign-in to respond and Admin's unlock (#206, #215): a person's token
 // only with that person's name, the admin secret only with the name Admin (SPEC 7.7).
-import { ADMIN_OWNER, nameKey, type PersonRow } from './people.js';
+import { ADMIN_OWNER, nameKey, type PersonRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 

@@ -5,7 +5,7 @@ import { X509Certificate } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hostnameOf } from './hostCheck.js';
-import type { PersonRow } from './fleet/people.js';
+import type { PersonRow } from './storage/rows.js';
 import { describeCert, openssl, randomSerial, TlsError, type CertInfo } from './tlsCa.js';
 import type { PersonCertRow } from './tlsClientAuth.js';
 import type { PersonCertsApi } from './storage/types.js';

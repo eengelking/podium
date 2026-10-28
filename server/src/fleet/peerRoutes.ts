@@ -11,12 +11,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import express, { type Request, type RequestHandler, type Response, type Router } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PersonRow } from './people.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
-import { LEVEL_WORDS, type PeerReply } from './peers.js';
-import type { SessionRow } from './db.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler } from './asyncHandler.js';
 

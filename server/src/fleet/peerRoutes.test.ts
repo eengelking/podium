@@ -8,7 +8,7 @@ import { createLogger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
-import { PEER_MESSAGING } from './featureFlags.js';
+import { PEER_MESSAGING } from '../storage/sqlite/featureFlags.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 

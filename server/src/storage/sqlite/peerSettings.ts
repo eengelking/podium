@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { PEER_LIMITS } from './protocol.js';
+import { PEER_LIMITS } from '../../fleet/protocol.js';
 
 /** The limits on every link (#347, SPEC 7.7). The Admin sets them in Admin > Settings; an owner can only be stricter. */
 export interface PeerLimits {

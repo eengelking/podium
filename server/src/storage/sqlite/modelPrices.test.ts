@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import { openDb } from './db.js';
 import { ModelPriceStore } from './modelPrices.js';
-import { BUILTIN_PRICES, type ModelUsage } from './pricing.js';
+import { BUILTIN_PRICES, type ModelUsage } from '../../fleet/pricing.js';
 
 const M = 1_000_000;
 const S = { input: 3, output: 12, cacheRead: 0.3, cacheWrite: 3.75, cacheWrite1h: 6 };

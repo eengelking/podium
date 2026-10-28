@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb } from './db.js';
 import { ReporterStore, ADMIN_SECRET, type ReporterSeen } from './reporters.js';
 import { PeerRights } from './peerRights.js';
-import { OWNER_DEFAULTS, type Actor, type ReporterLookup, type RightsTrail } from './peerTypes.js';
-import type { PeerLevel } from './protocol.js';
+import { OWNER_DEFAULTS, type Actor, type ReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
+import type { PeerLevel } from '../../fleet/protocol.js';
 import type { PeerLimits } from './peerSettings.js';
 
 const START = 1_000_000_000_000;

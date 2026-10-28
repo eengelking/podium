@@ -15,7 +15,7 @@ import { publicTlsPort, type TlsListener } from '../tlsServer.js';
 import { startTlsForTest } from '../tlsTesting.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { ADMINISTRATORS_GROUP } from './people.js';
+import { ADMINISTRATORS_GROUP } from '../storage/sqlite/people.js';
 import { createFleetRouter } from './routes.js';
 import { fixtureReport } from './testing.js';
 

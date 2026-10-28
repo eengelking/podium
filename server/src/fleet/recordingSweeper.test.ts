@@ -4,7 +4,7 @@ import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { LiveActivityHistorySettings } from './liveSettings.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS } from './protocol.js';
-import { HOUR_MS } from './recordingSettings.js';
+import { HOUR_MS } from '../storage/sqlite/recordingSettings.js';
 import { purgeRecordings, purgeStored } from './sweeper.js';
 import { scrubStored } from '../logging/redact.js';
 

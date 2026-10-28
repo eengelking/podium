@@ -6,8 +6,7 @@ import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
 import { OwnerConflict } from './ingest.js';
-import { ADMIN_OWNER, nameKey, sourceAddress, type PersonRow } from './people.js';
-import { ReporterStore, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from './reporters.js';
+import { ADMIN_OWNER, nameKey, sourceAddress, keyOf, type PersonRow, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from '../storage/rows.js';
 import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
@@ -92,7 +91,7 @@ async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: Repo
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
 async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null }): Promise<{ key: string; otherKeys: string[] }> {
-  const own = ReporterStore.keyOf(s);
+  const own = keyOf(s);
   try {
     const keys = (await opts.reporters?.keysFor(s)) ?? [own];
     return { key: own, otherKeys: keys.filter((k) => k !== own) };

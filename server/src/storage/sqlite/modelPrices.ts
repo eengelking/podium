@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { ModelPriceRow, ModelPricesView } from './protocol.js';
-import { BUILTIN_LABELS, BUILTIN_PRICES, PRICES_AS_OF, Pricing, validatePriceSet, type ModelPrice, type PriceOverrides, type PriceSet } from './pricing.js';
+import type { ModelPriceRow, ModelPricesView } from '../../fleet/protocol.js';
+import { BUILTIN_LABELS, BUILTIN_PRICES, PRICES_AS_OF, Pricing, validatePriceSet, type ModelPrice, type PriceOverrides, type PriceSet } from '../../fleet/pricing.js';
 
 const KEY = 'model_prices';
 /** How many models the Admin can add beyond the built-in rows. */

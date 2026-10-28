@@ -1,7 +1,7 @@
 // People, their tokens, groups, the admin log and server settings (issue #36). All statements are parameterized.
 // A token is returned once, at creation or rotation, and never stored; see tokens.ts.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { newPersonToken, parsePersonToken, tokenMatches } from './tokens.js';
+import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 
 export type PeopleErrorCode = 'duplicate' | 'invalid' | 'not_found';
 export class PeopleError extends Error {

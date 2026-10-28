@@ -3,9 +3,8 @@
 // its setting once, answers reads from memory, and writes through: a write goes to storage first and the memory changes only
 // when that write has resolved, then the change callback runs. Writes to one setting run one at a time, in the order they were
 // asked for, so the last one to resolve is the one stored and the one held. This server is the only writer of these rows.
-import { FEATURES, featureDefault, isFeatureId } from './featureFlags.js';
+import { FEATURES, featureDefault, isFeatureId, isNoticeId } from '../storage/rows.js';
 import { Pricing, type PriceOverrides } from './pricing.js';
-import { isNoticeId } from './wallSettings.js';
 import { Serializer } from './serial.js';
 import { RECORDING_DEFAULTS, type ModelPricesView, type RecordingSettings, type WallSettingsView } from './protocol.js';
 import { ACTIVITY_HISTORY_DEFAULTS, type ActivityHistorySettings } from './activityHistoryTypes.js';

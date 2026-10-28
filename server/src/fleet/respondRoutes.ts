@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress } from './people.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -19,8 +19,6 @@ import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type D
 import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, MAIN_LOOP, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import type { BrowserHelpers } from './peerRoutes.js';
-import type { SessionRow } from './db.js';
-import { FILE_DIFF } from './featureFlags.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
 import { parseRead } from './activityHistoryInput.js';
 import { asyncHandler } from './asyncHandler.js';

@@ -33,7 +33,7 @@ import { publicTlsPort, startTls, type TlsListener } from "./tlsServer.js";
 import { LiveTlsSettings } from "./tlsLive.js";
 import { createTlsStatusRouter } from "./tlsStatus.js";
 import { reporterHttpGate, ReporterTransport } from "./tlsHttp.js";
-import { RESPOND } from "./fleet/featureFlags.js";
+import { RESPOND } from "./storage/rows.js";
 import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;

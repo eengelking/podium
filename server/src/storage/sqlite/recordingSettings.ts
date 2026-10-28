@@ -2,7 +2,7 @@
 // (activityHistorySettings.ts). An unset row, or a field that is missing or out of range, takes the default. All three numbers are
 // provisional until measured, so the server reads them from this row on every call and a change needs no code change.
 import type { DatabaseSync } from 'node:sqlite';
-import { RECORDING_DEFAULTS, RECORDING_RANGES, type RecordingSettings } from './protocol.js';
+import { RECORDING_DEFAULTS, RECORDING_RANGES, type RecordingSettings } from '../../fleet/protocol.js';
 
 const KEY = 'recording_settings';
 const FIELDS = ['keepHours', 'budgetMb', 'sessionMb'] as const;

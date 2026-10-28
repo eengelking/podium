@@ -1,6 +1,6 @@
 // Shared builders for the rollup and report tests (#484). Not used at run time.
-import type { AgentRow, SessionRow } from './db.js';
-import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
+import type { AgentRow, SessionRow } from '../storage/rows.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/index.js';
 import { Pricing } from './pricing.js';
 import type { ReportDeps } from './reports.js';
 import { DEFAULT_CONFIG } from './fleet.js';

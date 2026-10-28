@@ -1,6 +1,6 @@
-import { isNewer } from './updateCheck.js';
+import { isNewer } from '../../fleet/updateCheck.js';
 import type { DatabaseSync } from 'node:sqlite';
-import type { WallSettingsView } from './protocol.js';
+import type { WallSettingsView } from '../../fleet/protocol.js';
 
 /** An informational notice the wall can show at the bottom. A later notice adds one entry here. SPEC 8.1. */
 export interface NoticeDef {

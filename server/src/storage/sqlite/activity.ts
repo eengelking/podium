@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { ActivityHistory } from '../../fleet/activityHistory.js';
-import { SessionRecordings, type RecordingTrail } from '../../fleet/recordings.js';
+import { ActivityHistory } from './activityHistory.js';
+import { SessionRecordings, type RecordingTrail } from './recordings.js';
 import type { ActivityHistoryApi, ActivityStorage, ActivityStoreOptions, SessionRecordingsApi } from '../types.js';
 import { AsyncLock } from './lock.js';
 

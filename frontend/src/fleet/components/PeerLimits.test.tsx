@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { PEER_DEFAULTS, PEER_RANGES, peerSettingError } from "../../../../server/src/fleet/peerSettings";
+import { PEER_DEFAULTS, PEER_RANGES, peerSettingError } from "../../../../server/src/storage/sqlite/peerSettings";
 import { ADMIN_LIMIT_FIELDS, adminLimitCheck, PEER_LIMIT_DEFAULTS, PEER_LIMIT_FIELDS, PEER_LIMIT_RANGES, PeerLimits, peerLimitError, stillApplies, type PeerLimitKey, type PeerLimitsProps } from "./PeerLimits";
 
 const KEYS: PeerLimitKey[] = ["roundTrips", "perMinute", "maxChars", "retainDays"];

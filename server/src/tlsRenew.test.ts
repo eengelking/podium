@@ -4,11 +4,12 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDb } from './fleet/db.js';
+import { openDb } from './storage/sqlite/db.js';
 import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, TlsSettingsStore, type ServingSettings } from './tlsRenew.js';
+import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, type ServingSettings } from './tlsRenew.js';
+import { TlsSettingsStore } from './storage/sqlite/tlsSettings.js';
 import { startTlsForTest } from './tlsTesting.js';
 
 const DAY = 86_400_000;

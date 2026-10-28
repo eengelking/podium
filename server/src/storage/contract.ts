@@ -1,9 +1,9 @@
 // A contract any Storage adapter must meet (#313): the same calls through the async interface return what the
 // synchronous stores return. Run it from an adapter's test with a function that opens a fresh Storage.
 import { describe, it, expect } from 'vitest';
-import { FleetDb, openDb, type SessionRow } from '../fleet/db.js';
-import { PeopleStore } from '../fleet/people.js';
-import { ReporterStore, type ReporterSeen } from '../fleet/reporters.js';
+import { FleetDb, openDb, type SessionRow } from './sqlite/db.js';
+import { PeopleStore } from './sqlite/people.js';
+import { ReporterStore, type ReporterSeen } from './sqlite/reporters.js';
 import type { Storage } from './types.js';
 
 export function session(over: Partial<SessionRow> = {}): SessionRow {

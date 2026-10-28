@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { ReporterStore } from '../../fleet/reporters.js';
-import { PeerService } from '../../fleet/peers.js';
+import { ReporterStore } from './reporters.js';
+import { PeerService } from './peerService.js';
 import type { PeerReporterLookup } from '../../fleet/peerTypes.js';
 import type { AsyncPeerReporterLookup, PeerStoreApi, PeerStoreOptions } from '../types.js';
 import type { AsyncLock } from './lock.js';

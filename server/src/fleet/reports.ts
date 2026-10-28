@@ -1,10 +1,9 @@
 // The reports behind Admin > Reporting (#484), the Spend breakdown (#482) and the Spend projection (#483), SPEC 7.1 "Reports".
 // Pure over the database: today is read live with the rollup builder, every earlier day from the rollup tables.
 import { startOfDay } from './derive.js';
-import type { CostOf, RetentionPolicy } from './db.js';
+import { ROLLUP_KEEP_MS, type CostOf, type RetentionPolicy } from '../storage/rows.js';
 import type { FleetStore } from '../storage/types.js';
 import type { RollupRaw, RollupTable } from '../storage/reportQueries.js';
-import { ROLLUP_KEEP_MS } from './db.js';
 import type { ModelUsage } from './protocol.js';
 import type { Pricing } from './pricing.js';
 import {

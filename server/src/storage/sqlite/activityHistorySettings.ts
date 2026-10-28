@@ -11,7 +11,7 @@ import {
   type ActivityHistoryPolicy,
   type ActivityHistorySettings,
   type ActivityHistoryUnit,
-} from './activityHistoryTypes.js';
+} from '../../fleet/activityHistoryTypes.js';
 
 const KEY = 'activity_history';
 const FIELDS = ['policy', 'n', 'unit', 'capGb'] as const;

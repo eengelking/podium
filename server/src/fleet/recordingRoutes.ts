@@ -8,12 +8,10 @@ import express, { Router, type Request, type Response } from 'express';
 import type { Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
-import { sourceAddress } from './people.js';
+import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
 import { MAIN_LOOP, RECORDING_LIMITS, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
-import type { SessionRow } from './db.js';
-import type { RecordingTrail } from './recordings.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler } from './asyncHandler.js';
 

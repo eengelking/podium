@@ -13,7 +13,7 @@
 // event loop between them (see "removal" below), one heavy operation at a time.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { entryBytesSql } from './activityDb.js';
-import type { ActivityEntryView } from './activity.js';
+import type { ActivityEntryView } from '../../fleet/activity.js';
 import { activityPeriodMs } from './activityHistorySettings.js';
 import {
   ACTIVITY_HISTORY_PAGE,
@@ -28,8 +28,8 @@ import {
   type StoredFilter,
   type StoredSessionRow,
   type StoredTotals,
-} from './activityHistoryTypes.js';
-import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
+} from '../../fleet/activityHistoryTypes.js';
+import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from '../../fleet/protocol.js';
 
 type Param = string | number | null;
 

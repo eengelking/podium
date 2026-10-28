@@ -3,7 +3,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { Logger } from './logging/logger.js';
 import { isLoopback } from './hostCheck.js';
-import { REPORTING_MS } from './fleet/reporters.js';
+import { REPORTING_MS } from './storage/rows.js';
 
 /**
  * The calls the mod makes, each behind the reporter's credential: reports, hooks, and the held requests for peers and answers.

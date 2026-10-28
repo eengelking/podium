@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openActivityDb } from '../server/src/fleet/activityDb.ts';
+import { openActivityDb } from '../server/src/storage/sqlite/activityDb.ts';
 import { main, parseArgs, refusal, seedActivity, type SeedOptions } from './podium-seed-activity.ts';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');

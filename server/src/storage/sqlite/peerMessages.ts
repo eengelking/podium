@@ -5,7 +5,7 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { PEER_LIMITS, type PeerDelivery, type PeerResult } from './protocol.js';
+import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
 import { nameKey } from './people.js';
 import {
   HELD_STATES,
@@ -28,7 +28,7 @@ import {
   type Refusal,
   type ReporterLookup,
   type SendOutcome,
-} from './peerTypes.js';
+} from '../../fleet/peerTypes.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;

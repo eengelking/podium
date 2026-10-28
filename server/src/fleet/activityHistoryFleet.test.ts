@@ -340,7 +340,7 @@ describe('the console state', () => {
   });
 
   it('keeps it out of the Admin flags: the flag view, FEATURES and the stored rows', async () => {
-    const { FEATURES } = await import('./featureFlags.js');
+    const { FEATURES } = await import('../storage/sqlite/featureFlags.js');
     const fleet = await makeFleet();
     await fleet.activityHistorySettings.set({ policy: 'all' });
     await fleet.features.setFeature('activity-feed', true);

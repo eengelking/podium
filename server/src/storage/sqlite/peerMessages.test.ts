@@ -2,8 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from './db.js';
 import { PeerMessages, MAX_NOTICES, cleanPeerText, roundTripsUsed } from './peerMessages.js';
-import { linkKey, type LiveOrchestrator, type MessageTrail, type PeerRequestRow, type PeerRightsView, type ReporterRef, type SendOutcome, type Refusal } from './peerTypes.js';
-import { PEER_LIMITS, type PeerLevel } from './protocol.js';
+import { linkKey, type LiveOrchestrator, type MessageTrail, type PeerRequestRow, type PeerRightsView, type ReporterRef, type SendOutcome, type Refusal } from '../../fleet/peerTypes.js';
+import { PEER_LIMITS, type PeerLevel } from '../../fleet/protocol.js';
 
 const T0 = 1_800_000_000_000;
 const ID = /^dlv_[0-9a-f]{24}$/;

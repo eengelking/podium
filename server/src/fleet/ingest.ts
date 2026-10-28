@@ -1,7 +1,6 @@
 // Report -> rows, events, blowouts and samples (SPEC 7.3 steps 1-4). One transaction per report.
 import type { AgentReport, Plan, PlanStepView, PlanView, Report, TokenCounts } from './protocol.js';
-import { SAME_USAGE } from './db.js';
-import type { AgentRow, EventRow, SampleRow, SessionRow } from './db.js';
+import { SAME_USAGE, type AgentRow, type EventRow, type SampleRow, type SessionRow } from '../storage/rows.js';
 import type { Storage } from '../storage/types.js';
 import { family } from './derive.js';
 

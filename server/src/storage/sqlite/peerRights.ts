@@ -5,7 +5,7 @@
 // the routes decide what goes in a log line. All statements are parameterized.
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from './protocol.js';
+import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from '../../fleet/protocol.js';
 import { ADMIN_OWNER, nameKey } from './people.js';
 import { PEER_LIMIT_KEYS, peerSettingError, type PeerLimits } from './peerSettings.js';
 import {
@@ -23,7 +23,7 @@ import {
   type ReporterRef,
   type RightRow,
   type RightsTrail,
-} from './peerTypes.js';
+} from '../../fleet/peerTypes.js';
 
 /** How far each level reaches, so a request that is allowed never lowers a right the owner already gave. */
 const RANK: Record<PeerLevel, number> = { none: 0, see: 1, ask: 2, send: 3 };

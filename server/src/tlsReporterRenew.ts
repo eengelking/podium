@@ -10,7 +10,7 @@ import express, { Router, type NextFunction, type Request, type Response } from 
 import { X509Certificate, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PersonRow } from './fleet/people.js';
+import type { PersonRow } from './storage/rows.js';
 import type { PeopleStoreApi, PersonCertsApi, Storage } from './storage/types.js';
 import { asyncHandler } from './fleet/asyncHandler.js';
 import type { Logger } from './logging/logger.js';

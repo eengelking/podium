@@ -3,10 +3,10 @@
 // table, so a reporter outlives its sessions; only the Admin removes one, or the forget-by-age setting (#167). A reporter that stops is "silent", which is all the server can
 // know: it cannot tell a reporter that is turned off from one that cannot reach it. All statements are parameterized.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { checkReporter } from './compat.js';
+import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm, type Paged } from './people.js';
-import type { ReporterCompat } from './protocol.js';
-import type { PeerReporterLookup, ReporterRef } from './peerTypes.js';
+import type { ReporterCompat } from '../../fleet/protocol.js';
+import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
 
 /** A reporter heard from within this long is "reporting". */
 export const REPORTING_MS = 2 * 60_000;

@@ -1,7 +1,7 @@
 // The report and rollup queries behind Admin > Reporting (#484, #313). They were SQL written inside reports.ts and
 // rollups.ts; here they are named methods of the fleet store, so the reports read through the same async interface as
 // everything else and nothing outside an adapter names a table's SQL.
-import type { SessionRow } from '../fleet/db.js';
+import type { SessionRow } from './sqlite/db.js';
 import type { FailureDay, FleetDay, SessionsDay, UsageDay } from '../fleet/rollups.js';
 
 /** One rollup table row as stored. */

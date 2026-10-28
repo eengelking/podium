@@ -11,7 +11,7 @@ import {
   shortenHome,
   startOfDay,
 } from './derive.js';
-import { type SampleRow } from './db.js';
+import { type SampleRow } from '../storage/sqlite/db.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { ingestReport } from './ingest.js';
 import type { Report } from './protocol.js';

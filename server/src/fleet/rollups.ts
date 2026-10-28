@@ -5,7 +5,7 @@
 // was last seen, so one that runs past midnight is not split. The hourly retention writes the rollups before it deletes
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
-import { ROLLUP_KEEP_MS, type CostOf, type SessionRow } from './db.js';
+import { ROLLUP_KEEP_MS, type CostOf, type SessionRow } from '../storage/rows.js';
 import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
 

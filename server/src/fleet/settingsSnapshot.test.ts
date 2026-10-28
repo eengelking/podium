@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { RESPOND } from './featureFlags.js';
+import { RESPOND } from '../storage/sqlite/featureFlags.js';
 import type { StateBody } from './protocol.js';
 
 const fleets: Fleet[] = [];

@@ -1,20 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { FleetDb, openDb } from '../../fleet/db.js';
-import { PeopleStore } from '../../fleet/people.js';
-import { ReporterStore } from '../../fleet/reporters.js';
+import { FleetDb, openDb } from './db.js';
+import { PeopleStore } from './people.js';
+import { ReporterStore } from './reporters.js';
 import type { Async, AsyncPeerReporterLookup, FleetStore, PeopleStoreApi, ReporterStoreApi, Storage, WallSettingsApi } from '../types.js';
-import { FeatureFlags } from '../../fleet/featureFlags.js';
-import { WallSettings } from '../../fleet/wallSettings.js';
-import { ModelPriceStore } from '../../fleet/modelPrices.js';
-import { RecordingSettingsStore } from '../../fleet/recordingSettings.js';
-import { ActivityHistorySettingsStore } from '../../fleet/activityHistorySettings.js';
-import { TlsSettingsStore } from '../../tlsRenew.js';
-import { PersonCertStore } from '../../tlsClientAuth.js';
+import { FeatureFlags } from './featureFlags.js';
+import { WallSettings } from './wallSettings.js';
+import { ModelPriceStore } from './modelPrices.js';
+import { RecordingSettingsStore } from './recordingSettings.js';
+import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
+import { TlsSettingsStore } from './tlsSettings.js';
+import { PersonCertStore } from './personCerts.js';
 import { AsyncLock } from './lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
 import { asyncLookupOver, peerStoreOver } from './peers.js';
 import { ActivityConnection } from './activity.js';
-import { activityDbPath, openActivityDb } from '../../fleet/activityDb.js';
+import { activityDbPath, openActivityDb } from './activityDb.js';
 
 const NOT_WRAPPED = new Set(['constructor', 'tx', 'close']);
 

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb } from '../server/src/fleet/db.ts';
+import { openDb } from '../server/src/storage/sqlite/db.ts';
 import { openSqliteStorage } from '../server/src/storage/sqlite/index.ts';
 import { projectionReport, runReport, type ReportDeps } from '../server/src/fleet/reports.ts';
 import { DEFAULT_CONFIG } from '../server/src/fleet/fleet.ts';

@@ -12,7 +12,7 @@ import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.j
 import { createAdminRouter } from './adminRouter.js';
 import { LiveTlsSettings } from '../tlsLive.js';
 import { newPersonToken } from '../fleet/tokens.js';
-import type { ReporterSeen } from '../fleet/reporters.js';
+import type { ReporterSeen } from '../storage/sqlite/reporters.js';
 
 const SECRET = 'the-admin-secret-0123456789';
 const H = { 'X-Podium-Admin': '1' };

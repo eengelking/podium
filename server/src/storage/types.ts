@@ -1,23 +1,23 @@
 // The async storage interfaces (#313). Every method of the existing stores keeps its name, arguments and result, and
 // returns a Promise. Nothing here names node:sqlite, so another database can implement it.
-import type { FleetDb } from '../fleet/db.js';
-import type { PeopleStore } from '../fleet/people.js';
-import type { ReporterStore } from '../fleet/reporters.js';
+import type { FleetDb } from './sqlite/db.js';
+import type { PeopleStore } from './sqlite/people.js';
+import type { ReporterStore } from './sqlite/reporters.js';
 import type { Actor, AnswerOutcome, ConversationSummary, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerListing, PeerReporterLookup, Refusal, RightsTrail, SendOutcome, LeftOut } from '../fleet/peerTypes.js';
-import type { PeerRights } from '../fleet/peerRights.js';
-import type { PeerSettings } from '../fleet/peerSettings.js';
-import type { AdminPeersView, OwnerPeersView, PeerReply } from '../fleet/peers.js';
+import type { PeerRights } from './sqlite/peerRights.js';
+import type { PeerSettings } from './sqlite/peerSettings.js';
+import type { AdminPeersView, OwnerPeersView, PeerReply } from './sqlite/peerService.js';
 import type { PeerAnswer, PeerResult, Report } from '../fleet/protocol.js';
 import type { ReportQueries } from './reportQueries.js';
-import type { FeatureFlags } from '../fleet/featureFlags.js';
-import type { ModelPriceStore } from '../fleet/modelPrices.js';
-import type { RecordingSettingsStore } from '../fleet/recordingSettings.js';
-import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
+import type { FeatureFlags } from './sqlite/featureFlags.js';
+import type { ModelPriceStore } from './sqlite/modelPrices.js';
+import type { RecordingSettingsStore } from './sqlite/recordingSettings.js';
+import type { ActivityHistorySettingsStore } from './sqlite/activityHistorySettings.js';
 import type { WallSettingsView } from '../fleet/protocol.js';
-import type { TlsSettingsStore } from '../tlsRenew.js';
-import type { PersonCertStore } from '../tlsClientAuth.js';
-import type { ActivityHistory, ActivityHistoryOpts } from '../fleet/activityHistory.js';
-import type { RecordingMeta, RecordingTotals, RecordingsOpts, SessionRecordings } from '../fleet/recordings.js';
+import type { TlsSettingsStore } from './sqlite/tlsSettings.js';
+import type { PersonCertStore } from './sqlite/personCerts.js';
+import type { ActivityHistory, ActivityHistoryOpts } from './sqlite/activityHistory.js';
+import type { RecordingMeta, RecordingTotals, RecordingsOpts, SessionRecordings } from './sqlite/recordings.js';
 import type { RecordingLoopInfo, RecordingView } from '../fleet/protocol.js';
 
 /** A function becomes one returning a Promise of the same result; anything else is kept. */

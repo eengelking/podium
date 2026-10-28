@@ -5,8 +5,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
 import { PeerSettings, type PeerLimits } from './peerSettings.js';
-import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from './peerTypes.js';
-import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from './protocol.js';
+import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
+import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
 
 /** A level in the words My reporters and the terminal use. */
 export const LEVEL_WORDS: Record<PeerLevel, string> = { none: 'No access', see: 'Can see', ask: 'Can send, with approval', send: 'Can send' };
@@ -18,7 +18,7 @@ export interface PeerReply {
   peerRequests: PeerRequest[];
 }
 
-export { isIdle } from './peerTypes.js';
+export { isIdle } from '../../fleet/peerTypes.js';
 
 /** What `ownerView` gives the owner's read: the parts of GET /respond/peers that come from the stores. */
 export interface OwnerPeersView {

@@ -1,7 +1,7 @@
 // Reading the Activity history's request inputs (#432): the Stored activity filter from a query string or a body, the delete
 // body, and a settings object that is checked without being saved. Each returns an error sentence for a bad value, so a
 // route answers 400 and never 500.
-import { activityHistoryFieldError } from './activityHistorySettings.js';
+import { activityHistoryFieldError } from '../storage/rows.js';
 import type { ActivityHistorySettings, StoredDeleteBody, StoredFilter } from './activityHistoryTypes.js';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };

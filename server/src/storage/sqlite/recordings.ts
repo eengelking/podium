@@ -11,8 +11,8 @@
 // cut. Removals run in short chunks with a turn for the event loop between them, one heavy operation at a time, sharing the
 // Activity history's turn-taking. The text of an entry is never logged and never leaves this file except through the read route.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { scrubStored } from '../logging/redact.js';
-import type { StoredActivityList, StoredFilter, StoredSessionRow } from './activityHistoryTypes.js';
+import { scrubStored } from '../../logging/redact.js';
+import type { StoredActivityList, StoredFilter, StoredSessionRow } from '../../fleet/activityHistoryTypes.js';
 import { HOUR_MS, MB } from './recordingSettings.js';
 import {
   MAIN_LOOP,
@@ -28,7 +28,7 @@ import {
   type RecordingSettings,
   type RecordingState,
   type RecordingView,
-} from './protocol.js';
+} from '../../fleet/protocol.js';
 
 const DAY_MS = 86_400_000;
 const CHUNK_ROWS = 5000;

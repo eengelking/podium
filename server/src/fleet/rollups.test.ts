@@ -1,6 +1,6 @@
 // The daily rollups (#484, SPEC 7.2 Migration 22 and Retention).
 import { describe, it, expect, vi } from 'vitest';
-import { openDb } from './db.js';
+import { openDb } from '../storage/sqlite/db.js';
 import { Fleet, DEFAULT_CONFIG, configFromEnv } from './fleet.js';
 import { addDays, buildRollups, costFn, dayStart, daysBetween, localDay, parseDay, peakLiveByDay, serverZone, writeRollups } from './rollups.js';
 import { DAY_MS, NOW, TODAY, agent, at, failure, populate, session, world } from './rollupFixtures.js';

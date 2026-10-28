@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb } from './db.js';
 import { PeopleStore, PeopleError } from './people.js';
-import { tokenMatches } from './tokens.js';
+import { tokenMatches } from '../../fleet/tokens.js';
 
 let store: PeopleStore;
 beforeEach(() => {

@@ -1,8 +1,8 @@
 // What the live verification of the Activity history found on the server side (#432): what `sessions` counts, one size measure
 // in every box, and the words of the Admin log.
 import { describe, expect, it, vi } from 'vitest';
-import { openActivityDb } from './activityDb.js';
-import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
+import { openActivityDb } from '../storage/sqlite/activityDb.js';
+import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from '../storage/sqlite/activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_LOG_KINDS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { ActivityHistoryApi, PeopleStoreApi } from '../storage/types.js';

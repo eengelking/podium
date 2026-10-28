@@ -12,7 +12,7 @@ import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
 import { forgetReporters } from './sweeper.js';
 import { newPersonToken } from './tokens.js';
-import type { ReporterSeen } from './reporters.js';
+import type { ReporterSeen } from '../storage/sqlite/reporters.js';
 import { fixtureReport } from './testing.js';
 
 const SECRET = 'admin-secret';
