@@ -47,8 +47,8 @@ pages, responding, the orchestrator page and the right panel.
 - A theme with no palette for the chosen mode uses Podium's palette for that mode.
 
 **Refresh every** (#138, `mockup/podium-update-interval.html`)
-- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), immediately left
-  of the Theme dropdown.
+- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), left of the
+  Shortcuts switch and the Theme dropdown.
 - It is remembered in `localStorage` under `podium.updateEvery`, with try/catch. A stored value that is not one
   of the six is ignored.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
@@ -89,7 +89,7 @@ pages, responding, the orchestrator page and the right panel.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
   the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
   new collapse or open control uses it. A pane's pill sits in the `.cols` grid beside the pane, straddling its
-  inner edge near the top, and the tip names the shortcut ("Collapse the left pane ([)").
+  inner edge near the top, and, while Shortcuts is on, the tip names the shortcut ("Collapse the left pane ([)").
 - A collapsed pane leaves a 24 px edge strip holding the same pill as its expand button (`aria-expanded`, `aria-controls`). Its
   content is `hidden`, so it is out of the tab order and the accessibility tree, and its saved width comes
   back when it opens.
@@ -1038,7 +1038,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     reporters for the console, as it does from the Board.
   - The console's own messages, such as a failed Remove in the rail, show at the top of the page in the wall's
     `.callout.notice`.
-  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. `[` and `]` open and
+  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. With Shortcuts on, `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)
