@@ -181,6 +181,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const showDetached = state.wall.showBackgroundSessions;
   /** The notice just closed, for the confirmation; `until` is the release an update notice was closed for. */
   const [closed, setClosed] = useState<{ name: string; until?: string } | null>(null);
+  /** The pointer or focus is on the confirmation, so its timer waits. */
+  const [held, setHeld] = useState(false);
   const sets = splitDetached(sorted, now, showDetached);
   // The people view (#34) switches on once any live session belongs to a named person.
   const people = usePeoplePrefs();
@@ -354,12 +356,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       .then(() => setClosed({ name: n.name, until: version }))
       .catch((err: Error) => setNotice(`Could not close the notice: ${err.message}. Try again.`));
   };
-  // The confirmation clears itself after about 9 seconds.
+  // The confirmation clears itself after about 9 seconds, and waits while the pointer or focus is on it (WCAG 2.2.1);
+  // when both leave, the full wait starts again.
   useEffect(() => {
-    if (closed === null) return;
+    if (closed === null || held) return;
     const t = setTimeout(() => setClosed(null), 9000);
     return () => clearTimeout(t);
-  }, [closed]);
+  }, [closed, held]);
 
   const onRemove = (id: string) => {
     removeSession(id).catch((err: Error) => setNotice(`Could not remove the session: ${err.message}. Try again.`));
@@ -596,7 +599,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     people={wallPeople}
                   />
                 )}
-                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => setClosed(null)} />}
+                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
               </main>
             )}
             {/* My reporters shows no legend (#446). */}
