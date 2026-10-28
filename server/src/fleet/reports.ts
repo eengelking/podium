@@ -25,6 +25,8 @@ import {
 
 export interface ReportDeps {
   db: FleetStore;
+  /** Runs `fn` in one storage transaction, so a report reads the rollups, the live build and the sessions as of one moment. */
+  tx<T>(fn: () => Promise<T>): Promise<T>;
   now: () => number;
   pricing: () => Pricing | undefined;
   retention: RetentionPolicy;
@@ -419,7 +421,9 @@ async function activityReport(deps: ReportDeps, q: Query): Promise<ReportReply> 
 }
 
 /** Each rollup table with its rows and oldest day, and how long retention keeps the other tables (Data kept). */
-export async function retentionReport(deps: ReportDeps): Promise<Record<string, unknown>> {
+export const retentionReport = (deps: ReportDeps): Promise<Record<string, unknown>> => deps.tx(() => retentionOf(deps));
+
+async function retentionOf(deps: ReportDeps): Promise<Record<string, unknown>> {
   const keepMs = deps.retention.rollupMs ?? ROLLUP_KEEP_MS;
   const days = (ms: number) => Math.round(ms / 86_400_000);
   const tables = [];
@@ -431,7 +435,10 @@ export async function retentionReport(deps: ReportDeps): Promise<Record<string, 
   return { report: 'retention', tz: serverZone(), tables, detail: [{ name: 'samples', keptDays: round(r.samplesMs / 86_400_000, 2) }, { name: 'events', keptDays: days(r.eventsMs) }, { name: 'sessions', keptDays: days(r.sessionsMs) }, { name: 'admin_log', keptDays: days(r.adminLogMs) }] };
 }
 
-export function runReport(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> {
+/** Each report reads in one transaction: an hourly rollup write or a retention pass cannot land between two of its reads. */
+export const runReport = (deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> => deps.tx(() => reportOf(deps, name, q));
+
+function reportOf(deps: ReportDeps, name: ReportName, q: Query): Promise<ReportReply> {
   const cost = costFn(deps.pricing());
   switch (name) {
     case 'usage':
@@ -456,7 +463,9 @@ export const PROJECTION_MIN_ACTIVE_DAYS = 3;
 const HORIZONS = ['month', '30d'] as const;
 const WINDOWS = [7, 14, 30] as const;
 
-export async function projectionReport(deps: ReportDeps, q: Query): Promise<ReportReply> {
+export const projectionReport = (deps: ReportDeps, q: Query): Promise<ReportReply> => deps.tx(() => projectionOf(deps, q));
+
+async function projectionOf(deps: ReportDeps, q: Query): Promise<ReportReply> {
   const now = deps.now();
   const today = localDay(now);
   const horizon = one(q, 'horizon') ?? 'month';
@@ -545,7 +554,9 @@ export interface SpendTodayReply {
  * One person's (or group's) spend since local midnight, cut by session, by model and by orchestrator against agents. It
  * reads the same per-session figure `kpis.costTodayByOwner` adds up, in the same order, so every cut adds up to the table's row.
  */
-export async function spendToday(deps: ReportDeps, owner: string, isGroup: boolean): Promise<SpendTodayReply> {
+export const spendToday = (deps: ReportDeps, owner: string, isGroup: boolean): Promise<SpendTodayReply> => deps.tx(() => spendTodayOf(deps, owner, isGroup));
+
+async function spendTodayOf(deps: ReportDeps, owner: string, isGroup: boolean): Promise<SpendTodayReply> {
   const since = startOfDay(deps.now());
   const pricing = deps.pricing();
   const cost = costFn(pricing);

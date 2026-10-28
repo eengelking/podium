@@ -30,7 +30,10 @@ const dump = (file: string): string => {
   db.close();
   return out;
 };
-const deps = (file: string): ReportDeps => ({ db: openSqliteStorage(file).fleet, now: () => NOW, pricing: () => new Pricing({}), retention: DEFAULT_CONFIG.retention });
+const deps = (file: string): ReportDeps => {
+  const storage = openSqliteStorage(file);
+  return { db: storage.fleet, tx: storage.tx, now: () => NOW, pricing: () => new Pricing({}), retention: DEFAULT_CONFIG.retention };
+};
 
 describe('podium-seed-history: which database it will write', () => {
   const home = '/nowhere/home';

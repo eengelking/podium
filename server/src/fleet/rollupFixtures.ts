@@ -60,7 +60,7 @@ export function world(): World {
   const people = storage.people;
   const clock = { t: NOW };
   const pricing = new Pricing({});
-  return { storage, fdb, people, clock, deps: { db: fdb, now: () => clock.t, pricing: () => pricing, retention: DEFAULT_CONFIG.retention } };
+  return { storage, fdb, people, clock, deps: { db: fdb, tx: storage.tx, now: () => clock.t, pricing: () => pricing, retention: DEFAULT_CONFIG.retention } };
 }
 
 /**
