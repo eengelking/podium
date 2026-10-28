@@ -4,7 +4,7 @@
 // given `ca`), and the row is checked again on every request, so a revoke takes effect on a connection that is still open.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { PersonRow } from './fleet/people.js';
-import type { PeopleStoreApi } from './storage/types.js';
+import type { PeopleStoreApi, PersonCertsApi } from './storage/types.js';
 import type { IssuedPersonCert } from './tlsPeople.js';
 
 /** What is kept of an issued certificate: never the key. */
@@ -90,13 +90,15 @@ export class PersonCertStore {
    * moment with none or with two.
    */
   replace(personId: number, c: CertToStore, now: number): PersonCertRow {
-    this.db.exec('BEGIN');
+    // A savepoint, not BEGIN: it opens the transaction when none is open and nests inside a `Storage.tx` when one is (#313).
+    this.db.exec('SAVEPOINT replace_cert');
     try {
       this.stmt("UPDATE person_certificates SET revoked_at = ?, reason = 'reissued' WHERE person_id = ? AND revoked_at IS NULL").run(now, personId);
       this.insert(personId, c, now);
-      this.db.exec('COMMIT');
+      this.db.exec('RELEASE replace_cert');
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      this.db.exec('ROLLBACK TO replace_cert');
+      this.db.exec('RELEASE replace_cert');
       throw err;
     }
     return this.find(c.info.fingerprintSha256)!;
@@ -145,7 +147,7 @@ export type CertAuth =
   | { kind: 'refused'; reason: string };
 
 export interface CertAuthDeps {
-  certs: PersonCertStore;
+  certs: PersonCertsApi;
   people: PeopleStoreApi;
   /** SHA-256 fingerprints of the CA certificate(s) a client certificate may have been issued by. */
   trustedIssuers: () => string[];
@@ -165,7 +167,7 @@ export async function certAuth(socket: ClientSocket, d: CertAuthDeps): Promise<C
     const why = socket.authorizationError instanceof Error ? socket.authorizationError.message : (socket.authorizationError ?? 'unverified');
     return { kind: 'refused', reason: `client certificate not accepted: ${why}` };
   }
-  const cert = d.certs.find(fingerprint);
+  const cert = await d.certs.find(fingerprint);
   if (!cert) return { kind: 'refused', reason: 'client certificate is not one Podium issued' };
   if (cert.revokedAt !== null) return { kind: 'refused', reason: 'client certificate was revoked' };
   if (cert.notAfter < d.now()) return { kind: 'refused', reason: 'client certificate has expired' };

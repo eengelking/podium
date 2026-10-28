@@ -8,7 +8,7 @@ import { everyOf, type ActivityReply } from './activity.js';
 import { OwnerConflict } from './ingest.js';
 import { ADMIN_OWNER, nameKey, sourceAddress, type PersonRow } from './people.js';
 import { ReporterStore, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from './reporters.js';
-import type { PeopleStoreApi, ReporterStoreApi } from '../storage/types.js';
+import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 import { GuessThrottle, Lockout } from './lockout.js';
@@ -19,7 +19,7 @@ import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
 import { refusableOverHttp, type ReporterTransport } from '../tlsHttp.js';
 import { asyncHandler } from './asyncHandler.js';
-import { certAuth, type ClientSocket, type PersonCertStore } from '../tlsClientAuth.js';
+import { certAuth, type ClientSocket } from '../tlsClientAuth.js';
 
 export interface FleetRouterOptions {
   /** The admin secret (PODIUM_TOKEN). When set, POST /report, DELETE and POST /hook need a credential in X-Podium-Token: this, or a person's token. */
@@ -41,7 +41,7 @@ export interface FleetRouterOptions {
   /** Runs ahead of the sign-in to respond, to note a plain-HTTP connection (#306). It never blocks. */
   onSignIn?: RequestHandler;
   /** Built-in TLS (#583): the certificates people authenticate with. A client certificate on the connection decides who the sender is, ahead of any token. */
-  certs?: { store: PersonCertStore; trustedIssuers: () => string[] };
+  certs?: { store: PersonCertsApi; trustedIssuers: () => string[] };
   /** Built-in TLS (#589): told which transport each reporter last used, for the Admin's count of reporters on HTTP. */
   transport?: ReporterTransport;
 }
@@ -443,7 +443,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   // Closing a wall notice and the Show/Hide link on the background-sessions note. Both only change how the wall
   // looks, like Remove above, so they take no token (and no admin cookie: the wall has none). SPEC 7.1, 8.1.
   router.post('/notices/:id/close', asyncHandler(async (req, res) => {
-    if (!fleet.wall.setNotice(req.params.id, false)) {
+    if (!(await fleet.wall.setNotice(req.params.id, false))) {
       res.status(400).json({ ok: false, error: 'unknown notice', path: '$.id' });
       return;
     }
@@ -465,7 +465,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       res.status(400).json({ ok: false, error: 'that release is not the one on offer', path: '$.version' });
       return;
     }
-    fleet.wall.dismissUpdate(v);
+    await fleet.wall.dismissUpdate(v);
     await opts.people?.log('wall_update_dismissed', `Update notice for ${v} closed on the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_update_dismissed', `podium: update notice for ${v} closed on the wall`, { action: 'wall_update_dismissed', version: v, source: machineOf(req) });
     res.json({ ok: true });
@@ -477,7 +477,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       res.status(400).json({ ok: false, error: 'show must be true or false', path: '$.show' });
       return;
     }
-    fleet.wall.setShowBackgroundSessions(v);
+    await fleet.wall.setShowBackgroundSessions(v);
     await opts.people?.log('wall_background_changed', `Background sessions ${v ? 'shown' : 'hidden'} on the wall`, machineOf(req) ?? '', fleet.now());
     logger.info('admin.wall_background_changed', `podium: background sessions ${v ? 'shown' : 'hidden'} on the wall`, { action: 'wall_background_changed', on: v, source: machineOf(req) });
     res.json({ ok: true });

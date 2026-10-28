@@ -2,7 +2,14 @@ import type { DatabaseSync } from 'node:sqlite';
 import { FleetDb, openDb } from '../../fleet/db.js';
 import { PeopleStore } from '../../fleet/people.js';
 import { ReporterStore } from '../../fleet/reporters.js';
-import type { Async, AsyncPeerReporterLookup, FleetStore, PeopleStoreApi, ReporterStoreApi, Storage } from '../types.js';
+import type { Async, AsyncPeerReporterLookup, FleetStore, PeopleStoreApi, ReporterStoreApi, Storage, WallSettingsApi } from '../types.js';
+import { FeatureFlags } from '../../fleet/featureFlags.js';
+import { WallSettings } from '../../fleet/wallSettings.js';
+import { ModelPriceStore } from '../../fleet/modelPrices.js';
+import { RecordingSettingsStore } from '../../fleet/recordingSettings.js';
+import { ActivityHistorySettingsStore } from '../../fleet/activityHistorySettings.js';
+import { TlsSettingsStore } from '../../tlsRenew.js';
+import { PersonCertStore } from '../../tlsClientAuth.js';
 import { AsyncLock } from './lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
 
@@ -17,6 +24,30 @@ function wrap<T extends object>(target: T, lock: AsyncLock): Async<T> {
     if (typeof fn === 'function') out[name] = (...args: unknown[]) => lock.run(() => fn.apply(target, args));
   }
   return out as Async<T>;
+}
+
+/** The wall's settings. The class reports a change through its callback, which fires inside the call, so it is read back there. */
+function wallSettingsOver(db: DatabaseSync, lock: AsyncLock): WallSettingsApi {
+  let changed = false;
+  const wall = new WallSettings(db, () => {
+    changed = true;
+  });
+  const run = <T>(fn: () => T): Promise<[T, boolean]> =>
+    lock.run(() => {
+      changed = false;
+      return [fn(), changed];
+    });
+  return {
+    view: () => lock.run(() => wall.view()),
+    updateDismissed: () => lock.run(() => wall.updateDismissed()),
+    setNotice: async (id, on) => {
+      const [known, did] = await run(() => wall.setNotice(id, on));
+      return { known, changed: did };
+    },
+    setShowBackgroundSessions: async (on) => (await run(() => wall.setShowBackgroundSessions(on)))[1],
+    setCardTitleMachine: async (on) => (await run(() => wall.setCardTitleMachine(on)))[1],
+    dismissUpdate: async (version) => (await run(() => wall.dismissUpdate(version)))[1],
+  };
 }
 
 /**
@@ -47,6 +78,13 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
     fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) } as FleetStore,
     people: wrap(new PeopleStore(db), lock) as PeopleStoreApi,
     reporters: { ...wrap(reporters, lock), peerLookup: () => asyncLookup } as ReporterStoreApi,
+    featureFlags: wrap(new FeatureFlags(db), lock),
+    wallSettings: wallSettingsOver(db, lock),
+    modelPrices: wrap(new ModelPriceStore(db), lock),
+    recordingSettings: wrap(new RecordingSettingsStore(db), lock),
+    activityHistorySettings: (authOn) => wrap(new ActivityHistorySettingsStore(db, authOn), lock),
+    tlsSettings: wrap(new TlsSettingsStore(db), lock),
+    personCerts: wrap(new PersonCertStore(db), lock),
     tx: (fn) =>
       lock.inside() ? fn() : lock.run(async () => {
         db.exec('BEGIN');

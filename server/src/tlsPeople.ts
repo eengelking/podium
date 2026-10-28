@@ -7,7 +7,8 @@ import path from 'node:path';
 import { hostnameOf } from './hostCheck.js';
 import type { PersonRow } from './fleet/people.js';
 import { describeCert, openssl, randomSerial, TlsError, type CertInfo } from './tlsCa.js';
-import type { PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
+import type { PersonCertRow } from './tlsClientAuth.js';
+import type { PersonCertsApi } from './storage/types.js';
 
 export const REPORTER_DAYS = 90;
 export const CONFIG_HEADER = '# podium-reporter-config v1';
@@ -155,9 +156,9 @@ export function serverUrlFor(host: string | undefined, port: number): string {
  * Issues a person a certificate, stores the certificate (revoking any earlier live one) and builds their config file.
  * The key is in the returned file and nowhere else.
  */
-export async function issueConfigFor(person: PersonRow, store: PersonCertStore, issuer: PersonIssuer, host: string | undefined, now: number): Promise<{ file: ConfigFile; cert: PersonCertRow }> {
+export async function issueConfigFor(person: PersonRow, store: PersonCertsApi, issuer: PersonIssuer, host: string | undefined, now: number): Promise<{ file: ConfigFile; cert: PersonCertRow }> {
   const issued = await issuePersonCert({ dir: issuer.dir, keyId: person.keyId, days: issuer.days, openssl: issuer.openssl });
-  const cert = store.replace(person.id, issued, now);
+  const cert = await store.replace(person.id, issued, now);
   const file = buildReporterConfig({ user: person.name, server: serverUrlFor(host, issuer.port), issuedAt: now, cert: issued.cert, key: issued.key, info: issued.info, caCerts: issuer.caCerts() });
   return { file, cert };
 }

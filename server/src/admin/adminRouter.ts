@@ -5,16 +5,16 @@
 import { randomBytes } from 'node:crypto';
 import express, { Router, type NextFunction, type Request, type Response } from 'express';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, type PersonRow } from '../fleet/people.js';
-import type { PeopleStoreApi, ReporterStoreApi, Storage } from '../storage/types.js';
+import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
 import { serverBuild } from '../fleet/build.js';
 import { serverVersion } from '../fleet/compat.js';
-import { NOTICES, isNoticeId, type WallSettings } from '../fleet/wallSettings.js';
-import type { ModelPriceStore } from '../fleet/modelPrices.js';
+import { NOTICES, isNoticeId } from '../fleet/wallSettings.js';
+import type { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from '../fleet/liveSettings.js';
 import { REPORTER_STATES, type ForgetSetting, type IgnoreKind, type ReporterState } from '../fleet/reporters.js';
-import { FEATURES, isFeatureId, RESPOND, type FeatureFlags } from '../fleet/featureFlags.js';
+import { FEATURES, isFeatureId, RESPOND } from '../fleet/featureFlags.js';
 import { PRICES_AS_OF, type PriceSet } from '../fleet/pricing.js';
 import { Lockout } from '../fleet/lockout.js';
 import type { PeerService } from '../fleet/peers.js';
@@ -23,9 +23,9 @@ import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
 import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
-import { ALLOW_HTTP_KEY, type ServingRenewer, type TlsSettingsStore } from '../tlsRenew.js';
+import { ALLOW_HTTP_KEY, type ServingRenewer } from '../tlsRenew.js';
+import type { LiveTlsSettings } from '../tlsLive.js';
 import type { ReporterTransport } from '../tlsHttp.js';
-import type { PersonCertStore } from '../tlsClientAuth.js';
 import type { CaRotation } from '../tlsServer.js';
 import { TlsError } from '../tlsCa.js';
 import { CROSS_DAYS } from '../tlsRotation.js';
@@ -33,11 +33,9 @@ import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '..
 import type { ActivityHistory } from '../fleet/activityHistory.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
-import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
 import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import type { SessionRecordings } from '../fleet/recordings.js';
-import type { RecordingSettingsStore } from '../fleet/recordingSettings.js';
 import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
 
@@ -48,30 +46,30 @@ export interface AdminRouterOptions {
   storage: Pick<Storage, 'tx'>;
   people: PeopleStoreApi;
   /** The wall's notice switches. Without it the Settings tab has nothing to change. */
-  wall?: WallSettings;
+  wall?: LiveWallSettings;
   /** The Admin's model prices (issue #117). Without it the Model prices group has nothing to change. */
-  prices?: ModelPriceStore;
+  prices?: LiveModelPrices;
   /** The server-wide feature flags (#118). Without it the Feature flags group has nothing to change. */
-  features?: FeatureFlags;
+  features?: LiveFeatureFlags;
   /** Every reporter the server has heard from (#142). Without it the Reporters tab has nothing to list. */
   reporters?: ReporterStoreApi;
   /** Orchestrator messaging (#347): the limits, a reporter's links, proposals, Pause all links and the conversations. */
   peers?: PeerService;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
-  activityHistory?: { history: ActivityHistory; settings: ActivityHistorySettingsStore };
+  activityHistory?: { history: ActivityHistory; settings: LiveActivityHistorySettings };
   /** Built-in TLS (#577, T4): the serving certificate's settings and its renewer. `renewer()` is null while TLS is off, and the routes then answer 404. */
   certificates?: {
-    settings: TlsSettingsStore;
+    settings: LiveTlsSettings;
     renewer: () => ServingRenewer | null;
     /** People's certificates (#583, T5): the store, and what it takes to issue one. `issuer()` is null while TLS is off, and the person routes then answer 404. */
-    people?: { store: PersonCertStore; issuer: () => PersonIssuer | null };
+    people?: { store: PersonCertsApi; issuer: () => PersonIssuer | null };
     /** Rotating and retiring the CA (#588). Null while TLS is off. */
     rotation?: () => CaRotation | null;
     /** Which reporters are on HTTP now (#589), for the count the switch names. */
     transport?: ReporterTransport;
   };
   /** Session recording (#353): the store, the Admin's limits and a way to tell open consoles a recording changed. Without it the recording routes answer 404. */
-  recordings?: { service: SessionRecordings; settings: RecordingSettingsStore; changed: (sessionId: string) => void };
+  recordings?: { service: SessionRecordings; settings: LiveRecordingSettings; changed: (sessionId: string) => void };
   /** What the Reporting pages read (#484). Without it the report routes are not mounted. */
   reports?: ReportDeps;
   now?: () => number;
@@ -304,13 +302,13 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const page = await people.list({ ...paging(req), q });
     // With TLS on each row also says its person's certificate (#587): the expiry the badge needs, never the key. Podium has none.
     const on = Boolean(certs?.people?.issuer());
-    const rows = page.rows.map((r) => ({ ...r, certificate: on ? certificateOf(r.id) : null }));
+    const rows = await Promise.all(page.rows.map(async (r) => ({ ...r, certificate: on ? await certificateOf(r.id) : null })));
     res.json({ ...page, rows, tls: on, groups: await people.allGroups() });
   }));
 
   /** The person's live certificate, or the latest revoked one, or null when they never had one. */
-  function certificateOf(personId: number): { notBefore: string; notAfter: string; revoked: boolean } | null {
-    const all = certs?.people?.store.listFor(personId) ?? [];
+  async function certificateOf(personId: number): Promise<{ notBefore: string; notAfter: string; revoked: boolean } | null> {
+    const all = (await certs?.people?.store.listFor(personId)) ?? [];
     const c = all.find((x) => x.revokedAt === null) ?? all[0];
     return c ? { notBefore: new Date(c.notBefore).toISOString(), notAfter: new Date(c.notAfter).toISOString(), revoked: c.revokedAt !== null } : null;
   }
@@ -363,7 +361,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
         if (!p) return null;
         await people.assertNotLastAdministrator(id);
         // Revoking the token revokes the person's certificate too, so a reporter cannot go on with the other credential (#583).
-        const certsRevoked = certs?.people?.store.revokeFor(id, 'revoked', now()) ?? 0;
+        const certsRevoked = (await certs?.people?.store.revokeFor(id, 'revoked', now())) ?? 0;
         return { p, certsRevoked, revoked: await people.revoke(id, now()) };
       });
     } catch (err) {
@@ -381,14 +379,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const tlsOff = (res: Response) => void res.status(404).json({ ok: false, error: 'TLS is off' });
 
   /** Issues the person a certificate and logs it (the file's content never goes in the log). Returns the file for the response. */
-  async function issueAndLog(req: Request, person: PersonRow, store: PersonCertStore, issuer: PersonIssuer): Promise<ConfigFile & { expires: string; fingerprint: string }> {
+  async function issueAndLog(req: Request, person: PersonRow, store: PersonCertsApi, issuer: PersonIssuer): Promise<ConfigFile & { expires: string; fingerprint: string }> {
     const { file, cert } = await issueConfigFor(person, store, issuer, req.get('host'), now());
     await audit(req, 'certificate_issued',`Issued a certificate to ${person.name}`, { person_id: person.id, fingerprint_sha256: cert.fingerprint, not_after: new Date(cert.notAfter).toISOString() });
     return { ...file, expires: new Date(cert.notAfter).toISOString(), fingerprint: cert.fingerprint };
   }
 
   /** The person and the certificate parts when TLS is on; otherwise it has already answered. */
-  async function certTarget(req: Request, res: Response): Promise<{ person: PersonRow; store: PersonCertStore; issuer: PersonIssuer } | null> {
+  async function certTarget(req: Request, res: Response): Promise<{ person: PersonRow; store: PersonCertsApi; issuer: PersonIssuer } | null> {
     const c = certs?.people;
     const issuer = c?.issuer();
     if (!c || !issuer) {
@@ -426,7 +424,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   router.post('/people/:id/certificate/revoke', asyncHandler(async (req, res) => {
     const t = await certTarget(req, res);
     if (!t) return;
-    const n = t.store.revokeFor(t.person.id, 'revoked', now());
+    const n = await t.store.revokeFor(t.person.id, 'revoked', now());
     if (n > 0) await audit(req, 'certificate_revoked', `Revoked the certificate of ${t.person.name}`, { person_id: t.person.id });
     res.json({ ok: true, revoked: n });
   }));
@@ -438,7 +436,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     try {
       out = await storage.tx(async () => {
         await people.assertNotLastAdministrator(t.person.id);
-        const n = t.store.revokeFor(t.person.id, 'revoked', now());
+        const n = await t.store.revokeFor(t.person.id, 'revoked', now());
         return { n, tokenRevoked: await people.revoke(t.person.id, now()) };
       });
     } catch (err) {
@@ -453,7 +451,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   router.get('/people/:id/certificate.pem', asyncHandler(async (req, res) => {
     const t = await certTarget(req, res);
     if (!t) return;
-    const cert = t.store.current(t.person.id);
+    const cert = await t.store.current(t.person.id);
     if (!cert) return void res.status(404).json({ ok: false, error: 'this person has no certificate' });
     res.type('application/x-pem-file').set('Content-Disposition', `attachment; filename="${fileSafe(t.person.name)}-certificate.pem"`).send(`${cert.certPem}${t.issuer.caCerts().join('')}`);
   }));
@@ -757,7 +755,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if ('activityHistory' in body) {
       const p = body.activityHistory;
       if (!history || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'activityHistory must give policy, n, unit and capGb' });
-      const out = history.settings.set(p);
+      const out = await history.settings.set(p);
       if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
       await audit(req, ACTIVITY_LOG_KINDS.changed, `Activity history set to ${policyWords(out.settings)}, ${capWords(out.settings)}`, { ...out.settings });
       opts.onActivityHistoryChanged?.();
@@ -766,7 +764,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if ('recording' in body) {
       const p = body.recording;
       if (!rec || !p || typeof p !== 'object' || Array.isArray(p)) return void res.status(400).json({ ok: false, error: 'recording must give keepHours, budgetMb and/or sessionMb' });
-      const out = rec.settings.set(p);
+      const out = await rec.settings.set(p);
       if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
       const { before: b, settings: a } = out;
       await audit(req, 'recording_settings_changed', `Session recording limits: kept ${b.keepHours} to ${a.keepHours} hours, disk budget ${b.budgetMb} to ${a.budgetMb} MB, one session ${b.sessionMb} to ${a.sessionMb} MB`, {
@@ -782,14 +780,14 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if ('showBackgroundSessions' in body) {
       const v = body.showBackgroundSessions;
       if (typeof v !== 'boolean' || !wall) return void res.status(400).json({ ok: false, error: 'showBackgroundSessions must be true or false' });
-      wall.setShowBackgroundSessions(v);
+      await wall.setShowBackgroundSessions(v);
       await audit(req, 'wall_background_changed', `Background sessions ${v ? 'shown' : 'hidden'} on the wall`, { on: v });
       return void res.json({ ok: true, showBackgroundSessions: v });
     }
     if ('cardTitleMachine' in body) {
       const v = body.cardTitleMachine;
       if (typeof v !== 'boolean' || !wall) return void res.status(400).json({ ok: false, error: 'cardTitleMachine must be true or false' });
-      wall.setCardTitleMachine(v);
+      await wall.setCardTitleMachine(v);
       await audit(req, 'wall_card_title_changed', `Cards ${v ? 'titled with the machine and the session' : 'titled with the session name alone'}`, { on: v });
       return void res.json({ ok: true, cardTitleMachine: v });
     }
@@ -800,10 +798,9 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
         return void res.status(400).json({ ok: false, error: 'features must map known feature ids to true or false' });
       }
       for (const id of ids) {
-        const wasOn = features.featureOn(id);
-        features.setFeature(id, f[id]);
+        const changed = await features.turn(id, f[id]);
         await audit(req, 'feature_changed', `Feature ${id} turned ${f[id] ? 'on' : 'off'}`, { setting: id, on: f[id] });
-        if (id === RESPOND && f[id] && !wasOn) opts.onRespondOn?.(); // after the audit row, so a failing warning cannot lose it
+        if (id === RESPOND && f[id] && changed) opts.onRespondOn?.(); // after the audit row, so a failing warning cannot lose it
       }
       return void res.json({ ok: true, features: featureList() });
     }
@@ -814,7 +811,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
         return void res.status(400).json({ ok: false, error: 'notices must map known notice ids to true or false' });
       }
       for (const id of ids) {
-        wall.setNotice(id, n[id]);
+        await wall.setNotice(id, n[id]);
         await audit(req, 'wall_notice_changed', `Wall notice ${id} turned ${n[id] ? 'on' : 'off'}`, { setting: id, on: n[id] });
       }
       return void res.json({ ok: true, notices: noticeList() });
@@ -825,7 +822,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
         return void res.status(400).json({ ok: false, error: 'modelPrice must name a model and give its prices' });
       }
       const before = JSON.stringify(prices.overrides());
-      const err = prices.set(m.key, { std: m.std, ...(m.long === undefined || m.long === null ? {} : { long: m.long }) });
+      const err = await prices.set(m.key, { std: m.std, ...(m.long === undefined || m.long === null ? {} : { long: m.long }) });
       if (err) return void res.status(400).json({ ok: false, error: err });
       // Saving the values a row already has changes nothing, so it is not logged as a change.
       if (JSON.stringify(prices.overrides()) === before) return void res.json({ ok: true, modelPrices: prices.view() });
@@ -844,7 +841,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       const k = body.resetModelPrice;
       if (!prices || typeof k !== 'string' || !k.trim()) return void res.status(400).json({ ok: false, error: 'resetModelPrice must name a model' });
       const had = JSON.stringify(prices.overrides());
-      prices.reset(k);
+      await prices.reset(k);
       if (JSON.stringify(prices.overrides()) === had) return void res.json({ ok: true, modelPrices: prices.view() });
       await audit(req, 'model_price_reset', `Reset the price of ${k.trim().toLowerCase()} to the built-in value`, { model: k.trim().toLowerCase() });
       return void res.json({ ok: true, modelPrices: prices.view() });
@@ -919,19 +916,19 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const httpView = () => ({ allow: certs?.settings.allowReportersOverHttp() ?? true, ...(certs?.transport?.count(now()) ?? { overHttp: 0, total: 0 }) });
 
   /** The renewer's view with the overlap's count of reporters still on the old CA (#588). */
-  const certificatesView = (r: ServingRenewer) => {
+  const certificatesView = async (r: ServingRenewer) => {
     const v = { ...r.view(), overlapDays: CROSS_DAYS, canOverlap: certs?.rotation?.()?.canOverlap() ?? true, http: httpView() };
     if (!v.rotation) return v;
     const oldFp = v.rotation.previousCa.fingerprintSha256;
-    const counts = certs?.people?.store.reportersByIssuer(now());
+    const counts = await certs?.people?.store.reportersByIssuer(now());
     return { ...v, rotation: { ...v.rotation, reporters: { onOldCa: counts?.byIssuer[oldFp] ?? 0, total: counts?.total ?? 0 } } };
   };
 
-  router.get('/certificates', (_req, res) => {
+  router.get('/certificates', asyncHandler(async (_req, res) => {
     const r = certs?.renewer();
     if (!r) return tlsOff(res);
-    res.json({ ok: true, ...certificatesView(r), reporter: certs?.settings.getReporter() });
-  });
+    res.json({ ok: true, ...(await certificatesView(r)), reporter: certs?.settings.getReporter() });
+  }));
 
   // The CA certificate to download, for a browser or a person who wants to check it (T8). It sits behind the unlocked Admin session like the rest of this page; there is no key to send.
   router.get('/certificates/ca.pem', (_req, res) => {
@@ -948,13 +945,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!certs || !r) return tlsOff(res);
     const body: unknown = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return void res.status(400).json({ ok: false, error: 'give the settings to change, such as tls.serving.renewBeforeDays' });
-    const wasAllowed = certs.settings.allowReportersOverHttp();
-    const out = certs.settings.set(body as Record<string, unknown>);
+    const out = await certs.settings.set(body as Record<string, unknown>);
     if (!out.ok) return void res.status(400).json({ ok: false, error: out.error });
     const s = out.settings;
     const rep = certs.settings.getReporter();
     const http = httpView();
-    if (out.changed.includes(ALLOW_HTTP_KEY) && http.allow !== wasAllowed) {
+    if (out.changed.includes(ALLOW_HTTP_KEY) && http.allow !== out.wasAllowed) {
       await audit(req, 'tls_http_changed', http.allow ? 'Allowed reporters to connect over HTTP' : `Stopped allowing reporters over HTTP; ${http.overHttp} reporter${http.overHttp === 1 ? '' : 's'} connected over HTTP ${http.overHttp === 1 ? 'is' : 'are'} refused`, { allow: http.allow, reporters_on_http: http.overHttp });
     }
     if (out.changed.some((k) => k !== ALLOW_HTTP_KEY)) await audit(req, 'tls_settings_changed', `Certificate settings: serving certificate lifetime ${s.lifetimeDays} days, renewed ${s.renewBeforeDays} days before it expires; a person's certificate lifetime ${rep.lifetimeDays} days; header countdown ${s.headerCountdown ? 'on' : 'off'}`, { changed: out.changed.join(','), lifetime_days: s.lifetimeDays, renew_before_days: s.renewBeforeDays, reporter_lifetime_days: rep.lifetimeDays, header_countdown: s.headerCountdown });
@@ -984,7 +980,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (typeof endOverlap !== 'boolean') return void res.status(400).json({ ok: false, error: 'say whether to end the overlap now: { "endOverlap": true | false }' });
     void rot.rotate(endOverlap).then(async (out) => {
       await audit(req, 'tls_ca_rotated', endOverlap ? 'Rotated the certificate authority and ended the overlap: every reporter needs a reissued config' : 'Rotated the certificate authority; the old one stays trusted until it is retired', { overlap: out.overlap, connections_closed: out.closed, ca_not_after: out.ca.notAfter });
-      res.json({ ok: true, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+      res.json({ ok: true, ...(await certificatesView(r)), reporter: certs?.settings.getReporter() });
     }).catch((err: unknown) => {
       // A TlsError says what is wrong in words the Admin can use; anything else is not shown.
       if (err instanceof TlsError) return void res.status(409).json({ ok: false, error: err.message });
@@ -997,12 +993,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const r = certs?.renewer();
     const rot = certs?.rotation?.();
     if (!r || !rot) return tlsOff(res);
-    const before = certificatesView(r).rotation;
+    const before = (await certificatesView(r)).rotation;
     void rot.retire().then(async (out) => {
       if (!out || !before) return void res.status(409).json({ ok: false, error: 'there is no old CA to retire' });
       const refused = 'reporters' in before ? before.reporters.onOldCa : 0;
       await audit(req, 'tls_ca_retired', `Retired the old certificate authority; ${refused} reporter${refused === 1 ? '' : 's'} still used it and now need a reissued config`, { reporters_refused: refused, connections_closed: out.closed });
-      res.json({ ok: true, refused, connectionsClosed: out.closed, ...certificatesView(r), reporter: certs?.settings.getReporter() });
+      res.json({ ok: true, refused, connectionsClosed: out.closed, ...(await certificatesView(r)), reporter: certs?.settings.getReporter() });
     }).catch(() => void res.status(500).json({ ok: false, error: 'could not retire the old certificate authority' }));
   }));
 

@@ -11,11 +11,11 @@ import { X509Certificate, createPublicKey } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PersonRow } from './fleet/people.js';
-import type { PeopleStoreApi, Storage } from './storage/types.js';
+import type { PeopleStoreApi, PersonCertsApi, Storage } from './storage/types.js';
 import { asyncHandler } from './fleet/asyncHandler.js';
 import type { Logger } from './logging/logger.js';
 import { TlsError } from './tlsCa.js';
-import type { ClientSocket, PersonCertRow, PersonCertStore } from './tlsClientAuth.js';
+import type { ClientSocket, PersonCertRow } from './tlsClientAuth.js';
 import { personSubject, REPORTER_DAYS, signClientCert, type IssuedPersonCert, type PersonIssuer } from './tlsPeople.js';
 
 /** A person's certificate is renewed at most once in this long (#612). */
@@ -73,7 +73,7 @@ export type RenewRefusal = 'NO_CERTIFICATE' | 'NOT_TRUSTED' | 'NOT_RECOGNISED' |
 export type RenewAuth = { ok: true; person: PersonRow; cert: PersonCertRow } | { ok: false; code: RenewRefusal; reason: string };
 
 export interface RenewAuthDeps {
-  certs: PersonCertStore;
+  certs: PersonCertsApi;
   people: PeopleStoreApi;
   /** SHA-256 fingerprints of the CA certificate(s) a client certificate may have been issued by. */
   trustedIssuers: () => string[];
@@ -102,7 +102,7 @@ export async function authorizeRenewal(socket: RenewSocket, d: RenewAuthDeps): P
     const why = socket.authorizationError instanceof Error ? socket.authorizationError.message : socket.authorizationError;
     return refuse('NOT_TRUSTED', `client certificate not accepted: ${why ?? 'unverified'}`);
   }
-  const row = d.certs.find(x.fingerprint256);
+  const row = await d.certs.find(x.fingerprint256);
   if (!row) return refuse('NOT_RECOGNISED', 'client certificate is not one Podium issued');
   if (row.revokedAt !== null) return refuse('REVOKED', 'client certificate was revoked');
   if (!d.trustedIssuers().includes(row.issuerFingerprint)) return refuse('NOT_TRUSTED', 'client certificate was issued by a CA that is not trusted');
@@ -120,7 +120,7 @@ const WORDS: Record<RenewRefusal, string> = {
 };
 
 export interface ReporterRenewDeps {
-  certs: PersonCertStore;
+  certs: PersonCertsApi;
   people: PeopleStoreApi;
   /** Runs a callback in one storage transaction: the check after signing and the stored row are one step. */
   tx: Storage['tx'];
@@ -152,7 +152,7 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
       return;
     }
     // One renewal an hour per person, so a looping client cannot fill the table or keep openssl busy.
-    const newest = d.certs.current(auth.person.id);
+    const newest = await d.certs.current(auth.person.id);
     const waitMs = inFlight.has(auth.person.id) ? 1000 : newest ? Math.min(newest.issuedAt + MIN_RENEW_INTERVAL_MS - d.now(), MIN_RENEW_INTERVAL_MS) : 0;
     if (waitMs > 0) {
       const retryAfter = Math.ceil(waitMs / 1000);
@@ -179,8 +179,8 @@ export function createReporterRenewRouter(d: ReporterRenewDeps): Router {
         // The check and the stored row are one step, so a revoke cannot land between them.
         const kept = await d.tx(async () => {
           const person = await d.people.getPerson(auth.person.id);
-          if (d.certs.find(auth.cert.fingerprint)?.revokedAt !== null || !person || person.revokedAt !== null) return false;
-          d.certs.add(auth.person.id, issued, d.now());
+          if ((await d.certs.find(auth.cert.fingerprint))?.revokedAt !== null || !person || person.revokedAt !== null) return false;
+          await d.certs.add(auth.person.id, issued, d.now());
           return true;
         });
         if (!kept) return void res.status(401).json({ ok: false, code: 'REVOKED', error: WORDS.REVOKED });

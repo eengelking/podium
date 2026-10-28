@@ -15,15 +15,12 @@ import { validateReport } from './protocol.js';
 import type { ActivityView, HistoryRow, Kpis, RemovedReason, Report, ReporterSupport, SessionStatusView, SessionView, StateBody, WallSettingsView } from './protocol.js';
 import { formatSse, SseHub, type SseEventName, type SseSink } from './sse.js';
 import { Serializer } from './serial.js';
-import { ModelPriceStore } from './modelPrices.js';
-import { WallSettings } from './wallSettings.js';
+import { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from './liveSettings.js';
 import { ActivityStore } from './activity.js';
 import { openActivityDb } from './activityDb.js';
 import { ActivityHistory, type SessionMeta } from './activityHistory.js';
-import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
 import type { DatabaseSync } from 'node:sqlite';
-import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FeatureFlags, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK } from './featureFlags.js';
-import { RecordingSettingsStore } from './recordingSettings.js';
+import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK } from './featureFlags.js';
 import { SessionRecordings } from './recordings.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
@@ -118,23 +115,23 @@ const endedAtOf = (row: SessionRow): number => row.dropped_at ?? row.ended_at ??
 export class Fleet {
   readonly hub = new SseHub();
   /** The wall's notice switches and background-session setting; a change reaches open browsers at once. */
-  readonly wall: WallSettings;
+  readonly wall: LiveWallSettings;
   /** The Admin's model prices; every cost figure follows them (issue #117). */
-  readonly prices: ModelPriceStore;
+  readonly prices: LiveModelPrices;
   /** The agent activity feed (#118): in memory only, and only for loops a viewer is watching. */
   readonly activity: ActivityStore;
   /** The Admin's Activity history choice (#432): kept in the main database's settings table. */
-  readonly activityHistorySettings: ActivityHistorySettingsStore;
+  readonly activityHistorySettings: LiveActivityHistorySettings;
   /** The Activity history (#432): the feed kept in the second SQLite file under a keep policy. Idle under the default policy. */
   readonly activityHistory: ActivityHistory;
   /** The Admin's session recording limits (#353): kept in the main database's settings table. */
-  readonly recordingSettings: RecordingSettingsStore;
+  readonly recordingSettings: LiveRecordingSettings;
   /** Session recordings (#353): whole prompts, tool inputs and results of the loops someone chose, in the activity file. */
   readonly recordings: SessionRecordings;
   /** A file's diff on demand (#319): in memory only, held just while the owner's browser waits. */
   readonly diffs = new DiffBroker();
   /** The Admin's feature flags. Turning the activity feed off drops what it held; any change reaches open browsers. */
-  readonly features: FeatureFlags;
+  readonly features: LiveFeatureFlags;
   /** Responding from Podium (#206): asks, answers and messages, in memory only. */
   readonly respond: RespondStore;
   /** Orchestrator messaging (#347, #412): rights, requests and messages, in the database. */
@@ -149,6 +146,8 @@ export class Fleet {
   private readonly syncDb: FleetDb;
   /** Bumped by a price change, so a cost-per-minute read that began before it does not keep the old prices in the cache. */
   private priceEpoch = 0;
+  /** Bumped when a setting that a snapshot or the wall message carries has changed, so one that began before it is made again (#313). */
+  private settingsEpoch = 0;
   private initDone: Promise<void> | null = null;
   private readonly live = new Map<string, LiveEntry>();
   private readonly pending = new Map<string, ReturnType<typeof setTimeout>>();
@@ -176,7 +175,8 @@ export class Fleet {
     this.startedAt = now();
     const raw = storage.sqliteHandle; // TODO(#313 stage 5): the stores below still take the raw connection
     this.syncDb = new FleetDb(raw);
-    this.features = new FeatureFlags(raw, (id, on) => {
+    this.features = new LiveFeatureFlags(storage.featureFlags, (id, on) => {
+      this.settingsEpoch++;
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
       if (id === FILE_DIFF && !on) this.diffs.clear();
       // Output going off drops every output held on a lease (#431). The commands, the leases and the history are untouched.
@@ -192,7 +192,7 @@ export class Fleet {
       this.broadcastSnapshot();
     });
     const authOn = history.authOn ?? true;
-    this.activityHistorySettings = new ActivityHistorySettingsStore(raw, authOn);
+    this.activityHistorySettings = new LiveActivityHistorySettings(storage.activityHistorySettings(authOn));
     const activityDb = history.db ?? openActivityDb(':memory:');
     this.activityHistory = new ActivityHistory(activityDb, {
       now,
@@ -202,7 +202,7 @@ export class Fleet {
       agentsOf: (sid) => this.syncDb.getAgents(sid).filter((a) => a.status === 'running').map((a) => a.id),
       authOn,
     });
-    this.recordingSettings = new RecordingSettingsStore(raw);
+    this.recordingSettings = new LiveRecordingSettings(storage.recordingSettings);
     this.recordings = new SessionRecordings(activityDb, {
       now,
       settings: () => this.recordingSettings.get(),
@@ -250,7 +250,10 @@ export class Fleet {
       },
     );
     this.peers = new PeerService(raw, new ReporterStore(raw, this.startedAt).peerLookup(), now, () => this.features.featureOn(PEER_MESSAGING));
-    this.wall = new WallSettings(raw, () => this.broadcastWall());
+    this.wall = new LiveWallSettings(storage.wallSettings, () => {
+      this.settingsEpoch++;
+      void this.broadcastWall();
+    });
     this.updates = new UpdateCheck({
       current: serverVersion(),
       enabled: () => this.features.featureOn(UPDATE_CHECK),
@@ -258,7 +261,8 @@ export class Fleet {
       logger,
     });
     // A price change moves every cost on the wall, so open browsers get a fresh snapshot.
-    this.prices = new ModelPriceStore(raw, () => {
+    this.prices = new LiveModelPrices(storage.modelPrices, storage.tx, () => {
+      this.settingsEpoch++;
       this.costMinuteCache = null; // the sparkline follows the prices too (#270)
       this.priceEpoch++;
       this.broadcastSnapshot();
@@ -275,7 +279,14 @@ export class Fleet {
    * a done session still inside its linger window stays until the window closes. Safe to call twice.
    */
   init(): Promise<void> {
-    this.initDone ??= this.db.liveCandidates(this.startedAt - this.cfg.lingerMs).then((rows) => {
+    this.initDone ??= Promise.all([
+      this.db.liveCandidates(this.startedAt - this.cfg.lingerMs),
+      this.features.load(),
+      this.wall.load(),
+      this.prices.load(),
+      this.activityHistorySettings.load(),
+      this.recordingSettings.load(),
+    ]).then(([rows]) => {
       for (const row of rows) this.live.set(row.id, { heard: false, status: null });
     });
     return this.initDone;
@@ -296,10 +307,19 @@ export class Fleet {
     return run.then((v) => v, () => undefined);
   }
 
+  /** Runs `make` again until no setting changed while it ran, so a message never leaves carrying a value that has already been replaced. */
+  private async settled<T>(make: () => Promise<T> | T): Promise<T> {
+    for (;;) {
+      const at = this.settingsEpoch;
+      const made = await make();
+      if (at === this.settingsEpoch) return made;
+    }
+  }
+
   /** Sends one message to every client once `make` has read what it carries. `make` returns null to send nothing. */
   private emit(make: () => Promise<[SseEventName, unknown] | null> | [SseEventName, unknown] | null): Promise<void> {
     return this.enqueue(async () => {
-      const m = await make();
+      const m = await this.settled(make);
       if (m) this.hub.broadcast(m[0], m[1]);
     }).then(() => undefined);
   }
@@ -314,7 +334,7 @@ export class Fleet {
 
   /** Adds an SSE client with a snapshot as its first message. Messages asked for after this call reach it after the snapshot. Resolves with its id, or null when the client is gone or the hub is full. */
   attach(sink: SseSink): Promise<number | null> {
-    return this.enqueue(async () => this.hub.add(sink, [await this.snapshotMessage()])).then((id) => id ?? null);
+    return this.enqueue(async () => this.hub.add(sink, [await this.settled(() => this.snapshotMessage())])).then((id) => id ?? null);
   }
 
   /** Resolves when every message asked for so far has been sent. */
@@ -702,6 +722,7 @@ export class Fleet {
 
   /** The Admin changed the Activity history setting: open consoles learn whether a sign-in is now offered. */
   activityHistoryChanged(): Promise<void> {
+    this.settingsEpoch++;
     return this.broadcastSnapshot();
   }
 

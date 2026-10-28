@@ -29,10 +29,9 @@ import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
 import { tlsDir, warnIfTlsNotPersistent } from "./tlsStorage.js";
-import { PersonCertStore } from "./tlsClientAuth.js";
 import { createReporterRenewRouter } from "./tlsReporterRenew.js";
 import { publicTlsPort, startTls, type TlsListener } from "./tlsServer.js";
-import { TlsSettingsStore } from "./tlsRenew.js";
+import { LiveTlsSettings } from "./tlsLive.js";
 import { createTlsStatusRouter } from "./tlsStatus.js";
 import { reporterHttpGate, ReporterTransport } from "./tlsHttp.js";
 import { RESPOND } from "./fleet/featureFlags.js";
@@ -54,8 +53,6 @@ if (TOKEN && TOKEN.length < 24) {
 warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
 
 const storage = openSqliteStorage(DB_PATH);
-// TODO(#313 stage 5): the stores below still read the raw connection; each moves onto `storage` as its stage lands.
-const sqlite = storage.sqliteHandle;
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
 // The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
 const activityDb = openActivityDb(activityDbPath(DB_PATH));
@@ -63,12 +60,14 @@ const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { db: activityDb
 // The live set is read from the database before anything listens or sweeps.
 await fleet.init();
 const people = storage.people;
-const tlsSettings = new TlsSettingsStore(sqlite);
+const tlsSettings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+// The TLS settings are read synchronously (by the HTTP gate on every request, and the renewer); load them before anything listens.
+await tlsSettings.load();
 let tlsListener: TlsListener | null = null;
 // Which reporters are on HTTP and which on HTTPS, for the Admin's switch and its count (#589).
 const reporterTransport = new ReporterTransport();
 // People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
-const personCerts = new PersonCertStore(sqlite);
+const personCerts = storage.personCerts;
 const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
 const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsListener.port), caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
@@ -162,7 +161,7 @@ const server = app.listen(PORT, HOST, () => {
 // Built-in TLS (#577): with PODIUM_TLS=on, HTTPS on a second port serves the same app. A failure is logged and HTTP stays up.
 void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dbPath: DB_PATH, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then(async (l) => {
   // The first time TLS runs, an install that already has reporters keeps them working over HTTP; a fresh one does not (SPEC 6).
-  if (l) tlsSettings.seedAllowReportersOverHttp(await reporters.hasAny());
+  if (l) await tlsSettings.seedAllowReportersOverHttp(await reporters.hasAny());
   tlsListener = l;
   // A signal that arrived while the CA was being made has already started the shutdown.
   if (closing) l?.server.close();

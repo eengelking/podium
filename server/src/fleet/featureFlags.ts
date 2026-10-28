@@ -80,7 +80,7 @@ export function isFeatureId(id: string): boolean {
 
 const PREFIX = 'feature.';
 
-function defaultOf(id: string): boolean {
+export function featureDefault(id: string): boolean {
   return FEATURES.find((f) => f.id === id)?.defaultOn ?? true;
 }
 
@@ -105,7 +105,7 @@ export class FeatureFlags {
     const v = this.get(PREFIX + id);
     if (v === '0') return false;
     if (v === '1') return true;
-    return defaultOf(id);
+    return featureDefault(id);
   }
 
   /** Returns false for an id that is not a known flag. */
@@ -117,7 +117,7 @@ export class FeatureFlags {
       .prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
       .run(PREFIX + id, value);
     // An unset flag takes its default, so writing the default over nothing is no change.
-    if ((was ?? (defaultOf(id) ? '1' : '0')) !== value) this.onChange(id, on);
+    if ((was ?? (featureDefault(id) ? '1' : '0')) !== value) this.onChange(id, on);
     return true;
   }
 
