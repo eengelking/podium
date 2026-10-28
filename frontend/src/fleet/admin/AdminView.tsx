@@ -119,9 +119,11 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
     log: { page: 1, pageSize: 50 },
   });
 
+  // The title names the section once Admin is open (#636); the lock screen has no section, so it stays "Podium admin".
+  const sectionName = status === "open" ? PAGES[tab].name : null;
   useEffect(() => {
-    document.title = `${APP_NAME} admin`;
-  }, []);
+    document.title = sectionName ? `${sectionName} - ${APP_NAME} admin` : `${APP_NAME} admin`;
+  }, [sectionName]);
   // Following #/admin/settings (the link in the wall's confirmation) or #/admin/certificates (the header's certificate pill)
   // while Admin is already open switches the tab.
   useEffect(() => {
