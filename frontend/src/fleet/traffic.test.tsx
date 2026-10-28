@@ -197,6 +197,7 @@ describe("the top bar", () => {
   });
 
   it("offers no Wall mode, and the wall's keys do nothing here", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     const { container } = page();
     await flush();
     expect(screen.queryByRole("button", { name: "Enter wall mode" })).toBeNull();
@@ -205,6 +206,7 @@ describe("the top bar", () => {
   });
 
   it("has no rail or side panel, so [ and ] leave the fleet's collapsed flags alone (#446)", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     page();
     await flush();
     for (const key of ["[", "]"]) fireEvent.keyDown(document, { key });

@@ -18,7 +18,7 @@ with your name and token from **Sign in** at the far right of the top bar. The t
 how many.
 
 The page sits between the orchestrator list on the left and the Activity panel on the right, which open collapsed so
-the page gets the width. Open either from its edge tab or with `[` and `]`; the page remembers what you left open,
+the page gets the width. Open either from its edge tab or, with **Shortcuts** turned on, with `[` and `]`; the page remembers what you left open,
 apart from the Fleet page and the Board. Picking an orchestrator or an activity event takes you to that orchestrator.
 There is no wall here, so `w` does nothing. `\` still hides and shows the top bar.
 

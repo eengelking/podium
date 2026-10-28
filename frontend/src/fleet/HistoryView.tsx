@@ -13,9 +13,10 @@ import { FocusView } from "./components/FocusView";
 import { StreamTopBar } from "./components/StreamTopBar";
 import type { UseFleetOptions } from "./useFleet";
 import type { PeersApi, RespondApi } from "./respondApi";
-import { ThemePicker } from "./components/ThemePicker";
+import { ShortcutsSwitch, ThemePicker } from "./components/ThemePicker";
 import { PAGE_SIZES, Pager } from "./admin/Pager";
 import { useTheme } from "./useTheme";
+import { useShortcuts } from "./useShortcuts";
 import { RespondProvider } from "./useRespond";
 import { fmtWhen } from "./recording";
 import { APP_NAME, type HistoryRow, type SessionView } from "./types";
@@ -85,6 +86,7 @@ export interface HistoryViewProps {
 
 export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, respondApi, peersApi }: HistoryViewProps) {
   const theme = useTheme();
+  const [shortcuts, setShortcuts] = useShortcuts();
   const [where, setWhere] = useState<Where>(() => {
     const p = parseHash(window.location.hash);
     return { day: p.day ?? initialDay ?? localDay(Date.now()), page: p.page ?? 1, size: p.size ?? DEFAULT_SIZE, open: p.open ?? null };
@@ -173,7 +175,10 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
           <span>
             <b>Past sessions.</b> Read-only: built from what the server stored. Cost is an estimate, not a bill.
           </span>
-          <ThemePicker theme={theme} />
+          <div className="bannerctl">
+            <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
+            <ThemePicker theme={theme} />
+          </div>
         </div>
         <div className="history">
           <main className="main">
