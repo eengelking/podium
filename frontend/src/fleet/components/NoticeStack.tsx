@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 /** The id of the update notice (#499). Closing it hides one release, not the notice, so it is closed through its own route. */
 export const UPDATE_NOTICE_ID = "update-available";
@@ -38,15 +38,21 @@ export function NoticeStack({ items, onClose }: { items: NoticeItem[]; onClose: 
  * only hides one release (the update notice) passes `until`, the release it hid, and says it comes back for a newer one.
  */
 export function NoticeClosed({ name, until, onDismiss, onHold }: { name: string; until?: string; onDismiss: () => void; onHold: (held: boolean) => void }) {
+  // Pointer and focus are tracked apart: the timer waits while either is on the toast, so a pointer leaving must not release a focused one.
+  const over = useRef({ pointer: false, focus: false });
+  const set = (k: "pointer" | "focus", v: boolean) => {
+    over.current[k] = v;
+    onHold(over.current.pointer || over.current.focus);
+  };
   return (
     <div
       className="toast"
       role="status"
-      onMouseEnter={() => onHold(true)}
-      onMouseLeave={() => onHold(false)}
-      onFocus={() => onHold(true)}
+      onMouseEnter={() => set("pointer", true)}
+      onMouseLeave={() => set("pointer", false)}
+      onFocus={() => set("focus", true)}
       onBlur={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onHold(false);
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) set("focus", false);
       }}
     >
       <div className="t">
