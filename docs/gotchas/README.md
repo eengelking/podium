@@ -54,6 +54,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [The effort shown is the old one after I run /effort](effort-shows-the-old-level-after-effort.md): The mod reads effort from each model request and has no event for the change; send your next prompt and the new level shows.
 - [Installing the mod from the marketplace fails with "Permission denied (publickey)"](marketplace-install-permission-denied-publickey.md): The owner/repo shorthand makes Claude Code clone over SSH; use the full https URL for the marketplace entry.
 - [My session's name is the folder, and background tasks, notifications and permission answers are missing](session-name-is-the-folder-and-classic-hooks-are-skipped.md): On a Team or Enterprise login Claude Code skips the mod's classic hooks; the name now comes from claude agents, the rest still does not report.
+- [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md): A session reads its podium-reporter options once, when it starts; run /reload-plugins in it after turning an option on.
 
 **Reporters and machines**
 

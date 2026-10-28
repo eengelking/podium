@@ -44,5 +44,5 @@ Set the name by hand with `/podium name <text>` in the meantime if the app's tit
 <!-- nav:start -->
 ---
 
-Previous: [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md) · Up: [Gotchas](README.md)
+Previous: [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md) · Up: [Gotchas](README.md) · Next: [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md)
 <!-- nav:end -->
