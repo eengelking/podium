@@ -34,7 +34,9 @@ h3.t { font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
 .isnew { outline: 2px dashed var(--sonnet); outline-offset: 2px; border-radius: 6px; }
 .stage { position: relative; min-height: 120px; padding: 48px 16px 14px 36px; background: var(--bg); color: var(--ink2); font-size: 12px; display: grid; gap: 6px; align-content: start; }
 .stage .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 24px; border-right: 1px solid var(--border); background: var(--surface); }
-.stage .edge-tab { position: absolute; }
+/* Wide: the pill straddles the rail's inner edge, as in the app. Below 1040 px the app's own rule makes it a full-width bar with the tip above it, so nothing is set here. */
+@media (min-width: 1041px) { .podium .stage .edge-tab-left { left: 24px; top: 14px; transform: translateX(-50%); } }
+@media (max-width: 1040px) { .podium .stage .edge-tab-left { order: -1; margin-bottom: 8px; } .stage { padding-top: 44px; } .stage .rail { display: none; } .stage { padding-left: 16px; } }
 .podium .edge-tab.show-tip::after { opacity: 1; }
 .review p.verdict { max-width: none; }
 .verdict { margin: 0; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--ink2); }
@@ -93,7 +95,7 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
     </div>
     <div class="stage">
       <span class="rail" aria-hidden="true"></span>
-      <button type="button" class="edge-tab edge-tab-left show-tip" style="left:24px;top:14px;transform:translateX(-50%)" aria-label="Collapse the left pane" data-tip="Collapse the left pane ([)" id="a-tab"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
+      <button type="button" class="edge-tab edge-tab-left show-tip" aria-label="Collapse the left pane" data-tip="Collapse the left pane ([)" id="a-tab"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
       <span id="a-d">With Shortcuts on: <span class="keys"><code>\</code> top bar, <code>[</code> left pane, <code>]</code> right pane, <code>w</code> wall mode, <code>Esc</code> leaves wall mode. Off: only <code>Esc</code> and the buttons.</span></span>
       <span>The hover tip on each pane control names its key while Shortcuts is on, and drops it when off.</span>
     </div>
@@ -168,7 +170,7 @@ table.cmp { border-collapse: collapse; font-size: 12px; width: 100%; max-width: 
     </div>
     <div class="stage">
       <span class="rail" aria-hidden="true"></span>
-      <button type="button" class="edge-tab edge-tab-left show-tip isnew" style="left:24px;top:14px;transform:translateX(-50%)" aria-label="Collapse the left pane" data-tip="Collapse the left pane (Shift+[)"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
+      <button type="button" class="edge-tab edge-tab-left show-tip isnew" aria-label="Collapse the left pane" data-tip="Collapse the left pane (Shift+[)"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M6.5 2 3.5 5l3 3"/></svg></button>
       <span><span class="keys"><code>Shift+\</code> top bar, <code>Shift+[</code> left pane, <code>Shift+]</code> right pane, <code>Shift+W</code> wall mode, <code>Esc</code> leaves wall mode.</span></span>
       <span>A plain <code>w</code> or <code>[</code> does nothing.</span>
     </div>
