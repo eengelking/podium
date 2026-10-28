@@ -552,7 +552,7 @@ const N=[
  {id:"helper",l:"reporter",col:"r",row:4,name:"TLS helper",role:"Holds the client certificate",file:"hooks/helper.mjs",
   what:"A small Node script the mod starts once per session. It reads the reporter config file, makes the mutual-TLS connection and listens on a Unix socket.",
   why:"The mod's fetch cannot present a client certificate or pin a CA. A helper keeps <code>Transport</code> unchanged: the same fetch just gets a <code>socketPath</code>.",
-  how:["Forwards only the routes a reporter needs; anything else gets 403 <code>ROUTE_NOT_ALLOWED</code>.","By default renews the person's certificate when 30 days remain (or half its life, if that is shorter; <code>PODIUM_RENEW_BEFORE_SECONDS</code> changes the lead time), using a numbered lock file so several sessions share one config safely.","Checks the certificate's dates before connecting; an expired one is never sent upstream (<code>CERT_EXPIRED</code>)."]},
+  how:["The mod picks the config file in this order: <code>PODIUM_REPORTER_CONFIG</code>, the context <code>PODIUM_REPORTER_CONTEXT</code> names, the current context in <code>~/.podium/contexts.json</code>, then the newest <code>reporter-config-*.pem</code> in <code>~/.podium/</code>. A context that cannot be used falls back to the newest file and is reported.","Forwards only the routes a reporter needs; anything else gets 403 <code>ROUTE_NOT_ALLOWED</code>.","By default renews the person's certificate when 30 days remain (or half its life, if that is shorter; <code>PODIUM_RENEW_BEFORE_SECONDS</code> changes the lead time), using a numbered lock file so several sessions share one config safely.","Checks the certificate's dates before connecting; an expired one is never sent upstream (<code>CERT_EXPIRED</code>)."]},
  {id:"tools",l:"reporter",col:"r",row:5,name:"In-session tools",role:"Answers and messages inward",file:"respond.ts · peers.ts",
   what:"How Podium reaches back into a session: answers to questions, plans and permission prompts, and messages from your other orchestrators. Includes <code>podium_send</code>, <code>podium_peers</code>, <code>podium_request_access</code> and <code>/podium</code>.",
   why:"A stuck session is the problem Podium exists to solve. This is the one place it can act, and it is deliberately narrow.",
@@ -1174,6 +1174,7 @@ const STORES=[
   ["/data/tls","ca.crt, ca.key, serving.crt, serving.key, previous/. Keys at mode 0600. Container mode mounts ~/.podium/tls here; standalone mode keeps it in ~/.podium/data/tls beside the database."],
   ["~/.podium/config.env","podiumctl settings, including PODIUM_TOKEN."],
   ["~/.podium/reporter-config-*.pem","A person's key, certificate and CA. Podium never keeps the key; this file is the only copy."],
+  ["~/.podium/contexts.json","Names for config files, like a kubeconfig: a current context and a name-to-file map. Written by podiumctl context and /podium context; it holds no key."],
   ["$CLAUDE_CONFIG_DIR/podium-machine-id (else ~/.claude/)","The random machine id the mod generates once."],
   ["$CLAUDE_CONFIG_DIR/podium-machine-name (else ~/.claude/)","The machine's short host name, as first read; delete it to take a new one."]]},
  {n:"In the browser",lead:"Convenience only. Nothing sensitive is stored.",rows:[

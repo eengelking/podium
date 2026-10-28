@@ -154,7 +154,8 @@ person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no 
 person puts it in `~/.podium/`, runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. A session with no name of its own takes the file's name, so
 nothing else needs setting. A name the session already has (the `userName` option or `PODIUM_USER`) must be the file's
 name, or the status line says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
-browser used when you created the person, plus the reporter port, so create people from the address they will reach. The
+browser used when you created the person, plus the reporter port, so create people from the address they will reach. A person with files for more than one server chooses between them with a
+context ([REPORTER.md](REPORTER.md#contexts-more-than-one-podium-server)). The
 steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
 
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for

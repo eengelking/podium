@@ -44,7 +44,7 @@ If someone else runs the server, ask them for your own token and enter it as `to
 can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](../SERVER.md#behind-a-reverse-proxy), so that
 Admin's log shows each person's address and one person's wrong tries do not lock everyone out.
 
-To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine).
+To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine). To report to more than one Podium server (a home one and a work one, say), see [Contexts](../REPORTER.md#contexts-more-than-one-podium-server).
 
 ## 3. Check that it works
 

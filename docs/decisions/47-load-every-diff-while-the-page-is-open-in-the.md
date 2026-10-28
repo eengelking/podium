@@ -1,14 +1,14 @@
 ---
-title: "46. Load every changed file's diff while the page is open, in the browser only (#631)"
+title: "47. Load every changed file's diff while the page is open, in the browser only (#631)"
 description: "The console reads each changed file's diff while the owner has the page open, kept in page memory only; it reads files nobody opened."
 group: "Project internals"
-number: 46
+number: 47
 date: "2026-10-27"
 status: "accepted"
-order: 46
+order: 47
 ---
 
-# 46. Load every changed file's diff while the page is open, in the browser only (#631)
+# 47. Load every changed file's diff while the page is open, in the browser only (#631)
 
 **Context.** Opening a file's diff waited on a round trip to the session's machine each time, and nothing was kept, so
 opening the same file again or stepping to the next one waited again ([36](36-a-files-diff-is-source-code-so-only-its-owner.md) chose on request so that a file nobody opens is never read).
@@ -40,5 +40,5 @@ in the owner's browser page. Redaction is still not a guarantee. A long file lis
 <!-- nav:start -->
 ---
 
-Previous: [45. Large docs split along their sections into folders, with a README as the index (#697)](45-large-docs-split-along-their-sections.md) · Up: [Decisions](README.md)
+Previous: [46. A context names one reporter config file, in ~/.podium/contexts.json (#606)](46-a-context-names-one-reporter-config-file-in-podium-contexts-json.md) · Up: [Decisions](README.md)
 <!-- nav:end -->

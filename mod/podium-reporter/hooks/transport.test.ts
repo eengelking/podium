@@ -43,6 +43,13 @@ describe('transport', () => {
     expect(t.online).toBe(true)
   })
 
+  test('the status line names the context after the version when there is one (#606)', async () => {
+    const t = new Transport(fake([ok(2, 4)]).fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })
+    expect(t.statusText(null, 'work')).toBe('podium v0.11.0 [work] ○ connecting')
+    expect(t.statusText('certificate expired', 'work')).toBe('podium v0.11.0 [work] ○ certificate expired')
+    expect(t.statusText(null, undefined)).toBe('podium v0.11.0 ○ connecting')
+  })
+
   test('reads which loops someone is watching from the reply, and nothing from a server that does not say (#118)', async () => {
     const reply = (watch: unknown): HttpResult => ({ status: 200, ok: true, text: JSON.stringify({ ok: true, watch }) })
     const run = async (r: HttpResult) => {

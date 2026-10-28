@@ -57,6 +57,7 @@ import {
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
 import { findConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
+import { contextCommand, type ContextIO } from './contexts.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
@@ -230,6 +231,7 @@ let opts: Options = readOptions({});
 /** The name and token this session reports as: taken once at session.start and held (#226), never read live from the options. */
 let who: Identity = { userName: '', token: '' };
 const IDENTITY = { plugin: 'podium-reporter', key: 'identity' } as const;
+const CHOSEN_CONFIG = { plugin: 'podium-reporter', key: 'chosenConfig' } as const;
 let rt: Runtime | null = null;
 /** Where the name in `who` came from, for the wrong-config message (#647); empty when `who` has none. */
 let nameSource = '';
@@ -237,6 +239,8 @@ let nameSource = '';
 let nameIsSetting = false;
 /** The helper that makes the TLS connection, when a reporter config file exists (#584); null sends reports as before, through `$.http.fetch`. */
 let link: Link | null = null;
+/** The context the link was chosen by and the reason a named one was not used (#606); both belong to the link and end with it. */
+let linkContext: { name: string | null; problem: string | null } = { name: null, problem: null };
 /** The start of `link` that is under way, so two overlapping session.start events share it. */
 let linking: Promise<void> | null = null;
 /** Bumped by each register (a reload, or a new test): a wait for an answer started under an older one stops. */
@@ -452,7 +456,7 @@ function devNote(version: string, build: string | null | undefined): string {
 
 function showStatus($: Engine, r: Runtime): void {
   if (!opts.showStatus) return;
-  const text = r.transport.statusText(link?.problem()?.status);
+  const text = r.transport.statusText(link?.problem()?.status, linkContext.problem ? 'context unusable' : linkContext.name);
   if (text === r.lastStatus) return;
   r.lastStatus = text;
   try {
@@ -1732,12 +1736,18 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (link && (!link.headers || (who.userName.trim() && who.userName.trim() !== link.user))) {
     link.stop();
     link = null;
+    linkContext = { name: null, problem: null };
   }
   if (!link) {
     // Two overlapping starts wait for one helper, not one each.
     linking ??= (async () => {
-      const found = await findConfig($ as never).catch(() => null);
+      // A reload starts over, so the file a context chose at the start is read back from $.state and kept: a later `use` is for the next session (#606).
+      const held = (await attempt(async () => (await $.state.get(CHOSEN_CONFIG)).value, null)) ?? null;
+      const found = await findConfig($ as never, undefined, held).catch(() => null);
+      if (found?.found?.context && found.found.path !== held?.path) await attempt(() => $.state.set(CHOSEN_CONFIG, { path: found.found!.path, context: found.found!.context! }), undefined);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
+      if (found?.contextProblem) record($, 'tls', new Error(found.contextProblem.text));
+      linkContext = { name: found?.found?.context ?? null, problem: found?.contextProblem?.text ?? null };
       if (found?.problem) link = unusableLink(found.env.config ?? '', opts.serverUrl, found.problem);
       else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), nameSource, nameIsSetting, now: nowMs, log: (line) => void remember('tls', line) });
     })().finally(() => {
@@ -1791,8 +1801,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
     await $.command.register({
       name: 'podium',
-      description: 'Podium fleet console: link, connection state, naming this session, and answering a messaging request',
-      argumentHint: '[name <text> | allow <id> | decline <id> | deliver <id>]',
+      description: 'Podium fleet console: link, connection state, naming this session, which Podium server (context), and answering a messaging request',
+      argumentHint: '[name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
       immediate: true,
     });
   } catch (err) {
@@ -1853,11 +1863,37 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   }
 }
 
-/** /podium, /podium name <text>, and /podium allow|decline|deliver <id> (#414). */
+/** `/podium context ...` (#606): the files are read and written through `$.fs`; a missing file reads as null. */
+async function contextVerb($: Engine, args: string): Promise<string> {
+  const home = await attempt(() => $.env.get('HOME'), undefined);
+  if (!home) return 'Podium: cannot find your home folder, so contexts cannot be read or changed.';
+  const io: ContextIO = {
+    // A file that is not there reads as null; one that is there and cannot be read throws, so a command never rewrites a file it could not read.
+    read: async (path) => {
+      if (!(await $.fs.exists(path).catch(() => false))) return null;
+      const t = await $.fs.read(path);
+      return typeof t === 'string' ? t : null;
+    },
+    write: async (path, text) => {
+      await $.fs.write(path, text);
+    },
+  };
+  try {
+    return await contextCommand(io, home, args, (await attempt(() => $.env.get('PODIUM_REPORTER_CONTEXT'), undefined)) || undefined);
+  } catch (err) {
+    record($, 'context', err);
+    return `Podium: the context command failed (${err instanceof Error ? err.message : String(err)}).`;
+  }
+}
+
+/** /podium, /podium name <text>, /podium context ..., and /podium allow|decline|deliver <id> (#414). */
 async function podiumCommand($: Engine, args: string): Promise<string> {
   const r = rt;
   const verb = parseAnswer(args);
   if (verb) return answerRequest($, verb.answer, verb.id);
+  // The word `context`, alone or followed by whitespace; startsWith and a one-character test, so no pattern can backtrack over the rest.
+  const trimmed = args.trim();
+  if (trimmed.startsWith('context') && (trimmed.length === 7 || /\s/.test(trimmed.charAt(7)))) return contextVerb($, trimmed.slice(7));
   const name = nameArg(args);
   if (name !== null && r) {
     try {
@@ -1878,6 +1914,8 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
   return [
     `Podium fleet console: ${serverBase()}/#/`,
     link ? `TLS: ${link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`}` : '',
+    link && linkContext.name ? `Context: ${linkContext.name} (${link.serverUrl}). Switch it for the next session with /podium context use <name>.` : '',
+    linkContext.problem ? `Context problem: ${linkContext.problem}` : '',
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
     `Versions: reporter ${devNote(VERSION, r.build)}${t.serverVersion ? `, server ${devNote(t.serverVersion, t.serverBuild)}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',
@@ -1887,7 +1925,7 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     describeBackground(r.state),
     peersOn(r) ? openRequestsLine(peerOpen.map((id) => peerKnown.get(id)).filter((q): q is PeerRequest => !!q)) : '',
     hooks.length ? `Reporter time per hook: ${hooks.join('; ')}` : '',
-    'Name this session: /podium name <text>',
+    'Name this session: /podium name <text>. Contexts (which Podium server): /podium context',
   ]
     .filter(Boolean)
     .join('\n');

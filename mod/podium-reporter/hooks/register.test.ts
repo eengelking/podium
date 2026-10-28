@@ -1341,13 +1341,15 @@ function helperWorld(on: On, o: { files: Record<string, string>; node: string | 
     if (!names.length) throw new Error('ENOENT')
     return { value: names }
   })
-  on('fs.exists', (_$, e) => ({ value: e.path === o.node }))
+  let seen: { files: { text: Record<string, string> } } | null = null
+  on('fs.exists', (_$, e) => ({ value: e.path === o.node || e.path in (seen?.files.text ?? o.files) }))
   on('process.spawn', async function* (_$, e) {
     spawned.push({ argv: e.argv, env: e.env })
     for (const text of o.helperSays ?? ['ready\n']) yield { stream: 'stdout' as const, text }
     await new Promise(() => {})
   })
   const w = world(on, {}, o.files)
+  seen = w
   return { w, spawned }
 }
 
@@ -1431,6 +1433,116 @@ describe('podium-reporter over the TLS helper (#584)', () => {
     expect(w.statuses.at(-1)).toContain('config unreadable')
     const info = await $.command.run(podium(''))
     expect(info.text).toContain('/nowhere/mine.pem')
+  })
+
+  describe('contexts (#606)', () => {
+    const HOME_CFG = '/Users/dev/.podium/reporter-config-Dana-1000.pem'
+    const WORK_CFG = '/Users/dev/.podium/reporter-config-Dana-2000.pem'
+    const NEWEST_CFG = '/Users/dev/.podium/reporter-config-Dana-9000.pem'
+    const CONTEXTS = '/Users/dev/.podium/contexts.json'
+    const contexts = (current: string | null) => JSON.stringify({ current, contexts: { home: 'reporter-config-Dana-1000.pem', work: 'reporter-config-Dana-2000.pem' } })
+    const files = (current: string | null) => ({ [HOME_CFG]: configText('Dana'), [WORK_CFG]: configText('Dana'), [NEWEST_CFG]: configText('Dana'), [CONTEXTS]: contexts(current) })
+
+    test('the current context chooses the file, and the status line and /podium name it', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(WORK_CFG)
+      expect(w.statuses.at(-1)).toContain('[work]')
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Context: work (https://podium.lan:4318)')
+    })
+
+    test('PODIUM_REPORTER_CONTEXT picks another for this terminal', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'home' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a context that cannot be used falls back to the newest file and /podium says why', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'nope' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(NEWEST_CFG)
+      expect(w.statuses.at(-1)).toContain('[context unusable]')
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Context problem:')
+      expect(info.text).toContain('"nope"')
+    })
+
+    test('with no contexts file nothing changes: the newest file, no context line', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: { [HOME_CFG]: configText('Dana'), [NEWEST_CFG]: configText('Dana') }, node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(NEWEST_CFG)
+      const info = await $.command.run(podium(''))
+      expect(info.text).not.toContain('Context:')
+    })
+
+    test('/podium context use changes the file for the next session and leaves the running one alone', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      const out = await $.command.run(podium('context use work'))
+      expect(out.text).toContain('next session')
+      expect(JSON.parse(w.files.text[CONTEXTS] as string).current).toBe('work')
+      expect(spawned).toHaveLength(1)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a reload keeps the file the context chose at the start, so a later use moves only the next session', async ($, on) => {
+      const held: Record<string, unknown> = { 'podium-reporter.chosenConfig': { path: HOME_CFG, context: 'home' } }
+      on('state.get', (_$, e) => ({ value: { value: held[`${e.plugin}.${e.key}`] ?? null, version: 1 } }))
+      on('state.set', (_$, e) => {
+        held[`${e.plugin}.${e.key}`] = e.value
+        return { value: e.value as never }
+      })
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a session with nothing held takes the current context and holds it', async ($, on) => {
+      const held: Record<string, unknown> = {}
+      on('state.get', (_$, e) => ({ value: { value: held[`${e.plugin}.${e.key}`] ?? null, version: 1 } }))
+      on('state.set', (_$, e) => {
+        held[`${e.plugin}.${e.key}`] = e.value
+        return { value: e.value as never }
+      })
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(WORK_CFG)
+      expect(held['podium-reporter.chosenConfig']).toEqual({ path: WORK_CFG, context: 'work' })
+    })
+
+    test('a context that cannot be used shows in the status line, not only in /podium', async ($, on) => {
+      const { w } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'wrok' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(w.statuses.at(-1)).toContain('[context unusable]')
+    })
+
+    test('only the word context starts the command: contexts and contextual are not it', async ($, on) => {
+      helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      expect((await $.command.run(podium('contexts'))).text).not.toContain('* home')
+      expect((await $.command.run(podium('contextual use work'))).text).not.toContain('The current context is now')
+      expect((await $.command.run(podium('  context\tuse work  '))).text).toContain('The current context is now "work"')
+    })
+
+    test('/podium context lists the contexts', async ($, on) => {
+      helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      const out = await $.command.run(podium('context'))
+      expect(out.text).toContain('* home')
+      expect(out.text).toContain('work')
+    })
   })
 
   test('a 401 over the helper says certificate refused in the status line, /podium and the toast, never the token (#646)', async ($, on) => {

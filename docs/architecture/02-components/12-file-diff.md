@@ -17,7 +17,7 @@ DECISIONS 36.
 the session's report lists it in `diffs`; the mod (`handleDiffs` in `register.ts`) reads it with `readFileDiff` and
 answers `PUT …/diffs/:requestId`; the broker resolves the waiting request and drops its entry.
 
-**Loading ahead (#631, DECISIONS 46).** With `session.fileDiffPreload` true, `FilesList` makes a `DiffPreloader`
+**Loading ahead (#631, DECISIONS 47).** With `session.fileDiffPreload` true, `FilesList` makes a `DiffPreloader`
 (`frontend/src/fleet/diffPreload.ts`) and syncs it to the report. It asks for each file with `…/files/diff?path=&ahead=1`
 (the route refuses that unless the reporter allowed it and logs `file_diff_loaded`), two at a time, and keeps the replies in
 the component's memory; `FileDiffModal` reads its slot, moves the open file to the front with `want`, and posts

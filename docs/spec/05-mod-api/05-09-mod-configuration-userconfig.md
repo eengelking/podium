@@ -141,14 +141,19 @@ Everything it needs is in one file the Admin gives the person once. Designed in 
 - **Parsing.** By block type and role, never by position. A `CERTIFICATE` block is a CA certificate or the
   person's certificate according to whether it is a CA. `PRIVATE KEY` is the key. A reader ignores a header line
   it does not know.
-- **Where it is found.** `PODIUM_REPORTER_CONFIG`, if set, names the file. It is a plain environment variable
-  read with `$.env.get`, not a `userConfig` option. Otherwise the newest `reporter-config-*.pem` in `~/.podium/`
-  wins, by the epoch its name carries (`<epoch>` in `reporter-config-<name>-<epoch>.pem`), and every other file there
-  is ignored (a reissue leaves older files beside the new one, and the old certificate is revoked). The mod reads
-  one file at a time, newest name first, and takes the first whose header lines are valid, so the private key of a
-  file that is not chosen is never read (#607). A name with no epoch is tried last. A file renamed so its epoch
-  no longer matches its `issued-at` line is ranked by its name. `~/.podium/` is also `podiumctl`'s home, and the
-  names do not collide.
+- **Where it is found.** In this order (#606):
+  1. `PODIUM_REPORTER_CONFIG`, if set, names the file. It is a plain environment variable read with `$.env.get`, not a
+     `userConfig` option.
+  2. The context `PODIUM_REPORTER_CONTEXT` names, if that is set, else the current context in
+     `~/.podium/contexts.json` (see *Contexts* below).
+  3. The newest `reporter-config-*.pem` in `~/.podium/`, by the epoch its name carries (`<epoch>` in
+     `reporter-config-<name>-<epoch>.pem`); every other file there is ignored (a reissue leaves older files beside the
+     new one, and the old certificate is revoked). The mod reads one file at a time, newest name first, and takes the
+     first whose header lines are valid, so the private key of a file that is not chosen is never read (#607). A name
+     with no epoch is tried last. A file renamed so its epoch no longer matches its `issued-at` line is ranked by its
+     name.
+
+  `~/.podium/` is also `podiumctl`'s home, and the names do not collide.
 - **No file.** The reporter keeps working as today: the `serverUrl` and `token` options over HTTP, if the server
   allows reporters over HTTP.
 - **With a file.** `serverUrl` is the address in the file. The reporter never sends a credential over `http://`
@@ -160,6 +165,43 @@ Everything it needs is in one file the Admin gives the person once. Designed in 
   then builds a new connection from it. It keeps the last good copy if a read fails. So a renewal made by another
   session, or a reissued config saved over the same file, is used within seconds. A new file saved under another
   name is used from the next session, and the server address stays the one read at start.
+
+## Contexts (#606)
+
+A context is a name for one reporter config file, and so for one server and one person, the way a kubeconfig names a
+cluster. They are for someone who uses more than one Podium server. Designed in DECISIONS 46.
+
+- **File.** `~/.podium/contexts.json`: `{ "current": "<name>" | null, "contexts": { "<name>": "<file>" } }`. A name is
+  up to 64 letters, digits, dots, dashes and underscores, starting with a letter or digit. A file is a bare name in
+  `~/.podium/` or an absolute path; a relative path with a folder in it is refused, so nothing climbs out of
+  `~/.podium/`. A file that is not valid JSON of this shape reads as no contexts at all and is never overwritten by a
+  command. A `current` that names no context reads as none. The format of the reporter config file does not change.
+- **Selection.** `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT` (one terminal, the way `kubectl --context` does
+  for one command), then `current`, then the newest file. With no contexts file, or none current, the reporter chooses
+  as it did before contexts, so a person with one server sees no change.
+- **A context that cannot be used** (it names a context the file does not have, its file is missing or is not a reporter
+  config, or `contexts.json` exists but cannot be read or is not valid) is shown, not hidden: the status line says
+  `[context unusable]`, `/podium` prints `Context problem:` with the reason, the line goes to the mod's debug log, and the reporter falls back to the newest file so it keeps reporting. It does not
+  stop the session, as a bad `PODIUM_REPORTER_CONFIG` does, because that variable names one file on purpose and a
+  context is a convenience over the folder.
+- **Running sessions.** A session keeps the config it started with, as it keeps its identity ([Identity](#identity-226),
+  DECISIONS 29): the file a context chose is held in `$.state` (`podium-reporter.chosenConfig`), so a plugin reload, which
+  runs `register` and `session.start` again, reads it back instead of choosing again. It is used while it is still a
+  reporter config file; if it is gone the session chooses again. Changing the current context changes the next session
+  and the reply says so. Two sessions on one machine can use two contexts at once, through `PODIUM_REPORTER_CONTEXT` in
+  each terminal.
+- **The name still has to match.** A context carries a server and a person, but the session's name can also come from
+  `PODIUM_USER`, a held identity or the `userName` option, and a file for another name is refused
+  (`wrong config for this name`, above). To use contexts whose files are for different people, leave `userName` and
+  `PODIUM_USER` empty so each session takes the name in its file.
+- **Commands.** `/podium context` and `podiumctl context`, with the same verbs on the same file, `~/.podium/contexts.json` (`podiumctl` uses
+  it even when `PODIUMCTL_HOME` moves its other files, because the reporter reads only that one): `list` (the default),
+  `show [name]`, `add <name> <file>`, `rename <name> <new>`, `remove <name>` and `use <name>`. `add` checks that the file
+  exists and is a version 1 reporter config before it writes. `remove` never deletes a config file. The first context
+  added becomes the current one.
+- **Where it shows.** The status line puts the context's name in brackets after the version (`podium v1.4.0 [work] ● 3
+  live`), and `/podium` prints `Context: <name> (<server>)`. Neither appears when no context chose the file.
+  A context that could not be used shows `[context unusable]` there instead.
 
 **The helper.** The mod cannot give `$.http.fetch` a CA or a client certificate, so podium-reporter starts a small
 Node script, `hooks/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from

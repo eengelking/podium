@@ -3,6 +3,7 @@
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
 import { configNamesNewestFirst, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
+import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
 
 /** How long to wait for the helper's `ready` line. */
@@ -36,8 +37,10 @@ export interface LinkEngine {
   plugin: { root: string };
 }
 
-interface EnvValues {
+export interface EnvValues {
   config: string | undefined;
+  /** `PODIUM_REPORTER_CONTEXT` (#606). */
+  context?: string | undefined;
   home: string | undefined;
   node: string | undefined;
   tmp: string | undefined;
@@ -54,6 +57,7 @@ async function readEnv($: LinkEngine): Promise<EnvValues> {
   };
   return {
     config: await get($.env.get('PODIUM_REPORTER_CONFIG')),
+    context: await get($.env.get('PODIUM_REPORTER_CONTEXT')),
     home: await get($.env.get('HOME')),
     node: await get($.env.get('PODIUM_NODE')),
     tmp: await get($.env.get('TMPDIR')),
@@ -72,36 +76,77 @@ async function readText($: LinkEngine, path: string): Promise<string | null> {
 export interface FoundConfig {
   path: string;
   headers: ConfigHeaders;
+  /** The context that chose this file (#606); absent when the file came from the environment or from the newest-file rule. */
+  context?: string;
 }
 
-/** `PODIUM_REPORTER_CONFIG` if set, otherwise the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name. Null: no config, the reporter works as today. */
-export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ found: FoundConfig | null; problem: Problem | null; env: EnvValues }> {
+/** The config file the context `name` points at, or why it cannot be used. */
+async function contextFile($: LinkEngine, home: string, name: string | null, fromEnv: boolean, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null }> {
+  // The file this session's context chose at its start, kept across a reload so a later `use` does not move a running session (#606).
+  if (held) {
+    const text = await readText($, held.path);
+    const headers = text === null ? null : parseConfigHeaders(text);
+    if (headers) return { found: { path: held.path, headers, context: held.context }, problem: null };
+  }
+  const source = fromEnv ? 'PODIUM_REPORTER_CONTEXT' : 'the current context';
+  const bad = (why: string): { found: null; problem: Problem } => ({
+    found: null,
+    problem: { code: 'CONTEXT_INVALID', status: 'context unusable', text: `${why} The newest reporter config file is used instead. Check it with /podium context.` },
+  });
+  const contextsPath = `${podiumHome(home)}/${CONTEXTS_FILE}`;
+  const contextsText = await readText($, contextsPath);
+  // A file that is there but cannot be read is a problem, not an absent file: the newest file may be another server.
+  if (contextsText === null && (await $.fs.exists(contextsPath).catch(() => false))) return bad(`${contextsPath} cannot be read.`);
+  if (contextsText === null) return fromEnv ? bad(`PODIUM_REPORTER_CONTEXT names "${name}", but there is no ${podiumHome(home)}/${CONTEXTS_FILE}.`) : { found: null, problem: null };
+  const contexts = parseContexts(contextsText);
+  if (!contexts) return bad(`${podiumHome(home)}/${CONTEXTS_FILE} is not a valid contexts file.`);
+  const which = name ?? contexts.current;
+  if (!which) return { found: null, problem: null };
+  const file = Object.hasOwn(contexts.contexts, which) ? contexts.contexts[which] : undefined;
+  if (!file) return bad(`${fromEnv ? source : 'The current context'} names "${which}", which is not one of the contexts.`);
+  const path = contextFilePath(home, file);
+  const text = await readText($, path);
+  const headers = text === null ? null : parseConfigHeaders(text);
+  if (!headers) return bad(`The context "${which}" points at ${path}, which is missing or is not a Podium reporter config file.`);
+  return { found: { path, headers, context: which }, problem: null };
+}
+
+/**
+ * The reporter config file, in this order (#606): `PODIUM_REPORTER_CONFIG`; the context `PODIUM_REPORTER_CONTEXT` names, or
+ * else the current one in `~/.podium/contexts.json`; the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name.
+ * `held` is the file a context chose earlier in this session; it is used again while it is still a config file. A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
+ * reporter still works. Null `found`: no config, the reporter works as today.
+ */
+export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; env: EnvValues }> {
   const e = env ?? (await readEnv($));
   if (e.config) {
     const text = await readText($, e.config);
     const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: e.config, headers }, problem: null, env: e };
+    if (headers) return { found: { path: e.config, headers }, problem: null, contextProblem: null, env: e };
     return {
       found: null,
       env: e,
+      contextProblem: null,
       problem: { code: 'CONFIG_INVALID', status: 'config unreadable', text: `PODIUM_REPORTER_CONFIG names ${e.config}, which is missing or is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line).` },
     };
   }
-  if (!e.home) return { found: null, problem: null, env: e };
+  if (!e.home) return { found: null, problem: null, contextProblem: null, env: e };
+  const chosen = await contextFile($, e.home, e.context || null, !!e.context, held);
+  if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, env: e };
   const dir = podiumHome(e.home);
   let names: Array<{ name: string; kind: string }> = [];
   try {
     names = await $.fs.list(dir);
   } catch {
-    return { found: null, problem: null, env: e };
+    return { found: null, problem: null, contextProblem: chosen.problem, env: e };
   }
   // Newest by the epoch in the name, and the first that parses wins: the key of a file that is not chosen is never read (#607).
   for (const name of configNamesNewestFirst(names.filter((n) => n.kind === 'file').map((n) => n.name))) {
     const text = await readText($, `${dir}/${name}`);
     const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, env: e };
+    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, contextProblem: chosen.problem, env: e };
   }
-  return { found: null, problem: null, env: e };
+  return { found: null, problem: null, contextProblem: chosen.problem, env: e };
 }
 
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */
