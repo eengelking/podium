@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
-import { PeopleStore } from './people.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
@@ -253,39 +253,39 @@ describe('removal through the fleet', () => {
 });
 
 describe('the purge in the sweeper', () => {
-  const ADMIN_LOG = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === ACTIVITY_LOG_KINDS.purged);
+  const ADMIN_LOG = async (people: PeopleStoreApi) => (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === ACTIVITY_LOG_KINDS.purged);
   const lines: string[] = [];
   const logger = { info: (_e: string, m: string) => lines.push(m) } as never;
 
   it('writes one Admin log row for a run that removed something and none for one that removed nothing', async () => {
     const fleet = await makeFleet();
-    const people = new PeopleStore(storage.sqliteHandle);
+    const people = storage.people;
     fleet.activityHistorySettings.set({ policy: 'after', n: 1, unit: 'days' });
     await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
-    expect(ADMIN_LOG(people)).toEqual([]);
+    expect(await ADMIN_LOG(people)).toEqual([]);
 
     const r = report([tool(T0 - 3 * DAY), tool(T0 - 2 * DAY), tool(T0)]);
     await fleet.ingest(r);
     await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
-    const rows = ADMIN_LOG(people);
+    const rows = await ADMIN_LOG(people);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ source: 'sweeper' });
     expect(rows[0]!.detail).toMatch(/^2 entries \(\d+ B\) removed under purge after 1 day$/);
     expect(lines).toHaveLength(1);
 
     await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
-    expect(ADMIN_LOG(people)).toHaveLength(1);
+    expect(await ADMIN_LOG(people)).toHaveLength(1);
   });
 
   it('writes the size in the unit that fits', async () => {
     const fleet = await makeFleet();
-    const people = new PeopleStore(storage.sqliteHandle);
+    const people = storage.people;
     fleet.activityHistorySettings.set({ policy: 'end' });
     const spy = vi.spyOn(fleet.activityHistory, 'purge');
     for (const [bytes, text] of [[2048, '2.0 KB'], [3 * 1024 ** 2, '3.0 MB'], [2 * 1024 ** 3, '2.0 GB']] as const) {
       spy.mockResolvedValueOnce({ entries: 5, bytes, sessions: 1, freed: 0 });
       await purgeActivityHistory(fleet.activityHistory, people, logger, clock);
-      expect(ADMIN_LOG(people)[0]!.detail).toContain(`(${text})`);
+      expect((await ADMIN_LOG(people))[0]!.detail).toContain(`(${text})`);
     }
   });
 

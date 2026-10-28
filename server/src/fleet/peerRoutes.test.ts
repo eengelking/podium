@@ -3,8 +3,6 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
-import { ReporterStore } from './reporters.js';
 import { createFleetRouter } from './routes.js';
 import { createLogger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
@@ -24,25 +22,25 @@ afterEach(() => {
 
 async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   let clock = 1_800_000_000_000;
   const now = () => clock;
+  const storage = openSqliteStorage(':memory:', now());
+  const db = storage.sqliteHandle;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now);
-  const people = new PeopleStore(db);
-  const reporters = new ReporterStore(db, now());
+  const people = storage.people;
+  const reporters = storage.reporters;
   const lockout = new Lockout(now);
   const respondBridge = createRespondBridge();
   const lines: string[] = [];
   const logger = createLogger({ format: 'json', level: 'debug', write: (l) => lines.push(l) });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
-  app.use('/api/admin', createAdminRouter({ secret, people, reporters, peers: fleet.peers, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) fleet.features.setFeature(PEER_MESSAGING, true);
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
   return { app, fleet, people, ed, alex, lines, db, tick: (ms: number) => (clock += ms) };
 }
 
@@ -92,7 +90,7 @@ async function linked(level: 'see' | 'ask' | 'send' = 'send', opts: Parameters<t
   return { ...s, edBrowser: ed };
 }
 
-const logKinds = (s: S) => s.people.listLog({ page: 1, pageSize: 100 }).rows.map((r) => r.kind);
+const logKinds = async (s: S) => (await s.people.listLog({ page: 1, pageSize: 100 })).rows.map((r) => r.kind);
 const storedMessages = (s: S) => (s.db.prepare('SELECT COUNT(*) AS n FROM peer_messages').get() as { n: number }).n;
 
 describe('the report reply (#412)', () => {
@@ -140,7 +138,7 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     const took = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/deliveries/${sent.body.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took', at: 1 });
     expect(took.status).toBe(200);
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
-    expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_sent', 'peer_delivered', 'peer_right_set']));
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_sent', 'peer_delivered', 'peer_right_set']));
   });
 
   it('never writes the text to the Admin log, the server log, the state or the stream', async () => {
@@ -149,7 +147,7 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     const sent = await send(s, secret);
     await testerReport(s);
     await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/deliveries/${sent.body.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took', at: 1 });
-    const log = s.people.listLog({ page: 1, pageSize: 100 }).rows;
+    const log = (await s.people.listLog({ page: 1, pageSize: 100 })).rows;
     expect(JSON.stringify(log)).not.toContain(secret);
     expect(s.lines.join('\n')).not.toContain(secret);
     expect(JSON.stringify((await request(s.app).get('/api/fleet/state')).body)).not.toContain(secret);
@@ -171,7 +169,7 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     // Answered in one place, it is closed in the other.
     const again = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/requests/${sent.body.requestId}`).set('X-Podium-Token', s.ed.token).send({ answer: 'decline' });
     expect(again.status).toBe(410);
-    expect(logKinds(s)).toContain('peer_approved');
+    expect(await logKinds(s)).toContain('peer_approved');
   });
 
   it('can be declined from a session, and its sender is told', async () => {
@@ -181,7 +179,7 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect(out.body).toEqual({ ok: true, outcome: 'declined' });
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
     expect((await devReport(s)).body.peerDeliveries).toEqual([expect.objectContaining({ kind: 'notice', from: null })]);
-    expect(logKinds(s)).toContain('peer_declined');
+    expect(await logKinds(s)).toContain('peer_declined');
   });
 
   it('delivered from a session on a paused link, says the link is paused, so /podium deliver says it waits for Resume', async () => {
@@ -252,7 +250,7 @@ describe('the flag going off (#412)', () => {
     const r = await testerReport(s);
     expect(r.body).toMatchObject({ peers: false, peerDeliveries: [], peerRequests: [] });
     expect((await send(s, 'later')).status).toBe(403);
-    expect(logKinds(s)).toContain('peer_dropped');
+    expect(await logKinds(s)).toContain('peer_dropped');
     s.fleet.features.setFeature(PEER_MESSAGING, true);
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
   });
@@ -264,7 +262,7 @@ describe('sessions ending and being deleted (#412)', () => {
     await send(s, 'held');
     await testerReport(s, { status: 'done', endReason: 'exit' });
     expect((await devReport(s)).body.peerDeliveries).toEqual([expect.objectContaining({ kind: 'notice' })]);
-    expect(logKinds(s)).toContain('peer_dropped');
+    expect(await logKinds(s)).toContain('peer_dropped');
   });
 
   it('deletes a session’s messages with the session', async () => {
@@ -286,7 +284,7 @@ describe('access requests (#412)', () => {
     const answer = await s.edBrowser.post(`/api/fleet/respond/peers/requests/${asked.body.requestId}`).set(H).send({ answer: 'allow' });
     expect(answer.body).toEqual({ ok: true, outcome: 'allowed' });
     expect((await devReport(s)).body.peerDeliveries).toEqual([expect.objectContaining({ kind: 'notice', text: expect.stringContaining('allowed') })]);
-    expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_access_requested', 'peer_right_accepted']));
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_access_requested', 'peer_right_accepted']));
   });
 
   it('answered from a session, says the level it applied, which can be higher than the request’s (#414)', async () => {
@@ -388,14 +386,14 @@ describe('the owner’s routes (#412)', () => {
     expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
     await s.edBrowser.put('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id, paused: false });
     expect((await testerReport(s)).body.peerDeliveries.map((d: { id: string }) => d.id)).toEqual([sent.body.id]);
-    expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_right_paused', 'peer_right_resumed']));
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_right_paused', 'peer_right_resumed']));
   });
 
   it('remove a link, which drops what waits on it', async () => {
     const s = await linked('ask');
     await send(s, 'waiting');
     expect((await s.edBrowser.delete('/api/fleet/respond/peers/links').set(H).send({ a: MAC.id, b: LINUX.id })).status).toBe(200);
-    expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_right_removed', 'peer_dropped']));
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_right_removed', 'peer_dropped']));
     expect((await send(s, 'again')).status).toBe(404);
   });
 
@@ -405,7 +403,7 @@ describe('the owner’s routes (#412)', () => {
     expect(ok.status).toBe(200);
     expect(ok.body.defaults).toMatchObject({ trust: true, limits: { roundTrips: 3 } });
     expect((await s.edBrowser.put('/api/fleet/respond/peers/defaults').set(H).send({ limits: { roundTrips: 11 } })).status).toBe(400);
-    expect(logKinds(s)).toContain('peer_defaults_changed');
+    expect(await logKinds(s)).toContain('peer_defaults_changed');
   });
 
   it('check their bodies', async () => {
@@ -465,7 +463,7 @@ describe('the Admin’s side (#412)', () => {
     expect(ok.body).toEqual({ ok: true, peerMessaging: { roundTrips: 4, perMinute: 6, maxChars: 20_000, retainDays: 7 } });
     expect((await admin.put('/api/admin/settings').set(HA).send({ peerMessaging: { roundTrips: 0 } })).body.error).toBe('Round trips must be a whole number from 1 to 100');
     expect((await admin.put('/api/admin/settings').set(HA).send({ peerMessaging: 3 })).status).toBe(400);
-    expect(logKinds(s)).toContain('peer_limits_changed');
+    expect(await logKinds(s)).toContain('peer_limits_changed');
   });
 
   it('proposes a right, which applies only when the owner accepts it', async () => {
@@ -481,7 +479,7 @@ describe('the Admin’s side (#412)', () => {
     const ok = await s.edBrowser.post(`/api/fleet/respond/peers/requests/${p.body.requestId}`).set(H).send({ answer: 'allow' });
     expect(ok.body.outcome).toBe('allowed');
     expect((await admin.get(`/api/admin/reporters/${LINUX.id}/peers`)).body.effective).toEqual(expect.arrayContaining([{ from: LINUX.id, to: MAC.id, level: 'send', paused: false }]));
-    expect(logKinds(s)).toEqual(expect.arrayContaining(['peer_right_proposed', 'peer_right_accepted']));
+    expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_right_proposed', 'peer_right_accepted']));
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ to: MAC.id, level: 'all' })).status).toBe(400);
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ from: MAC.id, to: MAC.id, level: 'see' })).status).toBe(400);
     expect((await admin.post(`/api/admin/reporters/${LINUX.id}/peers/propose`).set(HA).send({ to: ALEX_BOX.id, level: 'see' })).status).toBe(403);

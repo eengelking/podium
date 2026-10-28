@@ -11,8 +11,7 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDb } from './fleet/db.js';
-import { PeopleStore } from './fleet/people.js';
+import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { describeCert } from './tlsCa.js';
 import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
@@ -38,8 +37,10 @@ const newKey = () => generateKeyPairSync('ec', { namedCurve: 'P-256' });
 
 async function setup(o: { lifetimeDays?: number } = {}) {
   const root = tmp();
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  cleanup.push(() => storage.close());
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const certs = new PersonCertStore(db);
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
@@ -56,6 +57,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
     createReporterRenewRouter({
       certs,
       people,
+      tx: storage.tx,
       logger,
       now: () => clock(),
       settings: () => settings,
@@ -63,8 +65,8 @@ async function setup(o: { lifetimeDays?: number } = {}) {
       issuer: () => (listener && issuerOn ? { dir, port: listener.port, caCerts: () => [listener!.trust.currentCa()], rotation: () => listener!.trust.deliverable(), openssl: opensslBin } : null),
     }),
   );
-  app.get('/api/fleet/sessions/s1/peers', (req, res) => {
-    const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => listener?.trust.trustedIssuers() ?? [], now: () => clock() });
+  app.get('/api/fleet/sessions/s1/peers', async (req, res) => {
+    const a = await certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => listener?.trust.trustedIssuers() ?? [], now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
   listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
@@ -74,17 +76,17 @@ async function setup(o: { lifetimeDays?: number } = {}) {
   /** What the test's clients trust: the CA the server started with, until a test says otherwise. */
   let clientCa: string[] = [ca];
 
-  const personWith = (name: string) => people.createPerson(name).person;
+  const personWith = async (name: string) => (await people.createPerson(name)).person;
   const store = (personId: number, i: IssuedPersonCert) => certs.replace(personId, i, Date.now());
   const issueFor = async (name: string, days = 90) => {
-    const person = personWith(name);
+    const person = await personWith(name);
     const issued = await issuePersonCert({ dir, keyId: person.keyId, days });
     store(person.id, issued);
     return { person, issued };
   };
   /** A genuine certificate, signed by the real CA and stored, with the dates given. */
-  const issueDated = (name: string, from: number, to: number) => {
-    const person = personWith(name);
+  const issueDated = async (name: string, from: number, to: number) => {
+    const person = await personWith(name);
     const pair = signClientDated({ caCrt: path.join(dir, 'ca.crt'), caKey: path.join(dir, 'ca.key'), keyId: person.keyId, from, to });
     const info = describeCert(pair.cert);
     const issued: IssuedPersonCert = { ...pair, info, issuerFingerprint: listener!.material.ca.fingerprintSha256 };
@@ -114,7 +116,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
         res.on('end', () => resolve(JSON.parse(text) as Record<string, unknown>));
       }).on('error', reject);
     });
-  return { root, dir, db, people, certs, logger, lines, settings, listener, ca, port, issueFor, issueDated, post, whoami, setClock: (f: () => number) => (clock = f), personWith, trustOnlyClients: (c: string[]) => (clientCa = c), setIssuerOn: (on: boolean) => (issuerOn = on), setOpenssl: (b: string) => (opensslBin = b) };
+  return { root, dir, db, storage, people, certs, logger, lines, settings, listener, ca, port, issueFor, issueDated, post, whoami, setClock: (f: () => number) => (clock = f), personWith, trustOnlyClients: (c: string[]) => (clientCa = c), setIssuerOn: (on: boolean) => (issuerOn = on), setOpenssl: (b: string) => (opensslBin = b) };
 }
 
 describe('issuing a certificate for a public key', () => {
@@ -183,7 +185,7 @@ describe('authorizeRenewal', () => {
   it('lets a live certificate renew', async () => {
     const { s, d } = await deps();
     const { person, issued } = await s.issueFor('Dana');
-    const r = authorizeRenewal(sock(peer(issued.cert), null), d);
+    const r = await authorizeRenewal(sock(peer(issued.cert), null), d);
     expect(r).toMatchObject({ ok: true });
     expect(r).not.toHaveProperty('expired');
     expect(r.ok && r.person.id).toBe(person.id);
@@ -192,8 +194,8 @@ describe('authorizeRenewal', () => {
   it('refuses an expired certificate, however genuine: there is no grace', async () => {
     const { s, d } = await deps();
     for (const [i, [from, to]] of [[100, 5], [200, 31], [100, 1]].entries()) {
-      const { issued } = s.issueDated(`Dana ${i}`, Date.now() - from * DAY, Date.now() - to * DAY);
-      expect(authorizeRenewal(sock(peer(issued.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+      const { issued } = await s.issueDated(`Dana ${i}`, Date.now() - from * DAY, Date.now() - to * DAY);
+      expect(await authorizeRenewal(sock(peer(issued.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
     }
   });
 
@@ -201,23 +203,23 @@ describe('authorizeRenewal', () => {
     const { s, d } = await deps();
     const { person, issued } = await s.issueFor('Dana');
     s.certs.revokeFor(person.id, 'revoked', Date.now());
-    expect(authorizeRenewal(sock(peer(issued.cert), null), d)).toMatchObject({ ok: false, code: 'REVOKED' });
+    expect(await authorizeRenewal(sock(peer(issued.cert), null), d)).toMatchObject({ ok: false, code: 'REVOKED' });
   });
 
   it('refuses a connection with no certificate, and any verification error', async () => {
     const { s, d } = await deps();
     const { issued } = await s.issueFor('Dana');
-    expect(authorizeRenewal({ encrypted: false }, d)).toMatchObject({ ok: false, code: 'NO_CERTIFICATE' });
-    expect(authorizeRenewal({ encrypted: true, getPeerCertificate: () => ({}) }, d)).toMatchObject({ ok: false, code: 'NO_CERTIFICATE' });
-    expect(authorizeRenewal(sock(peer(issued.cert), 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
-    expect(authorizeRenewal(sock(peer(issued.cert), 'DEPTH_ZERO_SELF_SIGNED_CERT'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
-    expect(authorizeRenewal(sock(peer(issued.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+    expect(await authorizeRenewal({ encrypted: false }, d)).toMatchObject({ ok: false, code: 'NO_CERTIFICATE' });
+    expect(await authorizeRenewal({ encrypted: true, getPeerCertificate: () => ({}) }, d)).toMatchObject({ ok: false, code: 'NO_CERTIFICATE' });
+    expect(await authorizeRenewal(sock(peer(issued.cert), 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+    expect(await authorizeRenewal(sock(peer(issued.cert), 'DEPTH_ZERO_SELF_SIGNED_CERT'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+    expect(await authorizeRenewal(sock(peer(issued.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
   });
 
   it('refuses a certificate whose issuer is no longer trusted', async () => {
     const { s, d } = await deps();
     const { issued } = await s.issueFor('Dana');
-    expect(authorizeRenewal(sock(peer(issued.cert), null), { ...d, trustedIssuers: () => [] })).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+    expect(await authorizeRenewal(sock(peer(issued.cert), null), { ...d, trustedIssuers: () => [] })).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
   });
 
   describe('forgeries that claim CERT_HAS_EXPIRED', () => {
@@ -236,7 +238,7 @@ describe('authorizeRenewal', () => {
       const { person, issued } = await s.issueFor('Dana');
       const f = forged(issued.cert, person.keyId);
       expect(new X509Certificate(f.cert).serialNumber).toBe(new X509Certificate(issued.cert).serialNumber);
-      expect(authorizeRenewal(sock(peer(f.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+      expect(await authorizeRenewal(sock(peer(f.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
     });
 
     it('refuses a forged certificate even when its fingerprint is claimed to be a stored one', async () => {
@@ -244,7 +246,7 @@ describe('authorizeRenewal', () => {
       const { person, issued } = await s.issueFor('Dana');
       const f = forged(issued.cert, person.keyId);
       const lying: RenewSocket = { encrypted: true, authorized: false, authorizationError: 'CERT_HAS_EXPIRED', getPeerCertificate: () => ({ raw: new X509Certificate(f.cert).raw, fingerprint256: new X509Certificate(issued.cert).fingerprint256 }) };
-      expect(authorizeRenewal(lying, d)).toMatchObject({ ok: false });
+      expect(await authorizeRenewal(lying, d)).toMatchObject({ ok: false });
     });
 
     it('refuses a forged certificate whose row somehow exists, because its signature does not verify under the CA key', async () => {
@@ -252,14 +254,14 @@ describe('authorizeRenewal', () => {
       const { person, issued } = await s.issueFor('Dana');
       const f = forged(issued.cert, person.keyId);
       s.certs.replace(person.id, { cert: f.cert, info: describeCert(f.cert), issuerFingerprint: new X509Certificate(s.ca).fingerprint256 }, Date.now());
-      expect(authorizeRenewal(sock(peer(f.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+      expect(await authorizeRenewal(sock(peer(f.cert), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
     });
 
     it('refuses a self-signed certificate with the same subject', async () => {
       const { s, d } = await deps();
       const { person, issued } = await s.issueFor('Dana');
       const f = forged(issued.cert, person.keyId);
-      expect(authorizeRenewal(sock(peer(f.selfSigned), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
+      expect(await authorizeRenewal(sock(peer(f.selfSigned), 'CERT_HAS_EXPIRED'), d)).toMatchObject({ ok: false, code: 'NOT_TRUSTED' });
     });
   });
 });
@@ -297,7 +299,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
   it('does not renew an expired certificate: it is dropped at the handshake, in or past what used to be the grace', async () => {
     const s = await setup();
     for (const [from, to] of [[100, 5], [200, 40]]) {
-      const e = s.issueDated(`Dana ${from}`, Date.now() - from * DAY, Date.now() - to * DAY);
+      const e = await s.issueDated(`Dana ${from}`, Date.now() - from * DAY, Date.now() - to * DAY);
       await expect(s.post(e.issued, { publicKey: pubPem(newKey().publicKey) })).rejects.toBeDefined();
       expect(s.certs.listFor(e.person.id)).toHaveLength(1);
     }
@@ -356,7 +358,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
     it('cannot be got round with an expired certificate, which is dropped at the handshake instead of skipping the limit', async () => {
       const s = await setup();
       s.setClock(() => Date.now());
-      const e = s.issueDated('Dana', Date.now() - 100 * DAY, Date.now() - 5 * DAY);
+      const e = await s.issueDated('Dana', Date.now() - 100 * DAY, Date.now() - 5 * DAY);
       for (let i = 0; i < 3; i++) await expect(s.post(e.issued, { publicKey: pubPem(newKey().publicKey) })).rejects.toBeDefined();
       expect(s.certs.listFor(e.person.id)).toHaveLength(1);
     });
@@ -395,7 +397,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
   it('refuses a live certificate whose person is revoked, even when its row was not', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
-    expect(s.people.revoke(person.id, Date.now())).toBe(true);
+    expect(await s.people.revoke(person.id, Date.now())).toBe(true);
     const res = await s.post(issued, { publicKey: pubPem(newKey().publicKey) });
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ ok: false, code: 'REVOKED' });
@@ -451,7 +453,7 @@ describe('POST /api/reporter/renew over mutual TLS', () => {
   it('is not reachable over plain HTTP', async () => {
     const s = await setup();
     const app = express();
-    app.use('/api/reporter', createReporterRenewRouter({ certs: s.certs, people: s.people, logger: s.logger, now: Date.now, settings: () => s.settings, trustedIssuers: () => [], issuer: () => null }));
+    app.use('/api/reporter', createReporterRenewRouter({ certs: s.certs, people: s.people, tx: s.storage.tx, logger: s.logger, now: Date.now, settings: () => s.settings, trustedIssuers: () => [], issuer: () => null }));
     const server = http.createServer(app).listen(0, '127.0.0.1');
     cleanup.push(() => new Promise<void>((r) => server.close(() => r())));
     await new Promise<void>((r) => server.once('listening', () => r()));

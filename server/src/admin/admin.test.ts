@@ -2,9 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb } from '../fleet/db.js';
-import { PeopleStore } from '../fleet/people.js';
-import { ReporterStore } from '../fleet/reporters.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { WallSettings } from '../fleet/wallSettings.js';
 import { ModelPriceStore } from '../fleet/modelPrices.js';
 import { FeatureFlags } from '../fleet/featureFlags.js';
@@ -13,12 +11,13 @@ import { createAdminRouter } from './adminRouter.js';
 const SECRET = 'the-admin-secret-0123456789';
 
 function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: number; onRespondOn?: () => void } = {}) {
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:', 0);
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const wall = new WallSettings(db);
   const prices = new ModelPriceStore(db);
   const features = new FeatureFlags(db);
-  const reporters = new ReporterStore(db, 0);
+  const reporters = storage.reporters;
   const clock = { t: 1_000_000 };
   const lines: string[] = [];
   const app = express();
@@ -26,6 +25,7 @@ function setup(over: { secret?: string | null; idleMs?: number; logRetainMs?: nu
     '/api/admin',
     createAdminRouter({
       secret: over.secret === undefined ? SECRET : over.secret,
+      storage,
       people,
       wall,
       prices,
@@ -70,7 +70,7 @@ describe('unlocking', () => {
     const { app, people, lines } = setup();
     const res = await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: 'wrong-guess-value' });
     expect(res.status).toBe(401);
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows;
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows;
     expect(log.map((r) => r.kind)).toEqual(['unlock_failed']);
     expect(JSON.stringify(log) + lines.join('')).not.toContain('wrong-guess-value');
   });
@@ -83,7 +83,7 @@ describe('unlocking', () => {
     const locked = await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
     expect(locked.status).toBe(429);
     expect(locked.body.retryAfterSec).toBeGreaterThan(0);
-    expect(people.listLog({ page: 1, pageSize: 100 }).rows.filter((r) => r.kind === 'unlock_failed')).toHaveLength(5);
+    expect((await people.listLog({ page: 1, pageSize: 100 })).rows.filter((r) => r.kind === 'unlock_failed')).toHaveLength(5);
     clock.t += 15 * 60_000 + 1;
     expect((await request(app).post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET })).status).toBe(200);
   });
@@ -119,7 +119,7 @@ describe('cross-site protection and caching', () => {
     const { agent, people } = await unlocked();
     expect((await agent.post('/api/admin/people').send({ name: 'Dana' })).status).toBe(403);
     expect((await agent.post('/api/admin/people').set(H).set('Origin', 'https://evil.example').send({ name: 'Dana' })).status).toBe(403);
-    expect(people.list({ page: 1, pageSize: 50, q: '' }).total).toBe(0);
+    expect((await people.list({ page: 1, pageSize: 50, q: '' })).total).toBe(0);
     expect((await agent.post('/api/admin/people').set(H).send({ name: 'Dana' })).status).toBe(201);
   });
 
@@ -146,8 +146,8 @@ describe('people and tokens', () => {
     expect(listed.body.rows[0]).toMatchObject({ credential: `pdm_${keyId}` });
     expect(listed.body.rows[0]).not.toHaveProperty('last4');
     expect(JSON.stringify(listed.body)).not.toMatch(/tokenHash|token_hash|keyId/);
-    expect(JSON.stringify(people.listLog({ page: 1, pageSize: 50 })) + lines.join('')).not.toContain(token);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((r) => r.kind)).toContain('person_created');
+    expect(JSON.stringify(await people.listLog({ page: 1, pageSize: 50 })) + lines.join('')).not.toContain(token);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((r) => r.kind)).toContain('person_created');
   });
 
   it('refuses a duplicate name (any case) with 409 and a bad name with 400', async () => {
@@ -168,14 +168,14 @@ describe('people and tokens', () => {
     expect((await agent.post(`/api/admin/people/${id}/revoke`).set(H)).status).toBe(200);
     expect((await agent.post('/api/admin/people/999/revoke').set(H)).status).toBe(404);
     expect((await agent.post('/api/admin/people/abc/rotate').set(H)).status).toBe(400);
-    const kinds = people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind);
+    const kinds = (await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind);
     expect(kinds).toEqual(expect.arrayContaining(['unlock', 'person_created', 'token_rotated', 'token_revoked']));
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.every((x) => x.source.length > 0)).toBe(true);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.every((x) => x.source.length > 0)).toBe(true);
   });
 
   it('pages on the server (default 50, at most 100), searches, and reports the total', async () => {
     const { agent, people } = await unlocked();
-    for (let i = 0; i < 125; i++) people.createPerson(`person-${String(i).padStart(3, '0')}`);
+    for (let i = 0; i < 125; i++) await people.createPerson(`person-${String(i).padStart(3, '0')}`);
     const p1 = await agent.get('/api/admin/people').set(H);
     expect(p1.body).toMatchObject({ total: 125, page: 1, pageSize: 50 });
     expect(p1.body.rows).toHaveLength(50);
@@ -198,7 +198,7 @@ describe('groups and settings', () => {
     expect((await agent.get('/api/admin/groups').set(H)).body.rows.find((r: { name: string }) => r.name === 'Frontend')).toMatchObject({ members: ['Dana'] });
     expect((await agent.delete(`/api/admin/groups/${g.body.id}`).set(H)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(H)).body.rows[0]).toMatchObject({ name: 'Dana', groupId: null });
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toEqual(
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).toEqual(
       expect.arrayContaining(['group_created', 'group_assigned', 'group_deleted']),
     );
   });
@@ -207,9 +207,9 @@ describe('groups and settings', () => {
     const { agent, people } = await unlocked();
     expect((await agent.get('/api/admin/settings').set(H)).body).toMatchObject({ allowAdminSecretReporting: true });
     expect((await agent.put('/api/admin/settings').set(H).send({ allowAdminSecretReporting: false })).status).toBe(200);
-    expect(people.adminReportingAllowed()).toBe(false);
+    expect(await people.adminReportingAllowed()).toBe(false);
     expect((await agent.put('/api/admin/settings').set(H).send({ allowAdminSecretReporting: 'yes' })).status).toBe(400);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toContain('admin_reporting_changed');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).toContain('admin_reporting_changed');
   });
 
   it('lists the wall notices with their switches and changes them, the background-sessions setting and nothing unknown', async () => {
@@ -224,7 +224,7 @@ describe('groups and settings', () => {
     for (const bad of [{ notices: { nope: true } }, { notices: { 'background-sessions': 'off' } }, { notices: {} }, { showBackgroundSessions: 1 }, {}]) {
       expect((await agent.put('/api/admin/settings').set(H).send(bad)).status).toBe(400);
     }
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toEqual(expect.arrayContaining(['wall_notice_changed', 'wall_background_changed']));
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).toEqual(expect.arrayContaining(['wall_notice_changed', 'wall_background_changed']));
   });
 
   it('lists the card title setting off by default, changes it, refuses a non-boolean and logs the change (#480)', async () => {
@@ -241,7 +241,7 @@ describe('groups and settings', () => {
     expect(wall.cardTitleMachine()).toBe(true);
     expect((await agent.put('/api/admin/settings').set(H).send({ cardTitleMachine: false })).status).toBe(200);
     expect(wall.cardTitleMachine()).toBe(false);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toContain('wall_card_title_changed');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).toContain('wall_card_title_changed');
   });
 
   describe('feature flags (#118)', () => {
@@ -304,7 +304,7 @@ describe('groups and settings', () => {
       const res = await agent.put('/api/admin/settings').set(H).send({ features: { respond: true } });
       expect(res.status).toBe(200);
       expect(features.featureOn('respond')).toBe(true);
-      const log = people.listLog({ page: 1, pageSize: 50 }).rows.filter((x) => x.kind === 'feature_changed');
+      const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((x) => x.kind === 'feature_changed');
       expect(log.map((x) => x.detail)).toEqual(['Feature respond turned on']);
     });
 
@@ -331,7 +331,7 @@ describe('groups and settings', () => {
       expect((await agent.get('/api/admin/settings').set(H)).body.features[0].on).toBe(false);
       await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': true } });
       expect(features.featureOn('activity-feed')).toBe(true);
-      const log = people.listLog({ page: 1, pageSize: 50 }).rows.filter((x) => x.kind === 'feature_changed');
+      const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((x) => x.kind === 'feature_changed');
       expect(log.map((x) => x.detail)).toEqual(['Feature activity-feed turned on', 'Feature activity-feed turned off']);
     });
 
@@ -344,7 +344,7 @@ describe('groups and settings', () => {
       const { agent, features, people } = await unlocked();
       expect((await agent.put('/api/admin/settings').set(H).send(body)).status).toBe(400);
       expect(features.featureOn('activity-feed')).toBe(true);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).not.toContain('feature_changed');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).not.toContain('feature_changed');
     });
   });
 
@@ -367,7 +367,7 @@ describe('groups and settings', () => {
       expect(res.status).toBe(200);
       expect(res.body.modelPrices.models.find((m: { key: string }) => m.key === 'sonnet-5-5')).toMatchObject({ overridden: true, std: S });
       expect(prices.overrides()['sonnet-5-5']!.std).toEqual(S);
-      const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((x) => x.kind === 'model_price_changed')!;
+      const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.find((x) => x.kind === 'model_price_changed')!;
       expect(log.detail).toMatch(/sonnet-5-5/);
     });
 
@@ -375,7 +375,7 @@ describe('groups and settings', () => {
       const { agent, people } = await unlocked();
       const res = await put(agent, { modelPrice: { key: 'sonnet-5-5', std: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 } } });
       expect(res.status).toBe(200);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).not.toContain('model_price_changed');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).not.toContain('model_price_changed');
     });
 
     it('resets a row to the built-in price and logs it', async () => {
@@ -384,7 +384,7 @@ describe('groups and settings', () => {
       const res = await put(agent, { resetModelPrice: 'sonnet-5-5' });
       expect(res.status).toBe(200);
       expect(prices.overrides()).toEqual({});
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).toContain('model_price_reset');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).toContain('model_price_reset');
     });
 
     it('adds a model the Admin names', async () => {
@@ -406,7 +406,7 @@ describe('groups and settings', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toMatch(/\w/);
       expect(prices.overrides()).toEqual({});
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.map((x) => x.kind)).not.toContain('model_price_changed');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.map((x) => x.kind)).not.toContain('model_price_changed');
     });
 
     it('rejects a reset with no key', async () => {
@@ -417,7 +417,7 @@ describe('groups and settings', () => {
 
   it('pages the admin log, newest first', async () => {
     const { agent, people } = await unlocked();
-    for (let i = 0; i < 60; i++) people.log('test', `n${i}`, '1.2.3.4');
+    for (let i = 0; i < 60; i++) await people.log('test', `n${i}`, '1.2.3.4');
     const res = await agent.get('/api/admin/log').set(H);
     expect(res.body.total).toBeGreaterThanOrEqual(60);
     expect(res.body.rows).toHaveLength(50);
@@ -454,8 +454,8 @@ describe('reporters (#142)', () => {
   it('lists reporters with the state counts, and takes paging, search, state and sort from the query', async () => {
     const { agent, reporters } = await unlocked();
     const now = Date.now();
-    reporters.record(seen(), now);
-    reporters.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: 'ci', owner: 'Sam', source: '10.0.0.9' }), now);
+    await reporters.record(seen(), now);
+    await reporters.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: 'ci', owner: 'Sam', source: '10.0.0.9' }), now);
     const res = await agent.get('/api/admin/reporters').set(H);
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(2);
@@ -463,7 +463,7 @@ describe('reporters (#142)', () => {
     expect((await agent.get('/api/admin/reporters?q=sam').set(H)).body.rows.map((r: { name: string }) => r.name)).toEqual(['ci']);
     expect((await agent.get('/api/admin/reporters?sort=name&dir=1').set(H)).body.rows.map((r: { name: string }) => r.name)).toEqual(['ci', 'studio-m2']);
     expect((await agent.get('/api/admin/reporters?state=silent').set(H)).body.total).toBe(0);
-    reporters.record(seen({ machineId: null, machineName: null, owner: 'Admin', credential: 'admin secret', source: '10.0.0.7', sessionId: 'a1' }), now);
+    await reporters.record(seen({ machineId: null, machineName: null, owner: 'Admin', credential: 'admin secret', source: '10.0.0.7', sessionId: 'a1' }), now);
     expect((await agent.get('/api/admin/reporters').set(H)).body.adminSecret).toBe(1);
     expect((await agent.get('/api/admin/reporters?admin=1').set(H)).body.rows.map((r: { key: string }) => r.key)).toEqual(['addr:10.0.0.7']);
     expect((await agent.get('/api/admin/reporters?page=2&pageSize=1&sort=name&dir=1&admin=0').set(H)).body.rows).toHaveLength(1);
@@ -471,8 +471,8 @@ describe('reporters (#142)', () => {
 
   it('shows one reporter by key, including an address key, and answers 404 for an unknown one', async () => {
     const { agent, reporters } = await unlocked();
-    reporters.record(seen(), Date.now());
-    reporters.record(seen({ machineId: null, machineName: null, source: '::1' }), Date.now());
+    await reporters.record(seen(), Date.now());
+    await reporters.record(seen({ machineId: null, machineName: null, source: '::1' }), Date.now());
     const d = await agent.get('/api/admin/reporters/9f3a1c7d2e40').set(H);
     expect(d.status).toBe(200);
     expect(d.body).toMatchObject({ name: 'studio-m2', credential: 'pdm_3f9a1c07b2e4', source: '192.168.1.24' });
@@ -485,52 +485,52 @@ describe('reporters (#142)', () => {
 
   it('removes a reporter, writes it to the admin log, and refuses a write without the Admin header', async () => {
     const { agent, reporters, people } = await unlocked();
-    reporters.record(seen(), Date.now());
+    await reporters.record(seen(), Date.now());
     expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40')).status).toBe(403);
-    expect(reporters.list({}, Date.now()).total).toBe(1);
+    expect((await reporters.list({}, Date.now())).total).toBe(1);
     expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40').set(H)).status).toBe(200);
-    expect(reporters.list({}, Date.now()).total).toBe(0);
+    expect((await reporters.list({}, Date.now())).total).toBe(0);
     expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40').set(H)).status).toBe(404);
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'reporter_removed');
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'reporter_removed');
     expect(log?.detail).toContain('studio-m2');
   });
   it('removes many reporters at once, by key or by state, and logs one entry with the count (issue #167)', async () => {
     const { agent, reporters, people, clock } = await unlocked();
-    for (const k of ['aaaa', 'bbbb', 'cccc']) reporters.record(seen({ machineId: k, machineName: k, sessionId: k }), clock.t);
+    for (const k of ['aaaa', 'bbbb', 'cccc']) await reporters.record(seen({ machineId: k, machineName: k, sessionId: k }), clock.t);
     expect((await agent.post('/api/admin/reporters/remove').send({ keys: ['aaaa'] })).status).toBe(403);
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({})).status).toBe(400);
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ keys: [] })).status).toBe(400);
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ keys: Array.from({ length: 501 }, (_, i) => `k${i}`) })).status).toBe(400);
     const res = await agent.post('/api/admin/reporters/remove').set(H).send({ keys: ['aaaa', 'bbbb', 'nope'] });
     expect(res.body).toEqual({ ok: true, removed: 2 });
-    expect(reporters.list({}, clock.t).rows.map((r) => r.key)).toEqual(['cccc']);
+    expect((await reporters.list({}, clock.t)).rows.map((r) => r.key)).toEqual(['cccc']);
     const byState = await agent.post('/api/admin/reporters/remove').set(H).send({ state: 'reporting' });
     expect(byState.body).toEqual({ ok: true, removed: 1 });
     // A filter removes every reporter it holds, not one page of them.
-    for (const k of ['dd1', 'dd2', 'ee1']) reporters.record(seen({ machineId: k, machineName: k, sessionId: k }), clock.t);
+    for (const k of ['dd1', 'dd2', 'ee1']) await reporters.record(seen({ machineId: k, machineName: k, sessionId: k }), clock.t);
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ match: { q: 'zzz' } })).body).toEqual({ ok: true, removed: 0 });
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ match: { q: 'dd' } })).body).toEqual({ ok: true, removed: 2 });
-    expect(reporters.list({}, clock.t).rows.map((r) => r.key)).toEqual(['ee1']);
+    expect((await reporters.list({}, clock.t)).rows.map((r) => r.key)).toEqual(['ee1']);
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ match: 'all' })).status).toBe(400);
-    reporters.removeMany(['ee1']);
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'reporter_removed');
+    await reporters.removeMany(['ee1']);
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'reporter_removed');
     expect(log.map((r) => r.detail)).toEqual([expect.stringContaining('2 reporters'), expect.stringContaining('0 reporters'), expect.stringContaining('1 reporter'), expect.stringContaining('2 reporters')]);
   });
 
   it('keeps ignore rules: add, list, remove, and log each (issue #167)', async () => {
     const { agent, reporters, people } = await unlocked();
-    reporters.record(seen(), Date.now());
+    await reporters.record(seen(), Date.now());
     expect((await agent.post('/api/admin/reporters/ignores').send({ kind: 'key', pattern: 'x' })).status).toBe(403);
     expect((await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'who', pattern: 'x' })).status).toBe(400);
     expect((await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'key', pattern: '' })).status).toBe(400);
     const add = await agent.post('/api/admin/reporters/ignores').set(H).send({ kind: 'key', pattern: '9f3a1c7d2e40' });
     expect(add.status).toBe(200);
-    expect(reporters.list({}, Date.now()).total).toBe(0);
+    expect((await reporters.list({}, Date.now())).total).toBe(0);
     const l = await agent.get('/api/admin/reporters/ignores').set(H);
     expect(l.body.rules).toEqual([expect.objectContaining({ id: add.body.rule.id, kind: 'key', pattern: '9f3a1c7d2e40' })]);
     expect((await agent.delete(`/api/admin/reporters/ignores/${add.body.rule.id}`).set(H)).status).toBe(200);
     expect((await agent.delete(`/api/admin/reporters/ignores/${add.body.rule.id}`).set(H)).status).toBe(404);
-    const kinds = people.listLog({ page: 1, pageSize: 50 }).rows.map((r) => r.kind);
+    const kinds = (await people.listLog({ page: 1, pageSize: 50 })).rows.map((r) => r.kind);
     expect(kinds).toEqual(expect.arrayContaining(['reporter_ignore_added', 'reporter_ignore_removed']));
   });
 
@@ -541,7 +541,7 @@ describe('reporters (#142)', () => {
     expect((await agent.put('/api/admin/settings').set(H).send({ forgetReporters: { enabled: 'yes' } })).status).toBe(400);
     const ok = await agent.put('/api/admin/settings').set(H).send({ forgetReporters: { enabled: true, days: 14 } });
     expect(ok.body).toEqual({ ok: true, forgetReporters: { enabled: true, days: 14 } });
-    expect(reporters.forgetSetting()).toEqual({ enabled: true, days: 14 });
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.some((r) => r.kind === 'reporters_forget_changed')).toBe(true);
+    expect(await reporters.forgetSetting()).toEqual({ enabled: true, days: 14 });
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.some((r) => r.kind === 'reporters_forget_changed')).toBe(true);
   });
 });

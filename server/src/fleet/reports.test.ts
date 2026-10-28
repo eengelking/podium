@@ -15,7 +15,7 @@ const H = { 'X-Podium-Admin': '1' };
 async function api(w: World, rollup = true) {
   if (rollup) await writeRollups(w.storage, NOW, costFn(w.deps.pricing()), { sessionsMs: 30 * DAY_MS });
   const app = express();
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, people: w.people, reports: w.deps, now: () => NOW }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, storage: w.storage, people: w.people, reports: w.deps, now: () => NOW }));
   const agentReq = request.agent(app);
   await agentReq.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
   const get = (path: string) => agentReq.get(`/api/admin/reports/${path}`).set(H);
@@ -34,7 +34,7 @@ describe('access and validation', () => {
     const { app } = await api(w);
     for (const p of ['usage', 'retention', 'spend/projection', 'spend/today/Priya']) expect((await request(app).get(`/api/admin/reports/${p}`).set(H)).status).toBe(401);
     const bare = express();
-    bare.use('/api/admin', createAdminRouter({ secret: SECRET, people: w.people }));
+    bare.use('/api/admin', createAdminRouter({ secret: SECRET, storage: w.storage, people: w.people }));
     const a = request.agent(bare);
     await a.post('/api/admin/unlock').set(H).send({ name: 'Admin', token: SECRET });
     expect((await a.get('/api/admin/reports/usage').set(H)).status).toBe(404);
@@ -190,9 +190,9 @@ describe('failures', () => {
 describe('activity and Data kept', () => {
   it('reads the Admin log by period and kind, newest first', async () => {
     const w = await filled();
-    w.people.log('person_created', 'Created Dana', '10.0.0.1', at(1, 9));
-    w.people.log('unlock', '=HYPERLINK("x")', '10.0.0.2', at(0, 9));
-    w.people.log('person_created', 'Created Quiet', '10.0.0.1', at(5, 9));
+    await w.people.log('person_created', 'Created Dana', '10.0.0.1', at(1, 9));
+    await w.people.log('unlock', '=HYPERLINK("x")', '10.0.0.2', at(0, 9));
+    await w.people.log('person_created', 'Created Quiet', '10.0.0.1', at(5, 9));
     const { get } = await api(w);
     const r = (await get(`activity?from=${addDays(TODAY, -2)}`)).body as ReportReply;
     expect(r.by).toBeNull();
@@ -205,7 +205,7 @@ describe('activity and Data kept', () => {
 
   it('says when the log is longer than the 1,000 rows it returns (#529)', async () => {
     const w = await filled();
-    for (let i = 0; i < 1001; i++) w.people.log('unlock', `entry ${i}`, '10.0.0.1', at(0, 9) + i);
+    for (let i = 0; i < 1001; i++) await w.people.log('unlock', `entry ${i}`, '10.0.0.1', at(0, 9) + i);
     const { get } = await api(w);
     const r = (await get(`activity?from=${addDays(TODAY, -1)}`)).body as ReportReply;
     expect(r.rows).toHaveLength(1000);
@@ -232,7 +232,7 @@ describe('activity and Data kept', () => {
 describe('CSV', () => {
   it('returns the same columns and rows as RFC 4180 text, as an attachment, with spreadsheet formulas neutralized', async () => {
     const w = await filled();
-    w.people.createPerson('=cmd|calc', null, NOW);
+    await w.people.createPerson('=cmd|calc', null, NOW);
     await w.fdb.upsertSession(session({ id: 'evil', owner: '=cmd|calc', model: '+1,"quoted"', last_seen_at: at(1, 10), started_at: at(1, 9), ended_at: at(1, 10) }));
     const { get } = await api(w);
     const res = await get('spend?breakdown=person&format=csv');
@@ -276,9 +276,9 @@ describe('CSV', () => {
 
 /** Fourteen complete days of history: Priya and Dana work most days, Rare on two, a model nobody priced on a few. */
 async function history(w: World): Promise<void> {
-  const priya = w.people.createPerson('Priya', w.people.createGroup('Backend', NOW).id, NOW).person;
-  w.people.createPerson('Dana', null, NOW);
-  w.people.createPerson('Rare', null, NOW);
+  const priya = (await w.people.createPerson('Priya', (await w.people.createGroup('Backend', NOW)).id, NOW)).person;
+  await w.people.createPerson('Dana', null, NOW);
+  await w.people.createPerson('Rare', null, NOW);
   void priya;
   for (let d = 1; d <= 14; d++) {
     await w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));

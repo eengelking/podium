@@ -11,8 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
-import { openDb } from './fleet/db.js';
-import { PeopleStore } from './fleet/people.js';
+import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { REPORTER_ROUTE_TEMPLATES } from './tlsHttp.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
@@ -504,10 +503,11 @@ const DAY = 86_400_000;
 /** A real Podium renewal route behind a real mutual-TLS listener, and a person whose certificate has the dates given. */
 async function renewing(dates: { from: number; to: number } | { days: number }, o: { renewStatus?: number; retryAfter?: string } = {}) {
   const p = await pki();
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
-  const certs = new PersonCertStore(db);
-  const person = people.createPerson('Dana Lee').person;
+  const storage = openSqliteStorage(':memory:');
+  cleanup.push(() => storage.close());
+  const people = storage.people;
+  const certs = new PersonCertStore(storage.sqliteHandle);
+  const person = (await people.createPerson('Dana Lee')).person;
   const caFp = new X509Certificate(p.caCert).fingerprint256;
   let cert: string;
   let key: string;
@@ -529,7 +529,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     if (o.retryAfter) res.set('retry-after', o.retryAfter);
     res.status(o.renewStatus).json({ ok: false, code: o.renewStatus === 429 ? 'TOO_SOON' : undefined });
   });
-  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
+  app.use('/api/reporter', createReporterRenewRouter({ certs, people, tx: storage.tx, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
   app.get('/api/fleet/sessions/s1/peers', (req, res) => {
     const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
     seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');

@@ -7,7 +7,6 @@ import request from 'supertest';
 import { gunzipSync } from 'node:zlib';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from '../fleet/fleet.js';
-import { PeopleStore } from '../fleet/people.js';
 import { WallSettings } from '../fleet/wallSettings.js';
 import { FeatureFlags } from '../fleet/featureFlags.js';
 import { createFleetRouter } from '../fleet/routes.js';
@@ -54,12 +53,12 @@ async function stack(opts: { level?: Level; hang?: boolean; clock?: { t: number 
   const now = opts.clock ? () => opts.clock!.t : Date.now;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now, logger);
   await fleet.init();
-  const people = new PeopleStore(db);
+  const people = storage.people;
   const app = express();
   app.set('trust proxy', false);
   app.use(requestLog(logger));
   app.use('/api/fleet', createFleetRouter(fleet, { token: SECRET, people, logger }));
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, people, wall: new WallSettings(db), features: new FeatureFlags(db), logger }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, people, wall: new WallSettings(db), features: new FeatureFlags(db), logger }));
   cleanups.push(() => fleet.close(), () => shipper.close(50));
   const records = () => local.map((l) => JSON.parse(l) as Rec);
   const shippedText = async () => {
@@ -78,7 +77,7 @@ function reportFor(userName: string | null, id = 'sess-log-1'): Report {
 describe('no secret and no typed text in a log line or a shipped batch', () => {
   it('holds for a request carrying a person token, the admin secret, prompts, answers and activity', async () => {
     const s = await stack();
-    const dana = s.people.createPerson('Dana');
+    const dana = await s.people.createPerson('Dana');
     // A token that does not match the name, a wrong token, the admin secret, and a good report full of text.
     await request(s.app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(reportFor('Eli'));
     await request(s.app).post('/api/fleet/report').set('X-Podium-Token', `${dana.token.slice(0, -4)}beef`).send(reportFor('Dana'));

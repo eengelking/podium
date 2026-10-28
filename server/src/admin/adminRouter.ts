@@ -224,7 +224,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     sessions.set(sid, { last: now(), personId });
     res.cookie(COOKIE, sid, { httpOnly: true, sameSite: 'strict', path: '/api/admin', secure: req.secure });
     const person = personId === null ? undefined : await people.getPerson(personId);
-    audit(req, 'unlock', 'Admin unlocked', person ? { person_id: person.id } : {}, person ? person.name : ADMIN_SECRET_ACTOR);
+    await audit(req, 'unlock','Admin unlocked', person ? { person_id: person.id } : {}, person ? person.name : ADMIN_SECRET_ACTOR);
     res.json({ ok: true });
   }
 
@@ -383,7 +383,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   /** Issues the person a certificate and logs it (the file's content never goes in the log). Returns the file for the response. */
   async function issueAndLog(req: Request, person: PersonRow, store: PersonCertStore, issuer: PersonIssuer): Promise<ConfigFile & { expires: string; fingerprint: string }> {
     const { file, cert } = await issueConfigFor(person, store, issuer, req.get('host'), now());
-    audit(req, 'certificate_issued', `Issued a certificate to ${person.name}`, { person_id: person.id, fingerprint_sha256: cert.fingerprint, not_after: new Date(cert.notAfter).toISOString() });
+    await audit(req, 'certificate_issued',`Issued a certificate to ${person.name}`, { person_id: person.id, fingerprint_sha256: cert.fingerprint, not_after: new Date(cert.notAfter).toISOString() });
     return { ...file, expires: new Date(cert.notAfter).toISOString(), fingerprint: cert.fingerprint };
   }
 
@@ -710,7 +710,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       showBackgroundSessions: wall?.showBackgroundSessions() ?? false,
       cardTitleMachine: wall?.cardTitleMachine() ?? false,
       modelPrices: prices?.view() ?? { asOf: PRICES_AS_OF, models: [] },
-      forgetReporters: reporters?.forgetSetting() ?? { enabled: false, days: 30 },
+      forgetReporters: (await reporters?.forgetSetting()) ?? { enabled: false, days: 30 },
       ...(peers ? { peerMessaging: peers.settings.get() } : {}),
       ...(history ? { activityHistory: activityState(history) } : {}),
       ...(rec ? { recording: recordingState(rec) } : {}),

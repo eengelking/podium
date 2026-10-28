@@ -2,9 +2,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openSqliteStorage } from '../storage/sqlite/index.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { fixtureReport } from './testing.js';
 
@@ -16,10 +15,9 @@ afterEach(() => {
 async function setup(adminSecret: string | null = 'admin-secret') {
   const logs: string[] = [];
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
   await fleet.init();
-  const people = new PeopleStore(db);
+  const people = storage.people;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: adminSecret, people, log: (l) => logs.push(l) }));
   closers.push(() => fleet.close());
@@ -39,18 +37,18 @@ const owners = async (app: express.Express) =>
 describe('reporting with a person token', () => {
   it('accepts the right token with the right name (any case) and records the owner', async () => {
     const { app, people } = await setup();
-    const { token } = people.createPerson('Dana');
+    const { token } = await people.createPerson('Dana');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', token).send(report('dana'));
     expect(res.status).toBe(200);
     expect(await owners(app)).toEqual(['Dana']);
-    const row = people.list({ page: 1, pageSize: 50, q: '' }).rows[0]!;
+    const row = (await people.list({ page: 1, pageSize: 50, q: '' })).rows[0]!;
     expect(row.lastReportAt).not.toBeNull();
   });
 
   it('refuses a valid token that carries another person’s name, and shows nothing', async () => {
     const { app, people } = await setup();
-    const dana = people.createPerson('Dana');
-    people.createPerson('Eli');
+    const dana = await people.createPerson('Dana');
+    await people.createPerson('Eli');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Eli'));
     expect(res.status).toBe(401);
     expect((await request(app).get('/api/fleet/state')).body.sessions).toHaveLength(0);
@@ -58,8 +56,8 @@ describe('reporting with a person token', () => {
 
   it('refuses a missing name, an unknown name and the right name with a wrong token', async () => {
     const { app, people } = await setup();
-    const dana = people.createPerson('Dana');
-    const eli = people.createPerson('Eli');
+    const dana = await people.createPerson('Dana');
+    const eli = await people.createPerson('Eli');
     const post = (token: string, name: string | null) =>
       request(app).post('/api/fleet/report').set('X-Podium-Token', token).send(report(name));
     expect((await post(dana.token, null)).status).toBe(401);
@@ -71,17 +69,17 @@ describe('reporting with a person token', () => {
 
   it('refuses a revoked token, and an old token after a rotation', async () => {
     const { app, people } = await setup();
-    const a = people.createPerson('Dana');
-    people.revoke(a.person.id);
+    const a = await people.createPerson('Dana');
+    await people.revoke(a.person.id);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(401);
-    const b = people.rotate(a.person.id)!;
+    const b = (await people.rotate(a.person.id))!;
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', b.token).send(report('Dana'))).status).toBe(200);
   });
 
   it('never echoes the token in a refusal or a log line', async () => {
     const { app, people, logs } = await setup();
-    const a = people.createPerson('Dana');
+    const a = await people.createPerson('Dana');
     const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Eli'));
     expect(JSON.stringify(res.body)).not.toContain(a.token);
     expect(logs.join('\n')).not.toContain(a.token);
@@ -89,7 +87,7 @@ describe('reporting with a person token', () => {
 
   it('takes the owner of a classic hook from the token alone', async () => {
     const { app, people } = await setup();
-    const a = people.createPerson('Dana');
+    const a = await people.createPerson('Dana');
     const res = await request(app)
       .post('/api/fleet/hook')
       .set('X-Podium-Token', a.token)
@@ -100,9 +98,9 @@ describe('reporting with a person token', () => {
 
   it('lets any valid credential delete a session, and refuses a revoked one', async () => {
     const { app, people } = await setup();
-    const a = people.createPerson('Dana');
+    const a = await people.createPerson('Dana');
     await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'));
-    people.revoke(a.person.id);
+    await people.revoke(a.person.id);
     expect((await request(app).delete('/api/fleet/sessions/sess-1').set('X-Podium-Token', a.token)).status).toBe(401);
     expect((await request(app).delete('/api/fleet/sessions/sess-1').set('X-Podium-Token', 'admin-secret')).status).toBe(200);
   });
@@ -111,8 +109,8 @@ describe('reporting with a person token', () => {
 describe('session ownership', () => {
   it('refuses a report for a session id that already belongs to someone else', async () => {
     const { app, people } = await setup();
-    const dana = people.createPerson('Dana');
-    const eli = people.createPerson('Eli');
+    const dana = await people.createPerson('Dana');
+    const eli = await people.createPerson('Eli');
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana', 'shared'))).status).toBe(200);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', eli.token).send(report('Eli', 'shared'))).status).toBe(409);
     expect(await owners(app)).toEqual(['Dana']);
@@ -129,9 +127,9 @@ describe('reporting with the admin secret', () => {
 
   it('is refused once the owner turns admin-secret reporting off, while person tokens keep working', async () => {
     const { app, people } = await setup();
-    people.setAdminReporting(false);
+    await people.setAdminReporting(false);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report(null))).status).toBe(401);
-    const a = people.createPerson('Dana');
+    const a = await people.createPerson('Dana');
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(200);
   });
 
@@ -151,7 +149,7 @@ describe('reporting with authentication off', () => {
 
   it('still checks a person token when one is presented', async () => {
     const { app, people } = await setup(null);
-    const a = people.createPerson('Dana');
+    const a = await people.createPerson('Dana');
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Eli'))).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', a.token).send(report('Dana'))).status).toBe(200);
   });
@@ -160,9 +158,9 @@ describe('reporting with authentication off', () => {
 describe('the people view fields (issue #34)', () => {
   it('shows each session’s owner, its group and its machine, and splits today’s spend by owner', async () => {
     const { app, people } = await setup();
-    const backend = people.createGroup('Backend');
-    const priya = people.createPerson('Priya N.', backend.id);
-    const dana = people.createPerson('Dana K.');
+    const backend = await people.createGroup('Backend');
+    const priya = await people.createPerson('Priya N.', backend.id);
+    const dana = await people.createPerson('Dana K.');
     const withMachine = (r: ReturnType<typeof report>, name: string, id: string) => ({ ...r, machine: { name, id } });
     await request(app).post('/api/fleet/report').set('X-Podium-Token', priya.token).send(withMachine(report('Priya N.', 'p1'), 'priya-mbp', 'aaaa1111'));
     await request(app).post('/api/fleet/report').set('X-Podium-Token', priya.token).send(withMachine(report('Priya N.', 'p2'), 'build-01', 'bbbb2222'));
@@ -188,7 +186,7 @@ describe('the people view fields (issue #34)', () => {
 
   it('keeps a session’s machine when a later settings-hook payload carries none', async () => {
     const { app, people, fleet } = await setup();
-    const priya = people.createPerson('Priya N.');
+    const priya = await people.createPerson('Priya N.');
     await request(app).post('/api/fleet/report').set('X-Podium-Token', priya.token).send({ ...report('Priya N.', 'p1'), machine: { name: 'priya-mbp', id: 'aaaa1111' } });
     await fleet.ingestHook({ session_id: 'p1', hook_event_name: 'Notification', cwd: '/tmp', message: 'Claude needs your permission' }, 'Priya N.');
     expect((await fleet.view('p1'))?.machine).toEqual({ name: 'priya-mbp', id: 'aaaa1111' });
@@ -201,7 +199,7 @@ describe('guessing the admin secret through X-Podium-Token (#255)', () => {
 
   it('ends many different wrong secrets from one address in 429s with Retry-After, and a person token still works', async () => {
     const { app, people, logs } = await setup();
-    const { token } = people.createPerson('Dana');
+    const { token } = await people.createPerson('Dana');
     const statuses: number[] = [];
     for (let i = 0; i < 12; i++) {
       const res = await guess(app, i);
@@ -231,9 +229,9 @@ describe('guessing the admin secret through X-Podium-Token (#255)', () => {
 
   it('does not count a revoked or unknown person token', async () => {
     const { app, people } = await setup();
-    const dana = people.createPerson('Dana');
-    const eli = people.createPerson('Eli');
-    people.revoke(dana.person.id);
+    const dana = await people.createPerson('Dana');
+    const eli = await people.createPerson('Eli');
+    await people.revoke(dana.person.id);
     for (let i = 0; i < 10; i++) {
       expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(report('Dana'))).status).toBe(401);
     }

@@ -7,10 +7,8 @@ import path from 'node:path';
 import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from './activityDb.js';
 import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
-import { openDb } from './db.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
 import { fixtureReport } from './testing.js';
@@ -433,7 +431,7 @@ describe('through the fleet', () => {
   });
 
   it('a purge that is still running when the next tick fires is skipped, not stacked', async () => {
-    const people = new PeopleStore(openDb(':memory:'));
+    const people = openSqliteStorage(':memory:').people;
     const logger = { info: vi.fn() } as never;
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
@@ -448,14 +446,14 @@ describe('through the fleet', () => {
     expect(purge).toHaveBeenCalledTimes(1);
     release();
     await first;
-    expect(people.listLog({ page: 1, pageSize: 10 }).rows.filter((r) => r.kind === 'activity_purged')).toHaveLength(1);
+    expect((await people.listLog({ page: 1, pageSize: 10 })).rows.filter((r) => r.kind === 'activity_purged')).toHaveLength(1);
     // finished, so the next tick runs
     await purgeActivityHistory(history, people, logger, T0 + 3);
     expect(purge).toHaveBeenCalledTimes(2);
   });
 
   it('a purge that fails frees the slot for the next tick', async () => {
-    const people = new PeopleStore(openDb(':memory:'));
+    const people = openSqliteStorage(':memory:').people;
     const purge = vi.fn().mockRejectedValueOnce(new Error('locked')).mockResolvedValue({ entries: 0, bytes: 0, sessions: 0, freed: 0 });
     const history = { purge, current: () => ACTIVITY_HISTORY_DEFAULTS } as unknown as ActivityHistory;
     await expect(purgeActivityHistory(history, people, { info() {} } as never, T0)).rejects.toThrow('locked');

@@ -4,7 +4,6 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { createLogger, type Logger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
@@ -356,19 +355,18 @@ const H = { 'X-Podium-Respond': '1' };
 async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn?: express.RequestHandler; logger?: Logger } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
   await fleet.init();
-  const people = new PeopleStore(db);
+  const people = storage.people;
   const lockout = new Lockout(fleet.now);
   const respondBridge = createRespondBridge();
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
-  app.use('/api/admin', createAdminRouter({ secret, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
   closers.push(() => fleet.close());
   if (opts.respond !== false) fleet.features.setFeature('respond', true);
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
   return { app, fleet, people, ed, alex };
 }
 
@@ -431,7 +429,7 @@ describe('signing in', () => {
     expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false });
     const admin = await signedIn(app, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true });
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 
   it('refuses a token with someone else’s name, never saying which was wrong, and an empty field', async () => {
@@ -467,7 +465,7 @@ describe('signing in', () => {
     await a.post('/api/fleet/respond/sign-out').set(H);
     expect((await a.get('/api/fleet/respond/me')).body.signedIn).toBe(false);
     const b = await signedIn(app, 'Ed', ed.token);
-    people.rotate(ed.person.id);
+    await people.rotate(ed.person.id);
     expect((await b.get('/api/fleet/respond/me')).body.signedIn).toBe(false);
   });
 });
@@ -500,12 +498,12 @@ describe('answering, end to end', () => {
     expect((await browser.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_q')).body).toMatchObject({ state: 'closed', closed: { outcome: 'podium', by: 'Ed' } });
 
     // The admin log names who and what, never the text.
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_sent');
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sent');
     expect(log).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Answered a question in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]` })]);
     expect(JSON.stringify(log)).not.toContain('25/50/100');
 
     // And what became of it, matched to the answer by the short id (#304).
-    const result = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+    const result = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
     expect(result).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Answered a question in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: the session took it` })]);
   });
 
@@ -527,9 +525,9 @@ describe('answering, end to end', () => {
         await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
         const post = await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result });
         expect(post.status).toBe(200);
-        const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+        const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
         expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Sent a message in invoice-v2 (sess-ed) [${m.body.deliveryId.slice(0, 12)}]: ${WORDS[result]}` })]);
-        expect(JSON.stringify(people.listLog({ page: 1, pageSize: 50 }).rows)).not.toContain('secret words');
+        expect(JSON.stringify((await people.listLog({ page: 1, pageSize: 50 })).rows)).not.toContain('secret words');
       });
     }
 
@@ -540,7 +538,7 @@ describe('answering, end to end', () => {
       const m = await admin.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...report('Admin'), userName: 'Admin' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', SECRET).send({ result: 'took' });
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'respond_result')?.actor).toBe('Admin secret');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'respond_result')?.actor).toBe('Admin secret');
     });
 
     it('writes one respond_result row when the mod posts the same result for an answer twice (#327)', async () => {
@@ -551,7 +549,7 @@ describe('answering, end to end', () => {
       const post = () => request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${sent.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'took' });
       expect((await post()).status).toBe(200);
       expect((await post()).status).toBe(200);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
     });
 
     it('writes one respond_result row when the mod posts queued twice for a message (#327)', async () => {
@@ -562,7 +560,7 @@ describe('answering, end to end', () => {
       const post = (result: string) => request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result });
       expect((await post('queued')).status).toBe(200);
       expect((await post('queued')).status).toBe(200);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
     });
 
     it('still writes a row for each different result of one message, queued and then took (#327)', async () => {
@@ -573,7 +571,7 @@ describe('answering, end to end', () => {
       for (const result of ['queued', 'took']) {
         expect((await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result })).status).toBe(200);
       }
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
       expect(rows.map((r) => r.detail.split(': ')[1]).sort()).toEqual(['the session queued it', 'the session took it']);
     });
 
@@ -609,7 +607,7 @@ describe('answering, end to end', () => {
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const r = await request(app).post('/api/fleet/sessions/sess-ed/deliveries/dlv_nope/result').set('X-Podium-Token', ed.token).send({ result: 'took' });
       expect(r.status).toBe(404);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((x) => x.kind === 'respond_result')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((x) => x.kind === 'respond_result')).toEqual([]);
     });
 
     it('writes respond_dropped when the sender discards an answer before the session has it', async () => {
@@ -619,7 +617,7 @@ describe('answering, end to end', () => {
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
       expect(sent.status).toBe(202);
       expect((await b.delete(`/api/fleet/respond/deliveries/${sent.body.deliveryId}`).set(H)).status).toBe(200);
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Allowed a tool once in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: discarded by its sender, so it never reached the session` })]);
     });
 
@@ -629,7 +627,7 @@ describe('answering, end to end', () => {
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Denied a tool in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: the ask closed first, so it never reached the session` })]);
     });
 
@@ -640,7 +638,7 @@ describe('answering, end to end', () => {
       await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await request(app).get('/api/fleet/sessions/sess-ed/asks/toolu_t/answer?wait=1').set('X-Podium-Token', ed.token);
       await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     const ended = (): Report => ({ ...report('Ed'), session: { ...report('Ed').session, status: 'done' } });
@@ -652,7 +650,7 @@ describe('answering, end to end', () => {
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #326' });
       const clear = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: '/clear' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toHaveLength(2);
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
@@ -671,7 +669,7 @@ describe('answering, end to end', () => {
       const took = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'one' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${took.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'took' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     it('writes respond_dropped for a message still queued when the session ends, and not for one that later got took (#334)', async () => {
@@ -685,7 +683,7 @@ describe('answering, end to end', () => {
       await post(later.body.deliveryId, 'queued');
       await post(later.body.deliveryId, 'took');
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([
         expect.objectContaining({ actor: 'Ed', detail: `Sent a message in invoice-v2 (sess-ed) [${queued.body.deliveryId.slice(0, 12)}]: the session ended while it was still queued, so Podium cannot tell whether it was read` }),
       ]);
@@ -699,7 +697,7 @@ describe('answering, end to end', () => {
       const msg = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #333' });
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await fleet.deleteSession('sess-ed');
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
           `Sent a message in invoice-v2 (sess-ed) [${msg.body.deliveryId.slice(0, 12)}]: the session was deleted first, before any result came back`,
@@ -717,7 +715,7 @@ describe('answering, end to end', () => {
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'one' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'queued' });
       await fleet.deleteSession('sess-ed');
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     it('writes respond_dropped for what is still waiting when responding is turned off (#333)', async () => {
@@ -728,7 +726,7 @@ describe('answering, end to end', () => {
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
       fleet.features.setFeature('respond', false);
       await new Promise((r) => setImmediate(r)); // the delivery log line is written once the session's name has been read (#313)
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
           `Sent a message in invoice-v2 (sess-ed) [${msg.body.deliveryId.slice(0, 12)}]: responding was turned off first, before any result came back`,
@@ -747,7 +745,7 @@ describe('answering, end to end', () => {
       await request(app).get('/api/fleet/sessions/sess-ed/asks/toolu_t/answer?wait=1').set('X-Podium-Token', ed.token); // the mod has this answer; no result yet
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
       await fleet.deleteSession('sess-ed');
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toHaveLength(2);
       expect(new Set(rows.map((r) => r.detail.match(/\[(dlv_\w+)\]/)?.[1])).size).toBe(2);
     });
@@ -765,7 +763,7 @@ describe('answering, end to end', () => {
         expect(again.status).toBe(404);
         expect(again.body).toEqual({ ok: false, error: 'unknown delivery' });
       }
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(2);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(2);
     });
   });
 
@@ -833,20 +831,20 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('opens Admin, with no second sign-in, for an Administrator signed in to respond', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(401);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Priya');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Priya');
   });
 
   it('opens Admin for the admin secret signed in as Admin', async () => {
     const { app, people } = await setup();
     const agent = await signedIn(app, 'Admin', SECRET);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Admin secret');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Admin secret');
   });
 
   it('refuses an ordinary person, and a browser that is not signed in', async () => {
@@ -859,8 +857,8 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('stays locked after an explicit Lock Admin, until the person unlocks with a name and token or signs in again (#272)', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -876,9 +874,9 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('keeps the hold when a different Administrator unlocks Admin with their own name and token in that browser (#272)', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
-    const quinn = people.createPerson('Quinn', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
+    const quinn = await people.createPerson('Quinn', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -889,8 +887,8 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('lets a new sign-in to respond open Admin again after Lock Admin (#272)', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -901,8 +899,8 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('opens Admin from a sign-in made only for the Activity history: respond off, a keep policy on (#432)', async () => {
     const { app, fleet, people } = await setup({ respond: false });
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     // nothing needs a sign-in yet
     expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Priya', token: priya.token })).status).toBe(403);
     expect(fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
@@ -910,15 +908,15 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
     // an ordinary person is still refused
-    const eve = people.createPerson('Eve');
+    const eve = await people.createPerson('Eve');
     const ed = await signedIn(app, 'Eve', eve.token);
     expect((await ed.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
   });
 
   it('refuses it when respond is off and no keep policy is on, even for a sign-in made earlier (#432)', async () => {
     const { app, fleet, people } = await setup({ respond: false });
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     fleet.activityHistorySettings.set({ policy: 'all' });
     const agent = await signedIn(app, 'Priya', priya.token);
     fleet.activityHistorySettings.set({ policy: 'default' });
@@ -928,8 +926,8 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('does not hold another browser signed in as the same Administrator (#272)', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const laptop = await signedIn(app, 'Priya', priya.token);
     const desk = await signedIn(app, 'Priya', priya.token);
     expect((await laptop.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
@@ -939,11 +937,11 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
 
   it('refuses once the person has left Administrators, and without the Admin header', async () => {
     const { app, people } = await setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond')).status).toBe(403);
-    people.setGroup(priya.person.id, null);
+    await people.setGroup(priya.person.id, null);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
   });
 });

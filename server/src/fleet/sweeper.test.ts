@@ -1,10 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { openDb } from './db.js';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { forgetReporters, startSweeper } from './sweeper.js';
-import { PeopleStore } from './people.js';
-import { ReporterStore } from './reporters.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
@@ -298,25 +295,24 @@ describe('forgetting reporters by age (issue #167)', () => {
   });
 
   it('removes stale reporters when the setting is on, and logs what it removed to the Admin log', async () => {
-    const raw = openDb(':memory:');
-    const reporters = new ReporterStore(raw, T0);
-    const people = new PeopleStore(raw);
+    const storage = openSqliteStorage(':memory:', T0);
+    const { reporters, people } = storage;
     const seen = (id: string) => ({ kind: 'mod' as const, machineId: id, machineName: id, source: '1.1.1.1', owner: null, credential: null, version: '0.13.0', engineVersion: null, sessionId: id });
-    reporters.record(seen('old'), T0 - 40 * 86_400_000);
-    reporters.record(seen('new'), T0 - 86_400_000);
+    await reporters.record(seen('old'), T0 - 40 * 86_400_000);
+    await reporters.record(seen('new'), T0 - 86_400_000);
     const lines: string[] = [];
     const logger = { info: (_e: string, m: string) => lines.push(m) } as never;
     const LATER = T0 + 2 * 3_600_000;
-    forgetReporters(reporters, people, logger, LATER);
-    expect(reporters.list({}, T0).total).toBe(2); // off by default
-    reporters.setForgetSetting({ enabled: true, days: 30 });
-    forgetReporters(reporters, people, logger, LATER);
-    expect(reporters.list({}, T0).rows.map((r) => r.key)).toEqual(['new']);
-    expect(people.listLog({ page: 1, pageSize: 10 }).rows[0]).toMatchObject({ kind: 'reporters_forgotten', source: 'sweeper' });
-    expect(people.listLog({ page: 1, pageSize: 10 }).rows[0]!.detail).toContain('1 reporter');
+    await forgetReporters(storage, logger, LATER);
+    expect((await reporters.list({}, T0)).total).toBe(2); // off by default
+    await reporters.setForgetSetting({ enabled: true, days: 30 });
+    await forgetReporters(storage, logger, LATER);
+    expect((await reporters.list({}, T0)).rows.map((r) => r.key)).toEqual(['new']);
+    expect((await people.listLog({ page: 1, pageSize: 10 })).rows[0]).toMatchObject({ kind: 'reporters_forgotten', source: 'sweeper' });
+    expect((await people.listLog({ page: 1, pageSize: 10 })).rows[0]!.detail).toContain('1 reporter');
     expect(lines).toHaveLength(1);
-    forgetReporters(reporters, people, logger, LATER);
-    expect(people.listLog({ page: 1, pageSize: 10 }).total).toBe(1); // nothing removed, nothing logged
+    await forgetReporters(storage, logger, LATER);
+    expect((await people.listLog({ page: 1, pageSize: 10 })).total).toBe(1); // nothing removed, nothing logged
   });
 });
 

@@ -1,7 +1,7 @@
 // The 5-minute purge of session recordings (#353), as the sweeper runs it, and the scrub of what the server stores whole.
 import { describe, expect, it, vi } from 'vitest';
-import { openDb } from './db.js';
-import { PeopleStore } from './people.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { openActivityDb } from './activityDb.js';
 import { ActivityHistory } from './activityHistory.js';
 import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
@@ -15,8 +15,9 @@ const T0 = 1_800_000_000_000;
 const BODY = 'UNIQUE-RECORDED-TEXT-3318';
 
 function setup() {
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const activity = openActivityDb(':memory:');
   const clock = { now: T0 };
   const settings = new ActivityHistorySettingsStore(db, true);
@@ -39,20 +40,20 @@ function setup() {
   return { rec, people, history, clock, info, logger };
 }
 
-const rows = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 50 }).rows;
+const rows = async (people: PeopleStoreApi) => (await people.listLog({ page: 1, pageSize: 50 })).rows;
 
 describe('purgeRecordings', () => {
   it('is silent when nothing is older than the keep time', async () => {
     const { rec, people, logger, info } = setup();
     await purgeRecordings(rec, people, logger, T0 + HOUR_MS);
-    expect(rows(people)).toEqual([]);
+    expect(await rows(people)).toEqual([]);
     expect(info).not.toHaveBeenCalled();
   });
 
   it('writes one Admin log row and one log line for a run that removed something, with counts and never text', async () => {
     const { rec, people, logger, info } = setup();
     await purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
-    const log = rows(people);
+    const log = await rows(people);
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ kind: 'recording_purged', actor: null });
     expect(log[0]!.detail).toMatch(/^1 entry \(.+\) removed from 1 recording$/);
@@ -65,7 +66,7 @@ describe('purgeRecordings', () => {
     const first = purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
     await purgeRecordings(rec, people, logger, T0 + 7 * HOUR_MS);
     await first;
-    expect(rows(people)).toHaveLength(1);
+    expect(await rows(people)).toHaveLength(1);
     // and it can run again afterwards, also after a failure
     vi.spyOn(rec, 'purge').mockRejectedValueOnce(new Error('locked'));
     await expect(purgeRecordings(rec, people, logger, T0)).rejects.toThrow('locked');
@@ -79,7 +80,7 @@ describe('purgeStored', () => {
     const purged = vi.spyOn(history, 'purge');
     await purgeStored(history, rec, people, logger, T0 + 7 * HOUR_MS);
     expect(purged).toHaveBeenCalled();
-    expect(rows(people).map((r) => r.kind)).toEqual(['recording_purged']);
+    expect((await rows(people)).map((r) => r.kind)).toEqual(['recording_purged']);
     const recPurge = vi.spyOn(rec, 'purge').mockRejectedValue(new Error('locked'));
     await expect(purgeStored(history, rec, people, logger, T0)).rejects.toThrow('locked');
     expect(purged).toHaveBeenCalledTimes(2);

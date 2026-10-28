@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
@@ -35,16 +35,16 @@ async function setup(opts: { secret?: string | null; flag?: boolean } = {}) {
   const lines: string[] = [];
   const logger = loggerFromLine((l) => lines.push(l));
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => clock.now, logger, { authOn: secret !== null, secret });
-  const people = new PeopleStore(db);
+  const people = storage.people;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), logger }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) fleet.features.setFeature('session-recording', true);
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
-  const boss = people.createPerson('Boss');
-  people.setGroup(boss.person.id, people.administratorsGroupId());
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
+  const boss = await people.createPerson('Boss');
+  await people.setGroup(boss.person.id, await people.administratorsGroupId());
   return { app, fleet, people, clock, lines, ed, alex, boss };
 }
 
@@ -80,8 +80,8 @@ async function chosen(over: Parameters<typeof setup>[0] = {}, loops = [MAIN_LOOP
   return { ...s, a };
 }
 
-const logRows = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 100 }).rows;
-const kinds = (people: PeopleStore) => logRows(people).map((r) => r.kind);
+const logRows = async (people: PeopleStoreApi) => (await people.listLog({ page: 1, pageSize: 100 })).rows;
+const kinds = async (people: PeopleStoreApi) => (await logRows(people)).map((r) => r.kind);
 
 describe('the report reply carries the consent', () => {
   it('says off, with the Admin answer, while the flag is off', async () => {
@@ -216,7 +216,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     expect(res.body).toMatchObject({ ok: true, stored: 2, recording: { state: 'limit', limit: 'session', loops: [] } });
     expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'limit', limit: 'session' });
     expect((await post(app, ed.token, batch(entry(MAIN_LOOP, 4)))).status).toBe(403);
-    expect(logRows(people).find((r) => r.kind === 'recording_limit')?.detail).toMatch(/stopped: the session reached its limit/);
+    expect((await logRows(people)).find((r) => r.kind === 'recording_limit')?.detail).toMatch(/stopped: the session reached its limit/);
   });
 
   it('keeps no text in a log line or the Admin log', async () => {
@@ -225,7 +225,7 @@ describe('POST /sessions/:id/recording (the mod)', () => {
     await a.get(BASE);
     await post(app, ed.token, batch(entry(MAIN_LOOP, 2, 'x', { kind: 'stopped' })));
     expect(lines.join('\n')).not.toContain(BODY);
-    expect(JSON.stringify(logRows(people))).not.toContain(BODY);
+    expect(JSON.stringify(await logRows(people))).not.toContain(BODY);
   });
 });
 
@@ -299,14 +299,14 @@ describe('PUT /respond/sessions/:id/recording (start)', () => {
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.body.grant).toMatchObject({ state: 'recording', consent: { admin: true, chosen: true, owner: false }, loops: [MAIN_LOOP, 'a1'], startedBy: 'Ed' });
-    const row = logRows(s.people).find((r) => r.kind === 'recording_started');
+    const row = (await logRows(s.people)).find((r) => r.kind === 'recording_started');
     expect(row).toMatchObject({ actor: 'Ed' });
     expect(row?.detail).toContain('Ed chose to record 2 loops');
     const view = (await request(s.app).get(`/api/fleet/sessions/${SID}`)).body.recording;
     expect(view).toMatchObject({ state: 'recording', startedBy: 'Ed', ownerAllows: false });
     expect(view.loops.filter((l: { recorded: boolean }) => l.recorded).map((l: { loop: string }) => l.loop)).toEqual([MAIN_LOOP, 'a1']);
     expect((await a.put(BASE).set(H).send({ loops: [MAIN_LOOP] })).body.grant.loops).toEqual([MAIN_LOOP]);
-    expect(logRows(s.people).find((r) => r.kind === 'recording_started' && r.detail.includes('1 loop'))).toBeTruthy();
+    expect((await logRows(s.people)).find((r) => r.kind === 'recording_started' && r.detail.includes('1 loop'))).toBeTruthy();
   });
 
   it('refuses a body that is not 1 or more loop ids, and a loop the session does not have', async () => {
@@ -408,17 +408,17 @@ describe('GET /respond/sessions/:id/recording (the replay)', () => {
     await a.get(BASE);
     await a.get(`${BASE}?before=3`);
     await a.get(`${BASE}?before=3&limit=1`);
-    const reads = () => logRows(people).filter((r) => r.kind === 'recording_read');
-    expect(reads()).toHaveLength(1);
-    expect(reads()[0]).toMatchObject({ actor: 'Ed' });
-    expect(reads()[0]!.detail).toContain('Ed opened the replay');
+    const reads = async () => (await logRows(people)).filter((r) => r.kind === 'recording_read');
+    expect(await reads()).toHaveLength(1);
+    expect((await reads())[0]).toMatchObject({ actor: 'Ed' });
+    expect((await reads())[0]!.detail).toContain('Ed opened the replay');
     const b = await signedIn(app, 'Boss', boss.token);
     await b.get(`${BASE}?loop=${MAIN_LOOP}`);
     await b.get(`${BASE}?loop=a1`);
-    expect(reads()).toHaveLength(3);
-    expect(reads()[0]!.detail).toContain('Boss opened the replay of one agent'); // newest first
-    expect(reads()[1]!.detail).toContain('of the orchestrator');
-    expect(JSON.stringify(logRows(people))).not.toContain(BODY);
+    expect(await reads()).toHaveLength(3);
+    expect((await reads())[0]!.detail).toContain('Boss opened the replay of one agent'); // newest first
+    expect((await reads())[1]!.detail).toContain('of the orchestrator');
+    expect(JSON.stringify(await logRows(people))).not.toContain(BODY);
   });
 
   it('works for a session that has ended and after the flag went off for the owner of nothing else', async () => {
@@ -438,7 +438,7 @@ describe('POST …/stop and DELETE …', () => {
     expect(res.status).toBe(200);
     expect(res.body.grant).toMatchObject({ state: 'stopped', stoppedBy: 'Ed' });
     expect((await a.post(`${BASE}/stop`).set(H)).body.grant.state).toBe('stopped');
-    expect(logRows(people).filter((r) => r.kind === 'recording_stopped')).toHaveLength(1);
+    expect((await logRows(people)).filter((r) => r.kind === 'recording_stopped')).toHaveLength(1);
     const page = (await a.get(BASE)).body;
     expect(page.entries.map((e: { kind: string }) => e.kind)).toEqual(['tool', 'stopped']);
     expect(page.entries[1].by).toBe('Ed');
@@ -459,7 +459,7 @@ describe('POST …/stop and DELETE …', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ ok: true, entries: 2 });
     expect(res.body.bytes).toBeGreaterThan(0);
-    expect(logRows(people).find((r) => r.kind === 'recording_deleted')?.detail).toContain('Ed deleted the recording (2 entries');
+    expect((await logRows(people)).find((r) => r.kind === 'recording_deleted')?.detail).toContain('Ed deleted the recording (2 entries');
     expect((await post(app, ed.token, batch(entry(MAIN_LOOP, 3)))).status).toBe(403);
     expect((await fleet.view(SID))?.recording).toBeUndefined();
     expect((await a.get(BASE)).status).toBe(404);
@@ -481,7 +481,7 @@ describe('what the server does on its own is logged', () => {
     fleet.features.setFeature('session-recording', false);
     expect(fleet.recordings.stateFor(SID)).toBe('stopped');
     expect((await fleet.view(SID))?.recording).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
-    expect(logRows(people).find((r) => r.kind === 'recording_stopped')?.detail).toContain('the Admin turned session recording off');
+    expect((await logRows(people)).find((r) => r.kind === 'recording_stopped')?.detail).toContain('the Admin turned session recording off');
     fleet.features.setFeature('session-recording', true);
     expect(fleet.recordings.page(SID, null, 10, null).entries.map((e) => e.kind)).toEqual(['tool', 'stopped']);
   });
@@ -491,7 +491,7 @@ describe('what the server does on its own is logged', () => {
     const next = report(true, { id: 'sess-new', clearedFrom: SID });
     expect((await send(app, ed.token, next)).body.recording).toMatchObject({ state: 'recording', loops: [MAIN_LOOP], startedBy: 'Ed', consent: { chosen: true, owner: true } });
     expect(fleet.recordings.stateFor(SID)).toBe('stopped');
-    expect(logRows(people).find((r) => r.kind === 'recording_started' && r.detail.includes('continues after /clear'))).toBeTruthy();
+    expect((await logRows(people)).find((r) => r.kind === 'recording_started' && r.detail.includes('continues after /clear'))).toBeTruthy();
   });
 
   it('a failing carry-over is logged and does not refuse the report', async () => {

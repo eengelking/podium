@@ -3,8 +3,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb } from '../fleet/db.js';
-import { PeopleStore } from '../fleet/people.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { openActivityDb } from '../fleet/activityDb.js';
 import { ActivityHistory } from '../fleet/activityHistory.js';
 import { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
@@ -19,8 +18,9 @@ const T0 = 1_800_000_000_000;
 const BODY = 'UNIQUE-RECORDED-TEXT-9042';
 
 function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const settings = new RecordingSettingsStore(db);
   const activity = openActivityDb(':memory:');
   const service = new SessionRecordings(activity, {
@@ -39,6 +39,7 @@ function setup(over: { withRecordings?: boolean; withHistory?: boolean } = {}) {
     '/api/admin',
     createAdminRouter({
       secret: SECRET,
+      storage,
       people,
       now: () => T0,
       log: () => {},
@@ -63,7 +64,7 @@ function record(service: SessionRecordings, id: string, over: { owner?: string; 
   service.ingest(id, { v: 1, sentAt: T0, entries });
 }
 
-const logRows = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 100 }).rows;
+const logRows = async (people: SqliteStorage['people']) => (await people.listLog({ page: 1, pageSize: 100 })).rows;
 
 describe('GET and PUT /settings carry session recording', () => {
   it('reads the limits, the totals and whether a token is set', async () => {
@@ -87,7 +88,7 @@ describe('GET and PUT /settings carry session recording', () => {
     expect(res.status).toBe(200);
     expect(res.body.recording.settings).toEqual({ keepHours: 12, budgetMb: 4096, sessionMb: 128 });
     expect(settings.get()).toEqual({ keepHours: 12, budgetMb: 4096, sessionMb: 128 });
-    const row = logRows(people).find((r) => r.kind === 'recording_settings_changed');
+    const row = (await logRows(people)).find((r) => r.kind === 'recording_settings_changed');
     expect(row?.detail).toBe('Session recording limits: kept 6 to 12 hours, disk budget 4096 to 4096 MB, one session 512 to 128 MB');
     expect(row?.actor).toBe('Admin secret');
   });
@@ -178,25 +179,25 @@ describe('POST /recordings/:id/stop and DELETE /recordings/:id', () => {
     expect(res.status).toBe(200);
     expect(res.body.grant).toMatchObject({ state: 'stopped', stoppedBy: 'Admin' });
     expect(changed).toHaveBeenCalledWith('s1');
-    const stopped = logRows(people).filter((r) => r.kind === 'recording_stopped');
+    const stopped = (await logRows(people)).filter((r) => r.kind === 'recording_stopped');
     expect(stopped).toHaveLength(1);
     expect(stopped[0]).toMatchObject({ actor: 'Admin secret' });
     expect((await agent.post('/api/admin/recordings/s1/stop').set(H)).status).toBe(200);
-    expect(logRows(people).filter((r) => r.kind === 'recording_stopped')).toHaveLength(1);
+    expect((await logRows(people)).filter((r) => r.kind === 'recording_stopped')).toHaveLength(1);
     expect(changed).toHaveBeenCalledTimes(1);
     expect((await agent.post('/api/admin/recordings/nope/stop').set(H)).status).toBe(404);
   });
 
   it('names the administrator who stopped it on the mark', async () => {
     const s = setup();
-    const boss = s.people.createPerson('Boss');
-    s.people.setGroup(boss.person.id, s.people.administratorsGroupId());
+    const boss = await s.people.createPerson('Boss');
+    await s.people.setGroup(boss.person.id, await s.people.administratorsGroupId());
     const agent = request.agent(s.app);
     expect((await agent.post('/api/admin/unlock').set(H).send({ name: 'Boss', token: boss.token })).status).toBe(200);
     record(s.service, 's1');
     await agent.post('/api/admin/recordings/s1/stop').set(H);
     expect(s.service.page('s1', null, 10, null).entries.at(-1)).toMatchObject({ kind: 'stopped', by: 'Boss' });
-    expect(logRows(s.people).find((r) => r.kind === 'recording_stopped')).toMatchObject({ actor: 'Boss' });
+    expect((await logRows(s.people)).find((r) => r.kind === 'recording_stopped')).toMatchObject({ actor: 'Boss' });
   });
 
   it('deletes any session\'s recording for good, logs the counts, and tells open consoles', async () => {
@@ -207,10 +208,10 @@ describe('POST /recordings/:id/stop and DELETE /recordings/:id', () => {
     expect(res.body).toMatchObject({ ok: true, entries: 2 });
     expect(service.has('s1')).toBe(false);
     expect(changed).toHaveBeenCalledWith('s1');
-    const row = logRows(people).find((r) => r.kind === 'recording_deleted');
+    const row = (await logRows(people)).find((r) => r.kind === 'recording_deleted');
     expect(row?.detail).toBe(`Deleted the recording of name-s1 (s1): 2 entries, ${row?.detail.split(', ')[1]}`);
     expect(row).toMatchObject({ actor: 'Admin secret' });
-    expect(JSON.stringify(logRows(people))).not.toContain(BODY);
+    expect(JSON.stringify(await logRows(people))).not.toContain(BODY);
     expect((await agent.delete('/api/admin/recordings/s1').set(H)).status).toBe(404);
   });
 
@@ -260,8 +261,8 @@ describe('Stored activity with Source = Recordings', () => {
     expect(res.body).toMatchObject({ entries: 4, sessions: 2 });
     expect(service.has('s1') || service.has('s2')).toBe(false);
     expect(service.has('s3')).toBe(true);
-    expect(logRows(people).filter((r) => r.kind === 'recording_deleted')).toHaveLength(2);
-    expect(logRows(people).some((r) => r.kind === 'activity_deleted')).toBe(false);
+    expect((await logRows(people)).filter((r) => r.kind === 'recording_deleted')).toHaveLength(2);
+    expect((await logRows(people)).some((r) => r.kind === 'activity_deleted')).toBe(false);
     expect(changed).toHaveBeenCalledTimes(2);
   });
 

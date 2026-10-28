@@ -2,10 +2,8 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openSqliteStorage } from '../storage/sqlite/index.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
-import { ReporterStore } from './reporters.js';
 import { createFleetRouter } from './routes.js';
 import { ReporterTransport } from '../tlsHttp.js';
 import { fixtureReport } from './testing.js';
@@ -17,11 +15,10 @@ afterEach(() => {
 
 async function setup(adminSecret: string | null = 'admin-secret') {
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
   await fleet.init();
-  const people = new PeopleStore(db);
-  const reporters = new ReporterStore(db, 0);
+  const people = storage.people;
+  const reporters = storage.reporters;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: adminSecret, people, reporters, log: () => {} }));
   closers.push(() => fleet.close());
@@ -33,38 +30,38 @@ function report(over: Record<string, unknown> = {}, id = 'sess-1') {
   r.session = { ...r.session, id };
   return { ...r, ...over };
 }
-const list = (reporters: ReporterStore) => reporters.list({}, Date.now()).rows;
+const list = async (reporters: SqliteStorage['reporters']) => (await reporters.list({}, Date.now())).rows;
 
 describe('recording reporters', () => {
   it('records a named reporter on its machine id, with the key id of its token and never the token', async () => {
     const { app, people, reporters } = await setup();
-    const { token, person } = people.createPerson('Dana');
+    const { token, person } = await people.createPerson('Dana');
     const res = await request(app)
       .post('/api/fleet/report')
       .set('X-Podium-Token', token)
       .send(report({ userName: 'Dana', machine: { name: 'studio-m2', id: '9f3a1c7d2e40' } }));
     expect(res.status).toBe(200);
-    const d = reporters.get('9f3a1c7d2e40', Date.now())!;
+    const d = await reporters.get('9f3a1c7d2e40', Date.now())!;
     expect(d).toMatchObject({ name: 'studio-m2', who: 'Dana', credential: `pdm_${person.keyId}`, sessions: 1 });
     expect(JSON.stringify(d)).not.toContain(token);
   });
 
   it('lists both accounts that report from one machine id, and an ignore rule on the machine id turns both away (#221)', async () => {
     const { app, people, reporters } = await setup();
-    const ana = people.createPerson('Ana');
-    const ben = people.createPerson('Ben');
+    const ana = await people.createPerson('Ana');
+    const ben = await people.createPerson('Ben');
     const machine = { name: 'shared-mac', id: 'abababababab' };
     const send = (who: { token: string }, name: string, id: string) =>
       request(app).post('/api/fleet/report').set('X-Podium-Token', who.token).send(report({ userName: name, machine }, id));
     expect((await send(ana, 'Ana', 'a-1')).status).toBe(200);
     expect((await send(ben, 'Ben', 'b-1')).status).toBe(200);
     expect((await send(ana, 'Ana', 'a-2')).status).toBe(200);
-    const rows = reporters.list({ sort: 'who' }, Date.now()).rows;
+    const rows = (await reporters.list({ sort: 'who' }, Date.now())).rows;
     expect(rows.map((r) => [r.who, r.credential, r.sessions])).toEqual([
       ['Ana', `pdm_${ana.person.keyId}`, 2],
       ['Ben', `pdm_${ben.person.keyId}`, 1],
     ]);
-    reporters.addIgnore('key', machine.id, Date.now());
+    await reporters.addIgnore('key', machine.id, Date.now());
     expect((await send(ana, 'Ana', 'a-3')).status).toBe(403);
     expect((await send(ben, 'Ben', 'b-2')).status).toBe(403);
   });
@@ -72,7 +69,7 @@ describe('recording reporters', () => {
   it('matches a reporter that sends no machine id by its address, and labels the admin secret', async () => {
     const { app, reporters } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report());
-    const d = reporters.get(list(reporters)[0]!.key, Date.now())!;
+    const d = (await reporters.get((await list(reporters))[0]!.key, Date.now()))!;
     expect(d.key.startsWith('addr:')).toBe(true);
     expect(d).toMatchObject({ who: 'Admin', credential: 'admin secret', machineId: null });
     expect(JSON.stringify(d)).not.toContain('"admin-secret"');
@@ -86,7 +83,7 @@ describe('recording reporters', () => {
       .set('X-Podium-Token', 'admin-secret')
       .send({ ...base, reporter: { ...base.reporter, hostSurface: 'simulator' } });
     expect(res.status).toBe(200);
-    expect(list(reporters)).toHaveLength(0);
+    expect(await list(reporters)).toHaveLength(0);
     expect(await fleet.view('sess-1')).toBeTruthy();
   });
 
@@ -96,16 +93,16 @@ describe('recording reporters', () => {
       .post('/api/fleet/hook')
       .send({ session_id: 'hk-1', transcript_path: '/Users/dev/.claude/projects/x/hk-1.jsonl', cwd: '/Users/dev/x', permission_mode: 'default', hook_event_name: 'SessionStart', source: 'startup', model: 'claude-sonnet-5-5' });
     expect(res.status).toBe(200);
-    expect(list(reporters)).toMatchObject([{ name: 'Hooks only', version: 'hooks', compat: 'unknown', who: 'Unassigned' }]);
+    expect(await list(reporters)).toMatchObject([{ name: 'Hooks only', version: 'hooks', compat: 'unknown', who: 'Unassigned' }]);
   });
 
   it('records nothing for a refused report, and keeps the refusal for its address', async () => {
     const { app, reporters } = await setup();
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'wrong').send(report())).status).toBe(401);
     expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send({ nope: 1 })).status).toBe(400);
-    expect(list(reporters)).toHaveLength(0);
+    expect(await list(reporters)).toHaveLength(0);
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report());
-    const d = reporters.get(list(reporters)[0]!.key, Date.now())!;
+    const d = (await reporters.get((await list(reporters))[0]!.key, Date.now()))!;
     expect(d.rejected.map((x) => x.reason)[1]).toBe('wrong token');
     expect(d.rejected).toHaveLength(2);
   });
@@ -114,7 +111,7 @@ describe('recording reporters', () => {
 describe('ignored reporters (issue #167)', () => {
   it('refuses a report from an ignored reporter, stores nothing, and records the refusal', async () => {
     const { app, reporters, fleet } = await setup();
-    reporters.addIgnore('key', '9f3a1c7d2e40', Date.now());
+    await reporters.addIgnore('key', '9f3a1c7d2e40', Date.now());
     const res = await request(app)
       .post('/api/fleet/report')
       .set('X-Podium-Token', 'admin-secret')
@@ -122,22 +119,22 @@ describe('ignored reporters (issue #167)', () => {
     expect(res.status).toBe(403);
     expect(res.body).toMatchObject({ ok: false, error: 'this reporter is ignored by the Admin' });
     expect(await fleet.view('sess-1')).toBeUndefined();
-    expect(list(reporters)).toHaveLength(0);
+    expect(await list(reporters)).toHaveLength(0);
   });
 
   it('refuses by version pattern, and lets a reporter through once its rule is removed', async () => {
     const { app, reporters } = await setup();
-    const rule = reporters.addIgnore('version', '*.*.*', Date.now());
+    const rule = await reporters.addIgnore('version', '*.*.*', Date.now());
     const send = () => request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(report());
     expect((await send()).status).toBe(403);
-    reporters.removeIgnore(rule.id);
+    await reporters.removeIgnore(rule.id);
     expect((await send()).status).toBe(200);
-    expect(list(reporters)).toHaveLength(1);
+    expect(await list(reporters)).toHaveLength(1);
   });
 
   it('refuses a settings hook from an ignored address', async () => {
     const { app, reporters, fleet } = await setup();
-    reporters.addIgnore('address', '*1', Date.now());
+    await reporters.addIgnore('address', '*1', Date.now());
     const res = await request(app).post('/api/fleet/hook').set('X-Podium-Token', 'admin-secret').send({ session_id: 'h1', hook_event_name: 'SessionStart', cwd: '/x' });
     expect(res.status).toBe(403);
     expect(await fleet.view('h1')).toBeUndefined();
@@ -147,14 +144,13 @@ describe('ignored reporters (issue #167)', () => {
 describe('the transport a reporter used (#589)', () => {
   it('counts a report and a hook that came over plain HTTP from beyond loopback, and not one from loopback', async () => {
     const storage = openSqliteStorage(':memory:');
-    const db = storage.sqliteHandle;
     const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
     await fleet.init();
     closers.push(() => fleet.close());
     const transport = new ReporterTransport();
     const app = express();
     app.set('trust proxy', true);
-    app.use('/api/fleet', createFleetRouter(fleet, { token: null, people: new PeopleStore(db), reporters: new ReporterStore(db, 0), log: () => {}, transport }));
+    app.use('/api/fleet', createFleetRouter(fleet, { token: null, people: storage.people, reporters: storage.reporters, log: () => {}, transport }));
     // The gate never refuses loopback, so a reporter there is not one the switch would cut off.
     expect((await request(app).post('/api/fleet/report').send(report({ machine: { name: 'local', id: 'aaaa11112222' } }))).status).toBe(200);
     expect(transport.count(Date.now())).toEqual({ overHttp: 0, total: 1 });

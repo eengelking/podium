@@ -4,7 +4,6 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
@@ -26,15 +25,15 @@ async function setup(opts: { secret?: string | null; fileDiff?: boolean } = {}) 
   const db = storage.sqliteHandle;
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
   await fleet.init();
-  const people = new PeopleStore(db);
+  const people = storage.people;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
   closers.push(() => fleet.close());
   if (opts.fileDiff !== false) fleet.features.setFeature('file-diff', true);
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
-  const boss = people.createPerson('Boss');
-  people.setGroup(boss.person.id, people.administratorsGroupId());
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
+  const boss = await people.createPerson('Boss');
+  await people.setGroup(boss.person.id, await people.administratorsGroupId());
   return { app, fleet, people, db, ed, alex, boss };
 }
 
@@ -154,7 +153,7 @@ describe('the round trip', () => {
     const id = reply.body.diffs[0].id as string;
 
     // Only the owner's credential may answer.
-    const alex = people.createPerson('Mallory');
+    const alex = await people.createPerson('Mallory');
     expect((await request(app).put(`/api/fleet/sessions/sess-ed/diffs/${id}`).set('X-Podium-Token', alex.token).send(okReply)).status).toBe(403);
     const put = await request(app).put(`/api/fleet/sessions/sess-ed/diffs/${id}`).set('X-Podium-Token', ed.token).send(okReply);
     expect(put.status).toBe(200);
@@ -174,7 +173,7 @@ describe('the round trip', () => {
       await fleet.state(),
     ]);
     expect(everything.includes('UNIQUE-DIFF-LINE-9137')).toBe(false);
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'file_diff_opened');
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'file_diff_opened');
     expect(log).toMatchObject({ actor: 'Ed' });
     expect(log!.detail).toContain('src/a.ts');
   });
@@ -255,7 +254,7 @@ describe('loading ahead (#631)', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect((await answerNext(app, ed.token)).status).toBe(200);
     expect((await waiting).status).toBe(200);
-    const rows = people.listLog({ page: 1, pageSize: 50 }).rows;
+    const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows;
     expect(rows.find((r) => r.kind === 'file_diff_opened')).toBeUndefined();
     const log = rows.find((r) => r.kind === 'file_diff_loaded');
     expect(log).toMatchObject({ actor: 'Ed' });
@@ -267,7 +266,7 @@ describe('loading ahead (#631)', () => {
     await send(app, ed.token, report('Ed', { fileDiffPreload: true }));
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.post(OPENED_URL).set(H).send({ path: 'src/a.ts' })).status).toBe(204);
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'file_diff_opened');
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'file_diff_opened');
     expect(log).toMatchObject({ actor: 'Ed' });
     expect(log!.detail).toContain('src/a.ts');
     const other = await signedIn(app, 'Alex', alex.token);

@@ -6,8 +6,8 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDb } from './fleet/db.js';
-import { PeopleStore } from './fleet/people.js';
+import { openSqliteStorage } from './storage/sqlite/index.js';
+import type { PeopleStoreApi } from './storage/types.js';
 import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
 import { certAuth, PersonCertStore, type ClientSocket } from './tlsClientAuth.js';
@@ -30,16 +30,18 @@ const NOW = () => Date.now();
 /** A real mutual-TLS listener (#665) whose reporter route answers with what `certAuth` makes of the connection's certificate. */
 async function setup() {
   const root = tmp();
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  cleanup.push(() => storage.close());
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const certs = new PersonCertStore(db);
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
   let issuers: string[] = [];
   let clock = NOW;
   const app = express();
-  app.get('/api/fleet/sessions/s1/peers', (req, res) => {
-    const a = certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => issuers, now: () => clock() });
+  app.get('/api/fleet/sessions/s1/peers', async (req, res) => {
+    const a = await certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => issuers, now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
   const dbPath = path.join(root, 'podium.sqlite');
@@ -49,7 +51,7 @@ async function setup() {
   issuers = [l.material.ca.fingerprintSha256];
   const dir = path.join(root, 'tls');
   const issueFor = async (name: string, days?: number) => {
-    const { person } = people.createPerson(name);
+    const { person } = await people.createPerson(name);
     const issued = await issuePersonCert({ dir, keyId: person.keyId, days });
     certs.replace(person.id, issued, NOW());
     return { person, issued };
@@ -170,7 +172,7 @@ describe('PersonCertStore', () => {
   it('deleting the person deletes their certificates', async () => {
     const s = await setup();
     const { person } = await s.issueFor('Dana');
-    s.people.deleteMany([person.id]);
+    await s.people.deleteMany([person.id]);
     expect(s.certs.listFor(person.id)).toEqual([]);
   });
 
@@ -242,7 +244,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
 
   it('refuses a certificate the CA signed that Podium has no record of', async () => {
     const s = await setup();
-    const { person } = s.people.createPerson('Ghost');
+    const { person } = await s.people.createPerson('Ghost');
     const stray = await issuePersonCert({ dir: s.dir, keyId: person.keyId });
     expect(await s.get({ cert: stray.cert, key: stray.key })).toEqual({ kind: 'refused', reason: 'client certificate is not one Podium issued' });
   });
@@ -261,7 +263,7 @@ describe('certAuth on a real mutual-TLS listener', () => {
   it('refuses a live certificate whose person is revoked, even when its row was not', async () => {
     const s = await setup();
     const { person, issued } = await s.issueFor('Dana');
-    expect(s.people.revoke(person.id, NOW())).toBe(true);
+    expect(await s.people.revoke(person.id, NOW())).toBe(true);
     expect(s.certs.current(person.id)).toBeDefined();
     expect(await s.get({ cert: issued.cert, key: issued.key })).toEqual({ kind: 'refused', reason: 'client certificate was revoked' });
   });
@@ -287,15 +289,15 @@ describe('certAuth on a real mutual-TLS listener', () => {
 });
 
 describe('certAuth with a stand-in socket', () => {
-  const deps = { certs: {} as PersonCertStore, people: {} as PeopleStore, trustedIssuers: () => [], now: NOW };
-  it('treats plain HTTP and a certificate-less handshake as none', () => {
-    expect(certAuth({}, deps)).toEqual({ kind: 'none' });
-    expect(certAuth({ encrypted: true, getPeerCertificate: () => ({}) }, deps)).toEqual({ kind: 'none' });
+  const deps = { certs: {} as PersonCertStore, people: {} as PeopleStoreApi, trustedIssuers: () => [], now: NOW };
+  it('treats plain HTTP and a certificate-less handshake as none', async () => {
+    expect(await certAuth({}, deps)).toEqual({ kind: 'none' });
+    expect(await certAuth({ encrypted: true, getPeerCertificate: () => ({}) }, deps)).toEqual({ kind: 'none' });
   });
-  it('refuses an unauthorized certificate and says why, in words or from an Error', () => {
-    expect(certAuth({ encrypted: true, authorized: false, authorizationError: 'DEPTH_ZERO_SELF_SIGNED_CERT', getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: DEPTH_ZERO_SELF_SIGNED_CERT' });
-    expect(certAuth({ encrypted: true, authorized: false, authorizationError: new Error('bad'), getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: bad' });
-    expect(certAuth({ encrypted: true, getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: unverified' });
+  it('refuses an unauthorized certificate and says why, in words or from an Error', async () => {
+    expect(await certAuth({ encrypted: true, authorized: false, authorizationError: 'DEPTH_ZERO_SELF_SIGNED_CERT', getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: DEPTH_ZERO_SELF_SIGNED_CERT' });
+    expect(await certAuth({ encrypted: true, authorized: false, authorizationError: new Error('bad'), getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: bad' });
+    expect(await certAuth({ encrypted: true, getPeerCertificate: () => ({ fingerprint256: 'AA' }) }, deps)).toEqual({ kind: 'refused', reason: 'client certificate not accepted: unverified' });
   });
 });
 
@@ -305,15 +307,16 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     return { cert: 'pem', key: '', info, issuerFingerprint: issuer };
   };
   const store = () => {
-    const db = openDb(':memory:');
-    return { people: new PeopleStore(db), certs: new PersonCertStore(db) };
+    const storage = openSqliteStorage(':memory:');
+    cleanup.push(() => storage.close());
+    return { people: storage.people, certs: new PersonCertStore(storage.sqliteHandle) };
   };
 
-  it('counts each person once, by their newest live certificate', () => {
+  it('counts each person once, by their newest live certificate', async () => {
     const { people, certs } = store();
-    const a = people.createPerson('A').person;
-    const b = people.createPerson('B').person;
-    const c = people.createPerson('C').person;
+    const a = (await people.createPerson('A')).person;
+    const b = (await people.createPerson('B')).person;
+    const c = (await people.createPerson('C')).person;
     const future = Date.now() + 86_400_000;
     certs.replace(a.id, issued('old', '1', future), 1000);
     certs.replace(b.id, issued('old', '2', future), 1000);
@@ -323,11 +326,11 @@ describe('PersonCertStore.reportersByIssuer (#588)', () => {
     expect(certs.reportersByIssuer(Date.now())).toEqual({ total: 3, byIssuer: { old: 1, new: 2 } });
   });
 
-  it('leaves out a revoked certificate and one that ended before the cutoff', () => {
+  it('leaves out a revoked certificate and one that ended before the cutoff', async () => {
     const { people, certs } = store();
-    const a = people.createPerson('A').person;
-    const b = people.createPerson('B').person;
-    const c = people.createPerson('C').person;
+    const a = (await people.createPerson('A')).person;
+    const b = (await people.createPerson('B')).person;
+    const c = (await people.createPerson('C')).person;
     const now = Date.now();
     certs.replace(a.id, issued('old', '1', now + 1000), 1000);
     certs.revokeFor(a.id, 'revoked', 2000);

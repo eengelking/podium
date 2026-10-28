@@ -5,7 +5,6 @@ import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
@@ -30,16 +29,16 @@ async function setup(opts: { secret?: string | null; policy?: 'default' | 'after
   const storage = openSqliteStorage(':memory:');
   const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => T0, undefined, { authOn: secret !== null });
   await fleet.init();
-  const people = new PeopleStore(storage.sqliteHandle);
+  const people = storage.people;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
   closers.push(() => fleet.close());
   fleet.features.setFeature('activity-feed', true);
   if (opts.policy && opts.policy !== 'default') fleet.activityHistorySettings.set({ policy: opts.policy });
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
-  const boss = people.createPerson('Boss');
-  people.setGroup(boss.person.id, people.administratorsGroupId());
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
+  const boss = await people.createPerson('Boss');
+  await people.setGroup(boss.person.id, await people.administratorsGroupId());
   return { app, fleet, people, ed, alex, boss };
 }
 

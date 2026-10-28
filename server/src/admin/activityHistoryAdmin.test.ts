@@ -2,8 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb } from '../fleet/db.js';
-import { PeopleStore } from '../fleet/people.js';
+import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { openActivityDb } from '../fleet/activityDb.js';
 import { ActivityHistory } from '../fleet/activityHistory.js';
 import { ActivityHistorySettingsStore } from '../fleet/activityHistorySettings.js';
@@ -18,12 +17,13 @@ const T0 = 1_800_000_000_000;
 const SECRET_TEXT = 'UNIQUE-ENTRY-TEXT-5521';
 
 function setup(over: { withHistory?: boolean; onChanged?: () => void } = {}) {
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const people = storage.people;
   const settings = new ActivityHistorySettingsStore(db, true);
   const history = new ActivityHistory(openActivityDb(':memory:'), { now: () => T0, settings: () => settings.get(), isLive: () => false, authOn: true });
   const app = express();
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, onActivityHistoryChanged: over.onChanged, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, onActivityHistoryChanged: over.onChanged, people, now: () => T0, log: () => {}, ...(over.withHistory === false ? {} : { activityHistory: { history, settings } }) }));
   return { app, people, settings, history };
 }
 
@@ -42,7 +42,7 @@ function store(history: ActivityHistory, settings: ActivityHistorySettingsStore,
   history.ingest(r, 0, { name: `name-${id}`, project: 'acme/billing', owner });
 }
 
-const logRows = (people: PeopleStore) => people.listLog({ page: 1, pageSize: 100 }).rows;
+const logRows = async (people: SqliteStorage['people']) => (await people.listLog({ page: 1, pageSize: 100 })).rows;
 
 describe('GET and PUT /settings carry the Activity history', () => {
   it('reads the state: settings, totals, last purge and whether a token is set', async () => {
@@ -76,7 +76,7 @@ describe('GET and PUT /settings carry the Activity history', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.activityHistory.settings).toEqual(body);
     expect(settings.get()).toEqual(body);
-    const rows = logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.changed);
+    const rows = (await logRows(people)).filter((r) => r.kind === ACTIVITY_LOG_KINDS.changed);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.detail).toBe(detail);
   });
@@ -94,7 +94,7 @@ describe('GET and PUT /settings carry the Activity history', () => {
     const res = await agent.put('/api/admin/settings').set(H).send({ activityHistory: body });
     expect(res.status).toBe(400);
     expect(typeof res.body.error).toBe('string');
-    expect(logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.changed)).toHaveLength(0);
+    expect((await logRows(people)).filter((r) => r.kind === ACTIVITY_LOG_KINDS.changed)).toHaveLength(0);
   });
 });
 
@@ -209,10 +209,10 @@ describe('POST /stored-activity/delete', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 3, sessions: 1, bytes: expect.any(Number), freed: expect.any(Number) });
     expect(history.totals().entries).toBe(2);
-    const rows = logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted);
+    const rows = (await logRows(people)).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.detail).toMatch(/^Deleted 3 entries \(\d+(\.\d)? (B|KB)\) from 1 session, chosen: ticked sessions$/);
-    expect(JSON.stringify(logRows(people))).not.toContain(SECRET_TEXT);
+    expect(JSON.stringify(await logRows(people))).not.toContain(SECRET_TEXT);
   });
 
   it('deletes by a filter, and says so', async () => {
@@ -222,7 +222,7 @@ describe('POST /stored-activity/delete', () => {
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { owner: 'Ed' } });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ entries: 2, sessions: 1 });
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toContain('chosen: a filter');
+    expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toContain('chosen: a filter');
     const withSource = await agent.post('/api/admin/stored-activity/delete').set(H).send({ match: { source: 'activity', owner: 'Alex' } });
     expect(withSource.body).toMatchObject({ entries: 2, sessions: 1 });
   });
@@ -233,14 +233,14 @@ describe('POST /stored-activity/delete', () => {
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(res.body).toMatchObject({ entries: 1, sessions: 1 });
     expect(history.totals().entries).toBe(0);
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/^Deleted 1 entry .* from 1 session, chosen: everything$/);
+    expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/^Deleted 1 entry .* from 1 session, chosen: everything$/);
   });
 
   it('formats a large delete in megabytes', async () => {
     const { agent, history, settings, people } = await unlocked();
     store(history, settings, 's1', 'Ed', 30);
     await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/\(\d+\.\d KB\)/);
+    expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toMatch(/\(\d+\.\d KB\)/);
   });
 
   it('groups the digits of a big count in the log row and counts the sessions that lost an entry', async () => {
@@ -248,7 +248,7 @@ describe('POST /stored-activity/delete', () => {
     vi.spyOn(history, 'deleteBy').mockResolvedValue({ entries: 72000, sessions: 20, bytes: 5 * 1024 ** 2, freed: 0 });
     const res = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect(res.body).toMatchObject({ entries: 72000, sessions: 20 });
-    expect(logRows(people).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toBe('Deleted 72,000 entries (5.0 MB) from 20 sessions, chosen: everything');
+    expect((await logRows(people)).find((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)!.detail).toBe('Deleted 72,000 entries (5.0 MB) from 20 sessions, chosen: everything');
   });
 
   it('refuses an empty filter, and a filter that only says all', async () => {
@@ -329,6 +329,6 @@ describe('the store fails (the calls are async)', () => {
     expect([list.status, list.body]).toEqual([500, want]);
     const del = await agent.post('/api/admin/stored-activity/delete').set(H).send({ all: true });
     expect([del.status, del.body]).toEqual([500, want]);
-    expect(logRows(people).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)).toHaveLength(0);
+    expect((await logRows(people)).filter((r) => r.kind === ACTIVITY_LOG_KINDS.deleted)).toHaveLength(0);
   });
 });
