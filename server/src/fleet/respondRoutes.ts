@@ -640,7 +640,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
-    const page: ActivityHistoryPage = fleet.activityHistory.page(row.id, loop, read.value.before, limit);
+    const page: ActivityHistoryPage = await fleet.activityHistory.page(row.id, loop, read.value.before, limit);
     res.json(page);
   }));
 

@@ -62,6 +62,11 @@ export interface ActivityHistoryOpts {
   chunkMs?: number;
   /** Entries counted per slice when a filter on the time or loop of entries is worked out for a session. Tests lower it. */
   sliceRows?: number;
+  /**
+   * Runs one synchronous step of a chunked operation (a chunk, a slice, a settle). The storage adapter takes the file's lock
+   * here, so another caller runs between two steps exactly where the event loop used to get a turn. Without it a step runs at once.
+   */
+  step?: <T>(fn: () => T) => Promise<T>;
 }
 
 /** What one purge run removed. `bytes` is the size of the entries; `freed` is what the file gave back after compaction. */
@@ -177,8 +182,8 @@ export class ActivityHistory {
   }
 
   /** The loops the server asks the mod to send for a session: the orchestrator and every running agent. */
-  loopsToWatch(sessionId: string): string[] {
-    return [MAIN_LOOP, ...(this.opts.agentsOf?.(sessionId) ?? [])];
+  loopsToWatch(sessionId: string, agents: string[] | undefined = this.opts.agentsOf?.(sessionId)): string[] {
+    return [MAIN_LOOP, ...(agents ?? [])];
   }
 
   /** The last run of the purge that removed something, or null if none has since the server started. */
@@ -186,11 +191,21 @@ export class ActivityHistory {
     return this.last;
   }
 
+  /** A purge or delete still running stops at its next chunk. The file stays open until `close`. */
+  stop(): void {
+    this.closed = true;
+  }
+
   /** Closes the file. A purge or delete still running stops at its next chunk. */
   close(): void {
     this.closed = true;
     this.stmts.clear();
     this.db.close();
+  }
+
+  /** One step of a chunked operation: under the adapter's lock when there is one, otherwise at once. */
+  private step<T>(fn: () => T): Promise<T> {
+    return this.opts.step ? this.opts.step(fn) : new Promise<T>((resolve) => resolve(fn()));
   }
 
   // ---- capture --------------------------------------------------------------------------------
@@ -520,13 +535,16 @@ export class ActivityHistory {
     let n = 0;
     let oldest: number | null = null;
     while (from < end) {
-      const edge = boundary.get(c.sessionId, from, this.sliceRows) as { t: number } | undefined;
-      let to = edge ? Math.min(edge.t, end) : end;
-      if (to <= from) to = from + 1;
-      const r = count.get(c.sessionId, from, to, ...params) as { n: number; oldest: number | null };
-      n += r.n;
-      if (oldest === null && r.oldest !== null) oldest = r.oldest;
-      from = to;
+      const at = from;
+      const slice = await this.step(() => {
+        const edge = boundary.get(c.sessionId, at, this.sliceRows) as { t: number } | undefined;
+        let to = edge ? Math.min(edge.t, end) : end;
+        if (to <= at) to = at + 1;
+        return { to, r: count.get(c.sessionId, at, to, ...params) as { n: number; oldest: number | null } };
+      });
+      n += slice.r.n;
+      if (oldest === null && slice.r.oldest !== null) oldest = slice.r.oldest;
+      from = slice.to;
       if (from < end) await yieldNow();
     }
     return { n, oldest };
@@ -542,16 +560,20 @@ export class ActivityHistory {
     const size = Math.min(Math.max(Math.floor(pageSize) || 25, 1), 200);
     const pg = Math.max(Math.floor(page) || 1, 1);
     const ww = this.windowWhere(filter);
-    let all = this.candidates(filter);
-    if (ww.sql) {
-      const counted: CandidateRow[] = [];
-      for (const c of all) {
-        const r = await this.countIn(c, ww.sql, ww.params, ww.lo, ww.hi);
-        if (r.n > 0) counted.push({ ...c, entries: r.n, bytes: Math.round((r.n * c.bytes) / Math.max(c.entries, 1)), oldestAt: r.oldest ?? c.oldestAt });
-        await yieldNow();
-      }
-      all = counted;
+    // Without a filter on the entries the whole page is read in one step, as it always was; with one, the sessions are counted
+    // one at a time with a turn between them, and the page is put together in a last step.
+    if (!ww.sql) return this.step(() => this.listPage(this.candidates(filter), pg, size));
+    const counted: CandidateRow[] = [];
+    for (const c of await this.step(() => this.candidates(filter))) {
+      const r = await this.countIn(c, ww.sql, ww.params, ww.lo, ww.hi);
+      if (r.n > 0) counted.push({ ...c, entries: r.n, bytes: Math.round((r.n * c.bytes) / Math.max(c.entries, 1)), oldestAt: r.oldest ?? c.oldestAt });
+      await yieldNow();
     }
+    return this.step(() => this.listPage(counted, pg, size));
+  }
+
+  /** The page of `list` over the sessions already chosen and counted. */
+  private listPage(all: CandidateRow[], pg: number, size: number): StoredActivityList {
     const match: StoredActivityList['match'] = { entries: 0, sessions: all.length, bytes: 0 };
     for (const c of all) {
       match.entries += c.entries;
@@ -622,14 +644,14 @@ export class ActivityHistory {
    */
   async preview(settings: ActivityHistorySettings): Promise<ActivityHistoryPreview> {
     if (settings.policy === 'default') {
-      const t = this.totals();
+      const t = await this.step(() => this.totals());
       return { entries: t.entries, bytes: t.bytes, sessions: t.sessions, stopsCapturing: t.entries > 0 };
     }
     return this.heavy(async () => {
       let entries = 0;
       let bytes = 0;
       const losing = new Set<string>();
-      const rows = this.st('SELECT session_id AS sessionId, entries, bytes, oldest_t AS oldestAt, last_t AS lastT FROM stored_sessions WHERE entries > 0').all() as { sessionId: string; entries: number; bytes: number; oldestAt: number; lastT: number }[];
+      const rows = await this.step(() => this.st('SELECT session_id AS sessionId, entries, bytes, oldest_t AS oldestAt, last_t AS lastT FROM stored_sessions WHERE entries > 0').all() as { sessionId: string; entries: number; bytes: number; oldestAt: number; lastT: number }[]);
       if (settings.policy === 'after') {
         const cutoff = this.opts.now() - activityPeriodMs(settings);
         for (const r of rows) {
@@ -684,21 +706,22 @@ export class ActivityHistory {
       };
       if (s.policy === 'after') add(await this.removeWhere('t < ?', [now - activityPeriodMs(s)], touched));
       if (s.policy === 'end') {
-        const ids = (this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id).filter((id) => !this.opts.isLive(id));
+        const ids = await this.step(() => (this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id).filter((id) => !this.opts.isLive(id)));
         for (const id of ids) {
           add(await this.removeWhere('session_id = ?', [id], touched));
           await yieldNow();
         }
       }
       if (s.capGb !== null) {
-        const stored = (this.st('SELECT COALESCE(SUM(bytes), 0) AS b FROM stored_sessions').get() as { b: number }).b;
-        add(await this.removeOldest(stored - s.capGb * (this.opts.capBytesPerGb ?? 1024 ** 3), touched));
+        const capBytes = s.capGb * (this.opts.capBytesPerGb ?? 1024 ** 3);
+        // The excess is worked out in the step of the first chunk, so it is the one that chunk removes against.
+        add(await this.removeOldest(() => (this.st('SELECT COALESCE(SUM(bytes), 0) AS b FROM stored_sessions').get() as { b: number }).b - capBytes, touched));
       }
       // Closed while a chunk waited its turn: the file is gone, so there is nothing left to tidy or compact.
       // `sessions` is the sessions that lost at least one entry; those left with nothing are dropped inside `finish`.
       const sessions = touched.sessions.size;
       if (this.closed) return { entries, bytes, sessions, freed: 0 };
-      const dropped = this.finish(touched);
+      const dropped = await this.step(() => this.finish(touched));
       if (!entries && !dropped) return { entries, bytes, sessions, freed: 0 };
       const freed = await this.compact();
       this.last = { at: now, entries, bytes };
@@ -712,38 +735,54 @@ export class ActivityHistory {
     let bytes = 0;
     let limit = Math.min(this.chunk, FIRST_CHUNK);
     while (!this.closed) {
-      const started = performance.now();
-      const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`).all(...params, limit) as unknown as VictimRow[];
-      if (!rows.length) break;
-      this.dropRows(rows, touched);
-      entries += rows.length;
-      for (const r of rows) bytes += r.b;
-      if (rows.length < limit) break;
-      limit = this.nextChunk(limit, performance.now() - started);
+      const size = limit;
+      // The chunk is chosen and removed in one step, so what was chosen is what goes however the steps of others fall.
+      const chunk = await this.step(() => {
+        const started = performance.now();
+        const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`).all(...params, size) as unknown as VictimRow[];
+        if (!rows.length) return null;
+        this.dropRows(rows, touched);
+        return { n: rows.length, b: rows.reduce((a, r) => a + r.b, 0), tookMs: performance.now() - started };
+      });
+      if (!chunk) break;
+      entries += chunk.n;
+      bytes += chunk.b;
+      if (chunk.n < limit) break;
+      limit = this.nextChunk(limit, chunk.tookMs);
       await yieldNow();
     }
     return { entries, bytes };
   }
 
   /** Deletes the oldest entries (by server time) until `excess` bytes are gone. */
-  private async removeOldest(excess: number, touched: Touched): Promise<{ entries: number; bytes: number }> {
+  private async removeOldest(over: () => number, touched: Touched): Promise<{ entries: number; bytes: number }> {
     let entries = 0;
     let bytes = 0;
+    let excess: number | null = null;
     let limit = Math.min(this.chunk, FIRST_CHUNK);
-    while (excess > 0 && !this.closed) {
-      const started = performance.now();
-      const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries ORDER BY t, id LIMIT ?`).all(limit) as unknown as VictimRow[];
-      if (!rows.length) break;
-      const take: VictimRow[] = [];
-      for (const r of rows) {
-        take.push(r);
-        excess -= r.b;
-        bytes += r.b;
-        if (excess <= 0) break;
-      }
-      this.dropRows(take, touched);
-      entries += take.length;
-      limit = this.nextChunk(limit, performance.now() - started);
+    while (!this.closed) {
+      const size = limit;
+      const chunk = await this.step(() => {
+        const started = performance.now();
+        excess ??= over();
+        if (excess <= 0) return null;
+        const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries ORDER BY t, id LIMIT ?`).all(size) as unknown as VictimRow[];
+        if (!rows.length) return null;
+        const take: VictimRow[] = [];
+        let b = 0;
+        for (const r of rows) {
+          take.push(r);
+          excess -= r.b;
+          b += r.b;
+          if (excess <= 0) break;
+        }
+        this.dropRows(take, touched);
+        return { n: take.length, b, tookMs: performance.now() - started };
+      });
+      if (!chunk) break;
+      entries += chunk.n;
+      bytes += chunk.b;
+      limit = this.nextChunk(limit, chunk.tookMs);
       await yieldNow();
     }
     return { entries, bytes };
@@ -825,7 +864,7 @@ export class ActivityHistory {
    * The Admin's delete: the ticked sessions, everything the filter matches, or everything. Works in chunks, session by
    * session. `sessions` counts the sessions that lost at least one entry, `bytes` the size of what went, `freed` what the file gave back.
    */
-  deleteBy(body: StoredDeleteBody): Promise<StoredDeleteResult> {
+  deleteBy(body: StoredDeleteBody, stillWanted?: (sessionId: string) => Promise<boolean>): Promise<StoredDeleteResult> {
     return this.heavy(async () => {
       if (this.closed) return { entries: 0, sessions: 0, bytes: 0, freed: 0 };
       const touched = newTouched();
@@ -833,22 +872,24 @@ export class ActivityHistory {
       let bytes = 0;
       const each = async (ids: string[], extra = '', params: Param[] = []) => {
         for (const id of ids) {
+          // Asked just before this session's rows go, so a session that came back since the list was made keeps them.
+          if (stillWanted && !(await stillWanted(id))) continue;
           const r = await this.removeWhere(`session_id = ?${extra}`, [id, ...params], touched);
           entries += r.entries;
           bytes += r.bytes;
           await yieldNow();
         }
       };
-      if ('all' in body) await each((this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id));
+      if ('all' in body) await each(await this.step(() => (this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id)));
       else if ('ids' in body) await each(body.ids);
       else {
         const ww = this.windowWhere(body.match);
-        await each(this.candidates(body.match).map((c) => c.sessionId), ww.sql ? ` AND ${ww.sql}` : '', ww.params);
+        await each(await this.step(() => this.candidates(body.match).map((c) => c.sessionId)), ww.sql ? ` AND ${ww.sql}` : '', ww.params);
       }
       // Closed while it ran: the file is gone, so there is nothing to settle or compact.
       const sessions = touched.sessions.size;
       if (this.closed) return { entries, sessions, bytes, freed: 0 };
-      this.finish(touched);
+      await this.step(() => this.finish(touched));
       return { entries, sessions, bytes, freed: entries ? await this.compact() : 0 };
     });
   }
@@ -856,16 +897,22 @@ export class ActivityHistory {
   /** A session was deleted: its rows and its loop positions go. */
   async deleteSession(sessionId: string): Promise<StoredDeleteResult> {
     this.forgetSession(sessionId);
-    if (!this.st('SELECT 1 AS x FROM stored_sessions WHERE session_id = ?').get(sessionId)) return { entries: 0, sessions: 0, bytes: 0, freed: 0 };
+    if (!(await this.step(() => this.st('SELECT 1 AS x FROM stored_sessions WHERE session_id = ?').get(sessionId)))) return { entries: 0, sessions: 0, bytes: 0, freed: 0 };
     return this.deleteBy({ ids: [sessionId] });
   }
 
-  /** Removes the rows of sessions the main database no longer holds (their own retention ran out). Returns the entries removed. */
-  async dropMissingSessions(exists: (sessionId: string) => boolean): Promise<number> {
-    const ids = (this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id).filter((id) => !exists(id));
+  /**
+   * Removes the rows of sessions the main database no longer holds (their own retention ran out). Returns the entries removed.
+   * `exists` is asked once to pick the sessions and again just before each one's rows go, so a session that reported again in
+   * between keeps them.
+   */
+  async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    const stored = await this.step(() => (this.st('SELECT session_id AS id FROM stored_sessions').all() as { id: string }[]).map((r) => r.id));
+    const ids: string[] = [];
+    for (const id of stored) if (!(await exists(id))) ids.push(id);
     if (!ids.length) return 0;
     for (const id of ids) this.forgetSession(id);
-    return (await this.deleteBy({ ids })).entries;
+    return (await this.deleteBy({ ids }, async (id) => !(await exists(id)))).entries;
   }
 
   /**
@@ -873,17 +920,21 @@ export class ActivityHistory {
    * between them, then a WAL checkpoint that truncates the log. Returns the bytes the file gave back.
    */
   private async compact(): Promise<number> {
-    const before = this.fileBytes();
-    let free = this.pragma('freelist_count');
+    const start = await this.step(() => ({ before: this.fileBytes(), free: this.pragma('freelist_count') }));
+    let free = start.free;
     while (free > 0 && !this.closed) {
-      this.db.exec(`PRAGMA incremental_vacuum(${this.vacuumPages})`);
-      const now = this.pragma('freelist_count');
+      const now = await this.step(() => {
+        this.db.exec(`PRAGMA incremental_vacuum(${this.vacuumPages})`);
+        return this.pragma('freelist_count');
+      });
       if (now >= free) break;
       free = now;
       await yieldNow();
     }
     if (this.closed) return 0;
-    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    return Math.max(0, before - this.fileBytes());
+    return this.step(() => {
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      return Math.max(0, start.before - this.fileBytes());
+    });
   }
 }

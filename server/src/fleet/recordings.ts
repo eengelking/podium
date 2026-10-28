@@ -87,6 +87,8 @@ export interface RecordingsOpts {
   compact?: () => Promise<number>;
   /** Rows deleted per transaction in a purge or delete. Tests lower it. */
   chunkRows?: number;
+  /** Runs one synchronous step of a chunked operation; the storage adapter takes the file's lock here. Without it a step runs at once. */
+  step?: <T>(fn: () => T) => Promise<T>;
 }
 
 /** What happened to a recording that the Admin log should hear of and the routes did not cause. */
@@ -213,6 +215,10 @@ export class SessionRecordings {
     }
   }
 
+  private step<T>(fn: () => T): Promise<T> {
+    return this.opts.step ? this.opts.step(fn) : new Promise<T>((resolve) => resolve(fn()));
+  }
+
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
     return this.opts.exclusive ? this.opts.exclusive(fn) : fn();
   }
@@ -311,12 +317,12 @@ export class SessionRecordings {
   }
 
   /** What everyone sees of a recording: state, who started it, which loops and when it goes. Never any text. */
-  view(sessionId: string): RecordingView | null {
+  view(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): RecordingView | null {
     if (!this.opts.authOn) return null;
     const r = this.row(sessionId);
     if (!r) return null;
     const chosen = new Set(r.loops);
-    const loops: RecordingLoopInfo[] = this.opts.loopsOf(sessionId).map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
+    const loops: RecordingLoopInfo[] = all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
     return {
       state: this.stateOf(r),
       limit: r.state === 'limit' ? r.limitKind : null,
@@ -332,9 +338,9 @@ export class SessionRecordings {
   }
 
   /** Every loop of a session with whether it is recorded, for the replay's loop filter. */
-  loopInfo(sessionId: string): RecordingLoopInfo[] {
+  loopInfo(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): RecordingLoopInfo[] {
     const chosen = new Set(this.row(sessionId)?.loops ?? []);
-    return this.opts.loopsOf(sessionId).map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
+    return all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
   }
 
   // ---- choosing, stopping --------------------------------------------------------------------
@@ -362,6 +368,30 @@ export class SessionRecordings {
          loops = excluded.loops, started_by = ?, started_at = ?, stopped_by = NULL, stopped_at = NULL`,
     ).run(sessionId, meta.name, meta.project, meta.owner, JSON.stringify(loops), by, now, keep ? keep.startedBy : by, keep ? keep.startedAt : now);
     return 'ok';
+  }
+
+  /**
+   * The browser route's checks and `start` as one step: the session is still running, every chosen loop is one of `available`
+   * (the loops the session has, read just before), and then the choice is stored. Nothing can end the session or change the
+   * consent between the checks and the write.
+   */
+  choose(sessionId: string, loops: string[], by: string, meta: RecordingMeta, available: string[]): 'ended' | 'unknown-loop' | ReturnType<SessionRecordings['start']> {
+    if (!this.opts.isLive(sessionId)) return 'ended';
+    const known = new Set(available);
+    if (loops.some((l) => !known.has(l))) return 'unknown-loop';
+    return this.start(sessionId, loops, by, meta);
+  }
+
+  /**
+   * The mod route's checks and the write as one step: the session is running, the three yes answers still hold (or a person's stop
+   * still takes the last interval), and then the batch is stored. `ended` carries whether a recording is held, for the refusal.
+   */
+  accept(sessionId: string, batch: RecordingBatch, meta: RecordingMeta): { kind: 'ended'; held: boolean } | { kind: 'off' } | { kind: 'stored'; stored: number; before: RecordingState; recording: RecordingGrant } {
+    if (!this.opts.isLive(sessionId)) return { kind: 'ended', held: this.has(sessionId) };
+    if (this.acceptsUntil(sessionId) === null) return { kind: 'off' };
+    const before = this.grant(sessionId).state;
+    const stored = this.ingest(sessionId, batch, meta);
+    return { kind: 'stored', stored, before, recording: this.grant(sessionId) };
   }
 
   /** The recording's state as the Admin's table shows it, or undefined when there is none. */
@@ -667,15 +697,27 @@ export class SessionRecordings {
    * Deletes whole recordings for good and stops their capture at once (the rows that carry the state go before this returns a
    * promise); the entries then go in chunks with a turn for the event loop between them, and the file is compacted once.
    */
-  async removeMany(ids: string[]): Promise<RemoveResult> {
-    const each: RemoveResult['each'] = [];
-    for (const id of ids) {
-      const r = this.row(id);
-      if (!r) continue;
-      this.st('DELETE FROM rec_sessions WHERE session_id = ?').run(id);
-      this.deleting.add(id);
-      each.push({ sessionId: id, name: r.name, entries: r.entries, bytes: r.bytes });
-    }
+  removeMany(ids: string[]): Promise<RemoveResult> {
+    return this.removeBy(() => ids);
+  }
+
+  /** `removeMany` for the recordings a Stored activity delete means, chosen in the same step that removes the rows that carry their state. */
+  removeFor(body: { ids: string[] } | { match: StoredFilter } | { all: true }): Promise<RemoveResult> {
+    return this.removeBy(() => this.idsFor(body));
+  }
+
+  private async removeBy(pick: () => string[]): Promise<RemoveResult> {
+    const each = await this.step(() => {
+      const gone: RemoveResult['each'] = [];
+      for (const id of pick()) {
+        const r = this.row(id);
+        if (!r) continue;
+        this.st('DELETE FROM rec_sessions WHERE session_id = ?').run(id);
+        this.deleting.add(id);
+        gone.push({ sessionId: id, name: r.name, entries: r.entries, bytes: r.bytes });
+      }
+      return gone;
+    });
     if (!each.length) return { entries: 0, sessions: 0, bytes: 0, freed: 0, each };
     try {
       const freed = await this.exclusive(async () => {
@@ -690,7 +732,7 @@ export class SessionRecordings {
 
   private async deleteEntriesOf(sessionId: string): Promise<void> {
     for (;;) {
-      const done = this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)').run(sessionId, this.chunk).changes;
+      const done = await this.step(() => this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)').run(sessionId, this.chunk).changes);
       if (Number(done) < this.chunk) return;
       await yieldNow();
     }
@@ -702,8 +744,13 @@ export class SessionRecordings {
   }
 
   /** Removes the recordings of sessions the main database no longer holds (their own retention ran out). Returns the entries removed. */
-  async dropMissingSessions(exists: (sessionId: string) => boolean): Promise<number> {
-    const ids = (this.st('SELECT session_id AS id FROM rec_sessions').all() as { id: string }[]).map((r) => r.id).filter((id) => !exists(id));
+  async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    const stored = await this.step(() => (this.st('SELECT session_id AS id FROM rec_sessions').all() as { id: string }[]).map((r) => r.id));
+    const missing: string[] = [];
+    for (const id of stored) if (!(await exists(id))) missing.push(id);
+    // Asked again just before the rows that carry the consent go, so a session that reported again since keeps its recording.
+    const ids: string[] = [];
+    for (const id of missing) if (!(await exists(id))) ids.push(id);
     return (await this.removeMany(ids)).entries;
   }
 
@@ -718,7 +765,7 @@ export class SessionRecordings {
       let entries = 0;
       let bytes = 0;
       for (;;) {
-        const rows = this.tx(() => {
+        const rows = await this.step(() => this.tx(() => {
           const gone = this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b').all(cutoff, this.chunk) as { sid: string; b: number }[];
           const per = new Map<string, { n: number; b: number }>();
           for (const g of gone) {
@@ -729,7 +776,7 @@ export class SessionRecordings {
           }
           for (const [sid, p] of per) this.st('UPDATE rec_sessions SET entries = entries - ?, bytes = bytes - ? WHERE session_id = ?').run(p.n, p.b, sid);
           return gone;
-        });
+        }));
         for (const g of rows) {
           touched.add(g.sid);
           entries++;
@@ -738,14 +785,17 @@ export class SessionRecordings {
         if (rows.length < this.chunk) break;
         await yieldNow();
       }
-      for (const sid of touched) this.st('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?').run(sid, sid);
-      let dropped = 0;
-      for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?').all(cutoff) as { id: string }[]) {
-        const row = this.row(r.id);
-        if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;
-        this.st('DELETE FROM rec_sessions WHERE session_id = ?').run(r.id);
-        dropped++;
-      }
+      const dropped = await this.step(() => {
+        for (const sid of touched) this.st('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?').run(sid, sid);
+        let n = 0;
+        for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?').all(cutoff) as { id: string }[]) {
+          const row = this.row(r.id);
+          if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;
+          this.st('DELETE FROM rec_sessions WHERE session_id = ?').run(r.id);
+          n++;
+        }
+        return n;
+      });
       const freed = entries || dropped ? await this.compact() : 0;
       return { entries, bytes, sessions: touched.size, freed };
     });

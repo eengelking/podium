@@ -275,7 +275,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: fleet.activity.watched(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
@@ -409,7 +409,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     else body = { ...fleet.activity.watch(id, agentId, everyOf(req.query.every)), live: true, enabled: true, serverTime: fleet.now() };
     // What is stored for this loop, as counts. Present only under a keep policy and when the loop has entries, so under the
     // default policy the reply is exactly what it was. `canRead` is the viewer's own sign-in; it never refuses the request.
-    const note = fleet.activityHistory.note(id, agentId);
+    const note = await fleet.activityHistory.note(id, agentId);
     if (note) {
       const row = await fleet.db.getSession(id);
       body.history = { ...note, canRead: !!row && ((await respondAccess?.reader(req))?.(row) ?? false), owner: row?.owner ?? null };

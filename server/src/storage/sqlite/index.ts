@@ -13,6 +13,8 @@ import { PersonCertStore } from '../../tlsClientAuth.js';
 import { AsyncLock } from './lock.js';
 import { SqliteReportQueries } from './reportQueries.js';
 import { asyncLookupOver, peerStoreOver } from './peers.js';
+import { ActivityConnection } from './activity.js';
+import { activityDbPath, openActivityDb } from '../../fleet/activityDb.js';
 
 const NOT_WRAPPED = new Set(['constructor', 'tx', 'close']);
 
@@ -59,17 +61,25 @@ function wallSettingsOver(db: DatabaseSync, lock: AsyncLock): WallSettingsApi {
  */
 export interface SqliteStorage extends Storage {
   readonly sqliteHandle: DatabaseSync;
+  /** The activity connection, opened on first use. For tests that look at its rows; production code reaches it through `activity`. */
+  activityHandle(): DatabaseSync;
 }
 
-/** Opens `file` (`:memory:` for tests) and puts the fleet, people and reporter stores on its one connection. */
+/** Opens `file` (`:memory:` for tests) and puts the fleet, people and reporter stores on its one connection; the activity file beside it is opened by `activity`. */
 export function openSqliteStorage(file: string, now: number = Date.now()): SqliteStorage {
   const db = openDb(file);
   const lock = new AsyncLock();
   const fleet = new FleetDb(db);
   const reporters = new ReporterStore(db, now);
   const asyncLookup: AsyncPeerReporterLookup = asyncLookupOver(reporters.peerLookup(), lock);
+  // The activity file is its own connection with its own lock, opened when the first service is built (at startup). Nothing
+  // spans the two files.
+  let activityConn: ActivityConnection | null = null;
+  const activityOf = (): ActivityConnection => (activityConn ??= new ActivityConnection(openActivityDb(activityDbPath(file))));
   return {
     sqliteHandle: db,
+    activityHandle: () => activityOf().db,
+    activity: (opts) => activityOf().build(opts),
     fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) } as FleetStore,
     people: wrap(new PeopleStore(db), lock) as PeopleStoreApi,
     reporters: { ...wrap(reporters, lock), peerLookup: () => asyncLookup } as ReporterStoreApi,
@@ -94,6 +104,8 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
         }
       }),
     close: async () => {
+      // The activity file first: its chunked removals stop at their next chunk, and nothing there waits on this connection.
+      await activityConn?.close();
       await lock.drain();
       db.close();
     },

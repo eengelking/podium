@@ -1,11 +1,10 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { FleetDb, ROLLUP_KEEP_MS, SAME_USAGE } from './db.js';
+import { ROLLUP_KEEP_MS, SAME_USAGE } from './db.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { CostOf, RetentionPolicy, SessionRow } from './db.js';
-import type { FleetStore, PeerStoreApi } from '../storage/types.js';
-import type { SqliteStorage } from '../storage/sqlite/index.js';
+import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
 import { serverBuild } from './build.js';
 import { REPORTER_SUPPORT, serverVersion } from './compat.js';
@@ -17,11 +16,8 @@ import { formatSse, SseHub, type SseEventName, type SseSink } from './sse.js';
 import { Serializer } from './serial.js';
 import { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from './liveSettings.js';
 import { ActivityStore } from './activity.js';
-import { openActivityDb } from './activityDb.js';
-import { ActivityHistory, type SessionMeta } from './activityHistory.js';
-import type { DatabaseSync } from 'node:sqlite';
+import type { SessionMeta } from './activityHistory.js';
 import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK } from './featureFlags.js';
-import { SessionRecordings } from './recordings.js';
 import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
@@ -121,11 +117,11 @@ export class Fleet {
   /** The Admin's Activity history choice (#432): kept in the main database's settings table. */
   readonly activityHistorySettings: LiveActivityHistorySettings;
   /** The Activity history (#432): the feed kept in the second SQLite file under a keep policy. Idle under the default policy. */
-  readonly activityHistory: ActivityHistory;
+  readonly activityHistory: ActivityHistoryApi;
   /** The Admin's session recording limits (#353): kept in the main database's settings table. */
   readonly recordingSettings: LiveRecordingSettings;
   /** Session recordings (#353): whole prompts, tool inputs and results of the loops someone chose, in the activity file. */
-  readonly recordings: SessionRecordings;
+  readonly recordings: SessionRecordingsApi;
   /** A file's diff on demand (#319): in memory only, held just while the owner's browser waits. */
   readonly diffs = new DiffBroker();
   /** The Admin's feature flags. Turning the activity feed off drops what it held; any change reaches open browsers. */
@@ -140,8 +136,8 @@ export class Fleet {
   private readonly serial = new Serializer();
   /** Every SSE message goes out through this chain, in the order it was asked for, so a slow read never reorders them (#313). */
   private out: Promise<void> = Promise.resolve();
-  /** TODO(#313 stage 4): the Activity history and the recordings take synchronous lookups of a session's agents; this is the synchronous store they read through. */
-  private readonly syncDb: FleetDb;
+  /** The Podium-entry writes to the stored activity (an answer, a note, a take-back) go out through this chain, in the order they were asked for, so an entry's update never overtakes its add. */
+  private historyTail: Promise<void> = Promise.resolve();
   /** Bumped by a price change, so a cost-per-minute read that began before it does not keep the old prices in the cache. */
   private priceEpoch = 0;
   /** Bumped when a setting that a snapshot or the wall message carries has changed, so one that began before it is made again (#313). */
@@ -158,21 +154,17 @@ export class Fleet {
   /**
    * The constructor builds the in-memory parts. `init()` reads what the database holds (the sessions that were live when the
    * server last stopped) and must finish before the server listens.
-   * `storage` is the SQLite storage: the stores not yet on the async interface (the Admin's settings, the peer service, and so
-   * on) still read its raw connection. TODO(#313 stage 5): take a plain `Storage` once they are converted.
    */
   constructor(
-    readonly storage: SqliteStorage,
+    readonly storage: Storage,
     readonly cfg: FleetConfig,
     readonly now: () => number = Date.now,
     /** Lifecycle events (#140): session.started/ended, reporter.connected/silent, sweep.removed. Silent by default. */
     readonly logger: Logger = silentLogger,
-    /** The activity database (a memory one when absent) and whether the server has a sign-in token; a keep policy needs one. `secret` is that token, replaced wherever a recording would store it. */
-    history: { db?: DatabaseSync; authOn?: boolean; secret?: string | null } = {},
+    /** Whether the server has a sign-in token; a keep policy needs one. `secret` is that token, replaced wherever a recording would store it. */
+    history: { authOn?: boolean; secret?: string | null } = {},
   ) {
     this.startedAt = now();
-    const raw = storage.sqliteHandle; // TODO(#313 stage 5): the stores below still take the raw connection
-    this.syncDb = new FleetDb(raw);
     this.features = new LiveFeatureFlags(storage.featureFlags, (id, on) => {
       this.settingsEpoch++;
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
@@ -184,38 +176,49 @@ export class Fleet {
       // Messaging going off drops every message still waiting; the rights stay.
       if (id === PEER_MESSAGING && !on) this.peers.dropAll().catch((err: Error) => this.logger.error('peers.drop_failed', `podium: could not drop the held messages: ${err.message}`, { reason: err.message }));
       // Recording going off stops every recording and keeps what it holds until it expires (#353).
-      if (id === SESSION_RECORDING && !on) for (const sid of this.recordings.stopAll('Admin')) this.recordingChanged(sid);
+      // The flag is already off in memory, so nothing more is accepted from this moment; the stop marks are written in the step this asks for.
+      if (id === SESSION_RECORDING && !on) {
+        this.recordings.stopAll('Admin').then(
+          (ids) => ids.forEach((sid) => this.recordingChanged(sid)),
+          (err: Error) => this.logger.error('recording.stop_failed', `podium: could not stop the recordings: ${err.message}`, { reason: err.message }),
+        );
+      }
       // The release check going on looks straight away instead of waiting for the next daily run.
       if (id === UPDATE_CHECK && on) void this.updates.check();
       this.broadcastSnapshot();
     });
     const authOn = history.authOn ?? true;
     this.activityHistorySettings = new LiveActivityHistorySettings(storage.activityHistorySettings(authOn));
-    const activityDb = history.db ?? openActivityDb(':memory:');
-    this.activityHistory = new ActivityHistory(activityDb, {
-      now,
-      settings: () => this.activityHistorySettings.get(),
-      featureOn: () => this.features.featureOn(ACTIVITY_FEED),
-      isLive: (sid) => this.live.has(sid),
-      agentsOf: (sid) => this.syncDb.getAgents(sid).filter((a) => a.status === 'running').map((a) => a.id),
-      authOn,
-    });
     this.recordingSettings = new LiveRecordingSettings(storage.recordingSettings);
-    this.recordings = new SessionRecordings(activityDb, {
-      now,
-      settings: () => this.recordingSettings.get(),
-      flagOn: () => this.features.featureOn(SESSION_RECORDING),
-      authOn,
-      isLive: (sid) => this.live.has(sid),
-      loopsOf: (sid) => [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...this.syncDb.getAgents(sid).map((a) => ({ loop: a.id, name: a.name ?? a.type }))],
-      secrets: () => (history.secret ? [history.secret] : []),
-      exclusive: (fn) => this.activityHistory.runExclusive(fn),
-      compact: () => this.activityHistory.compactNow(),
+    // The settings, the flags and the live set the two services read are memory (the live settings are write-through caches and
+    // `live` is updated before anything can ask), so those callbacks stay synchronous. What lives in the main database, a session's
+    // agents, is read from the fleet store before the service takes its step.
+    const stored = storage.activity({
+      history: {
+        now,
+        settings: () => this.activityHistorySettings.get(),
+        featureOn: () => this.features.featureOn(ACTIVITY_FEED),
+        isLive: (sid) => this.live.has(sid),
+        agentsOf: async (sid) => (await this.db.getAgents(sid)).filter((a) => a.status === 'running').map((a) => a.id),
+        authOn,
+      },
+      recordings: {
+        now,
+        settings: () => this.recordingSettings.get(),
+        flagOn: () => this.features.featureOn(SESSION_RECORDING),
+        authOn,
+        isLive: (sid) => this.live.has(sid),
+        loopsOf: async (sid) => [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...(await this.db.getAgents(sid)).map((a) => ({ loop: a.id, name: a.name ?? a.type }))],
+        secrets: () => (history.secret ? [history.secret] : []),
+      },
     });
+    this.activityHistory = stored.history;
+    this.recordings = stored.recordings;
+    // The loops the stored history wants are added to the report reply by `watchedLoops`, which can wait for the agents.
     this.activity = new ActivityStore(
       now,
       () => this.features.featureOn(ACTIVITY_FEED),
-      (sid) => (this.activityHistory.enabled() ? this.activityHistory.loopsToWatch(sid) : []),
+      () => [],
       () => this.features.featureOn(ACTIVITY_OUTPUT),
     );
     this.respond = new RespondStore(
@@ -228,9 +231,9 @@ export class Fleet {
         // logged and never reaches the answer, ask or message that caused it.
         add: (sid, loop, ref, e, delivery) => {
           this.activity.addPodium(sid, loop ?? MAIN_LOOP, ref, e);
-          this.historySafely('add', sid, () => {
-            const meta = this.historyMetaSync(sid);
-            if (meta) this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
+          this.historySafely('add', sid, async () => {
+            const meta = await this.historyMeta(sid);
+            if (meta) await this.activityHistory.addPodium(sid, loop ?? MAIN_LOOP, ref, e, meta);
           });
           // A message's prompt entry, when it arrives from the mod, gets the sender as its marker (#353), when its text matches exactly. An answer, an
           // approval, a permission decision and /clear and /compact are recorded by the mod itself, where it takes them.
@@ -337,6 +340,7 @@ export class Fleet {
 
   /** Resolves when every message asked for so far has been sent. */
   async flush(): Promise<void> {
+    await this.historyTail;
     let seen: Promise<void>;
     do {
       seen = this.out;
@@ -388,7 +392,7 @@ export class Fleet {
     this.activity.ingest(report, res.clockSkewMs);
     // The report is already saved: a failure of the second file (a full disk, say) is logged and must not refuse the report.
     try {
-      if (this.activityHistory.enabled()) this.activityHistory.ingest(report, res.clockSkewMs, (await this.historyMeta(res.sessionId)) ?? { name: report.session.name, project: null, owner });
+      if (this.activityHistory.enabled()) await this.activityHistory.ingest(report, res.clockSkewMs, (await this.historyMeta(res.sessionId)) ?? { name: report.session.name, project: null, owner });
     } catch (err) {
       this.logger.error('activity.ingest_failed', `podium: could not store the activity of session ${res.sessionId}: ${(err as Error).message}`, { session_id: res.sessionId, reason: (err as Error).message });
     }
@@ -399,7 +403,7 @@ export class Fleet {
     if (res.created && report.session.clearedFrom) {
       const meta = await this.historyMeta(res.sessionId);
       try {
-        if (meta) this.recordings.carryOver(report.session.clearedFrom, res.sessionId, meta);
+        if (meta) await this.recordings.carryOver(report.session.clearedFrom, res.sessionId, meta);
       } catch (err) {
         this.logger.error('recording.carry_failed', `podium: could not carry a recording over to session ${res.sessionId}: ${(err as Error).message}`, { session_id: res.sessionId, reason: (err as Error).message });
       }
@@ -445,18 +449,24 @@ export class Fleet {
     return metaOfRow(await this.db.getSession(sessionId));
   }
 
-  /** TODO(#313 stage 4): `historyMeta` for the Podium-entry callback of the respond store, which is synchronous. */
-  private historyMetaSync(sessionId: string): SessionMeta | undefined {
-    return metaOfRow(this.syncDb.getSession(sessionId));
+  /**
+   * Runs a write to the Activity history or the recordings for a Podium entry; a failure is logged as `activity.podium_failed` and
+   * never thrown. The respond store cannot wait, so the writes queue and run one after the other in the order they were asked for.
+   */
+  private historySafely(what: 'add' | 'update' | 'remove', sessionId: string, fn: () => unknown): void {
+    this.historyTail = this.historyTail.then(async () => {
+      try {
+        await fn();
+      } catch (err) {
+        this.logger.error('activity.podium_failed', `podium: could not ${what} a Podium entry in the activity history of session ${sessionId}: ${(err as Error).message}`, { session_id: sessionId, op: what, reason: (err as Error).message });
+      }
+    });
   }
 
-  /** Runs a write to the Activity history; a failure is logged as `activity.podium_failed` and never thrown. */
-  private historySafely(what: 'add' | 'update' | 'remove', sessionId: string, fn: () => void): void {
-    try {
-      fn();
-    } catch (err) {
-      this.logger.error('activity.podium_failed', `podium: could not ${what} a Podium entry in the activity history of session ${sessionId}: ${(err as Error).message}`, { session_id: sessionId, op: what, reason: (err as Error).message });
-    }
+  /** The report reply's `watch`: the loops under a viewer's lease, and those the stored history wants for a session whose reporter sends the feed. */
+  async watchedLoops(sessionId: string): Promise<string[]> {
+    const stored = this.activityHistory.enabled() && this.activity.feedOn(sessionId) === true ? await this.activityHistory.loopsToWatch(sessionId) : [];
+    return this.activity.watched(sessionId, stored);
   }
 
   /** `reporter.connected` the first time a reporter is heard, and again when it comes back after going quiet. */
@@ -553,7 +563,7 @@ export class Fleet {
         fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),
         asks: this.respond.summaries(row.id),
-        recording: this.recordings.view(row.id),
+        recording: await this.recordings.view(row.id),
       },
       now,
       this.derive,
@@ -658,6 +668,7 @@ export class Fleet {
     const agents = await this.db.getAgents(row.id);
     const clearedInto = await this.db.clearedInto(row.id);
     const end = endedAtOf(row);
+    const kept = await this.keptMark(row, mayKnow);
     return {
       id: row.id,
       name: row.name,
@@ -673,15 +684,15 @@ export class Fleet {
       endReason: row.dropped_at !== null ? 'heartbeat lost' : row.end_reason,
       clearedFrom: row.cleared_from ?? null,
       clearedInto,
-      ...this.keptMark(row, mayKnow),
+      ...kept,
     };
   }
 
   /** The History row's recording marker (#353): only for a viewer `mayKnow` says may know of the session's recording, and only while one is held. */
-  private keptMark(row: SessionRow, mayKnow?: RecordingKnown): Pick<HistoryRow, 'recording'> {
+  private async keptMark(row: SessionRow, mayKnow?: RecordingKnown): Promise<Pick<HistoryRow, 'recording'>> {
     // With the Admin's flag off the replay routes answer 404, so the marker would point at nothing.
     if (!this.recordings.enabled() || !mayKnow?.(row)) return {};
-    const keptUntil = this.recordings.keptUntilOf(row.id);
+    const keptUntil = await this.recordings.keptUntilOf(row.id);
     return keptUntil === null ? {} : { recording: { keptUntil } };
   }
 
@@ -927,11 +938,12 @@ export class Fleet {
     const out = await this.db.retain(this.now(), this.cfg.retention);
     // A session's retention ends its activity history too, whatever the policy: the shorter wins (#432). The rows go in
     // chunks in the background, so the hourly retention never waits for them; a failure is logged.
-    // TODO(#313 stage 4): the two stores ask whether a session still exists synchronously; they read it through `syncDb`.
-    this.activityHistory.dropMissingSessions((id) => this.syncDb.getSession(id) !== undefined).catch((err: Error) => {
+    // Each asks the fleet store whether a session is still there, again just before it removes that session's rows.
+    const exists = async (id: string) => (await this.db.getSession(id)) !== undefined;
+    this.activityHistory.dropMissingSessions(exists).catch((err: Error) => {
       this.logger.error('retention.activity_failed', `podium: could not remove the activity history of expired sessions: ${err.message}`, { reason: err.message });
     });
-    this.recordings.dropMissingSessions((id) => this.syncDb.getSession(id) !== undefined).catch((err: Error) => {
+    this.recordings.dropMissingSessions(exists).catch((err: Error) => {
       this.logger.error('retention.recording_failed', `podium: could not remove the recordings of expired sessions: ${err.message}`, { reason: err.message });
     });
     const peers = await this.peers.retain();

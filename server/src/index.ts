@@ -20,7 +20,6 @@ import { Lockout } from "./fleet/lockout.js";
 import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
-import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
 import { REPORTER_SUPPORT } from "./fleet/compat.js";
 import { createServerLogging } from "./logging/setup.js";
 import { requestLog } from "./logging/requestLog.js";
@@ -54,9 +53,8 @@ warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
 
 const storage = openSqliteStorage(DB_PATH);
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
-// The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
-const activityDb = openActivityDb(activityDbPath(DB_PATH));
-const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null, secret: TOKEN });
+// The Activity history lives in its own file beside the database (#432), opened by the storage; nothing is written to it under the default policy.
+const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { authOn: TOKEN !== null, secret: TOKEN });
 // The live set is read from the database before anything listens or sweeps.
 await fleet.init();
 const people = storage.people;
@@ -177,9 +175,8 @@ function shutdown(signal: string) {
   fleet.close();
   tlsListener?.server.close();
   server.close(() => {
-    // Messages and writes already asked for finish before the database closes.
+    // Messages and writes already asked for finish before the databases close; the storage closes both files, each after its own queue is drained.
     void fleet.flush().then(() => storage.close()).catch(() => undefined).then(() => {
-      fleet.activityHistory.close();
       // The last lines (this shutdown among them) go out before the process does, for at most a second.
       void logging.close(1000).finally(() => process.exit(0));
     });

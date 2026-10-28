@@ -16,6 +16,9 @@ import type { ActivityHistorySettingsStore } from '../fleet/activityHistorySetti
 import type { WallSettingsView } from '../fleet/protocol.js';
 import type { TlsSettingsStore } from '../tlsRenew.js';
 import type { PersonCertStore } from '../tlsClientAuth.js';
+import type { ActivityHistory, ActivityHistoryOpts } from '../fleet/activityHistory.js';
+import type { RecordingMeta, RecordingTotals, RecordingsOpts, SessionRecordings } from '../fleet/recordings.js';
+import type { RecordingLoopInfo, RecordingView } from '../fleet/protocol.js';
 
 /** A function becomes one returning a Promise of the same result; anything else is kept. */
 export type Async<T> = {
@@ -124,6 +127,67 @@ export interface WallSettingsApi {
   dismissUpdate(version: string): Promise<boolean>;
 }
 
+/** What the Activity history needs from the server that opens it. The rest of its options are plain values and memory reads. */
+export interface ActivityHistoryOptions extends Omit<ActivityHistoryOpts, 'agentsOf' | 'step'> {
+  /** The ids of the session's running agents, for the loops the server asks the mod to send. Read from the fleet store, so it is async. */
+  agentsOf: (sessionId: string) => Promise<string[]>;
+}
+
+/** What the session recordings need from the server that opens them. */
+export interface RecordingsOptions extends Omit<RecordingsOpts, 'loopsOf' | 'exclusive' | 'compact' | 'step'> {
+  /** Every loop of the session with the name the layer shows. Read from the fleet store, so it is async. */
+  loopsOf: (sessionId: string) => Promise<{ loop: string; name: string }[]>;
+}
+
+export interface ActivityStoreOptions {
+  history: ActivityHistoryOptions;
+  recordings: RecordingsOptions;
+}
+
+/**
+ * The Activity history (#432), kept in the second file. What reads memory only (`enabled`, `current`, `lastPurge`, `busy`,
+ * `forgetSession`) answers at once. Every other call is one step under the activity file's own lock, or, for a chunked removal,
+ * a run of such steps with a turn for the event loop between them, as it always was. The lock is not the main database's.
+ */
+export interface ActivityHistoryApi extends Async<Pick<ActivityHistory, 'ingest' | 'addPodium' | 'updatePodium' | 'removePodium' | 'page' | 'note' | 'totals' | 'list' | 'preview' | 'purge' | 'deleteBy' | 'deleteSession' | 'idle'>> {
+  current(): ReturnType<ActivityHistory['current']>;
+  enabled(): boolean;
+  readonly lastPurge: ActivityHistory['lastPurge'];
+  readonly busy: boolean;
+  forgetSession(sessionId: string): void;
+  /** The orchestrator and every running agent. */
+  loopsToWatch(sessionId: string): Promise<string[]>;
+  /** `exists` says whether the main database still holds the session; it is asked again just before each session's rows go. */
+  dropMissingSessions(exists: (sessionId: string) => Promise<boolean>): Promise<number>;
+}
+
+/**
+ * Session recordings (#353), in the same file and under the same lock. The consent and the write of a batch, and of a start, are
+ * one step (`accept`, `choose`), so nothing can change between the check and the write.
+ */
+export interface SessionRecordingsApi extends Async<Pick<SessionRecordings, 'has' | 'capturing' | 'acceptsUntil' | 'keptUntilOf' | 'grant' | 'totalBytes' | 'start' | 'stateFor' | 'stop' | 'stopAll' | 'carryOver' | 'ingest' | 'page' | 'adminList' | 'listStored' | 'idsFor' | 'notePodiumPrompt' | 'choose' | 'accept' | 'removeMany' | 'removeFor' | 'removeSession' | 'purge'>> {
+  /** Set by the routes: where the Admin log hears of what the server did on its own. Called after the step that caused it, before its promise resolves. */
+  trail: SessionRecordings['trail'];
+  enabled(): boolean;
+  noteOption(sessionId: string, on: boolean | undefined): void;
+  optionOn(sessionId: string): boolean;
+  forgetSession(sessionId: string): void;
+  forgetPodiumPrompt(sessionId: string, ref: string): void;
+  view(sessionId: string): Promise<RecordingView | null>;
+  loopInfo(sessionId: string): Promise<RecordingLoopInfo[]>;
+  totals(): Promise<RecordingTotals>;
+  /** `exists` says whether the main database still holds the session; it is asked again just before the recording's state goes. */
+  dropMissingSessions(exists: (sessionId: string) => Promise<boolean>): Promise<number>;
+}
+
+export type { RecordingMeta };
+
+/** The two services over the activity file. */
+export interface ActivityStorage {
+  readonly history: ActivityHistoryApi;
+  readonly recordings: SessionRecordingsApi;
+}
+
 /** All the stores over one backing database. */
 export interface Storage {
   readonly fleet: FleetStore;
@@ -139,6 +203,12 @@ export interface Storage {
   peers(opts: PeerStoreOptions): PeerStoreApi;
   readonly tlsSettings: TlsSettingsApi;
   readonly personCerts: PersonCertsApi;
+  /**
+   * The activity database (activity.sqlite beside the main file, in memory when the main one is): the Activity history, the
+   * session recordings and the loops. A separate connection with its own lock and transactions; nothing here spans both files,
+   * and `tx` is the main connection's. Built per server, since the live set and the Admin's settings are its own.
+   */
+  activity(opts: ActivityStoreOptions): ActivityStorage;
   /** Runs `fn` in one transaction across the stores: commits when it resolves, rolls back and rethrows when it rejects. */
   tx<T>(fn: () => Promise<T>): Promise<T>;
   /** Waits for queued work, then closes the database. */

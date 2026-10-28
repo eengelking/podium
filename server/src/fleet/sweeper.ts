@@ -1,12 +1,10 @@
 // Lifecycle timers (SPEC 7.5): the sweep every second, the KPI tick every 2 s, retention hourly.
 // Each timer body is guarded so a failing sweep is logged and the next one still runs.
-import type { ActivityHistory } from './activityHistory.js';
-import type { SessionRecordings } from './recordings.js';
 import { sizeText } from './sizeText.js';
 import { capWords, countWords, policyWords } from './activityHistoryWords.js';
 import { ACTIVITY_LOG_KINDS } from './activityHistoryTypes.js';
 import type { Fleet } from './fleet.js';
-import type { PeopleStoreApi, Storage } from '../storage/types.js';
+import type { ActivityHistoryApi, PeopleStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { createLogger, loggerFromLine, type Logger } from '../logging/logger.js';
 
 export interface SweeperIntervals {
@@ -20,14 +18,14 @@ export interface SweeperIntervals {
 export const DEFAULT_INTERVALS: SweeperIntervals & { activityPurgeMs: number } = { sweepMs: 1000, tickMs: 2000, retentionMs: 3600_000, activityPurgeMs: 300_000 };
 
 /** The stores whose purge is running now, so a tick that fires before it finishes skips instead of stacking. */
-const purging = new WeakSet<ActivityHistory>();
+const purging = new WeakSet<ActivityHistoryApi>();
 
 /**
  * One run of the Activity history's purge (#432). A run that removed something writes one Admin log row and one log line;
  * a run that removed nothing is silent. The purge works in chunks, so this returns when it is done; a run that starts while
  * the last one is still going is skipped.
  */
-export async function purgeActivityHistory(history: ActivityHistory, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
+export async function purgeActivityHistory(history: ActivityHistoryApi, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   if (purging.has(history)) return;
   purging.add(history);
   try {
@@ -43,14 +41,14 @@ export async function purgeActivityHistory(history: ActivityHistory, people: Peo
   }
 }
 
-const purgingRecordings = new WeakSet<SessionRecordings>();
+const purgingRecordings = new WeakSet<SessionRecordingsApi>();
 
 /**
  * One run of the session recordings' purge (#353): each part older than the Admin's keep time goes, so a short time is honored
  * within a few minutes. A run that removed something writes one Admin log row and one log line, with counts and sizes and never
  * any text; a run that removed nothing is silent. A run that starts while the last is still going is skipped.
  */
-export async function purgeRecordings(recordings: SessionRecordings, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
+export async function purgeRecordings(recordings: SessionRecordingsApi, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   if (purgingRecordings.has(recordings)) return;
   purgingRecordings.add(recordings);
   try {
@@ -64,7 +62,7 @@ export async function purgeRecordings(recordings: SessionRecordings, people: Peo
 }
 
 /** The 5-minute run: the Activity history's purge and the recordings', each finishing even if the other fails; the first failure is thrown after both. */
-export async function purgeStored(history: ActivityHistory, recordings: SessionRecordings, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
+export async function purgeStored(history: ActivityHistoryApi, recordings: SessionRecordingsApi, people: PeopleStoreApi, logger: Logger, now: number): Promise<void> {
   const results = await Promise.allSettled([purgeActivityHistory(history, people, logger, now), purgeRecordings(recordings, people, logger, now)]);
   for (const r of results) if (r.status === 'rejected') throw r.reason;
 }
