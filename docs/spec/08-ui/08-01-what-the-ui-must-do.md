@@ -15,7 +15,7 @@ pages, responding, the orchestrator page and the right panel.
 
 **Top bar**
 - Logo and name, which are one link to the fleet page (`#/`, accessible name "Podium, fleet"), then Fleet,
-  Board, History and Admin buttons. Each leaves the wall as it is when already there.
+  Board and History buttons, then Traffic while orchestrator messaging is on and Admin for a signed-in Administrator (below). Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
   Board on the board, no History in History, no Admin in Admin, no Traffic on Traffic and no My reporters link on
@@ -365,10 +365,10 @@ Admin has a grouped side menu on the left that runs the full height and one page
 menu and the page scroll on their own.
 
 **The menu**
-- It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in three
+- It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in four
   groups:
   - People and access: People, Groups, Reporters.
-  - Server: Settings, Model prices, Security, Data, Stored activity (#432).
+  - Server: Settings, Model prices, Security, Certificates, Data, Stored activity (#432).
   - Reporting (#484): Usage, Spend, People and groups, Sessions, Failures, Admin activity.
   - Activity: Admin log.
 - The page that was "Reporting and security" is now **Security** (#484), so two entries do not both say
@@ -524,7 +524,7 @@ menu and the page scroll on their own.
 - Since #484 this page is Reporting > Spend, not Activity > Spend. Its content below is unchanged except that a
   row is now a button that opens a breakdown (#482), and the projection (#483) and the over-time report sit
   below it (see *Reporting*).
-- One section, **Spend today, by person** (or **by group**), whose lead says it is estimated from tokens, not a
+- The page's first section, **Spend today, by person** (or **by group**), whose lead says it is estimated from tokens, not a
   bill.
 - Its panel has a toolbar with **Group by** (People, Groups) and **Show as** (Chart, Table) and, at the right
   of that row, the total spent and the live session count. Then the list, then the pager with its usual sizes.
@@ -610,11 +610,13 @@ a map of it.
   page's status band, with the reply icon and, for a question, the number of questions in the ask.
 - It shows only while the session waits on its person with an open ask whose kind the session accepts (or,
   idle, with `message` in `accepts`), and only while `features.respond` and `features["activity-feed"]` are on
-  and `GET /respond/me` says responding is enabled.
+  and `GET /respond/me` says `enabled` (a token is set and a feature that needs the sign-in is on; the flags
+  above are what make it mean responding).
 - It is never on a blue band (waiting on background work).
 - It is gone when responding is off and when the reporter can't answer (`respond` null, or the ask's kind
   removed by `limits`).
-- Signed out, it is live on every waiting card, since Podium doesn't know whose sessions are yours.
+- Signed out (with `enabled` true), it is live on every waiting card, since Podium doesn't know whose sessions are yours;
+  it leads to the sign-in form.
 - Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "`<Owner>`'s
   session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin can respond."
 - The card's own click target is unchanged.
@@ -632,8 +634,8 @@ a map of it.
 **Signing in**
 - Signed out, Respond opens the modal with the feed and the sign-in form (Name, Token, Sign in) in the answer
   panel, and no message box.
-- The top bar's far end, after a divider that follows History, Hide top bar, the wall mode button and Admin,
-  has **Sign in**, which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
+- The top bar's far end, after a divider that follows History, Traffic, the wall mode button and Admin,
+  has **Sign in** (shown only while `GET /respond/me` says `enabled`), which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
   as `<name>`" and **Sign out**.
 - These go after the spacer, at the end of the bar, so the controls before them don't move. Nothing is added
   next to the connection pill.
