@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useId, type KeyboardEvent } from "react";
 import type { ModeChoice } from "../themes";
 import { THEMES } from "../themes";
 import type { useTheme } from "../useTheme";
@@ -45,5 +45,25 @@ export function ThemePicker({ theme }: { theme: ReturnType<typeof useTheme> }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/** The keys the Shortcuts switch turns on, named in its hint so a person can find them (#636). */
+export const SHORTCUTS_HINT = "Press \\ for the top bar, [ and ] for the side panes, and w for wall mode. Esc leaves wall mode.";
+
+/** The Shortcuts field in the Display settings row, beside the Theme controls (#636): the Admin switch (`.sw`) in a `.field`. Off by default; the choice is per browser. */
+export function ShortcutsSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const id = useId();
+  return (
+    <span className="field">
+      <span id={`${id}-n`}>Shortcuts</span>
+      <span className="sw">
+        <button type="button" role="switch" aria-checked={on} aria-labelledby={`${id}-n ${id}-s`} aria-describedby={`${id}-d`} title={SHORTCUTS_HINT} onClick={() => onChange(!on)} />
+        <span id={`${id}-s`}>{on ? "On" : "Off"}</span>
+      </span>
+      <span id={`${id}-d`} className="vh">
+        {SHORTCUTS_HINT}
+      </span>
+    </span>
   );
 }

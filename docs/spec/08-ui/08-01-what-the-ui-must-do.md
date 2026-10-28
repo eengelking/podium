@@ -78,6 +78,13 @@ pages, responding, the orchestrator page and the right panel.
 **Collapsing**
 - The left pane, the right pane and the top bar each collapse and expand on their own, from a visible control
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
+- The single-key shortcuts (`[`, `]`, `\`, `w`) are off by default (WCAG 2.1.4, #636). A **Shortcuts** switch (the
+  Admin `.sw` switch in a `.field`) in the Display settings row turns them on. It sits beside Refresh every and Theme
+  on the wall, the Board, the orchestrator page, Traffic and My reporters, and beside Theme on History. It is kept per
+  browser in `localStorage` under `podium.shortcuts` (`true` or `false`), the way the theme and the refresh interval
+  are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
+  pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
+  (its `title` and `aria-describedby`) names all four keys.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
   the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a

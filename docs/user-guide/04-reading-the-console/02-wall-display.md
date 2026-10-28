@@ -9,6 +9,10 @@ order: 2
 
 For a wall display, collapse what you do not need.
 
+The keys in the last column are off until you turn on **Shortcuts** in the bar above the wall (left of Theme). The
+choice is kept in this browser, so each browser you use needs it turned on once. With it off, the buttons still work
+and `Esc` still leaves wall mode.
+
 | Part | Button | Key |
 |---|---|---|
 | Left pane | The tab on its edge, labeled "Collapse the left pane" | `[` |

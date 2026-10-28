@@ -170,6 +170,7 @@ describe("the top bar", () => {
   });
 
   it("keeps the top bar's own shortcut but not the wall's, which this page does not draw (#415)", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     const { container } = page();
     await flush();
     const top = document.getElementById("podium-top")!;
@@ -188,6 +189,7 @@ describe("the top bar", () => {
     const server = fakeServer();
     const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
     const api = respondApi();
+    localStorage.setItem("podium.shortcuts", "true");
     const { container, rerender } = render(<FleetView myReporters={false} state={state} respondApi={api} peersApi={server.api} />);
     await flush();
     fireEvent.keyDown(document, { key: "w" });
@@ -245,6 +247,7 @@ describe("the rail and the Activity panel around the page (#446)", () => {
   });
 
   it("opens and closes each panel from its tab and from [ and ], and keeps the flags apart from the wall's and the Board's", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     page();
     await flush();
     fireEvent.click(left());
