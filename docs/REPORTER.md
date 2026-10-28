@@ -149,7 +149,12 @@ unless you say otherwise. A context is a name for one file, and the current cont
   session to use the new context.
 - **Two servers at once.** Set `PODIUM_REPORTER_CONTEXT=work` in one terminal before starting Claude Code there. It wins over
   the current context for that terminal only. `PODIUM_REPORTER_CONFIG` still wins over both.
-- **The status line and `/podium`** show the context, such as `podium v1.4.0 [work] ● 3 live`.
+- **The status line and `/podium`** show the context, such as `podium v1.4.0 [work] ● 3 live`. A context that could not be
+  used shows `[context unusable]`.
+- **The name still has to match.** If `userName` or `PODIUM_USER` is set, a context whose file is for another person is
+  refused with "wrong config for this name". Leave both empty to use contexts for different people.
+- **A reissued config is a new file name.** A context points at the file you gave it, so after an Admin reissues your
+  config, point the context at the new file: `/podium context remove work`, then `/podium context add work <new file>`.
 - **A context that does not work** (the name is not defined, or its file is missing or not a reporter config) shows
   under `Context problem:` in `/podium`, and the reporter uses the newest file so it keeps reporting. Fix it with
   `/podium context`.

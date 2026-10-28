@@ -225,6 +225,43 @@ describe('finding the reporter config by context (#606)', () => {
     expect(r.contextProblem?.code).toBe('CONTEXT_INVALID')
   })
 
+  test('a file this session already holds from a context is kept when the current context changes (a reload)', async () => {
+    const f = fake({ files: files('work') })
+    const r = await findConfig(f.$, env, { path: home, context: 'home' })
+    expect(r.found?.path).toBe(home)
+    expect(r.found?.context).toBe('home')
+    const gone = await findConfig(fake({ files: files('work') }).$, env, { path: `${dir}/reporter-config-Dana-5.pem`, context: 'old' })
+    expect(gone.found?.path).toBe(work)
+  })
+
+  test('a contexts file that is there but cannot be read is a problem, not an absent file', async () => {
+    const f = fake({ files: files('home') })
+    const read = f.$.fs.read
+    f.$.fs.read = async (p) => {
+      if (p.endsWith('contexts.json')) throw new Error('EACCES')
+      return read(p)
+    }
+    const r = await findConfig(f.$, env)
+    expect(r.contextProblem?.code).toBe('CONTEXT_INVALID')
+    expect(r.contextProblem?.text).toContain('cannot be read')
+    expect(r.found?.path).toBe(newest)
+  })
+
+  test('two contexts reach two different servers and people', async () => {
+    const other = (user: string, server: string, issued: number) => text(user, issued).replace('https://podium.lan:4318', server).replace(`# user: ${user}`, `# user: ${user}`)
+    const f = fake({
+      files: {
+        [home]: other('Dana', 'https://home.lan:4318', 100),
+        [work]: other('dana.e', 'https://work.lan:4318', 200),
+        [`${dir}/contexts.json`]: contexts('home'),
+      },
+    })
+    const a = await findConfig(f.$, env)
+    expect([a.found?.headers.user, a.found?.headers.server]).toEqual(['Dana', 'https://home.lan:4318'])
+    const b = await findConfig(f.$, { ...env, context: 'work' })
+    expect([b.found?.headers.user, b.found?.headers.server]).toEqual(['dana.e', 'https://work.lan:4318'])
+  })
+
   test('a context may name a file by absolute path', async () => {
     const f = fake({ files: { '/srv/p.pem': text('Dana', 7), [`${dir}/contexts.json`]: JSON.stringify({ current: 'srv', contexts: { srv: '/srv/p.pem' } }) } })
     expect((await findConfig(f.$, env)).found?.path).toBe('/srv/p.pem')

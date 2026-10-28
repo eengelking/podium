@@ -228,6 +228,7 @@ let opts: Options = readOptions({});
 /** The name and token this session reports as: taken once at session.start and held (#226), never read live from the options. */
 let who: Identity = { userName: '', token: '' };
 const IDENTITY = { plugin: 'podium-reporter', key: 'identity' } as const;
+const CHOSEN_CONFIG = { plugin: 'podium-reporter', key: 'chosenConfig' } as const;
 let rt: Runtime | null = null;
 /** Where the name in `who` came from, for the wrong-config message (#647); empty when `who` has none. */
 let nameSource = '';
@@ -451,7 +452,7 @@ function devNote(version: string, build: string | null | undefined): string {
 
 function showStatus($: Engine, r: Runtime): void {
   if (!opts.showStatus) return;
-  const text = r.transport.statusText(link?.problem()?.status, linkContext.name);
+  const text = r.transport.statusText(link?.problem()?.status, linkContext.problem ? 'context unusable' : linkContext.name);
   if (text === r.lastStatus) return;
   r.lastStatus = text;
   try {
@@ -1736,7 +1737,10 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (!link) {
     // Two overlapping starts wait for one helper, not one each.
     linking ??= (async () => {
-      const found = await findConfig($ as never).catch(() => null);
+      // A reload starts over, so the file a context chose at the start is read back from $.state and kept: a later `use` is for the next session (#606).
+      const held = (await attempt(async () => (await $.state.get(CHOSEN_CONFIG)).value, null)) ?? null;
+      const found = await findConfig($ as never, undefined, held).catch(() => null);
+      if (found?.found?.context && found.found.path !== held?.path) await attempt(() => $.state.set(CHOSEN_CONFIG, { path: found.found!.path, context: found.found!.context! }), undefined);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
       if (found?.contextProblem) record($, 'tls', new Error(found.contextProblem.text));
       linkContext = { name: found?.found?.context ?? null, problem: found?.contextProblem?.text ?? null };
@@ -1793,8 +1797,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
     await $.command.register({
       name: 'podium',
-      description: 'Podium fleet console: link, connection state, naming this session, and answering a messaging request',
-      argumentHint: '[name <text> | allow <id> | decline <id> | deliver <id>]',
+      description: 'Podium fleet console: link, connection state, naming this session, which Podium server (context), and answering a messaging request',
+      argumentHint: '[name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
       immediate: true,
     });
   } catch (err) {

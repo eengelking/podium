@@ -23,7 +23,7 @@ no way to choose except `PODIUM_REPORTER_CONFIG`, set before Claude Code starts.
 - The same verbs (`list`, `show`, `add`, `rename`, `remove`, `use`) are in `/podium context` and in `podiumctl context`, on the
   same file. `add` checks the file exists and is a reporter config.
 - A context that cannot be used is reported (`/podium`, debug log) and the reporter falls back to the newest file.
-- A running session keeps the config it started with (decision 29); `use` changes the next session and says so.
+- A running session keeps the config it started with (decision 29), held in `$.state` so a plugin reload does not choose again; `use` changes the next session and says so.
 
 *Why.* A name over a file reuses everything the file already carries, so no server address, CA or certificate is copied and
 nothing about authentication changes. An environment variable per terminal is the one way to run two sessions on two servers
@@ -35,4 +35,4 @@ silence a reporter. This differs from a bad `PODIUM_REPORTER_CONFIG`, which send
 on purpose, and a context is a convenience over the folder. The cost is that a session can report to a server other than the one
 the person meant, with the problem shown beside it.
 
-*Cost.* Two copies of the file format (`mod/podium-reporter/hooks/contexts.ts` and `bin/podiumctl`), kept equal by a test.
+*Cost.* A context pins a file name, so a reissued config (a new name) needs `remove` and `add` again. `podiumctl` keeps `contexts.json` in `~/.podium` whatever `PODIUMCTL_HOME` is, because the reporter reads only that. Two copies of the file format (`mod/podium-reporter/hooks/contexts.ts` and `bin/podiumctl`), kept equal by a test.

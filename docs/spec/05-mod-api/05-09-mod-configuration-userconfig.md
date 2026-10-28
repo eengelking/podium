@@ -173,19 +173,28 @@ cluster. They are for someone who uses more than one Podium server. Designed in 
   for one command), then `current`, then the newest file. With no contexts file, or none current, the reporter chooses
   as it did before contexts, so a person with one server sees no change.
 - **A context that cannot be used** (it names a context the file does not have, its file is missing or is not a reporter
-  config, or `contexts.json` is unreadable) is shown, not hidden: `/podium` prints `Context problem:` with the reason and
-  the line goes to the mod's debug log, and the reporter falls back to the newest file so it keeps reporting. It does not
+  config, or `contexts.json` exists but cannot be read or is not valid) is shown, not hidden: the status line says
+  `[context unusable]`, `/podium` prints `Context problem:` with the reason, the line goes to the mod's debug log, and the reporter falls back to the newest file so it keeps reporting. It does not
   stop the session, as a bad `PODIUM_REPORTER_CONFIG` does, because that variable names one file on purpose and a
   context is a convenience over the folder.
 - **Running sessions.** A session keeps the config it started with, as it keeps its identity ([Identity](#identity-226),
-  DECISIONS 29). Changing the current context changes the next session and the reply says so. Two sessions on one machine
-  can use two contexts at once, through `PODIUM_REPORTER_CONTEXT` in each terminal.
-- **Commands.** `/podium context` and `podiumctl context`, with the same verbs on the same file: `list` (the default),
+  DECISIONS 29): the file a context chose is held in `$.state` (`podium-reporter.chosenConfig`), so a plugin reload, which
+  runs `register` and `session.start` again, reads it back instead of choosing again. It is used while it is still a
+  reporter config file; if it is gone the session chooses again. Changing the current context changes the next session
+  and the reply says so. Two sessions on one machine can use two contexts at once, through `PODIUM_REPORTER_CONTEXT` in
+  each terminal.
+- **The name still has to match.** A context carries a server and a person, but the session's name can also come from
+  `PODIUM_USER`, a held identity or the `userName` option, and a file for another name is refused
+  (`wrong config for this name`, above). To use contexts whose files are for different people, leave `userName` and
+  `PODIUM_USER` empty so each session takes the name in its file.
+- **Commands.** `/podium context` and `podiumctl context`, with the same verbs on the same file, `~/.podium/contexts.json` (`podiumctl` uses
+  it even when `PODIUMCTL_HOME` moves its other files, because the reporter reads only that one): `list` (the default),
   `show [name]`, `add <name> <file>`, `rename <name> <new>`, `remove <name>` and `use <name>`. `add` checks that the file
   exists and is a version 1 reporter config before it writes. `remove` never deletes a config file. The first context
   added becomes the current one.
 - **Where it shows.** The status line puts the context's name in brackets after the version (`podium v1.4.0 [work] ● 3
   live`), and `/podium` prints `Context: <name> (<server>)`. Neither appears when no context chose the file.
+  A context that could not be used shows `[context unusable]` there instead.
 
 **The helper.** The mod cannot give `$.http.fetch` a CA or a client certificate, so podium-reporter starts a small
 Node script, `hooks/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from

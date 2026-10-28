@@ -81,13 +81,22 @@ export interface FoundConfig {
 }
 
 /** The config file the context `name` points at, or why it cannot be used. */
-async function contextFile($: LinkEngine, home: string, name: string | null, fromEnv: boolean): Promise<{ found: FoundConfig | null; problem: Problem | null }> {
+async function contextFile($: LinkEngine, home: string, name: string | null, fromEnv: boolean, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null }> {
+  // The file this session's context chose at its start, kept across a reload so a later `use` does not move a running session (#606).
+  if (held) {
+    const text = await readText($, held.path);
+    const headers = text === null ? null : parseConfigHeaders(text);
+    if (headers) return { found: { path: held.path, headers, context: held.context }, problem: null };
+  }
   const source = fromEnv ? 'PODIUM_REPORTER_CONTEXT' : 'the current context';
   const bad = (why: string): { found: null; problem: Problem } => ({
     found: null,
     problem: { code: 'CONTEXT_INVALID', status: 'context unusable', text: `${why} The newest reporter config file is used instead. Check it with /podium context.` },
   });
-  const contextsText = await readText($, `${podiumHome(home)}/${CONTEXTS_FILE}`);
+  const contextsPath = `${podiumHome(home)}/${CONTEXTS_FILE}`;
+  const contextsText = await readText($, contextsPath);
+  // A file that is there but cannot be read is a problem, not an absent file: the newest file may be another server.
+  if (contextsText === null && (await $.fs.exists(contextsPath).catch(() => false))) return bad(`${contextsPath} cannot be read.`);
   if (contextsText === null) return fromEnv ? bad(`PODIUM_REPORTER_CONTEXT names "${name}", but there is no ${podiumHome(home)}/${CONTEXTS_FILE}.`) : { found: null, problem: null };
   const contexts = parseContexts(contextsText);
   if (!contexts) return bad(`${podiumHome(home)}/${CONTEXTS_FILE} is not a valid contexts file.`);
@@ -105,10 +114,10 @@ async function contextFile($: LinkEngine, home: string, name: string | null, fro
 /**
  * The reporter config file, in this order (#606): `PODIUM_REPORTER_CONFIG`; the context `PODIUM_REPORTER_CONTEXT` names, or
  * else the current one in `~/.podium/contexts.json`; the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name.
- * A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
+ * `held` is the file a context chose earlier in this session; it is used again while it is still a config file. A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
  * reporter still works. Null `found`: no config, the reporter works as today.
  */
-export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; env: EnvValues }> {
+export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; env: EnvValues }> {
   const e = env ?? (await readEnv($));
   if (e.config) {
     const text = await readText($, e.config);
@@ -122,7 +131,7 @@ export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ foun
     };
   }
   if (!e.home) return { found: null, problem: null, contextProblem: null, env: e };
-  const chosen = await contextFile($, e.home, e.context || null, !!e.context);
+  const chosen = await contextFile($, e.home, e.context || null, !!e.context, held);
   if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, env: e };
   const dir = podiumHome(e.home);
   let names: Array<{ name: string; kind: string }> = [];

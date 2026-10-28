@@ -73,7 +73,8 @@ Files (set PODIUMCTL_HOME to move them; default ~/.podium):
   tls/           The CA and serving certificate when TLS is on (container mode; standalone keeps them in data/tls).
                  Back it up and keep it private: it holds the CA key. rm and rm --purge keep it.
   podium.log     Server log (standalone mode); container mode: \`podiumctl logs\`.
-  contexts.json  The reporter's contexts (\`podiumctl context\`): a name for each reporter config file. The reporter reads it; so does /podium context.
+  contexts.json  The reporter's contexts (\`podiumctl context\`): a name for each reporter config file. It is always in ~/.podium, where the
+                 reporter reads it, even when PODIUMCTL_HOME moves the other files.
 
 Auth: the first \`start\` generates the admin secret and saves it as PODIUM_TOKEN in config.env. Open the
 dashboard (\`podiumctl url\`), go to Admin and sign in with the name Admin and the secret to make a token for each person. On your own machine a reporter can
@@ -751,6 +752,8 @@ function cmdRm(cfg, flags) {
 // reads the same file; scripts/podiumctl.test.ts checks that the two agree on the format.
 
 export const CONTEXTS_FILE = 'contexts.json';
+/** The reporter reads ~/.podium/contexts.json and knows nothing of PODIUMCTL_HOME, so the contexts live there whatever it says. */
+const reporterDir = () => path.join(os.homedir(), '.podium');
 const CONTEXT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const CONTEXT_VERBS = ['list', 'show', 'add', 'rename', 'remove', 'use'];
 const NEXT_SESSION = 'It applies from the next session; sessions already running keep the context they started with.';
@@ -805,7 +808,7 @@ export function changeContexts(c, verb, args, read) {
     if (!contextFileOk(b)) throw new Fail(`"${b}" is not a config file name or an absolute path.`);
     if (has(a)) throw new Fail(`There is already a context named "${a}". Remove it first, or choose another name.`);
     const text = read(b);
-    if (text === null) throw new Fail(`No such file: ${b.startsWith('/') ? b : path.join(homeDir(), b)}. Nothing was added.`);
+    if (text === null) throw new Fail(`No such file: ${b.startsWith('/') ? b : path.join(reporterDir(), b)}. Nothing was added.`);
     if (!configHeaders(text)) throw new Fail(`${b} is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line). Nothing was added.`);
     return [{ current: c.current ?? a, contexts: { ...c.contexts, [a]: b } }, [`Added context "${a}" for ${b}.`, c.current ? '' : `"${a}" is now the current context. ${NEXT_SESSION}`].filter(Boolean).join(' ')];
   }
@@ -833,13 +836,13 @@ export function changeContexts(c, verb, args, read) {
 function cmdContext(args) {
   const [verb = 'list', ...rest] = args;
   if (!CONTEXT_VERBS.includes(verb)) fail(`unknown context command "${verb}". Use one of: ${CONTEXT_VERBS.join(', ')}.`);
-  const file = path.join(homeDir(), CONTEXTS_FILE);
+  const file = path.join(reporterDir(), CONTEXTS_FILE);
   // One read, not an existence check and then a read: a file that appears or goes between the two is not a race this way.
   let fileText = null;
   try { fileText = fs.readFileSync(file, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') fail(`${file} exists but cannot be read (${e.code}), so nothing was changed.`); }
   const contexts = fileText === null ? { current: null, contexts: {} } : parseContexts(fileText);
   if (!contexts) fail(`${file} is not a valid contexts file, so nothing was changed. Fix or delete it.`);
-  const resolve = (f) => (f.startsWith('/') ? f : path.join(homeDir(), f));
+  const resolve = (f) => (f.startsWith('/') ? f : path.join(reporterDir(), f));
   const read = (f) => { try { return fs.readFileSync(resolve(f), 'utf8'); } catch { return null; } };
   const fromEnv = process.env.PODIUM_REPORTER_CONTEXT || undefined;
   const describe = (f) => {
@@ -867,7 +870,7 @@ function cmdContext(args) {
     return;
   }
   const [next, message] = changeContexts(contexts, verb, rest, read);
-  fs.mkdirSync(homeDir(), { recursive: true });
+  fs.mkdirSync(reporterDir(), { recursive: true });
   fs.writeFileSync(file, serializeContexts(next));
   say(message);
   if (verb === 'use' && fromEnv && fromEnv !== rest[0]) say(`PODIUM_REPORTER_CONTEXT is "${fromEnv}" in this terminal and wins over it here.`);
