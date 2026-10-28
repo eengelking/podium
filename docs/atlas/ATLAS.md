@@ -57,7 +57,7 @@ to do travels back in the reply to a report.
 | Location | Item | Description |
 |---|---|---|
 | Network | HTTP :4317 | The main listener: the console, the API, Admin, and reporters that send a token. Plain HTTP, bound to `127.0.0.1` by default. |
-| Network | mTLS :4318 | Only with built-in TLS on. HTTPS that requires a client certificate from the Podium CA, and answers 404 to anything but reporter routes. |
+| Network | mTLS :4318 | Only with built-in TLS on. HTTPS that requires a client certificate from the Podium CA, and answers 404 to anything but reporter routes. A valid client certificate is trusted from the first connection; the HTTP reporter gate stays open until the first-run decision about reporters over HTTP is stored. |
 | Network | Reverse proxy | Optional. Your own TLS-terminating proxy in front of the console, for a network you do not trust. |
 
 ### Server
@@ -66,7 +66,7 @@ to do travels back in the reply to a report.
 |---|---|---|
 | Server | Ingest | Validates each report field by field, then stores it in one database transaction. |
 | Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). It takes one `Storage`, loads its settings in `init()` before the server listens, and sends every broadcast through one ordered queue. |
-| Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. |
+| Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. A timer body whose previous run is still going is skipped. |
 | Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes. |
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
 | Server | Guard chain | Middleware that runs first on the HTTP port: Host check, security headers, the reporter HTTP gate, request log and the failed-request limiter. |
@@ -80,7 +80,7 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. The app reaches it through the async `Storage` interfaces in `server/src/storage/`; `openStorage` picks the implementation from `PODIUM_DB`, and the SQLite adapter in `storage/sqlite/` runs every call behind one lock per connection. |
+| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. The app reaches it through the async `Storage` interfaces in `server/src/storage/`; the server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup) and `openStorage` picks the implementation, and the SQLite adapter in `storage/sqlite/` runs every call behind one lock per connection. |
 | Storage | `activity.sqlite` | A second file for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 
 ### Console
@@ -175,6 +175,7 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
+| Network | `class TlsBoot` | Holds the listener from the turn it serves; the HTTP gate is active only once the seed is stored. In `server/src/tlsBoot.ts`. |
 | Network | `startTls` | Starts the mutual-TLS listener. In `server/src/tlsServer.ts`. |
 | Network | `reporterPortOnly` | Answers 404 to any path that is not a reporter route. In `server/src/tlsServer.ts`. |
 
@@ -186,6 +187,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `ingestReport` | Stores a validated report in one transaction. In `server/src/fleet/ingest.ts`. |
 | Server | `class Fleet` | The live set, the clock and the views, over one Storage. In `server/src/fleet/fleet.ts`. |
 | Server | `init` | Loads the stored settings and the live candidates; the server listens only after it. In `server/src/fleet/fleet.ts`. |
+| Server | `noteOrchestrator` | Puts the reporter in the peer directory, in the session's own serial turn. In `server/src/fleet/fleet.ts`. |
 | Server | `state()` | The snapshot for a browser's first paint. In `server/src/fleet/fleet.ts`. |
 | Server | `enqueue` | Every broadcast goes through one ordered queue. In `server/src/fleet/fleet.ts`. |
 | Server | `flush` | Waits until every queued message is sent; shutdown calls it before the databases close. In `server/src/fleet/fleet.ts`. |
@@ -193,7 +195,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `class LiveFeatureFlags` | A write-through cache, read synchronously and written asynchronously. In `server/src/fleet/liveSettings.ts`. |
 | Server | `sessionView` | Turns database rows into the SessionView the browsers get. In `server/src/fleet/derive.ts`. |
 | Server | `sessionStatus` | Done, stale (silent too long) or the status last reported. In `server/src/fleet/derive.ts`. |
-| Server | `startSweeper` | The one-second housekeeping loop. In `server/src/fleet/sweeper.ts`. |
+| Server | `startSweeper` | The one-second housekeeping loop; a timer body is skipped while its previous run is still going. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeActivityHistory` | Removes stored activity past its retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeRecordings` | Removes recordings past their retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `class SseHub` | The open browser streams, and broadcasts to them. In `server/src/fleet/sse.ts`. |
@@ -229,6 +231,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Location | Item | Description |
 |---|---|---|
 | Storage | `openStorage` | The one place the implementation is chosen, from PODIUM_DB. In `server/src/storage/index.ts`. |
+| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
 | Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
 | Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
 | Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |

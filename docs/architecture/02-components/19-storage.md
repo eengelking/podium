@@ -54,6 +54,11 @@ registered kind, and an unknown kind stops the server at start with a message th
 registered. Adding a database means adding its adapter and one line to that registry, and nowhere else in the server
 changes. This issue adds no second database.
 
+`storageSpec` splits the value into its kind and target, and the server starts through it. The target is also what the rest of
+the server treats as the database file: the TLS folder, the Activity history file and the config all sit beside it. So
+`sqlite://data/podium.sqlite` and `data/podium.sqlite` mean the same thing everywhere, and a bad kind fails before anything
+else reads the path.
+
 ## The lock and the transaction
 
 Each SQLite connection has one `AsyncLock` (`storage/sqlite/lock.ts`): a queue that runs one adapter call at a time. The
@@ -94,6 +99,11 @@ Two things the old synchronous code got for free are now explicit.
 `index.ts` opens the storage, awaits `fleet.init()` and only then listens. On a stop, the server closes its listeners,
 waits for `fleet.flush()`, then calls `storage.close()`, which drains each lock and closes its file. Messages and writes
 already asked for finish before either file closes.
+
+With built-in TLS on, `tlsBoot.ts` keeps the order of two things straight. The HTTPS listener is registered the moment it
+starts serving, so a client certificate is trusted from the first connection. The plain-HTTP gate for reporters opens only
+after the seed row for "allow reporters over HTTP" is stored, so a fresh install is never refused in between. The sweeper
+skips a timer run while the previous one is still going, because a sweep now queues behind storage work.
 
 ## Rules for calling it
 
