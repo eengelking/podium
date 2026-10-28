@@ -56,7 +56,7 @@ export function nameEpoch(base: string): number | null {
  */
 export function configNamesNewestFirst(names: string[]): string[] {
   const rows = names.filter((n) => /^reporter-config-.+\.pem$/.test(n)).map((name) => ({ name, epoch: nameEpoch(name) }));
-  rows.sort((a, b) => (a.epoch === null ? (b.epoch === null ? 0 : 1) : b.epoch === null ? -1 : b.epoch - a.epoch) || a.name.localeCompare(b.name));
+  rows.sort((a, b) => (a.epoch === null ? (b.epoch === null ? 0 : 1) : b.epoch === null ? -1 : b.epoch - a.epoch) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return rows.map((r) => r.name);
 }
 
