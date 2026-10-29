@@ -48,5 +48,5 @@ is the only adapter, and `PODIUM_DB` with a path or `:memory:` still means a SQL
 <!-- nav:start -->
 ---
 
-Previous: [47. Load every changed file's diff while the page is open, in the browser only (#631)](47-load-every-diff-while-the-page-is-open-in-the.md) · Up: [Decisions](README.md)
+Previous: [47. Load every changed file's diff while the page is open, in the browser only (#631)](47-load-every-diff-while-the-page-is-open-in-the.md) · Up: [Decisions](README.md) · Next: [49. End-to-end tests run Cypress from an e2e folder against the built server (#782)](49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md)
 <!-- nav:end -->

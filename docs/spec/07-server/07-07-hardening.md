@@ -285,7 +285,7 @@ A file's diff is source code. Reads are open by design, so this is the one read 
 - A new sign-in to respond starts without a hold, and another browser's sign-in is unaffected. The hold lives
   in memory with the sign-in and ends with it.
 - The Admin button in the top bar shows only to a browser signed in to respond as an Administrator
-  (`GET respond/me` says `admin`), and not on the Admin page itself. Anyone else reaches Admin at `#/admin`, which shows the name-and-token
+  (`GET respond/me` says `admin`), and not on the Admin page itself (`TopBar.tsx`). Signed out or signed in as anyone else, there is no Admin button in the top bar. Anyone else reaches Admin at `#/admin`, which shows the name-and-token
   sign-in.
 - Hiding the button is not the check: every Admin route except `GET session` and the two unlocks needs an
   open session.
