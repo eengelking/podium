@@ -104,11 +104,11 @@ html, body { height: auto; }
 <text class="mk-zone" x="264.8" y="22" text-anchor="middle">Compact event, count stays</text>
 <text class="mk-zone" x="540.8" y="22" text-anchor="middle">Blowout</text>
 <line class="mk-lead" x1="165.4" x2="165.4" y1="62" y2="92"/><line class="mk-lead" x1="182.0" x2="182.0" y1="62" y2="92"/><line class="mk-lead" x1="596.0" x2="596.0" y1="62" y2="90"/>
-<text class="mk-pl" x="161.4" y="56" text-anchor="end"><tspan class="mk-pv">22%</tspan> 2a5df483</text>
-<text class="mk-pl" x="186.0" y="56" text-anchor="start"><tspan class="mk-pv">25%</tspan> 728cd469</text>
+<text class="mk-pl" x="161.4" y="56" text-anchor="end"><tspan class="mk-pv">22%</tspan> session A</text>
+<text class="mk-pl" x="186.0" y="56" text-anchor="start"><tspan class="mk-pv">25%</tspan> session B</text>
 <text class="mk-pl" x="596.0" y="56" text-anchor="end"><tspan class="mk-pv">about 100%</tspan> overflow</text>
-<g class="mk-pt" tabindex="0" data-tip="Session 2a5df483: 217,153 of 1,000,000 tokens (22%). Auto compaction, logged as a compact event."><circle cx="165.4" cy="98" r="6.5"/></g>
-<g class="mk-pt" tabindex="0" data-tip="Session 728cd469: 254,942 of 1,000,000 tokens (25%). Auto compaction, logged as a compact event."><circle cx="182.0" cy="98" r="6.5"/></g>
+<g class="mk-pt" tabindex="0" data-tip="Session A: 217,153 of 1,000,000 tokens (22%). Auto compaction, logged as a compact event."><circle cx="165.4" cy="98" r="6.5"/></g>
+<g class="mk-pt" tabindex="0" data-tip="Session B: 254,942 of 1,000,000 tokens (25%). Auto compaction, logged as a compact event."><circle cx="182.0" cy="98" r="6.5"/></g>
 <g class="mk-pt mk-tri" tabindex="0" data-tip="A real overflow: the API stops the request at the window, near 100%. Counted as a blowout."><path d="M596.0 90 L604.0 105 H588.0 Z"/></g>
 </svg>
 <div class="mk-legend"><span><i class="mk-key dot"></i>Auto compaction, logged as a compact event</span><span><i class="mk-key tri"></i>Window exceeded, a blowout</span><span><i class="mk-key hat"></i>80% or more, counted</span></div>
@@ -118,8 +118,8 @@ html, body { height: auto; }
 <li><b>Manual and plugin</b><span>Still compact events, never blowouts.</span></li>
 </ul>
 <details class="mk-details"><summary>Show the chart as a table</summary><div class="mk-tablewrap"><table class="mk-table"><thead><tr><th scope="col">Case</th><th scope="col">Tokens before</th><th scope="col">Window</th><th scope="col">Fill</th><th scope="col">Result</th></tr></thead><tbody>
-<tr><th scope="row">Session 2a5df483, auto compaction</th><td class="mono">217,153</td><td class="mono">1,000,000</td><td class="mono">22%</td><td>Compact event</td></tr>
-<tr><th scope="row">Session 728cd469, auto compaction</th><td class="mono">254,942</td><td class="mono">1,000,000</td><td class="mono">25%</td><td>Compact event</td></tr>
+<tr><th scope="row">Session A, auto compaction</th><td class="mono">217,153</td><td class="mono">1,000,000</td><td class="mono">22%</td><td>Compact event</td></tr>
+<tr><th scope="row">Session B, auto compaction</th><td class="mono">254,942</td><td class="mono">1,000,000</td><td class="mono">25%</td><td>Compact event</td></tr>
 <tr><th scope="row">Window exceeded</th><td class="mono">about 1,000,000</td><td class="mono">1,000,000</td><td class="mono">about 100%</td><td>Blowout</td></tr>
 <tr><th scope="row">Auto compaction, fill unknown</th><td class="mono">not known</td><td class="mono">any</td><td class="mono">not known</td><td>Blowout</td></tr>
 </tbody></table></div></details>
