@@ -48,7 +48,7 @@ html, body { height: auto; }
   document.addEventListener('click', function (e) {
     var t = e.target.closest('button');
     if (!t) return;
-    if (t.hasAttribute('data-theme-set')) { theme = t.getAttribute('data-theme-set'); root.setAttribute('data-theme', theme); press('data-theme-set', theme); send(); }
+    if (t.hasAttribute('data-theme-set')) { theme = t.getAttribute('data-theme-set') === 'light' ? 'light' : 'dark'; root.setAttribute('data-theme', theme); press('data-theme-set', theme); send(); }
     if (t.hasAttribute('data-width-set')) { var n = t.getAttribute('data-width-set') === 'narrow'; frame.classList.toggle('narrow', n); press('data-width-set', n ? 'narrow' : 'wide'); }
   });
   window.addEventListener('message', function (e) {
