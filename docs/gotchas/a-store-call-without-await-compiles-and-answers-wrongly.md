@@ -23,7 +23,9 @@ awaits is also not atomic on its own.
 
 **Do:**
 
-1. Put `await` on every store call, and read each condition over a store result for a missing one.
+1. Put `await` on every store call. `node scripts/promise-misuse.mjs server/tsconfig.json --tests` finds a promise used in a
+   condition, under `!`, `&&`, `||` or `??`, in a comparison, or left floating, and `npm test` runs it over the server and the
+   scripts. A deliberate case takes `// promise-ok: <why>` on the same or the previous line; the reason is required.
 2. Do the non-storage waiting before or after `Storage.tx`, never inside it.
 3. Wrap a read-then-write across awaits in `tx`, or run it in a `Serializer` turn (`fleet/serial.ts`).
 4. In a test, `await fleet.flush()` before checking the history, and `await fleet.init()` after building a second `Fleet` to

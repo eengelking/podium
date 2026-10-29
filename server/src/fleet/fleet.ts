@@ -347,7 +347,7 @@ export class Fleet {
     do {
       seen = this.out;
       await seen;
-    } while (seen !== this.out);
+    } while (seen !== this.out); // promise-ok: compares the identity of the output chain to see whether more was queued while waiting; it never reads a promise as a value
   }
 
   private get derive(): DeriveConfig {

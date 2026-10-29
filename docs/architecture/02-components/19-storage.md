@@ -129,7 +129,8 @@ These are the rules the code now depends on. The type checker does not catch a b
 
 1. **Await every store call.** `x ?? promise`, `!promise`, `if (promise)` and a call whose result is dropped all compile. The
    promise is truthy, so the condition is wrong, or the work runs unobserved. See
-   [the gotcha](../../gotchas/a-store-call-without-await-compiles-and-answers-wrongly.md).
+   [the gotcha](../../gotchas/a-store-call-without-await-compiles-and-answers-wrongly.md). `scripts/promise-misuse.mjs` finds these
+   and `npm test` runs it over the repo; a deliberate case takes `// promise-ok: <why>` on its line or the line before.
 2. **Never hold `Storage.tx` across a wait that is not storage.** A network call, OpenSSL, a timer or a stream held inside the
    callback keeps the lock, and every other request waits behind it. Do that work before or after the `tx`.
 3. **A read followed by a write needs a `tx` or a `Serializer` turn.** Between two awaits another task can run, so

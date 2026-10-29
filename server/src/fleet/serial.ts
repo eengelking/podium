@@ -16,7 +16,7 @@ export class Serializer {
     const settled = result.then(noop, noop);
     this.keys.set(key, settled);
     void settled.then(() => {
-      if (this.keys.get(key) === settled) this.keys.delete(key);
+      if (this.keys.get(key) === settled) this.keys.delete(key); // promise-ok: compares the identity of the key's tail with this turn's own promise, so a later turn's tail is not deleted
     });
     return result;
   }
