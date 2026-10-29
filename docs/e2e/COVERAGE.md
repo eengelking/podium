@@ -69,7 +69,7 @@ to green. By hand:
 5. Assert with Cypress's retrying queries. Never `cy.wait(ms)`, never read a clock-derived value, never rely on a count that can still be changing. The config has `retries: 0` on purpose.
 6. Add the feature to the map below, with the spec file in a code span. Then `node scripts/e2e-map.mjs` and the whole suite.
 
-A violation axe finds goes in the `KNOWN` list of `e2e/cypress/e2e/a11y/axe.cy.js` only when it is real, tracked and not yet fixed; the list
+A violation axe finds is passed to `cy.checkA11y({ known })` only when it is real, tracked and not yet fixed; the call
 fails if a violation in it is no longer reported.
 
 ## Test ids
@@ -225,5 +225,4 @@ messages, and the standards pages (`npm run standards:parity`). A feature with o
 ## What is still open
 
 - **History draws Resume and Fork cells that SPEC 8.1 says it does not.** The page reuses the orchestrator page (`frontend/src/fleet/HistoryView.tsx` renders `FocusView`), and the maintainer accepts that. The suite asserts neither.
-- **Known axe findings.** The `KNOWN` list in `e2e/cypress/e2e/a11y/axe.cy.js` holds four real color-contrast findings, each with an issue: the modified-files count on a card in the light theme (#794), a board card's wait line in the light theme (#795), Traffic's sub-lines at 400 px (#796) and a request's hint on My reporters in the dark theme (#797). Each is removed from the list when it is fixed.
-- **Three more axe findings, each with an issue.** `e2e/cypress/e2e/a11y/axe-more.cy.js` lets through the "2x" blowout badge's contrast on the orchestrator page in both themes (`.blow.l2`, #798), and two `label-content-name-mismatch` findings: the Recording cell's button (`aria-label` "Record this session" against the visible word "Record", #799) and the Files rows (`aria-label` "Open diff of <path>" against the visible file name, #800).
+- **Known axe findings.** None. #794 to #800 were the last, and their `known` entries are gone from `e2e/cypress/e2e/a11y/axe.cy.js` and `axe-more.cy.js`.

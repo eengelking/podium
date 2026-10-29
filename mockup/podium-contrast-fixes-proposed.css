@@ -1,0 +1,6 @@
+/* Mockup for #794 to #798: the proposed token values and the one rule change, applied only inside .proposed so the page can
+   show "now" and "proposed" side by side. tokens.css is where the real values change. Nothing here is a color of its own. */
+html[data-theme="light"] .podium .proposed { --warn-text: #8a5a00; --muted: #626159; --crit-text: #a82020; }
+html[data-theme="dark"] .podium .proposed { --muted: #a3a19b; --crit-text: #f58080; }
+/* #794: the count reads the text variant of the warning color, not the fill color. */
+.podium .proposed .git .dirty { color: var(--warn-text); }

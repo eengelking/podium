@@ -138,7 +138,9 @@ function FileRow({ f, onOpen }: { f: ChangedFile; onOpen?: (f: ChangedFile, from
   if (!onOpen) return <li className={f.status}>{inner}</li>;
   return (
     <li className={`${f.status} openable`}>
-      <button type="button" aria-label={`Open diff of ${f.path}`} aria-haspopup="dialog" onClick={(e) => onOpen(f, e.currentTarget)}>
+      <button type="button" aria-haspopup="dialog" onClick={(e) => onOpen(f, e.currentTarget)}>
+        {/* The name is the words on the row with the action in front, so what a person says to reach it is in the name (axe label-content-name-mismatch, #800). */}
+        <span className="vh">Open diff of </span>
         {inner}
       </button>
     </li>

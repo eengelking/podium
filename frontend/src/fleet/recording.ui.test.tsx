@@ -100,8 +100,8 @@ describe("the Recording cell", () => {
     const cells = [...container.querySelectorAll(".facts > .fact")];
     expect(cells).toHaveLength(12);
     expect(cells[11]).toBe(cell(container));
-    const b = within(cell(container)).getByRole("button", { name: "Record this session" });
-    expect(b.textContent).toBe("RecordingRecord");
+    const b = within(cell(container)).getByRole("button", { name: /Record\s*this session/ });
+    expect(b.textContent).toBe("RecordingRecord this session"); // the last words are visually hidden: the name holds the word on the button (#799)
     expect(cell(container)).toHaveClass("copy");
     expect(cell(container).querySelector(".rec-i")).not.toHaveClass("live", "kept");
   });
@@ -144,7 +144,7 @@ describe("the Recording cell", () => {
 describe("the picker", () => {
   const open = async (over: Partial<SessionView> = {}, opts: Parameters<typeof page>[1] = {}) => {
     const out = await page(over, opts);
-    const button = within(cell(out.container)).getByRole("button", { name: "Record this session" });
+    const button = within(cell(out.container)).getByRole("button", { name: /Record\s*this session/ });
     fireEvent.click(button);
     return { ...out, button, dialog: screen.getByRole("dialog", { name: "Record this session" }) };
   };

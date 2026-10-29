@@ -9,7 +9,7 @@ describe('file diff dialog', () => {
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
     cy.get('[role=tab]').contains('Files').click();
   };
-  const rowFor = (path) => cy.get(`button[aria-label="Open diff of ${path}"]`);
+  const rowFor = (path) => cy.get(`li.openable > button:has(.fn[title="${path}"])`);
 
   context('signed in as the owner', () => {
     beforeEach(() => {
@@ -146,7 +146,7 @@ describe('file diff dialog', () => {
       cy.get('[role=dialog]').should('exist');
       cy.get('body').type('{esc}');
       cy.get('[role=dialog]').should('not.exist');
-      cy.focused().should('have.attr', 'aria-label', 'Open diff of src/invoice/totals.ts');
+      cy.focused().find('.fn').should('have.attr', 'title', 'src/invoice/totals.ts');
     });
   });
 
@@ -177,21 +177,21 @@ describe('file diff dialog', () => {
     it('tells a signed-out viewer to sign in, and rows are not buttons', () => {
       openFiles();
       cy.contains('Sign in to open diffs.');
-      cy.get('button[aria-label^="Open diff of"]').should('not.exist');
+      cy.get('li.openable > button').should('not.exist');
     });
 
     it('says only the owner can open diffs when someone else is signed in', () => {
       cy.signIn('Alex');
       openFiles();
       cy.contains('Only Ed can open diffs.');
-      cy.get('button[aria-label^="Open diff of"]').should('not.exist');
+      cy.get('li.openable > button').should('not.exist');
     });
 
     it('shows nothing about diffs, and no buttons, when the Admin turned the file-diff flag off', () => {
       cy.setFlags({ 'file-diff': false });
       cy.signIn('Ed');
       openFiles();
-      cy.get('button[aria-label^="Open diff of"]').should('not.exist');
+      cy.get('li.openable > button').should('not.exist');
       cy.contains('Sign in to open diffs.').should('not.exist');
       cy.contains('Only Ed can open diffs.').should('not.exist');
     });
@@ -201,7 +201,7 @@ describe('file diff dialog', () => {
       cy.reportAgain('invoice', { fileDiff: false });
       openFiles();
       cy.contains('Turn on the fileDiff option of podium-reporter on this machine to open diffs.');
-      cy.get('button[aria-label^="Open diff of"]').should('not.exist');
+      cy.get('li.openable > button').should('not.exist');
     });
   });
 });

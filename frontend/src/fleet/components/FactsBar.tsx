@@ -230,10 +230,12 @@ function RecordingFact({ s, now }: { s: SessionView; now: number }) {
   };
   return (
     <div className="fact copy rec">
-      <button type="button" className="cellbtn" ref={opener} aria-haspopup="dialog" aria-label="Record this session" onClick={() => setOpen(true)}>
+      <button type="button" className="cellbtn" ref={opener} aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <span className="k">Recording</span>
         <span className="v">
-          <span>Record</span>
+          <span>
+            Record<span className="vh"> this session</span>
+          </span>
           {mark("idle")}
         </span>
       </button>

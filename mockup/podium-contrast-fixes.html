@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium Contrast Fixes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+html, body { height: auto; }
+.sh { max-width: 1100px; margin: 0 auto; padding: 24px 16px 0; height: auto; background: transparent; }
+.sh h1 { font-size: 24px; line-height: 1.2; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+.sh p { margin: 0; color: var(--ink2); max-width: 65ch; }
+.sh-ctl { display: flex; gap: 16px; flex-wrap: wrap; margin: 18px 0 0; align-items: center; }
+.sh-grp { display: inline-flex; gap: 6px; align-items: center; }
+.sh-grp > span { color: var(--muted); font-size: 12px; }
+.sh-frame { display: block; width: 100%; max-width: 1100px; margin: 0 auto; border: 0; background: transparent; min-height: 900px; }
+.sh-frame.narrow { max-width: 400px; border-left: 1px dashed var(--axis); border-right: 1px dashed var(--axis); }
+.sh-fb { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="podium sh">
+  <h1>Five text colors get a stronger contrast</h1>
+  <p>What a person sees now and after the fix for #794 to #798, on the real components. #799 and #800 change an accessible name only, so they are not drawn here.</p>
+  <div class="sh-ctl" role="group" aria-label="Preview options">
+    <div class="sh-grp" role="group" aria-label="Mode"><span>Mode</span>
+      <button type="button" class="btn" data-theme-set="dark" aria-pressed="true">Dark</button>
+      <button type="button" class="btn" data-theme-set="light" aria-pressed="false">Light</button></div>
+    <div class="sh-grp" role="group" aria-label="Width"><span>Width</span>
+      <button type="button" class="btn" data-width-set="wide" aria-pressed="true">Wide</button>
+      <button type="button" class="btn" data-width-set="narrow" aria-pressed="false">Narrow (400 px)</button></div>
+  </div>
+  <p class="sh-fb" id="sh-fb"></p>
+</div>
+<iframe class="sh-frame" id="sh-frame" src="podium-contrast-fixes-content.html" title="Before and after, contrast fixes"></iframe>
+<script>
+(function () {
+  var root = document.documentElement, frame = document.getElementById('sh-frame'), theme = 'dark';
+  var base = 'podium-contrast-fixes-content.html';
+  function send() { frame.src = base + '#' + theme; }
+  function press(attr, value) {
+    var b = document.querySelectorAll('[' + attr + ']');
+    for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-pressed', String(b[i].getAttribute(attr) === value));
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('button');
+    if (!t) return;
+    if (t.hasAttribute('data-theme-set')) { theme = t.getAttribute('data-theme-set') === 'light' ? 'light' : 'dark'; root.setAttribute('data-theme', theme); press('data-theme-set', theme); send(); }
+    if (t.hasAttribute('data-width-set')) { var n = t.getAttribute('data-width-set') === 'narrow'; frame.classList.toggle('narrow', n); press('data-width-set', n ? 'narrow' : 'wide'); }
+  });
+  window.addEventListener('message', function (e) {
+    if (e.origin !== window.location.origin) return;
+    if (e.source === frame.contentWindow && e.data && e.data.type === 'mk-height') frame.style.height = Math.ceil(e.data.h) + 'px';
+  });
+  var fb = document.getElementById('sh-fb');
+  setTimeout(function () { if (!frame.style.height) fb.textContent = 'If the preview below is empty, open podium-contrast-fixes-content.html on its own.'; }, 4000);
+})();
+</script>
+</body>
+</html>

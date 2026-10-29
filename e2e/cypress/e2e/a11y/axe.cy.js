@@ -3,20 +3,6 @@
 describe('accessibility (axe)', () => {
   before(() => cy.resetServer({ seedArgs: '--talk --recording' }));
 
-  // Violations axe found on first run: real, not fixed, and listed here so the suite is green and the list is honest. Each entry is let through only while
-  // axe still reports it (see checkA11y). They are for the maintainer to file and fix; fixing one means removing its line here.
-  const CONTRAST = (target, html) => ({ rule: 'color-contrast', target, html });
-  const KNOWN = {
-    // #794: the modified-files count on a card, light theme.
-    'the wall light': [CONTRAST(/^button\[data-session="[^"]+"\] > \.z1 > \.git > \.dirty\[title="Modified files"\]$/, /^<span class="dirty" title="Modified files"/)],
-    // #795: a board card's wait line (.kb-wait), light theme.
-    'the board light 1440': [CONTRAST(/^a\[data-key="[^"]+:waiting"\] > \.kb-wait$/, /class="kb-wait"/)],
-    // #796: Traffic's table sub-lines at 400 px.
-    'Traffic light 400': [CONTRAST(/^td:nth-child\(1\) > \.sub$/), CONTRAST(/^\.muted$/)],
-    'Traffic dark 400': [CONTRAST(/^td:nth-child\(1\) > \.sub$/), CONTRAST(/^\.muted$/)],
-    // #797: the hint in a request on My reporters, dark theme.
-    'My reporters dark': [CONTRAST(/^div\[aria-label="(A change an Admin proposes|A request for access)"\] > \.q > \.hint$/, /class="hint"/)],
-  };
   const PAGES = [
     { name: 'the wall', hash: '#/', ready: () => cy.cards().should('have.length.greaterThan', 5) },
     { name: 'the board', hash: '#/board', ready: () => cy.get('section.kb-col a.kb-card').should('have.length.greaterThan', 5) },
@@ -37,8 +23,7 @@ describe('accessibility (axe)', () => {
           cy.visit(`/${page.hash}`, { onBeforeLoad: (win) => win.localStorage.setItem('podium.theme', JSON.stringify({ theme: 'podium', mode })) });
           cy.get('html').should('have.attr', 'data-theme', mode);
           page.ready();
-          const known = [...(KNOWN[`${page.name} ${mode}`] ?? []), ...(KNOWN[`${page.name} ${mode} ${width}`] ?? [])];
-          cy.checkA11y({ known });
+          cy.checkA11y();
         });
       }
     }

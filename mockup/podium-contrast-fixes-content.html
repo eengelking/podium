@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium contrast fixes, content</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<!-- Mockup for #794 to #798. The app's own stylesheets; tokens.css is the one place a color token is defined. This page has no :root block and no color of its own. -->
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<link rel="stylesheet" href="podium-contrast-fixes-proposed.css">
+<style>
+html, body { height: auto; }
+.mk { max-width: 1100px; margin: 0 auto; padding: 8px 16px 48px; height: auto; background: transparent; }
+.mk h2 { font-size: 18px; margin: 36px 0 4px; font-weight: 600; text-wrap: balance; }
+.mk h2 small { font: 500 12px var(--font-mono); color: var(--muted); margin-left: 8px; }
+.mk p { margin: 0; }
+.mk-note { color: var(--ink2); max-width: 65ch; font-size: 13px; }
+.mk code { font-family: var(--font-mono); font-size: 12px; }
+.mk-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+@media (max-width: 760px) { .mk-compare { grid-template-columns: minmax(0, 1fr); } }
+.mk-col { min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.mk-colh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 600; }
+.mk-tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 4px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); color: var(--ink2); }
+.mk-tag.is-new { border-color: var(--good); color: var(--good-text); }
+.mk-tag.is-same { border-style: dashed; }
+.mk-lab { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.mk-tab { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.mk-tbl th, .mk-tbl td { padding: 8px 12px; }
+.mk-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--border); vertical-align: -2px; margin-right: 6px; }
+.mk-toks { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.mk-toks th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.mk-toks td { padding: 8px 10px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+.mk-unc { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink2); font-size: 13px; }
+.mk-unc ul { margin: 6px 0 0; padding-left: 20px; }
+.mk .kb-card { max-width: 320px; }
+</style>
+</head>
+<body>
+<div class="podium mk">
+
+  <h2>The change in one view</h2>
+  <p class="mk-note">Five text colors fail axe's 4.5:1 contrast check. Three token values change and one rule changes. The ratios under each sample come from the token values against the surface the text sits on, and axe is what confirms them.</p>
+  <table class="mk-toks">
+    <thead><tr><th>Token</th><th>Light, now</th><th>Light, proposed</th><th>Dark, now</th><th>Dark, proposed</th><th>Fixes</th></tr></thead>
+    <tbody>
+      <tr><td><code>--warn-text</code></td><td>60% <code>--warn</code> over <code>--ink</code> (<code>#9a6f13</code>)</td><td><code>#8a5a00</code></td><td colspan="2">unchanged</td><td>#794, #795</td></tr>
+      <tr><td><code>--muted</code></td><td><code>#6b6a64</code></td><td><code>#626159</code></td><td><code>#898781</code></td><td><code>#a3a19b</code></td><td>#796, #797</td></tr>
+      <tr><td><code>--crit-text</code></td><td><code>#b52a2a</code></td><td><code>#a82020</code></td><td><code>#ee6a6a</code></td><td><code>#f58080</code></td><td>#798</td></tr>
+    </tbody>
+  </table>
+
+  <h2>The modified-files count on a session card <small>#794</small></h2>
+  <p class="mk-note">The git line reads <code>--warn</code>, the amber for fills, so in light it is 1.79:1. It reads <code>--warn-text</code> after the change, which is 5.77:1 in light with the new value. Dark is already fine (9.49:1).</p>
+  <div class="mk-compare">
+    <div class="mk-col"><div class="mk-colh">Now</div>
+      <div class="git"><span><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="5" cy="4" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="11" cy="8" r="1.6"/><path d="M5 5.6v4.8M5 8h4.4"/></svg> feature/live-cards</span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/></svg>3 modified</span></div></div>
+    <div class="mk-col"><div class="mk-colh">Proposed <span class="mk-tag is-new">token and rule</span></div>
+      <div class="proposed"><div class="git"><span><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="5" cy="4" r="1.6"/><circle cx="5" cy="12" r="1.6"/><circle cx="11" cy="8" r="1.6"/><path d="M5 5.6v4.8M5 8h4.4"/></svg> feature/live-cards</span><span class="dirty" title="Modified files"><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/></svg>3 modified</span></div></div></div>
+  </div>
+
+  <h2>A Board card's wait line <small>#795</small></h2>
+  <p class="mk-note">The wait line is <code>--warn-text</code>, 4.39:1 on the card in light. The same new value gives 5.77:1. The line clamps at three lines, so a long reason is shown too.</p>
+  <div class="mk-compare">
+    <div class="mk-col"><div class="mk-colh">Now</div>
+      <a class="kb-card" href="#"><div class="kb-title"><i aria-hidden="true"></i><b>orchestrator-main</b></div><div class="kb-text">Retry the export job</div><div class="kb-wait">Waiting for you: which branch should the fix target?</div></a>
+      <a class="kb-card" href="#"><div class="kb-text">Review the migration plan</div><div class="kb-wait">Waiting for you: the plan changes the sessions table and drops two columns that older reporters still write to, so say whether to keep a compatibility view for one release or remove them now and break those reporters.</div></a></div>
+    <div class="mk-col"><div class="mk-colh">Proposed <span class="mk-tag is-new">token</span></div>
+      <div class="proposed" style="display:contents">
+        <a class="kb-card proposed" href="#"><div class="kb-title"><i aria-hidden="true"></i><b>orchestrator-main</b></div><div class="kb-text">Retry the export job</div><div class="kb-wait">Waiting for you: which branch should the fix target?</div></a>
+        <a class="kb-card proposed" href="#"><div class="kb-text">Review the migration plan</div><div class="kb-wait">Waiting for you: the plan changes the sessions table and drops two columns that older reporters still write to, so say whether to keep a compatibility view for one release or remove them now and break those reporters.</div></a>
+      </div></div>
+  </div>
+
+  <h2>Traffic's sub-lines and muted text <small>#796</small></h2>
+  <p class="mk-note">Switch to Narrow (400 px) above. The first column's sub-line and the "last message" time use <code>--muted</code>. In dark the selected row measures 4.17:1 with the old value of 4.5:1 needed, so it fails. The new dark value is 4.83:1 there, and the new light value is 4.71:1 on a selected row.</p>
+  <div class="mk-compare">
+    <div class="mk-col"><div class="mk-colh">Now</div>
+      <div class="adminv mk-tab"><table class="ptab mk-tbl"><tbody>
+        <tr class="rw"><td><span class="rname">reporter-laptop and build-box</span><span class="sub">Both can send and answer</span></td><td class="mono muted nowrap">4 min ago</td></tr>
+        <tr class="rw sel"><td><span class="rname">api-session to docs-session</span><span class="sub">Can send, cannot be answered</span></td><td class="mono muted nowrap">2 h ago</td></tr>
+      </tbody></table></div></div>
+    <div class="mk-col"><div class="mk-colh">Proposed <span class="mk-tag is-new">token</span></div>
+      <div class="proposed adminv mk-tab"><table class="ptab mk-tbl"><tbody>
+        <tr class="rw"><td><span class="rname">reporter-laptop and build-box</span><span class="sub">Both can send and answer</span></td><td class="mono muted nowrap">4 min ago</td></tr>
+        <tr class="rw sel"><td><span class="rname">api-session to docs-session</span><span class="sub">Can send, cannot be answered</span></td><td class="mono muted nowrap">2 h ago</td></tr>
+      </tbody></table></div></div>
+  </div>
+
+  <h2>A request's hint on My reporters <small>#797</small></h2>
+  <p class="mk-note">The hint is <code>--muted</code> in the request's confirm box. Dark is 4.44:1 on the raised surface and fails. The new dark value is 6.17:1. Light already passes (4.76:1) and gets stronger (5.46:1).</p>
+  <div class="mk-compare">
+    <div class="mk-col"><div class="mk-colh">Now</div>
+      <div class="adminv"><div class="pm-reqs"><div class="confirm" role="group" aria-label="A request for access"><div class="q"><span><b>reporter-laptop</b> asks to send to <b>build-box</b>.</span><span class="hint">A reply is a message too, so it needs its own right.</span></div><button type="button" class="btn sm">Not now</button><button type="button" class="btn sm">Allow</button></div></div></div></div>
+    <div class="mk-col"><div class="mk-colh">Proposed <span class="mk-tag is-new">token</span></div>
+      <div class="proposed adminv"><div class="pm-reqs"><div class="confirm" role="group" aria-label="A request for access"><div class="q"><span><b>reporter-laptop</b> asks to send to <b>build-box</b>.</span><span class="hint">A reply is a message too, so it needs its own right.</span></div><button type="button" class="btn sm">Not now</button><button type="button" class="btn sm">Allow</button></div></div></div></div>
+  </div>
+
+  <h2>The failed-agents button on the orchestrator page <small>#798</small></h2>
+  <p class="mk-note">The <code>.blow.l2</code> button is <code>--crit-text</code> on a 20% red tint. In light that is 4.20:1 and in dark 4.40:1. The new values give 4.83:1 and 5.28:1.</p>
+  <div class="mk-compare">
+    <div class="mk-col"><div class="mk-colh">Now</div>
+      <div class="facts six" style="grid-template-columns: minmax(0, 1fr)"><div class="fact agents"><div class="k">Agents</div><div class="v mono"><span class="n-running">3 running</span><span class="n-done"> / 5 done</span><button type="button" class="blow l2" title="Show the first failure"><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>2 failed</button></div></div></div></div>
+    <div class="mk-col"><div class="mk-colh">Proposed <span class="mk-tag is-new">token</span></div>
+      <div class="proposed facts six" style="grid-template-columns: minmax(0, 1fr)"><div class="fact agents"><div class="k">Agents</div><div class="v mono"><span class="n-running">3 running</span><span class="n-done"> / 5 done</span><button type="button" class="blow l2" title="Show the first failure"><svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>2 failed</button></div></div></div></div>
+  </div>
+
+  <div class="mk-unc">
+    <b>Not yet confirmed by a run, and wider than the five spots.</b>
+    <ul>
+      <li>The ratios for #796, #797 and #798 are worked out from where each element sits. axe reported them on the real pages, so the e2e axe run is the check, and I will adjust a value that still misses.</li>
+      <li><code>--muted</code> and <code>--crit-text</code> are used across the app, so every use gets a little stronger. The six other palettes are not changed.</li>
+      <li>This page shows the proposal with <code>podium-contrast-fixes-proposed.css</code>, which sets the new values inside <code>.proposed</code> only. In the code they change in <code>tokens.css</code>.</li>
+      <li>#799 and #800 change an accessible name and nothing visible, so they are not drawn here.</li>
+    </ul>
+  </div>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  function height() { try { parent.postMessage({ type: 'mk-height', h: document.documentElement.scrollHeight }, '*'); } catch (e) {} }
+  // The theme comes in the address (#dark or #light), set by the page that frames this one, so there is no message handler to check.
+  function theme() {
+    var h = location.hash.slice(1);
+    if (h === 'light' || h === 'dark') { root.setAttribute('data-theme', h); height(); }
+  }
+  window.addEventListener('hashchange', theme);
+  window.addEventListener('load', height);
+  window.addEventListener('resize', height);
+  theme();
+})();
+</script>
+</body>
+</html>

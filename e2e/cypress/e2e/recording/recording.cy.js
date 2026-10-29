@@ -8,7 +8,7 @@ describe('session recording', () => {
     cy.get('main#podium-main h1').should('exist');
   };
   const dialog = () => cy.get('[role=dialog]');
-  const recordCell = () => cy.get('button[aria-label="Record this session"]');
+  const recordCell = () => cy.get('.fact.rec button[aria-haspopup="dialog"]');
 
   context('the notice that cannot be hidden', () => {
     it('puts a recording band on a recorded card, with no X and no switch', () => {
@@ -67,7 +67,7 @@ describe('session recording', () => {
       cy.signIn('Ed');
       open('docs');
       cy.get('.fact.rec').should('contain.text', 'Not recorded').and('have.attr', 'title', 'This session ended without being recorded.');
-      cy.get('button[aria-label="Record this session"]').should('not.exist');
+      cy.get('.fact.rec button[aria-haspopup="dialog"]').should('not.exist');
     });
 
     it('starts a recording of the loops picked, and the wall card and the orchestrator page then say so', () => {
@@ -233,7 +233,7 @@ describe('session recording: the Admin flag', () => {
     cy.openConsole('#/');
     cy.card('api').click();
     cy.get('.fact.rec').should('contain.text', 'Not recorded').and('have.attr', 'title', 'Session recording is off on this server.');
-    cy.get('button[aria-label="Record this session"]').should('not.exist');
+    cy.get('.fact.rec button[aria-haspopup="dialog"]').should('not.exist');
   });
 });
 
@@ -244,7 +244,7 @@ describe('session recording: choosing a subset of loops', () => {
     cy.signIn('Ed');
     cy.reportAgain('rich', { sessionRecording: true });
     cy.openConsole('#/?open=e2e-s-rich-plan');
-    cy.get('button[aria-label="Record this session"]').click();
+    cy.get('.fact.rec button[aria-haspopup="dialog"]').click();
     cy.get('[role=dialog] input[type=checkbox]').should('have.length', 4).and('be.checked');
     cy.get('[role=dialog] input[type=checkbox]').last().uncheck();
     cy.get('[role=dialog]').contains('button', 'Start recording').click();

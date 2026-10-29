@@ -570,7 +570,7 @@ body.modal-open #root { filter: blur(5px); }
 .podium .git .br { color: var(--ink); }
 .podium .git .wt { padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--font-ui); font-size: 11px; }
 .podium .git .wt.no { color: var(--muted); border-style: dashed; }
-.podium .git .dirty { color: var(--warn); }
+.podium .git .dirty { color: var(--warn-text); }
 .podium .card .git { margin-top: 5px; }
 .podium .card .git > span { flex: none; white-space: nowrap; overflow-wrap: normal; }
 /* The branch starts narrow so the other chips stay on its line, then grows into the free space; a name that does not fit ends in an ellipsis. */
