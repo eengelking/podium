@@ -3,13 +3,13 @@ name: E2E
 # End-to-end tests (#782, DECISIONS 48): Cypress, in the pinned cypress/included container, against Podium's own image on a private
 # container network. scripts/e2e-up.sh does all of it; nothing is installed on the runner except the repo's own `npm ci` (for axe-core).
 #
-# A PR into development runs it when the change touches the app, the mod, the e2e folder or this workflow; a PR into main (the release
-# PR, or a hotfix) always runs it. The E2E summary job at the end passes when the run was skipped, so it can be made a required check
-# without a skipped run hanging a PR. It is intended to be required for the development-to-main release PR once it has proven stable; making it
-# required is the maintainer's step.
+# MANUAL ONLY for now ("Run workflow" in the Actions tab). A first run on a GitHub runner timed out on the first page load of several spec
+# files, and the maintainer took the suite out of the pipeline until it runs well locally. To bring it back, restore the pull_request trigger
+#   pull_request:
+#     branches: [development, main]
+# (the changes job already decides whether the app changed, and always runs for main). The E2E summary job passes when the run was skipped, so it
+# can be a required check; it is intended to be required for the development-to-main release PR once the suite is stable.
 on:
-  pull_request:
-    branches: [development, main]
   workflow_dispatch:
     inputs:
       repeat:
