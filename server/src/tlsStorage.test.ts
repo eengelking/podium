@@ -7,9 +7,9 @@ const ANON = `/var/lib/containers/storage/volumes/${'a1'.repeat(32)}/_data`;
 const NAMED = '/var/lib/containers/storage/volumes/podium-data/_data';
 
 describe('tlsDir', () => {
-  it('is the tls folder next to the database', () => {
-    expect(tlsDir('/data/podium.sqlite')).toBe('/data/tls');
-    expect(tlsDir('/repo/data/podium.sqlite')).toBe('/repo/data/tls');
+  it('is the tls folder inside the data directory', () => {
+    expect(tlsDir('/data')).toBe('/data/tls');
+    expect(tlsDir('/repo/data')).toBe('/repo/data/tls');
   });
 });
 
@@ -43,7 +43,7 @@ describe('warnIfTlsNotPersistent', () => {
   const run = (env: Record<string, string>, mountinfo: string | null) => {
     const lines: string[] = [];
     const logger = createLogger({ format: 'json', write: (l) => lines.push(l) });
-    warnIfTlsNotPersistent({ env, dbPath: '/data/podium.sqlite', logger, readMountinfo: () => mountinfo });
+    warnIfTlsNotPersistent({ env, dataDir: '/data', logger, readMountinfo: () => mountinfo });
     return lines.map((l) => JSON.parse(l) as Record<string, unknown>);
   };
 

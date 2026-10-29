@@ -7,8 +7,8 @@ order: 9
 
 # Activity history
 
-Files: `server/src/fleet/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
-`activityHistorySettings.ts` (the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
+Files: `server/src/storage/sqlite/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
+`activityHistorySettings.ts` (both in `server/src/storage/sqlite/`; the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
 the Admin pages), `sweeper.ts` (`purgeActivityHistory`), `frontend/src/fleet/admin/DataPage.tsx` and
 `StoredActivityTab.tsx`, and the window changes in `useActivityFeed.ts` and `ActivityFeed.tsx`. Issue #432; the
 reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `scripts/podium-seed-activity.ts`.

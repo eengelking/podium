@@ -3,9 +3,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
@@ -25,20 +24,21 @@ const SID = 'sess-ed';
 const AGENT = 'a1';
 const TEXT = 'UNIQUE-STORED-TEXT-4417';
 
-function setup(opts: { secret?: string | null; policy?: 'default' | 'after' | 'end' | 'all' } = {}) {
+async function setup(opts: { secret?: string | null; policy?: 'default' | 'after' | 'end' | 'all' } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const db = openDb(':memory:');
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => T0, undefined, { authOn: secret !== null });
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => T0, undefined, { authOn: secret !== null });
+  await fleet.init();
+  const people = storage.people;
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout: new Lockout(fleet.now), respondBridge: createRespondBridge(), log: () => {} }));
   closers.push(() => fleet.close());
-  fleet.features.setFeature('activity-feed', true);
-  if (opts.policy && opts.policy !== 'default') fleet.activityHistorySettings.set({ policy: opts.policy });
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
-  const boss = people.createPerson('Boss');
-  people.setGroup(boss.person.id, people.administratorsGroupId());
+  await fleet.features.setFeature('activity-feed', true);
+  if (opts.policy && opts.policy !== 'default') await fleet.activityHistorySettings.set({ policy: opts.policy });
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
+  const boss = await people.createPerson('Boss');
+  await people.setGroup(boss.person.id, await people.administratorsGroupId());
   return { app, fleet, people, ed, alex, boss };
 }
 
@@ -66,35 +66,35 @@ const LIVE = `/api/fleet/sessions/${SID}/agents/${MAIN_LOOP}/activity`;
 
 describe('signing in with respond off', () => {
   it('is refused while nothing is kept and no other feature needs it', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const res = await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: ed.token });
     expect(res.status).toBe(403);
     expect((await request(app).get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false });
   });
 
   it('works when a keep policy is on, though the respond flag is off', async () => {
-    const { app, ed, fleet } = setup({ policy: 'all' });
+    const { app, ed, fleet } = await setup({ policy: 'all' });
     expect(fleet.respondFlagsOn()).toBe(false);
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: true, signedIn: true, name: 'Ed' });
   });
 
   it('does not make the respond routes work: answering still needs the flags', async () => {
-    const { app, ed } = setup({ policy: 'all' });
+    const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report([]));
     const a = await signedIn(app, 'Ed', ed.token);
     expect((await a.post(`/api/fleet/respond/sessions/${SID}/messages`).set(H).send({ text: 'hi' })).status).toBe(403);
   });
 
   it('stays closed without a token on the server, which cannot keep a policy', async () => {
-    const { app } = setup({ secret: null, policy: 'all' });
+    const { app } = await setup({ secret: null, policy: 'all' });
     expect((await request(app).get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false });
   });
 });
 
 describe('GET /respond/sessions/:id/activity-history', () => {
   async function stored(policy: 'default' | 'after' | 'end' | 'all' = 'all') {
-    const s = setup({ policy });
+    const s = await setup({ policy });
     const main = entries(5);
     const agent = entries(2, 1000);
     expect((await send(s.app, s.ed.token, report(main, agent))).status).toBe(200);
@@ -118,7 +118,7 @@ describe('GET /respond/sessions/:id/activity-history', () => {
   it('is 404 under the default policy, even for the owner', async () => {
     const s = await stored('all');
     const a = await signedIn(s.app, 'Ed', s.ed.token);
-    s.fleet.activityHistorySettings.set({ policy: 'default' });
+    await s.fleet.activityHistorySettings.set({ policy: 'default' });
     const res = await a.get(READ);
     expect(res.status).toBe(404);
     expect(res.body.error).toBe('no activity is kept');
@@ -178,7 +178,7 @@ describe('GET /respond/sessions/:id/activity-history', () => {
   });
 
   it('defaults to one window page and never returns more than the maximum', async () => {
-    const s = setup({ policy: 'all' });
+    const s = await setup({ policy: 'all' });
     for (let i = 0; i < 7; i++) expect((await send(s.app, s.ed.token, report(entries(20, i * 20)))).status).toBe(200);
     const a = await signedIn(s.app, 'Ed', s.ed.token);
     expect((await a.get(READ)).body.entries).toHaveLength(ACTIVITY_HISTORY_PAGE);
@@ -200,14 +200,14 @@ describe('GET /respond/sessions/:id/activity-history', () => {
     end.events = [];
     end.session.status = 'done';
     await send(app, ed.token, end);
-    expect(fleet.db.getSession(SID)).toBeDefined();
+    expect(await fleet.db.getSession(SID)).toBeDefined();
     expect((await a.get(READ)).body.total).toBe(5);
   });
 });
 
 describe('the history note on the live activity reply', () => {
   it('is absent under the default policy: the reply is what it always was', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await send(app, ed.token, report(entries(3)));
     const res = await request(app).get(LIVE);
     expect(res.status).toBe(200);
@@ -216,7 +216,7 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('is absent under a keep policy when the loop has nothing stored', async () => {
-    const { app, ed } = setup({ policy: 'all' });
+    const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report([], entries(2)));
     const res = await request(app).get(LIVE);
     expect(res.status).toBe(200);
@@ -225,7 +225,7 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('carries counts, the owner and canRead false for anyone not signed in, with no entry text', async () => {
-    const { app, ed } = setup({ policy: 'all' });
+    const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
     const res = await request(app).get(LIVE);
     expect(res.body.history).toEqual({ policy: 'all', total: 3, since: T0 - 100_000, keptUntil: null, canRead: false, owner: 'Ed' });
@@ -233,7 +233,7 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('keeps answering a request with a dead cookie, as for anyone', async () => {
-    const { app, ed } = setup({ policy: 'all' });
+    const { app, ed } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
     const res = await request(app).get(LIVE).set('Cookie', 'podium_respond=nope');
     expect(res.status).toBe(200);
@@ -241,7 +241,7 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('says canRead for the owner and an Administrator, and not for another person', async () => {
-    const { app, ed, alex, boss } = setup({ policy: 'all' });
+    const { app, ed, alex, boss } = await setup({ policy: 'all' });
     await send(app, ed.token, report(entries(3)));
     expect((await (await signedIn(app, 'Ed', ed.token)).get(LIVE)).body.history.canRead).toBe(true);
     expect((await (await signedIn(app, 'Boss', boss.token)).get(LIVE)).body.history.canRead).toBe(true);
@@ -251,8 +251,8 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('names when the newest entry goes under policy after', async () => {
-    const { app, ed, fleet } = setup();
-    fleet.activityHistorySettings.set({ policy: 'after', n: 2, unit: 'days' });
+    const { app, ed, fleet } = await setup();
+    await fleet.activityHistorySettings.set({ policy: 'after', n: 2, unit: 'days' });
     await send(app, ed.token, report(entries(3)));
     const h = (await request(app).get(LIVE)).body.history;
     expect(h.policy).toBe('after');
@@ -260,7 +260,7 @@ describe('the history note on the live activity reply', () => {
   });
 
   it('is unchanged for an unknown session', async () => {
-    const { app } = setup({ policy: 'all' });
+    const { app } = await setup({ policy: 'all' });
     expect((await request(app).get(LIVE)).status).toBe(404);
   });
 });

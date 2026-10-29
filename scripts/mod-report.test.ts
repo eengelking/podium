@@ -6,7 +6,7 @@ import { scriptedReport, scriptedState, T0 } from '../mod/podium-reporter/hooks/
 import { buildReport } from '../mod/podium-reporter/hooks/report.ts';
 import { planAsk, questionAsk, respondInfo, toolAsk } from '../mod/podium-reporter/hooks/respond.ts';
 import { validateReport } from '../server/src/fleet/protocol.ts';
-import { FleetDb, openDb } from '../server/src/fleet/db.ts';
+import { openSqliteStorage } from '../server/src/storage/sqlite/index.ts';
 import { DEFAULT_CONFIG, Fleet } from '../server/src/fleet/fleet.ts';
 
 describe('mod report -> server', () => {
@@ -17,10 +17,11 @@ describe('mod report -> server', () => {
     expect(v.report).toEqual(report);
   });
 
-  it('ingests into a view with the plan, agents, failure and blowout level', () => {
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => 1_800_000_016_000);
-    fleet.ingest(scriptedReport());
-    const view = fleet.view('sess-1')!;
+  it('ingests into a view with the plan, agents, failure and blowout level', async () => {
+    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, () => 1_800_000_016_000);
+    await fleet.init();
+    await fleet.ingest(scriptedReport());
+    const view = (await fleet.view('sess-1'))!;
     expect(view.project).toBe('~/app');
     expect(view.agents.map((a) => [a.id, a.status, a.modelFamily])).toEqual([['a1', 'done', 'haiku'], ['a2', 'running', 'opus'], ['a3', 'failed', 'sonnet']]);
     expect(view.blowouts).toMatchObject({ orchestrator: 2, agents: 1, total: 3, level: 2 });

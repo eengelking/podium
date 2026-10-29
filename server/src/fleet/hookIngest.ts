@@ -3,7 +3,7 @@
 // merges it with what it already stored for that session and ingests the result like any report.
 // Hooks carry no per-step usage: context, cost, tokens and the plan stay empty.
 import { createHash } from 'node:crypto';
-import type { AgentRow, SessionRow } from './db.js';
+import type { AgentRow, SessionRow } from '../storage/rows.js';
 import { agentView } from './derive.js';
 import { backgroundSummary, type ActivityEvent, type AgentReport, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Report, type SessionReport } from './protocol.js';
 
@@ -50,6 +50,9 @@ function backgroundOf(payload: Record<string, unknown>): BackgroundWait | null {
   }
   return tasks.length ? { tasks, wakeAt: null } : null;
 }
+
+/** The session id a hook payload names, as `hookToReport` reads it (so a caller can queue work under the id the report will carry). */
+export const hookSessionId = (payload: unknown): string | null => (isObj(payload) ? str(payload.session_id) : null);
 
 const lastSegment = (p: string) => p.split('/').filter(Boolean).pop() ?? p;
 

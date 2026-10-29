@@ -40,5 +40,5 @@ order: 18
 <!-- nav:start -->
 ---
 
-Previous: [Shared contract](17-shared-contract.md) · Up: [Components](README.md)
+Previous: [Shared contract](17-shared-contract.md) · Up: [Components](README.md) · Next: [Storage](19-storage.md)
 <!-- nav:end -->

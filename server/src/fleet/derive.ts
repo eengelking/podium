@@ -1,6 +1,6 @@
 // Pure derivation (SPEC 7.3, 7.4): SessionView, blowout level, series, KPIs. No I/O here: callers
 // pass rows in and get views out, so every rule is unit-tested without a database.
-import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from './db.js';
+import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from '../storage/rows.js';
 import { checkReporter } from './compat.js';
 import { idleOnBackground } from './protocol.js';
 import { tokenSum } from './ingest.js';

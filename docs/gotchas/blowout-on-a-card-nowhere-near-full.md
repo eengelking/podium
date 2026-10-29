@@ -20,5 +20,5 @@ order: 58
 <!-- nav:start -->
 ---
 
-Previous: [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md) · Up: [Gotchas](README.md)
+Previous: [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md) · Up: [Gotchas](README.md)
 <!-- nav:end -->

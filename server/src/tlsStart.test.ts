@@ -19,7 +19,7 @@ function setup() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-tlsstart-'));
   cleanup.push(() => fs.rmSync(root, { recursive: true, force: true }));
   const logger = createLogger({ format: 'json', write: () => {} });
-  return { dbPath: path.join(root, 'podium.sqlite'), app: express(), logger };
+  return { dataDir: root, app: express(), logger };
 }
 
 /** A server holding a port, so a listener that tries it gets EADDRINUSE. */

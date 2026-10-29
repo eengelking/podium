@@ -22,7 +22,7 @@ import {
   type RespondInfo,
   type RespondKind,
 } from './protocol.js';
-import { nameKey } from './people.js';
+import { nameKey } from '../storage/rows.js';
 
 /** How long a closed ask stays readable, unless the session's next ask opens first. */
 export const CLOSED_KEEP_MS = 10 * 60_000;

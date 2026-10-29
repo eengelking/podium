@@ -10,15 +10,14 @@ import request from 'supertest';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { createLogger } from '../logging/logger.js';
-import { PersonCertStore } from '../tlsClientAuth.js';
-import { TlsSettingsStore } from '../tlsRenew.js';
+import { LiveTlsSettings } from '../tlsLive.js';
 import { publicTlsPort, type TlsListener } from '../tlsServer.js';
 import { startTlsForTest } from '../tlsTesting.js';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { ADMINISTRATORS_GROUP, PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { fixtureReport } from './testing.js';
+import { ADMINISTRATORS_GROUP } from '../storage/rows.js';
 
 const SECRET = 'the-admin-secret-0123456789';
 const H = { 'X-Podium-Admin': '1' };
@@ -31,11 +30,15 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
   const tlsOn = opts.tlsOn ?? true;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-certe2e-'));
   cleanup.push(() => fs.rmSync(root, { recursive: true, force: true }));
-  const db = openDb(':memory:');
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  const storage = openSqliteStorage(':memory:');
+  const db = storage.sqliteHandle;
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  await fleet.init();
   cleanup.push(() => fleet.close());
-  const people = new PeopleStore(db);
-  const store = new PersonCertStore(db);
+  const people = storage.people;
+  const store = storage.personCerts;
+  const tlsSettings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+  await tlsSettings.load();
   const logger = createLogger({ format: 'json', write: () => {} });
   let listener: TlsListener | null = null;
   let openssl = opts.openssl;
@@ -45,16 +48,17 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
     '/api/admin',
     createAdminRouter({
       secret: SECRET,
+      storage,
       people,
       logger,
       certificates: {
-        settings: new TlsSettingsStore(db),
+        settings: tlsSettings,
         renewer: () => listener?.renewer ?? null,
         people: { store, issuer: () => (tlsOn && listener ? { dir: path.join(root, 'tls'), port: publicTlsPort(opts.publicPort, listener.port), caCerts: () => [listener!.material.caCert], openssl } : null) },
       },
     }),
   );
-  listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
+  listener = await startTlsForTest({ app, dataDir: root, logger });
   const port = listener.port;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const admin = request.agent(app);
@@ -95,7 +99,7 @@ const create = async (s: Awaited<ReturnType<typeof setup>>, name: string, groupI
   return res.body as { person: { id: number }; token: string; config?: { filename: string; content: string; expires: string; fingerprint: string }; configError?: string };
 };
 
-const logRows = (s: Awaited<ReturnType<typeof setup>>) => s.people.listLog({ page: 1, pageSize: 100 }).rows;
+const logRows = async (s: Awaited<ReturnType<typeof setup>>) => (await s.people.listLog({ page: 1, pageSize: 100 })).rows;
 
 describe('creating a person with TLS on', () => {
   it('writes the public port, not the listening one, when the port is mapped (#649)', async () => {
@@ -117,14 +121,14 @@ describe('creating a person with TLS on', () => {
     expect(lines[2]).toBe(`# server: https://127.0.0.1:${s.port}`);
     const parts = partsOf(f.content);
     expect(parts.cas).toEqual([s.listener.material.caCert]);
-    expect(f.fingerprint).toBe(s.store.current(body.person.id)!.fingerprint);
+    expect(f.fingerprint).toBe((await s.store.current(body.person.id))!.fingerprint);
 
     // The database holds the certificate, and nothing of the key.
     const keyBody = parts.key.split('\n')[1]!;
     expect(JSON.stringify(s.db.prepare('SELECT * FROM person_certificates').all())).not.toContain(keyBody);
     // Nothing in the Admin log carries the file.
-    expect(JSON.stringify(logRows(s))).not.toContain('PRIVATE KEY');
-    expect(logRows(s).map((r) => r.kind)).toEqual(expect.arrayContaining(['person_created', 'certificate_issued']));
+    expect(JSON.stringify((await logRows(s)))).not.toContain('PRIVATE KEY');
+    expect((await logRows(s)).map((r) => r.kind)).toEqual(expect.arrayContaining(['person_created', 'certificate_issued']));
     // And no route gives the key back: the public download has the certificate and the CA only.
     const pem = await s.admin.get(`/api/admin/people/${body.person.id}/certificate.pem`).set(H);
     expect(pem.status).toBe(200);
@@ -150,7 +154,7 @@ describe('creating a person with TLS on', () => {
     expect(body.token).toMatch(/^pdm_/);
     expect(body.config).toBeUndefined();
     expect(body.configError).toMatch(/could not make the certificate/);
-    expect(s.people.findByName('Dana')).toBeDefined();
+    expect(await s.people.findByName('Dana')).toBeDefined();
   });
 });
 
@@ -162,12 +166,12 @@ describe('the People list (#587)', () => {
     const a = await create(s, 'Alma');
     const b = await create(s, 'Bo');
     await s.admin.post(`/api/admin/people/${b.person.id}/certificate/revoke`).set(H);
-    s.people.createPerson('Cy', null, Date.now());
+    await s.people.createPerson('Cy', null, Date.now());
     const out = await list(s);
     expect(out.tls).toBe(true);
     expect(out).not.toHaveProperty('graceDays');
     const by = Object.fromEntries(out.rows.map((r) => [r.name, r.certificate]));
-    expect(by.Alma).toEqual({ notBefore: new Date(s.store.current(a.person.id)!.notBefore).toISOString(), notAfter: new Date(s.store.current(a.person.id)!.notAfter).toISOString(), revoked: false });
+    expect(by.Alma).toEqual({ notBefore: new Date((await s.store.current(a.person.id))!.notBefore).toISOString(), notAfter: new Date((await s.store.current(a.person.id))!.notAfter).toISOString(), revoked: false });
     expect(by.Bo).toMatchObject({ revoked: true });
     expect(by.Cy).toBeNull();
     expect(JSON.stringify(out)).not.toContain('PRIVATE KEY');
@@ -205,7 +209,7 @@ describe('a reporter with the config file', () => {
     const body = await create(s, 'Dana');
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'podium-forge-'));
     cleanup.push(() => fs.rmSync(work, { recursive: true, force: true }));
-    const keyId = s.people.getPerson(body.person.id)!.keyId;
+    const keyId = (await s.people.getPerson(body.person.id))!.keyId;
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'k.pem', '-out', 'c.pem', '-days', '30', '-subj', `/CN=pdm_${keyId}/O=podium`], { cwd: work, stdio: 'ignore' });
     const forged = { cert: fs.readFileSync(path.join(work, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(work, 'k.pem'), 'utf8') };
     // The reporter port drops it at the handshake (#665), so the token never gets a say.
@@ -216,7 +220,7 @@ describe('a reporter with the config file', () => {
 describe('revoking', () => {
   it('Revoke certificate stops the reporter on its next request and leaves the token and the console sign-in', async () => {
     const s = await setup();
-    const admins = s.people.administratorsGroupId()!;
+    const admins = (await s.people.administratorsGroupId())!;
     const body = await create(s, 'Dana', admins);
     const parts = partsOf(body.config!.content);
     expect((await s.reportWith(parts, 'Dana')).status).toBe(200);
@@ -227,10 +231,10 @@ describe('revoking', () => {
     const other = request.agent(s.app);
     expect((await other.post('/api/admin/unlock').set(H).send({ name: 'Dana', token: body.token })).status).toBe(200);
     expect((await request(s.app).post('/api/fleet/report').set('X-Podium-Token', body.token).send({ ...(fixtureReport() as object), userName: 'Dana' })).status).toBe(200);
-    expect(logRows(s).map((r) => r.kind)).toContain('certificate_revoked');
+    expect((await logRows(s)).map((r) => r.kind)).toContain('certificate_revoked');
     // Revoking again changes nothing and logs nothing more.
     expect((await s.admin.post(`/api/admin/people/${body.person.id}/certificate/revoke`).set(H)).body).toEqual({ ok: true, revoked: 0 });
-    expect(logRows(s).filter((r) => r.kind === 'certificate_revoked')).toHaveLength(1);
+    expect((await logRows(s)).filter((r) => r.kind === 'certificate_revoked')).toHaveLength(1);
   });
 
   it('Revoke token stops the token and the certificate too', async () => {
@@ -241,8 +245,8 @@ describe('revoking', () => {
     expect((await s.admin.post(`/api/admin/people/${body.person.id}/revoke`).set(H)).status).toBe(200);
     expect((await request(s.app).post('/api/fleet/report').set('X-Podium-Token', body.token).send({ ...(fixtureReport() as object), userName: 'Dana' })).status).toBe(401);
     expect((await s.reportWith(parts, 'Dana')).status).toBe(401);
-    expect(s.store.current(body.person.id)).toBeUndefined();
-    expect(logRows(s).find((r) => r.kind === 'token_revoked')!.detail).toContain('and their certificate');
+    expect((await s.store.current(body.person.id))).toBeUndefined();
+    expect((await logRows(s)).find((r) => r.kind === 'token_revoked')!.detail).toContain('and their certificate');
   });
 
   it('Revoke all stops both', async () => {
@@ -253,12 +257,12 @@ describe('revoking', () => {
     expect(res.body).toEqual({ ok: true, revoked: 1, tokenRevoked: true });
     expect((await s.reportWith(parts, 'Dana')).status).toBe(401);
     expect((await request(s.app).post('/api/fleet/report').set('X-Podium-Token', body.token).send({ ...(fixtureReport() as object), userName: 'Dana' })).status).toBe(401);
-    expect(logRows(s).map((r) => r.kind)).toContain('revoked_all');
+    expect((await logRows(s)).map((r) => r.kind)).toContain('revoked_all');
   });
 
   it('will not revoke the token of the last Administrator, by itself or with Revoke all, and changes nothing', async () => {
     const s = await setup();
-    const admins = s.people.administratorsGroupId()!;
+    const admins = (await s.people.administratorsGroupId())!;
     const body = await create(s, 'Dana', admins);
     const parts = partsOf(body.config!.content);
     for (const p of ['revoke', 'revoke-all']) {
@@ -266,7 +270,7 @@ describe('revoking', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain(`last person in ${ADMINISTRATORS_GROUP}`);
     }
-    expect(s.people.getPerson(body.person.id)!.revokedAt).toBeNull();
+    expect((await s.people.getPerson(body.person.id))!.revokedAt).toBeNull();
     expect((await s.reportWith(parts, 'Dana')).status).toBe(200);
     // With a second Administrator it is allowed.
     await create(s, 'Eli', admins);
@@ -299,17 +303,17 @@ describe('reissue', () => {
     expect(next.cert).not.toBe(oldParts.cert);
     expect((await s.reportWith(oldParts, 'Dana')).status).toBe(401);
     expect((await s.reportWith(next, 'Dana')).status).toBe(200);
-    expect(s.store.listFor(body.person.id).map((c) => c.reason)).toEqual([null, 'reissued']);
-    expect(s.people.getPerson(body.person.id)!.revokedAt).toBeNull();
+    expect((await s.store.listFor(body.person.id)).map((c) => c.reason)).toEqual([null, 'reissued']);
+    expect((await s.people.getPerson(body.person.id))!.revokedAt).toBeNull();
   });
 
   it('brings a revoked person back, and the new certificate works', async () => {
     const s = await setup();
     const body = await create(s, 'Dana');
-    s.people.revoke(body.person.id, Date.now());
+    await s.people.revoke(body.person.id, Date.now());
     const res = await s.admin.post(`/api/admin/people/${body.person.id}/certificate/reissue`).set(H);
     expect(res.status).toBe(200);
-    expect(s.people.getPerson(body.person.id)!.revokedAt).toBeNull();
+    expect((await s.people.getPerson(body.person.id))!.revokedAt).toBeNull();
     expect((await s.reportWith(partsOf(res.body.config.content), 'Dana')).status).toBe(200);
   });
 
@@ -321,7 +325,7 @@ describe('reissue', () => {
     const res = await s.admin.post(`/api/admin/people/${body.person.id}/certificate/reissue`).set(H);
     expect(res.status).toBe(500);
     expect(res.body.error).toMatch(/earlier one is still valid/);
-    expect(s.store.listFor(body.person.id)).toHaveLength(1);
+    expect((await s.store.listFor(body.person.id))).toHaveLength(1);
     expect((await s.reportWith(parts, 'Dana')).status).toBe(200);
   });
 });
