@@ -38,7 +38,8 @@ pages, responding, the orchestrator page and the right panel.
 - No Pause or simulator buttons (those belong to the simulator script).
 
 **Theme picker**
-- The info row under the top bar carries the theme picker at its right end, in the live view and in History.
+- The info row under the top bar carries the theme picker at its right end, in the live view and in History
+  ([8.5](08-05-history.md)).
 - It is a Theme dropdown and a Light, Dark or System radio group, with arrow keys moving through the radios.
 - The choice is remembered in `localStorage` under `podium.theme` with try/catch.
 - The default is Podium in System mode, which follows the OS. An old stored `light` or `dark` becomes Podium in
@@ -706,7 +707,7 @@ becomes a standard in the release-prep PR, not in the feature PR.
   neutral color and a ring in place of the filled dot, and it keeps **Open replay** and **Delete recording**.
   A recording that hit a limit reads the same way with the limit named.
 - An ended session shows its final state (the Done band, all agents done) plus that layer. It is reached from
-  History, whose row has a line under the name, "recording kept until `<time>`" (shown to the session's owner and to an
+  History ([8.5](08-05-history.md)), whose row has a line under the name, "recording kept until `<time>`" (shown to the session's owner and to an
   Admin only, from the row's `recording`, [7.1](../07-server/07-01-endpoints.md)), and from Admin's Recordings table.
   Nothing is shown once the recording is deleted or has expired.
 
@@ -1207,7 +1208,7 @@ never moves because another has nothing to say.
     session's transcript, which Claude Code keeps for 30 days by default.
   - Fork is offered for a live, waiting or ended session. Podium cannot tell whether the transcript still
     exists, so it does not offer a "transcript gone" state; the popup names the 30-day limit.
-  - Fork is not on History's read-only page, as Resume is not. There is no worktree variant: nothing in
+  - Fork is on History's opened session as on any ended session, as Resume is ([8.5](08-05-history.md)). There is no worktree variant: nothing in
     `claude --help` says `--worktree` combines with `--resume --fork-session`, so the popup advises it.
 - The orchestrator's model, effort and context are not in the bar. Its row in the agent tree shows them (#109).
 

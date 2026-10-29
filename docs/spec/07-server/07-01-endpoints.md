@@ -91,7 +91,7 @@ mod), the mod's responding routes, the browser's responding routes, and the Admi
   browser says so and the admin log records `file_diff_opened`. `204`. Owner only, with the same refusals as the
   diff route (`401`, `403`, `404`, `400` for a missing path); `403` unless `fileDiff` and `fileDiffPreload` are both on.
 
-**`GET /api/fleet/history?day=YYYY-MM-DD&page=N&pageSize=N`**
+**`GET /api/fleet/history?day=YYYY-MM-DD&page=N&pageSize=N`** (the page that reads it is [8.5](../08-ui/08-05-history.md))
 - Ended or dropped sessions that day, newest first, summary rows only (name, project, model, duration, cost,
   blowouts, end reason), one page at a time (#195). The server builds the rows of the requested page only
   (#273).
