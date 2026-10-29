@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -25,7 +26,25 @@ function findJsonSql(file: string, source: string): string[] {
   return hits;
 }
 
+/** Every non-test .ts file under `root`, subfolders included, as a path relative to it. */
+function sourceFiles(root: string): string[] {
+  return (readdirSync(root, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+}
+
 describe('portable SQL in the SQLite adapter (#808)', () => {
+  it('lists the source files of subfolders as well, so a nested adapter file cannot escape', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'portablesql-'));
+    try {
+      mkdirSync(path.join(root, 'nested'));
+      writeFileSync(path.join(root, 'a.ts'), '');
+      writeFileSync(path.join(root, 'a.test.ts'), '');
+      writeFileSync(path.join(root, 'nested', 'b.ts'), '');
+      expect(sourceFiles(root).sort((x, y) => x.localeCompare(y))).toEqual(['a.ts', path.join('nested', 'b.ts')]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('finds a JSON function or operator in a string or template, and nothing else', () => {
     expect(findJsonSql('x.ts', "db.prepare('SELECT json_extract(a, \"$.b\") FROM t')")).toEqual(['x.ts:1 json_extract']);
     expect(findJsonSql('x.ts', 'const q = `SELECT ${c} FROM json_each(?)`;')).toEqual(['x.ts:1 json_each']);
@@ -35,7 +54,7 @@ describe('portable SQL in the SQLite adapter (#808)', () => {
   });
 
   it('has no json_extract, json_each, json_object, json_group_array or JSON arrow in a query under server/src/storage/sqlite', () => {
-    const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
+    const files = sourceFiles(dir);
     expect(files.length).toBeGreaterThan(10);
     const hits = files.flatMap((f) => findJsonSql(`server/src/storage/sqlite/${f}`, readFileSync(path.join(dir, f), 'utf8')));
     expect(hits).toEqual([]);
