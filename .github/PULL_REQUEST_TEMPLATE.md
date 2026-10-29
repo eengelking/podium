@@ -10,7 +10,7 @@
 - [ ] Targets `development` (or the batch's integration branch, for a parallel-batch sub-agent PR). Only a release or hotfix targets `main`.
 - [ ] No version was bumped, unless this is a release-prep or hotfix PR. A release bumps `version` in
       `mod/podium-reporter/.claude-plugin/plugin.json` and `VERSION` in `hooks/register.ts` together with
-      the rest of the files `.claude/PROJECT.md` lists under "Releases"; CI (the "Mod version bump check" workflow) enforces it for PRs into `main`.
+      the rest of the files the `podium-release` skill lists; CI (the "Mod version bump check" workflow) enforces it for PRs into `main`.
 - [ ] If the report format changed, `server/src/fleet/protocol.ts` and `mod/podium-reporter/hooks/protocol.ts`
       match (`npm test` compares them).
 - [ ] If this changes intended behavior, `docs/spec/` was updated (or the mismatch is called out here
