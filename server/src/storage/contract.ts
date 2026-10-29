@@ -49,8 +49,10 @@ type Kind = 'int' | 'real' | 'text' | 'bool' | 'int?' | 'real?' | 'text?' | 'boo
 type Shape<T> = { [K in keyof T]-?: Kind };
 
 /** Fails when a field of `row` is missing, undefined, a bigint, a 0/1 for a flag, a string for a number or the like; names the field. */
+const byText = (a: string, b: string): number => a.localeCompare(b);
+
 function expectShape<T extends object>(what: string, row: T, shape: Shape<T>): void {
-  expect(Object.keys(row).sort(), `${what}: the fields`).toEqual(Object.keys(shape).sort());
+  expect(Object.keys(row).sort(byText), `${what}: the fields`).toEqual(Object.keys(shape).sort(byText));
   for (const [field, kind] of Object.entries(shape) as [string, Kind][]) {
     const v = (row as Record<string, unknown>)[field];
     const at = `${what}.${field}`;
@@ -105,7 +107,7 @@ const RECORDING_SHAPE: Shape<RecordingAdminRow> = {
 const STORED_SHAPE: Shape<StoredSessionRow> = { sessionId: 'text', name: 'text', project: 'text?', owner: 'text?', live: 'bool', entries: 'int', bytes: 'int', oldestAt: 'int' };
 
 const mkSeen = (id: string, name: string | null, over: Partial<ReporterSeen> = {}): ReporterSeen => ({
-  kind: 'mod', machineId: id, machineName: name, source: '10.0.0.1', owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null,
+  kind: 'mod', machineId: id, machineName: name, source: '127.0.0.1', owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null,
   sessionId: `s-${id}`, os: 'macOS', peers: true, ...over,
 });
 
@@ -203,14 +205,14 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       const store = open();
       const p = store.people;
       const group = await p.createGroup('Crew', T0);
-      expect(Object.keys(group).sort()).toEqual(['id', 'name']);
+      expect(Object.keys(group).sort(byText)).toEqual(['id', 'name']);
       expectShape('group', { id: group.id, name: group.name } as GroupListRow & object, { id: 'int', name: 'text' } as unknown as Shape<GroupListRow>);
       const { person } = await p.createPerson('Ed', group.id, T0);
       await p.createPerson('Una', null, T0);
       expectShape('person (created)', person, PERSON_SHAPE);
       expectShape('person (read)', (await p.getPerson(person.id))!, PERSON_SHAPE);
       expectShape('person (by name)', (await p.findByName('ed'))!, PERSON_SHAPE);
-      await p.touch(person.id, '10.0.0.1', T0 + 1, { name: 'box', id: 'abcd1234' });
+      await p.touch(person.id, '127.0.0.1', T0 + 1, { name: 'box', id: 'abcd1234' });
       await p.rotate(person.id, T0 + 2);
       const listed = await p.list({});
       expect(listed.rows.map((r) => r.name)).toEqual(['Ed', 'Una']);
@@ -233,9 +235,9 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       const store = open();
       await store.fleet.upsertSession(session({ id: 's-m1', owner: 'ed' }));
       const key = await store.reporters.record(mkSeen('m1', 'box'), T0);
-      await store.reporters.record(mkSeen('m2', null, { kind: 'hooks', source: '10.0.0.2', credential: null, os: null, peers: null }), T0 + 1);
+      await store.reporters.record(mkSeen('m2', null, { kind: 'hooks', source: '127.0.0.2', credential: null, os: null, peers: null }), T0 + 1);
       const { rows, ...rest } = await store.reporters.list({}, T0 + 2);
-      expect(rows.map((r) => r.key).sort()).toEqual([key, 'm2'].sort());
+      expect(rows.map((r) => r.key).sort(byText)).toEqual([key, 'm2'].sort(byText));
       for (const r of rows) expectShape(`reporter ${r.key}`, r, REPORTER_SHAPE);
       for (const k of ['total', 'page', 'pageSize', 'serverStartedAt', 'adminSecret'] as const) expect(typeof rest[k], `list.${k}`).toBe('number');
       const detail = (await store.reporters.get(key, T0 + 2))!;
