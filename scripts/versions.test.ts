@@ -31,7 +31,7 @@ describe("package versions", () => {
     expect(new Set(v).size).toBe(1);
   });
 
-  // Podium and the mod are versioned as one product (.claude/PROJECT.md, "Releases"): a release, or any PR that
+  // Podium and the mod are versioned as one product (.claude/PROJECT.md, "Releases"; the files are listed in the podium-release skill): a release, or any PR that
   // changes the mod, sets every one of them to the same number.
   it("the mod and the packages share one version", () => {
     const mod = JSON.parse(read("mod/podium-reporter/.claude-plugin/plugin.json")).version as string;
