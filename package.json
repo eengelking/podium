@@ -29,7 +29,10 @@
     "standards:parity": "STANDARDS_PARITY=1 npm test -w frontend -- standards",
     "test:mod": "claude plugin test mod/podium-reporter",
     "typecheck:mod": "bash scripts/podium-mod-typecheck.sh",
-    "podiumctl": "node bin/podiumctl"
+    "podiumctl": "node bin/podiumctl",
+    "e2e": "bash scripts/e2e-up.sh run",
+    "e2e:down": "bash scripts/e2e-up.sh down",
+    "e2e:map": "node scripts/e2e-map.mjs"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^5.0.5",

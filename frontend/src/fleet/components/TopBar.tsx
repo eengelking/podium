@@ -28,7 +28,7 @@ export function TopBar(props: {
   return (
     <header className="top" id="podium-top" hidden={props.collapsed}>
       <BrandLink />
-      <span className="pill">{props.page}</span>
+      <span className="pill" data-testid="page-pill">{props.page}</span>
       {/* Do not add anything to the right of the connection pill below. Its text changes width with the
           reporter count, so everything after it would shift. Leave that space empty for now. */}
       <ConnectionPill phase={phase} reporters={reporters} />

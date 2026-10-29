@@ -18,6 +18,7 @@ The generic gate, made concrete. On the tip of `development`:
 
 - `npm test` and `npm run build` pass (CI runs both).
 - `npm run standards:parity` passes: the standards must equal the app that is about to become `main` (CI runs it on a PR into `main`). If `[Unreleased]` has `Standards:` lines, load `podium-standards-update` in the release-prep PR and bring `docs/standards/` in line.
+- `npm run e2e` passes: the whole end-to-end suite, in containers, with no failure and no retry (run it locally for now: the `E2E` workflow is manual only until it is stable on a runner; a failing spec stops a release).
 - The docs site builds: `node site/scripts/build.mjs` (the release PR's `Docs site` workflow runs it).
 - If the mod changed since the last release, `npm run test:mod` and `npm run typecheck:mod` too. They need Claude Code installed and cannot run in CI.
 
@@ -45,6 +46,7 @@ Run `github-release`'s `resources/release-check.md` (a fresh, non-fork Haiku sub
 
 - the atlas still matches the code: `docs/atlas/podium-atlas.html` carries the release version, every source file it names exists, every handler registered with `on(` in `mod/podium-reporter/hooks/register.ts` has a row in `docs/atlas/ATLAS.md` and every hook row there is still registered, and a number the atlas states (a default timing, a limit, a port, a count of pages or migrations) still equals the code, checked for each part an `[Unreleased]` entry touches;
 - the docs site builds for every version (`node site/scripts/build.mjs`), and no link is broken;
+- the end-to-end suite passed on the tip of `development` (`npm run e2e`, run locally), and `node scripts/e2e-map.mjs` reports the coverage map true;
 - `npm run standards:parity` passes, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
 
 Fix every failure and run the agent once more; if the second run still fails, stop and ask. Run `npm test` and `npm run build` yourself too.
