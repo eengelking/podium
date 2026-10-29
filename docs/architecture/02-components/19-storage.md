@@ -62,6 +62,12 @@ registered. A registration is a loader that `import()`s the adapter when its kin
 driver of a kind it does not use, and `openStorage` returns a promise. Adding a database means adding its adapter and one
 registration in `index.ts`, and nowhere else in the server changes. This issue adds no second database.
 
+SQLite is only the default. `DEFAULT_STORAGE_KIND` names it, and each registration declares its own default target
+(`<repo>/data/podium.sqlite` for SQLite), so the registry and not the server knows what an install with no `PODIUM_DB`
+uses. The app depends on the adapter's interface and never on a database: `neutral.test.ts` fails when a non-test file
+outside `storage/sqlite/` and `storage/index.ts` names SQLite, `vacuum`, `pragma`, `rowid` or `wal`, and an option only one
+database understands (`vacuumPages` is one) lives on that adapter's own options type, not on the shared ones.
+
 `storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything
 else reads the path. The target only names the database: it labels it in the log and in the health check.
 
