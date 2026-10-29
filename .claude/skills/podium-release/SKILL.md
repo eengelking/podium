@@ -9,10 +9,8 @@ The general sequence is `github-release`, read with its `resources/development-b
 
 Where this repo differs from the generic skill:
 
-- **The release PR carries no `Closes #N`.** The issues closed when their own PRs merged (CLAUDE.md's Branching Model). The hotfix PR into `main` does carry `Closes #N`; its backport carries `Refs #N`.
 - **Publish is the docs site and nothing else.** There is no package registry and no container registry; users build the image with `podiumctl build`. The site deploys itself when `main` moves (`.github/workflows/docs-site.yml`), so the generic publish step has nothing to run.
 - **After the release PR merges**, check the `Docs site` run on `main` is green and the new version is in the site's menu (`podium-docs-site`) before proposing the tag.
-- **Branches are worktrees** (`podium-worktree`): `release-prep/<version>` from `origin/development`, a hotfix from `origin/main` only when `development` differs from `main` (otherwise it is an ordinary branch off `origin/development`; see `github-release`).
 
 ## The gate for this repo
 
@@ -43,13 +41,10 @@ A hotfix that changes the UI also updates `docs/standards/` in the same PR (`pod
 
 ## The release check
 
-Before the release-prep PR is opened, start a fresh, non-fork subagent on Haiku (the Agent tool with `model: "haiku"` and no `subagent_type: "fork"`). Its prompt names the version and states its authority: "report a verdict; you do not have merge, tag or push authority, and you do not edit files." It checks that:
+Run `github-release`'s `resources/release-check.md` (a fresh, non-fork Haiku subagent before the release-prep PR is opened, authority stated in its prompt). It covers the generic checks: the versions agree, the CHANGELOG section and links, the old-version grep, documented numbers, the docs build, tests and the build. Give it the version-file table above as "every file that carries the version", and add these Podium checks:
 
-- every file in the table above carries the release version, and the versions agree with each other;
-- `CHANGELOG.md` has a `[X.Y.Z]` section for exactly this version, dated, holding the changes that accumulated under `[Unreleased]`, with a fresh empty `[Unreleased]` above it and the two links at the bottom right;
-- the grep for the old version string has been looked at, listing each hit that is not a known sample-data one;
 - the atlas still matches the code: `docs/atlas/podium-atlas.html` carries the release version, every source file it names exists, every handler registered with `on(` in `mod/podium-reporter/hooks/register.ts` has a row in `docs/atlas/ATLAS.md` and every hook row there is still registered, and a number the atlas states (a default timing, a limit, a port, a count of pages or migrations) still equals the code, checked for each part an `[Unreleased]` entry touches;
 - the docs site builds for every version (`node site/scripts/build.mjs`), and no link is broken;
-- `npm test`, `npm run build` and `npm run standards:parity` pass, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
+- `npm run standards:parity` passes, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
 
-It reports a short pass/fail list, with the file and line of each mismatch. Fix every failure and run the agent once more; if the second run still fails, stop and ask. A pass is a claim, not the check: run `npm test` and `npm run build` yourself too, as you do before any PR.
+Fix every failure and run the agent once more; if the second run still fails, stop and ask. Run `npm test` and `npm run build` yourself too.
