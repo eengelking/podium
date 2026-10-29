@@ -67,7 +67,15 @@ function floatingParts(expression) {
   return [node];
 }
 
-const ALLOW = /^promise-ok\b(?::\s*(.*\S))?/;
+const ALLOW = 'promise-ok';
+
+/** The reason in a `promise-ok: <why>` comment ('' when there is none), or null when the comment is not one. A longer word such as promise-okay is not the marker. */
+function allowReason(body) {
+  if (!body.startsWith(ALLOW)) return null;
+  const rest = body.slice(ALLOW.length);
+  if (/^\w/.test(rest)) return null;
+  return rest.startsWith(':') ? rest.slice(1).split('\n')[0].trim() : '';
+}
 
 /** Every real comment of the source (not text in a string) that starts with `promise-ok`: [{ line, reason }], reason '' when missing. */
 function allowComments(source) {
@@ -85,8 +93,8 @@ function allowComments(source) {
   const comments = [];
   for (const range of seen.values()) {
     const body = source.text.slice(range.pos, range.end).replace(/^\/\/|^\/\*|\*\/$/g, '').trim();
-    const match = ALLOW.exec(body);
-    if (match) comments.push({ pos: range.pos, line: source.getLineAndCharacterOfPosition(range.pos).line + 1, reason: match[1] ?? '', text: body });
+    const reason = allowReason(body);
+    if (reason !== null) comments.push({ pos: range.pos, line: source.getLineAndCharacterOfPosition(range.pos).line + 1, reason, text: body });
   }
   return comments;
 }
@@ -160,8 +168,10 @@ export function format(finding) {
   return `${path.relative(process.cwd(), finding.file)}:${finding.line}: ${finding.kind}: ${finding.text}`;
 }
 
+const STDIO = { out: (s) => void process.stdout.write(`${s}\n`), err: (s) => void process.stderr.write(`${s}\n`) };
+
 /** The command line. `write` takes { out, err } so a test can capture the output; returns the exit code. */
-export function run(argv, write = { out: (s) => void process.stdout.write(`${s}\n`), err: (s) => void process.stderr.write(`${s}\n`) }) {
+export function run(argv, write = STDIO) {
   if (argv.includes('--help') || argv.includes('-h')) {
     write.out(USAGE.trimEnd());
     return 0;

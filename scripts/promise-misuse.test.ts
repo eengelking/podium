@@ -119,6 +119,10 @@ describe("scan: the promise-ok comment", () => {
   });
   it("accepts a block comment", () => {
     expect(kinds("work(); /* promise-ok: reason */")).toEqual([]);
+    expect(kinds("work(); /* promise-ok: reason\n   on a second line */")).toEqual([]);
+    expect(kinds("work(); // promise-ok because")).toEqual(["1 missing-reason", "1 floating"]);
+    expect(kinds("work(); // promise-okay: a longer word is not the marker")).toEqual(["1 floating"]);
+    expect(kinds("work(); // promise-ok-ish")).toEqual(["1 missing-reason", "1 floating"]);
   });
 });
 
