@@ -4,7 +4,7 @@ import { fmtUsd } from "../format";
 import { EFFORTS, familyName, ORCHESTRATOR_ROW, waitingOnByRow } from "../logic";
 import type { AgentView, BackgroundWait, GitInfo, ModelFamily, SessionView } from "../types";
 import { backgroundStatus, backgroundTitle, idleOnBackground } from "../waiting";
-import { IconBranch, IconCheck, IconClock, IconDown, IconMod, IconTree, IconUp, IconWarn, IconX } from "./Icons";
+import { IconBranch, IconCheck, IconClock, IconCompact, IconDown, IconMod, IconTree, IconUp, IconWarn, IconX } from "./Icons";
 
 export const FAMILY_COLOR: Record<ModelFamily, string> = {
   opus: "var(--opus)",
@@ -175,6 +175,22 @@ export function StatusChip({ status, delegating, background }: { status: StatusK
     <span className={`st ${status}`}>
       <StatusIcon status={status} />
       {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+/**
+ * `n` automatic compactions (#805): Claude Code compacted the session on its own, often after a quiet stretch. An information mark,
+ * not a warning, so it is blue where the blowout badge is amber.
+ */
+export function CompBadge({ n }: { n: number }) {
+  if (!n) return null;
+  const times = `${n} time${n > 1 ? "s" : ""}`;
+  return (
+    <span className="comp" title={`Claude Code compacted this session automatically ${times}`}>
+      <IconCompact />
+      <span aria-hidden="true">Comp</span>
+      <span className="vh">Compacted automatically {times}</span>
     </span>
   );
 }

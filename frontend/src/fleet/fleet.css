@@ -292,9 +292,10 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .card.sc .crew svg.sp { margin-left: auto; width: 72px; height: 20px; flex: none; }
 .podium .card.sc .z3 .c { padding: 8px 12px 9px; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .podium .card.sc .z3 .c + .c { border-left: 1px solid var(--grid); }
-.podium .card.sc .z3 .k { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+/* The label row wraps (#805): a Comp pill that does not fit beside "Context" and the blowout badge drops to its own line, so the pill is never clipped. */
+.podium .card.sc .z3 .k { font-size: 11px; color: var(--muted); display: flex; align-items: center; flex-wrap: wrap; gap: 3px 5px; white-space: nowrap; }
 .podium .card.sc .z3 .v { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
-.podium .card.sc .z3 .blow { padding: 0 4px; font-size: 11px; }
+.podium .card.sc .z3 .blow, .podium .card.sc .z3 .comp { padding: 0 4px; font-size: 11px; }
 .podium .card.sc .z3 .bar.ctx { height: 3px; margin-top: 4px; }
 .podium .card.sc .z3 .ctx.hi .v { color: var(--crit-text); }
 .podium .band { display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 8px 12px; font-size: 13px; background: color-mix(in srgb, var(--c) 12%, var(--surface)); border-top: 1px solid color-mix(in srgb, var(--c) 45%, transparent); }
@@ -583,6 +584,9 @@ body.modal-open #root { filter: blur(5px); }
 .podium .blow { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent); color: var(--ink); background: color-mix(in srgb, var(--warn) 16%, transparent); }
 .podium .blow.l2 { border-color: var(--crit); background: color-mix(in srgb, var(--crit) 20%, transparent); color: var(--crit-text); }
 .podium .blow svg { width: 12px; height: 12px; }
+/* An automatic compaction (#805): the blowout badge's footprint, in the delegation blue, because it is information and not a warning. */
+.podium .comp { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 4px; font-size: 11.5px; font-weight: 600; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--deleg) 55%, transparent); color: var(--deleg-text); background: color-mix(in srgb, var(--deleg) 16%, transparent); }
+.podium .comp svg { width: 12px; height: 12px; }
 .podium .bar.bx > i { background: var(--warn); }
 /* 80% or more (#213): red, with an outline and a solid cap so it still differs from amber in grayscale. After bx so red wins over the one-blowout amber; bx2's stripes come last. */
 .podium .bar.crit > i { background: var(--crit); box-shadow: inset 0 0 0 1px var(--crit-text), inset -3px 0 0 var(--crit-text); }

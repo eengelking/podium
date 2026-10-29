@@ -154,3 +154,15 @@ describe("the orchestrator panel with the activity feed (#118)", () => {
     expect(screen.getAllByText("Activity")).toHaveLength(1);
   });
 });
+
+describe("the orchestrator panel's Comp pill (#805)", () => {
+  it("follows the context readout when the session compacted on its own, and is not there otherwise", () => {
+    const withPill = render(<OrchestratorDetail s={makeSession({ compactions: 2 })} now={2_000_000} onBack={() => {}} />);
+    const pill = withPill.container.querySelector("dd .comp")!;
+    expect(pill.getAttribute("title")).toBe("Claude Code compacted this session automatically 2 times");
+    expect(pill.textContent).toContain("Comp");
+    cleanup();
+    const without = render(<OrchestratorDetail s={makeSession({ compactions: 0 })} now={2_000_000} onBack={() => {}} />);
+    expect(without.container.querySelector(".comp")).toBeNull();
+  });
+});
