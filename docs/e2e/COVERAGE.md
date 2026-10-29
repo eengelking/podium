@@ -8,7 +8,7 @@ group: Project internals
 
 This page maps every feature of the console to the end-to-end spec that covers it, says what the suite leaves out and
 why, and shows how to run it, read a CI failure and add a spec. It is for a contributor changing a feature. The platform
-choice (Cypress in a container, against Podium's own image) is [decision 48](../decisions/48-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md); what each
+choice (Cypress in a container, against Podium's own image) is [decision 48](../decisions/49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md); what each
 feature must do is in [docs/spec/](../spec/README.md). `node scripts/e2e-map.mjs` checks this page against the repository on
 every `npm test`: a spec, a source file, a route or a test id named here that no longer exists fails it, and so does a spec
 that is not named here. That check proves the names exist, not that a spec proves the row: what a row claims is what the named spec asserts, and a reader should open the spec to see it.

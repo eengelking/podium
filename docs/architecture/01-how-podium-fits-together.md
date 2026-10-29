@@ -13,7 +13,7 @@ This page shows how the reporter mod, the server and the UI connect, for a contr
  Claude Code session ──(reporter mod: hooks -> state.ts reducers -> report.ts)──┐
  Claude Code session ──(  flush timer: POST /api/fleet/report every 1 s when   )──┼──> server (Express, 127.0.0.1:4317)
  simulator (podium-sim) ─(  something changed, 5 s heartbeat, backoff offline )──┘      routes.ts: validate (protocol.ts)
-                                                                                        fleet.ts:  ingest.ts -> SQLite (db.ts)
+                                                                                        fleet.ts:  ingest.ts -> storage (SQLite)
  browser (React, frontend/src/fleet) <── GET /api/fleet/state (first paint) ──────────   derive.ts: SessionView, KPIs, series
                                      <── GET /api/fleet/stream (SSE) ─────────────────   sse.ts + sweeper.ts (stale, drop, linger,
                                                                                          samples, retention, 2 s tick)
@@ -42,6 +42,8 @@ It broadcasts the changed `SessionView` (at most one per session per 500 ms) and
 - `sweeper.ts` runs every second: a session is stale at 15 s and dropped 60 s later, ended sessions linger 8 s,
   and quiet seconds get carry-forward samples. It ticks KPIs every 2 s and prunes hourly.
 - `derive.ts` turns rows into views and is pure.
+- `server/src/storage/` is the only way the server reaches its database: async interfaces with SQLite as the one adapter
+  (see [Storage](02-components/19-storage.md)).
 
 ## The UI
 

@@ -11,18 +11,15 @@ loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 import fs from "node:fs";
 import express from "express";
 import { createRouter } from "./routes.js";
-import { FleetDb, openDb } from "./fleet/db.js";
+import { dataDir, openStorage, storageSpec } from "./storage/index.js";
 import { configFromEnv, Fleet } from "./fleet/fleet.js";
 import { createFleetRouter } from "./fleet/routes.js";
 import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
-import { PeopleStore } from "./fleet/people.js";
-import { ReporterStore } from "./fleet/reporters.js";
 import { Lockout } from "./fleet/lockout.js";
 import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
-import { activityDbPath, openActivityDb } from "./fleet/activityDb.js";
 import { REPORTER_SUPPORT } from "./fleet/compat.js";
 import { createServerLogging } from "./logging/setup.js";
 import { requestLog } from "./logging/requestLog.js";
@@ -31,18 +28,20 @@ import { hostCheck, parseAllowedHosts } from "./hostCheck.js";
 import { createPlainHttpWatch } from "./plainHttp.js";
 import { parseTrustProxy } from "./trustProxy.js";
 import { tlsDir, warnIfTlsNotPersistent } from "./tlsStorage.js";
-import { PersonCertStore } from "./tlsClientAuth.js";
 import { createReporterRenewRouter } from "./tlsReporterRenew.js";
-import { publicTlsPort, startTls, type TlsListener } from "./tlsServer.js";
-import { TlsSettingsStore } from "./tlsRenew.js";
+import { publicTlsPort, startTls } from "./tlsServer.js";
+import { TlsBoot } from "./tlsBoot.js";
+import { LiveTlsSettings } from "./tlsLive.js";
 import { createTlsStatusRouter } from "./tlsStatus.js";
 import { reporterHttpGate, ReporterTransport } from "./tlsHttp.js";
-import { RESPOND } from "./fleet/featureFlags.js";
+import { RESPOND } from "./storage/rows.js";
 import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-const DB_PATH = process.env.PODIUM_DB || path.join(REPO_ROOT, "data", "podium.sqlite");
+// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `kind://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
+const DB_PATH = storageSpec(process.env).target;
+const DATA_DIR = dataDir(process.env);
 const TOKEN = process.env.PODIUM_TOKEN || null;
 
 // Logging (#140): levels, a text or JSON format, and optional shipping to a central platform such as VictoriaLogs.
@@ -53,29 +52,33 @@ if (TOKEN && TOKEN.length < 24) {
   logger.warn("server.weak_token", `podium: PODIUM_TOKEN is only ${TOKEN.length} characters; use at least 24 (podiumctl makes a long one for you)`, { length: TOKEN.length });
 }
 
-warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
+warnIfTlsNotPersistent({ env: process.env, dataDir: DATA_DIR, logger });
 
-const fleetDb = new FleetDb(openDb(DB_PATH));
+const storage = await openStorage(process.env);
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
-// The Activity history lives in its own file beside the database (#432); nothing is written to it under the default policy.
-const activityDb = openActivityDb(activityDbPath(DB_PATH));
-const fleet = new Fleet(fleetDb, fleetConfig, Date.now, logger, { db: activityDb, authOn: TOKEN !== null, secret: TOKEN });
-const people = new PeopleStore(fleetDb.db);
-const tlsSettings = new TlsSettingsStore(fleetDb.db);
-let tlsListener: TlsListener | null = null;
+// The Activity history lives in its own file beside the database (#432), opened by the storage; nothing is written to it under the default policy.
+const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { authOn: TOKEN !== null, secret: TOKEN });
+// The live set is read from the database before anything listens or sweeps.
+await fleet.init();
+const people = storage.people;
+const tlsSettings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
+// The TLS settings are read synchronously (by the HTTP gate on every request, and the renewer); load them before anything listens.
+await tlsSettings.load();
+// Holds the listener from the turn it starts serving; the HTTP gate opens once the first-run decision is stored (tlsBoot.ts).
+const tlsBoot = new TlsBoot();
 // Which reporters are on HTTP and which on HTTPS, for the Admin's switch and its count (#589).
 const reporterTransport = new ReporterTransport();
 // People's client certificates (#583). A certificate is trusted only if the running CA issued it; both read the listener when asked, since it starts after this.
-const personCerts = new PersonCertStore(fleetDb.db);
-const trustedIssuers = () => tlsListener?.trust.trustedIssuers() ?? [];
+const personCerts = storage.personCerts;
+const trustedIssuers = () => tlsBoot.listener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
-const personIssuer = () => (tlsListener ? { dir: tlsDir(DB_PATH), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsListener.port), caCerts: () => [tlsListener!.trust.currentCa()], rotation: () => tlsListener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
-const reporters = new ReporterStore(fleetDb.db, Date.now());
+const personIssuer = () => (tlsBoot.listener ? { dir: tlsDir(DATA_DIR), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsBoot.listener.port), caCerts: () => [tlsBoot.listener!.trust.currentCa()], rotation: () => tlsBoot.listener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
+const reporters = storage.reporters;
 const stopSweeper = startSweeper(
   fleet,
   undefined,
   logger,
-  () => forgetReporters(reporters, people, logger, Date.now()),
+  () => forgetReporters(storage, logger, Date.now()),
   // The same 5-minute run purges session recordings (#353), each on its own so one failing does not stop the other.
   () => purgeStored(fleet.activityHistory, fleet.recordings, people, logger, Date.now()),
 );
@@ -102,7 +105,7 @@ if (fs.existsSync(pagePath)) {
 app.use(hostCheck({ bind: HOST, allowed: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }));
 app.use(securityHeaders({ scriptHashes: pageScripts }));
 // With TLS on and the Admin's switch off, the HTTP listener refuses the routes a reporter calls, except from loopback (#589).
-app.use(reporterHttpGate({ active: () => tlsListener !== null, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => reporters.rejected(source, reason, Date.now()) }));
+app.use(reporterHttpGate({ active: () => tlsBoot.gateActive, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => void reporters.rejected(source, reason, Date.now()).catch((err: Error) => logger.warn("reporters.reject_note_failed", `podium: could not note a refused reporter request: ${err.message}`, { reason: err.message })) }));
 app.use(requestLog(logger));
 // Five wrong credentials from one address lock it out of Admin's unlock and the sign-in to respond together (#206).
 const lockout = new Lockout();
@@ -114,10 +117,10 @@ const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.feat
 app.use("/api", failureLimiter({ logger, max: parseFailureLimit(process.env.PODIUM_FAILURE_LIMIT) }));
 app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
-app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsListener?.renewer ?? null, rotation: () => tlsListener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, tx: storage.tx, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsBoot.listener?.renewer ?? null, rotation: () => tlsBoot.listener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
-app.use("/api/tls", createTlsStatusRouter({ view: () => tlsListener?.renewer.statusView() ?? null }));
+app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
 app.use(express.static(frontendDist));
@@ -158,13 +161,12 @@ const server = app.listen(PORT, HOST, () => {
 });
 
 // Built-in TLS (#577): with PODIUM_TLS=on, HTTPS on a second port serves the same app. A failure is logged and HTTP stays up.
-void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dbPath: DB_PATH, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then((l) => {
+void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dataDir: DATA_DIR, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then(async (l) => {
   // The first time TLS runs, an install that already has reporters keeps them working over HTTP; a fresh one does not (SPEC 6).
-  if (l) tlsSettings.seedAllowReportersOverHttp(reporters.hasAny());
-  tlsListener = l;
+  await tlsBoot.adopt(l, async () => tlsSettings.seedAllowReportersOverHttp(await reporters.hasAny()));
   // A signal that arrived while the CA was being made has already started the shutdown.
   if (closing) l?.server.close();
-});
+}).catch((err: Error) => logger.error("tls.start_failed", `podium: could not finish starting TLS: ${err.message}`, { reason: err.message }));
 
 let closing = false;
 function shutdown(signal: string) {
@@ -174,12 +176,13 @@ function shutdown(signal: string) {
   stopSweeper();
   stopUpdateCheck();
   fleet.close();
-  tlsListener?.server.close();
+  tlsBoot.listener?.server.close();
   server.close(() => {
-    fleetDb.close();
-    fleet.activityHistory.close();
-    // The last lines (this shutdown among them) go out before the process does, for at most a second.
-    void logging.close(1000).finally(() => process.exit(0));
+    // Messages and writes already asked for finish before the databases close; the storage closes both files, each after its own queue is drained.
+    void fleet.flush().then(() => storage.close()).catch(() => undefined).then(() => {
+      // The last lines (this shutdown among them) go out before the process does, for at most a second.
+      void logging.close(1000).finally(() => process.exit(0));
+    });
   });
   // SSE sockets were ended above; anything still open after 2 s is cut.
   setTimeout(() => process.exit(0), 2000).unref();

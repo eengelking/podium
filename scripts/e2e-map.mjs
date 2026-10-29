@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Checks that the names in the end-to-end coverage map (docs/e2e/COVERAGE.md, #782, DECISIONS 48) exist in the repository, so the map cannot rot silently.
+// Checks that the names in the end-to-end coverage map (docs/e2e/COVERAGE.md, #782, DECISIONS 49) exist in the repository, so the map cannot rot silently.
 // It checks names, not behavior: it cannot tell whether a spec named in a row asserts what the row says. That is read by a person, in the spec:
 //   - every file the map names in a code span (a spec, a source file, a doc, a script) exists;
 //   - every server route it names (`GET /api/fleet/history`) matches a route literal in server/src;

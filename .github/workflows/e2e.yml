@@ -1,6 +1,6 @@
 name: E2E
 
-# End-to-end tests (#782, DECISIONS 48): Cypress, in the pinned cypress/included container, against Podium's own image on a private
+# End-to-end tests (#782, DECISIONS 49): Cypress, in the pinned cypress/included container, against Podium's own image on a private
 # container network. scripts/e2e-up.sh does all of it; nothing is installed on the runner except the repo's own `npm ci` (for axe-core).
 #
 # MANUAL ONLY for now ("Run workflow" in the Actions tab). A first run on a GitHub runner timed out on the first page load of several spec

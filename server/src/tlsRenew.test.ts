@@ -4,11 +4,12 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openDb } from './fleet/db.js';
+import { openDb } from './storage/sqlite/db.js';
 import { createLogger } from './logging/logger.js';
 import { ensureTls, serverNames } from './tlsCa.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, TlsSettingsStore, type ServingSettings } from './tlsRenew.js';
+import { namesOf, ServingRenewer, SERVING_DEFAULTS, servingFieldError, type ServingSettings } from './tlsRenew.js';
+import { TlsSettingsStore } from './storage/sqlite/tlsSettings.js';
 import { startTlsForTest } from './tlsTesting.js';
 
 const DAY = 86_400_000;
@@ -291,18 +292,18 @@ describe('the swap on a running listener', () => {
     const logger = createLogger({ format: 'json', write: (l) => lines.push(JSON.parse(l) as Record<string, unknown>) });
     const app = express();
     app.get('/api/fleet/sessions/s1/peers', (_q, r) => void r.json({ ok: true }));
-    const dbPath = path.join(root, 'podium.sqlite');
+    const dataDir = root;
 
     // First run makes the certificate with the shortest lifetime and the longest renew-before, as the issue's check does.
     const settings: ServingSettings = { lifetimeDays: 30, renewBeforeDays: 90, headerCountdown: true };
-    const first = await startTlsForTest({ app, dbPath, logger, settings: () => settings });
+    const first = await startTlsForTest({ app, dataDir, logger, settings: () => settings });
     const created = first.renewer.view().serving;
     client = await issuePersonCert({ dir: path.join(root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     await new Promise((r) => first.server.close(r));
     expect(lines.some((l) => l.event === 'tls.serving_renewed')).toBe(false);
 
     // A restart two days later finds it inside the window and renews before accepting a connection.
-    const l = await startTlsForTest({ app, dbPath, logger, settings: () => settings, now: () => Date.now() + 2 * DAY });
+    const l = await startTlsForTest({ app, dataDir, logger, settings: () => settings, now: () => Date.now() + 2 * DAY });
     const port = l.port;
     try {
       const v = l.renewer.view();
@@ -330,7 +331,7 @@ describe('the swap on a running listener', () => {
   it('stops its timer when the listener closes', async () => {
     const root = scratch();
     const app = express();
-    const l = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger: createLogger({ format: 'json', write: () => {} }) });
+    const l = await startTlsForTest({ app, dataDir: root, logger: createLogger({ format: 'json', write: () => {} }) });
     await new Promise((r) => l.server.close(r));
     expect((l.renewer as unknown as { timer: unknown }).timer).toBeNull();
   });

@@ -601,7 +601,7 @@ features that can be switched off appear here."
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
-- A later flag adds one entry to `FEATURES` in `server/src/fleet/featureFlags.ts`.
+- A later flag adds one entry to `FEATURES` in `server/src/storage/sqlite/featureFlags.ts`.
 - What turning the activity feed off does is under *Right panel* below and in
   [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md).
 
@@ -751,7 +751,7 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - All notices default to on.
 - The notices are the background-sessions note and the update notice. Only the background-sessions note is in
   `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
-  `NOTICES` in `server/src/fleet/wallSettings.ts` and one to the stack in `Wall.tsx`.
+  `NOTICES` in `server/src/storage/sqlite/wallSettings.ts` and one to the stack in `Wall.tsx`.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set

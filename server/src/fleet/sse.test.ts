@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { formatSse, SseHub } from './sse.js';
 import { fixtureReport } from './testing.js';
@@ -71,47 +71,53 @@ describe('SseHub', () => {
 });
 
 describe('Fleet broadcasts', () => {
-  function fleetWith() {
+  async function fleetWith() {
     let now = 1_791_648_000_000;
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' }, () => now);
+    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' }, () => now);
+    await fleet.init();
     const s = sink();
-    fleet.hub.add(s, [fleet.snapshotMessage()]);
+    fleet.hub.add(s, [await fleet.snapshotMessage()]);
     return { fleet, s, advance: (ms: number) => { now += ms; vi.advanceTimersByTime(ms); } };
   }
 
-  it('snapshot on connect, activity per new event, throttled session, tick', () => {
+  it('snapshot on connect, activity per new event, throttled session, tick', async () => {
     vi.useFakeTimers();
-    const { fleet, s, advance } = fleetWith();
+    const { fleet, s, advance } = await fleetWith();
     const r = fixtureReport();
     for (let i = 0; i < 10; i++) {
-      fleet.ingest(r);
+      await fleet.ingest(r);
       advance(20);
     }
+    await fleet.flush();
     // ten ingests in 200 ms: three activity messages (the events are new once), at most one session
     expect(events(s.chunks)).toEqual(['snapshot', 'activity', 'activity', 'activity']);
     advance(300);
+    await fleet.flush();
     expect(events(s.chunks).filter((e) => e === 'session')).toHaveLength(1);
-    fleet.tick();
+    await fleet.tick();
+    await fleet.flush();
     expect(events(s.chunks).at(-1)).toBe('tick');
     fleet.close();
   });
 
-  it('activity messages arrive oldest first and carry the session name', () => {
+  it('activity messages arrive oldest first and carry the session name', async () => {
     vi.useFakeTimers();
-    const { fleet, s } = fleetWith();
-    fleet.ingest(fixtureReport());
+    const { fleet, s } = await fleetWith();
+    await fleet.ingest(fixtureReport());
+    await fleet.flush();
     const acts = s.chunks.join('').split('\n\n').filter((b) => b.startsWith('event: activity')).map((b) => JSON.parse(b.split('data: ')[1]!));
     expect(acts.map((a) => a.kind)).toEqual(['spawn', 'fail', 'blow']);
     expect(acts[0].sessionName).toBe('invoice-v2');
     fleet.close();
   });
 
-  it('removed:deleted when a live session is deleted', () => {
+  it('removed:deleted when a live session is deleted', async () => {
     vi.useFakeTimers();
-    const { fleet, s } = fleetWith();
+    const { fleet, s } = await fleetWith();
     const r = fixtureReport();
-    fleet.ingest(r);
-    expect(fleet.deleteSession(r.session.id)).toBe(true);
+    await fleet.ingest(r);
+    expect(await fleet.deleteSession(r.session.id)).toBe(true);
+    await fleet.flush();
     expect(s.chunks.join('')).toContain(`event: removed\ndata: {"sessionId":"${r.session.id}","reason":"deleted"}`);
     fleet.close();
   });

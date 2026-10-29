@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openDb, FleetDb } from "./db.js";
+import { openSqliteStorage } from "../storage/sqlite/index.js";
 import { DEFAULT_CONFIG, Fleet } from "./fleet.js";
 import { readBuild, serverBuild } from "./build.js";
 
@@ -41,9 +41,10 @@ describe("readBuild", () => {
 });
 
 describe("serverBuild", () => {
-  it("is in the state body next to the version, null when this server was not built from a dev commit", () => {
-    const fleet = new Fleet(new FleetDb(openDb(":memory:")), { ...DEFAULT_CONFIG, home: "/Users/dev", dbPath: ":memory:" }, () => 1_791_648_000_000);
-    expect(fleet.state().server).toMatchObject({ version: expect.any(String), build: serverBuild() });
-    expect(fleet.health().serverBuild).toBe(serverBuild());
+  it("is in the state body next to the version, null when this server was not built from a dev commit", async () => {
+    const fleet = new Fleet(openSqliteStorage(":memory:"), { ...DEFAULT_CONFIG, home: "/Users/dev", dbPath: ":memory:" }, () => 1_791_648_000_000);
+    await fleet.init();
+    expect((await fleet.state()).server).toMatchObject({ version: expect.any(String), build: serverBuild() });
+    expect((await fleet.health()).serverBuild).toBe(serverBuild());
   });
 });

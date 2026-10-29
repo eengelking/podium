@@ -22,5 +22,5 @@ order: 57
 <!-- nav:start -->
 ---
 
-Previous: [My session's name is the folder, and background tasks, notifications and permission answers are missing](session-name-is-the-folder-and-classic-hooks-are-skipped.md) · Up: [Gotchas](README.md) · Next: [Blowouts 1x on a card that is nowhere near full](blowout-on-a-card-nowhere-near-full.md)
+Previous: [My session's name is the folder, and background tasks, notifications and permission answers are missing](session-name-is-the-folder-and-classic-hooks-are-skipped.md) · Up: [Gotchas](README.md) · Next: [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md)
 <!-- nav:end -->

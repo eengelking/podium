@@ -49,6 +49,7 @@ npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
 scripts/podium-soak.sh --help   # load and restart check
+scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time

@@ -4,15 +4,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from './activityDb.js';
-import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from './activityHistory.js';
+import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from '../storage/sqlite/activityDb.js';
+import { ActivityHistory, type SqliteActivityHistoryOpts } from '../storage/sqlite/activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
-import { FleetDb, openDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
+import type { ActivityHistoryApi } from '../storage/types.js';
 import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
 import { fixtureReport } from './testing.js';
+import type { SessionMeta } from '../storage/rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 const T0 = 1_800_000_000_000;
@@ -30,7 +31,7 @@ const tmpFile = () => {
   return path.join(dir, 'activity.sqlite');
 };
 
-function setup(over: Partial<ActivityHistorySettings> = {}, extra: Partial<ActivityHistoryOpts> = {}, file = ':memory:') {
+function setup(over: Partial<ActivityHistorySettings> = {}, extra: Partial<SqliteActivityHistoryOpts> = {}, file = ':memory:') {
   let t = T0;
   const state = { settings: { ...ACTIVITY_HISTORY_DEFAULTS, policy: 'all' as ActivityHistorySettings['policy'], ...over }, live: new Set<string>() };
   const db = openActivityDb(file);
@@ -189,7 +190,7 @@ describe('the aggregates stay in step', () => {
 
 describe('removals in chunks', () => {
   /** Ten sessions with 40 entries each, five of them old. */
-  function fill(extra: Partial<ActivityHistoryOpts>, policy: Partial<ActivityHistorySettings> = {}) {
+  function fill(extra: Partial<SqliteActivityHistoryOpts>, policy: Partial<ActivityHistorySettings> = {}) {
     const s = setup(policy, extra);
     for (let i = 0; i < 10; i++) s.h.ingest(report(`s${i}`, T0 - (i < 5 ? 10 : 1) * HOUR + i * 100, 20), 0, { ...META, project: i % 2 ? 'acme/web' : 'acme/billing' });
     s.state.live.add('s7');
@@ -423,16 +424,16 @@ describe('through the fleet', () => {
 
   it('deleting a session returns at once and logs a failure of the background removal', async () => {
     const errors: string[] = [];
-    const db = new FleetDb(openDb(':memory:'));
-    const fleet = new Fleet(db, CFG, () => T0, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
+    const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => T0, { info() {}, warn() {}, debug() {}, error: (_e: string, m: string) => errors.push(m) } as never, { authOn: true });
+    await fleet.init();
     vi.spyOn(fleet.activityHistory, 'deleteSession').mockRejectedValue(new Error('disk full'));
-    expect(() => fleet.deleteSession('whatever')).not.toThrow();
+    await expect(fleet.deleteSession('whatever')).resolves.not.toThrow();
     await new Promise((r) => setImmediate(r));
     expect(errors.join('\n')).toContain('disk full');
   });
 
   it('a purge that is still running when the next tick fires is skipped, not stacked', async () => {
-    const people = new PeopleStore(openDb(':memory:'));
+    const people = openSqliteStorage(':memory:').people;
     const logger = { info: vi.fn() } as never;
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
@@ -440,23 +441,23 @@ describe('through the fleet', () => {
       await gate;
       return { entries: 3, bytes: 300, sessions: 1, freed: 0 };
     });
-    const history = { purge, current: () => ({ ...ACTIVITY_HISTORY_DEFAULTS, policy: 'end' as const }) } as unknown as ActivityHistory;
+    const history = { purge, current: () => ({ ...ACTIVITY_HISTORY_DEFAULTS, policy: 'end' as const }) } as unknown as ActivityHistoryApi;
     const first = purgeActivityHistory(history, people, logger, T0);
     await purgeActivityHistory(history, people, logger, T0 + 1);
     await purgeActivityHistory(history, people, logger, T0 + 2);
     expect(purge).toHaveBeenCalledTimes(1);
     release();
     await first;
-    expect(people.listLog({ page: 1, pageSize: 10 }).rows.filter((r) => r.kind === 'activity_purged')).toHaveLength(1);
+    expect((await people.listLog({ page: 1, pageSize: 10 })).rows.filter((r) => r.kind === 'activity_purged')).toHaveLength(1);
     // finished, so the next tick runs
     await purgeActivityHistory(history, people, logger, T0 + 3);
     expect(purge).toHaveBeenCalledTimes(2);
   });
 
   it('a purge that fails frees the slot for the next tick', async () => {
-    const people = new PeopleStore(openDb(':memory:'));
+    const people = openSqliteStorage(':memory:').people;
     const purge = vi.fn().mockRejectedValueOnce(new Error('locked')).mockResolvedValue({ entries: 0, bytes: 0, sessions: 0, freed: 0 });
-    const history = { purge, current: () => ACTIVITY_HISTORY_DEFAULTS } as unknown as ActivityHistory;
+    const history = { purge, current: () => ACTIVITY_HISTORY_DEFAULTS } as unknown as ActivityHistoryApi;
     await expect(purgeActivityHistory(history, people, { info() {} } as never, T0)).rejects.toThrow('locked');
     await purgeActivityHistory(history, people, { info() {} } as never, T0 + 1);
     expect(purge).toHaveBeenCalledTimes(2);
@@ -464,7 +465,8 @@ describe('through the fleet', () => {
 
   it('the sweeper logs a hook that rejects after its first chunk, and keeps ticking', async () => {
     vi.useFakeTimers();
-    const fleet = new Fleet(new FleetDb(openDb(':memory:')), CFG, () => T0, undefined, { authOn: true });
+    const fleet = new Fleet(openSqliteStorage(':memory:'), CFG, () => T0, undefined, { authOn: true });
+    await fleet.init();
     const logs: string[] = [];
     const hook = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('locked')).mockResolvedValue(undefined);
     const stop = startSweeper(fleet, { sweepMs: 1000, tickMs: 2000, retentionMs: 3_600_000, activityPurgeMs: 5000 }, (l) => logs.push(l), undefined, hook);

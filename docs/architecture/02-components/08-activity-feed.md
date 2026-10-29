@@ -29,7 +29,7 @@ the state or the stream. `ingest.ts` never sees the entries, because it copies n
 
 **The Admin flag**
 
-- The `activity-feed` flag (`server/src/fleet/featureFlags.ts`) sits above all of this. It is a `feature.<id>` row
+- The `activity-feed` flag (`server/src/storage/sqlite/featureFlags.ts`) sits above all of this. It is a `feature.<id>` row
   in the settings table, '1' or '0', or unset for the flag's `defaultOn` in `FEATURES`.
 - The store asks `Fleet.features` on each call. While the flag is off, `watched` is empty, `ingest` keeps only
   the reporter's option and no entries, and the route answers `enabled: false` without a lease.
