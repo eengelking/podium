@@ -193,7 +193,7 @@ function diff(reply: () => Promise<FileDiffReply>, wait = true): Screen {
     ),
     act: async () => {
       await flush();
-      fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Open diff of\s*a\.ts\b/ }));
       if (wait) await flush();
     },
   };

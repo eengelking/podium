@@ -1274,7 +1274,7 @@ selected first and the choice is not saved). While Files is selected the left co
     screen readers, and the signed counts (`+12 −3`, the word `binary` for a binary file), with a five-block
     bar beside them (green for the share of added lines, red for the rest) that carries no numbers.
   - With the `file-diff` flag and the session's `fileDiff` option on, and the session's signed-in owner
-    (#319, `mockup/podium-file-diff.html`), a row is a button named "Open diff of `<path>`". Enter, Space and a
+    (#319, `mockup/podium-file-diff.html`), a row is a button named by the words on it with the action in front, "Open diff of", the file name, its status and its folder (#800). Enter, Space and a
     click open the shared `Modal` (#97): the title is the path, the sub line is the status letter and the
     counts. The modal is a wide variant (up to 1240 px). The diff is side by side: the old file on the left
     and the new one on the right, level line for line, with a filler beside a line that has no partner (an

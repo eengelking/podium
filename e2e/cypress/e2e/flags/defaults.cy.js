@@ -18,11 +18,11 @@ describe('flags: defaults on a fresh server', () => {
     cy.get('#podium-top').contains('button', 'Sign in').should('not.exist');
     cy.card('invoice').click();
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
-    cy.get('button[aria-label="Record this session"]').should('not.exist');
+    cy.get('.fact.rec button[aria-haspopup="dialog"]').should('not.exist');
     cy.get('.fact.rec').should('contain.text', 'Not recorded');
     cy.get('[role=tab]').contains('Files').click();
     cy.contains('Sign in to open diffs.').should('not.exist');
-    cy.get('button[aria-label^="Open diff of"]').should('not.exist');
+    cy.get('li.openable > button').should('not.exist');
   });
 
   it('keeps the agent activity feed on by default', () => {
