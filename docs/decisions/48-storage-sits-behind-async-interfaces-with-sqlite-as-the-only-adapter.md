@@ -4,7 +4,7 @@ description: "The server reaches its data through async interfaces with one SQLi
 group: "Project internals"
 number: 48
 date: "2026-10-28"
-status: "proposed"
+status: "accepted"
 order: 48
 ---
 

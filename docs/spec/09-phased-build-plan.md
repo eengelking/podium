@@ -39,7 +39,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 **Goal:** a server that ingests reports, persists them, derives views, and streams them, proven by tests and the simulator.
 
 ### T1.1 Database and migrations
-- **Scope:** `server/src/fleet/db.ts` and its test.
+- **Scope:** `server/src/storage/sqlite/db.ts` and its test.
 - **Depends on:** T0.1, T0.2.
 - **Acceptance:**
   1. `openDb(path)` creates the schema in section 7.2 on an empty file and is idempotent on an existing one; `schema_migrations` records versions.

@@ -42,17 +42,17 @@ mod/podium-reporter/                 the Claude Code mod
   hooks/*.test.ts                    run by `claude plugin test`
 server/src/fleet/
   protocol.ts                        Report + view types, validators
-  db.ts                              schema, migrations, queries
   ingest.ts                          Report → rows, events, blowouts, samples
   derive.ts                          SessionView, KPIs, blowout level, series
   sweeper.ts                         stale / linger / drop timers
   sse.ts                             client registry and broadcast
   routes.ts                          Express router mounted at /api/fleet
   respond.ts, respondRoutes.ts       responding from Podium (#206): the in-memory store, the mod's and the browser's routes
-  peer*.ts, peers.ts                 orchestrator messaging (#347, #412): the contract, the Admin's settings, the rights and
-                                     message stores, the service that joins them, and the routes
+  peerTypes.ts, peerRoutes.ts        orchestrator messaging (#347, #412): the contract and the routes
   lockout.ts                         wrong-credential lockout shared by Admin and the sign-in to respond
   *.test.ts
+server/src/storage/                  the async interfaces the server calls, and openStorage, which picks the implementation (#313)
+  sqlite/                            the only adapter: schema, migrations and queries (db.ts), the stores, the lock, activity.sqlite
 frontend/src/fleet/
   FleetApp.tsx, useFleet.ts (SSE + reducer), store.ts, format.ts
   components/…                       see section 8.2

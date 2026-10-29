@@ -7,8 +7,8 @@ order: 10
 
 # Session recording
 
-Files: `server/src/fleet/recordings.ts` (the store), `recordingRoutes.ts` (the mod's and the browser's routes),
-`recordingSettings.ts` (the Admin's three limits), `sweeper.ts` (`purgeRecordings`), `mod/podium-reporter/hooks/recording.ts`
+Files: `server/src/storage/sqlite/recordings.ts` (the store), `recordingRoutes.ts` (the mod's and the browser's routes),
+`recordingSettings.ts` (also in `server/src/storage/sqlite/`; the Admin's three limits), `sweeper.ts` (`purgeRecordings`), `mod/podium-reporter/hooks/recording.ts`
 (the capture), `frontend/src/fleet/components/ReplayPage.tsx`, `RecordPicker.tsx` and `RecordingLayer.tsx`, and
 `frontend/src/fleet/admin/RecordingAdmin.tsx`. Issue #353; the reasoning is DECISIONS 40, and the feature end to end is
 [REPLAY.md](../../REPLAY.md). This section keeps only the structure.

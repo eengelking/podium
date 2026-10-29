@@ -12,10 +12,10 @@ Everything the page shows comes from data in its one `<script>` block, or from t
 | `REFS` | Source references per part | `id: [[path, line, text], ...]`. `text` as `name: what it does` (or `class Name: ...`) feeds ATLAS.md's Key functions tables. Path prefixes `pM`, `pS`, `pSF`, `pF` expand to the mod hooks folder, `server/src/`, `server/src/fleet/` and `frontend/src/fleet/`. |
 | `MODES` | The four deployment modes | `{id, name, draw(), facts[[ok|wn|no, text]], cmd}`. |
 | `STAGES`, `SC` | The request gauntlet: the ordered checks, and the twelve requests to run through them | `STAGES` entries are `[check, where it runs, what it does]`. `SC` entries give the request (`n`), where it stops (`stop`, an index into `STAGES`), the per-stage results (`res`, one per stage) and the verdict (`v`). A new or reordered middleware changes both. The order must equal the real order in `server/src/index.ts`. |
-| `TIERS` | The consent ladder: what the reporter sends at each opt-in | `{k, name, meta, admin (flag id or null), opt (option name or null), items[]}`. The starting state of each switch lives just below it and must match the flag defaults in `server/src/fleet/featureFlags.ts`. |
+| `TIERS` | The consent ladder: what the reporter sends at each opt-in | `{k, name, meta, admin (flag id or null), opt (option name or null), items[]}`. The starting state of each switch lives just below it and must match the flag defaults in `server/src/storage/sqlite/featureFlags.ts`. |
 | `FILES` | The searchable server source index | `[file name, job]`. |
 | `UI` | The console's surfaces (tabs) | `{n (name), d (description), ...}`. |
-| `STORES` | Where data lives, one tab per place | `{n, lead, rows[[name, text]]}`. Table and column names must match `server/src/fleet/db.ts` and `activityDb.ts`. |
+| `STORES` | Where data lives, one tab per place | `{n, lead, rows[[name, text]]}`. Table and column names must match `server/src/storage/sqlite/db.ts` and `activityDb.ts`. |
 | `PR` | The nine principles | `[title, text, ...]`; the text says where the code enforces it. |
 | `D` | Line counts | `[area, source lines, test lines]`. Also update the chart's `aria-label`, the table under "View as a table", the totals in "At a glance", and the "Counted from the repository on" date. |
 
