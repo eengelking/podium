@@ -23,6 +23,7 @@ interface SessionView {
   costUsd: number | null; tokensTotal: number;
   blowouts: { orchestrator: number; agents: number; total: number; level: 0 | 1 | 2; loopsHit: number; loopsTotal: number;
               log: { t: number; agentId: string | null; kind: string; tokensBefore: number | null; tokensAfter: number | null }[] };
+  compactions: number;                  // times Claude Code compacted the session on its own, any loop: its stored `compact` events with data.trigger "auto" (#805). 0 from a reporter older than the one that sends them.
   plan: Plan | null;                    // each step also carries doneSeq?: number, added by the server (#454): 1 for the first step seen to finish, then 2, ...; absent when not done or done when first seen
   loop: LoopReport | null;              // the main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a settings-hooks session
   files: FilesReport | null;            // the files the session changed; null from a reporter older than 0.6.0 and for a settings-hooks session

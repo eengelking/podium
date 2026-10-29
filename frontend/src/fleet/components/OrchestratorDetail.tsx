@@ -2,7 +2,7 @@ import { fmtDur, fmtPct, fmtTok } from "../format";
 import { COST_HINT_ORCHESTRATOR, orchestratorCostUsd, sessionElapsedSec, TOKENS_HINT } from "../logic";
 import type { SessionView } from "../types";
 import { reporterBelow, SkillChips, ToolChips } from "./AgentDetail";
-import { backgroundOf, BlowBadge, Cost, ContextBar, EffortMeter, GitLine, ModelChip, StatusChip } from "./Chips";
+import { backgroundOf, BlowBadge, CompBadge, Cost, ContextBar, EffortMeter, GitLine, ModelChip, StatusChip } from "./Chips";
 import { IconBack } from "./Icons";
 import { ActivityFeed } from "./ActivityFeed";
 import { MAIN_LOOP } from "../../../../server/src/fleet/protocol";
@@ -40,6 +40,7 @@ export function OrchestratorDetail(props: { s: SessionView; now: number; onBack:
             <ContextBar percent={s.context.percent} blowouts={s.blowouts.orchestrator} width={90} />
             <span>{fmtPct(s.context.percent)}</span>
             <BlowBadge n={s.blowouts.orchestrator} />
+            <CompBadge n={s.compactions} />
           </dd>
           <dt title={TOKENS_HINT}>Tokens</dt>
           <dd className="mono" title={TOKENS_HINT}>{fmtTok(s.context.tokens)}</dd>

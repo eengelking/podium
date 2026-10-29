@@ -119,6 +119,16 @@ describe('sessionView', () => {
     );
   }
 
+  it('carries the compaction count it is given, and 0 without one (#805)', () => {
+    const f = new FleetDb(openDb(':memory:'));
+    const report = fixtureReport();
+    ingestReport(f, report, 1_791_648_000_000);
+    const id = report.session.id;
+    const input = { row: f.getSession(id)!, agents: f.getAgents(id), blowouts: f.getBlowouts(id), samples: [], heard: true };
+    expect(sessionView(input, 1_791_648_001_000, CFG).compactions).toBe(0);
+    expect(sessionView({ ...input, compactions: 3 }, 1_791_648_001_000, CFG).compactions).toBe(3);
+  });
+
   it('derives the fixture', () => {
     const v = viewOf(fixtureReport(), 1_791_648_001_000);
     expect(v.project).toBe('~/billing-service');

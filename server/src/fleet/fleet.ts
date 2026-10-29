@@ -419,6 +419,7 @@ export class Fleet {
         row,
         agents: this.db.getAgents(row.id),
         blowouts: this.db.getBlowouts(row.id),
+        compactions: this.db.countAutoCompactions(row.id),
         samples: this.db.samplesSince(row.id, Math.floor(now / 1000) - 61),
         heard: entry ? entry.heard : true,
         dropAt: entry ? this.dropAtFor(row, entry.heard, now) : null,

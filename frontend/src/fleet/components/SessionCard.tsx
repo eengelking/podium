@@ -5,7 +5,7 @@ import { respondGate } from "../respond";
 import { RespondButton } from "./Respond";
 import { COST_HINT_SESSION, currentStep, delegateText, dropAtOf, inferredStep, planProgress, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT, treeOrder } from "../logic";
 import type { AgentView, LifecycleConfig, SessionView } from "../types";
-import { BlowBadge, ContextBar, Cost, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
+import { BlowBadge, CompBadge, ContextBar, Cost, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
 import { backgroundLead, backgroundTitle, toolOfNote, waitLead } from "../waiting";
 import { Sparkline } from "./Sparkline";
 import { OwnerLine } from "./People";
@@ -298,6 +298,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="k">
             Context
             <BlowBadge n={s.blowouts.total} level={s.blowouts.level} />
+            <CompBadge n={s.compactions} />
           </span>
           <span className="v mono">{fmtPct(s.context.percent)}</span>
           {s.context.percent !== null && <ContextBar percent={s.context.percent} blowouts={s.blowouts.total} />}
