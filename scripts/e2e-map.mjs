@@ -27,7 +27,7 @@ export function tokensIn(md) {
       continue;
     }
     if (fence !== null) continue;
-    for (const m of line.matchAll(/(`+)([^`]+?)\1/g)) out.push(m[2].trim());
+    for (const m of line.matchAll(/`([^`]+)`/g)) out.push(m[1].trim());
   }
   return out;
 }
