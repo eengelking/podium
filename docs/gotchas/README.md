@@ -95,6 +95,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A session I closed is still on the wall](closed-session-is-still-on-the-wall.md): Closing the window can move the conversation to the background; end it with claude stop and the card leaves.
 - [A session started without the mod stays "live" for ten minutes after it goes quiet](hook-only-session-stays-live-for-ten-minutes.md): Settings hooks send no heartbeat, so a hook-only session goes stale after 10 minutes; install the mod for faster detection.
 - [A session in the Claude desktop app stays on the wall until I delete it](desktop-session-stays-on-the-wall-until-deleted.md): The desktop app keeps every sidebar session open, so each card stays until you delete the session from the sidebar.
+- [Blowouts 1x on a card that is nowhere near full](blowout-on-a-card-nowhere-near-full.md): An automatic compaction after a quiet stretch is the likely cause; it is not a usage reset or an overflow.
 
 **Orchestrator messaging**
 

@@ -34,5 +34,5 @@ The rules are written out in [Storage](../architecture/02-components/19-storage.
 <!-- nav:start -->
 ---
 
-Previous: [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md) · Up: [Gotchas](README.md)
+Previous: [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md) · Up: [Gotchas](README.md) · Next: [Blowouts 1x on a card that is nowhere near full](blowout-on-a-card-nowhere-near-full.md)
 <!-- nav:end -->

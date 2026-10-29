@@ -2,7 +2,7 @@ import { describe, test, expect } from 'claude-code/testing'
 import { agentReport, buildReport } from './report.ts'
 import { scriptedReport, scriptedState, T0 } from './scripted.ts'
 import { MAIN_LOOP } from './protocol.ts'
-import { ACTIVITY_KEPT, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, turnComplete } from './state.ts'
+import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
 const REPORT_KEYS = ['agents', 'events', 'reporter', 'sentAt', 'session', 'v']
@@ -99,8 +99,8 @@ describe('blowout counting', () => {
     const window = stopped.main.window!
     const ev = stopped.events.find((e) => e.kind === 'blow')!
     expect(ev.data).toMatchObject({ kind: 'window-exceeded', tokensBefore: 150_000, window, percent: Math.round((150_000 / window) * 100) })
-    const compacted = compaction(step(base(), { usage, stopReason: 'end_turn' }, T0), { trigger: 'auto', tokensBefore: 100_000, tokensAfter: 20_000 }, T0 + 5000)
-    expect(compacted.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'auto-compact', tokensBefore: 100_000, window, percent: Math.round((100_000 / window) * 100) })
+    const compacted = compaction(step(base(), { usage, stopReason: 'end_turn' }, T0), { trigger: 'auto', tokensBefore: 900_000, tokensAfter: 20_000 }, T0 + 5000)
+    expect(compacted.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'auto-compact', tokensBefore: 900_000, window, percent: Math.round((900_000 / window) * 100) })
     const unknown = blowout(base(), null, 'auto-compact', T0, null, null)
     expect(unknown.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ window: null, percent: null })
     // A window but no tokens before is not guessed from the last step's fill.
@@ -108,6 +108,56 @@ describe('blowout counting', () => {
     expect(noTokens.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ window, percent: null })
     const server = step(base(), { usage, stopReason: 'compaction' }, T0)
     expect(server.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'server-compaction', window, percent: Math.round((150_000 / window) * 100) })
+  })
+  // #803: Claude Code compacted two sessions at 22% and 25% of a 1M window while they waited on an agent. Neither was an overflow.
+  describe('an automatic compaction with the context far from full', () => {
+    const full = { model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    const withWindow = (): ReturnType<typeof base> => {
+      const s = step(base(), { usage: full, stopReason: 'end_turn' }, T0)
+      return { ...s, main: { ...s.main, window: 1_000_000 } }
+    }
+    for (const [tokensBefore, tokensAfter, percent] of [
+      [217_153, 29_137, 22],
+      [254_942, 31_599, 25],
+    ] as const) {
+      test(`${tokensBefore} tokens before is a compact event, not a blowout`, () => {
+        const s = compaction(withWindow(), { trigger: 'auto', tokensBefore, tokensAfter }, T0 + 60_000)
+        expect(s.main.blowouts).toBe(0)
+        expect(s.events.some((e) => e.kind === 'blow')).toBe(false)
+        const ev = s.events.find((e) => e.kind === 'compact')!
+        expect(ev.text).toContain(`auto-compacted at ${percent}%`)
+        expect(ev.text).not.toContain('exceeded')
+        expect(ev.data).toMatchObject({ trigger: 'auto', tokensBefore, tokensAfter, window: 1_000_000, percent })
+        expect(s.main.ctxTokens).toBe(tokensAfter)
+      })
+    }
+    test('at or above the threshold it still counts', () => {
+      const s = compaction(withWindow(), { trigger: 'auto', tokensBefore: 1_000_000 * AUTO_COMPACT_BLOWOUT_FILL, tokensAfter: 30_000 }, T0 + 60_000)
+      expect(s.main.blowouts).toBe(1)
+      expect(s.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ kind: 'auto-compact', percent: 80 })
+    })
+    test('with the fill unknown it counts, as before', () => {
+      expect(compaction(base(), { trigger: 'auto', tokensBefore: 50_000 }, T0).main.blowouts).toBe(1)
+      expect(compaction(withWindow(), { trigger: 'auto' }, T0 + 60_000).main.blowouts).toBe(1)
+    })
+    test('after a counted window-exceeded stop, a low-fill auto compaction within 2 s is the same blowout', () => {
+      let s = step(withWindow(), { usage: null, stopReason: 'model_context_window_exceeded' }, T0 + 10_000)
+      expect(s.main.blowouts).toBe(1)
+      s = compaction(s, { trigger: 'auto', tokensBefore: 100_000, tokensAfter: 20_000 }, T0 + 11_000)
+      expect(s.main.blowouts).toBe(1)
+      expect(s.events.filter((e) => e.kind === 'compact')).toHaveLength(0)
+      expect(s.events.filter((e) => e.kind === 'blow')).toHaveLength(1)
+    })
+    test('the event records how long the loop was idle', () => {
+      let s = withWindow()
+      s = toolStarted(s, undefined, 'Agent', T0 + 1000)
+      s = toolResult(s, { tool: 'Agent', input: {}, result: {} }, T0 + 5000)
+      const early = compaction(s, { trigger: 'auto', tokensBefore: 200_000, tokensAfter: 30_000 }, T0 + 305_000)
+      expect(early.events.find((e) => e.kind === 'compact')!.data).toMatchObject({ idleMs: 300_000 })
+      const late = compaction(s, { trigger: 'auto', tokensBefore: 900_000, tokensAfter: 30_000 }, T0 + 305_000)
+      expect(late.events.find((e) => e.kind === 'blow')!.data).toMatchObject({ idleMs: 300_000 })
+      expect(compaction(base(), { trigger: 'auto', tokensBefore: 1 }, T0).events[0]!.data).toMatchObject({ idleMs: null })
+    })
   })
   test('duplicate signals within 2 s for one loop count once; another loop counts on its own', () => {
     let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'haiku', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)

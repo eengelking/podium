@@ -17,8 +17,8 @@ order: 3
 | Fork | An agent that is a copy of its parent: keeps the parent's whole context. Always uses the parent's model and effort. The Agent tool spells it `subagent_type: "fork"`. |
 | Loop | The main loop or any agent. Context is measured per loop. |
 | Plan | The orchestrator's task list (`TaskCreate`/`TaskUpdate` tools, or `TodoWrite`), shown as steps. Without those tool calls there is no plan; plan mode is not a source (6.3). |
-| Blowout | A loop's context window filled up and was compacted automatically, or the API reported the window exceeded. The count per loop is the signal for lost context. |
-| Compaction | Summarizing older conversation to free context. Manual (`/compact`) is not a blowout. Automatic is. |
+| Blowout | A loop's context window filled up and was compacted automatically (at 80% full or more, or when the fill is unknown), or the API reported the window exceeded. The count per loop is the signal for lost context. |
+| Compaction | Summarizing older conversation to free context. Manual (`/compact`) is not a blowout. Automatic is, unless the context was below 80% full: Claude Code also compacts early, probably after a quiet stretch, and that is only a `compact` event. |
 | Reporter | The mod. Runs in the Claude Code process and posts reports. |
 | Report | One JSON snapshot of a session plus any new activity events, POSTed to the server. |
 | Stale | A session the server has not heard from for 15 seconds and that never reported ending. |

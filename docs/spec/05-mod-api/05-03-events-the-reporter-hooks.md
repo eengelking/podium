@@ -101,7 +101,19 @@ evaluates to the result)
 **`session.compact`** (result: `{ messages, tokensBefore?, tokensAfter?, usage? }` or `{ skip }`)
 - Await `next(e)`.
 - If the result has `messages` and `trigger === "auto"`, record a **blowout** with `tokensBefore`,
-  `tokensAfter` and `agentId`.
+  `tokensAfter` and `agentId`, unless the context was far from full (below).
+- An automatic compaction counts only when the loop's context was at least **80%** of its window
+  (`tokensBefore` over `window`). A real overflow arrives near 100%. Claude Code also compacts on its own
+  after a quiet stretch, probably a prompt-cache timeout, and two captured cases fell at 22% and 25% of a
+  1M window (#803). The 80% is not measured: any value between about 30% and 90% fits the data, and it is
+  a named constant in the reporter. Below it, log a `compact` event reading "auto-compacted at 22%", not a
+  blowout; the count, the card badge and the Blowouts KPI do not change. When the fill cannot be computed
+  (the window or `tokensBefore` is unknown), record the blowout, because that was the behavior before and
+  the safe default when the reporter cannot tell. An automatic compaction within 2 seconds of a blowout
+  already counted for the loop (a `window-exceeded` stop and the compaction it triggers) is the same
+  blowout, at any fill.
+- Either event's `data` carries `idleMs`, how long the loop had been quiet (since its last step or tool
+  call, `null` if unknown), so a compaction after a quiet stretch can be told from one after activity.
 - For `manual`, log a `compact` event, not a blowout.
 - Ignore `precompute` and `skip`.
 
