@@ -141,7 +141,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 |---|---|---|
 | Board: columns, cards, the strip, Plans/All, Mixed/By orchestrator, Group, My orchestrators, tiles, KPI fold, narrow tabs, live movement, and a finished plan's open work leaving the board | SPEC 8.1 Kanban board | `e2e/cypress/e2e/board/board.cy.js` |
 | Board: a column pages at 25 (the Blocked column lists a blocked step) | SPEC 8.1 Order, paging and layout | `e2e/cypress/e2e/board/board-paging.cy.js` |
-| History: day picker, table, paging, address, a stored session's page, empty and error (the browser's date is held at the moment of the reset, so the day does not change during the file; a reset that itself straddles midnight is not covered) | none (#792); from `frontend/src/fleet/HistoryView.tsx` | `e2e/cypress/e2e/history/history.cy.js` |
+| History: day picker, table, paging, address, a stored session's page, empty and error (the browser's date is held at the moment of the reset, so the day does not change during the file; a reset that itself straddles midnight is not covered) | SPEC 8.5 | `e2e/cypress/e2e/history/history.cy.js` |
 | Traffic: map, table, the range buttons (whether they narrow the list is a stated gap below), conversation, pause and remove (kept after a reload), empty, flag off | SPEC 8.1 Traffic page | `e2e/cypress/e2e/messaging/traffic.cy.js` |
 | Traffic for a non-owner and the Admin; a failed Pause and a failed Remove, each with its message | SPEC 8.1 Traffic page | `e2e/cypress/e2e/messaging/messaging-more.cy.js` |
 | My reporters: requests, reporters, defaults, limits, rights grid and board, empty variants, flag off | SPEC 8.1 My reporters page | `e2e/cypress/e2e/messaging/my-reporters.cy.js` |
@@ -214,7 +214,7 @@ Each of these is a stated gap, not a covered feature.
 | Traffic's range filter (Last 24 hours and Last 30 days narrowing the list) | A message older than a day cannot be made: the server stamps every message with its own clock. The range buttons are clicked and the list is asserted unchanged for recent messages only. |
 | Reporters in the Silent state (over an hour without a report) | The one-hour threshold is a constant in `server/src/storage/rows.ts` and the server stamps a report with its own clock, so reaching it takes an hour or a test-only clock. Idle (two minutes) and "Not since restart" are covered. |
 | An untracked file's diff as its own case | A file the reporter lists as untracked arrives as status `added` (`server/src/fleet/protocol.ts` has no fifth status), so it is the added file in `e2e/cypress/e2e/orchestrator/file-diff.cy.js`. |
-| History's Resume and Fork cells | The spec and the page disagree (see below), so neither reading is asserted. |
+| History's Resume and Fork cells | SPEC 8.5 now says an opened session shows them; no spec asserts it yet. |
 
 ## What is left to unit tests
 
@@ -225,5 +225,4 @@ messages, and the standards pages (`npm run standards:parity`). A feature with o
 
 ## What is still open
 
-- **History draws Resume and Fork cells that SPEC 8.1 says it does not.** The page reuses the orchestrator page (`frontend/src/fleet/HistoryView.tsx` renders `FocusView`), and the maintainer accepts that. The suite asserts neither.
 - **Known axe findings.** None. #794 to #800 were the last, and their `known` entries are gone from `e2e/cypress/e2e/a11y/axe.cy.js` and `axe-more.cy.js`.

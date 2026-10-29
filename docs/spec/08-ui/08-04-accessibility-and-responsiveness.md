@@ -15,5 +15,5 @@ Every interactive element is a real `button`, `a` or `input`, with a visible foc
 <!-- nav:start -->
 ---
 
-Previous: [8.3 Visual tokens](08-03-visual-tokens.md) · Up: [8. The UI](README.md)
+Previous: [8.3 Visual tokens](08-03-visual-tokens.md) · Up: [8. The UI](README.md) · Next: [8.5 History](08-05-history.md)
 <!-- nav:end -->

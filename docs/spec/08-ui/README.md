@@ -19,6 +19,7 @@ order: 8
 - [8.2 Components](08-02-components.md): The components to create and how they group.
 - [8.3 Visual tokens](08-03-visual-tokens.md): Where color tokens live, the themes, and the rules that keep the UI on them.
 - [8.4 Accessibility and responsiveness](08-04-accessibility-and-responsiveness.md): The accessibility and narrow-width rules every control must meet.
+- [8.5 History](08-05-history.md): What the History page (#/history) shows and does: day picker, table, paging, opened session, empty and error states, sign-in and narrow layout.
 <!-- entries:end -->
 
 <!-- nav:start -->
