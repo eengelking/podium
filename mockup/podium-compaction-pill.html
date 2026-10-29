@@ -39,7 +39,8 @@ html, body { height: auto; }
 <script>
 (function () {
   var root = document.documentElement, frame = document.getElementById('sh-frame'), theme = 'dark';
-  function send() { try { frame.contentWindow.postMessage({ type: 'mk-theme', theme: theme }, '*'); } catch (e) {} }
+  var base = 'podium-compaction-pill-content.html';
+  function send() { frame.src = base + '#' + theme; }
   function press(attr, value) {
     var b = document.querySelectorAll('[' + attr + ']');
     for (var i = 0; i < b.length; i++) b[i].setAttribute('aria-pressed', String(b[i].getAttribute(attr) === value));
@@ -51,9 +52,9 @@ html, body { height: auto; }
     if (t.hasAttribute('data-width-set')) { var n = t.getAttribute('data-width-set') === 'narrow'; frame.classList.toggle('narrow', n); press('data-width-set', n ? 'narrow' : 'wide'); }
   });
   window.addEventListener('message', function (e) {
+    if (e.origin !== window.location.origin) return;
     if (e.source === frame.contentWindow && e.data && e.data.type === 'mk-height') frame.style.height = Math.ceil(e.data.h) + 'px';
   });
-  frame.addEventListener('load', send);
   var fb = document.getElementById('sh-fb');
   setTimeout(function () { if (!frame.style.height) fb.textContent = 'If the preview below is empty, open podium-compaction-pill-content.html on its own.'; }, 4000);
 })();

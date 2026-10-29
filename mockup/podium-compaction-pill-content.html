@@ -182,10 +182,13 @@ html, body { height: auto; }
     })(pts[i]);
   }
   function height() { try { parent.postMessage({ type: 'mk-height', h: document.documentElement.scrollHeight }, '*'); } catch (e) {} }
-  window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (d && d.type === 'mk-theme' && (d.theme === 'light' || d.theme === 'dark')) { root.setAttribute('data-theme', d.theme); height(); }
-  });
+  // The theme comes in the address (#dark or #light), set by the page that frames this one, so there is no message handler to check.
+  function theme() {
+    var h = location.hash.slice(1);
+    if (h === 'light' || h === 'dark') { root.setAttribute('data-theme', h); height(); }
+  }
+  window.addEventListener('hashchange', theme);
+  theme();
   window.addEventListener('load', height); window.addEventListener('resize', height);
   if (window.ResizeObserver) new ResizeObserver(height).observe(document.body);
   height();
