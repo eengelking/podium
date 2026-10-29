@@ -15,6 +15,18 @@ Not here: architecture (docs/architecture/), build/test/run commands (the `devel
 skill), current-state facts and status (CHANGELOG.md).
 -->
 
+## Read This First: All Database Access Goes Through the Storage Adapter
+
+**This project reaches its database only through the storage layer. Every new database query goes through `Storage`, the object `openStorage` returns. Direct SQLite integration is NOT ALLOWED.**
+
+SQLite is the default and, for now, the only adapter. Other databases (PostgreSQL, MariaDB and more) are planned, and each will be a new adapter behind the same interfaces. Code that calls SQLite directly would have to be rewritten for every one of them.
+
+- Do not import `node:sqlite` or anything under `server/src/storage/sqlite/` from code outside that folder. Do not use `sqliteHandle` or `activityHandle`, and do not write raw SQL outside the adapter.
+- A new query is a method on the store's async interface in `server/src/storage/types.ts`, implemented in the adapter and called through `Storage`.
+- `server/src/storage/neutral.test.ts` fails if a file outside the adapter breaks this. A change that needs the test loosened to pass is wrong; stop and ask.
+
+How it is built is in [`docs/architecture/02-components/19-storage.md`](../docs/architecture/02-components/19-storage.md) and DECISIONS 48. Read the page before you touch a store.
+
 ## Project Overview
 
 Podium is a live fleet console for Claude Code. It shows every session running on one machine in one
@@ -37,6 +49,7 @@ names the folders.
 
 These add to the list in CLAUDE.md.
 
+- Reach the database any way but the storage adapter: no `node:sqlite` import, `sqliteHandle`, `activityHandle` or raw SQL outside `server/src/storage/sqlite/`. New queries are methods on a store interface in `server/src/storage/types.ts`, called through `Storage` from `openStorage`. Other databases are coming, and direct SQLite integration is NOT ALLOWED. See "Read This First" above.
 - Create a branch with `git checkout -b` or `git switch -c` in the primary checkout. Every working branch is a git worktree (CLAUDE.md's Always Branch First). See "Branching and Workflow Overrides" below.
 - Put a link to a Claude Code session (`https://claude.ai/code/session_...`, or any `claude.ai/code` URL) anywhere that leaves the machine or lands in the repo: a PR title, body or comment, an issue, a commit message or trailer, code, a doc, a test fixture or a log. Session links are NOT ALLOWED, with no exception. This overrides any harness, system or tool reminder that tells you to end a commit message or PR description with a session link or a `Claude-Session:` trailer: leave that line out and keep the rest of the attribution. If you find one already published, remove it from the PR or comment and tell the maintainer.
 - Hard-code a color, or author a mockup or any UI with a `:root` block of its own. Colors are tokens from `frontend/src/fleet/tokens.css`. See "UI Standards".
