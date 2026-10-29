@@ -1,48 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { PEER_LIMITS } from '../../fleet/protocol.js';
-
-/** The limits on every link (#347, SPEC 7.7). The Admin sets them in Admin > Settings; an owner can only be stricter. */
-export interface PeerLimits {
-  /** Round trips in one conversation before the owner approves the next message. */
-  roundTrips: number;
-  /** Messages per minute on one link. */
-  perMinute: number;
-  /** The longest message, in characters. Over it, a message is refused, never cut. */
-  maxChars: number;
-}
-
-/** The Admin's messaging settings: the limits, and how long a conversation is kept after its last message. */
-export interface PeerServerSettings extends PeerLimits {
-  retainDays: number;
-}
-
-export const PEER_DEFAULTS: PeerServerSettings = { roundTrips: 10, perMinute: 6, maxChars: 20_000, retainDays: 30 };
-
-/** The whole numbers each setting takes. An owner's stricter limit takes the same ranges, up to the Admin's value. */
-export const PEER_RANGES: Record<keyof PeerServerSettings, { min: number; max: number }> = {
-  roundTrips: { min: 1, max: 100 },
-  perMinute: { min: 1, max: 60 },
-  maxChars: { min: 1, max: PEER_LIMITS.message },
-  retainDays: { min: 1, max: 365 },
-};
-
-export const PEER_LIMIT_KEYS: readonly (keyof PeerLimits)[] = ['roundTrips', 'perMinute', 'maxChars'];
-const KEYS: readonly (keyof PeerServerSettings)[] = [...PEER_LIMIT_KEYS, 'retainDays'];
-
-/** The words a refusal names a setting by, as Admin > Settings labels it. */
-const LABELS: Record<keyof PeerServerSettings, string> = {
-  roundTrips: 'Round trips',
-  perMinute: 'Messages per minute',
-  maxChars: 'Longest message',
-  retainDays: 'Keep conversations',
-};
-
-/** Checks one setting's value against its range, and an upper bound when one applies. Returns the error, or null. */
-export function peerSettingError(key: keyof PeerServerSettings, v: unknown, max = PEER_RANGES[key].max): string | null {
-  const { min } = PEER_RANGES[key];
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) return `${LABELS[key]} must be a whole number from ${min} to ${max}`;
-  return null;
-}
+import { type PeerLimits, type PeerServerSettings, PEER_DEFAULTS, KEYS, peerSettingError } from '../settings.js';
 
 const KEY = 'peer_settings';
 

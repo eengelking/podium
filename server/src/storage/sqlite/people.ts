@@ -2,73 +2,13 @@
 // A token is returned once, at creation or rotation, and never stored; see tokens.ts.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
-
-export type PeopleErrorCode = 'duplicate' | 'invalid' | 'not_found';
-export class PeopleError extends Error {
-  constructor(readonly code: PeopleErrorCode, message: string) {
-    super(message);
-  }
-}
+import { PeopleError, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
 /** How long a machine stays in a person's list without reporting, and how many are kept (#379). */
 const MACHINE_MAX_AGE_MS = 30 * 86_400_000;
 const MACHINES_KEPT = 10;
-
-export const MAX_PAGE_SIZE = 100;
-export const DEFAULT_PAGE_SIZE = 50;
-/** The owner of a session reported with the admin secret. */
-export const ADMIN_OWNER = 'Admin';
-/** The built-in group (issue #172) whose members can open Admin with their own token. It cannot be deleted. */
-export const ADMINISTRATORS_GROUP = 'Administrators';
-/** The actor the Admin log records for a change made with the admin secret. */
-export const ADMIN_SECRET_ACTOR = 'Admin secret';
 const NAME_MAX = 48;
 const GROUP_MAX = 24;
-
-export interface PersonRow {
-  id: number;
-  name: string;
-  keyId: string;
-  tokenHash: string;
-  groupId: number | null;
-  createdAt: number;
-  rotatedAt: number | null;
-  revokedAt: number | null;
-  lastReportAt: number | null;
-}
-export interface PersonListRow extends Omit<PersonRow, 'tokenHash' | 'keyId'> {
-  /** `pdm_<key id>`, the way Reporters names a token (#218). The key id only finds a person; it is not a secret. */
-  credential: string;
-  groupName: string | null;
-  machines: string[];
-}
-export interface GroupListRow {
-  id: number;
-  name: string;
-  createdAt: number;
-  members: string[];
-  /** True for Administrators: it cannot be deleted, and the admin secret is always a member. */
-  builtIn: boolean;
-}
-export interface LogRow {
-  id: number;
-  t: number;
-  kind: string;
-  detail: string;
-  source: string;
-  /** The person who made the change, 'Admin secret' for the secret; null for a row from before this was recorded. */
-  actor: string | null;
-}
-export interface Paged<T> {
-  total: number;
-  page: number;
-  pageSize: number;
-  rows: T[];
-}
-interface PageIn {
-  page: number;
-  pageSize: number;
-}
 
 /** Page and size clamped to what the Admin API allows. */
 export function clampPage(p: Partial<PageIn>): PageIn {
@@ -79,12 +19,6 @@ export function clampPage(p: Partial<PageIn>): PageIn {
     pageSize: Number.isFinite(size) && size >= 1 ? Math.min(size, MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE,
   };
 }
-
-/** A name as it is compared: spaces collapsed, case ignored. */
-export const nameKey = (raw: string): string => raw.trim().replace(/ +/g, ' ').toLowerCase();
-
-/** A request's source address without the IPv4-mapped IPv6 prefix. */
-export const sourceAddress = (ip: string | undefined): string => (ip ?? 'unknown').replace(/^::ffff:/, '');
 
 function cleanName(raw: string, max: number, what: string): string {
   const name = raw.trim().replace(/ +/g, ' ');

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { openDb } from './db.js';
-import { activityHistoryFieldError, activityPeriodMs, ActivityHistorySettingsStore } from './activityHistorySettings.js';
+import { ActivityHistorySettingsStore } from './activityHistorySettings.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS } from '../../fleet/activityHistoryTypes.js';
+import { activityHistoryFieldError, activityPeriodMs } from '../settings.js';
 
 const store = (authOn = true) => {
   const db = openDb(':memory:');

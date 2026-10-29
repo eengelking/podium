@@ -1,25 +1,7 @@
 import { isNewer } from '../../fleet/updateCheck.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { WallSettingsView } from '../../fleet/protocol.js';
-
-/** An informational notice the wall can show at the bottom. A later notice adds one entry here. SPEC 8.1. */
-export interface NoticeDef {
-  id: string;
-  name: string;
-  description: string;
-}
-
-export const NOTICES: readonly NoticeDef[] = [
-  {
-    id: 'background-sessions',
-    name: 'Background sessions',
-    description: 'Says how many sessions nobody is attached to are set aside, with a link to show them.',
-  },
-];
-
-export function isNoticeId(id: string): boolean {
-  return NOTICES.some((n) => n.id === id);
-}
+import { NOTICES, isNoticeId } from '../features.js';
 
 const NOTICE_PREFIX = 'wall_notice.';
 const SHOW_BACKGROUND = 'wall_show_background_sessions';

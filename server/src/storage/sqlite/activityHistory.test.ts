@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ACTIVITY_SCHEMA_STEPS, activityDbPath, openActivityDb } from './activityDb.js';
-import { ActivityHistory, type SessionMeta } from './activityHistory.js';
+import { ActivityHistory } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from '../../fleet/activityHistoryTypes.js';
 import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from '../../fleet/protocol.js';
 import { fixtureReport } from '../../fleet/testing.js';
+import type { SessionMeta } from '../rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 const T0 = 1_800_000_000_000;

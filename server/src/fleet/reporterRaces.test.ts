@@ -12,8 +12,8 @@ import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
 import { forgetReporters } from './sweeper.js';
 import { newPersonToken } from './tokens.js';
-import type { ReporterSeen } from '../storage/sqlite/reporters.js';
 import { fixtureReport } from './testing.js';
+import type { ReporterSeen } from '../storage/rows.js';
 
 const SECRET = 'admin-secret';
 const NAIVE = process.env.PODIUM_NAIVE_TX === '1';

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from '../storage/sqlite/activityDb.js';
-import { ActivityHistory, type ActivityHistoryOpts, type SessionMeta } from '../storage/sqlite/activityHistory.js';
+import { ActivityHistory } from '../storage/sqlite/activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { ActivityHistoryApi } from '../storage/types.js';
@@ -13,6 +13,7 @@ import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
 import { fixtureReport } from './testing.js';
+import type { ActivityHistoryOpts, SessionMeta } from '../storage/rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 const T0 = 1_800_000_000_000;

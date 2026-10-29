@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultDbFile, openStorage, openSqliteStorage } from './index.js';
 import { runStorageContract } from './contract.js';
+import { sqliteReference } from './sqlite/contractReference.js';
 
-runStorageContract('sqlite', () => openSqliteStorage(':memory:', 0));
+runStorageContract('sqlite', () => openSqliteStorage(':memory:', 0), sqliteReference);
 
 const gate = () => {
   let open!: () => void;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { openDb } from './db.js';
-import { PeerSettings, PEER_DEFAULTS, peerSettingError } from './peerSettings.js';
+import { PeerSettings } from './peerSettings.js';
+import { PEER_DEFAULTS, peerSettingError } from '../settings.js';
 
 describe('PeerSettings', () => {
   it('starts at the defaults: 10 round trips, 6 a minute, 20,000 characters, 30 days', () => {

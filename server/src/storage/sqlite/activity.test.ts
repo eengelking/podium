@@ -10,11 +10,12 @@ import { openSqliteStorage, type SqliteStorage } from './index.js';
 import { ActivityConnection } from './activity.js';
 import { openActivityDb, entryBytesSql } from './activityDb.js';
 import { ActivityHistory } from './activityHistory.js';
-import { SessionRecordings, type RecordingTrail } from './recordings.js';
+import { SessionRecordings } from './recordings.js';
 import { ACTIVITY_HISTORY_DEFAULTS, type ActivityHistorySettings } from '../../fleet/activityHistoryTypes.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingBatch, type RecordingEntry, type RecordingSettings, type Report } from '../../fleet/protocol.js';
 import { fixtureReport } from '../../fleet/testing.js';
 import { session } from '../contract.js';
+import type { RecordingTrail } from '../rows.js';
 
 const T0 = 1_800_000_000_000;
 const HOUR = 3_600_000;

@@ -11,11 +11,11 @@ import {
   shortenHome,
   startOfDay,
 } from './derive.js';
-import { type SampleRow } from '../storage/sqlite/db.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { ingestReport } from './ingest.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
+import type { SampleRow } from '../storage/rows.js';
 
 const CFG = { staleAfterMs: 15_000, home: '/Users/dev' };
 

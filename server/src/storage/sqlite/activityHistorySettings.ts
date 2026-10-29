@@ -12,34 +12,9 @@ import {
   type ActivityHistorySettings,
   type ActivityHistoryUnit,
 } from '../../fleet/activityHistoryTypes.js';
+import { FIELDS, activityHistoryFieldError } from '../settings.js';
 
 const KEY = 'activity_history';
-const FIELDS = ['policy', 'n', 'unit', 'capGb'] as const;
-
-/** The number of milliseconds a stored entry is kept under policy `after`. */
-export function activityPeriodMs(s: ActivityHistorySettings): number {
-  return s.n * ACTIVITY_UNIT_MS[s.unit];
-}
-
-const isWhole = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
-
-/** The error for one field's value, or null when it is acceptable. */
-export function activityHistoryFieldError(field: (typeof FIELDS)[number], v: unknown): string | null {
-  switch (field) {
-    case 'policy':
-      return (ACTIVITY_HISTORY_POLICIES as readonly unknown[]).includes(v) ? null : `Keep must be one of ${ACTIVITY_HISTORY_POLICIES.join(', ')}`;
-    case 'unit':
-      return (ACTIVITY_HISTORY_UNITS as readonly unknown[]).includes(v) ? null : `The unit must be one of ${ACTIVITY_HISTORY_UNITS.join(', ')}`;
-    case 'n': {
-      const { min, max } = ACTIVITY_HISTORY_RANGES.n;
-      return isWhole(v, min, max) ? null : `The period must be a whole number from ${min} to ${max}`;
-    }
-    case 'capGb': {
-      const { min, max } = ACTIVITY_HISTORY_RANGES.capGb;
-      return v === null || isWhole(v, min, max) ? null : `The size cap must be a whole number of gigabytes from ${min} to ${max}, or none`;
-    }
-  }
-}
 
 export class ActivityHistorySettingsStore {
   constructor(

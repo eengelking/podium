@@ -29,6 +29,7 @@ import {
   type RecordingState,
   type RecordingView,
 } from '../../fleet/protocol.js';
+import type { RecordingMeta, RecordingsOpts, RecordingTrail, RecordingTotals, RemoveResult, PurgeRecordingsResult, StoredState } from '../rows.js';
 
 const DAY_MS = 86_400_000;
 const CHUNK_ROWS = 5000;
@@ -60,66 +61,6 @@ interface PodiumDelivery {
 
 /** Gives the event loop a turn: queued requests, timers and reports run before the next chunk. */
 const yieldNow = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
-
-/** What the Stored activity table and the Admin's table show about a session. */
-export interface RecordingMeta {
-  name: string;
-  project: string | null;
-  owner: string | null;
-}
-
-export interface RecordingsOpts {
-  now: () => number;
-  /** The Admin's limits, read on every call so a change takes effect at once. */
-  settings: () => RecordingSettings;
-  /** Whether the `session-recording` flag is on. */
-  flagOn: () => boolean;
-  /** Whether the server runs with a sign-in token. Nothing is recorded without one. */
-  authOn: boolean;
-  /** Whether the session is on the wall (running, waiting or lingering). A recording that is not live is not capturing. */
-  isLive: (sessionId: string) => boolean;
-  /** Every loop of the session with the name the layer shows. */
-  loopsOf: (sessionId: string) => { loop: string; name: string }[];
-  /** Credentials of this server, replaced wherever they appear in a stored entry. */
-  secrets?: () => readonly string[];
-  /** Runs a heavy operation one at a time with the Activity history's own, and gives the file's freed space back. */
-  exclusive?: <T>(fn: () => Promise<T>) => Promise<T>;
-  compact?: () => Promise<number>;
-  /** Rows deleted per transaction in a purge or delete. Tests lower it. */
-  chunkRows?: number;
-  /** Runs one synchronous step of a chunked operation; the storage adapter takes the file's lock here. Without it a step runs at once. */
-  step?: <T>(fn: () => T) => Promise<T>;
-}
-
-/** What happened to a recording that the Admin log should hear of and the routes did not cause. */
-export type RecordingTrail =
-  | { kind: 'limit'; sessionId: string; which: RecordingLimit; bytes: number }
-  | { kind: 'stopped'; sessionId: string; by: string }
-  | { kind: 'carried'; sessionId: string; from: string; by: string | null };
-
-export interface RecordingTotals {
-  recordings: number;
-  bytes: number;
-  running: number;
-}
-
-export interface RemoveResult {
-  entries: number;
-  sessions: number;
-  bytes: number;
-  freed: number;
-  /** One per recording removed, for the Admin log. */
-  each: { sessionId: string; name: string; entries: number; bytes: number }[];
-}
-
-export interface PurgeRecordingsResult {
-  entries: number;
-  bytes: number;
-  sessions: number;
-  freed: number;
-}
-
-type StoredState = Exclude<RecordingState, 'off'>;
 
 interface RecRow {
   sessionId: string;

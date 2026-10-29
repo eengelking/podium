@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { openSqliteStorage } from './sqlite/index.js';
 import type { Storage } from './types.js';
 
-export type { Storage, FleetStore, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
+export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
   FeatureFlagsApi, PeerStoreApi, ActivityStorage, ActivityStoreOptions, ActivityHistoryApi, ActivityHistoryOptions, SessionRecordingsApi, RecordingsOptions, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
 export { openSqliteStorage, type SqliteStorage } from './sqlite/index.js';
 

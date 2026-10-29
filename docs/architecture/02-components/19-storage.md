@@ -30,11 +30,17 @@ Contents:
 
 | File | What it holds |
 |---|---|
-| `types.ts` | `Storage`, the one object a server is built from, and the async interface of each store it hands out |
-| `index.ts` | `openStorage`, the one place that picks the implementation |
-| `rows.ts` | The row types and the feature and notice ids the stores share |
+| `types.ts` | `Storage`, the one object a server is built from, and the async interface of each store it hands out, each written out in full |
+| `index.ts` | `openStorage`, the one place that picks the implementation, and the only file here that imports the adapter |
+| `rows.ts` | The row types, errors, constants and pure helpers the stores share, and the one place app code imports them from |
+| `features.ts` | The notice and feature flag tables and their ids (re-exported by `rows.ts`) |
+| `settings.ts` | The limits, defaults, ranges and value checks for the Admin's settings (re-exported by `rows.ts`) |
 | `contract.ts` | The checks a store must pass, run against each adapter |
 | `reportQueries.ts` | The fleet-wide reporting queries behind Admin > Reporting |
+
+Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; `neutral.test.ts` fails if one does.
+The adapter imports from them, never the other way round, and its `openSqliteStorage` is typed against the interfaces in
+`types.ts`, so a signature that drifts is a compile error there.
 
 `server/src/storage/sqlite/` is the only adapter. `index.ts` there (`openSqliteStorage`) builds it, `peers.ts` and
 `activity.ts` wrap the messaging and Activity history services, and `lock.ts` holds the lock. The rest of the folder is the
@@ -42,7 +48,7 @@ synchronous SQLite classes the adapter wraps: `db.ts` (schema, migrations, the f
 `peerService.ts`, `peerRights.ts`, `peerMessages.ts`, `peerSettings.ts`, `featureFlags.ts`, `wallSettings.ts`,
 `modelPrices.ts`, `recordingSettings.ts`, `activityHistorySettings.ts`, `activityDb.ts`, `activityHistory.ts`,
 `recordings.ts`, `personCerts.ts` and `tlsSettings.ts`. They still use `node:sqlite` directly. Nothing outside
-`storage/` is meant to import them.
+`storage/` imports them, apart from tests.
 
 Every method on a store returns a promise. `Fleet`, the routers and the sweeper take a `Storage` and call it. Tests open
 `openSqliteStorage(':memory:')`.

@@ -4,14 +4,10 @@
 // know: it cannot tell a reporter that is turned off from one that cannot reach it. All statements are parameterized.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { checkReporter } from '../../fleet/compat.js';
-import { clampPage, likeTerm, type Paged } from './people.js';
+import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-
-/** A reporter heard from within this long is "reporting". */
-export const REPORTING_MS = 2 * 60_000;
-/** Up to this long since its last report it is "idle"; after that, "silent". */
-export const IDLE_MS = 60 * 60_000;
+import { keyOf, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -20,94 +16,7 @@ const FORGET_GRACE_MS = 60 * 60_000;
 const MAX_PATTERN = 120;
 const MAX_FORGET_DAYS = 3650;
 const DEFAULT_FORGET_DAYS = 30;
-
-export type ReporterState = 'reporting' | 'idle' | 'silent' | 'restart';
-export const REPORTER_STATES: readonly ReporterState[] = ['reporting', 'idle', 'silent', 'restart'];
-export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' | 'sessions';
 const SORTS: readonly ReporterSort[] = ['state', 'name', 'who', 'token', 'ver', 'last', 'sessions'];
-/** The credential the server records for a report made with the admin secret. */
-export const ADMIN_SECRET = 'admin secret';
-
-/** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
-export interface ReporterSeen {
-  kind: 'mod' | 'hooks';
-  machineId: string | null;
-  machineName: string | null;
-  source: string | null;
-  owner: string | null;
-  credential: string | null;
-  version: string;
-  engineVersion: string | null;
-  sessionId: string;
-  /** The machine's OS as the mod read it (#347); absent or null when not sent, and then the stored one is kept. */
-  os?: string | null;
-  /** The reporter's `peers` option (#347); absent or null from a reporter too old to send it, and then the stored one is kept. */
-  peers?: boolean | null;
-}
-
-export interface ReporterRow {
-  key: string;
-  state: ReporterState;
-  name: string;
-  /** False when the reporter sends no machine name and `name` is made up from its newest project or its address (issue #166). */
-  named: boolean;
-  who: string;
-  /** The token's key id (`pdm_...`) or the words "admin secret"; null when the server had no authentication. Never a token. */
-  credential: string | null;
-  /** True when it reports with the admin secret instead of a token made for a person (issue #166). Always warned about. */
-  adminSecret: boolean;
-  version: string;
-  compat: ReporterCompat;
-  firstSeenAt: number;
-  lastSeenAt: number;
-  sessions: number;
-  live: number;
-  /** The machine's OS as last reported (#347); null when it never sent one. */
-  os: string | null;
-  /** The `peers` option as last reported (#347); null from a reporter too old to send it. */
-  peers: boolean | null;
-}
-export interface ReporterList extends Paged<ReporterRow> {
-  /** When this server started: what "not since restart" is counted from. */
-  serverStartedAt: number;
-  /** How many reporters use the admin secret, whatever filter is on. */
-  adminSecret: number;
-  counts: Record<'all' | ReporterState, number>;
-}
-export interface ReporterDetail extends ReporterRow {
-  serverStartedAt: number;
-  kind: 'mod' | 'hooks';
-  machineId: string | null;
-  source: string | null;
-  engineVersion: string | null;
-  recent: { id: string; name: string; status: string; lastSeenAt: number; costUsd: number | null }[];
-  /** How many of its sessions the server still holds, and which page of them `recent` is. */
-  recentTotal: number;
-  recentPage: number;
-  recentPageSize: number;
-  rejected: { t: number; reason: string }[];
-}
-
-export type IgnoreKind = 'key' | 'address' | 'version';
-export const IGNORE_KINDS: readonly IgnoreKind[] = ['key', 'address', 'version'];
-export interface IgnoreRule {
-  id: number;
-  kind: IgnoreKind;
-  pattern: string;
-  createdAt: number;
-}
-/** What a rule is matched against: a reporter's key, source address and reporter version. */
-export interface IgnoreTarget {
-  key: string;
-  /** Other keys the same sender is known by, so a rule on the row's key still matches after the sender changes address (#166). */
-  otherKeys?: string[];
-  source: string | null;
-  version: string;
-}
-export interface ForgetSetting {
-  enabled: boolean;
-  days: number;
-}
 
 interface DbReporter {
   key: string;
@@ -173,8 +82,7 @@ export class ReporterStore {
 
   /** The key a reporter is known by. */
   static keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source'>): string {
-    if (s.machineId) return s.machineId;
-    return `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+    return keyOf(s);
   }
 
   /**

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { FleetDb, openDb } from './db.js';
 import { PeopleStore } from './people.js';
 import { ReporterStore } from './reporters.js';
-import type { Async, AsyncPeerReporterLookup, FleetStore, PeopleStoreApi, ReporterStoreApi, Storage, WallSettingsApi } from '../types.js';
+import type { Async, AsyncPeerReporterLookup, Storage, WallSettingsApi } from '../types.js';
 import { FeatureFlags } from './featureFlags.js';
 import { WallSettings } from './wallSettings.js';
 import { ModelPriceStore } from './modelPrices.js';
@@ -79,9 +79,9 @@ export function openSqliteStorage(file: string, now: number = Date.now()): Sqlit
     sqliteHandle: db,
     activityHandle: () => activityOf().db,
     activity: (opts) => activityOf().build(opts),
-    fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) } as FleetStore,
-    people: wrap(new PeopleStore(db), lock) as PeopleStoreApi,
-    reporters: { ...wrap(reporters, lock), peerLookup: () => asyncLookup } as ReporterStoreApi,
+    fleet: { ...wrap(fleet, lock), ...wrap(new SqliteReportQueries(db), lock) },
+    people: wrap(new PeopleStore(db), lock),
+    reporters: { ...wrap(reporters, lock), peerLookup: () => asyncLookup },
     featureFlags: wrap(new FeatureFlags(db), lock),
     wallSettings: wallSettingsOver(db, lock),
     modelPrices: wrap(new ModelPriceStore(db), lock),

@@ -6,7 +6,6 @@
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
-import { nameKey } from './people.js';
 import {
   HELD_STATES,
   canSend,
@@ -29,6 +28,7 @@ import {
   type ReporterLookup,
   type SendOutcome,
 } from '../../fleet/peerTypes.js';
+import { nameKey } from '../rows.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */
 const addressKey = (o: LiveOrchestrator): string => `${nameKey(o.name)}@${nameKey(o.machine)}`;

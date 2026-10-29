@@ -11,9 +11,9 @@ import { createFleetRouter } from './routes.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
 import { createLogger } from '../logging/logger.js';
-import { PEER_MESSAGING } from '../storage/sqlite/featureFlags.js';
 import { MAIN_LOOP, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
+import { PEER_MESSAGING } from '../storage/features.js';
 
 const closers: (() => void)[] = [];
 afterEach(() => {

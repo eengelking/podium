@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { openDb } from './db.js';
-import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FEATURES, FeatureFlags, isFeatureId, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from './featureFlags.js';
+import { FeatureFlags } from './featureFlags.js';
+import { ACTIVITY_FEED, ACTIVITY_OUTPUT, FEATURES, isFeatureId, PEER_MESSAGING, RESPOND, UPDATE_CHECK } from '../features.js';
 
 describe('FeatureFlags', () => {
   it('lists the activity feed first, on by default, and Respond from Podium after it, off by default (#206)', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { FleetDb, openDb } from './db.js';
-import { ReporterStore, REPORTING_MS, IDLE_MS, type ReporterSeen } from './reporters.js';
+import { ReporterStore } from './reporters.js';
+import { REPORTING_MS, IDLE_MS, type ReporterSeen } from '../rows.js';
 
 const MIN = 60_000;
 const START = 1_000_000_000_000;

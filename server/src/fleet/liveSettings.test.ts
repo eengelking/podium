@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { LiveTlsSettings } from '../tlsLive.js';
 import { SERVING_DEFAULTS } from '../tlsRenew.js';
-import { ACTIVITY_FEED, RESPOND, UPDATE_CHECK } from '../storage/sqlite/featureFlags.js';
 import { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from './liveSettings.js';
+import { ACTIVITY_FEED, RESPOND, UPDATE_CHECK } from '../storage/features.js';
 
 const open: SqliteStorage[] = [];
 const dirs: string[] = [];

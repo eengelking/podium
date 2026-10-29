@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { ActivityHistory } from './activityHistory.js';
-import { SessionRecordings, type RecordingTrail } from './recordings.js';
+import { SessionRecordings } from './recordings.js';
 import type { ActivityHistoryApi, ActivityStorage, ActivityStoreOptions, SessionRecordingsApi } from '../types.js';
 import { AsyncLock } from './lock.js';
+import type { RecordingTrail } from '../rows.js';
 
 /**
  * The activity file (#432, #353) on its own connection and its own lock. The Activity history and the recordings are kept whole

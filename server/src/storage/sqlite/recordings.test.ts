@@ -3,8 +3,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { openActivityDb } from './activityDb.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type RecordingBatch, type RecordingEntry, type RecordingSettings } from '../../fleet/protocol.js';
-import { PODIUM_PROMPT_MATCH_MS, RECORDING_START_HEADROOM_BYTES, SessionRecordings, type RecordingTrail } from './recordings.js';
+import { PODIUM_PROMPT_MATCH_MS, RECORDING_START_HEADROOM_BYTES, SessionRecordings } from './recordings.js';
 import { HOUR_MS, MB } from './recordingSettings.js';
+import type { RecordingTrail } from '../rows.js';
 
 const T0 = 1_800_000_000_000;
 const SECRET = 'the-admin-secret-0123456789';

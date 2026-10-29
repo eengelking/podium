@@ -2,8 +2,9 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, FleetDb, type SessionRow } from './db.js';
+import { openDb, FleetDb } from './db.js';
 import { PeopleStore } from './people.js';
+import type { SessionRow } from '../rows.js';
 
 function session(over: Partial<SessionRow> = {}): SessionRow {
   return {

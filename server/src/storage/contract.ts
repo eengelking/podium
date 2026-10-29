@@ -1,10 +1,20 @@
 // A contract any Storage adapter must meet (#313): the same calls through the async interface return what the
-// synchronous stores return. Run it from an adapter's test with a function that opens a fresh Storage.
+// synchronous stores return. Run it from an adapter's test with a function that opens a fresh Storage and one that builds
+// the synchronous reference stores over a fresh database of its own.
 import { describe, it, expect } from 'vitest';
-import { FleetDb, openDb, type SessionRow } from './sqlite/db.js';
-import { PeopleStore } from './sqlite/people.js';
-import { ReporterStore, type ReporterSeen } from './sqlite/reporters.js';
-import type { Storage } from './types.js';
+import type { PeerReporterLookup } from '../fleet/peerTypes.js';
+import type { ReporterSeen, SessionRow } from './rows.js';
+import type { FleetStoreApi, PeopleStoreApi, ReporterStoreApi, Storage } from './types.js';
+
+/** An async interface with its methods returning their results at once, which is what the synchronous stores do. */
+type Sync<T> = { [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R> ? (...args: A) => R : T[K] };
+
+/** The synchronous stores an adapter's async ones are compared with, each over its own fresh database. */
+export interface ContractReference {
+  people: Sync<Pick<PeopleStoreApi, 'adminReportingAllowed' | 'setAdminReporting' | 'createGroup' | 'log' | 'listLog' | 'allGroups'>>;
+  fleet: Sync<Pick<FleetStoreApi, 'upsertSession' | 'getSession' | 'liveCandidates'>>;
+  reporters: Sync<Pick<ReporterStoreApi, 'record' | 'list'>> & { peerLookup(): PeerReporterLookup };
+}
 
 export function session(over: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -23,12 +33,11 @@ const seen: ReporterSeen = {
   version: '0.1.0', engineVersion: null, sessionId: 's1',
 };
 
-export function runStorageContract(name: string, open: () => Storage): void {
+export function runStorageContract(name: string, open: () => Storage, reference: () => ContractReference): void {
   describe(`${name} storage contract`, () => {
     it('matches the synchronous stores for people, the admin log and settings', async () => {
       const store = open();
-      const raw = openDb(':memory:');
-      const people = new PeopleStore(raw);
+      const { people } = reference();
       expect(await store.people.adminReportingAllowed()).toBe(people.adminReportingAllowed());
       await store.people.setAdminReporting(false);
       people.setAdminReporting(false);
@@ -43,7 +52,7 @@ export function runStorageContract(name: string, open: () => Storage): void {
 
     it('matches the synchronous stores for sessions', async () => {
       const store = open();
-      const fleet = new FleetDb(openDb(':memory:'));
+      const { fleet } = reference();
       await store.fleet.upsertSession(session());
       fleet.upsertSession(session());
       expect(await store.fleet.getSession('s1')).toEqual(fleet.getSession('s1'));
@@ -54,7 +63,7 @@ export function runStorageContract(name: string, open: () => Storage): void {
 
     it('matches the synchronous stores for reporters and the peer lookup', async () => {
       const store = open();
-      const reporters = new ReporterStore(openDb(':memory:'), 0);
+      const { reporters } = reference();
       const key = await store.reporters.record(seen, 50);
       expect(key).toBe(reporters.record(seen, 50));
       expect(await store.reporters.hasAny()).toBe(true);

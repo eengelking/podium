@@ -21,6 +21,7 @@ is the only adapter, and `PODIUM_DB` with a path or `:memory:` still means a SQL
 
 - Each SQLite connection has one lock, and `Storage.tx` runs a callback in a transaction that holds it.
 - The Activity history file has its own connection and lock.
+- The interfaces in `types.ts` are written out method by method, and nothing in `storage/` outside `sqlite/` and `index.ts` imports the adapter, so a second database implements them without reading SQLite's classes. A test enforces it.
 - Synchronous readers use write-through caches loaded at start.
 - Per-session sequences run in a `Serializer`, and broadcasts go through one ordered queue.
 

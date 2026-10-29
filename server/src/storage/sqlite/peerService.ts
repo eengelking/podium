@@ -4,41 +4,13 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { PeerRights } from './peerRights.js';
 import { PeerMessages } from './peerMessages.js';
-import { PeerSettings, type PeerLimits } from './peerSettings.js';
+import { PeerSettings } from './peerSettings.js';
 import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
-
-/** A level in the words My reporters and the terminal use. */
-export const LEVEL_WORDS: Record<PeerLevel, string> = { none: 'No access', see: 'Can see', ask: 'Can send, with approval', send: 'Can send' };
-
-/** What a report's reply carries for messaging (SPEC 6.1). */
-export interface PeerReply {
-  peers: boolean;
-  peerDeliveries: PeerDelivery[];
-  peerRequests: PeerRequest[];
-}
+import type { PeerLimits } from '../settings.js';
+import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 
 export { isIdle } from '../../fleet/peerTypes.js';
-
-/** What `ownerView` gives the owner's read: the parts of GET /respond/peers that come from the stores. */
-export interface OwnerPeersView {
-  serverStartedAt: number;
-  reporters: SeenReporterRef[];
-  rights: RightRow[];
-  defaults: OwnerDefaults;
-  limits: { server: PeerLimits; effective: PeerLimits };
-  requests: OwnerRequestView[];
-}
-
-/** What `adminView` gives Admin > Reporters > a reporter. */
-export interface AdminPeersView {
-  reporter: ReporterRef;
-  peers: ReporterRef[];
-  trust: boolean;
-  rights: RightRow[];
-  effective: ({ from: string; to: string } & EffectiveRight)[];
-  requests: OwnerRequestView[];
-}
 
 export class PeerService {
   readonly settings: PeerSettings;

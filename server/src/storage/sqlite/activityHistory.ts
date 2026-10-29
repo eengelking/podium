@@ -14,7 +14,6 @@
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { entryBytesSql } from './activityDb.js';
 import type { ActivityEntryView } from '../../fleet/activity.js';
-import { activityPeriodMs } from './activityHistorySettings.js';
 import {
   ACTIVITY_HISTORY_PAGE,
   ACTIVITY_HISTORY_PAGE_MAX,
@@ -30,52 +29,10 @@ import {
   type StoredTotals,
 } from '../../fleet/activityHistoryTypes.js';
 import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from '../../fleet/protocol.js';
+import { activityPeriodMs } from '../settings.js';
+import type { SessionMeta, ActivityHistoryOpts, PurgeResult } from '../rows.js';
 
 type Param = string | number | null;
-
-/** What the Stored activity table shows about a session. */
-export interface SessionMeta {
-  name: string;
-  project: string | null;
-  owner: string | null;
-}
-
-export interface ActivityHistoryOpts {
-  now: () => number;
-  /** The Admin's choice, read on every call so a change takes effect at once. */
-  settings: () => ActivityHistorySettings;
-  /** Whether the `activity-feed` flag is on. Off, nothing is captured. */
-  featureOn?: () => boolean;
-  /** Whether the session is on the wall (running or waiting). Policy `end` removes the rest. */
-  isLive: (sessionId: string) => boolean;
-  /** The ids of the session's running agents, for the loops the server asks the mod to send. */
-  agentsOf?: (sessionId: string) => string[];
-  /** Whether the server runs with a sign-in token. Nothing is kept without one. */
-  authOn: boolean;
-  /** Bytes in a gigabyte for the size cap; tests lower it. */
-  capBytesPerGb?: number;
-  /** Rows deleted per transaction in a purge or delete; about 5,000 keeps one chunk well under 100 ms. Tests lower it. */
-  chunkRows?: number;
-  /** Pages given back per step of the incremental vacuum. Tests lower it. */
-  vacuumPages?: number;
-  /** How long one chunk of a removal should take, in milliseconds; the chunk size follows it, up to `chunkRows`. */
-  chunkMs?: number;
-  /** Entries counted per slice when a filter on the time or loop of entries is worked out for a session. Tests lower it. */
-  sliceRows?: number;
-  /**
-   * Runs one synchronous step of a chunked operation (a chunk, a slice, a settle). The storage adapter takes the file's lock
-   * here, so another caller runs between two steps exactly where the event loop used to get a turn. Without it a step runs at once.
-   */
-  step?: <T>(fn: () => T) => Promise<T>;
-}
-
-/** What one purge run removed. `bytes` is the size of the entries; `freed` is what the file gave back after compaction. */
-export interface PurgeResult {
-  entries: number;
-  bytes: number;
-  sessions: number;
-  freed: number;
-}
 
 /** Where a loop stands: the next sequence number, and the newest reporter entry's time with the entries stored at that time. */
 interface Tail {
