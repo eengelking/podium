@@ -50,6 +50,7 @@ npm run podium:smoke   # end to end: server, simulator, SSE, directly and throug
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
+node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
