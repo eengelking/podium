@@ -17,6 +17,7 @@
       and the maintainer has agreed to it). Other docs describing the change are updated in the same PR.
 - [ ] `npm test` and `npm run build` pass. If the mod changed, `npm run test:mod` and `npm run typecheck:mod`
       pass too (they need Claude Code installed).
+- [ ] If this adds, changes or removes a feature a browser can observe, the e2e specs and `docs/e2e/COVERAGE.md` changed with it and `npm run e2e` passed on the whole suite (say the counts), or the PR says why nothing a spec asserts changed.
 - [ ] `CHANGELOG.md` has a line under `[Unreleased]` for anything a user would notice.
 - [ ] If this PR targets `development`, the body says it is to be squash-merged and carries `Closes #N` for the issue
       it resolves (the issue is closed by hand after the merge, since `development` is not the default branch).

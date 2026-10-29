@@ -43,6 +43,7 @@ export const GROUPS = [
       { dir: "decisions", legacy: "DECISIONS.md", slug: "decisions", label: "Decisions" },
       { dir: "gotchas", legacy: "GOTCHAS.md", slug: "gotchas", label: "Gotchas" },
       { file: "PERFORMANCE.md", slug: "performance", label: "Performance" },
+      { file: "e2e/COVERAGE.md", slug: "e2e-coverage", label: "End-to-end tests" },
       { file: "COMMUNITY.md", slug: "community", label: "Community" },
       { file: "THIRD_PARTY_NOTICES.md", slug: "third-party-notices", label: "Third-party notices" },
     ],

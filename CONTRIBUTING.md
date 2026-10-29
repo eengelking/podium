@@ -47,6 +47,7 @@ npm run build          # UI and server build, scripts type-check
 npm run test:mod       # the mod's tests (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
+npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
 scripts/podium-soak.sh --help   # load and restart check
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
@@ -59,6 +60,15 @@ node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a pers
 `page-shot.mjs` is how to see a UI change at a narrow width in the built app. Start a throwaway server on its own port and database
 (`PORT=4391 PODIUM_DB=/tmp/x.sqlite PODIUM_TOKEN=secret node server/dist/index.js` after `npm run build`), seed it, and run
 `node scripts/page-shot.mjs --url 'http://127.0.0.1:4391/#/me/reporters' --width 400`. It needs Chrome or Chromium and Node 22 or later.
+
+**The end-to-end suite** (`e2e/`, decision 48) drives the built console in a real browser. `npm run e2e` builds Podium's image, starts it on a
+private container network beside the pinned `cypress/included` container, seeds it with fixed data, runs every spec and removes every container,
+network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). Run
+one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. CI runs it as the `E2E` workflow on a PR into `development` that touches
+`frontend/`, `server/`, `mod/` or `e2e/`, and always on a PR into `main`. To read a failure, open the failed job, find the spec and test title in
+the Cypress output, and download the `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
+days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
+test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
 `frontend/src/fleet/a11y.axe.test.tsx` runs axe-core over the console's pages and the standards pages inside `npm test`. A new page or a
 big new state gets a case there. It cannot judge contrast or target size, which need a real layout; scan those in a browser (inject
@@ -115,6 +125,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/architecture/` | How it was built, departures from the spec, verification, known issues |
 | `docs/decisions/` | Why a significant choice was made |
 | `docs/gotchas/` | Sharp edges that are easy to hit |
+| `docs/e2e/COVERAGE.md` | The end-to-end suite: the map of every feature to its Cypress spec, how to run it, how to read a CI failure, how to add a spec, the test-id convention |
 | `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |
