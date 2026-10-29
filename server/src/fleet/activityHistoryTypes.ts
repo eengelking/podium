@@ -1,7 +1,7 @@
 // The shapes the Activity history shares between its store, its routes and the Admin pages (#432). Types and constants
 // only: no behavior lives here, so the store, the routes and the frontend can be written against it side by side.
 //
-// Activity history is the agent Activity feed kept in a second SQLite file (activity.sqlite, beside podium.sqlite) when the
+// Activity history is the agent Activity feed kept in the Activity store, apart from the main one, when the
 // Admin chooses a keep policy. Under the default policy nothing here is used and the feed stays in memory (activity.ts).
 import type { ActivityEntryView } from './activity.js';
 

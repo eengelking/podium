@@ -39,7 +39,7 @@ import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `sqlite://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the database file's folder) is where the TLS folder lives.
+// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `kind://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
 const DB_PATH = storageSpec(process.env).target;
 const DATA_DIR = dataDir(process.env);
 const TOKEN = process.env.PODIUM_TOKEN || null;

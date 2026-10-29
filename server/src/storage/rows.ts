@@ -1,5 +1,5 @@
 // The neutral vocabulary of the storage interfaces (#313): row shapes, errors, constants and pure helpers. App code imports them
-// from here (or `types.ts`), never from `./sqlite/`, so no database adapter is named outside its own folder.
+// from here (or `types.ts`), never from an adapter's folder, so no database adapter is named outside its own folder.
 import type { ReporterCompat, PeerLevel, PeerDelivery, PeerRequest, RecordingSettings, RecordingLimit, RecordingState } from '../fleet/protocol.js';
 import type { OwnerDefaults, RightRow, SeenReporterRef, OwnerRequestView, EffectiveRight, ReporterRef } from '../fleet/peerTypes.js';
 import type { ActivityHistorySettings } from '../fleet/activityHistoryTypes.js';
@@ -396,8 +396,6 @@ export interface ActivityHistoryOpts {
   capBytesPerGb?: number;
   /** Rows deleted per transaction in a purge or delete; about 5,000 keeps one chunk well under 100 ms. Tests lower it. */
   chunkRows?: number;
-  /** Pages given back per step of the incremental vacuum. Tests lower it. */
-  vacuumPages?: number;
   /** How long one chunk of a removal should take, in milliseconds; the chunk size follows it, up to `chunkRows`. */
   chunkMs?: number;
   /** Entries counted per slice when a filter on the time or loop of entries is worked out for a session. Tests lower it. */

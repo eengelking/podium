@@ -96,6 +96,12 @@ const viewOf = (r: EntryRow): ActivityEntryView =>
         ...(r.command_cut ? { commandCut: true } : {}),
       };
 
+/** The neutral options plus what only this adapter honors. */
+export type SqliteActivityHistoryOpts = ActivityHistoryOpts & {
+  /** Pages given back per step of the incremental vacuum. Tests lower it. */
+  vacuumPages?: number;
+};
+
 export class ActivityHistory {
   private readonly tails = new Map<string, Tail>();
   private last: LastPurge | null = null;
@@ -110,7 +116,7 @@ export class ActivityHistory {
 
   constructor(
     private readonly db: DatabaseSync,
-    private readonly opts: ActivityHistoryOpts,
+    private readonly opts: SqliteActivityHistoryOpts,
   ) {
     this.chunk = Math.max(opts.chunkRows ?? CHUNK_ROWS, 1);
     this.vacuumPages = Math.max(opts.vacuumPages ?? VACUUM_PAGES, 1);

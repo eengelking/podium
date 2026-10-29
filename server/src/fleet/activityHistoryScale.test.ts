@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ACTIVITY_SCHEMA_STEPS, ACTIVITY_SCHEMA_VERSION, openActivityDb, recomputeAggregates } from '../storage/sqlite/activityDb.js';
-import { ActivityHistory } from '../storage/sqlite/activityHistory.js';
+import { ActivityHistory, type SqliteActivityHistoryOpts } from '../storage/sqlite/activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings, type StoredDeleteBody } from './activityHistoryTypes.js';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import type { ActivityHistoryApi } from '../storage/types.js';
@@ -13,7 +13,7 @@ import { DEFAULT_CONFIG, Fleet, type FleetConfig } from './fleet.js';
 import { MAIN_LOOP, type ActivityEntry, type Report } from './protocol.js';
 import { purgeActivityHistory, startSweeper } from './sweeper.js';
 import { fixtureReport } from './testing.js';
-import type { ActivityHistoryOpts, SessionMeta } from '../storage/rows.js';
+import type { SessionMeta } from '../storage/rows.js';
 
 const sqlite = process.getBuiltinModule('node:sqlite');
 const T0 = 1_800_000_000_000;
@@ -31,7 +31,7 @@ const tmpFile = () => {
   return path.join(dir, 'activity.sqlite');
 };
 
-function setup(over: Partial<ActivityHistorySettings> = {}, extra: Partial<ActivityHistoryOpts> = {}, file = ':memory:') {
+function setup(over: Partial<ActivityHistorySettings> = {}, extra: Partial<SqliteActivityHistoryOpts> = {}, file = ':memory:') {
   let t = T0;
   const state = { settings: { ...ACTIVITY_HISTORY_DEFAULTS, policy: 'all' as ActivityHistorySettings['policy'], ...over }, live: new Set<string>() };
   const db = openActivityDb(file);
@@ -190,7 +190,7 @@ describe('the aggregates stay in step', () => {
 
 describe('removals in chunks', () => {
   /** Ten sessions with 40 entries each, five of them old. */
-  function fill(extra: Partial<ActivityHistoryOpts>, policy: Partial<ActivityHistorySettings> = {}) {
+  function fill(extra: Partial<SqliteActivityHistoryOpts>, policy: Partial<ActivityHistorySettings> = {}) {
     const s = setup(policy, extra);
     for (let i = 0; i < 10; i++) s.h.ingest(report(`s${i}`, T0 - (i < 5 ? 10 : 1) * HOUR + i * 100, 20), 0, { ...META, project: i % 2 ? 'acme/web' : 'acme/billing' });
     s.state.live.add('s7');

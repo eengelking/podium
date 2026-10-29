@@ -1,13 +1,27 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { openSqliteStorage } from './sqlite/index.js';
-import { dataDir, defaultDbFile, openStorage, registerStorageKind, storageSpec } from './index.js';
+import { DEFAULT_STORAGE_KIND, dataDir, defaultDbFile, openStorage, registerStorageKind, storageSpec } from './index.js';
 
 describe('which storage PODIUM_DB names', () => {
   it('is a SQLite file at <repo>/data/podium.sqlite when unset or empty', () => {
     expect(storageSpec({})).toEqual({ kind: 'sqlite', target: defaultDbFile() });
     expect(storageSpec({ PODIUM_DB: '' }).target).toBe(defaultDbFile());
     expect(defaultDbFile().endsWith(path.join('data', 'podium.sqlite'))).toBe(true);
+  });
+
+  it('declares the default kind and its default target in the registry, the same <repo>/data/podium.sqlite as before', () => {
+    const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    expect(DEFAULT_STORAGE_KIND).toBe('sqlite');
+    expect(defaultDbFile()).toBe(path.join(repo, 'data', 'podium.sqlite'));
+  });
+
+  it('accepts a registered kind with no default target when PODIUM_DB names its target', () => {
+    const off = registerStorageKind('nodefault', { fileBased: false, load: async () => () => { throw new Error('not opened'); } });
+    try {
+      expect(storageSpec({ PODIUM_DB: 'nodefault://x' })).toEqual({ kind: 'nodefault', target: 'x' });
+    } finally { off(); }
   });
 
   it('keeps a plain path and :memory: exactly as given', () => {

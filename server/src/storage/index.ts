@@ -5,27 +5,31 @@ import type { Storage } from './types.js';
 export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
   FeatureFlagsApi, PeerStoreApi, ActivityStorage, ActivityStoreOptions, ActivityHistoryApi, ActivityHistoryOptions, SessionRecordingsApi, RecordingsOptions, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
 
-/** Opens the storage a target names. `target` is what follows the kind: a file for SQLite. */
+/** Opens the storage a target names. `target` is what follows the kind: a file for a file-based kind. */
 export type StorageOpener = (target: string) => Storage;
 
 /** Imports a kind's adapter module and returns its opener. Called only when that kind is chosen, so a server never loads another kind's driver. */
 export type StorageLoader = () => Promise<StorageOpener>;
 
-/** A registered implementation. `fileBased` is true when its target is a file, so the folder holding it is a data directory. */
-export interface StorageKind { fileBased: boolean; load: StorageLoader }
+/** A registered implementation. `fileBased` is true when its target is a file, so the folder holding it is a data directory. `defaultTarget` is what it opens when PODIUM_DB is not set. */
+export interface StorageKind { fileBased: boolean; defaultTarget(): string; load: StorageLoader }
 
-/** The one place that knows which implementations exist: a new database is a registration here. */
-const registry = new Map<string, StorageKind>([['sqlite', { fileBased: true, load: async () => (await import('./sqlite/index.js')).openSqliteStorage }]]);
-
-/** Adds a kind to the registry and returns a function that removes it again. For tests: the server registers its own kinds above. */
-export function registerStorageKind(kind: string, entry: StorageKind): () => void {
-  registry.set(kind, entry);
-  return () => { registry.delete(kind); };
-}
+/** The kind PODIUM_DB means when it names none: a plain path or `:memory:`, or nothing at all. */
+export const DEFAULT_STORAGE_KIND = 'sqlite';
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-export const defaultDbFile = (): string => path.join(REPO_ROOT, 'data', 'podium.sqlite');
+/** The one place that knows which implementations exist: a new database is a registration here. */
+const registry = new Map<string, StorageKind>([[DEFAULT_STORAGE_KIND, { fileBased: true, defaultTarget: () => path.join(REPO_ROOT, 'data', 'podium.sqlite'), load: async () => (await import('./sqlite/index.js')).openSqliteStorage }]]);
+
+/** Adds a kind to the registry and returns a function that removes it again. For tests: the server registers its own kinds above. A kind with no `defaultTarget` cannot be the default. */
+export function registerStorageKind(kind: string, entry: Omit<StorageKind, 'defaultTarget'> & Partial<Pick<StorageKind, 'defaultTarget'>>): () => void {
+  registry.set(kind, { defaultTarget: () => { throw new Error(`${kind} has no default target`); }, ...entry });
+  return () => { registry.delete(kind); };
+}
+
+/** The default kind's default target: what the server opens when PODIUM_DB is unset or empty. */
+export const defaultDbFile = (): string => registry.get(DEFAULT_STORAGE_KIND)!.defaultTarget();
 
 /**
  * What PODIUM_DB names: the kind of storage and its target. A plain path or `:memory:` is a SQLite file; `kind://target`
@@ -35,7 +39,7 @@ export const defaultDbFile = (): string => path.join(REPO_ROOT, 'data', 'podium.
 export function storageSpec(env: NodeJS.ProcessEnv = process.env): { kind: string; target: string } {
   const value = env.PODIUM_DB || defaultDbFile();
   const m = /^([a-z][a-z0-9+.-]*):\/\/(.*)$/.exec(value);
-  const kind = m ? m[1]! : 'sqlite';
+  const kind = m ? m[1]! : DEFAULT_STORAGE_KIND;
   if (!registry.has(kind)) throw new Error(`PODIUM_DB: unknown storage kind "${kind}" (known: ${[...registry.keys()].join(', ')})`);
   return { kind, target: m ? m[2]! : value };
 }

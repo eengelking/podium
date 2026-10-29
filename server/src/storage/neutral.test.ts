@@ -66,4 +66,15 @@ describe('the neutral storage contract', () => {
     const offenders = neutral.filter((f) => /\b(sqliteHandle|activityHandle)\b/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(SRC, f));
     expect(offenders).toEqual([]);
   });
+
+  it('names no database outside the adapter and the registry, in code, strings or comments', () => {
+    const word = /\b(sqlite|vacuum|pragma|rowid|wal)\b/i;
+    const hits = neutral.flatMap((f) =>
+      fs.readFileSync(f, 'utf8').split('\n').flatMap((line, i) => {
+        const m = word.exec(line);
+        return m ? [`${path.relative(SRC, f)}:${i + 1} "${m[1]!.toLowerCase()}"`] : [];
+      }),
+    );
+    expect(hits).toEqual([]);
+  });
 });

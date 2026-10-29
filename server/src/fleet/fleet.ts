@@ -34,6 +34,7 @@ export interface FleetConfig {
   home: string;
   /** Minimum gap between two `session` messages for one session. */
   throttleMs: number;
+  /** What names the storage in the log and the health check. A label only: it need not be a file. */
   dbPath: string;
 }
 
@@ -117,7 +118,7 @@ export class Fleet {
   readonly activity: ActivityStore;
   /** The Admin's Activity history choice (#432): kept in the main database's settings table. */
   readonly activityHistorySettings: LiveActivityHistorySettings;
-  /** The Activity history (#432): the feed kept in the second SQLite file under a keep policy. Idle under the default policy. */
+  /** The Activity history (#432): the feed kept in the Activity store under a keep policy. Idle under the default policy. */
   readonly activityHistory: ActivityHistoryApi;
   /** The Admin's session recording limits (#353): kept in the main database's settings table. */
   readonly recordingSettings: LiveRecordingSettings;

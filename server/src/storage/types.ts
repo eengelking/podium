@@ -505,9 +505,9 @@ export interface Storage {
   readonly tlsSettings: TlsSettingsApi;
   readonly personCerts: PersonCertsApi;
   /**
-   * The activity database (activity.sqlite beside the main file, in memory when the main one is): the Activity history, the
-   * session recordings and the loops. A separate connection with its own lock and transactions; nothing here spans both files,
-   * and `tx` is the main connection's. Built per server, since the live set and the Admin's settings are its own.
+   * The Activity store: the Activity history, the session recordings and the loops. It is kept apart from the main store so a
+   * slow write there does not hold up reports, and an adapter decides where it lives. It has its own lock and transactions;
+   * nothing here spans both stores, and `tx` is the main store's. Built per server, since the live set and the Admin's settings are its own.
    */
   activity(opts: ActivityStoreOptions): ActivityStorage;
   /** Runs `fn` in one transaction across the stores: commits when it resolves, rolls back and rethrows when it rejects. */
