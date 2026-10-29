@@ -68,6 +68,10 @@ uses. The app depends on the adapter's interface and never on a database: `neutr
 outside `storage/sqlite/` and `storage/index.ts` names SQLite, `vacuum`, `pragma`, `rowid` or `wal`, and an option only one
 database understands (`vacuumPages` is one) lives on that adapter's own options type, not on the shared ones.
 
+Inside the adapter, `portableSql.test.ts` fails when a non-test file in `storage/sqlite/` uses `json_extract`, `json_each`,
+`json_object`, `json_group_array` or the `->>` / `->` operators in a SQL string (#808), since other SQL databases spell those
+differently. A compact event's trigger is read in code (`countAutoCompactions`), and the Activity history's bulk delete binds its ids in batches of 200.
+
 `storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything
 else reads the path. The target only names the database: it labels it in the log and in the health check.
 
