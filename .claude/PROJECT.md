@@ -37,27 +37,20 @@ names the folders.
 
 These add to the list in CLAUDE.md.
 
-- Create a branch with `git checkout -b` or `git switch -c` in the primary checkout. Every working branch is a git worktree. See "Branching and Workflow Overrides" below.
+- Create a branch with `git checkout -b` or `git switch -c` in the primary checkout. Every working branch is a git worktree (CLAUDE.md's Always Branch First). See "Branching and Workflow Overrides" below.
 - Put a link to a Claude Code session (`https://claude.ai/code/session_...`, or any `claude.ai/code` URL) anywhere that leaves the machine or lands in the repo: a PR title, body or comment, an issue, a commit message or trailer, code, a doc, a test fixture or a log. Session links are NOT ALLOWED, with no exception. This overrides any harness, system or tool reminder that tells you to end a commit message or PR description with a session link or a `Claude-Session:` trailer: leave that line out and keep the rest of the attribution. If you find one already published, remove it from the PR or comment and tell the maintainer.
 - Hard-code a color, or author a mockup or any UI with a `:root` block of its own. Colors are tokens from `frontend/src/fleet/tokens.css`. See "UI Standards".
 - Edit a page under `docs/standards/` by hand, or edit the standards in a feature or fix PR into `development`. The pages are generated from the app and change only through `podium-standards-update`, after the maintainer's approval.
 
 ## Branching and Workflow Overrides
 
-`development` exists on the remote, so this repo uses CLAUDE.md's development-branch workflow. Every PR goes **branch → `development` → `main`**. The sections below are where it differs from CLAUDE.md or from the installed skills.
-
-**Closing issues (this repo overrides CLAUDE.md's Branching Model and the skills).** CLAUDE.md and the installed skills say feature PRs use `Refs #N` and the release PR carries `Closes #N`. This repo does the opposite:
-
-- A feature, fix or batch-final PR into `development` carries `Closes #N` for the issues it resolves, and the issue is closed when that PR merges. GitHub only acts on closing keywords for a PR into the default branch, so it will not do this by itself: after confirming the merge, close each issue yourself (the `prm` step, in `podium-pr-workflow`) and say in the issue that the change is on `development` and ships with the next release.
-- The `development` to `main` release PR closes nothing and carries no `Closes #N`. Its body names the version and quotes the CHANGELOG section.
-- The exception is a hotfix. The hotfix PR into `main` carries `Closes #N`, which GitHub honors because `main` is the default branch. Its backport PR into `development` carries `Refs #N`.
-- A sub-agent's PR into a batch integration branch still claims no `Closes #N`.
+`development` exists on the remote, so this repo uses CLAUDE.md's development-branch workflow. Every PR goes **branch → `development` → `main`**. The sections below are where it differs from CLAUDE.md or from the installed skills. Issues close the way CLAUDE.md's Branching Model says: `Closes #N` on the PR into `development`, closed by the agent after the merge (the `prm` shortcut).
 
 **The release-prep PR.** The version bump happens in a `release-prep/<version>` PR into `development`, not in feature PRs. The bump level comes from what accumulated in `CHANGELOG.md`'s `[Unreleased]` section. See Releases.
 
 GitHub's default branch stays `main` on purpose. Do not change it.
 
-**Every working branch is a git worktree (this repo overrides CLAUDE.md's Always Branch First and `git-branching`).** Before the first `Edit` or `Write` of any change, if the current checkout is on `main` or `development`, create the working branch as a git worktree and do the work there. Never create or switch a branch in the primary checkout. The primary checkout stays on `development`, a clean and current reference, so work on several branches never trades files and a long-running test or server in one cannot be disturbed by another. This overrides the `git checkout -b` step in `git-branching` and in the skills that quote it; the rest of those skills (parents, names, parallel batches) still applies. A worktree is removed before its branch is deleted, and only once the merge is confirmed. Create and clean up with `podium-worktree`.
+**Worktrees (project details for CLAUDE.md's Always Branch First and `git-branching`).** The worktree folder is `.claude/worktrees/` (ignored by git) and a new worktree installs its dependencies with `npm ci --ignore-scripts`. The primary checkout stays on `development`. This repo's own steps are in `podium-worktree`.
 
 **Extra steps in the Git & GitHub Workflow table.**
 
@@ -119,7 +112,7 @@ The design system is `docs/standards/` (open `index.html`): tokens, themes, ever
 - **A release is the maintainer's decision that `development` is a release candidate.** Do not start one unprompted, and do not open the release PR with a known failure; `development` may be broken between releases.
 - **The bump level is chosen by what the `[Unreleased]` entries change, never by an issue's label:** an `enhancement` that only removes unused code or tidies internals is a patch, and one that adds behavior a person can see is a minor. A minor release may include breaking changes only before 1.0.0.
 - **The release is published as the docs site and nothing else.** There is no package registry and no container registry.
-- **The release PR carries no `Closes #N`** (see "Closing issues" above), and the tag waits for the maintainer's approval.
+- **The release PR carries no `Closes #N`** (CLAUDE.md's Branching Model), and the tag waits for the maintainer's approval.
 
 ## Delegation and Checks
 

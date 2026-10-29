@@ -46,7 +46,7 @@ On a failure, find out why (`gh run view --log-failed`; for the SonarCloud gate,
 
 ## After the user merges (`prm`)
 
-This repo closes issues when the PR into `development` merges, but GitHub only acts on closing keywords for a PR into the default branch, so close them yourself after confirming the merge:
+`github-pr-merge` ("After a merge") owns this: confirm the merge, then close each issue the PR named with `Closes #N`, because GitHub only acts on closing keywords for a PR into the default branch. The command this repo uses:
 
 ```bash
 gh issue close <N> --comment "Fixed in #<PR>; ships with the next release."

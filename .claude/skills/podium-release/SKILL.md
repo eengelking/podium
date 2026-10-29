@@ -9,10 +9,10 @@ The general sequence is `github-release`, read with its `resources/development-b
 
 Where this repo differs from the generic skill:
 
-- **The release PR carries no `Closes #N`.** The issues closed when their own PRs merged (`PROJECT.md`, "Closing issues"). The hotfix PR into `main` does carry `Closes #N`; its backport carries `Refs #N`.
+- **The release PR carries no `Closes #N`.** The issues closed when their own PRs merged (CLAUDE.md's Branching Model). The hotfix PR into `main` does carry `Closes #N`; its backport carries `Refs #N`.
 - **Publish is the docs site and nothing else.** There is no package registry and no container registry; users build the image with `podiumctl build`. The site deploys itself when `main` moves (`.github/workflows/docs-site.yml`), so the generic publish step has nothing to run.
 - **After the release PR merges**, check the `Docs site` run on `main` is green and the new version is in the site's menu (`podium-docs-site`) before proposing the tag.
-- **Branches are worktrees** (`podium-worktree`): `release-prep/<version>` from `origin/development`, a hotfix from `origin/main`.
+- **Branches are worktrees** (`podium-worktree`): `release-prep/<version>` from `origin/development`, a hotfix from `origin/main` only when `development` differs from `main` (otherwise it is an ordinary branch off `origin/development`; see `github-release`).
 
 ## The gate for this repo
 
