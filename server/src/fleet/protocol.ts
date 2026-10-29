@@ -938,6 +938,8 @@ export interface SessionView {
     loopsTotal: number;
     log: BlowoutLogEntry[];
   };
+  /** How many times Claude Code compacted the session on its own, any loop, counted from its stored compact events (#805). Shown as the Comp pill. */
+  compactions: number;
   plan: PlanView | null;
   /** The main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a hooks-only session. */
   loop: LoopReport | null;
