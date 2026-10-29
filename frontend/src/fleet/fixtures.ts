@@ -97,6 +97,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     costUsd: 12.84,
     tokensTotal: 2_500_000,
     blowouts: { orchestrator: 0, agents: 0, total: 0, level: 0, loopsHit: 0, loopsTotal: 1, log: [] },
+    compactions: 0,
     plan: {
       title: "Migrate invoices to v2 schema",
       source: "TaskCreate",

@@ -26,6 +26,13 @@ On a valid report, in one transaction:
 
 Level 2 is the red "likely losing context" state. Level 1 is the amber "context exceeded" state.
 
+**Compactions** (#805): `compactions` on the view is the number of the session's stored `compact` events, of any loop, whose
+`data.trigger` is `"auto"` (5.3: an automatic compaction below 80% fill is logged as a `compact` event, not a blowout). It is counted from
+`events` when the view is built, not from a column, so it needs no migration and no change to the report. A blowout is never counted
+here, and a manual or plugin compaction has no `trigger` of `"auto"`. The count lives as long as the session's events (the events
+retention, 30 days by default, the same as sessions). A reporter older than the one that logs early compactions as `compact` events
+sends them as blowouts, so it shows no pill.
+
 **KPIs:**
 
 - Live orchestrators.

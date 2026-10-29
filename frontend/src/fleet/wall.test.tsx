@@ -124,6 +124,38 @@ describe("session card", () => {
     expect(container.textContent).not.toContain("Likely losing context");
   });
 
+  // #805: Claude Code compacted the session on its own. The Comp pill says so without calling it a blowout.
+  describe("the Comp pill", () => {
+    it("is not there without an automatic compaction", () => {
+      const { container } = renderCard(makeSession({ compactions: 0 }));
+      expect(container.querySelector(".comp")).toBeNull();
+    });
+
+    it("shows in the Context cell with its words for a screen reader, and no blowout badge", () => {
+      const { container } = renderCard(makeSession({ compactions: 1 }));
+      const pill = container.querySelector(".z3 .ctx .k .comp")!;
+      expect(pill).not.toBeNull();
+      expect(pill.querySelector("svg")).not.toBeNull();
+      expect(pill.textContent).toContain("Comp");
+      expect(pill.textContent).toContain("Compacted automatically 1 time");
+      expect(pill.getAttribute("title")).toBe("Claude Code compacted this session automatically 1 time");
+      expect(pill.className).not.toContain("icon");
+      expect(container.querySelector(".blow")).toBeNull();
+    });
+
+    it("counts in the plural", () => {
+      const { container } = renderCard(makeSession({ compactions: 3 }));
+      expect(container.querySelector(".comp")!.getAttribute("title")).toBe("Claude Code compacted this session automatically 3 times");
+    });
+
+    it("beside the blowout badge, both show in the label row and the row may wrap, so neither is clipped", () => {
+      const { container } = renderCard(makeSession({ compactions: 2, blowouts: blow(1, 0, 1) }));
+      const k = container.querySelector(".z3 .ctx .k")!;
+      expect(k.querySelector(".blow")).not.toBeNull();
+      expect(k.querySelector(".comp")!.textContent).toContain("Comp");
+    });
+  });
+
   it("level 2: red badge and red edge; the sentence is the context readout's tooltip, not card text (#144)", () => {
     const { container } = renderCard(makeSession({ blowouts: blow(0, 2, 2) }));
     expect(container.querySelector(".blow")!.className).toContain("l2");

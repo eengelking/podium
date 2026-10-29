@@ -341,6 +341,11 @@ A card has four layers in a fixed order, divided by hairlines, with the content 
 3. **Cost and health.**
    - Four readouts in fixed columns: Cost, Tokens, Time and Context.
    - Context carries a thin bar and the blowout badge.
+   - A session Claude Code compacted on its own (`compactions` above 0) also gets the **Comp pill** after the badge: a compress mark and
+     the word Comp, in the delegation blue (`--deleg`), because it is information and not a warning. Its title and screen-reader text read
+     "Claude Code compacted this session automatically N times". It stays for the life of the session, since the count is of the stored
+     events. The label row wraps, so in the narrow cell the pill drops to its own line instead of being clipped, with or without the
+     blowout badge. The orchestrator panel shows it after the Context readout.
    - A level 2 blowout adds the red card edge and turns the context figure red. Its sentence ("Context
      exceeded N× ...") is the Context readout's tooltip and the orchestrator page's callout, not card text.
 4. **The status band.**

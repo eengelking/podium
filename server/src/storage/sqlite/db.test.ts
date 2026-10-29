@@ -187,6 +187,24 @@ describe('openDb', () => {
     f.close();
   });
 
+  // #805: the card's Comp pill reads this count.
+  it('counts a session\'s automatic compaction events, and nothing else', () => {
+    const f = new FleetDb(openDb(':memory:'));
+    f.upsertSession(session());
+    f.upsertSession(session({ id: 's2' }));
+    const ev = (id: string, sid: string, kind: string, data: unknown) => ({ id, session_id: sid, agent_id: null, t: 1, kind, text: 'x', data_json: data === null ? null : JSON.stringify(data) });
+    f.insertEvent(ev('e1', 's1', 'compact', { trigger: 'auto', percent: 22 }));
+    f.insertEvent(ev('e2', 's1', 'compact', { trigger: 'auto', percent: 25 }));
+    f.insertEvent(ev('e3', 's1', 'compact', { tokensBefore: 1 }));
+    f.insertEvent(ev('e4', 's1', 'compact', null));
+    f.insertEvent(ev('e5', 's1', 'blow', { trigger: 'auto', kind: 'auto-compact' }));
+    f.insertEvent(ev('e6', 's2', 'compact', { trigger: 'auto' }));
+    expect(f.countAutoCompactions('s1')).toBe(2);
+    expect(f.countAutoCompactions('s2')).toBe(1);
+    expect(f.countAutoCompactions('nobody')).toBe(0);
+    f.close();
+  });
+
   it('upserts sessions, ignores duplicate events and deletes a session with its rows', () => {
     const f = new FleetDb(openDb(':memory:'));
     f.upsertSession(session());

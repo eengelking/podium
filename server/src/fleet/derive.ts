@@ -194,6 +194,8 @@ export interface SessionInput {
   row: SessionRow;
   agents: readonly AgentRow[];
   blowouts: readonly BlowoutRow[];
+  /** The session's automatic compactions (#805). 0 when not given. */
+  compactions?: number;
   samples: readonly SampleRow[];
   /** False until the session reports after a server start: such a session shows as stale. */
   heard: boolean;
@@ -274,6 +276,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
         tokensAfter: b.tokens_after,
       })),
     },
+    compactions: input.compactions ?? 0,
     plan: parse<PlanView | null>(row.plan_json, null),
     loop: parse<LoopReport | null>(row.loop_json, null),
     files: parse<FilesReport | null>(row.files_json, null),

@@ -62,6 +62,7 @@ export interface FleetStoreApi {
   /** Newest first. `before` is exclusive on event time. */
   listEvents(opts: { sessionId?: string | null; before?: number | null; limit: number }): Promise<EventRow[]>;
   countEvents(sessionId?: string): Promise<number>;
+  countAutoCompactions(sessionId: string): Promise<number>;
   insertBlowout(row: Omit<BlowoutRow, 'id'>): Promise<void>;
   getBlowouts(sessionId: string): Promise<BlowoutRow[]>;
   countBlowouts(sessionId?: string): Promise<number>;

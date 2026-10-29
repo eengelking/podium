@@ -120,6 +120,16 @@ describe('sessionView', () => {
     );
   }
 
+  it('carries the compaction count it is given, and 0 without one (#805)', async () => {
+    const f = openSqliteStorage(':memory:');
+    const report = fixtureReport();
+    await ingestReport(f, report, 1_791_648_000_000);
+    const id = report.session.id;
+    const input = { row: (await f.fleet.getSession(id))!, agents: await f.fleet.getAgents(id), blowouts: await f.fleet.getBlowouts(id), samples: [], heard: true };
+    expect(sessionView(input, 1_791_648_001_000, CFG).compactions).toBe(0);
+    expect(sessionView({ ...input, compactions: 3 }, 1_791_648_001_000, CFG).compactions).toBe(3);
+  });
+
   it('derives the fixture', async () => {
     const v = await viewOf(fixtureReport(), 1_791_648_001_000);
     expect(v.project).toBe('~/billing-service');

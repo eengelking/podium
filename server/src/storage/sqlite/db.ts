@@ -657,6 +657,12 @@ export class FleetDb {
     return r.n;
   }
 
+  /** How many times Claude Code compacted the session on its own (any loop): its stored `compact` events with trigger auto (#805). */
+  countAutoCompactions(sessionId: string): number {
+    const r = this.stmt(`SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND kind = 'compact' AND json_extract(data_json, '$.trigger') = 'auto'`).get(sessionId) as { n: number };
+    return r.n;
+  }
+
   // ---- samples --------------------------------------------------------------------------------
 
   /** The latest sample strictly before second `t`. */

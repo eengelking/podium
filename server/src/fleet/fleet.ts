@@ -546,6 +546,7 @@ export class Fleet {
     const now = this.now();
     const agents = await this.db.getAgents(row.id);
     const blowouts = await this.db.getBlowouts(row.id);
+    const compactions = await this.db.countAutoCompactions(row.id);
     const samples = await this.db.samplesSince(row.id, Math.floor(now / 1000) - 61);
     const ownerGroup = await this.db.groupOfOwner(row.owner);
     const entry = this.live.get(row.id);
@@ -554,6 +555,7 @@ export class Fleet {
         row,
         agents,
         blowouts,
+        compactions,
         samples,
         heard: entry ? entry.heard : true,
         dropAt: entry ? this.dropAtFor(row, entry.heard, now) : null,
