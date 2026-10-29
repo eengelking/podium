@@ -436,7 +436,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (a.out) writeFileSync(a.out, JSON.stringify(manifest, null, 2), { mode: 0o600 });
     console.log(`seeded ${Object.keys(manifest.sessions).length} sessions and ${Object.keys(manifest.people).length} people on ${manifest.url}`);
   } catch (err) {
-    console.error(String(err instanceof Error ? err.message : err));
+    console.error(String(err instanceof Error ? err.message : err).replaceAll(/[\r\n]+/g, " "));
     process.exit(1);
   }
 }

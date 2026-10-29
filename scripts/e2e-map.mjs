@@ -5,7 +5,7 @@
 //   - every server route it names (`GET /api/fleet/history`) matches a route literal in server/src;
 //   - every spec under e2e/cypress/e2e/ is named in the map (a spec nobody mapped says nothing about what it covers);
 //   - every data-testid a spec uses is defined in the frontend sources.
-// Usage: node scripts/e2e-map.mjs [repo root]      Exit code 0 when clean, 1 with one line per problem.
+// Usage: node scripts/e2e-map.mjs      Exit code 0 when clean, 1 with one line per problem.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,9 +17,18 @@ const METHOD = /^(GET|POST|PUT|PATCH|DELETE) (\/\S+)$/;
 
 /** The code spans of a Markdown text, leaving out fenced blocks. */
 export function tokensIn(md) {
-  const text = md.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "");
+  let fence = null;
   const out = [];
-  for (const m of text.matchAll(/(`+)([^`\n]+?)\1/g)) out.push(m[2].trim());
+  for (const line of md.split("\n")) {
+    const f = /^(```|~~~)/.exec(line);
+    if (f) {
+      if (fence === null) fence = f[1];
+      else if (f[1] === fence) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    for (const m of line.matchAll(/(`+)([^`]+?)\1/g)) out.push(m[2].trim());
+  }
   return out;
 }
 
@@ -54,8 +63,10 @@ function routeExists(route, known) {
 /** A glob with `*` in one path segment, expanded against the files that exist. */
 function expand(root, token) {
   if (!token.includes("*")) return existsSync(join(root, token)) ? [token] : [];
-  const re = new RegExp(`^${token.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*")}$`);
-  const base = token.slice(0, token.indexOf("*")).replace(/[^/]*$/, "");
+  const esc = (t) => t.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${token.split("**").map((part) => part.split("*").map(esc).join("[^/]*")).join(".*")}$`);
+  const first = token.indexOf("*");
+  const base = token.slice(0, token.lastIndexOf("/", first) + 1);
   return walk(join(root, base), () => true).map((p) => p.slice(root.length + 1)).filter((p) => re.test(p));
 }
 
@@ -104,10 +115,10 @@ export function mapProblems(root) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv.includes("-h") || process.argv.includes("--help")) {
-    console.log("Usage: node scripts/e2e-map.mjs [repo root]\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, and every spec is named.");
+    console.log("Usage: node scripts/e2e-map.mjs\nChecks docs/e2e/COVERAGE.md against the repository: every file, route and test id it names exists, and every spec is named.");
     process.exit(0);
   }
-  const root = process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), "..");
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const problems = mapProblems(root);
   for (const p of problems) console.log(p);
   console.log(problems.length ? `${problems.length} problem(s) in the e2e coverage map` : "the e2e coverage map is true");

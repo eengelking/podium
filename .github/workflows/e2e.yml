@@ -60,8 +60,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
-    # A run takes about 8 minutes; the limit grows with the number of repeats.
-    timeout-minutes: ${{ 12 * (inputs.repeat || 1) + 15 }}
+    # A run takes about 8 minutes, so five repeats (the most the issue asks for) with a cold image build fit well inside this. A GitHub
+    # expression has no arithmetic, so the limit cannot scale with `repeat`.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 

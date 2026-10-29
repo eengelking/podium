@@ -16,7 +16,7 @@ module.exports = {
     video: false,
     screenshotOnRunFailure: true,
     screenshotsFolder: '/out/screenshots',
-    downloadsFolder: '/tmp/cypress-downloads',
+    downloadsFolder: '/out/downloads',
     defaultCommandTimeout: 8000,
     requestTimeout: 10000,
     pageLoadTimeout: 30000,

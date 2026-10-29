@@ -110,7 +110,7 @@ function registerTasks(on, config) {
     },
     /** The text of the newest file the browser downloaded (an export) whose name holds `name`; waits up to 8 s for it. */
     async 'download:read'(name) {
-      const dir = '/tmp/cypress-downloads';
+      const dir = '/out/downloads';
       for (let i = 0; i < 80; i++) {
         const files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.includes(name) && !f.endsWith('.crdownload')) : [];
         if (files.length) {
@@ -122,7 +122,7 @@ function registerTasks(on, config) {
       throw new Error(`no downloaded file with "${name}" in its name`);
     },
     'download:clear'() {
-      fs.rmSync('/tmp/cypress-downloads', { recursive: true, force: true });
+      fs.rmSync('/out/downloads', { recursive: true, force: true });
       return null;
     },
     /** Reads axe-core's source so a spec can inject it into the page (mounted read-only from the repo's node_modules). */
