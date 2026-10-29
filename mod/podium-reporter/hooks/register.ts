@@ -2203,7 +2203,7 @@ export const register: Register = (on, rawOptions) => {
     const tool = String(e.tool);
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
-      r.state = toolStarted(r.state, e.agentId, tool);
+      r.state = toolStarted(r.state, e.agentId, tool, nowMs());
       if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, activityEntry(tool, input, e.tool_use_id, nowMs()));
       if (tool === 'Agent' && e.tool_use_id) r.state = agentRequested(r.state, e.tool_use_id, input, nowMs());
       if (tool === 'Skill') r.skillCalls++;

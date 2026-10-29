@@ -1,6 +1,6 @@
 ---
 name: podium-docs-site
-description: Work on the Podium docs site (site/, published at podium.engelking.dev from docs/). Load this to preview the site, add or move a doc page, change the menu, fix a link the build rejects, change how the site looks, check a release's docs version, or when docs-site.yml fails. It explains how the site is built from docs/ and from git tags, where the menu lives, what the build rewrites, and how to check it.
+description: Work on the Podium docs site (site/, published at podium.engelking.dev from docs/), and write or change any page in docs/. Load this to preview the site, write, add or move a doc page (templates, frontmatter, the generated indexes, citations), change the menu, fix a link the build rejects, change how the site looks, check a release's docs version, or when docs-site.yml fails. It explains how the site is built from docs/ and from git tags, where the menu lives, what the build rewrites, and how to check it.
 ---
 
 # The Podium docs site
@@ -53,6 +53,16 @@ preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
 | Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/user-guide/`; change them together. |
 | Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. |
 | Change which releases are listed | `FIRST_VERSION_LINE` in `site/docs-nav.mjs`. |
+
+## Writing a doc page
+
+The rules are under "Writing docs" in `CONTRIBUTING.md`, which also applies to any doc you write or change. What a page needs:
+
+- **A page starts from a template.** Every page in `docs/` follows a template in `docs/templates/` (`guide.md`, `reference.md`, `internals.md`, and for a topic split into a folder (#697) `index.md`, `decision-entry.md`, `gotcha-entry.md`, `spec-section.md` and `chapter.md`) and carries `title`, `description` and `group` frontmatter. `node scripts/check-doc-frontmatter.mjs` checks the frontmatter and runs in `npm test`. A new page is copied from the template for its group, added to `site/docs-nav.mjs` and linked from the doc table in `CONTRIBUTING.md`. `docs/standards/` is generated and has no frontmatter.
+- **One term for one thing:** the app is the **console**, its page of cards is the **wall**.
+- **The big docs are folders of small pages** (#697, DECISIONS 45): `docs/spec/`, `docs/decisions/`, `docs/gotchas/`, `docs/architecture/` and `docs/user-guide/`, each with a `README.md` as its index. A new decision or gotcha is one new file from `docs/templates/`.
+- **The list in a `README.md` and the footer on each page are generated.** Run `node scripts/build-doc-indexes.mjs` after you add, move or reorder a page; `npm test` fails when they are stale.
+- **Citations never change.** "SPEC 6.8" and "DECISIONS 37" name the page whose `section` or `number` is that. `node scripts/check-doc-refs.mjs` (in `npm test`) fails on a citation nothing answers to or on a reference to the old single-file paths. Do not reword moved text.
 
 ## Releases
 

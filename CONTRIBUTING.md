@@ -268,7 +268,7 @@ version files alone. The maintainer decides when `development` is ready to relea
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
-"Releases", has the full list of files and how the bump level is chosen.
+"Releases", says how the bump level is chosen, and the `podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
 If the bump is a new minor version, also move `max` in `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
 that version. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
