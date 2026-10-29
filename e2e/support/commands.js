@@ -104,7 +104,8 @@ Cypress.Commands.add('checkA11y', (opts = {}) => {
       const lines = unknown.map((n) => `${n.rule} (${n.impact}): ${n.help}: ${n.target}`);
       expect(lines, `axe violations:\n${lines.join('\n')}`).to.have.length(0);
       const stale = known.filter((k) => !nodes.some((n) => matches(k, n)));
-      expect(stale.map((k) => `${k.rule} ${k.target}`), 'known violations that axe no longer reports (remove them from the list)').to.have.length(0);
+      const staleLines = stale.map((k) => `${k.rule} ${k.target}`);
+      expect(staleLines, `known violations that axe no longer reports (remove them from the list):\n${staleLines.join('\n')}`).to.have.length(0);
     });
   });
 });

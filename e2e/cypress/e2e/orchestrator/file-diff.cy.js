@@ -99,6 +99,8 @@ describe('file diff dialog', () => {
       cy.task('diffs:stop');
       cy.task('diffs:start', { fileDiffPreload: false });
       cy.reportAgain('invoice', { fileDiffPreload: false });
+      // The page is loaded only once the server's view of the session says preload is off, so the page never starts from the old value.
+      cy.request('/api/fleet/sessions/e2e-s-invoice').its('body.fileDiffPreload').should('eq', false);
       // A hash change alone would keep the page of the test's start (and its preloader), so the page is loaded afresh.
       cy.visit('/#/');
       cy.reload();

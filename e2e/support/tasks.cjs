@@ -44,7 +44,7 @@ function registerTasks(on, config) {
   on('task', {
     /** Restarts the server on a wiped database and reseeds it. Returns the manifest: person tokens, session ids, machine ids. */
     async 'server:reset'(opts) {
-      stopDiffs?.();
+      await stopDiffs?.();
       stopDiffs = null;
       const o = opts ?? {};
       await control('restart', o);
@@ -99,12 +99,12 @@ function registerTasks(on, config) {
     /** Starts answering the console's diff requests for the invoice session, as the reporter mod would. */
     async 'diffs:start'(over) {
       const m = manifest ?? readManifest();
-      stopDiffs?.();
+      await stopDiffs?.();
       stopDiffs = startDiffMod(origin, m.people.Ed.token, await seedModule(), over ?? {});
       return null;
     },
-    'diffs:stop'() {
-      stopDiffs?.();
+    async 'diffs:stop'() {
+      await stopDiffs?.();
       stopDiffs = null;
       return null;
     },
