@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DAY_MS, NOW, TODAY, populate, world } from '../fleet/rollupFixtures.js';
+import { DAY_MS, NOW, TODAY, populate, world } from './sqlite/rollupFixtures.js';
 import { addDays, costFn, writeRollups } from '../fleet/rollups.js';
 
 // The report and rollup queries that moved out of reports.ts and rollups.ts (#313). The reports' and rollups' own tests read through

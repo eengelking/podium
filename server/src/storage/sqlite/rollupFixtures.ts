@@ -1,10 +1,10 @@
-// Shared builders for the rollup and report tests (#484). Not used at run time.
-import type { AgentRow, SessionRow } from '../storage/rows.js';
-import { openSqliteStorage, type SqliteStorage } from '../storage/index.js';
-import { Pricing } from './pricing.js';
-import type { ReportDeps } from './reports.js';
-import { DEFAULT_CONFIG } from './fleet.js';
-import { localDay } from './rollups.js';
+// Shared builders for the rollup and report tests (#484). Adapter test support: not used at run time.
+import type { AgentRow, SessionRow } from '../rows.js';
+import { openSqliteStorage, type SqliteStorage } from './index.js';
+import { Pricing } from '../../fleet/pricing.js';
+import type { ReportDeps } from '../../fleet/reports.js';
+import { DEFAULT_CONFIG } from '../../fleet/fleet.js';
+import { localDay } from '../../fleet/rollups.js';
 
 /** 2026-10-20 15:00 in the server's zone, so a test reads the same wherever it runs. */
 export const NOW = new Date(2026, 9, 20, 15, 0, 0).getTime();

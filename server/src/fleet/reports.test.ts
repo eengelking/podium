@@ -6,7 +6,7 @@ import { createAdminRouter } from '../admin/adminRouter.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { csvCell, bucketOf, spendToday, toCsv, type ReportReply } from './reports.js';
 import { addDays, costFn, writeRollups } from './rollups.js';
-import { DAY_MS, NOW, TODAY, agent, at, populate, session, world, type World } from './rollupFixtures.js';
+import { DAY_MS, NOW, TODAY, agent, at, populate, session, world, type World } from '../storage/sqlite/rollupFixtures.js';
 import { reportDepsOf } from './reportDeps.js';
 
 const SECRET = 'the-admin-secret-0123456789';

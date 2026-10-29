@@ -3,7 +3,7 @@
 // them and a report would mix stored rows from before with others from after. It reads in one transaction instead.
 import { describe, it, expect } from 'vitest';
 import { costFn, writeRollups } from './rollups.js';
-import { DAY_MS, NOW, populate, world, type World } from './rollupFixtures.js';
+import { DAY_MS, NOW, populate, world, type World } from '../storage/sqlite/rollupFixtures.js';
 import { projectionReport, retentionReport, runReport, spendToday, type ReportDeps } from './reports.js';
 
 const CALL_MS = 10;

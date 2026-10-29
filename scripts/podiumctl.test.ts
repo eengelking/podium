@@ -514,7 +514,8 @@ describe("podiumctl CLI", () => {
 
 describe("podiumctl covers every server setting (#157)", () => {
   // Read by the server but not a user setting: podiumctl sets it itself in the container (PODIUM_BUILD comes from the image build, #400).
-  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD", "PODIUM_TLS_PUBLIC_PORT"];
+  // PODIUM_DATA_DIR (#313) is read by the server but podiumctl never sets it: the data folder is the one it picks for PODIUM_DB.
+  const SET_BY_PODIUMCTL = ["PODIUM_HOST_HOME", "HOST", "PORT", "PODIUM_BUILD", "PODIUM_TLS_PUBLIC_PORT", "PODIUM_DATA_DIR"];
   const serverSrc = path.join(__dirname, "..", "server", "src");
   function sources(dir: string): string[] {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

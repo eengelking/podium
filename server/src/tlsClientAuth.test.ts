@@ -45,8 +45,8 @@ async function setup() {
     const a = await certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => issuers, now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
-  const dbPath = path.join(root, 'podium.sqlite');
-  const l = await startTlsForTest({ app, dbPath, logger });
+  const dataDir = root;
+  const l = await startTlsForTest({ app, dataDir, logger });
   const port = l.port;
   cleanup.push(() => new Promise<void>((r) => { l.server.closeAllConnections(); l.server.close(() => r()); }));
   issuers = [l.material.ca.fingerprintSha256];

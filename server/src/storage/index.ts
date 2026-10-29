@@ -1,17 +1,27 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openSqliteStorage } from './sqlite/index.js';
 import type { Storage } from './types.js';
 
 export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
   FeatureFlagsApi, PeerStoreApi, ActivityStorage, ActivityStoreOptions, ActivityHistoryApi, ActivityHistoryOptions, SessionRecordingsApi, RecordingsOptions, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
-export { openSqliteStorage, type SqliteStorage } from './sqlite/index.js';
 
 /** Opens the storage a target names. `target` is what follows the kind: a file for SQLite. */
 export type StorageOpener = (target: string) => Storage;
 
+/** Imports a kind's adapter module and returns its opener. Called only when that kind is chosen, so a server never loads another kind's driver. */
+export type StorageLoader = () => Promise<StorageOpener>;
+
+/** A registered implementation. `fileBased` is true when its target is a file, so the folder holding it is a data directory. */
+export interface StorageKind { fileBased: boolean; load: StorageLoader }
+
 /** The one place that knows which implementations exist: a new database is a registration here. */
-const registry = new Map<string, StorageOpener>([['sqlite', (target) => openSqliteStorage(target)]]);
+const registry = new Map<string, StorageKind>([['sqlite', { fileBased: true, load: async () => (await import('./sqlite/index.js')).openSqliteStorage }]]);
+
+/** Adds a kind to the registry and returns a function that removes it again. For tests: the server registers its own kinds above. */
+export function registerStorageKind(kind: string, entry: StorageKind): () => void {
+  registry.set(kind, entry);
+  return () => { registry.delete(kind); };
+}
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -20,7 +30,7 @@ export const defaultDbFile = (): string => path.join(REPO_ROOT, 'data', 'podium.
 /**
  * What PODIUM_DB names: the kind of storage and its target. A plain path or `:memory:` is a SQLite file; `kind://target`
  * picks another registered kind, and an unregistered one throws. `target` is also what the rest of the server derives
- * its paths from (the TLS folder, the Activity file, the Admin's view of the data folder), so `sqlite://x` and `x` agree.
+ * its label in the log and the health check, so `sqlite://x` and `x` agree.
  */
 export function storageSpec(env: NodeJS.ProcessEnv = process.env): { kind: string; target: string } {
   const value = env.PODIUM_DB || defaultDbFile();
@@ -30,8 +40,19 @@ export function storageSpec(env: NodeJS.ProcessEnv = process.env): { kind: strin
   return { kind, target: m ? m[2]! : value };
 }
 
-/** PODIUM_DB is a SQLite file by default; `kind://target` picks another registered implementation. */
-export function openStorage(env: NodeJS.ProcessEnv = process.env): Storage {
+/**
+ * The folder for what the server keeps of its own: the TLS CA. PODIUM_DATA_DIR when set;
+ * otherwise the folder of a file target, as before. A database that is not a file has no such folder, so it must be named.
+ */
+export function dataDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.PODIUM_DATA_DIR) return env.PODIUM_DATA_DIR;
   const { kind, target } = storageSpec(env);
-  return registry.get(kind)!(target);
+  if (!registry.get(kind)!.fileBased) throw new Error(`PODIUM_DATA_DIR is required when PODIUM_DB is ${kind}://...`);
+  return path.dirname(target);
+}
+
+/** PODIUM_DB is a SQLite file by default; `kind://target` picks another registered implementation. An unknown kind throws at once, not as a rejection. */
+export function openStorage(env: NodeJS.ProcessEnv = process.env): Promise<Storage> {
+  const { kind, target } = storageSpec(env); // throws now, before a loader runs or anything reads the path
+  return registry.get(kind)!.load().then((open) => open(target));
 }

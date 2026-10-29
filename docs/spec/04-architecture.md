@@ -60,6 +60,7 @@ frontend/src/fleet/
   *.test.tsx
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
+scripts/podium-golden.mjs            captures a server's answers on every read route and every table's rows, and diffs two captures, to prove a refactor changed no behavior (#313; has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)

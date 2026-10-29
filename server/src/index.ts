@@ -11,7 +11,7 @@ loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 import fs from "node:fs";
 import express from "express";
 import { createRouter } from "./routes.js";
-import { openStorage, storageSpec } from "./storage/index.js";
+import { dataDir, openStorage, storageSpec } from "./storage/index.js";
 import { configFromEnv, Fleet } from "./fleet/fleet.js";
 import { createFleetRouter } from "./fleet/routes.js";
 import { reportDepsOf } from "./fleet/reportDeps.js";
@@ -39,8 +39,9 @@ import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `sqlite://`), which the TLS folder, the Activity file and the config derive from.
+// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `sqlite://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the database file's folder) is where the TLS folder lives.
 const DB_PATH = storageSpec(process.env).target;
+const DATA_DIR = dataDir(process.env);
 const TOKEN = process.env.PODIUM_TOKEN || null;
 
 // Logging (#140): levels, a text or JSON format, and optional shipping to a central platform such as VictoriaLogs.
@@ -51,9 +52,9 @@ if (TOKEN && TOKEN.length < 24) {
   logger.warn("server.weak_token", `podium: PODIUM_TOKEN is only ${TOKEN.length} characters; use at least 24 (podiumctl makes a long one for you)`, { length: TOKEN.length });
 }
 
-warnIfTlsNotPersistent({ env: process.env, dbPath: DB_PATH, logger });
+warnIfTlsNotPersistent({ env: process.env, dataDir: DATA_DIR, logger });
 
-const storage = openStorage(process.env);
+const storage = await openStorage(process.env);
 const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
 // The Activity history lives in its own file beside the database (#432), opened by the storage; nothing is written to it under the default policy.
 const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { authOn: TOKEN !== null, secret: TOKEN });
@@ -71,7 +72,7 @@ const reporterTransport = new ReporterTransport();
 const personCerts = storage.personCerts;
 const trustedIssuers = () => tlsBoot.listener?.trust.trustedIssuers() ?? [];
 // What signs a person's certificate, for the Admin and for a reporter renewing its own. Its lifetime is tls.reporter.lifetimeDays.
-const personIssuer = () => (tlsBoot.listener ? { dir: tlsDir(DB_PATH), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsBoot.listener.port), caCerts: () => [tlsBoot.listener!.trust.currentCa()], rotation: () => tlsBoot.listener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
+const personIssuer = () => (tlsBoot.listener ? { dir: tlsDir(DATA_DIR), port: publicTlsPort(process.env.PODIUM_TLS_PUBLIC_PORT, tlsBoot.listener.port), caCerts: () => [tlsBoot.listener!.trust.currentCa()], rotation: () => tlsBoot.listener!.trust.deliverable(), days: tlsSettings.getReporter().lifetimeDays } : null);
 const reporters = storage.reporters;
 const stopSweeper = startSweeper(
   fleet,
@@ -160,7 +161,7 @@ const server = app.listen(PORT, HOST, () => {
 });
 
 // Built-in TLS (#577): with PODIUM_TLS=on, HTTPS on a second port serves the same app. A failure is logged and HTTP stays up.
-void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dbPath: DB_PATH, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then(async (l) => {
+void startTls({ settings: () => tlsSettings.get(), env: process.env, app, dataDir: DATA_DIR, bind: HOST, httpPort: PORT, allowedHosts: parseAllowedHosts(process.env.PODIUM_ALLOWED_HOSTS), logger }).then(async (l) => {
   // The first time TLS runs, an install that already has reporters keeps them working over HTTP; a fresh one does not (SPEC 6).
   await tlsBoot.adopt(l, async () => tlsSettings.seedAllowReportersOverHttp(await reporters.hasAny()));
   // A signal that arrived while the CA was being made has already started the shutdown.

@@ -58,7 +58,7 @@ async function setup(opts: { tlsOn?: boolean; openssl?: string; publicPort?: str
       },
     }),
   );
-  listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
+  listener = await startTlsForTest({ app, dataDir: root, logger });
   const port = listener.port;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const admin = request.agent(app);

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { defaultDbFile, openStorage, openSqliteStorage } from './index.js';
+import { defaultDbFile, openStorage } from './index.js';
+import { openSqliteStorage } from './sqlite/index.js';
 import { runStorageContract } from './contract.js';
 import { sqliteReference } from './sqlite/contractReference.js';
 
@@ -101,7 +102,7 @@ describe('sqlite transactions', () => {
 
 describe('openStorage', () => {
   it('opens a working in-memory SQLite storage', async () => {
-    const s = openStorage({ PODIUM_DB: ':memory:' });
+    const s = await openStorage({ PODIUM_DB: ':memory:' });
     await s.people.setAdminReporting(false);
     expect(await s.people.adminReportingAllowed()).toBe(false);
     await s.close();
@@ -111,10 +112,10 @@ describe('openStorage', () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'podium-storage-'));
     try {
       const file = path.join(dir, 'p.sqlite');
-      const a = openStorage({ PODIUM_DB: file });
+      const a = await openStorage({ PODIUM_DB: file });
       await a.people.log('k', 'd', 's', 1);
       await a.close();
-      const b = openStorage({ PODIUM_DB: `sqlite://${file}` });
+      const b = await openStorage({ PODIUM_DB: `sqlite://${file}` });
       expect((await b.people.listLog({})).rows.length).toBe(1);
       await b.close();
     } finally {

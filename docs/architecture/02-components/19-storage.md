@@ -31,14 +31,15 @@ Contents:
 | File | What it holds |
 |---|---|
 | `types.ts` | `Storage`, the one object a server is built from, and the async interface of each store it hands out, each written out in full |
-| `index.ts` | `openStorage`, the one place that picks the implementation, and the only file here that imports the adapter |
+| `index.ts` | `openStorage`, the one place that picks the implementation, and the only file here that imports the adapter (on demand, with `import()`) |
 | `rows.ts` | The row types, errors, constants and pure helpers the stores share, and the one place app code imports them from |
 | `features.ts` | The notice and feature flag tables and their ids (re-exported by `rows.ts`) |
 | `settings.ts` | The limits, defaults, ranges and value checks for the Admin's settings (re-exported by `rows.ts`) |
-| `contract.ts` | The checks a store must pass, run against each adapter |
+| `contract.ts` | The checks a store must pass, run against each adapter: the same results as the synchronous stores, the type of every field of the main rows, how names compare, and the order lists come back in |
 | `reportQueries.ts` | The fleet-wide reporting queries behind Admin > Reporting |
 
-Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; `neutral.test.ts` fails if one does.
+Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
+`activityHandle`; the shared test builders that need raw SQL (`rollupFixtures.ts`) live in `storage/sqlite/`.
 The adapter imports from them, never the other way round, and its `openSqliteStorage` is typed against the interfaces in
 `types.ts`, so a signature that drifts is a compile error there.
 
@@ -57,13 +58,18 @@ Every method on a store returns a promise. `Fleet`, the routers and the sweeper 
 
 `openStorage` reads `PODIUM_DB`. A plain path, or `:memory:`, means SQLite. A value written `kind://target` picks a
 registered kind, and an unknown kind stops the server at start with a message that lists the known ones. Only `sqlite` is
-registered. Adding a database means adding its adapter and one line to that registry, and nowhere else in the server
-changes. This issue adds no second database.
+registered. A registration is a loader that `import()`s the adapter when its kind is chosen, so a server never loads the
+driver of a kind it does not use, and `openStorage` returns a promise. Adding a database means adding its adapter and one
+registration in `index.ts`, and nowhere else in the server changes. This issue adds no second database.
 
-`storageSpec` splits the value into its kind and target, and the server starts through it. The target is also what the rest of
-the server treats as the database file: the TLS folder, the Activity history file and the config all sit beside it. So
-`sqlite://data/podium.sqlite` and `data/podium.sqlite` mean the same thing everywhere, and a bad kind fails before anything
-else reads the path.
+`storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything
+else reads the path. The target only names the database: it labels it in the log and in the health check.
+
+Where the server keeps its own files is a different question, answered by `dataDir`. That is `PODIUM_DATA_DIR` when it is
+set, and otherwise the folder of the database file, which is what it has always been (`/data` in the container, `data/`
+standalone). The TLS folder is `tls/` inside it. A kind whose target is not a file has no such folder, so for one the server
+stops at start unless `PODIUM_DATA_DIR` is set. The Activity history file is the SQLite adapter's own business and sits beside
+the SQLite file.
 
 ## The lock and the transaction
 

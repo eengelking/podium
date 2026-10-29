@@ -1,11 +1,11 @@
-// Built-in TLS keeps its CA in a folder beside the database (#577). If that folder is not on a volume or a bind mount,
+// Built-in TLS keeps its CA in a folder in the data directory (#577). If that folder is not on a volume or a bind mount,
 // recreating the container loses the CA and every reporter config must be reissued, so the server says so at start (#580).
 import path from 'node:path';
 import fs from 'node:fs';
 import type { Logger } from './logging/logger.js';
 
-/** The CA's folder: `tls` beside the database, so /data/tls in the container and data/tls in standalone mode. */
-export const tlsDir = (dbPath: string): string => path.join(path.dirname(dbPath), 'tls');
+/** The CA's folder: `tls` in the data directory, so /data/tls in the container and data/tls in standalone mode. */
+export const tlsDir = (dataDir: string): string => path.join(dataDir, 'tls');
 
 // The anonymous volume a `docker run` without -v gets from the image's VOLUME /data is named by 64 hex digits, and goes
 // with the container's removal; a named volume or a bind mount is a person's choice to keep the data.
@@ -26,7 +26,7 @@ export function tlsStorageProblem(mountinfo: string, dir: string): string | null
 
 export function warnIfTlsNotPersistent(o: {
   env: NodeJS.ProcessEnv;
-  dbPath: string;
+  dataDir: string;
   logger: Logger;
   readMountinfo?: () => string | null;
 }): void {
@@ -34,7 +34,7 @@ export function warnIfTlsNotPersistent(o: {
   const read = o.readMountinfo ?? (() => { try { return fs.readFileSync('/proc/self/mountinfo', 'utf8'); } catch { return null; } });
   const text = read();
   if (text === null) return;
-  const dir = tlsDir(o.dbPath);
+  const dir = tlsDir(o.dataDir);
   const problem = tlsStorageProblem(text, dir);
   if (problem) o.logger.warn('tls.storage_not_persistent', `podium: ${problem}`, { dir });
 }

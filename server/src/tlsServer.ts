@@ -17,7 +17,7 @@ export const DEFAULT_TLS_PORT = 4318;
 export interface StartTlsOptions {
   env: NodeJS.ProcessEnv;
   app: RequestListener;
-  dbPath: string;
+  dataDir: string;
   bind: string;
   httpPort: number;
   allowedHosts: string[];
@@ -93,7 +93,7 @@ export async function startTls(o: StartTlsOptions): Promise<TlsListener | null> 
     o.logger.error('tls.failed', `podium: TLS is not started: ${p.error}; HTTP keeps working`, { reason: p.error });
     return null;
   }
-  const dir = tlsDir(o.dbPath);
+  const dir = tlsDir(o.dataDir);
   const settings = o.settings ?? (() => SERVING_DEFAULTS);
   const names = serverNames(o.bind, o.allowedHosts);
   let material: TlsMaterial;

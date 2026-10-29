@@ -12,7 +12,7 @@ order: 2
 |---|---|---|
 | Reporter mod | TypeScript hooks module for Claude Code's mod API (`plugin.json` + `hooks/register.ts`) | The only mechanism that sees agent spawns, per-step usage, compaction, tool results and plans from inside a session, and can send them out (`$.http.fetch`). |
 | Server | Node 24 (already in use), Express 4 (already in the repo), TypeScript | Matches the existing `server/` workspace. |
-| Database | SQLite through Node's built-in `node:sqlite` (`DatabaseSync`) | No native build step, no new dependency, plenty for one machine. If `node:sqlite` proves unusable under vitest, fall back to `better-sqlite3` and say why in `docs/architecture/`. Bump `@types/node` in `server/` to a version that declares `node:sqlite`. |
+| Database | SQLite through Node's built-in `node:sqlite` (`DatabaseSync`), behind async storage interfaces with SQLite as the only adapter (#313) | No native build step, no new dependency, plenty for one machine. If `node:sqlite` proves unusable under vitest, fall back to `better-sqlite3` and say why in `docs/architecture/`. Bump `@types/node` in `server/` to a version that declares `node:sqlite`. |
 | Live updates | Server-Sent Events (`text/event-stream`) | One-way push, built into browsers, no dependency, reconnects by itself. |
 | Frontend | React 18 + Vite + TypeScript (already in the repo) | Matches the existing `frontend/` workspace. |
 | Charts | Hand-written inline SVG | The mockup's charts are small polylines with markers; a library would fight the design. |

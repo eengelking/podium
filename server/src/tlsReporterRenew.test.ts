@@ -69,7 +69,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
     const a = await certAuth(req.socket as unknown as ClientSocket, { certs, people, trustedIssuers: () => listener?.trust.trustedIssuers() ?? [], now: () => clock() });
     res.json(a.kind === 'person' ? { kind: a.kind, name: a.person.name } : a);
   });
-  listener = await startTlsForTest({ app, dbPath: path.join(root, 'podium.sqlite'), logger });
+  listener = await startTlsForTest({ app, dataDir: root, logger });
   const port = listener.port;
   cleanup.push(() => new Promise<void>((r) => { listener!.server.closeAllConnections(); listener!.server.close(() => r()); }));
   const ca = listener.material.caCert;

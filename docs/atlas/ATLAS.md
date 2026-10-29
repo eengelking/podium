@@ -80,7 +80,7 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. The app reaches it through the async `Storage` interfaces in `server/src/storage/`; the server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup) and `openStorage` picks the implementation, and the SQLite adapter in `storage/sqlite/` runs every call behind one lock per connection. |
+| Storage | Storage interface | The async `Storage` interfaces every server part calls, written out in `server/src/storage/types.ts` with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`). The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup) and `openStorage`, which is async, loads the chosen adapter on demand from a registry. The only adapter is SQLite in `storage/sqlite/`, which owns `podium.sqlite` (sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log) and runs every call behind one lock per connection. No app code opens SQLite directly. |
 | Storage | `activity.sqlite` | A second file for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 
 ### Console
@@ -230,10 +230,14 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `openStorage` | The one place the implementation is chosen, from PODIUM_DB. In `server/src/storage/index.ts`. |
-| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
 | Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
+| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
+| Storage | `openStorage` | Async; loads the chosen kind's adapter on demand. In `server/src/storage/index.ts`. |
+| Storage | `registerStorageKind` | Adds an implementation to the registry. In `server/src/storage/index.ts`. |
+| Storage | `dataDir` | PODIUM_DATA_DIR, else the SQLite file's folder; holds tls/. In `server/src/storage/index.ts`. |
+| Storage | `runStorageContract` | The suite every implementation must pass. In `server/src/storage/contract.ts`. |
 | Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
+| Storage | `sqliteReference` | What the contract suite reads back from SQLite. In `server/src/storage/sqlite/contractReference.ts`. |
 | Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |
 | Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
 | Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
@@ -286,7 +290,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Location | Item | Description |
 |---|---|---|
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
-| Storage | `podium.sqlite` | The main database in WAL mode, behind the async `Storage` interfaces: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
+| Storage | `podium.sqlite` | The main database in WAL mode, behind the async `Storage` interfaces and owned by the SQLite adapter: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
 | Storage | `activity.sqlite` | Opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
-| Storage | Certificates and config | The CA and serving keys in `/data/tls`, podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
+| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
 | Console | Preferences and cookies | Convenience only: theme, pins and collapsed panes. The respond and Admin cookies are `HttpOnly` and `SameSite=Strict`. Tokens are never written to storage. |
