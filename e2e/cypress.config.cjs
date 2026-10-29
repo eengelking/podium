@@ -1,4 +1,4 @@
-// Cypress for Podium (#782, DECISIONS 48). It runs inside the pinned cypress/included container that scripts/e2e-up.sh starts beside
+// Cypress for Podium (#782, DECISIONS 49). It runs inside the pinned cypress/included container that scripts/e2e-up.sh starts beside
 // Podium's own image on a private network. Nothing installs Cypress: this file is CommonJS and imports nothing. Docs: docs/e2e/COVERAGE.md.
 const { registerTasks } = require('./support/tasks.cjs');
 
@@ -11,7 +11,7 @@ module.exports = {
     specPattern: 'cypress/e2e/**/*.cy.js',
     supportFile: 'support/e2e.js',
     fixturesFolder: false,
-    // Flakiness plan (DECISIONS 48): no retries, so a flaky spec fails loudly; no video; screenshots only for a failure.
+    // Flakiness plan (DECISIONS 49): no retries, so a flaky spec fails loudly; no video; screenshots only for a failure.
     retries: { runMode: 0, openMode: 0 },
     video: false,
     screenshotOnRunFailure: true,

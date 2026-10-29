@@ -29,9 +29,12 @@ function startDiffMod(origin, token, seed, over = {}) {
   const id = seed.SESSIONS.invoice;
   let stopped = false;
   let busy = false;
+  let inFlight = Promise.resolve();
   const timer = setInterval(async () => {
     if (stopped || busy) return;
     busy = true;
+    let done;
+    inFlight = new Promise((r) => (done = r));
     try {
       const res = await c.mod(token, 'POST', '/report', { ...base.body, sentAt: Date.now(), session: { ...base.body.session, ...over } });
       for (const d of res.body?.diffs ?? []) {
@@ -41,11 +44,14 @@ function startDiffMod(origin, token, seed, over = {}) {
       // The server may be restarting; the next tick tries again.
     } finally {
       busy = false;
+      done();
     }
   }, 200);
+  // Stops the timer and resolves once a report already on its way has been answered, so a stale report cannot land after the next one.
   return () => {
     stopped = true;
     clearInterval(timer);
+    return inFlight;
   };
 }
 

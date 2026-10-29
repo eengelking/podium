@@ -8,7 +8,7 @@ group: Project internals
 
 This page maps every feature of the console to the end-to-end spec that covers it, says what the suite leaves out and
 why, and shows how to run it, read a CI failure and add a spec. It is for a contributor changing a feature. The platform
-choice (Cypress in a container, against Podium's own image) is [decision 48](../decisions/49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md); what each
+choice (Cypress in a container, against Podium's own image) is [decision 49](../decisions/49-end-to-end-tests-run-cypress-from-an-e2e-folder-against-the-built.md); what each
 feature must do is in [docs/spec/](../spec/README.md). `node scripts/e2e-map.mjs` checks this page against the repository on
 every `npm test`: a spec, a source file, a route or a test id named here that no longer exists fails it, and so does a spec
 that is not named here. That check proves the names exist, not that a spec proves the row: what a row claims is what the named spec asserts, and a reader should open the spec to see it.
@@ -46,7 +46,7 @@ Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
 ## Read a CI failure
 
 The suite does not run in CI yet. The `E2E` workflow (`.github/workflows/e2e.yml`) is manual only ("Run workflow") until the suite is
-solid on a GitHub runner; a first try on a runner timed out on the first page load of several spec files. Its last job, `E2E summary`,
+solid on a GitHub runner; a first try on a runner timed out on the first request after a server restart in several spec files (see decision 49, "How the runner reaches the server"). To try a slow machine locally, set `E2E_CPUS` and `E2E_MEMORY` (for example 2 and 4g). Its last job, `E2E summary`,
 passes when the run was skipped, so it can be a required check once the workflow runs on pull requests again.
 
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
@@ -89,7 +89,7 @@ fails on a spec that uses a test id no frontend source defines. The ids today ar
 four machines, plans, agents, a failure, blowouts, changed files and waiting questions, plans and tool permissions into the server
 through its own routes, so the server derives everything the console shows. Ids, names and costs are fixed; the person tokens are fake and new for each database. Options add
 filler sessions for paging (`--bulk`), ended sessions for History (`--ended`), messages between orchestrators (`--talk`), recorded sessions
-(`--recording`), a rich plan and Board paging (`--rich`), reporters of other versions, one with the admin secret and one with no mod (`--reporters`), and stored activity history (`--stored`); `--flags` chooses the feature flags (`defaults` leaves them as the server starts). The suite plays the reporter mod too: `e2e/support/diffs.cjs` answers
+(`--recording`), a rich plan and Board paging (`--rich`), reporters of other versions, one with the admin secret and one with no mod (`--reporters`), stored activity history (`--stored`), and sessions Claude Code compacted on its own (`--compaction`); `--flags` chooses the feature flags (`defaults` leaves them as the server starts). The suite plays the reporter mod too: `e2e/support/diffs.cjs` answers
 the console's file-diff requests, and `cy.reportAgain` sends a reporter's next report.
 
 ## The map
@@ -117,6 +117,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Feature | Spec | Covered by |
 |---|---|---|
 | KPI tiles; cards: bands, git line, plan, cost, context, long names, copy id | SPEC 8.1 Fleet wall | `e2e/cypress/e2e/wall/cards.cy.js` |
+| The Comp pill: after the Context label on the card and in the orchestrator's panel, its title and hidden text count the automatic compactions, beside the blowout badge, inside the card at 400 px, axe in both themes | SPEC 8.1 Session cards | `e2e/cypress/e2e/wall/comp-pill.cy.js` |
 | Toolbar: status segments, the sorts (Cost, Context used, Context blowouts, Model, Status, Newest, each checked against the seed's order), the filter, "N shown, M cleared today" | SPEC 8.1 Toolbar | `e2e/cypress/e2e/wall/toolbar.cy.js` |
 | Heartbeat lost: the card's line and countdown, the full sentence, the KPI count and Remove | SPEC 8.1 Session cards | `e2e/cypress/e2e/wall/stale.cy.js` |
 | Rail items, selection, paging, the selection on another page, no paging when stacked | SPEC 8.1 Left rail | `e2e/cypress/e2e/wall/rail.cy.js` |

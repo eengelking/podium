@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Runs the end-to-end suite (e2e/, #782, DECISIONS 48) in containers: Podium's own image as the server and the pinned
+# Runs the end-to-end suite (e2e/, #782, DECISIONS 49) in containers: Podium's own image as the server and the pinned
 # cypress/included image as the runner, on one private network. Nothing is installed on the host and no port is opened on it.
 # Podman or Docker; the same script runs on a Mac with Podman and on ubuntu-latest with Docker.
 set -uo pipefail
 
-# Pinned by version and digest (an index covering amd64 and arm64). Change both together, on purpose, and update DECISIONS 48.
+# Pinned by version and digest (an index covering amd64 and arm64). Change both together, on purpose, and update DECISIONS 49.
 CYPRESS_IMAGE="${E2E_CYPRESS_IMAGE:-docker.io/cypress/included:16.2.0@sha256:c196ed896aec24c7ea8fc1d4185b210493e311339b6c09d0153f9b8dfc6a6058}"
-SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:latest}"
+# The tag carries a checksum of this checkout's path, so two worktrees (or two sessions) never overwrite each other's image: a shared
+# "latest" let one run test another branch's code.
+SERVER_IMAGE="${E2E_SERVER_IMAGE:-localhost/podium-e2e:$(cd "$(dirname "$0")/.." && pwd | cksum | cut -d' ' -f1)}"
 
 usage() {
   cat <<'USAGE'
@@ -23,7 +25,7 @@ Commands:
   down    Remove containers, networks and volumes left behind by an interrupted run of this script (matched by label).
 
 Options:
-  --no-build        Reuse the image already built (localhost/podium-e2e:latest). Fails if it is not there.
+  --no-build        Reuse the image already built (localhost/podium-e2e:<checksum of this checkout>). Fails if it is not there.
   --engine NAME     podman or docker (default: podman if installed, else docker; or $E2E_ENGINE).
   --out DIR         Where failure screenshots and the scrubbed server log go (default e2e/results, which git ignores).
   -h, --help        Show this help.
@@ -34,8 +36,11 @@ Environment:
   E2E_SECRET        The admin secret (PODIUM_TOKEN) of the throwaway server. Default: a new random one for each run, kept in a
                     mode-600 file in a temp folder, passed to the containers through env files, and printed nowhere. CI sets it
                     and masks it.
+  E2E_CPUS / E2E_MEMORY
+                    Limit the server and Cypress containers (for example E2E_CPUS=2 E2E_MEMORY=4g, the size of a GitHub runner), to
+                    reproduce a slow machine. Default: unlimited.
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
-  E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 48 note).
+  E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
 
 Cypress itself is never installed: the image carries it. axe-core is mounted read-only from node_modules (a root dev dependency).
 Exit code: 0 passed, 1 a spec or a check failed, 2 a setup error.
@@ -117,6 +122,9 @@ CTL_PID=""
 # The secret as a sed pattern, so a custom E2E_SECRET with a / or & in it still scrubs.
 SECRET_RE="$(printf '%s' "$SECRET" | sed 's/[][\.*^$/&]/\\&/g')"
 EXTRA_ENV=()
+LIMITS=()
+[[ -n "${E2E_CPUS:-}" ]] && LIMITS+=(--cpus "$E2E_CPUS")
+[[ -n "${E2E_MEMORY:-}" ]] && LIMITS+=(--memory "$E2E_MEMORY")
 
 ( umask 077
   printf 'PORT=%s\nHOST=0.0.0.0\nPODIUM_TOKEN=%s\nPODIUM_ALLOWED_HOSTS=%s\nPODIUM_LOG=info\nPODIUM_FAILURE_LIMIT=100000\n' "$PORT" "$SECRET" "$SRV" >"$WORK/server.env"
@@ -163,16 +171,64 @@ server_wait() {
   if [[ "$got" != "$VERSION" ]]; then fail "serverVersion is $got but package.json says $VERSION: the image is stale (rebuild without --no-build)"; return 1; fi
 }
 
-# A fresh database in a fresh volume, as one container.
-server_fresh() {
+# The server container is made once and lives for the whole run. Its PID 1 is a small supervisor that starts the server as a child, so a
+# restart is a new server process in the same container, not a new container. That matters: removing and recreating the container
+# tears down its network endpoint, and the proxy inside the Cypress container (and Chrome) keep pooled connections to the old one. On
+# GitHub's Docker the first request on such a dead connection hung until the page-load or request timeout (30 s), on the first request
+# after every restart. Killing the process instead closes every socket cleanly (FIN or RST) while the network is still there.
+# Control files inside the container: /tmp/hold (do not start the server), /tmp/wipe (empty /data first), /tmp/next.env (variables for
+# the next start, one NAME='VALUE' per line), /tmp/pid (the running server).
+SUPERVISOR='cd /app
+trap '"'"'kill -9 "$(cat /tmp/pid 2>/dev/null)" 2>/dev/null; exit 0'"'"' TERM INT
+while :; do
+  while [ -f /tmp/hold ]; do sleep 0.1; done
+  if [ -f /tmp/wipe ]; then rm -rf /data/* /data/.[!.]* 2>/dev/null; rm -f /tmp/wipe; fi
+  ( set -a; [ -f /tmp/next.env ] && . /tmp/next.env; exec node server/dist/index.js ) &
+  echo $! >/tmp/pid
+  wait $!
+done'
+
+# Kills the server process and returns once it is gone. $1 is "hold" to keep it down until released, anything else to let the
+# supervisor start it again (on an empty /data when $2 is "wipe", with the variables on stdin).
+server_kill() {
+  $E exec -i "$SRV" sh -c '
+    touch /tmp/hold
+    [ "$2" = wipe ] && touch /tmp/wipe
+    [ "$1" = hold ] || cat >/tmp/next.env
+    p="$(cat /tmp/pid 2>/dev/null)"
+    [ -n "$p" ] && kill -9 "$p" 2>/dev/null
+    while [ -n "$p" ] && kill -0 "$p" 2>/dev/null; do sleep 0.05; done
+    [ "$1" = hold ] || rm -f /tmp/hold' sh "$1" "${2:-}"
+}
+
+# Proves the new server answers on the network from the Cypress container's side, through a fresh connection, before a spec runs.
+client_wait() {
+  [[ "$($E inspect -f '{{.State.Running}}' "$CYC" 2>/dev/null)" == true ]] || return 0
+  local i
+  for i in $(seq 1 60); do
+    $E exec "$CYC" node -e "fetch('$URL/api/fleet/health',{signal:AbortSignal.timeout(2000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1 && return 0
+    sleep 0.25
+  done
+  fail "the server answers inside its container but not from the Cypress container"
+  return 1
+}
+
+# Creates the server container (first start only, with a fresh volume).
+server_create() {
   $E rm -f "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
-  local -a envs=(--env-file "$WORK/server.env")
-  local e
-  for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do envs+=(-e "$e"); done
-  $E run -d --name "$SRV" --label "$LABEL=$RUN" --network "$NET" --ip "$SRV_IP" --network-alias "$SRV" "${envs[@]}" -v "$VOL:/data" "$SERVER_IMAGE" >/dev/null || return 1
+  $E run -d --name "$SRV" --label "$LABEL=$RUN" --network "$NET" --ip "$SRV_IP" --network-alias "$SRV" ${LIMITS[@]+"${LIMITS[@]}"} \
+    --env-file "$WORK/server.env" -v "$VOL:/data" --entrypoint sh "$SERVER_IMAGE" -c "$SUPERVISOR" >/dev/null || return 1
   server_wait
+}
+
+# A fresh database: a new server process on an empty /data, with this request's variables (EXTRA_ENV).
+server_fresh() {
+  local e v vars="" q="'" qq="'\\''"
+  for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do v="${e#*=}"; vars+="${e%%=*}='${v//$q/$qq}'"$'\n'; done
+  printf '%s' "$vars" | server_kill restart wipe || return 1
+  server_wait && client_wait
 }
 
 server_seed() {
@@ -201,8 +257,8 @@ handle() {
   done <"$CTL/cur"
   case "$cmd" in
     restart) server_fresh && { [[ $noseed == 1 ]] || server_seed; } ;;
-    pause) $E stop -t 2 "$SRV" >/dev/null 2>&1 ;;
-    resume) $E start "$SRV" >/dev/null 2>&1 && server_wait ;;
+    pause) server_kill hold </dev/null ;;
+    resume) $E exec "$SRV" rm -f /tmp/hold && server_wait && client_wait ;;
     *) fail "unknown control command: $cmd"; return 1 ;;
   esac
 }
@@ -240,7 +296,7 @@ for _ in 1 2 3 4 5 6 7 8; do
 done
 [[ -n "$SRV_IP" ]] || { fail "could not create the network"; exit 2; }
 say "run $RUN: server $SRV, network $NET"
-server_fresh || exit 1
+server_create || exit 1
 server_seed || exit 1
 say "server is $VERSION and seeded"
 
@@ -248,10 +304,11 @@ controller &
 CTL_PID=$!
 
 say "running Cypress $CYPRESS_IMAGE"
-$E run --rm --name "$CYC" --label "$LABEL=$RUN" --network "$NET" --shm-size=1g --env-file "$WORK/cypress.env" \
-  -v "$ROOT/e2e:/e2e:ro" -v "$ROOT/scripts:/repo/scripts:ro" -v "$ROOT/package.json:/repo/package.json:ro" \
+$E run --rm --name "$CYC" --label "$LABEL=$RUN" --network "$NET" --shm-size=1g ${LIMITS[@]+"${LIMITS[@]}"} --env-file "$WORK/cypress.env" \
+  -v "$ROOT/e2e:/e2e-src:ro" -v "$ROOT/scripts:/repo/scripts:ro" -v "$ROOT/package.json:/repo/package.json:ro" \
   -v "$ROOT/node_modules/axe-core/axe.min.js:/repo/axe.min.js:ro" -v "$CTL:/ctl" -v "$OUT:/out" \
-  -w /e2e "$CYPRESS_IMAGE" --project . --config-file cypress.config.cjs --browser chrome ${REST[@]+"${REST[@]}"}
+  --entrypoint sh -w / "$CYPRESS_IMAGE" -c \
+  'mkdir -p /e2e && cp -R /e2e-src/cypress /e2e-src/support /e2e-src/cypress.config.cjs /e2e/ && cd /e2e && exec cypress run --project . --config-file cypress.config.cjs --browser chrome "$@"' sh ${REST[@]+"${REST[@]}"}
 code=$?
 [[ $code -eq 0 ]] && say "all specs passed" || fail "Cypress exited with $code (screenshots, if any, are in $OUT)"
 exit $code

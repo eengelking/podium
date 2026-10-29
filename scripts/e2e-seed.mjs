@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fixed-data seed for the end-to-end suite (e2e/, #782, DECISIONS 48). It plays the Admin and the reporters over the server's own
+// Fixed-data seed for the end-to-end suite (e2e/, #782, DECISIONS 49). It plays the Admin and the reporters over the server's own
 // HTTP routes, so the server derives everything it shows, and it puts the same ids, names, models, costs, plans and people in every
 // time. Nothing here is random and no value is read from the clock except the report timestamps the server requires to be recent.
 //
@@ -30,6 +30,8 @@ The secret is PODIUM_E2E_SECRET or PODIUM_TOKEN when --secret is not given. The 
                    with the admin secret, for Admin > Reporters
   --stored         also turn the Admin's Activity history to "Keep everything" and report stored-run (60 distinct activity entries over
                    three reports) and stored-two (5), so the history is stored (needs a token; the feed's Show older, Stored activity)
+  --compaction     also report comp-only (two automatic compactions), comp-blown (one, beside a blowout) and comp-none, for the
+                   Comp pill on the wall card (#805)
   --talk           also put eight messages between the orchestrators on Traffic (needs peer-messaging)
   -h, --help       show this help
 
@@ -92,6 +94,7 @@ export function parseArgs(argv) {
     rich: argv.includes('--rich'),
     reporters: argv.includes('--reporters'),
     stored: argv.includes('--stored'),
+    compaction: argv.includes('--compaction'),
   };
 }
 
@@ -290,6 +293,19 @@ export function fleetReports(manifest, opts = {}) {
     SESSIONS.futurebox = 'e2e-s-future-box';
     SESSIONS.secretbox = 'e2e-s-secret-box';
   }
+  if (opts.compaction) {
+    // Automatic compactions are stored `compact` events with trigger auto; the server counts them into the session view (#805).
+    const compact = (sid, n, percent) => ({ id: EVENT_ID(sid, 'main', 'compact', n), t: now - 600_000 + n * 1000, kind: 'compact', agentId: null, text: `auto-compacted at ${percent}% on the orchestrator`, data: { trigger: 'auto', window: 1_000_000, percent, idleMs: 312_000, tokensBefore: percent * 10_000, tokensAfter: 29_000 } });
+    SESSIONS.comp = 'e2e-s-comp-only';
+    SESSIONS.compblow = 'e2e-s-comp-blown';
+    SESSIONS.compnone = 'e2e-s-comp-none';
+    add(ed, MACHINES.mbp, 'comp', 'comp-only', {}, { events: [compact(SESSIONS.comp, 1, 22), compact(SESSIONS.comp, 2, 25)] });
+    add(ed, MACHINES.mbp, 'compblow', 'comp-blown', { blowouts: 1 }, {
+      agents: [agent('e2e-c-a', { description: 'Overflowing helper', blowouts: 1, context: { tokens: 910_000, window: 1_000_000, percent: 91 } })],
+      events: [compact(SESSIONS.compblow, 1, 22), { id: EVENT_ID(SESSIONS.compblow, 'e2e-c-a', 'blow', 2), t: now - 100_000, kind: 'blow', agentId: 'e2e-c-a', text: 'context window exceeded (blowout #1) in "Overflowing helper"', data: { kind: 'auto-compact', tokensBefore: 1_004_000, tokensAfter: 300_000 } }],
+    });
+    add(ed, MACHINES.mbp, 'compnone', 'comp-none', {});
+  }
   const reasons = ['prompt_input_exit', 'logout', 'other'];
   for (let i = 1; i <= (opts.ended ?? 0); i++) {
     const n = String(i).padStart(2, '0');
@@ -301,7 +317,7 @@ export function fleetReports(manifest, opts = {}) {
 }
 
 /** Runs the whole seed against `origin` and returns the manifest. */
-export async function seed({ url, secret, flags = 'all', bulk = 0, ended = 0, talk = false, recording = false, rich = false, reporters = false, stored = false }) {
+export async function seed({ url, secret, flags = 'all', bulk = 0, ended = 0, talk = false, recording = false, rich = false, reporters = false, stored = false, compaction = false }) {
   const origin = new URL(url).origin;
   const host = new URL(origin).hostname;
   // This machine, or a throwaway server container made by scripts/e2e-up.sh (its name starts with podium-e2e-).
@@ -324,7 +340,7 @@ export async function seed({ url, secret, flags = 'all', bulk = 0, ended = 0, ta
   const group = must(await c.admin('POST', '/groups', { name: 'Platform' }), 'group');
   must(await c.admin('PUT', `/people/${people.Alex.id}/group`, { groupId: group.body.id }), 'group member');
 
-  for (const r of fleetReports({}, { bulk, ended, rich, reporters })) must(await c.mod(r.who === 'Admin' ? secret : people[r.who].token, 'POST', '/report', r.body), `report ${r.key}`);
+  for (const r of fleetReports({}, { bulk, ended, rich, reporters, compaction })) must(await c.mod(r.who === 'Admin' ? secret : people[r.who].token, 'POST', '/report', r.body), `report ${r.key}`);
 
   if (on.includes('peer-messaging')) await seedPeers(c, people, talk);
   if (recording) await seedRecording(c, people);
