@@ -22,7 +22,7 @@ Kinds
   missing-reason   a promise-ok comment with no reason after the colon
   unused-allow     a promise-ok comment that allows nothing
 
-Handled, so not floating: a chain that ends in .catch(...), a chain that ends in .finally(...) after a .catch, and
+Handled, so not floating: a chain that ends in .catch(...), a chain that ends in .finally(...) after a .catch or a two-argument .then, and
 .then(onFulfilled, onRejected) with both arguments. An assignment is not a statement of its own value, and a return is not a statement. Only a type that is exactly a Promise is
 checked: a Promise | null is meant to be tested for null, so "if (this.inFlight)" on one is not a finding.
 
@@ -59,10 +59,19 @@ function handled(expression) {
   return name === 'finally' && handled(node.expression.expression);
 }
 
+/** The expressions whose value a statement drops: the statement itself, or each branch of `c ? a : b` and the right side of `c && a`, `c || a`, `c ?? a`. */
+function floatingParts(expression) {
+  const node = unwrap(expression);
+  if (ts.isConditionalExpression(node)) return [...floatingParts(node.whenTrue), ...floatingParts(node.whenFalse)];
+  if (ts.isBinaryExpression(node) && LOGICAL.has(node.operatorToken.kind)) return floatingParts(node.right);
+  return [node];
+}
+
 const ALLOW = /^promise-ok\b(?::\s*(.*\S))?/;
 
 /** Every real comment of the source (not text in a string) that starts with `promise-ok`: [{ line, reason }], reason '' when missing. */
 function allowComments(source) {
+  if (!source.text.includes('promise-ok')) return [];
   const seen = new Map();
   const collect = (ranges) => {
     for (const range of ranges ?? []) seen.set(range.pos, range);
@@ -90,6 +99,7 @@ export function scan(tsconfig, { tests = false } = {}) {
       throw new Error(ts.flattenDiagnosticMessageText(d.messageText, '\n'));
     },
   });
+  if (config.fileNames.length === 0) throw new Error(`${tsconfig} matches no source files, so nothing was checked`);
   const program = ts.createProgram(config.fileNames, config.options);
   const checker = program.getTypeChecker();
   const wanted = new Set(config.fileNames.map((f) => path.resolve(f)));
@@ -123,7 +133,7 @@ export function scan(tsconfig, { tests = false } = {}) {
         const expression = unwrap(node.expression);
         const isAssignment = ts.isBinaryExpression(expression) && expression.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && expression.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
         const isVoidOrAwait = ts.isVoidExpression(expression) || ts.isAwaitExpression(expression);
-        if (!isAssignment && !isVoidOrAwait && !handled(expression) && isPromise(expression)) report(expression, 'floating');
+        if (!isAssignment && !isVoidOrAwait) for (const part of floatingParts(expression)) if (!handled(part) && isPromise(part)) report(part, 'floating');
       }
       ts.forEachChild(node, visit);
     };
@@ -167,7 +177,13 @@ export function run(argv, write = { out: (s) => void process.stdout.write(`${s}\
     write.err(`No such file: ${positional[0]}`);
     return 2;
   }
-  const findings = scan(positional[0], { tests: argv.includes('--tests') });
+  let findings;
+  try {
+    findings = scan(positional[0], { tests: argv.includes('--tests') });
+  } catch (error) {
+    write.err(`promise-misuse: ${error instanceof Error ? error.message : String(error)}`);
+    return 2;
+  }
   for (const finding of findings) write.out(format(finding));
   write.out(findings.length === 0 ? 'promise-misuse: no findings' : `promise-misuse: ${findings.length} finding(s)`);
   return findings.length === 0 ? 0 : 1;

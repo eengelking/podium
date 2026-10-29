@@ -59,6 +59,12 @@ describe("scan: one case per kind", () => {
     expect(kinds("work().then(() => 1);")).toEqual(["1 floating"]);
     expect(kinds("work().finally(() => 1);")).toEqual(["1 floating"]);
   });
+  it("reports a dropped Promise in a branch of a ternary or the right side of &&, || and ??", () => {
+    expect(kinds("export function f(c: boolean) {\n  c && work();\n}")).toEqual(["2 floating"]);
+    expect(kinds("export function f(c: boolean) {\n  c ? work() : undefined;\n}")).toEqual(["2 floating"]);
+    expect(kinds("export function f(c: boolean) {\n  c || work();\n}")).toEqual(["2 floating"]);
+    expect(kinds("export function f(c: boolean) {\n  c && work().catch(() => 1);\n}")).toEqual([]);
+  });
   it("leaves handled statements alone", () => {
     const source = [
       "export async function f() {",
@@ -138,6 +144,14 @@ describe("run", () => {
     const c = capture();
     expect(run(["--nope", "x"], c.write)).toBe(2);
     expect(run([join(tmpdir(), "no-such-dir", "tsconfig.json")], c.write)).toBe(2);
+  });
+  it("exits 2, and does not say there are no findings, for a tsconfig that matches no source file", () => {
+    const tsconfig = project({});
+    expect(() => scan(tsconfig)).toThrow(/no source files/);
+    const c = capture();
+    expect(run([tsconfig], c.write)).toBe(2);
+    expect(c.err.join("\n")).toContain("no source files");
+    expect(c.out.join("\n")).not.toContain("no findings");
   });
   it("exits 1 and prints file:line: kind: text for a finding", () => {
     const tsconfig = project({ "a.ts": PRELUDE + "work();\n" });
