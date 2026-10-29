@@ -657,10 +657,27 @@ export class FleetDb {
     return r.n;
   }
 
-  /** How many times Claude Code compacted the session on its own (any loop): its stored `compact` events with trigger auto (#805). */
+  /**
+   * How many times Claude Code compacted the session on its own (any loop): its stored `compact` events with trigger auto (#805).
+   * Counted in code over the compact events, so the query uses no database's JSON functions (#808); a row whose data is missing,
+   * is not JSON or has no string `auto` trigger is not counted.
+   */
   countAutoCompactions(sessionId: string): number {
-    const r = this.stmt(`SELECT COUNT(*) AS n FROM events WHERE session_id = ? AND kind = 'compact' AND json_extract(data_json, '$.trigger') = 'auto'`).get(sessionId) as { n: number };
-    return r.n;
+    const rows = this.stmt(`SELECT data_json FROM events WHERE session_id = ? AND kind = 'compact'`).all(sessionId) as { data_json: string | null }[];
+    let n = 0;
+    for (const r of rows) if (FleetDb.isAutoCompact(r.data_json)) n++;
+    return n;
+  }
+
+  /** Whether a compact event's `data_json` is an object whose `trigger` is exactly the string `auto`; anything else, unreadable JSON included, is not. */
+  private static isAutoCompact(dataJson: string | null): boolean {
+    if (dataJson === null) return false;
+    try {
+      const data: unknown = JSON.parse(dataJson);
+      return typeof data === 'object' && data !== null && !Array.isArray(data) && (data as { trigger?: unknown }).trigger === 'auto';
+    } catch {
+      return false;
+    }
   }
 
   // ---- samples --------------------------------------------------------------------------------

@@ -48,6 +48,11 @@ const CHUNK_MS = 25;
 /** The first chunk of a removal: small, because what a row costs to delete is not known until one has been. */
 const FIRST_CHUNK = 500;
 const SLICE_ROWS = 20_000;
+/**
+ * Ids bound in one `DELETE ... WHERE id IN (?, ...)` (#808). A fixed size keeps the statement within every database's limit on bound
+ * parameters. The statement cache is keyed by SQL text, so a last batch of 1 to 199 ids caches one more statement per size; that is few.
+ */
+const DELETE_BATCH = 200;
 
 /** Gives the event loop a turn: queued requests, timers and reports run before the next chunk. */
 const yieldNow = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
@@ -777,7 +782,10 @@ export class ActivityHistory {
     }
     this.db.exec('BEGIN');
     try {
-      this.st('DELETE FROM entries WHERE id IN (SELECT value FROM json_each(?))').run(JSON.stringify(rows.map((r) => r.id)));
+      for (let i = 0; i < rows.length; i += DELETE_BATCH) {
+        const ids = rows.slice(i, i + DELETE_BATCH).map((r) => r.id);
+        this.st(`DELETE FROM entries WHERE id IN (${ids.map(() => '?').join(', ')})`).run(...ids);
+      }
       for (const [sid, p] of perSession) {
         this.st('UPDATE stored_sessions SET entries = entries - ?, bytes = bytes - ? WHERE session_id = ?').run(p.n, p.b, sid);
         touched.sessions.add(sid);

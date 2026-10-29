@@ -205,6 +205,44 @@ describe('openDb', () => {
     f.close();
   });
 
+  // #808: the count is made in code, so an event the old SQL could not read must be skipped, not thrown on.
+  it('counts automatic compactions across agents and loops, and skips a compact event that is not an auto one', () => {
+    const f = new FleetDb(openDb(':memory:'));
+    f.upsertSession(session());
+    f.upsertSession(session({ id: 's2' }));
+    const ev = (id: string, sid: string, agent: string | null, kind: string, data: string | null) => ({ id, session_id: sid, agent_id: agent, t: 1, kind, text: 'x', data_json: data });
+    f.insertEvent(ev('a1', 's1', null, 'compact', '{"trigger":"auto"}'));
+    f.insertEvent(ev('a2', 's1', 'ag1', 'compact', '{"trigger":"auto","percent":30}'));
+    f.insertEvent(ev('a3', 's1', 'ag2', 'compact', '{"percent":30,"trigger":"auto"}'));
+    f.insertEvent(ev('m1', 's1', null, 'compact', '{"trigger":"manual"}'));
+    f.insertEvent(ev('m2', 's1', 'ag1', 'compact', '{"trigger":1}'));
+    f.insertEvent(ev('m3', 's1', 'ag1', 'compact', '{"trigger":"AUTO"}'));
+    f.insertEvent(ev('m4', 's1', null, 'compact', '{"trigger":null}'));
+    f.insertEvent(ev('m5', 's1', null, 'compact', '{"tokensBefore":1}'));
+    f.insertEvent(ev('m6', 's1', null, 'compact', null));
+    f.insertEvent(ev('m7', 's1', null, 'compact', '["auto"]'));
+    f.insertEvent(ev('m8', 's1', null, 'compact', '"auto"'));
+    f.insertEvent(ev('m9', 's1', null, 'compact', 'null'));
+    f.insertEvent(ev('o1', 's1', null, 'blow', '{"trigger":"auto"}'));
+    f.insertEvent(ev('o2', 's2', null, 'compact', '{"trigger":"auto"}'));
+    expect(f.countAutoCompactions('s1')).toBe(3);
+    expect(f.countAutoCompactions('s2')).toBe(1);
+    f.close();
+  });
+
+  it('does not throw on a compact event whose data is not valid JSON, and does not count it', () => {
+    const f = new FleetDb(openDb(':memory:'));
+    f.upsertSession(session());
+    const ev = (id: string, data: string) => ({ id, session_id: 's1', agent_id: null, t: 1, kind: 'compact', text: 'x', data_json: data });
+    f.insertEvent(ev('good', '{"trigger":"auto"}'));
+    f.insertEvent(ev('bad1', '{"trigger":"auto"'));
+    f.insertEvent(ev('bad2', 'not json'));
+    f.insertEvent(ev('bad3', ''));
+    expect(() => f.countAutoCompactions('s1')).not.toThrow();
+    expect(f.countAutoCompactions('s1')).toBe(1);
+    f.close();
+  });
+
   it('upserts sessions, ignores duplicate events and deletes a session with its rows', () => {
     const f = new FleetDb(openDb(':memory:'));
     f.upsertSession(session());

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ACTIVITY_SCHEMA_STEPS, activityDbPath, openActivityDb } from './activityDb.js';
+import { ACTIVITY_SCHEMA_STEPS, activityDbPath, entryBytesSql, openActivityDb } from './activityDb.js';
 import { ActivityHistory } from './activityHistory.js';
 import { ACTIVITY_HISTORY_DEFAULTS, ACTIVITY_UNIT_MS, type ActivityHistorySettings } from '../../fleet/activityHistoryTypes.js';
 import { LIMITS, MAIN_LOOP, type ActivityEntry, type Report } from '../../fleet/protocol.js';
@@ -508,6 +508,85 @@ describe('compaction', () => {
     expect(h.totals().bytes).toBeLessThan(used / 10);
     expect(statSync(file).size).toBeLessThan(sizeBefore / 2);
     expect((db.prepare('PRAGMA freelist_count').get() as { freelist_count: number }).freelist_count).toBe(0);
+    h.close();
+  });
+});
+
+// #808: the bulk delete binds its ids in batches of a fixed size, so a set is checked on and around the batch edges.
+describe('a bulk delete across the batch edges (#808)', () => {
+  const ROWS = 450;
+
+  /** Two sessions, the first with `ROWS` entries over the orchestrator and an agent, the second with 30 that must never be touched. */
+  function fill(over: Partial<ActivityHistorySettings>, opts: { chunkRows?: number } = {}) {
+    const db = openActivityDb(':memory:');
+    const h = new ActivityHistory(db, {
+      now: () => T0,
+      settings: () => ({ ...ACTIVITY_HISTORY_DEFAULTS, policy: 'all' as const, ...over }),
+      isLive: () => false,
+      agentsOf: () => ['a1'],
+      authOn: true,
+      ...opts,
+    });
+    const mk = (n: number, base: number) => Array.from({ length: n }, (_, k) => tool(T0 + base + k, `Read file-${base + k}-${'x'.repeat(k % 7)}`));
+    const big = report(mk(300, 0), mk(ROWS - 300, 1000), 'big');
+    const other = report(mk(30, 5000), [], 'other');
+    other.agents[0]!.activity = [];
+    expect(h.ingest(big, 0, META)).toBe(ROWS);
+    expect(h.ingest(other, 0, META)).toBe(30);
+    return { h, db };
+  }
+
+  type Victim = { id: number; sid: string; loop: string; b: number };
+  const victims = (db: ReturnType<typeof openActivityDb>, sid = 'big') =>
+    db.prepare(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE session_id = ? ORDER BY id`).all(sid) as unknown as Victim[];
+  const ids = (db: ReturnType<typeof openActivityDb>) => (db.prepare('SELECT id FROM entries ORDER BY id').all() as { id: number }[]).map((r) => r.id);
+  const aggregates = (db: ReturnType<typeof openActivityDb>, sid: string) => ({
+    session: db.prepare('SELECT entries, bytes FROM stored_sessions WHERE session_id = ?').get(sid),
+    loops: db.prepare('SELECT loop, entries FROM loops WHERE session_id = ? ORDER BY loop').all(sid),
+    actual: db.prepare(`SELECT COUNT(*) AS entries, COALESCE(SUM(${entryBytesSql()}), 0) AS bytes FROM entries WHERE session_id = ?`).get(sid),
+  });
+
+  it.each([1, 199, 200, 201, 400, 401, 450])('removes exactly the %i rows given, leaving every other one and exact aggregates', (n) => {
+    const { h, db } = fill({});
+    const all = victims(db);
+    // every other row first, so the ids are not one run
+    const pick = [...all.filter((_, i) => i % 2 === 0), ...all.filter((_, i) => i % 2 === 1)].slice(0, n);
+    const gone = new Set(pick.map((v) => v.id));
+    const before = ids(db);
+    const touched = { sessions: new Set<string>(), loops: new Map<string, { sid: string; loop: string }>() };
+    (h as unknown as { dropRows(rows: Victim[], t: typeof touched): void }).dropRows(pick, touched);
+    expect(ids(db)).toEqual(before.filter((id) => !gone.has(id)));
+    const a = aggregates(db, 'big');
+    expect(a.session).toEqual(a.actual);
+    expect(a.session).toMatchObject({ entries: ROWS - n });
+    expect(a.session).toMatchObject({ bytes: all.filter((v) => !gone.has(v.id)).reduce((x, v) => x + v.b, 0) });
+    const left = (loop: string) => all.filter((v) => v.loop === loop && !gone.has(v.id)).length;
+    expect(a.loops).toEqual([{ loop: MAIN_LOOP, entries: left(MAIN_LOOP) }, { loop: 'a1', entries: left('a1') }].sort((x, y) => x.loop.localeCompare(y.loop)));
+    expect(aggregates(db, 'other').session).toMatchObject({ entries: 30 });
+    expect([...touched.sessions]).toEqual(['big']);
+    h.close();
+  });
+
+  it.each([100, 1000, 5000])('deletes a whole session of %i-row chunks through deleteBy and keeps the other session intact', async (chunkRows) => {
+    const { h, db } = fill({}, { chunkRows });
+    const keep = victims(db, 'other').map((v) => v.id);
+    expect(await h.deleteBy({ ids: ['big'] })).toMatchObject({ entries: ROWS, sessions: 1 });
+    expect(ids(db)).toEqual(keep);
+    expect(aggregates(db, 'other').session).toMatchObject({ entries: 30 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM stored_sessions WHERE session_id = 'big'").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM loops WHERE session_id = 'big'").get()).toEqual({ n: 0 });
+    h.close();
+  });
+
+  it('removes only the filtered rows when the match spans more than one chunk', async () => {
+    const { h, db } = fill({}, { chunkRows: 100 });
+    const all = victims(db);
+    const r = await h.deleteBy({ match: { loop: 'agents' } });
+    expect(r).toMatchObject({ entries: ROWS - 300 });
+    expect(ids(db)).toEqual(all.filter((v) => v.loop !== 'a1').map((v) => v.id).concat(victims(db, 'other').map((v) => v.id)).sort((x, y) => x - y));
+    const a = aggregates(db, 'big');
+    expect(a.session).toEqual(a.actual);
+    expect(a.session).toMatchObject({ entries: 300 });
     h.close();
   });
 });
