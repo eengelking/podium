@@ -93,7 +93,7 @@ describe('admin: reporting', () => {
     cy.get('table.ptab').first().find('tbody tr').should('have.length.greaterThan', 0);
     cy.contains('Ed').should('exist');
     cy.contains('Alex').should('exist');
-    cy.contains('1.3.1').should('exist');
+    cy.readFile('/repo/package.json').then((pkg) => cy.contains(pkg.version).should('exist'));
   });
 
   it('Spend: shows spend today by person, the projection and spend over time', () => {
