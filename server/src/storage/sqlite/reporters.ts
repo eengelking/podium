@@ -155,7 +155,19 @@ export class ReporterStore {
       s.os?.slice(0, 80) ?? null,
       s.peers === undefined || s.peers === null ? null : Number(s.peers),
     );
-    this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id) VALUES (?, ?)').run(key, s.sessionId);
+    const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
+    this.stmt(
+      `INSERT INTO reporter_sessions (reporter_key, session_id, peers) VALUES (?, ?, ?)
+       ON CONFLICT(reporter_key, session_id) DO UPDATE SET peers = COALESCE(excluded.peers, peers)`,
+    ).run(key, s.sessionId, peers);
+    // The reporter takes part while any live session does (#838): a session that reports false (a `claude -p` run) leaves it On.
+    if (peers === 0) {
+      this.stmt(
+        `UPDATE reporters SET peers = 1 WHERE key = ? AND EXISTS (
+           SELECT 1 FROM reporter_sessions x WHERE x.reporter_key = reporters.key AND x.peers = 1 AND x.session_id != ?
+             AND NOT EXISTS (SELECT 1 FROM sessions v WHERE v.id = x.session_id AND (v.ended_at IS NOT NULL OR v.dropped_at IS NOT NULL)))`,
+      ).run(key, s.sessionId);
+    }
     return key;
   }
 
