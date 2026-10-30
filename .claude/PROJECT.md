@@ -124,7 +124,7 @@ The design system is `docs/standards/` (open `index.html`): tokens, themes, ever
 - **Feature PRs never bump the version.** A feature or fix PR into `development` adds its entry under `[Unreleased]` and leaves every versioned file alone, including the mod's `plugin.json` (installed copies update at the next release). CI's `mod-version-check` runs on PRs into `main`, so it checks the release PR.
 - **A release is the maintainer's decision that `development` is a release candidate.** Do not start one unprompted, and do not open the release PR with a known failure; `development` may be broken between releases.
 - **The bump level is chosen by what the `[Unreleased]` entries change, never by an issue's label:** an `enhancement` that only removes unused code or tidies internals is a patch, and one that adds behavior a person can see is a minor. A minor release may include breaking changes only before 1.0.0.
-- **The release is published as the docs site and nothing else.** There is no package registry and no container registry.
+- **The release is published as the docs site and one archive.** The archive is `podium-reporter-<version>.zip`, attached to the GitHub Release of each `vX.Y.Z` tag by `release.yml` and, as `podium-reporter-<version>-nightly-<date>.zip`, to each nightly prerelease by `nightly.yml`. Claude Desktop installs a plugin only from an archive (#835). `scripts/podium-reporter-zip.mjs` builds it. There is no package registry and no container registry.
 - **The release PR carries no `Closes #N`** (CLAUDE.md's Branching Model), and the tag waits for the maintainer's approval.
 
 ## Delegation and Checks

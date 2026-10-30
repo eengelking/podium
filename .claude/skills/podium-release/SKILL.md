@@ -9,7 +9,8 @@ The general sequence is `github-release`, read with its `resources/development-b
 
 Where this repo differs from the generic skill:
 
-- **Publish is the docs site and nothing else.** There is no package registry and no container registry; users build the image with `podiumctl build`. The site deploys itself when `main` moves (`.github/workflows/docs-site.yml`), so the generic publish step has nothing to run.
+- **Publish is the docs site and the reporter archive.** There is no package registry and no container registry; users build the image with `podiumctl build`. The site deploys itself when `main` moves (`.github/workflows/docs-site.yml`), so the generic publish step has nothing to run. The archive is `podium-reporter-<version>.zip` (#835), built by `scripts/podium-reporter-zip.mjs` and attached by `.github/workflows/release.yml`, which runs when the `vX.Y.Z` tag is pushed and fails if the mod's version is not the tag's. The nightly prerelease carries its own copy, named `podium-reporter-<version>-nightly-<date>.zip`.
+- **Tag, then release, then check the asset.** Push the tag and make the GitHub Release right after (`release.yml` waits up to 30 minutes for it). Then check the `Release asset` run is green and `gh release view vX.Y.Z --json assets` lists `podium-reporter-X.Y.Z.zip`. If it is missing, re-run the workflow from the Actions tab (`workflow_dispatch`, with the tag).
 - **After the release PR merges**, check the `Docs site` run on `main` is green and the new version is in the site's menu (`podium-docs-site`) before proposing the tag.
 
 ## The gate for this repo
@@ -45,6 +46,7 @@ A hotfix that changes the UI also updates `docs/standards/` in the same PR (`pod
 Run `github-release`'s `resources/release-check.md` (a fresh, non-fork Haiku subagent before the release-prep PR is opened, authority stated in its prompt). It covers the generic checks: the versions agree, the CHANGELOG section and links, the old-version grep, documented numbers, the docs build, tests and the build. Give it the version-file table above as "every file that carries the version", and add these Podium checks:
 
 - the atlas still matches the code: `docs/atlas/podium-atlas.html` carries the release version, every source file it names exists, every handler registered with `on(` in `mod/podium-reporter/hooks/register.ts` has a row in `docs/atlas/ATLAS.md` and every hook row there is still registered, and a number the atlas states (a default timing, a limit, a port, a count of pages or migrations) still equals the code, checked for each part an `[Unreleased]` entry touches;
+- the archive matches the version: `node scripts/podium-reporter-zip.mjs --out <tmpdir> --expect-version X.Y.Z` succeeds and names `podium-reporter-X.Y.Z.zip` (so the tag to come will match the archive `release.yml` builds);
 - the docs site builds for every version (`node site/scripts/build.mjs`), and no link is broken;
 - the end-to-end suite passed on the tip of `development` (`npm run e2e`, run locally), and `node scripts/e2e-map.mjs` reports the coverage map true;
 - `npm run standards:parity` passes, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).

@@ -1,0 +1,88 @@
+name: Release asset
+
+# Attaches podium-reporter-<version>.zip to the GitHub Release of a vX.Y.Z tag (#835). Claude Desktop installs a plugin only from an
+# archive, so every release carries one. The tag is pushed first and the release is made right after (podium-release skill), so the
+# job waits for the release to exist. The zip is built by scripts/podium-reporter-zip.mjs, the script a person runs too, and the job
+# fails if the mod's version is not the tag's. Run it by hand from the Actions tab with `workflow_dispatch` to redo an upload.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag to attach the zip to, e.g. v1.4.0'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-asset-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # The `gh` version the job installs (see "Install the GitHub CLI"). Bump it by hand when a newer release is wanted.
+  GH_VERSION: '2.103.2'
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  attach:
+    # No fork path applies: a tag only reaches this repo (see ci.yml).
+    runs-on: [self-hosted, Linux, X64]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install the GitHub CLI
+        # The runners are generic and do not ship `gh` (#698). The job installs it, with no sudo, from the pinned release
+        # and its checksums file, and leaves a runner that already has one alone.
+        run: |
+          set -euo pipefail
+          if command -v gh >/dev/null 2>&1; then
+            gh --version
+            exit 0
+          fi
+          dir="${RUNNER_TEMP}/gh-cli"
+          archive="gh_${GH_VERSION}_linux_amd64.tar.gz"
+          base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/${archive}" "${base}/${archive}"
+          curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${dir}/checksums.txt" "${base}/gh_${GH_VERSION}_checksums.txt"
+          (cd "$dir" && awk -v f="$archive" '$2 == f' checksums.txt | sha256sum -c -)
+          tar -xzf "${dir}/${archive}" -C "$dir"
+          echo "${dir}/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+          "${dir}/gh_${GH_VERSION}_linux_amd64/bin/gh" --version
+
+      - name: Build the archive
+        run: |
+          set -euo pipefail
+          node scripts/podium-reporter-zip.mjs --out dist --expect-version "${TAG#v}"
+          ls -l dist
+
+      - name: Attach it to the release
+        run: |
+          set -euo pipefail
+          # The release is made by hand just after the tag is pushed; give it up to 30 minutes.
+          for _ in $(seq 1 60); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" dist/podium-reporter-*.zip --clobber
+              gh release view "$TAG" --json assets --jq '.assets[].name'
+              exit 0
+            fi
+            echo "No release for $TAG yet; waiting."
+            sleep 30
+          done
+          echo "No GitHub Release for $TAG appeared. Create it, then re-run this workflow." >&2
+          exit 1

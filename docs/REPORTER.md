@@ -260,7 +260,9 @@ unless you say otherwise. A context is a name for one file, and the current cont
   address stays the one read at start. `/clear` keeps the helper running.
 - Where it runs: the Claude Code command line on macOS and Linux, and the Claude desktop app on macOS and Windows
   (`$.process` works there, #408). The desktop app has no `/plugin marketplace`; the mod is added by uploading an
-  archive in Settings > Plugins. A desktop session can start before its client attaches, so `session.start` reports no
+  archive in Settings > Plugins. Each release has one attached, `podium-reporter-<version>.zip`, and so does the nightly
+  prerelease (#835). `node scripts/podium-reporter-zip.mjs` builds the same file from a checkout. An installed archive has no
+  `.git`, so `/podium` shows a clean build, not a dev build. A desktop session can start before its client attaches, so `session.start` reports no
   surface; the mod counts the session as interactive once a client shows on the roster, and keeps that for the
   session (#408). VS Code is not covered. On Windows 11 the desktop app connects over mutual TLS with a reporter config file when Node.js is installed (#834); nothing else is built or
   tested for Windows.

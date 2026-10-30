@@ -1,7 +1,7 @@
 name: Nightly
 
 # A daily snapshot of `development` for testers (#528). It publishes the tag `nightly-YYYY-MM-DD` and a GitHub prerelease that
-# carries a source tarball of the tested commit, then removes every earlier nightly, so one exists at a time. There is no registry.
+# carries a source tarball of the tested commit and the reporter's zip (#835), then removes every earlier nightly, so one exists at a time. There is no registry.
 # A `schedule:` trigger only runs from the workflow file on the default branch, so this file takes effect when it reaches `main`;
 # it checks out `development` by name. Run it by hand from the Actions tab with `workflow_dispatch`.
 
@@ -133,6 +133,10 @@ jobs:
           echo "${dir}/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
           "${dir}/gh_${GH_VERSION}_linux_amd64/bin/gh" --version
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
       - name: Publish the new nightly
         run: |
           set -euo pipefail
@@ -163,13 +167,16 @@ jobs:
           } > notes.md
 
           git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
+          # The reporter as an archive for Claude Desktop (#835), named for the version development carries and the day.
+          zip="$(node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}")"
+          test -f "$zip"
 
           # A same-day rerun after a new commit moves the tag, so the old release of that day goes first. It is replaced, never left empty.
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release delete "$tag" --cleanup-tag --yes
           fi
 
-          gh release create "$tag" "podium-${tag}.tar.gz" \
+          gh release create "$tag" "podium-${tag}.tar.gz" "$zip" \
             --target "$SHA" \
             --title "Nightly ${day}" \
             --notes-file notes.md \
