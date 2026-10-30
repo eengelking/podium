@@ -133,6 +133,7 @@ export class ReporterStore {
     const key = known ?? this.accountKey(s);
     // A row made for this address before a known session turned up here is the same reporter: fold it in.
     if (known && known !== own) this.merge(own, known);
+    const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
     this.stmt(
       `INSERT INTO reporters (key, kind, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -153,9 +154,8 @@ export class ReporterStore {
       now,
       now,
       s.os?.slice(0, 80) ?? null,
-      s.peers === undefined || s.peers === null ? null : Number(s.peers),
+      peers,
     );
-    const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
     this.stmt(
       `INSERT INTO reporter_sessions (reporter_key, session_id, peers) VALUES (?, ?, ?)
        ON CONFLICT(reporter_key, session_id) DO UPDATE SET peers = COALESCE(excluded.peers, peers)`,
@@ -209,7 +209,7 @@ export class ReporterStore {
 
   /** Moves `from`'s session links to `into`, keeps the earlier first-seen time, and drops `from`. */
   private merge(from: string, into: string): void {
-    this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id) SELECT ?, session_id FROM reporter_sessions WHERE reporter_key = ?').run(into, from);
+    this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id, peers) SELECT ?, session_id, peers FROM reporter_sessions WHERE reporter_key = ?').run(into, from);
     this.stmt('UPDATE reporters SET first_seen_at = MIN(first_seen_at, COALESCE((SELECT first_seen_at FROM reporters WHERE key = ?), first_seen_at)) WHERE key = ?').run(from, into);
     this.stmt('DELETE FROM reporters WHERE key = ?').run(from);
   }
