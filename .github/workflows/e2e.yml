@@ -93,6 +93,9 @@ jobs:
           # in them), and their default buildx builder keeps a built image in its cache instead of loading it. The legacy builder loads it.
           E2E_ENGINE: docker
           DOCKER_BUILDKIT: "0"
+          # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
+          # the runner's temp folder, which is the same path on both.
+          TMPDIR: ${{ runner.temp }}
         run: |
           set -u -o pipefail
           fail=0
