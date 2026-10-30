@@ -14,6 +14,7 @@ session, and how to report sessions that were started without it. To run the ser
 Contents:
 
 - [Install the mod](#install-the-mod)
+- [Install in the Claude desktop app on Windows 11](#install-in-the-claude-desktop-app-on-windows-11)
 - [In the session](#in-the-session)
 - [Options](#options)
 - [Over TLS](#over-tls)
@@ -54,6 +55,32 @@ the mod" in [docs/user-guide/](user-guide/README.md)):
 ```sh
 claude plugin marketplace update eengelking-marketplace && claude plugin update podium-reporter@eengelking-marketplace
 ```
+
+## Install in the Claude desktop app on Windows 11
+
+**The terminal commands above do not work in the desktop app.** Its Code tab takes no marketplace and no address, so
+`/plugin marketplace add` and `/plugin install` cannot be used there. Uploading the archive is the only way in.
+
+1. Install Node.js 20.17 or later from nodejs.org (the LTS installer is enough). If `node.exe` is not on the PATH, or is
+   somewhere unusual, set `PODIUM_NODE` to its full path (for example `C:\Program Files\nodejs\node.exe`) as a user environment
+   variable. Then quit the Claude desktop app and open it again: it reads its environment when it starts, and it does not read
+   PowerShell profiles.
+2. Download `podium-reporter-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases).
+3. In the desktop app, open **Settings** > **Plugins** > **+ Add** > **Upload Plugin**.
+4. Drag the zip onto "Drag and drop plugin files here..." or pick it in the file browser, then choose **Upload**. This installs
+   and enables Podium-Reporter.
+5. Open **Podium-Reporter** > **Settings**. It lists every option. Fill in `serverUrl`, `token` and `userName`, and `sessionName` if you want one.
+   `token` is secret: once saved, Settings does not show it again.
+   Every other option is in the [Options](#options) table, which also says what each one sends off the machine.
+6. The app connects over mutual TLS, as the terminal does. If your server uses built-in TLS, save the reporter config file an Admin gave you as in
+   [Over TLS](#over-tls) instead of using a token.
+
+To check it: start a local session (plugins are not available in cloud or WSL sessions), send a prompt and run `/podium`. You
+should see `Connection: online`, and `Messaging: on` if `peers` is set.
+
+What does not work on Windows: the tmux web terminal. The server does not run on Windows (see [SERVER.md](SERVER.md)).
+Reports from the app reach the server over the folder link described in [Over TLS](#over-tls), not a socket. Cloud and WSL sessions
+do not load plugins.
 
 ## In the session
 

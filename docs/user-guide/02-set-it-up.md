@@ -46,6 +46,29 @@ Admin's log shows each person's address and one person's wrong tries do not lock
 
 To report as more than one person from one machine, see [More than one login on one machine](#more-than-one-login-on-one-machine). To report to more than one Podium server (a home one and a work one, say), see [Contexts](../REPORTER.md#contexts-more-than-one-podium-server).
 
+## Installing in the Claude desktop app on Windows 11
+
+The terminal commands in step 2 do not work in the desktop app, which takes no marketplace. Upload the archive instead.
+
+1. Install Node.js 20.17 or later from nodejs.org (the LTS installer is enough). If `node.exe` is not on the PATH, or is
+   somewhere unusual, set `PODIUM_NODE` to its full path (for example `C:\Program Files\nodejs\node.exe`) as a user environment
+   variable. Then quit the Claude desktop app and open it again: it reads its environment when it starts, and it does not read
+   PowerShell profiles.
+2. Download `podium-reporter-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases).
+3. In the desktop app, open **Settings** > **Plugins** > **+ Add** > **Upload Plugin**.
+4. Drag the zip onto "Drag and drop plugin files here..." or pick it in the file browser, then choose **Upload**. This installs
+   and enables Podium-Reporter.
+5. Open **Podium-Reporter** > **Settings**. It lists every option. Fill in `serverUrl`, `token` and `userName`, and `sessionName` if you want one.
+   `token` is secret: once saved, Settings does not show it again.
+   Every other option is in the [Options](../REPORTER.md#options) table, which also says what each one sends off the machine.
+6. The app connects over mutual TLS, as the terminal does. If your server uses built-in TLS, save the reporter config file an Admin gave you as in
+   [Over TLS](../REPORTER.md#over-tls) instead of using a token.
+
+To check it: start a local session (plugins are not available in cloud or WSL sessions), send a prompt and run `/podium`. You
+should see `Connection: online`, and `Messaging: on` if `peers` is set.
+
+What does not work on Windows, and why, is in [The reporter mod](../REPORTER.md#install-in-the-claude-desktop-app-on-windows-11).
+
 ## 3. Check that it works
 
 1. In a session, run `/podium`. You should see `Connection: online`.
