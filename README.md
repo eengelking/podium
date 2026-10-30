@@ -28,7 +28,7 @@ Claude Code sessions at once and was tired of clicking through terminals to find
 turned out to be useful enough to share. I haven't compared it with every similar tool, so if another one fits
 how you work better, use that one. If you try Podium and something is missing, I'd like to hear about it.
 
-![Podium showing nine simulated Claude Code sessions: running, stale and failing orchestrators, context blowouts, and the activity feed](docs/images/podium-chaos.png)
+![Podium showing a busy wall of simulated Claude Code sessions: running, stale and failing orchestrators, context blowouts, subagents, cost and context meters, and the activity feed](docs/images/podium-chaos.png)
 
 For every session you see:
 
