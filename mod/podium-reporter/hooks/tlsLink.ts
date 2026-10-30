@@ -1,7 +1,8 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { configNamesNewestFirst, parseConfigHeaders, podiumHome, resolveHome, trimTrailingSeparators, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+import { newMachineId, platformRandom, type RandomSource } from './machine.ts';
+import { configNamesNewestFirst, parseConfigHeaders, isWindowsPath, pipePathFor, podiumHome, resolveHome, trimTrailingSeparators, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
 import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
@@ -80,8 +81,7 @@ async function readEnv($: LinkEngine): Promise<EnvValues> {
     node: await envValue(() => $.env.get('PODIUM_NODE')),
     programFiles: await envValue(() => $.env.get('ProgramFiles')),
     localAppData: await envValue(() => $.env.get('LOCALAPPDATA')),
-    // TMPDIR where the platform has it; Windows names its private temporary folder TEMP, or TMP (#834).
-    tmp: (await envValue(() => $.env.get('TMPDIR'))) || (await envValue(() => $.env.get('TEMP'))) || (await envValue(() => $.env.get('TMP'))),
+    tmp: await envValue(() => $.env.get('TMPDIR')),
   };
 }
 
@@ -326,6 +326,8 @@ export interface LinkOptions {
   nameIsSetting?: boolean;
   /** Epoch milliseconds now. */
   now: () => number;
+  /** A number in [0, 1) for the Windows pipe name (#834); the platform's generator where it has one. */
+  random?: () => number;
   log?: (line: string) => void;
 }
 
@@ -353,10 +355,17 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   }
 
   const home = env.home === undefined ? undefined : trimTrailingSlashes(env.home);
-  // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
-  const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${trimTrailingSlashes(env.tmp)}/podium-run` : null];
   const sessionKey = `${found.path}:${o.now()}`;
-  const socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
+  let socket: string | undefined;
+  if (isWindowsPath(found.path)) {
+    // Windows refuses a Unix socket here (listen EACCES, in any folder), so the helper listens on a named pipe (#834).
+    const random = o.random ?? (() => platformRandom((globalThis as { crypto?: RandomSource }).crypto));
+    socket = pipePathFor(newMachineId(random) + newMachineId(random), sessionKey);
+  } else {
+    // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
+    const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${trimTrailingSlashes(env.tmp)}/podium-run` : null];
+    socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
+  }
   if (!socket) {
     return brokenLink(found, { code: 'SOCKET_PATH', status: 'helper cannot start', text: 'No folder is short enough to hold the helper’s socket (a Unix socket path is at most 104 bytes).' });
   }

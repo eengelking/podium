@@ -90,6 +90,19 @@ function shortId(id: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
+/** A Windows path: a drive (`C:\`, `C:/`) or a UNC share (`\\server\...`). */
+export function isWindowsPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
+}
+
+/**
+ * Where the Windows helper listens (#834). Unix sockets are refused there (`listen EACCES`, whatever the folder), so it uses a
+ * named pipe. A pipe has no private folder around it, so the name carries a random `nonce` only this session's mod and helper know.
+ */
+export function pipePathFor(nonce: string, sessionId: string): string {
+  return `\\\\.\\pipe\\podium-${nonce}-${shortId(sessionId)}`;
+}
+
 /** One socket per session inside the helper's private directory. */
 export function socketPathFor(dir: string, sessionId: string): string {
   return `${trimTrailingSlashes(dir)}/${shortId(sessionId)}.sock`;

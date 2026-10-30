@@ -459,18 +459,9 @@ function fail(code, message) {
   process.exit(1);
 }
 
-/** Whether file modes mean anything here: not on Windows, where access is an ACL and `chmod` only toggles the read-only flag (#834). */
-export function usesModes(platform = process.platform) {
-  return platform !== 'win32';
-}
-
-/**
- * A leftover socket from an earlier helper that is safe to delete. Windows lists an AF_UNIX socket file as a plain file,
- * not a socket, so there the `.sock` name in the helper's private folder is the check (#834).
- */
-export function isStaleSocket(socketPath, st, platform = process.platform) {
-  if (st.isSocket()) return true;
-  return platform === 'win32' && st.isFile() && socketPath.endsWith('.sock');
+/** A Windows named-pipe address (`\\\\.\\pipe\\...`): there is no file to make private, delete or `chmod` (#834). */
+export function isPipePath(p) {
+  return p.startsWith('\\\\.\\pipe\\');
 }
 
 /** Makes a directory only this user can enter; refuses one that is someone else's or open to others. */
@@ -479,7 +470,7 @@ function privateDir(dir) {
   const st = fs.lstatSync(dir);
   if (!st.isDirectory()) throw new StartError('SOCKET_DIR', `${dir} is not a folder`);
   if (typeof process.getuid === 'function' && st.uid !== process.getuid()) throw new StartError('SOCKET_DIR', `${dir} belongs to another user`);
-  if (usesModes() && (st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
+  if ((st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
 }
 
 function main(configPath, socketPath, serverUrl) {
@@ -659,9 +650,12 @@ function main(configPath, socketPath, serverUrl) {
     req.pipe(up);
   });
 
+  const pipe = isPipePath(socketPath);
   try {
-    privateDir(path.dirname(socketPath));
-    if (fs.existsSync(socketPath) && isStaleSocket(socketPath, fs.lstatSync(socketPath))) fs.unlinkSync(socketPath);
+    if (!pipe) {
+      privateDir(path.dirname(socketPath));
+      if (fs.existsSync(socketPath) && fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
+    }
   } catch (err) {
     return fail(err.code ?? 'SOCKET_DIR', err.message);
   }
@@ -690,7 +684,7 @@ function main(configPath, socketPath, serverUrl) {
   server.listen(socketPath, () => {
     process.umask(umask);
     owned = true;
-    if (usesModes()) fs.chmodSync(socketPath, 0o600);
+    if (!pipe) fs.chmodSync(socketPath, 0o600);
     process.stdout.write('ready\n');
   });
 

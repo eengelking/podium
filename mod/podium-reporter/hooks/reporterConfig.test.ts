@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
+import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, isWindowsPath, pipePathFor, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
 
 const file = (user: string, issued: number, extra = '') =>
   [
@@ -72,6 +72,21 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
   test('a Windows home with a trailing backslash gives the Podium folder under it (#834)', () => {
     expect(podiumHome('C:\\Users\\dana\\')).toBe('C:\\Users\\dana/.podium')
     expect(podiumHome('C:\\Users\\dana')).toBe('C:\\Users\\dana/.podium')
+  })
+
+  test('a drive path or a UNC path is a Windows path, a POSIX path is not (#834)', () => {
+    expect(isWindowsPath('C:\\Users\\dana\\.podium\\a.pem')).toBe(true)
+    expect(isWindowsPath('d:/x')).toBe(true)
+    expect(isWindowsPath('\\\\server\\share\\a')).toBe(true)
+    expect(isWindowsPath('/home/dana/a.pem')).toBe(false)
+    expect(isWindowsPath('relative/a.pem')).toBe(false)
+  })
+
+  test('the Windows helper listens on a named pipe whose name carries the nonce and the session (#834)', () => {
+    const a = pipePathFor('aabbccddeeff00112233', 'sess-1')
+    expect(a).toMatch(/^\\\\\.\\pipe\\podium-aabbccddeeff00112233-[0-9a-f]{8}$/)
+    expect(pipePathFor('aabbccddeeff00112233', 'sess-2')).not.toBe(a)
+    expect(pipePathFor('112233445566778899aa', 'sess-1')).not.toBe(a)
   })
 
   test('a socket path stays under the macOS limit even for a long session id', () => {

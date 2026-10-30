@@ -124,13 +124,6 @@ describe('finding the reporter config on Windows (#834)', () => {
     expect(r.homeNote).toContain('HOME')
     expect(r.homeNote).toContain('USERPROFILE')
   })
-
-  test('the temporary-folder fallback for the socket is TMPDIR, else TEMP, else TMP', async () => {
-    const r = await findConfig(fake({ env: { TEMP: 'C:\\Temp' } }).$)
-    expect(r.env.tmp).toBe('C:\\Temp')
-    expect((await findConfig(fake({ env: { TMPDIR: '/t', TEMP: 'C:\\Temp' } }).$)).env.tmp).toBe('/t')
-    expect((await findConfig(fake({ env: { TMP: 'C:\\Tmp' } }).$)).env.tmp).toBe('C:\\Tmp')
-  })
 })
 
 describe('finding the reporter config (#584)', () => {
@@ -400,6 +393,17 @@ describe('starting the helper (#584)', () => {
     expect(s?.argv[3]).toMatch(/^\/home\/d\/\.podium\/run\/[0-9a-f]{8}\.sock$/)
     expect(s?.argv[4]).toBe('https://podium.lan:4318')
     expect(s?.env).toEqual({ NODE_TLS_REJECT_UNAUTHORIZED: '', NODE_OPTIONS: '' })
+  })
+
+  test('on Windows the helper listens on a named pipe, not a Unix socket (#834)', async () => {
+    const f = fake({ pathNode: 'C:\\Program Files\\nodejs\\node.exe' })
+    const winFound: FoundConfig = { ...found(), path: 'C:\\Users\\dana/.podium/reporter-config-Dana-Lee-1.pem' }
+    const winEnv = { ...env, home: 'C:\\Users\\dana' }
+    const link = await startLink(f.$, winFound, winEnv, { ...opts, random: () => 0.5 })
+    expect(link.problem()).toBeNull()
+    expect(f.spawned[0]?.argv[3]).toMatch(/^\\\\\.\\pipe\\podium-[0-9a-f]{24}-[0-9a-f]{8}$/)
+    await link.fetch('https://podium.lan:4318/a', { method: 'GET', headers: {} })
+    expect(f.fetched[0]?.socketPath).toBe(f.spawned[0]?.argv[3])
   })
 
   test('requests go to the helper on its socket, with the path kept, and never to http://<server>', async () => {

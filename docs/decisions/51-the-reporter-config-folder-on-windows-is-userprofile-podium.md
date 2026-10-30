@@ -15,8 +15,7 @@ order: 51
 **Decision.** The folder on Windows is `%USERPROFILE%\.podium`. The mod finds the home folder from `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH` (`resolveHome` in `mod/podium-reporter/hooks/reporterConfig.ts`); an empty value counts as unset. `HOME` still wins, so macOS and Linux do not change.
 
 - `/podium` shows a `Home folder:` line with the folder and the variable it came from, or says that none was found and names the three variables. A missing home does not stop the plain-token path.
-- The helper's socket folder falls back to `TMPDIR`, then `TEMP`, then `TMP`.
-- The helper skips `chmod` on Windows, and treats a `.sock` file in its private folder as a stale socket there, because Windows lists an AF_UNIX socket file as a plain file.
+- The helper listens on a named pipe on Windows, `\\.\pipe\podium-<random>-<session>`, not a Unix socket. On Windows 11 (build 10.0.26300, Node 26) `listen` on a `.sock` path failed with `EACCES` in `~\.podium\run`, in the temp folder, with backslashes or mixed slashes, and with or without `umask`; only a named pipe listened. A pipe has no private folder around it, so its name carries 96 random bits that only the mod and its helper know. So the `TMPDIR` fallback, the socket-folder `chmod` and the stale-socket check do not apply there, and the helper skips them for a pipe address.
 - The search for `node` accepts a Windows drive path from the PATH, and falls back to `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. It took only paths that start with `/`, so a Windows `node` was found and then thrown away.
 - `podiumctl` needed no change: it uses `os.homedir()`, which Node resolves from `USERPROFILE` on Windows.
 - The "readable by others" check stays off on Windows (as before). The docs say so and do not tell Windows users to run `chmod`.
@@ -28,4 +27,4 @@ order: 51
 - `%APPDATA%\podium` is the Windows convention, but it would split the docs, `podiumctl context` and the mod across two names.
 - Asking Windows users to set `HOME` moves the problem to every machine.
 
-**Cost.** A Windows user who has `HOME` set to something other than their user folder (a Unix-style shell can do this) gets that folder, not `%USERPROFILE%`. `/podium` names it. Whether the helper's Unix socket works end to end on Windows 11 is confirmed by hand on #834, not by a test.
+**Cost.** A Windows user who has `HOME` set to something other than their user folder (a Unix-style shell can do this) gets that folder, not `%USERPROFILE%`. `/podium` names it. The engine documents `socketPath` as a Unix socket; that it passes a pipe address through is confirmed by hand on Windows 11 on #834, not by a test. A pipe's default access list is wider than a private folder's, so the random name is what keeps another local account out; it is not a substitute for an access list. Windows 11 behavior of the whole TLS connection is likewise confirmed by hand.
