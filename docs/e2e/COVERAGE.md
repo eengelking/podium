@@ -45,9 +45,9 @@ Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
 
 ## Read a CI failure
 
-The suite does not run in CI yet. The `E2E` workflow (`.github/workflows/e2e.yml`) is manual only ("Run workflow") until the suite is
-solid on a GitHub runner; a first try on a runner timed out on the first request after a server restart in several spec files (see decision 49, "How the runner reaches the server"). To try a slow machine locally, set `E2E_CPUS` and `E2E_MEMORY` (for example 2 and 4g). Its last job, `E2E summary`,
-passes when the run was skipped, so it can be a required check once the workflow runs on pull requests again.
+The `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR
+into `development`; a first try on a runner timed out on the first request after a server restart in several spec files (see decision 49, "How the runner reaches the server"). To try a slow machine locally, set `E2E_CPUS` and `E2E_MEMORY` (for example 2 and 4g). Its last job, `E2E summary`,
+passes when the run was skipped, so it can be a required check for the release PR.
 
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
 2. Download the `e2e-failure` artifact from the run. It holds `screenshots/<spec>/<test> (failed).png`, one for each failure, and

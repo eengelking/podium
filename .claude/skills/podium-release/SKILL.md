@@ -18,7 +18,7 @@ The generic gate, made concrete. On the tip of `development`:
 
 - `npm test` and `npm run build` pass (CI runs both).
 - `npm run standards:parity` passes: the standards must equal the app that is about to become `main` (CI runs it on a PR into `main`). If `[Unreleased]` has `Standards:` lines, load `podium-standards-update` in the release-prep PR and bring `docs/standards/` in line.
-- `npm run e2e` passes: the whole end-to-end suite, in containers, with no failure and no retry (run it locally for now: the `E2E` workflow is manual only until it is stable on a runner; a failing spec stops a release).
+- `npm run e2e` passes: the whole end-to-end suite, in containers, with no failure and no retry (the `E2E` workflow also runs on the release PR into `main`, on the self-hosted runners; run it locally first, since a failing spec stops a release).
 - The docs site builds: `node site/scripts/build.mjs` (the release PR's `Docs site` workflow runs it).
 - If the mod changed since the last release, `npm run test:mod` and `npm run typecheck:mod` too. They need Claude Code installed and cannot run in CI.
 

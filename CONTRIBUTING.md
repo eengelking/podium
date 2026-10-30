@@ -66,8 +66,7 @@ node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a pers
 **The end-to-end suite** (`e2e/`, decision 48) drives the built console in a real browser. `npm run e2e` builds Podium's image, starts it on a
 private container network beside the pinned `cypress/included` container, seeds it with fixed data, runs every spec and removes every container,
 network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). Run
-one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. It does not run in CI yet: the `E2E` workflow (`.github/workflows/e2e.yml`) is manual only ("Run workflow") until the suite is solid on a
-GitHub runner. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's manual run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
+one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
