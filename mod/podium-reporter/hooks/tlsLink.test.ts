@@ -93,7 +93,7 @@ const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundCo
 const env = { config: undefined, context: undefined, home: '/home/d', node: undefined, tmp: undefined }
 
 describe('finding the reporter config on Windows (#834)', () => {
-  const win = 'C:\\Users\\ed'
+  const win = 'C:\\Users\\dana'
   const file = `${win}/.podium/reporter-config-Dana-5.pem`
 
   test('with no HOME, USERPROFILE names the home folder', async () => {
@@ -105,7 +105,7 @@ describe('finding the reporter config on Windows (#834)', () => {
   })
 
   test('with only HOMEDRIVE and HOMEPATH, they name the home folder', async () => {
-    const f = fake({ env: { HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\ed' }, files: { [file]: text('Dana', 5) } })
+    const f = fake({ env: { HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\dana' }, files: { [file]: text('Dana', 5) } })
     const r = await findConfig(f.$)
     expect(r.found?.path).toBe(file)
     expect(r.env.homeFrom).toBe('HOMEDRIVE+HOMEPATH')

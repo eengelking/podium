@@ -1437,15 +1437,15 @@ describe('podium-reporter over the TLS helper (#584)', () => {
 
   describe('the home folder on Windows (#834)', () => {
     // The test engine reads a `C:\\` path as relative, so USERPROFILE holds a POSIX path here; the Windows spellings are in tlsLink.test.ts.
-    const WIN_CFG = '/Users/ed/.podium/reporter-config-Dana-1000.pem'
+    const WIN_CFG = '/Users/dana/.podium/reporter-config-Dana-1000.pem'
 
     test('with no HOME, USERPROFILE finds the config, and /podium says where the home came from', async ($, on) => {
-      const { w, spawned } = helperWorld(on, { files: { [WIN_CFG]: configText('Dana') }, node: '/usr/local/bin/node', env: { HOME: '', USERPROFILE: '/Users/ed' } })
+      const { w, spawned } = helperWorld(on, { files: { [WIN_CFG]: configText('Dana') }, node: '/usr/local/bin/node', env: { HOME: '', USERPROFILE: '/Users/dana' } })
       await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
       await w.clock.advance(1000)
       expect(spawned[0]?.argv[2]).toBe(WIN_CFG)
       const info = await $.command.run(podium(''))
-      expect(info.text).toContain('Home folder: /Users/ed (from USERPROFILE)')
+      expect(info.text).toContain('Home folder: /Users/dana (from USERPROFILE)')
     })
 
     test('with no home folder at all, /podium says so and the reporter keeps working over the token', async ($, on) => {

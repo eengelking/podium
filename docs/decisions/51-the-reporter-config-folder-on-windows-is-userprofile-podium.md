@@ -10,7 +10,7 @@ order: 51
 
 # 51. The reporter config folder on Windows is %USERPROFILE%\.podium (#834)
 
-**Context.** On Linux and macOS the reporter reads `~/.podium/` (`reporter-config-<name>-<epoch>.pem`, `contexts.json`, the helper's `run/` folder). The mod found the home folder from `HOME` alone. Windows sets `USERPROFILE` and normally not `HOME`. On a Windows 11 machine with the file saved in `C:\Users\ed\.podium`, `/podium` showed "Sign-in: a plain token", because the mod found no home, no file, and no reason to say so.
+**Context.** On Linux and macOS the reporter reads `~/.podium/` (`reporter-config-<name>-<epoch>.pem`, `contexts.json`, the helper's `run/` folder). The mod found the home folder from `HOME` alone. Windows sets `USERPROFILE` and normally not `HOME`. On a Windows 11 machine with the file saved in `C:\Users\<name>\.podium`, `/podium` showed "Sign-in: a plain token", because the mod found no home, no file, and no reason to say so.
 
 **Decision.** The folder on Windows is `%USERPROFILE%\.podium`. The mod finds the home folder from `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH` (`resolveHome` in `mod/podium-reporter/hooks/reporterConfig.ts`); an empty value counts as unset. `HOME` still wins, so macOS and Linux do not change.
 

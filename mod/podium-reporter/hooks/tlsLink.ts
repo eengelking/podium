@@ -48,10 +48,10 @@ export interface EnvValues {
   tmp: string | undefined;
 }
 
-/** `$.env.get` takes a name written out in the source, so each one is spelled here. */
-async function envValue(p: Promise<string | undefined>): Promise<string | undefined> {
+/** `$.env.get` takes a name written out in the source, so each one is spelled here; a lookup that throws, in its call or its promise, reads as unset. */
+async function envValue(get: () => Promise<string | undefined>): Promise<string | undefined> {
   try {
-    return await p;
+    return await get();
   } catch {
     return undefined;
   }
@@ -60,23 +60,23 @@ async function envValue(p: Promise<string | undefined>): Promise<string | undefi
 /** The home folder and the variable it came from (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. */
 export async function readHome($: Pick<LinkEngine, 'env'>): Promise<{ home: string | undefined; from: string | undefined }> {
   return resolveHome({
-    HOME: await envValue($.env.get('HOME')),
-    USERPROFILE: await envValue($.env.get('USERPROFILE')),
-    HOMEDRIVE: await envValue($.env.get('HOMEDRIVE')),
-    HOMEPATH: await envValue($.env.get('HOMEPATH')),
+    HOME: await envValue(() => $.env.get('HOME')),
+    USERPROFILE: await envValue(() => $.env.get('USERPROFILE')),
+    HOMEDRIVE: await envValue(() => $.env.get('HOMEDRIVE')),
+    HOMEPATH: await envValue(() => $.env.get('HOMEPATH')),
   });
 }
 
 async function readEnv($: LinkEngine): Promise<EnvValues> {
   const { home, from } = await readHome($);
   return {
-    config: await envValue($.env.get('PODIUM_REPORTER_CONFIG')),
-    context: await envValue($.env.get('PODIUM_REPORTER_CONTEXT')),
+    config: await envValue(() => $.env.get('PODIUM_REPORTER_CONFIG')),
+    context: await envValue(() => $.env.get('PODIUM_REPORTER_CONTEXT')),
     home,
     homeFrom: from,
-    node: await envValue($.env.get('PODIUM_NODE')),
+    node: await envValue(() => $.env.get('PODIUM_NODE')),
     // TMPDIR where the platform has it; Windows names its private temporary folder TEMP, or TMP (#834).
-    tmp: (await envValue($.env.get('TMPDIR'))) || (await envValue($.env.get('TEMP'))) || (await envValue($.env.get('TMP'))),
+    tmp: (await envValue(() => $.env.get('TMPDIR'))) || (await envValue(() => $.env.get('TEMP'))) || (await envValue(() => $.env.get('TMP'))),
   };
 }
 
