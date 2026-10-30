@@ -309,6 +309,12 @@ CREATE TABLE IF NOT EXISTS person_certificates (
 );
 CREATE INDEX IF NOT EXISTS person_certificates_person ON person_certificates(person_id);`,
   },
+  {
+    version: 24,
+    // The `peers` option each session last reported (#838). A reporter's own value is derived from these: it takes part
+    // while any of its live sessions does, so a `claude -p` run reporting false cannot switch the machine Off.
+    sql: 'ALTER TABLE reporter_sessions ADD COLUMN peers INTEGER;',
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

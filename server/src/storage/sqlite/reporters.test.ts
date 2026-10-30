@@ -48,6 +48,47 @@ describe('reporters', () => {
     });
   });
 
+  describe('peers across the sessions of one machine (#838)', () => {
+    const peersNow = (now: number) => store.list({}, now).rows[0].peers;
+    const endSession = (id: string, at: number) => {
+      db.prepare("INSERT INTO sessions (id, name, status, cwd, started_at, last_seen_at, ended_at) VALUES (?, 'n', 'done', '/p', ?, ?, ?)").run(id, at, at, at);
+    };
+
+    it('reads On while any live session reports true, however the reports interleave', () => {
+      for (let i = 0; i < 3; i++) {
+        store.record(seen({ sessionId: 'tty', peers: true }), START + (2 * i + 1) * MIN);
+        expect(peersNow(START + (2 * i + 1) * MIN)).toBe(true);
+        store.record(seen({ sessionId: 'run', peers: false }), START + (2 * i + 2) * MIN);
+        expect(peersNow(START + (2 * i + 2) * MIN)).toBe(true);
+      }
+    });
+
+    it('reads Off when no session reports true', () => {
+      store.record(seen({ sessionId: 'a', peers: false }), START + MIN);
+      store.record(seen({ sessionId: 'b', peers: false }), START + 2 * MIN);
+      expect(peersNow(START + 2 * MIN)).toBe(false);
+    });
+
+    it('reads Off again once the participating session has ended', () => {
+      store.record(seen({ sessionId: 'tty', peers: true }), START + MIN);
+      endSession('tty', START + 2 * MIN);
+      store.record(seen({ sessionId: 'run', peers: false }), START + 3 * MIN);
+      expect(peersNow(START + 3 * MIN)).toBe(false);
+    });
+
+    it('reads Off when the same session turns the option off', () => {
+      store.record(seen({ sessionId: 'tty', peers: true }), START + MIN);
+      store.record(seen({ sessionId: 'tty', peers: false }), START + 2 * MIN);
+      expect(peersNow(START + 2 * MIN)).toBe(false);
+    });
+
+    it('keeps the last value when a report carries none', () => {
+      store.record(seen({ sessionId: 'tty', peers: true }), START + MIN);
+      store.record(seen({ sessionId: 'run', peers: null }), START + 2 * MIN);
+      expect(peersNow(START + 2 * MIN)).toBe(true);
+    });
+  });
+
   it('returns the key and keeps the last OS and peers option it was sent (#347)', () => {
     expect(store.record(seen(), START + MIN)).toBe('9f3a1c7d2e40');
     expect(store.list({}, START + MIN).rows[0]).toMatchObject({ os: null, peers: null });
@@ -150,6 +191,17 @@ describe('reporters', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ key: 'addr:10.88.0.133', firstSeenAt: START + MIN, lastSeenAt: START + 4 * MIN, sessions: 2 });
     expect(store.get('addr:10.88.0.133', START + 4 * MIN)!.source).toBe('10.88.0.135');
+  });
+
+  it('carries each session\'s peers value when two reporter rows merge (#838)', () => {
+    const anon = (over: Partial<ReporterSeen> = {}) => seen({ machineId: null, machineName: null, owner: null, ...over });
+    store.record(anon({ source: '192.0.2.133', sessionId: 's1', peers: false }), START + MIN);
+    // s2 reports from a new address first, so it gets a row of its own; s1 then turns up there and folds that row in.
+    store.record(anon({ source: '192.0.2.135', sessionId: 's2', peers: true }), START + 2 * MIN);
+    store.record(anon({ source: '192.0.2.135', sessionId: 's1', peers: false }), START + 3 * MIN);
+    const rows = store.list({}, START + 3 * MIN).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.peers).toBe(true);
   });
 
   it('calls an unnamed reporter by its newest project, else its address, and says it is not named', () => {
