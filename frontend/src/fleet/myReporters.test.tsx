@@ -459,7 +459,10 @@ describe("Your reporters", () => {
     expect(within(mac).getByText("On").querySelector(".dot.running")).not.toBeNull();
     expect(within(win).getByText("Off on the machine").querySelector(".dot:not(.running)")).not.toBeNull();
     expect(win).toHaveTextContent("1.1.0");
-    expect(screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/)).toBeInTheDocument();
+    const off = screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/);
+    // Both routes: the terminal command with the full key, and the Claude desktop app's settings (#837).
+    expect(off).toHaveTextContent("In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.");
+    expect(off).toHaveTextContent("In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers.");
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();
   });
 

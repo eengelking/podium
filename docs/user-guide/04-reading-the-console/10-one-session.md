@@ -142,8 +142,9 @@ whether or not anyone is watching, until the Admin's period ends.
 ### Turn on the feed
 
 1. Update the mod if the section says your session reports an older version (see [Updating the mod](../09-updating-the-mod.md)).
-2. In Claude Code on the machine that runs the sessions, run `/plugin configure podium-reporter@eengelking-marketplace`
-   and set **Send an agent's recent activity** (`activityFeed`) to on. The same setting is in the `/config` menu, or you
+2. On the machine that runs the sessions, in Claude Code, run `/plugin configure podium-reporter@eengelking-marketplace`
+   and set **Send an agent's recent activity** (`activityFeed`) to on. In the Claude desktop app, open **Settings** >
+   **Plugins** > **Podium-Reporter** > **Settings** and turn it on there. The same setting is in the `/config` menu, or you
    can set `activityFeed` to `true` under `pluginConfigs` in `~/.claude/settings.json`
    ([REPORTER.md](../../REPORTER.md#install-the-mod) lists where).
 3. A changed setting reloads the mod, so a session that is already running should pick it up. If the panel still says the

@@ -111,9 +111,10 @@ What changes on screen:
 
 ### 2. Each machine turns on `peers`
 
-On every machine that takes part, in Claude Code:
+On every machine that takes part:
 
-1. Run `/plugin configure podium-reporter@eengelking-marketplace`.
+1. In Claude Code, run `/plugin configure podium-reporter@eengelking-marketplace`. In the Claude desktop app, open
+   Settings > Plugins > Podium-Reporter > Settings.
 2. Set `serverUrl` to the server, `token` to the person's token, `userName` to the person's name exactly as the
    Admin entered it, and **Message my other orchestrators** (`peers`) to on.
 3. Start a new session and send it a first prompt. A session reports from its first prompt, and once Podium answers
@@ -390,7 +391,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
 | "can see … but has no right to send there" | The right is **Can see** | Give **Can send** on My reporters, or have the orchestrator ask with `podium_request_access` |
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
-| My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | Run `/plugin configure podium-reporter@eengelking-marketplace` there and set `peers` on |
+| My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | In Claude Code there, run `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` on; in the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on `peers` |
 | My reporters or Admin shows **Reporter can't message: update it** | The reporter predates the `peers` option | Update podium-reporter on that machine ([Updating the mod](user-guide/09-updating-the-mod.md)) |
 | A machine box on Traffic reads "System not reported" | No live session on that machine and you are not signed in as its owner, or its reporter is too old to send the OS (`machine.os`) | Sign in from the top bar, or start a session on that machine |
 | A session reports to another server, or as another person, than you expect | How the reporter chooses: a session keeps the name and token it started with; at start it takes `PODIUM_USER` and `PODIUM_TOKEN` from the environment, both together, when either is set; otherwise the `userName` and `token` options. The options live under `podium-reporter@eengelking-marketplace` for the installed mod and `podium-reporter` for a `--plugin-dir` copy. A token that does not match its name gets `HTTP 401` | Check the environment and the right options key, then start a new session. See [More than one login on one machine](user-guide/02-set-it-up.md#more-than-one-login-on-one-machine) and [GOTCHAS](gotchas/running-session-keeps-its-old-identity.md) |

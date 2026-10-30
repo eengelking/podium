@@ -7,6 +7,7 @@ import { ActivityOutputFlag, BashRow, LINE_CUT, missingOutput, Redacted, useRowA
 import { Modal } from "./Modal";
 import { useRespond } from "../useRespond";
 import { nameKey } from "../respond";
+import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
 
 // The Activity section of the agent and orchestrator panels (#118, mockup/podium-agent-feed.html): the loop's recent
 // tool calls and the text it writes, newest at the bottom, fetched on the viewer's interval while the panel is open.
@@ -321,7 +322,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
               `The activity feed needs podium-reporter 0.13.0 or later. This session reports ${s.reporterVersion}. ${UPDATE}`
             ) : (
               <>
-                Turn on the <code>activityFeed</code> option (Send an agent’s recent activity) of podium-reporter to see them: in Claude Code, run <code>/plugin configure podium-reporter@eengelking-marketplace</code>. Each entry is redacted and cut to 300 characters before it is sent.
+                Turn on the <code>activityFeed</code> option (Send an agent’s recent activity) of podium-reporter to see them: in Claude Code, run <code>{OPTION_CMD}</code>, or in the Claude desktop app, open {DESKTOP_OPTIONS}. Each entry is redacted and cut to 300 characters before it is sent.
               </>
             )}
           </div>

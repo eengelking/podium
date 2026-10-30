@@ -15,6 +15,7 @@ import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
 import type { RespondMe } from "./types";
 import { Blank } from "./components/Blank";
+import { DESKTOP_OPTIONS, OPTION_CMD } from "./pluginOptions";
 
 const LEAD = "The machines that report your sessions to this server, and which of them may message each other.";
 
@@ -276,7 +277,7 @@ function Owner({ data, peers, api, now }: { data: PeersRead; peers: MyPeers; api
                     </>
                   ) : (
                     <>
-                      {r.machine} has messaging off. Only that machine can turn it on: in Claude Code there, run <span className="mono">/plugin configure podium-reporter</span> and set <span className="mono">peers</span> to on.
+                      {r.machine} has messaging off. Only that machine can turn it on. In Claude Code there, run <span className="mono">{OPTION_CMD}</span> and set <span className="mono">peers</span> to on. In the Claude desktop app there, open {DESKTOP_OPTIONS} and turn on <span className="mono">peers</span>.
                     </>
                   )}
                 </p>

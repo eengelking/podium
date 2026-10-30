@@ -182,7 +182,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | `activity-output` on, off, and on with `activityOutput` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `respond` on and off, and a reporter that cannot answer | `e2e/cypress/e2e/respond/respond.cy.js` |
 | `file-diff` on, off, and on with `fileDiff` off | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
-| `peer-messaging` on, off, and on with a machine's `peers` off | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
+| `peer-messaging` on, off, and on with a machine's `peers` off, with both routes to turn it on named | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
 | `session-recording` on, off, and on with the reporter's option off | `e2e/cypress/e2e/recording/recording.cy.js` |
 | `update-check`: the switch only; the notice it produces is a stated gap below | `e2e/cypress/e2e/admin/settings.cy.js` |
 

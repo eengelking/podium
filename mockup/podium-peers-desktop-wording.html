@@ -1,0 +1,197 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Turn-on wording for Claude Desktop</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup for #837: where the console says to turn on a reporter option. Today it names only the terminal route
+   (/plugin configure podium-reporter, without @eengelking-marketplace). The proposal names both routes, the terminal
+   command with the full key and Settings > Plugins > Podium-Reporter > Settings in the Claude desktop app, and stops
+   telling a Desktop session that has not attached yet that it "runs with claude -p".
+   Every box is a part the app already has: .pm-note and .hint (My reporters), .kb-blank (Blank, Admin > Reporters >
+   Messaging), .callout (the admin-secret fix), .offnote (a session that cannot be answered). No new class, no new
+   component; only the text changes. Colors and fonts come from tokens.css through fleet.css; this file has no :root
+   block. The pm-cols, pm-tag and demo-bar rules below are this page's own layout, as in the other mockups, and are not
+   proposed for the app. Example data only.
+   The console cannot tell a real "claude -p" run from a Desktop session that has no client yet: both report the limit
+   "not-interactive" (mod/podium-reporter/hooks/respond.ts), so the sentence has to be true of both. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.wrap { max-width: var(--stage, 1180px); margin: 0 auto; padding: 20px 16px 64px; display: grid; gap: 32px; }
+main.wrap.narrow { --stage: 400px; }
+main.wrap > section > h2 { font-size: 16px; margin: 0 0 4px; }
+main.wrap > section > p.intro { margin: 0 0 12px; color: var(--ink2); max-width: 76ch; }
+.frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg); }
+.frame .adminv .apage { overflow: visible; }
+.frame .adminv .apage-in { padding: 0; }
+.pm-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.pm-cols > div { min-width: 0; display: grid; gap: 6px; }
+.pm-tag { margin: 0; font-size: 12px; font-weight: 600; color: var(--ink2); }
+.pad { padding: 14px 16px; }
+.decide { border: 1px dashed var(--axis); border-radius: 8px; padding: 12px 14px; color: var(--ink2); max-width: 76ch; }
+.decide b { color: var(--ink); }
+.decide ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+</style>
+
+<div class="demo" role="toolbar" aria-label="Mockup controls">
+  <b>Turn-on wording (#837)</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="wide" aria-pressed="true">Wide</button>
+    <button type="button" data-w="narrow" aria-pressed="false">400 px</button>
+  </span>
+</div>
+
+<main class="wrap" id="wrap">
+
+<section aria-labelledby="s1">
+  <h2 id="s1">1. My reporters: a reporter with messaging off</h2>
+  <p class="intro">The note under the grid (<code>MyReporters.tsx</code>). It says whose job it is, then gives both routes, terminal first, each as a sentence of its own.</p>
+  <div class="pm-cols">
+    <div>
+      <p class="pm-tag">Today</p>
+      <div class="frame podium"><div class="adminv"><div class="apage"><div class="apage-in">
+        <div class="pm-note"><p class="hint">win-lab has messaging off. Only that machine can turn it on: in Claude Code there, run <span class="mono">/plugin configure podium-reporter</span> and set <span class="mono">peers</span> to on.</p></div>
+      </div></div></div></div>
+    </div>
+    <div>
+      <p class="pm-tag">Proposed</p>
+      <div class="frame podium"><div class="adminv"><div class="apage"><div class="apage-in">
+        <div class="pm-note"><p class="hint">win-lab has messaging off. Only that machine can turn it on. In Claude Code there, run <span class="mono">/plugin configure podium-reporter@eengelking-marketplace</span> and set <span class="mono">peers</span> to on. In the Claude desktop app there, open Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings and turn on <span class="mono">peers</span>.</p></div>
+      </div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s2">
+  <h2 id="s2">2. Admin &gt; Reporters &gt; Messaging: the same reporter, seen by an Admin</h2>
+  <p class="intro">The empty block (<code>ReporterMessaging.tsx</code>). Same two routes, same words as section 1, so a person reads one sentence in both places.</p>
+  <div class="pm-cols">
+    <div>
+      <p class="pm-tag">Today</p>
+      <div class="frame podium pad">
+        <div class="kb-blank"><b>Messaging is off on win-lab</b><p class="hint">Only that machine can turn it on: in Claude Code there, run <span class="mono">/plugin configure podium-reporter</span> and set <span class="mono">peers</span> to on. Until then there is nothing to set here.</p></div>
+      </div>
+    </div>
+    <div>
+      <p class="pm-tag">Proposed</p>
+      <div class="frame podium pad">
+        <div class="kb-blank"><b>Messaging is off on win-lab</b><p class="hint">Only that machine can turn it on. In Claude Code there, run <span class="mono">/plugin configure podium-reporter@eengelking-marketplace</span> and set <span class="mono">peers</span> to on. In the Claude desktop app there, open Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings and turn on <span class="mono">peers</span>. Until then there is nothing to set here.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s3">
+  <h2 id="s3">3. Admin &gt; Reporters: fixing a reporter that uses the admin secret</h2>
+  <p class="intro">Step 2 of the callout (<code>ReportersTab.tsx</code>). It sets <span class="mono">token</span> and <span class="mono">userName</span>, which are options like <span class="mono">peers</span>, so it needs both routes too. Step 3 already works for either.</p>
+  <div class="pm-cols">
+    <div>
+      <p class="pm-tag">Today</p>
+      <div class="frame podium"><div class="adminv"><div class="apage"><div class="apage-in">
+        <div class="callout" role="group" aria-label="Example">
+          <svg class="wicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17.5v.01"/></svg>
+          <h3>This reporter is using the admin secret</h3>
+          <p><b>To fix it:</b></p>
+          <ol>
+            <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
+            <li>In Claude Code on win-lab, run <span class="mono">/plugin configure podium-reporter</span>.</li>
+            <li>Enter that token as <span class="mono">token</span> and the person's name as <span class="mono">userName</span>.</li>
+          </ol>
+        </div>
+      </div></div></div></div>
+    </div>
+    <div>
+      <p class="pm-tag">Proposed</p>
+      <div class="frame podium"><div class="adminv"><div class="apage"><div class="apage-in">
+        <div class="callout" role="group" aria-label="Example">
+          <svg class="wicon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17.5v.01"/></svg>
+          <h3>This reporter is using the admin secret</h3>
+          <p><b>To fix it:</b></p>
+          <ol>
+            <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
+            <li>On win-lab, open the reporter's options. In Claude Code, run <span class="mono">/plugin configure podium-reporter@eengelking-marketplace</span>. In the Claude desktop app, open Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings.</li>
+            <li>Enter that token as <span class="mono">token</span> and the person's name as <span class="mono">userName</span>.</li>
+          </ol>
+        </div>
+      </div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s4">
+  <h2 id="s4">4. A session that cannot be answered from Podium</h2>
+  <p class="intro">The note that replaces the answer form (<code>Compose.tsx</code>) for a session whose reporter says <span class="mono">not-interactive</span>. A Desktop session that no window has opened yet reports the same limit as a real <span class="mono">claude -p</span> run, so today it is told it "runs with claude -p", which is not true of it. The proposal says what is true of both, and what to do. The line for the other reasons (settings hooks, managed, old reporter) is unchanged.</p>
+  <div class="pm-cols">
+    <div>
+      <p class="pm-tag">Today</p>
+      <div class="frame podium pad">
+        <div class="offnote"><b>This session can't be answered from Podium.</b><span>It runs with <code>claude -p</code>, which can't take an answer from Podium.</span></div>
+      </div>
+    </div>
+    <div>
+      <p class="pm-tag">Proposed</p>
+      <div class="frame podium pad">
+        <div class="offnote"><b>This session can't be answered from Podium.</b><span>It is either a <code>claude -p</code> run, which can't take an answer, or a Claude desktop session that no window has opened yet. In the desktop app, open the session, and this note goes away. Otherwise, answer in the terminal.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s5">
+  <h2 id="s5">5. Two more places that name the terminal route</h2>
+  <p class="intro">Both already use the full key (<code>RecordPicker.tsx</code>, <code>ActivityFeed.tsx</code>) but give only the terminal route, and they also say how to turn on an option. They get the same second sentence. Not in the issue's file list, so say if you want them left alone.</p>
+  <div class="pm-cols">
+    <div>
+      <p class="pm-tag">Recording needs the owner's yes (Today)</p>
+      <div class="frame podium pad">
+        <p style="margin:0;color:var(--ink2);max-width:60ch">Recording needs two yes answers: the Admin's switch and the session's owner. Ed has not turned on the sessionRecording option in podium-reporter on this machine, so nothing can be recorded. They can turn it on with <code class="mono">/plugin configure podium-reporter@eengelking-marketplace</code>.</p>
+      </div>
+    </div>
+    <div>
+      <p class="pm-tag">Proposed</p>
+      <div class="frame podium pad">
+        <p style="margin:0;color:var(--ink2);max-width:60ch">Recording needs two yes answers: the Admin's switch and the session's owner. Ed has not turned on the sessionRecording option in podium-reporter on this machine, so nothing can be recorded. They can turn it on in Claude Code with <code class="mono">/plugin configure podium-reporter@eengelking-marketplace</code>, or in the Claude desktop app under Settings &gt; Plugins &gt; Podium-Reporter &gt; Settings.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="s6">
+  <h2 id="s6">To decide</h2>
+  <div class="decide">
+    <b>The "claude -p" sentence (section 4).</b> The console gets one limit, <span class="mono">not-interactive</span>, for both cases, so it cannot say which one a session is.
+    <ul>
+      <li><b>Proposed:</b> one sentence that is true of both, as shown. The text for a real <span class="mono">-p</span> run changes too, because it cannot be told apart.</li>
+      <li><b>Other:</b> the reporter sends the surface (a change to the mod and the protocol, which this issue rules out), and the console keeps the old line for <span class="mono">-p</span> and adds a Desktop line. Its own issue.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function press(attr, v) { Array.prototype.forEach.call(document.querySelectorAll('.demo [' + attr + ']'), function (b) { b.setAttribute('aria-pressed', String(b.getAttribute(attr) === v)); }); }
+  document.querySelector('.demo').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.mode) { root.setAttribute('data-theme', b.dataset.mode); press('data-mode', b.dataset.mode); }
+    if (b.dataset.w) { document.getElementById('wrap').classList.toggle('narrow', b.dataset.w === 'narrow'); press('data-w', b.dataset.w); }
+  });
+  root.setAttribute('data-theme', 'dark');
+})();
+</script>

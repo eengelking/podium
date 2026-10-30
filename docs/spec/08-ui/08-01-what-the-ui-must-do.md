@@ -969,8 +969,9 @@ like the rest of Admin.
 - The header has the name, state and **Remove from list**, which asks "Remove X from the list? It comes back if
   it reports again. Its sessions are not touched." with **Remove reporter** and **Keep it**.
 - For a reporter on the admin secret, a warning callout, **This reporter is using the admin secret**, gives the
-  three steps to fix it: make a person in Admin > People, run `/plugin configure podium-reporter`, enter
-  `token` and `userName`.
+  three steps to fix it: make a person in Admin > People, open the reporter's options (in Claude Code, run
+  `/plugin configure podium-reporter@eengelking-marketplace`; in the Claude desktop app, open Settings > Plugins >
+  Podium-Reporter > Settings), enter `token` and `userName`.
 - **Reporter** shows version, compatibility, Claude Code version, first seen, last report, and sessions seen
   (with a tooltip).
 - **Where it comes from** shows machine, machine id, source address, person, and token as `pdm_<key id>` or
@@ -1002,7 +1003,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     pair has today. An orchestrator's request says what allowing gives, or that it changes nothing when the pair
     already has as much, since allowing never lowers a right.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
-    there in words), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
+    there in words, for both Claude Code and the Claude desktop app), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
     from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
     outdated reporter is flagged whether or not it has a live session.

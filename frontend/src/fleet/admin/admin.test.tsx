@@ -594,7 +594,8 @@ describe("Reporters tab (#142)", () => {
     fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /Open details/ }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("This reporter is using the admin secret");
-    expect(alert).toHaveTextContent("/plugin configure podium-reporter");
+    expect(alert).toHaveTextContent("In Claude Code, run /plugin configure podium-reporter@eengelking-marketplace");
+    expect(alert).toHaveTextContent("In the Claude desktop app, open Settings > Plugins > Podium-Reporter > Settings");
   });
 
   it("pages a reporter's recent sessions and shows them and the turned-away reports as their own panels (issue #188)", async () => {
