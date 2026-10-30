@@ -693,6 +693,17 @@ read the open routes.
 - The address is the one Express sees, so behind a proxy it follows `PODIUM_TRUST_PROXY` (7.7, reverse proxy).
 - It is separate from the wrong-secret throttle and the Admin and sign-in lockout, which are unchanged.
 
+## Test-only timings (#791)
+
+- The end-to-end suite shortens three times with environment variables: `PODIUM_TEST_ADMIN_IDLE_MS` (the Admin idle lock, 10 minutes),
+  `PODIUM_TEST_SIGN_IN_IDLE_MS` (the sign-in to respond ending when idle, 12 hours) and `PODIUM_TEST_LOCK_MS` (the lockout, 15 minutes).
+  Each is a whole number of milliseconds from 1 to 999999999, read once at start. The number of wrong tries stays 5.
+- They count only with `PODIUM_TEST_TIMINGS=1`. A timing set without the flag, a value that is not a whole number in that range, or a
+  flag that is not `0` or `1` stops the server at start.
+- When any is active the server logs a `warn` event `server.test_timings` (fields: the timings in effect) saying never to set it on a real
+  server.
+- With none set, the times are the ones above and nothing differs. See DECISIONS 50.
+
 ## Plain HTTP warnings (#306)
 
 Nothing blocks. The server logs a `warn` event `server.respond_plain_http` (fields `trigger`, `bind`, or

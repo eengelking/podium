@@ -54,5 +54,5 @@ order: 49
 <!-- nav:start -->
 ---
 
-Previous: [48. Storage sits behind async interfaces, SQLite is the only adapter and stays the default (#313)](48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md) · Up: [Decisions](README.md)
+Previous: [48. Storage sits behind async interfaces, SQLite is the only adapter and stays the default (#313)](48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md) · Up: [Decisions](README.md) · Next: [50. Test-only timing variables let the end-to-end suite reach the idle and lock times (#791)](50-test-only-timing-variables-let-the-end-to-end-suite-reach-the-idle-and-lock-times.md)
 <!-- nav:end -->

@@ -33,6 +33,8 @@ export interface FleetRouterOptions {
   log?: (line: string) => void;
   /** Wrong-try counter shared with Admin's unlock, for the sign-in to respond (#206). A fresh one when absent. */
   lockout?: Lockout;
+  /** Idle time before a sign-in to respond ends; 12 hours when absent. Only the end-to-end suite sets it (#791). */
+  signInIdleMs?: number;
   /** Throttle for wrong secrets sent as X-Podium-Token, separate from `lockout` (#255). A fresh one when absent. */
   guesses?: GuessThrottle;
   /** Filled in so Admin can open for a browser already signed in to respond as an Administrator (#215). */
@@ -546,6 +548,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     people: opts.people ?? null,
     logger,
     lockout: opts.lockout ?? new Lockout(fleet.now),
+    signInIdleMs: opts.signInIdleMs,
     bridge: opts.respondBridge,
     onSignIn: opts.onSignIn,
     requireToken,
