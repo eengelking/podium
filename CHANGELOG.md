@@ -38,6 +38,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **The README screenshot shows the console as it is today (#827).** `docs/images/podium-chaos.png` is retaken from the current build at 1914 px wide, on a throwaway server fed by the simulator with 12 sessions, chaos on and nested agents, so it shows only simulated data. The alt text is updated to match.
+
 - **The `E2E` workflow runs on the self-hosted runners (#815, from #782).** All three jobs use the same `runs-on` as `ci.yml` (`[self-hosted, Linux, X64]`, `ubuntu-latest` for a fork PR), and the e2e job takes a host-wide concurrency group so two runs never share the runners' Podman host, because the cleanup step removes every e2e container on it. It now also runs on a pull request into `main`, the release PR, and still not on a PR into `development`.
 
 - **Decision 49 points to decision 50, the log guide lists two more server warnings, and CONTRIBUTING.md names the test-only timing variables (#819, from #791).** Decision 49's "Left out" bullet ends with "Decision 50 adds it (#791)." and nothing else in the entry changed. `docs/user-guide/07-logs.md` gains rows for `server.weak_token` and `server.csp`. `CONTRIBUTING.md` says the `PODIUM_TEST_*` variables are for the end-to-end suite only. SPEC 8.1 still defers the lockout and sign-in-ended texts to the mockup and does not quote them; that is on purpose.
