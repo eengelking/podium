@@ -31,7 +31,7 @@ Find what you see, then follow the fix. [docs/gotchas/](../gotchas/README.md) ha
 1. Type `/podium` inside the Claude Code session that shows the problem. It is not a shell command like `podiumctl`.
 2. Paste what it prints, with the output of `podiumctl status`.
 
-The `Connection:` and `Versions:` lines say whether the mod is online, refused or out of step with the server. It does
+The `Connection:` and `Versions:` lines say whether the mod is online, refused or out of step with the server. The `Sign-in:` line says whether it connects with a plain token or a reporter config file. The `Messaging:` line says whether orchestrator messaging is on, and if not, the one reason: the `peers` option is off, the session is not interactive, there is no token with a `userName`, the session has not reported yet, or Podium's flag is off or the reporter uses the admin secret. An `Option problem:` line names a setting that is not `true` or `false`. It does
 not print your token, but check what you paste and remove any token or other secret before posting.
 
 <!-- nav:start -->

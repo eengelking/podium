@@ -225,7 +225,7 @@ describe('peers: when the mod takes part', () => {
     expect(peerResults(w)).toEqual([])
     // A tool left over from before a reload that turned the option off is refused, and nothing leaves the machine.
     const answer = await callTool($, w, 'podium_send', { to: 'Tester@ci-runner-01', text: 'hi' })
-    expect(answer).toBe("Not sent. Messaging is off on this machine: turn on podium-reporter's peers option there.")
+    expect(answer).toBe("Not sent. Orchestrator messaging is off for this session because the peers option is off on this machine: turn it on in podium-reporter's settings.")
     expect(peerCallsTo(w, '/messages')).toEqual([])
   })
 
@@ -239,13 +239,42 @@ describe('peers: when the mod takes part', () => {
     expect(w.submitted).toEqual([])
   })
 
+  test('/podium says messaging is on, the surface, and how the reporter signs in (#825)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    const info = (await $.command.run(podium(''))).text ?? ''
+    expect(info).toContain('Messaging: on. peers option: on; interactive: yes (started on terminal); Podium says: takes part')
+    expect(info).toContain('Sign-in: a plain token (not a reporter config file)')
+  })
+
+  test('/podium: with the option off and no surface, says so (#825)', async ($, on) => {
+    const w = world(on)
+    await started($, w, null)
+    const info = (await $.command.run(podium(''))).text ?? ''
+    expect(info).toContain('Messaging: off, because the peers option is off on this machine')
+    expect(info).toContain('interactive: no (started on no surface)')
+  })
+
+  test('/podium: a token without a userName says to set both', { options: { peers: true, token: 'tok-admin' } }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    expect((await $.command.run(podium(''))).text).toContain('Messaging: off, because there is no per-person token with a userName')
+  })
+
+  test('/podium: the server saying no after a report names the flag and the admin secret', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.peers = false
+    await started($, w)
+    expect((await $.command.run(podium(''))).text).toContain("Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret")
+  })
+
   test('the option on: the report says so, and the tools are offered once the reply says the session takes part', { options: ON }, async ($, on) => {
     const w = world(on)
     w.server.peers = false
     await started($, w)
     expect(w.posts.at(-1)!.session.peers).toBe(true)
     expect(w.registered.tools.filter((t) => t.startsWith('podium_'))).toEqual([])
-    expect(await callTool($, w, 'podium_peers', {})).toBe('Not listed. Orchestrator messaging is not on for this session in Podium right now.')
+    expect(await callTool($, w, 'podium_peers', {})).toBe("Not listed. Orchestrator messaging is off for this session because Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret, which belongs to no person.")
     w.server.peers = true
     await nextReply(w)
     await nextReply(w)

@@ -244,6 +244,24 @@ The Admin sets four limits in Admin > Settings > Orchestrator messaging, for eve
 
 ## In the session
 
+### Why messaging is off
+
+`/podium` has a `Messaging:` line: `on`, or `off, because …` with the one cause, then `peers option`, `interactive` (with the
+surface the session started on) and what `Podium says`. A tool's refusal ("Not sent. Orchestrator messaging is off for this
+session because …") gives the same cause. The causes, in the order the mod checks them:
+
+| The line says | Fix |
+|---|---|
+| the session has ended | Start a session |
+| the `peers` option is off on this machine | Turn on **Message my other orchestrators** in podium-reporter's settings |
+| the session is not interactive | Nothing: a `claude -p` run never takes part |
+| there is no per-person token with a `userName`, or reporter config file | Set both `token` and `userName` to yours, or use your reporter config file. `Sign-in:` shows which one the mod uses |
+| the session has not reported yet | Send it a prompt |
+| Podium's messaging flag is off, or the reporter signs in with the admin secret | Ask the Admin to turn the flag on; sign in with your own token |
+
+An `Option problem:` line means a switch got a text such as `"true"`. The mod uses the default instead and does not read the text
+as true, so fix the setting.
+
 ### The tools
 
 With `peers` on, and once Podium says the session takes part, the orchestrator has three tools. Each answer is
@@ -359,7 +377,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 
 | You see | Cause | Fix |
 |---|---|---|
-| The session has no `podium_*` tools | The tools appear only once Podium says the session takes part. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection |
+| The session has no `podium_*` tools | The tools appear only once Podium says the session takes part. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection, and its `Messaging:` line gives the one cause (see [Why messaging is off](#why-messaging-is-off)) |
 | `podium_send` says "You cannot see an orchestrator called X. Run podium_peers for the list." | No right to see that machine, a typo, or the orchestrator is not live: it ended, or has not had its first prompt. Another person's orchestrator gets the same answer, so a refusal never says who exists | Run `podium_peers`: its `Not listed:` line gives the reason for your other machines. For an orchestrator on the same machine there is no such line; that machine needs the right to itself (the Grid's diagonal). Give the right on My reporters, or send the other session a prompt |
 | `podium_peers` leaves a machine out ("which has messaging off", "whose reporter is too old to message", "which you have no right to see", "with no orchestrator running") | What it says | Turn `peers` on there; update podium-reporter there; give a right on My reporters; start a session there |
 | A machine never appears at all, not even under `Not listed:` | It reports as another person, or with the admin secret. Messaging is only between one person's own reporters | Set that machine's `token` and `userName` to yours. See the wrong-person row below |
