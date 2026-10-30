@@ -206,19 +206,19 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .people { display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; flex: none; order: 2; border: 1px solid var(--axis); border-radius: 10px; padding: 4px 10px; }
 .podium .people .plab { color: var(--ink); font-size: 12px; font-weight: 600; padding-right: 10px; border-right: 1px solid var(--axis); align-self: stretch; display: inline-flex; align-items: center; }
 .podium .has-people .counts { margin-left: auto; order: 3; white-space: nowrap; flex: none; }
-.podium .info { display: none; position: relative; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border); color: var(--muted); align-items: center; justify-content: center; flex: none; order: 3; margin-left: auto; }
-.podium .info svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
-.podium .info:hover, .podium .info:focus-visible { color: var(--ink); background: var(--sel); }
-.podium .info .tip { display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; white-space: nowrap; background: var(--raised); border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; font-size: 12px; color: var(--ink); box-shadow: 0 4px 14px rgba(0,0,0,.28); pointer-events: none; }
-.podium .info:hover .tip, .podium .info:focus-visible .tip { display: block; }
+.podium button.info { display: none; position: relative; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border); color: var(--muted); align-items: center; justify-content: center; flex: none; order: 3; margin-left: auto; }
+.podium button.info svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.podium button.info:hover, .podium button.info:focus-visible { color: var(--ink); background: var(--sel); }
+.podium button.info .tip { display: none; position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; white-space: nowrap; background: var(--raised); border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; font-size: 12px; color: var(--ink); box-shadow: 0 4px 14px rgba(0,0,0,.28); pointer-events: none; }
+.podium button.info:hover .tip, .podium button.info:focus-visible .tip { display: block; }
 @container tb (max-width: 1469px) {
   .podium .has-people .counts { display: none; }
-  .podium .has-people .info { display: inline-flex; }
+  .podium .has-people button.info { display: inline-flex; }
 }
 @container tb (max-width: 1299px) {
   .podium .has-people { flex-wrap: wrap; }
   .podium .has-people .fgrp { flex: 1 1 0; }
-  .podium .has-people .info { order: 2; }
+  .podium .has-people button.info { order: 2; }
   .podium .has-people .people { order: 3; flex: 1 1 100%; }
 }
 @container tb (max-width: 651px) {

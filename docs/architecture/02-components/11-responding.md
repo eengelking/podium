@@ -14,7 +14,7 @@ reasoning is in DECISIONS 28 to 30.
 **Server**
 
 - `RespondStore` (`respond.ts`) lives on the `Fleet`, in memory only. It holds each session's last `respond` info,
-  its asks with content, a closed ask's outcome (kept until the session reports idle with no open ask, or 10
+  its asks with content, a closed ask's outcome (kept until a report shows the session running again, or 10
   minutes), the one answer taken per ask, up to 20 waiting messages, and the held requests.
 - `respondRoutes.ts` is mounted on the fleet router. The mod's routes sit behind `requireToken` and an owner
   check. The browser's routes are under `/respond`, with their own `HttpOnly` sign-in cookie, header and `Origin`

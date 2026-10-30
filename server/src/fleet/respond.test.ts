@@ -252,24 +252,24 @@ describe('RespondStore', () => {
     expect(s.summaries(sid).map((a) => a.id)).toEqual(['toolu_t']);
   });
 
-  it('forgets a closed ask once the session goes idle with no open ask (#208)', () => {
+  it('forgets a closed ask once the session is seen running after it closed (#208, #829)', () => {
     const { s, sid, tick } = store();
-    const report = (status: 'running' | 'waiting', open: Ask[] = []): Report => {
+    const report = (status: 'running' | 'waiting', sentAt: number): Report => {
       const r = fixtureReport();
       r.session.status = status;
-      r.session.asks = open;
-      r.sentAt = T0 + 2000;
+      r.session.asks = [];
+      r.sentAt = sentAt;
       return r;
     };
     s.announce(sid, QUESTION);
     tick(500);
     s.close(sid, 'toolu_q', { outcome: 'terminal', at: T0 + 500 });
-    // Still the turn the ask closed in: the outcome stays readable.
-    tick(1500);
-    s.noteReport(report('running'), true);
+    // A report made before the close says nothing about it.
+    s.noteReport(report('running', T0 + 100), true);
     expect(s.summaries(sid).map((a) => a.id)).toEqual(['toolu_q']);
-    // The turn ended and nothing is open: the outcome goes, long before ten minutes.
-    s.noteReport(report('waiting'), true);
+    // The session took the answer and runs again: the outcome goes now, not when the turn ends.
+    tick(1500);
+    s.noteReport(report('running', T0 + 2000), true);
     expect(s.summaries(sid)).toEqual([]);
   });
 

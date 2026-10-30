@@ -193,8 +193,8 @@ Everything else is held in the server's memory, in one store per live session, a
 state body or the stream:
 
 - the open asks, with their questions, plan text or tool input ([6.2](../06-reporter-protocol/06-02-the-report.md)), at most 8 per session;
-- a closed ask's outcome (who answered and when, the terminal's answer summary), until the session goes idle
-  with no open ask, for at most 10 minutes, or until its next ask opens;
+- a closed ask's outcome (who answered and when, the terminal's answer summary), until a report shows the session
+  running again after it closed, for at most 10 minutes, or until its next ask opens;
 - the pending deliveries: the one answer taken for each ask, and at most 20 messages and commands per session,
   each with who sent it, when, and its result once the mod reports one.
 
