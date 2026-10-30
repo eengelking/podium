@@ -33,6 +33,8 @@ supported.
 
 Read the options via the `options` argument of `register`. A config change reloads the module.
 
+A boolean option holds `true` or `false`. A value of another type, such as the text `"true"`, is not read as true: the mod uses the option's default, so a consent option is never turned on by a stray value, and `/podium` prints an `Option problem:` line that names the option and what it got, with any text other than `true` or `false` shown only as "a text" (#825).
+
 ## Notes on six options
 
 **`userName`**
