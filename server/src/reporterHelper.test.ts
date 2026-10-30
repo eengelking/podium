@@ -1253,6 +1253,36 @@ describe('helper.mjs: the mailbox mode, used where there is no Unix socket (#834
     expect(fs.readdirSync(b.dir)).toEqual([]);
   });
 
+  it('answers 400 to a request whose headers could split the request, and sends nothing upstream', async () => {
+    const p = await pki();
+    let hits = 0;
+    const url = await upstream(p, (_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-6.json'), request('6', { headers: { 'x-a': 'one\r\nx-b: two' } }));
+    fs.writeFileSync(path.join(b.dir, 'req-7.json'), request('7', { headers: { 'bad name': 'v' } }));
+    const six = await answer(b, '6');
+    expect(six?.status).toBe(400);
+    expect(six?.headers['x-podium-helper-error']).toBe('BAD_REQUEST');
+    expect((await answer(b, '7'))?.status).toBe(400);
+    expect(hits).toBe(0);
+  });
+
+  it('forwards the route the helper rebuilt from its list, not the text in the file', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push(req.url ?? '');
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-8.json'), request('8', { path: '/API/fleet/Sessions/s1/peers/' }));
+    expect((await answer(b, '8'))?.status).toBe(200);
+    expect(seen).toEqual(['/api/fleet/sessions/s1/peers']);
+  });
+
   it('removes requests left by an earlier helper instead of sending them', async () => {
     const p = await pki();
     let hits = 0;

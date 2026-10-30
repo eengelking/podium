@@ -518,16 +518,25 @@ function inMemoryRequest(server, { method, path: target, headers, body }) {
   });
 }
 
-/** True for a request the mod could have written: a name that carries its id, a method, a path and string headers. */
+const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
+// eslint-disable-next-line no-control-regex
+const HEADER_VALUE = /^[^\u0000-\u001f\u007f]{0,4096}$/;
+
+/** The request the mod wrote in `name`: `{ id, method, path, headers, body }`, or null when it is not one (a name that carries no id, or an id that differs from the file's). */
 function mailboxRequest(name, req) {
   const id = MAILBOX_NAME.exec(name)?.[1];
   if (!id || !req || typeof req !== 'object' || req.id !== id) return null;
-  if (typeof req.method !== 'string' || typeof req.path !== 'string' || !req.path.startsWith('/')) return null;
-  const headers = req.headers ?? {};
-  if (typeof headers !== 'object' || Object.values(headers).some((v) => typeof v !== 'string')) return null;
-  if (req.body !== undefined && typeof req.body !== 'string') return null;
-  return { id, method: req.method, path: req.path, headers, body: req.body ?? '' };
+  return { id, method: req.method, path: req.path, headers: req.headers ?? {}, body: req.body ?? '' };
 }
+
+/** True when the pieces are what the mod writes: strings, and header names and values that cannot end a header and start another. */
+function wellFormed(req) {
+  if (typeof req.method !== 'string' || typeof req.path !== 'string' || typeof req.body !== 'string') return false;
+  if (!req.headers || typeof req.headers !== 'object' || Array.isArray(req.headers)) return false;
+  return Object.entries(req.headers).every(([k, v]) => HEADER_NAME.test(k) && typeof v === 'string' && HEADER_VALUE.test(v));
+}
+
+const refusal = (code, status, message) => ({ status, headers: { 'content-type': 'application/json', 'x-podium-helper-error': code }, body: JSON.stringify({ error: code, message }) });
 
 /**
  * Answers the request files in `dir` through `server`. A file is taken once it parses as JSON (the engine does not write a file in one
@@ -557,8 +566,14 @@ function serveMailbox(server, dir) {
       let st;
       let text;
       try {
-        st = fs.statSync(file);
-        text = fs.readFileSync(file, 'utf8');
+        // One handle for the size, the age and the text, so the file cannot change between looking at it and reading it.
+        const fd = fs.openSync(file, 'r');
+        try {
+          st = fs.fstatSync(fd);
+          text = fs.readFileSync(fd, 'utf8');
+        } finally {
+          fs.closeSync(fd);
+        }
       } catch {
         continue; // still being written, or locked for a moment
       }
@@ -572,12 +587,22 @@ function serveMailbox(server, dir) {
       const req = mailboxRequest(name, parsed);
       fs.rmSync(file, { force: true });
       if (!req) continue;
+      if (!wellFormed(req)) {
+        reply(req.id, refusal('BAD_REQUEST', 400, 'The request file is not a request the helper can send.'));
+        continue;
+      }
+      // The method and path sent on are the ones the helper's own list rebuilds, not the text in the file.
+      const route = reporterTarget(req.method, req.path);
+      if (!route) {
+        reply(req.id, refusal('ROUTE_NOT_ALLOWED', 403, 'The Podium connection helper forwards the reporter calls only.'));
+        continue;
+      }
       busy.add(name);
-      inMemoryRequest(server, req)
+      inMemoryRequest(server, { method: route.method, path: route.path, headers: req.headers, body: req.body })
         .then((answer) => reply(req.id, answer))
         .catch((err) => {
           const code = classifyError(err);
-          reply(req.id, { status: 502, headers: { 'content-type': 'application/json', 'x-podium-helper-error': code }, body: JSON.stringify({ error: code, message: String(err.message ?? err) }) });
+          reply(req.id, refusal(code, 502, String(err.message ?? err)));
         })
         .finally(() => busy.delete(name));
     }
