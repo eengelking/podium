@@ -69,6 +69,11 @@ jobs:
     concurrency:
       group: e2e-self-hosted-host
       cancel-in-progress: false
+    env:
+      # The self-hosted runners are containers that reach the host's rootless Podman through the Docker CLI (there is no podman binary
+      # in them), and their default buildx builder keeps a built image in its cache instead of loading it. The legacy builder loads it.
+      E2E_ENGINE: docker
+      DOCKER_BUILDKIT: "0"
     steps:
       - uses: actions/checkout@v7
 
@@ -90,12 +95,8 @@ jobs:
       - name: Run the suite
         env:
           REPEAT: ${{ inputs.repeat || 1 }}
-          # The self-hosted runners are containers that reach the host's rootless Podman through the Docker CLI (there is no podman binary
-          # in them), and their default buildx builder keeps a built image in its cache instead of loading it. The legacy builder loads it.
-          E2E_ENGINE: docker
-          DOCKER_BUILDKIT: "0"
           # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
-          # the runner's temp folder, which is the same path on both.
+          # the runner's temp folder, which is the same path on both. (The runner context is not available in a job-level env.)
           TMPDIR: ${{ runner.temp }}
         run: |
           set -u -o pipefail
