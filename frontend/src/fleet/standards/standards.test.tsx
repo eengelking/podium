@@ -171,7 +171,7 @@ describe.runIf(SYNC || process.env.STANDARDS_PARITY === "1")("standards match th
   }, BUILD_MS);
 
   // Runs only in the parity pass: the in-place rule reaches docs/standards/standards.css in the release-prep PR through
-  // podium-standards-update, so this fails in parity runs until then (CLAUDE.md, UI Standards, "Changing a standard").
+  // podium-standards-update, so this fails in parity runs until then (.claude/PROJECT.md, UI Standards, "Changing a standard").
   it("draws every position: fixed part in place inside a sample (#700)", () => {
     const fleet = join(OUT, "..", "..", "frontend", "src", "fleet");
     const rules = (css: string) => [...css.replaceAll(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));

@@ -153,6 +153,14 @@ describe('the text format', () => {
       expect(lines).toEqual([]);
     });
 
+    it('prints the reporter port and the CA backup lines without debug (#672)', () => {
+      const { logger, lines } = capture();
+      logger.info('tls.listening', 'Podium HTTPS listening on https://0.0.0.0:4318');
+      logger.info('tls.ca_created', 'podium: made a CA in /data/tls; back the folder up and keep it private');
+      logger.info('tls.serving_created', 'podium: made a serving certificate');
+      expect(lines.map((l) => l.line)).toEqual(['Podium HTTPS listening on https://0.0.0.0:4318', 'podium: made a CA in /data/tls; back the folder up and keep it private']);
+    });
+
     it('folds a retry into one line, then says how many it held back once the window has passed', () => {
       let t = Date.UTC(2026, 9, 14, 12, 0, 0);
       const { logger, lines, shipped } = capture({ now: () => t });

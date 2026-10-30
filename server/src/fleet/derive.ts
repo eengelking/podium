@@ -1,6 +1,6 @@
 // Pure derivation (SPEC 7.3, 7.4): SessionView, blowout level, series, KPIs. No I/O here: callers
 // pass rows in and get views out, so every rule is unit-tested without a database.
-import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from './db.js';
+import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from '../storage/rows.js';
 import { checkReporter } from './compat.js';
 import { idleOnBackground } from './protocol.js';
 import { tokenSum } from './ingest.js';
@@ -194,6 +194,8 @@ export interface SessionInput {
   row: SessionRow;
   agents: readonly AgentRow[];
   blowouts: readonly BlowoutRow[];
+  /** The session's automatic compactions (#805). 0 when not given. */
+  compactions?: number;
   samples: readonly SampleRow[];
   /** False until the session reports after a server start: such a session shows as stale. */
   heard: boolean;
@@ -211,6 +213,8 @@ export interface SessionInput {
   activityOutput?: boolean | null;
   /** Whether the reporter has the fileDiff option on (#319), held in memory; null when unknown. */
   fileDiff?: boolean | null;
+  /** Whether the reporter allows reading every changed file's diff ahead (#631); null when unknown. */
+  fileDiffPreload?: boolean | null;
   /** Report.session.respond as last reported (#206), held in memory; null when unknown. */
   respond?: RespondInfo | null;
   /** The session's asks without their content, from the respond store. */
@@ -272,6 +276,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
         tokensAfter: b.tokens_after,
       })),
     },
+    compactions: input.compactions ?? 0,
     plan: parse<PlanView | null>(row.plan_json, null),
     loop: parse<LoopReport | null>(row.loop_json, null),
     files: parse<FilesReport | null>(row.files_json, null),
@@ -284,6 +289,7 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     activityFeed: input.activityFeed ?? null,
     activityOutput: input.activityOutput ?? null,
     fileDiff: input.fileDiff ?? null,
+    fileDiffPreload: input.fileDiffPreload ?? null,
     respond: input.respond ?? null,
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),

@@ -24,7 +24,7 @@ Read this before designing.
 | Cost, session | `$.session.usage().cost.usd` | Real ledger. Includes every agent, those launched by other agents too (verified with a three-level run, #101). |
 | Cost, agent | tokens × price table | Estimate only. `null` for a non-Claude model (no price). |
 | Plan | `tool.call` for Task*/TodoWrite | Built-in tools have no plan title or phase. |
-| Waiting on the user | `classic.PermissionRequest`, `classic.Notification`, `turn.complete` of the main loop | Best effort. If neither classic event is hookable, main-loop `turn.complete` ⇒ `waiting` with `waitReason: "input"`. With background work or a wake-up in flight (`classic.Stop`) it is `waiting` with `waitReason: null` and `background` set instead (#119). |
+| Waiting on the user | `classic.PermissionRequest`, `classic.Notification`, `turn.complete` of the main loop | Best effort. If neither classic event is hookable, main-loop `turn.complete` ⇒ `waiting` with `waitReason: "input"`. With background work or a wake-up in flight (`classic.Stop`) it is `waiting` with `waitReason: null` and `background` set instead (#119). Where Claude Code skips the `classic.*` hooks, a permission wait comes from `tool.check` resolving `ask` (#741) and `background` is never set (#740). |
 | Git | `$.process.run(["git", …])` | Section 5.7. |
 | Failures | `tool.call` results with `isError`/`{deny}`, `turn.complete.reason`, `turn.step.stopReason` | The engine gives evidence, not a diagnosis. |
 

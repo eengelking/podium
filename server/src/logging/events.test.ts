@@ -5,11 +5,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { gunzipSync } from 'node:zlib';
-import { openDb, FleetDb } from '../fleet/db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from '../fleet/fleet.js';
-import { PeopleStore } from '../fleet/people.js';
-import { WallSettings } from '../fleet/wallSettings.js';
-import { FeatureFlags } from '../fleet/featureFlags.js';
+import { LiveFeatureFlags, LiveWallSettings } from '../fleet/liveSettings.js';
 import { createFleetRouter } from '../fleet/routes.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { startSweeper } from '../fleet/sweeper.js';
@@ -44,20 +42,24 @@ function fetchStub(hang = false) {
   return { fn: fn as unknown as typeof fetch, bodies, mock: fn };
 }
 
-function stack(opts: { level?: Level; hang?: boolean; clock?: { t: number } } = {}) {
+async function stack(opts: { level?: Level; hang?: boolean; clock?: { t: number } } = {}) {
   const local: string[] = [];
   const f = fetchStub(opts.hang);
   const shipper = new LogShipper({ url: 'http://logs.test:9428', fetch: f.fn, flushMs: 60_000, notify: () => {} });
   const logger = createLogger({ level: opts.level ?? 'debug', format: 'json', secrets: [SECRET], write: (l) => local.push(l), ship: (j) => shipper.push(j) });
-  const db = openDb(':memory:');
+  const storage = openSqliteStorage(':memory:');
   const now = opts.clock ? () => opts.clock!.t : Date.now;
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now, logger);
-  const people = new PeopleStore(db);
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' }, now, logger);
+  await fleet.init();
+  const people = storage.people;
+  const wall = new LiveWallSettings(storage.wallSettings);
+  const features = new LiveFeatureFlags(storage.featureFlags);
+  await Promise.all([wall.load(), features.load()]);
   const app = express();
   app.set('trust proxy', false);
   app.use(requestLog(logger));
   app.use('/api/fleet', createFleetRouter(fleet, { token: SECRET, people, logger }));
-  app.use('/api/admin', createAdminRouter({ secret: SECRET, people, wall: new WallSettings(db), features: new FeatureFlags(db), logger }));
+  app.use('/api/admin', createAdminRouter({ secret: SECRET, storage, people, wall, features, logger }));
   cleanups.push(() => fleet.close(), () => shipper.close(50));
   const records = () => local.map((l) => JSON.parse(l) as Rec);
   const shippedText = async () => {
@@ -75,8 +77,8 @@ function reportFor(userName: string | null, id = 'sess-log-1'): Report {
 
 describe('no secret and no typed text in a log line or a shipped batch', () => {
   it('holds for a request carrying a person token, the admin secret, prompts, answers and activity', async () => {
-    const s = stack();
-    const dana = s.people.createPerson('Dana');
+    const s = await stack();
+    const dana = await s.people.createPerson('Dana');
     // A token that does not match the name, a wrong token, the admin secret, and a good report full of text.
     await request(s.app).post('/api/fleet/report').set('X-Podium-Token', dana.token).send(reportFor('Eli'));
     await request(s.app).post('/api/fleet/report').set('X-Podium-Token', `${dana.token.slice(0, -4)}beef`).send(reportFor('Dana'));
@@ -107,14 +109,14 @@ describe('no secret and no typed text in a log line or a shipped batch', () => {
 
 describe('the events', () => {
   it('report.rejected carries the reason and the path, at warn', async () => {
-    const s = stack();
+    const s = await stack();
     await request(s.app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...fixtureReport(), v: 2 });
     const rec = s.records().find((r) => r.event === 'report.rejected')!;
     expect(rec).toMatchObject({ level: 'warn', reason: 'unsupported protocol version', path: '$.v', status: 400 });
   });
 
   it('auth.failed names the route and the source address and why, never the token', async () => {
-    const s = stack();
+    const s = await stack();
     await request(s.app).post('/api/fleet/report').send(fixtureReport());
     const rec = s.records().find((r) => r.event === 'auth.failed')!;
     expect(rec).toMatchObject({ level: 'warn', route: '/api/fleet/report', status: 401, reason: 'missing token' });
@@ -122,13 +124,13 @@ describe('the events', () => {
   });
 
   it('hook.rejected carries the reason and path', async () => {
-    const s = stack();
+    const s = await stack();
     await request(s.app).post('/api/fleet/hook').set('X-Podium-Token', SECRET).send({ hook_event_name: 'SessionStart' });
     expect(s.records().find((r) => r.event === 'hook.rejected')).toMatchObject({ level: 'warn', status: 400 });
   });
 
   it('http.request is one debug line per request with the route pattern and no query string', async () => {
-    const s = stack();
+    const s = await stack();
     await request(s.app).get('/api/fleet/sessions/abc?secret=zzz');
     const rec = s.records().find((r) => r.event === 'http.request')!;
     expect(rec).toMatchObject({ level: 'debug', method: 'GET', route: '/api/fleet/sessions/:id', status: 404 });
@@ -137,7 +139,7 @@ describe('the events', () => {
   });
 
   it('an aborted request is one http.aborted debug line, and no http.request line', async () => {
-    const s = stack();
+    const s = await stack();
     s.app.get('/hang', () => {});
     const server = await new Promise<import('node:http').Server>((resolve) => {
       const srv = s.app.listen(0, '127.0.0.1', () => resolve(srv));
@@ -158,84 +160,84 @@ describe('the events', () => {
   });
 
   it('http.request is skipped at the default level', async () => {
-    const s = stack({ level: 'info' });
+    const s = await stack({ level: 'info' });
     await request(s.app).get('/api/fleet/state');
     expect(s.records().some((r) => r.event === 'http.request')).toBe(false);
   });
 
   it('a session starts, reports done (ended), and the sweep removes it', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     const r = fixtureReport();
-    s.fleet.ingest(r, 'Dana');
-    s.fleet.ingest({ ...r, session: { ...r.session, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
+    await s.fleet.ingest(r, 'Dana');
+    await s.fleet.ingest({ ...r, session: { ...r.session, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
     clock.t += 9000;
-    s.fleet.sweep();
+    await s.fleet.sweep();
     const recs = s.records();
     expect(recs.find((x) => x.event === 'session.started')).toMatchObject({ level: 'info', session_id: r.session.id, owner: 'Dana' });
     expect(recs.find((x) => x.event === 'session.ended')).toMatchObject({ level: 'info', session_id: r.session.id, reason: 'done', end_reason: 'prompt_input_exit' });
     expect(recs.find((x) => x.event === 'sweep.removed')).toMatchObject({ level: 'info', removed: 1, done: 1, dropped: 0 });
   });
 
-  it('sweep.removed lists a bounded number of ids and the total for a large sweep', () => {
+  it('sweep.removed lists a bounded number of ids and the total for a large sweep', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     for (let i = 0; i < 50; i++) {
       const r = fixtureReport();
-      s.fleet.ingest({ ...r, session: { ...r.session, id: `bulk-${String(i).padStart(2, '0')}`, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
+      await s.fleet.ingest({ ...r, session: { ...r.session, id: `bulk-${String(i).padStart(2, '0')}`, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
     }
     clock.t += 9000;
-    s.fleet.sweep();
+    await s.fleet.sweep();
     const rec = s.records().find((x) => x.event === 'sweep.removed')!;
     expect(rec).toMatchObject({ removed: 50, done: 50, dropped: 0, session_ids_omitted: 40 });
     expect(String(rec.session_ids).split(',')).toHaveLength(10);
   });
 
-  it('sweep.removed lists every id when the sweep is small', () => {
+  it('sweep.removed lists every id when the sweep is small', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     const r = fixtureReport();
-    s.fleet.ingest({ ...r, session: { ...r.session, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
+    await s.fleet.ingest({ ...r, session: { ...r.session, status: 'done', endReason: 'prompt_input_exit' } }, 'Dana');
     clock.t += 9000;
-    s.fleet.sweep();
+    await s.fleet.sweep();
     const rec = s.records().find((x) => x.event === 'sweep.removed')!;
     expect(rec.session_ids).toBe(r.session.id);
     expect(rec).not.toHaveProperty('session_ids_omitted');
   });
 
-  it('session.started says revived only for a session that had ended or been dropped and came back', () => {
+  it('session.started says revived only for a session that had ended or been dropped and came back', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     const started = () => s.records().filter((x) => x.event === 'session.started');
     const r = fixtureReport();
-    s.fleet.ingest(r);
+    await s.fleet.ingest(r);
     expect(started().at(-1)).toMatchObject({ created: true, revived: false });
 
     // Stored but not held live, as when another server process wrote it: it reports again, it was never ended.
     (s.fleet as unknown as { live: Map<string, unknown> }).live.delete(r.session.id);
     clock.t += 1000;
-    s.fleet.ingest({ ...r, sentAt: clock.t });
+    await s.fleet.ingest({ ...r, sentAt: clock.t });
     expect(started()).toHaveLength(2);
     expect(started().at(-1)).toMatchObject({ created: false, revived: false });
 
     // Dropped (heartbeat lost), then back.
     for (let i = 0; i < 80; i++) {
       clock.t += 1000;
-      s.fleet.sweep();
+      await s.fleet.sweep();
     }
     expect(s.fleet.isLive(r.session.id)).toBe(false);
-    s.fleet.ingest({ ...r, sentAt: clock.t, events: [] });
+    await s.fleet.ingest({ ...r, sentAt: clock.t, events: [] });
     expect(started().at(-1)).toMatchObject({ created: false, revived: true });
   });
 
-  it('a session that stops reporting goes silent, then ends as heartbeat lost', () => {
+  it('a session that stops reporting goes silent, then ends as heartbeat lost', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     const r = fixtureReport();
-    s.fleet.ingest(r);
+    await s.fleet.ingest(r);
     for (let i = 0; i < 80; i++) {
       clock.t += 1000;
-      s.fleet.sweep();
+      await s.fleet.sweep();
     }
     const recs = s.records();
     expect(recs.filter((x) => x.event === 'reporter.silent')).toHaveLength(1);
@@ -244,23 +246,23 @@ describe('the events', () => {
     expect(recs.find((x) => x.event === 'sweep.removed')).toMatchObject({ removed: 1, dropped: 1 });
   });
 
-  it('reporter.connected once per reporter, and again after it went quiet', () => {
+  it('reporter.connected once per reporter, and again after it went quiet', async () => {
     const clock = { t: T0 };
-    const s = stack({ clock });
+    const s = await stack({ clock });
     const r = { ...fixtureReport(), machine: { name: 'laptop', id: 'm-1' } };
-    s.fleet.ingest(r, 'Dana');
+    await s.fleet.ingest(r, 'Dana');
     clock.t += 1000;
-    s.fleet.ingest(r, 'Dana');
+    await s.fleet.ingest(r, 'Dana');
     expect(s.records().filter((x) => x.event === 'reporter.connected')).toHaveLength(1);
     clock.t += 120_000;
-    s.fleet.ingest(r, 'Dana');
+    await s.fleet.ingest(r, 'Dana');
     const conn = s.records().filter((x) => x.event === 'reporter.connected');
     expect(conn).toHaveLength(2);
     expect(conn[0]).toMatchObject({ owner: 'Dana', machine: 'laptop', machine_id: 'm-1', reporter_version: r.reporter.version });
   });
 
   it('Admin changes are admin.* events with the action and the source, at info', async () => {
-    const s = stack();
+    const s = await stack();
     const agent = request.agent(s.app);
     await agent.post('/api/admin/unlock').set('X-Podium-Admin', '1').send({ name: 'Admin', token: SECRET });
     await agent.put('/api/admin/settings').set('X-Podium-Admin', '1').send({ features: { 'activity-feed': false } });
@@ -269,10 +271,10 @@ describe('the events', () => {
     expect(typeof rec.source).toBe('string');
   });
 
-  it('a failing sweeper timer is sweeper.failed at error', () => {
+  it('a failing sweeper timer is sweeper.failed at error', async () => {
     vi.useFakeTimers();
     try {
-      const s = stack();
+      const s = await stack();
       vi.spyOn(s.fleet, 'sweep').mockImplementationOnce(() => {
         throw new Error('boom');
       });
@@ -288,7 +290,7 @@ describe('the events', () => {
 
 describe('a dead log endpoint', () => {
   it('does not hold up POST /api/fleet/report', async () => {
-    const s = stack({ hang: true });
+    const s = await stack({ hang: true });
     const t0 = Date.now();
     for (let i = 0; i < 10; i++) {
       const res = await request(s.app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send(reportFor(null, `sess-${i}`));
@@ -326,7 +328,7 @@ describe('logging from the environment', () => {
     expect(lines.join('\n')).not.toContain('=x');
   });
 
-  it('turns shipping off with a warning when the URL is not usable', () => {
+  it('turns shipping off with a warning when the URL is not usable', async () => {
     const lines: string[] = [];
     const logging = createServerLogging({ PODIUM_LOG_SHIP_URL: 'ftp://nope' }, { write: (l) => lines.push(l) });
     expect(logging.shipper).toBeNull();

@@ -96,6 +96,8 @@ connects, the helper compares the certificate's `notAfter` with its clock. An ex
 nothing goes upstream: every request gets `X-Podium-Helper-Error: CERT_EXPIRED` with the date in its message, which
 `tlsLink.ts` words in the status line and in `/podium`, from the config's `expires` line at start too. `authenticate` also limits renewal to once an hour per person (`MIN_RENEW_INTERVAL_MS`): while the newest live certificate was issued less than an hour ago it answers 429 with `Retry-After` and `TOO_SOON` before any signing, with no exception. The helper sets its next try from `Retry-After` (`retryDelayMs`). The one setting, the lifetime, is `TlsSettingsStore.getReporter()`.
 
+**Choosing the file (#606).** The home folder is `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH` (`resolveHome` in `reporterConfig.ts`, #834), so Windows reads `%USERPROFILE%\.podium`; `/podium` shows the folder and the variable it came from, or says none was found (DECISIONS 51). `findConfig` in `tlsLink.ts` picks the config file once per session start: `PODIUM_REPORTER_CONFIG`, then the context `PODIUM_REPORTER_CONTEXT` names or else the current one in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem` by the epoch in its name. `contexts.ts` owns the file's format and the `/podium context` command; `bin/podiumctl` keeps a copy of the format for `podiumctl context`, and `scripts/podiumctl.test.ts` checks the two agree. A context that cannot be used comes back as `contextProblem` beside the newest file, so the reporter keeps working and `/podium` says why. The choice belongs to the link, which a `/clear` keeps, so a running session holds the context it started with. See SPEC 5.9 and DECISIONS 46.
+
 **The helper.** `mod/podium-reporter/hooks/helper.mjs` is a Node script that `register.ts` starts with
 `$.process.spawn` once per session. It reads the reporter config file, makes the HTTPS connection, and listens on a
 Unix socket. The seam in the mod is the one `FetchLike` at `register.ts` (`const fetch: FetchLike = ...`): with a
@@ -104,6 +106,19 @@ callers do not change. The held answer request keeps the engine's 30 second limi
 The helper forwards only the calls in `REPORTER_ROUTES`, a copy of `REPORTER_ROUTE_TEMPLATES` in `tlsHttp.ts` that
 `reporterHelper.test.ts` compares. It builds the upstream request from the matched route, and anything else gets `403` with
 `X-Podium-Helper-Error: ROUTE_NOT_ALLOWED` (#668).
+
+**The helper on Windows (#834).** Everything above holds except the socket. The mod cannot reach a helper on Windows by a socket: Node there has no
+Unix sockets (its local sockets are named pipes, and a `.sock` path is an invalid pipe name, which libuv reports as `EACCES`), and the engine's
+`$.http.fetch` takes `socketPath` as a Unix socket and refuses a pipe address (`\\.\pipe\...`) as a network location, as it does any path that starts
+with two separators. So when the config path is a Windows path, `startLink` gives the helper `mailbox:<folder>` in place of a socket path, with the
+folder `.podium/run/<session>/` (`mailboxDirFor`). Each request is written by the mod with `$.fs.write` as `req-<id>.json` (method, path and body; no header, because the reporter sends only `Content-Type`, which the helper sets, and a token, which the
+server ignores when the certificate is present). The helper (`serveMailbox`, watching the folder with a 250 ms poll behind it) takes a file once it parses as
+JSON, because a write is not atomic; deletes it; checks that the pieces are text (`wellFormed`) and rebuilds the method and path from `REPORTER_ROUTES`; and sends the
+request through its own handler in memory (`inMemoryRequest`, on `stream.duplexPair`, so no port or pipe is opened and the route list, the certificate
+checks and the error headers are those of the socket mode). It answers with one stdout line, `res <id> <base64 of {status, headers, body}>`. The mod reads
+its stdout already, keeps a line that arrives in two pieces, matches the reply to the waiting request by id (`viaMailbox`), and gives up after
+`REPLY_MS`. Replies never touch disk. Files an earlier helper left are removed at start. It needs Node 20.17 or later. The other ways considered
+(loopback TCP with a key, the helper as an MCP server, one process per request) and the cost are in DECISIONS 51; the lasting fix is #591.
 
 **Admin.** New routes under `/api/admin/certificates` and on `people/:id/certificate/...` live in `adminRouter.ts`.
 `POST /people` returns the config file with the token, once; if the certificate cannot be made the person and the

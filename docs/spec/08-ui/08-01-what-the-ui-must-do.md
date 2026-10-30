@@ -15,7 +15,7 @@ pages, responding, the orchestrator page and the right panel.
 
 **Top bar**
 - Logo and name, which are one link to the fleet page (`#/`, accessible name "Podium, fleet"), then Fleet,
-  Board, History and Admin buttons. Each leaves the wall as it is when already there.
+  Board and History buttons, then Traffic while orchestrator messaging is on and Admin for a signed-in Administrator (below). Each leaves the wall as it is when already there.
 - Fleet returns to the wall from the board or an orchestrator's page.
 - The button for the page you are on is left off, since its pill already names it: no Fleet on the wall, no
   Board on the board, no History in History, no Admin in Admin, no Traffic on Traffic and no My reporters link on
@@ -38,7 +38,8 @@ pages, responding, the orchestrator page and the right panel.
 - No Pause or simulator buttons (those belong to the simulator script).
 
 **Theme picker**
-- The info row under the top bar carries the theme picker at its right end, in the live view and in History.
+- The info row under the top bar carries the theme picker at its right end, in the live view and in History
+  ([8.5](08-05-history.md)).
 - It is a Theme dropdown and a Light, Dark or System radio group, with arrow keys moving through the radios.
 - The choice is remembered in `localStorage` under `podium.theme` with try/catch.
 - The default is Podium in System mode, which follows the OS. An old stored `light` or `dark` becomes Podium in
@@ -47,8 +48,8 @@ pages, responding, the orchestrator page and the right panel.
 - A theme with no palette for the chosen mode uses Podium's palette for that mode.
 
 **Refresh every** (#138, `mockup/podium-update-interval.html`)
-- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), immediately left
-  of the Theme dropdown.
+- The same row carries a **Refresh every** dropdown (2s, 5s, 10s, 20s, 30s, 60s; default 2s), left of the
+  Shortcuts switch and the Theme dropdown.
 - It is remembered in `localStorage` under `podium.updateEvery`, with try/catch. A stored value that is not one
   of the six is ignored.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
@@ -78,11 +79,25 @@ pages, responding, the orchestrator page and the right panel.
 **Collapsing**
 - The left pane, the right pane and the top bar each collapse and expand on their own, from a visible control
   and from a shortcut: `[` left, `]` right, `\` top bar, `w` wall mode, `Esc` leaves wall mode.
+- The single-key shortcuts (`[`, `]`, `\`, `w`) are off by default (WCAG 2.1.4, #636). A **Shortcuts** switch (the
+  Admin `.sw` switch in a `.field`) in the Display settings row turns them on. It sits beside Refresh every and Theme
+  on the wall, the Board, the orchestrator page, Traffic and My reporters, and beside Theme on History. It is kept per
+  browser in `localStorage` under `podium.shortcuts` (`true` or `false`), the way the theme and the refresh interval
+  are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
+  pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
+  (its `title` and `aria-describedby`) names all four keys.
+- While Shortcuts is on, the word "Shortcuts" is a button (`.kbd-link`, a 1px dotted `--muted` underline, `--ink` on
+  hover, a pointer cursor and a focus ring) that opens the console's `Modal`, "Keyboard shortcuts" (#828). The modal
+  lists every shortcut in two columns split by a 1px `--border` pipe, `\`, `[` and `]` on the left and `w` and `Esc`
+  on the right, each key in the inline code chip, with a note where a key does nothing (`[` and `]` on Traffic, `w`
+  on Traffic and My reporters). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
+  the dimmed area close it, and focus returns to the word. While the switch is off the word is a plain label. One
+  array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
   the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a
   new collapse or open control uses it. A pane's pill sits in the `.cols` grid beside the pane, straddling its
-  inner edge near the top, and the tip names the shortcut ("Collapse the left pane ([)").
+  inner edge near the top, and, while Shortcuts is on, the tip names the shortcut ("Collapse the left pane ([)").
 - A collapsed pane leaves a 24 px edge strip holding the same pill as its expand button (`aria-expanded`, `aria-controls`). Its
   content is `hidden`, so it is out of the tab order and the accessibility tree, and its saved width comes
   back when it opens.
@@ -137,7 +152,7 @@ activity panel and legend as the wall, with the board in the middle.
      there is one.
 - A Review card puts why it waits between the work and the agent.
 - The orchestrator's model is not named on a card.
-- The card is one link with the accessible name "step, state, orchestrator". A plain click opens that
+- The card is one link named by what it shows (its orchestrator when the card shows one, its work, its reason and its agent), then its state as one more word, such as "api-refactor Porting endpoints , active" (WCAG 2.5.3, #636). A plain click opens that
   orchestrator's page, exactly as a click on its card on the wall does. A modified click (a new tab) goes to
   the fleet page.
 
@@ -316,7 +331,8 @@ A card has four layers in a fixed order, divided by hairlines, with the content 
      - The id is its first eight characters, in the mono face.
      - A click copies the whole id, and the text reads "Copied" for 1.6 s, or "Copy failed" when the
        clipboard refuses.
-     - It is a `role="button"` span inside the card, and its click and Enter or Space never open the card.
+     - It is a real button that sits beside the card's own button, not inside it (#759), laid over the space the path line keeps for it. It is at least 24 by 24 px, it comes right after the card in the tab order, and a click on it never opens the card.
+     - Its accessible name is "Copy session id" and the eight characters, and while it reads "Copied" or "Copy failed" its name is that text.
    - The git line: branch icon, worktree chip or dashed "main checkout" chip, ahead/behind arrows, modified
      count or "clean".
      - The branch is one line ending in an ellipsis when too long, with the full name as its tooltip, and
@@ -333,6 +349,11 @@ A card has four layers in a fixed order, divided by hairlines, with the content 
 3. **Cost and health.**
    - Four readouts in fixed columns: Cost, Tokens, Time and Context.
    - Context carries a thin bar and the blowout badge.
+   - A session Claude Code compacted on its own (`compactions` above 0) also gets the **Comp pill** after the badge: a compress mark and
+     the word Comp, in the delegation blue (`--deleg`), because it is information and not a warning. Its title and screen-reader text read
+     "Claude Code compacted this session automatically N times". It stays for the life of the session, since the count is of the stored
+     events. The label row wraps, so in the narrow cell the pill drops to its own line instead of being clipped, with or without the
+     blowout badge. The orchestrator panel shows it after the Context readout.
    - A level 2 blowout adds the red card edge and turns the context figure red. Its sentence ("Context
      exceeded N× ...") is the Context readout's tooltip and the orchestrator page's callout, not card text.
 4. **The status band.**
@@ -357,10 +378,10 @@ Admin has a grouped side menu on the left that runs the full height and one page
 menu and the page scroll on their own.
 
 **The menu**
-- It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in three
+- It is `<nav aria-label="Admin sections">` of buttons, the current one `aria-current="page"`, in four
   groups:
   - People and access: People, Groups, Reporters.
-  - Server: Settings, Model prices, Security, Data, Stored activity (#432).
+  - Server: Settings, Model prices, Security, Certificates, Data, Stored activity (#432).
   - Reporting (#484): Usage, Spend, People and groups, Sessions, Failures, Admin activity.
   - Activity: Admin log.
 - The page that was "Reporting and security" is now **Security** (#484), so two entries do not both say
@@ -391,7 +412,7 @@ menu and the page scroll on their own.
   gives the date and what happens next; the token's is `pdm_<key id>`, as the Reporters page names it, and no
   page ever shows any of the secret (#218). There is no Status column. The Group select sits under the person's
   name and "created" under Last report (#587).
-- **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left; the reporter renews it itself),
+- **The certificate badge** reads *valid*, *renewal due* (30 days or fewer left, or half the certificate's lifetime when that is shorter, the point where the reporter renews it itself),
   *lapses soon* (the certificate is close to its end and the reporter has not renewed it, so reissue the config in
   time), *expired* (the reporter is refused and cannot renew: reissue the config), *revoked* or *none*. With TLS off the cell says "TLS is off" and the certificate actions
   are disabled.
@@ -516,7 +537,7 @@ menu and the page scroll on their own.
 - Since #484 this page is Reporting > Spend, not Activity > Spend. Its content below is unchanged except that a
   row is now a button that opens a breakdown (#482), and the projection (#483) and the over-time report sit
   below it (see *Reporting*).
-- One section, **Spend today, by person** (or **by group**), whose lead says it is estimated from tokens, not a
+- The page's first section, **Spend today, by person** (or **by group**), whose lead says it is estimated from tokens, not a
   bill.
 - Its panel has a toolbar with **Group by** (People, Groups) and **Show as** (Chart, Table) and, at the right
   of that row, the total spent and the live session count. Then the list, then the pager with its usual sizes.
@@ -566,8 +587,9 @@ features that can be switched off appear here."
     while the panel is open." Off by default.
   - **Respond from Podium** (`respond`, #206, [7.7](../07-server/07-07-hardening.md)).
   - **File diff** (`file-diff`, #319): "Lets the owner of a session, and only the owner, open a changed file's diff in
-    the console. The diff is source code, read from the machine only when asked and never stored. Needs the
-    reporter's fileDiff option on the machine as well."
+    the console. The diff is source code, read from the machine while the owner has the session's page open (or only when
+    asked, where the reporter's fileDiffPreload is off) and never stored by the server. Needs the reporter's fileDiff
+    option on the machine as well."
   - **Orchestrator messaging** (`peer-messaging`, #347, [7.7](../07-server/07-07-hardening.md#orchestrator-messaging-347)): "Lets a person's
     orchestrators find and message each other, on the machines they choose, through this server. Only between one
     person's own reporters. Each machine must also turn it on in podium-reporter, and the owner gives each pair the
@@ -587,7 +609,7 @@ features that can be switched off appear here."
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
-- A later flag adds one entry to `FEATURES` in `server/src/fleet/featureFlags.ts`.
+- A later flag adds one entry to `FEATURES` in `server/src/storage/sqlite/featureFlags.ts`.
 - What turning the activity feed off does is under *Right panel* below and in
   [6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md).
 
@@ -601,11 +623,13 @@ a map of it.
   page's status band, with the reply icon and, for a question, the number of questions in the ask.
 - It shows only while the session waits on its person with an open ask whose kind the session accepts (or,
   idle, with `message` in `accepts`), and only while `features.respond` and `features["activity-feed"]` are on
-  and `GET /respond/me` says responding is enabled.
+  and `GET /respond/me` says `enabled` (a token is set and a feature that needs the sign-in is on; the flags
+  above are what make it mean responding).
 - It is never on a blue band (waiting on background work).
 - It is gone when responding is off and when the reporter can't answer (`respond` null, or the ask's kind
   removed by `limits`).
-- Signed out, it is live on every waiting card, since Podium doesn't know whose sessions are yours.
+- Signed out (with `enabled` true), it is live on every waiting card, since Podium doesn't know whose sessions are yours;
+  it leads to the sign-in form.
 - Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "`<Owner>`'s
   session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin can respond."
 - The card's own click target is unchanged.
@@ -623,8 +647,8 @@ a map of it.
 **Signing in**
 - Signed out, Respond opens the modal with the feed and the sign-in form (Name, Token, Sign in) in the answer
   panel, and no message box.
-- The top bar's far end, after a divider that follows History, Hide top bar, the wall mode button and Admin,
-  has **Sign in**, which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
+- The top bar's far end, after a divider that follows History, Traffic, the wall mode button and Admin,
+  has **Sign in** (shown only while `GET /respond/me` says `enabled`), which opens a small Sign in dialog with the same form. Signed in, that spot shows "Signed in
   as `<name>`" and **Sign out**.
 - These go after the spacer, at the end of the bar, so the controls before them don't move. Nothing is added
   next to the connection pill.
@@ -690,7 +714,7 @@ becomes a standard in the release-prep PR, not in the feature PR.
   neutral color and a ring in place of the filled dot, and it keeps **Open replay** and **Delete recording**.
   A recording that hit a limit reads the same way with the limit named.
 - An ended session shows its final state (the Done band, all agents done) plus that layer. It is reached from
-  History, whose row has a line under the name, "recording kept until `<time>`" (shown to the session's owner and to an
+  History ([8.5](08-05-history.md)), whose row has a line under the name, "recording kept until `<time>`" (shown to the session's owner and to an
   Admin only, from the row's `recording`, [7.1](../07-server/07-01-endpoints.md)), and from Admin's Recordings table.
   Nothing is shown once the recording is deleted or has expired.
 
@@ -725,7 +749,8 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - Each has an X (accessible name "Close notice: `<name>`"). Its action link, if it has one, stays in the note.
 - Closing a notice turns it off for everyone (`POST /api/fleet/notices/:id/close`) and shows a confirmation,
   bottom right, that names the notice and links to `#/admin/settings`. The confirmation clears itself after
-  about 9 seconds and has its own X.
+  about 9 seconds and has its own X. It waits while the pointer is over it or focus is inside it, and the 9 seconds
+  start again when both have left.
 - Errors and connection problems are not notices. They keep their place and have no X, and so does the short
   status message at the top of the main column that clears itself after 6 seconds.
 - The switches live in Admin > Settings > Wall notices, one row per notice (name, one-line description,
@@ -734,7 +759,7 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
 - All notices default to on.
 - The notices are the background-sessions note and the update notice. Only the background-sessions note is in
   `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
-  `NOTICES` in `server/src/fleet/wallSettings.ts` and one to the stack in `Wall.tsx`.
+  `NOTICES` in `server/src/storage/sqlite/wallSettings.ts` and one to the stack in `Wall.tsx`.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set
@@ -944,8 +969,9 @@ like the rest of Admin.
 - The header has the name, state and **Remove from list**, which asks "Remove X from the list? It comes back if
   it reports again. Its sessions are not touched." with **Remove reporter** and **Keep it**.
 - For a reporter on the admin secret, a warning callout, **This reporter is using the admin secret**, gives the
-  three steps to fix it: make a person in Admin > People, run `/plugin configure podium-reporter`, enter
-  `token` and `userName`.
+  three steps to fix it: make a person in Admin > People, open the reporter's options (in Claude Code, run
+  `/plugin configure podium-reporter@eengelking-marketplace`; in the Claude desktop app, open Settings > Plugins >
+  Podium-Reporter > Settings), enter `token` and `userName`.
 - **Reporter** shows version, compatibility, Claude Code version, first seen, last report, and sessions seen
   (with a tooltip).
 - **Where it comes from** shows machine, machine id, source address, person, and token as `pdm_<key id>` or
@@ -977,7 +1003,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     pair has today. An orchestrator's request says what allowing gives, or that it changes nothing when the pair
     already has as much, since allowing never lowers a right.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
-    there in words), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
+    there in words, for both Claude Code and the Claude desktop app), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
     from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
     outdated reporter is flagged whether or not it has a live session.
@@ -1029,7 +1055,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     reporters for the console, as it does from the Board.
   - The console's own messages, such as a failed Remove in the rail, show at the top of the page in the wall's
     `.callout.notice`.
-  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. `[` and `]` open and
+  - Unlike the Board it has no legend (approved on #446), no KPI tiles and no Wall mode button. With Shortcuts on, `[` and `]` open and
     close the panels and `\` the top bar; `w` does nothing, and Esc only leaves a wall left on from the fleet.
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)
@@ -1046,7 +1072,7 @@ still hides and shows the top bar.
   - solid while active, dashed in the warning color while a message waits for approval, dotted and muted while
     paused; the label has the message count, and for waiting or paused also an icon and the word. A paused link where
     a message also waits for approval keeps the waiting line and icon, and its label reads "N messages, waiting,
-    paused", its accessible name ", a message waits for approval, paused";
+    paused", its accessible name starts with the same words, then ", a message needs approval";
   - an active link where neither side can send (both `aToB` and `bToA` false, as after Remove link) keeps the solid
     line, and its label adds No access's struck circle and "no right to send"; the line's accessible name ends
     ", no right to send". The browser works this out from `aToB` and `bToA`; the server's `state` stays `active`;
@@ -1168,8 +1194,7 @@ never moves because another has nothing to say.
   surface the card's red top edge.
 - **Session** (#322, #352) is the first eight characters of the session id in the mono face, with a copy icon.
   It is a button that copies the whole id and reads "Copied" with a check for 1.6 s, or "Copy failed" when the
-  clipboard refuses, as the card's id does. Its accessible name is "Copy session id" and the eight characters, as
-  the card's is, and its tooltip is the whole id.
+  clipboard refuses, as the card's id does. Its accessible name is "Session" and the eight characters, then ", copy the full id" (the visible words first, WCAG 2.5.3, #636; the card's own control keeps "Copy session id" and the eight characters), and its tooltip is the whole id.
 - **Resume** and **Fork** are quiet whole-cell controls with no button chrome. Each has its label (**Resume**,
   **Fork**) over "Command" and a copy icon, and behaves as Copy resume command and Copy fork command below.
   Their accessible names are "Copy resume command" and "Copy fork command".
@@ -1191,7 +1216,7 @@ never moves because another has nothing to say.
     session's transcript, which Claude Code keeps for 30 days by default.
   - Fork is offered for a live, waiting or ended session. Podium cannot tell whether the transcript still
     exists, so it does not offer a "transcript gone" state; the popup names the 30-day limit.
-  - Fork is not on History's read-only page, as Resume is not. There is no worktree variant: nothing in
+  - Fork is on History's opened session as on any ended session, as Resume is ([8.5](08-05-history.md)). There is no worktree variant: nothing in
     `claude --help` says `--worktree` combines with `--resume --fork-session`, so the popup advises it.
 - The orchestrator's model, effort and context are not in the bar. Its row in the agent tree shows them (#109).
 
@@ -1258,7 +1283,7 @@ selected first and the choice is not saved). While Files is selected the left co
     screen readers, and the signed counts (`+12 −3`, the word `binary` for a binary file), with a five-block
     bar beside them (green for the share of added lines, red for the rest) that carries no numbers.
   - With the `file-diff` flag and the session's `fileDiff` option on, and the session's signed-in owner
-    (#319, `mockup/podium-file-diff.html`), a row is a button named "Open diff of `<path>`". Enter, Space and a
+    (#319, `mockup/podium-file-diff.html`), a row is a button named by the words on it with the action in front, "Open diff of", the file name, its status and its folder (#800). Enter, Space and a
     click open the shared `Modal` (#97): the title is the path, the sub line is the status letter and the
     counts. The modal is a wide variant (up to 1240 px). The diff is side by side: the old file on the left
     and the new one on the right, level line for line, with a filler beside a line that has no partner (an
@@ -1282,7 +1307,12 @@ selected first and the choice is not saved). While Files is selected the left co
     file: src/b.ts") and has that as its tooltip, and is disabled at the first and last file (no wrap). The
     modal's content changes in place: the title, counts and diff, the scroll back to the top, the Wrap lines
     choice kept, and focus on the button used (or on the other one when the used one has just been disabled).
-    Only the file in view is asked for, 120 ms after the last step so that holding a key down asks for the file it stops on and not each one it passes (the server holds four a session), and a reply for a file the person has left is dropped, so the last file's
+    With the session's `fileDiffPreload` on (#631) the page loads every listed file's diff in the background when it opens
+    (`DiffPreloader`: first-listed first, two at a time, the file being opened moved to the front with one more place, nothing
+    while the tab is hidden, held in the page's memory only and dropped when the page, the session or the access goes), so a
+    loaded file opens at once. A file whose status, counts, `from` or `rev` changed is loaded again and its old text stays
+    until the new one swaps in; a failed one shows today's message and is asked for again when opened, not in the background.
+    With it off, only the file in view is asked for, 120 ms after the last step so that holding a key down asks for the file it stops on and not each one it passes (the server holds four a session), and a reply for a file the person has left is dropped, so the last file's
     diff is never drawn under the next file's title; a 429 or 504 shows for the file in view and the buttons
     still step past it. The row shows in loading, failed and binary states too. Below 480 px the switch comes up
     beside the pager and the note takes a line of its own. Where the diff is

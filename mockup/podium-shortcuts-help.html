@@ -1,0 +1,167 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium shortcuts help link</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<link rel="stylesheet" href="../frontend/src/fleet/admin/admin.css">
+<style>
+/* Mockup: the word "Shortcuts" in the Display settings row becomes a link that opens a list of every keyboard shortcut,
+   while the Shortcuts switch is On. Everything inside a frame is the app's own markup and classes (.top, .banner.has-picker,
+   .bannerctl, .field, .sw, .modal, .mh, .mb). Colors come from tokens.css; this file has no :root block and no color of its own.
+   New here, and so for the maintainer to approve: .kbd-link (the dotted word is a button) and .kbd-cols (two columns split by a pipe).
+   Only the demo chrome (.demo, .stage, .verdict, .review) belongs to the mockup. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.demo { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.demo b { color: var(--ink); }
+.demo .grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.review { max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
+h1.t { font-size: 18px; margin: 0 0 4px; }
+h2.t { font-size: 15px; font-weight: 650; margin: 32px 0 6px; }
+.review p { margin: 0 0 8px; color: var(--ink2); max-width: 74ch; }
+.review code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+.legend { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink2); margin: 0 16px 8px 0; }
+.legend i { width: 22px; height: 12px; border: 2px dashed var(--sonnet); border-radius: 4px; display: inline-block; }
+.isnew { outline: 2px dashed var(--sonnet); outline-offset: 3px; border-radius: 4px; }
+.frame.podium { position: relative; width: var(--w, 100%); max-width: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; height: auto; min-height: 520px; }
+.stage { flex: 1; padding: 16px; background: var(--bg); color: var(--ink2); font-size: 12px; display: grid; gap: 6px; align-content: start; }
+.verdict { margin: 0; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--surface); font-size: 12px; color: var(--ink2); }
+.verdict b { color: var(--ink); }
+/* In the app the scrim is fixed to the window. Inside a mockup frame it covers the frame only. */
+.frame .scrim { position: absolute; }
+.frame .scrim[hidden] { display: none; }
+.frame .modal { max-height: calc(100% - 8px); }
+
+/* NEW: the word Shortcuts as a link. A button, so it is focusable and Enter and Space work. The 1px dotted muted underline is the
+   one .adminv .tt draws for a help term, minus cursor: help. */
+.kbd-link { appearance: none; background: none; border: 0; border-bottom: 1px dotted var(--muted); border-radius: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+.kbd-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.kbd-link:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 2px; }
+
+/* NEW: two columns split by a 1px pipe in the border color. Under 480 px they stack and the pipe becomes a rule between them. */
+.kbd-cols { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 0 22px; }
+.kbd-cols .pipe { background: var(--border); }
+.kbd-col { display: grid; gap: 12px; align-content: start; margin: 0; padding: 0; list-style: none; }
+.kbd-col li { display: grid; gap: 2px; }
+.kbd-col .what { color: var(--ink); }
+.kbd-col .note { color: var(--muted); font-size: 12px; }
+.kbd-col .keys { display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 480px) {
+  .kbd-cols { grid-template-columns: 1fr; gap: 14px 0; }
+  .kbd-cols .pipe { height: 1px; width: auto; }
+}
+/* The frame is narrower than the window in the "Narrow" view, so it follows the frame's width and not the window's. */
+.frame[data-narrow] .kbd-cols { grid-template-columns: 1fr; gap: 14px 0; }
+.frame[data-narrow] .kbd-cols .pipe { height: 1px; width: auto; }
+.frame[data-narrow] .banner .bannerctl { gap: 8px 12px; }
+</style>
+
+<div class="demo">
+  <b>Shortcuts help link, mockup</b>
+  <span class="grp" role="group" aria-label="Mode">Mode
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="grp" role="group" aria-label="Width">Width
+    <button type="button" data-w="100%" aria-pressed="true">Wide, 1440 px</button>
+    <button type="button" data-w="400px" aria-pressed="false">Narrow, 400 px</button>
+  </span>
+</div>
+
+<main class="review">
+  <h1 class="t">A help link on the Shortcuts switch</h1>
+  <p>The Display settings row has a Shortcuts switch (#636). A person who turns it on has to find the keys from a hover hint. With Shortcuts On, the word <b>Shortcuts</b> becomes a link that opens one list of every keyboard shortcut. Off, it stays a plain label, as it is today. Try it: press the switch, then the word. Esc, the X and a click outside close the list, and focus returns to the word.</p>
+  <p class="legend"><i></i>New in this mockup</p>
+
+  <h2 class="t">Wide, with the switch Off and On</h2>
+  <p>Off: a plain label, no underline, no pointer. On: the dotted word. The frame below is live, and the demo bar switches mode and width.</p>
+  <div class="frame podium" data-frame>
+    <header class="top"><span class="logo">Podium</span><span class="pill">Fleet</span><span class="spacer"></span><a class="btn" href="#" onclick="return false">Board</a><a class="btn" href="#" onclick="return false">History</a></header>
+    <div class="banner has-picker" role="region" aria-label="Display settings">
+      <span><b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.</span>
+      <div class="bannerctl">
+        <label class="field"><span>Refresh every</span><select class="sel"><option>5s</option><option>10s</option></select></label>
+        <span class="field"><span id="s-n"><span class="isnew" id="s-label">Shortcuts</span></span><span class="sw"><button type="button" role="switch" aria-checked="false" aria-labelledby="s-n s-s" id="s-sw"></button><span id="s-s">Off</span></span></span>
+        <div class="themepick"><label class="field"><span>Theme</span><select class="sel"><option>Podium</option></select></label>
+          <div class="modeseg" role="radiogroup" aria-label="Mode"><button type="button" role="radio" aria-checked="false">Light</button><button type="button" role="radio" aria-checked="false">Dark</button><button type="button" role="radio" aria-checked="true">System</button></div></div>
+      </div>
+    </div>
+    <div class="stage">
+      <span id="s-state"></span>
+    </div>
+    <p class="verdict" id="s-v" aria-live="polite"></p>
+
+    <div class="scrim" id="scrim" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="kb-title" id="dlg">
+        <div class="mh">
+          <div class="ttl">
+            <h2 id="kb-title">Keyboard shortcuts</h2>
+            <div class="sub2">Work anywhere outside a text field while Shortcuts is On.</div>
+          </div>
+          <button type="button" class="x" id="kb-x" aria-label="Close (Esc)">✕</button>
+        </div>
+        <div class="mb">
+          <div class="kbd-cols">
+            <ul class="kbd-col" aria-label="Panes">
+              <li><span class="what">Show or hide the top bar</span><span class="keys"><code>\</code></span></li>
+              <li><span class="what">Show or hide the left pane</span><span class="keys"><code>[</code></span><span class="note">Does nothing on Traffic, which has no rail.</span></li>
+              <li><span class="what">Show or hide the right pane</span><span class="keys"><code>]</code></span><span class="note">Does nothing on Traffic, which has no side panel.</span></li>
+            </ul>
+            <span class="pipe" aria-hidden="true"></span>
+            <ul class="kbd-col" aria-label="Wall mode">
+              <li><span class="what">Start or stop wall mode</span><span class="keys"><code>w</code></span><span class="note">Does nothing on Traffic or My reporters, which draw no wall.</span></li>
+              <li><span class="what">Leave wall mode</span><span class="keys"><code>Esc</code></span><span class="note">Works with Shortcuts Off too.</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="t">What is new, and what it reuses</h2>
+  <p><b>Reused:</b> the Display settings row, the <code>.field</code> and the Admin switch (<code>.sw</code>), and the console's <code>Modal</code> (title, subtitle, X, Esc and click-outside close, focus moves in and returns to what opened it). The inline key chip is the same <code>code</code> style the modal body already uses. No new color: the underline is <code>--muted</code>, hover is <code>--ink</code>, the pipe and the stacked rule are <code>--border</code>.</p>
+  <p><b>New:</b> <code>.kbd-link</code>, a dotted word that is a button, and <code>.kbd-cols</code>, two columns split by a pipe. The dotted underline already means "a help term" (<code>cursor: help</code>, <code>.adminv .tt</code>); here it marks a word that does something when pressed. That changes what dotted means, so the maintainer approves it first, and a <code>Standards:</code> line says what dotted means for a help term and for an action.</p>
+  <p><b>One list:</b> a single array of shortcuts feeds this modal and the switch's hint (<code>SHORTCUTS_HINT</code>), so the two cannot disagree.</p>
+</main>
+
+<script>
+var $ = function (id) { return document.getElementById(id); };
+var on = false, opener = null;
+function render() {
+  var label = $("s-label");
+  if (on) {
+    label.innerHTML = '<button type="button" class="kbd-link" id="s-link" aria-haspopup="dialog">Shortcuts</button>';
+    $("s-link").onclick = openDlg;
+  } else {
+    label.textContent = "Shortcuts";
+  }
+  $("s-s").textContent = on ? "On" : "Off";
+  $("s-sw").setAttribute("aria-checked", on);
+  $("s-state").textContent = on ? "Shortcuts is On. The word is a link." : "Shortcuts is Off. The word is a plain label.";
+  $("s-v").innerHTML = on ? "<b>On.</b> The dotted word opens the list of keys." : "<b>Off (default).</b> No link, no underline, no pointer cursor.";
+}
+function openDlg() { opener = $("s-link"); $("scrim").hidden = false; $("kb-x").focus(); }
+function closeDlg() { $("scrim").hidden = true; if (opener) opener.focus(); }
+$("s-sw").onclick = function () { on = !on; render(); };
+$("kb-x").onclick = closeDlg;
+$("scrim").addEventListener("mousedown", function (e) { if (e.target === e.currentTarget) closeDlg(); });
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape" && !$("scrim").hidden) { e.preventDefault(); closeDlg(); }
+  else if (e.key === "Tab" && !$("scrim").hidden) { e.preventDefault(); $("kb-x").focus(); }
+});
+document.querySelectorAll("[data-mode]").forEach(function (b) { b.onclick = function () { document.documentElement.dataset.theme = b.dataset.mode;
+  document.querySelectorAll("[data-mode]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+document.querySelectorAll("[data-w]").forEach(function (b) { b.onclick = function () {
+  document.querySelectorAll("[data-frame]").forEach(function (f) { f.style.setProperty("--w", b.dataset.w); if (b.dataset.w === "100%") f.removeAttribute("data-narrow"); else f.setAttribute("data-narrow", ""); });
+  document.querySelectorAll("[data-w]").forEach(function (o) { o.setAttribute("aria-pressed", o === b); }); }; });
+var q = new URLSearchParams(location.search);
+if (q.get("theme")) { document.documentElement.dataset.theme = q.get("theme"); }
+render();
+</script>

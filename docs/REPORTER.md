@@ -14,6 +14,7 @@ session, and how to report sessions that were started without it. To run the ser
 Contents:
 
 - [Install the mod](#install-the-mod)
+- [Install in the Claude desktop app on Windows 11](#install-in-the-claude-desktop-app-on-windows-11)
 - [In the session](#in-the-session)
 - [Options](#options)
 - [Over TLS](#over-tls)
@@ -55,16 +56,57 @@ the mod" in [docs/user-guide/](user-guide/README.md)):
 claude plugin marketplace update eengelking-marketplace && claude plugin update podium-reporter@eengelking-marketplace
 ```
 
+## Install in the Claude desktop app on Windows 11
+
+**The terminal commands above do not work in the desktop app.** Its Code tab takes no marketplace and no address, so
+`/plugin marketplace add` and `/plugin install` cannot be used there. Uploading the archive is the only way in.
+
+1. Install Node.js 20.17 or later from nodejs.org (the LTS installer is enough). If `node.exe` is not on the PATH, or is
+   somewhere unusual, set `PODIUM_NODE` to its full path (for example `C:\Program Files\nodejs\node.exe`) as a user environment
+   variable. Then quit the Claude desktop app and open it again: it reads its environment when it starts, and it does not read
+   PowerShell profiles.
+2. Download `podium-reporter-<version>.zip` from the [releases page](https://github.com/eengelking/podium/releases).
+3. In the desktop app, open **Settings** > **Plugins** > **+ Add** > **Upload Plugin**.
+4. Drag the zip onto "Drag and drop plugin files here..." or pick it in the file browser, then choose **Upload**. This installs
+   and enables Podium-Reporter.
+5. Open **Podium-Reporter** > **Settings**. It lists every option. Fill in `serverUrl`, `token` and `userName`, and `sessionName` if you want one.
+   `token` is secret: once saved, Settings does not show it again.
+   Every other option is in the [Options](#options) table, which also says what each one sends off the machine.
+6. The app connects over mutual TLS, as the terminal does. If your server uses built-in TLS, save the reporter config file an Admin gave you as in
+   [Over TLS](#over-tls) instead of using a token.
+
+To check it: start a local session (plugins are not available in cloud or WSL sessions), send a prompt and run `/podium`. You
+should see `Connection: online`, and `Messaging: on` if `peers` is set.
+
+What does not work on Windows: the tmux web terminal. The server does not run on Windows (see [SERVER.md](SERVER.md)).
+Reports from the app reach the server over the folder link described in [Over TLS](#over-tls), not a socket. Cloud and WSL sessions
+do not load plugins.
+
 ## In the session
 
 The session appears in Podium once you send its first prompt. A session that has done nothing yet is kept
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
 "Sessions that have not done anything yet" in [docs/user-guide/](user-guide/README.md)).
 
-- `/podium` prints the console link, the connection state and report counts.
+- `/podium` prints the console link, the connection state and report counts. It also says how the reporter signs in and
+  why messaging is on or off (#825), from what the mod already holds; it never prints a token:
+  - `Sign-in:` is `a plain token`, `reporter config file <path> (mTLS)` or `none`.
+  - `Messaging:` is `on`, or `off, because <reason>`, then the facts behind it: `peers option` (`on` or `off`, as the mod
+    read it), `interactive` (`yes` or `no`, with the surface the session started on: `terminal`, `desktop`, `vscode`,
+    or `no surface`) and `Podium says` (`takes part`, `does not take part`, or `nothing yet` before the first reply).
+    The reason is the first that applies: the session has ended; the `peers` option is off on this machine; the session
+    is not interactive (a `claude -p` run); there is no per-person token with a `userName` and no reporter config file;
+    the session has not reported yet; or Podium says no, which means its messaging flag is off or the reporter signs in
+    with the admin secret.
+  - `Option problem:` names a switch option whose value is not `true` or `false` (the text `"true"`, say). The mod does not
+    read such a text as true, so a consent option is never turned on by a stray value; it uses the default and the line
+    says which option to fix.
 - `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
-  Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The `sessionName`
-  option and the worktree or folder name come after.
+  Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
+  desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is
+  the only source on a Team or Enterprise login, where Claude Code skips the mod's `classic.*` hooks (see
+  [My session's name is the folder](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md)). The
+  `sessionName` option and the worktree or folder name come after.
 - Effort is read from each model request, so a change made with `/effort` shows after the session's next
   prompt, not when you pick it.
 - With `peers` on, `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging
@@ -103,7 +145,8 @@ instead. Everything except `token` also has a row in the `/config` menu.
 | `showStatus` | `true` | Show the status line entry |
 | `fullPrompts` | `false` | Send each agent's whole task prompt and final answer (up to 20,000 characters each, secrets redacted) so the console can open them in a modal. Off by default: only the first 400 characters leave the session. Everyone who can open the console can read them |
 | `activityFeed` | `false` | Send an agent's recent activity: while someone has that agent's panel open in the console, its last 20 tool calls (the tool's name and a short summary of its arguments) and the text it writes between them, each cut to 300 characters with secrets redacted. Nothing is sent for an agent nobody is watching, and the server keeps it in memory only, unless the server's Admin chooses to keep Activity history: then the server asks for every running agent and the orchestrator, and stores what arrives until the Admin's period ends, readable only by you and the Admin. The orchestrator's own loop works the same way. Everyone who can open the console can watch. The server's Admin can also switch the feed off for everyone under Admin > Settings > Feature flags (on by default). While it is off the server asks no mod for it |
-| `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. Nothing is sent for a file nobody opens. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
+| `fileDiff` | `false` | Send a file's diff on request: when the session's owner opens a file in the console's Files list, the mod reads that one file's diff (`git diff`) and sends it, cut at 2,000 lines or 200,000 bytes. With `fileDiffPreload` on (below) it reads every changed file's diff while the owner has the session's page open. It is source code. The mod replaces anything that looks like a secret with `[redacted]` before it leaves the machine, on removed lines too, and counts them; that is best effort, not a guarantee. `.env*`, key and credentials files are never sent. The server hands it to the one browser that asked and keeps no copy. It needs the server's File diff switch in Admin > Settings > Feature flags (off by default) |
+| `fileDiffPreload` | `true` | Needs `fileDiff` on. While the session's owner has its page open in the console, read the diff of every changed file in the background so a file opens with no wait, and read it again when the file is edited again. The diffs are redacted as above, sit in the owner's browser page and are thrown away when the page is left; the server keeps none. This reads files nobody opened, so more source code leaves the machine than with `fileDiff` alone. Set it to `false` to read a diff only when the owner opens that file |
 | `respond` | `off` | Respond from Podium: what this session accepts from Podium, sent by its owner or an Admin. See the levels below. It needs `activityFeed` on too, and the server's Respond from Podium switch in Admin > Settings > Feature flags (off by default) |
 | `peers` | `false` | Message my other orchestrators: this machine's orchestrators can message your other orchestrators through Podium, within the rights you set on My reporters. See [Messaging your other orchestrators](#messaging-your-other-orchestrators). It needs a per-person token and `userName`, and the server's Orchestrator messaging switch in Admin > Settings > Feature flags (off by default). Set it on each machine that takes part |
 | `sessionRecording` | `false` | Allow session recording: this machine's sessions may be recorded whole when the Admin has turned on the server's Session recording switch and the session's owner or an Admin chooses to record. Off, nothing is recorded whatever the server says, and the terminal says so when a recording was chosen anyway. A recording holds whole prompts, file contents and command output, with anything that looks like a secret replaced on the machine (best effort, not a guarantee). See [REPLAY.md](REPLAY.md) |
@@ -121,15 +164,61 @@ The levels of `respond`:
 ## Over TLS
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
-run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
+run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. On Windows the folder is
+`%USERPROFILE%\.podium` (for example `C:\Users\<name>\.podium`); there is no `chmod`, and your user folder is
+already closed to other accounts, so keep the file there and do not share it. The reporter finds your home folder from `HOME`,
+else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`, and `/podium` shows which one it used on a `Home folder:` line (or says
+that none was found). The reporter then
 connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is still sent, inside the TLS connection, and the server ignores it when your certificate is present. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
-file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes.
+file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes. If you use more than one Podium server, name each file with a context (below).
+
+### Contexts: more than one Podium server
+
+With more than one config file (a home server and a work one, or a test server beside the real one), the newest file wins
+unless you say otherwise. A context is a name for one file, and the current context is the one new sessions use.
+
+```
+/podium context add home reporter-config-Dana-1767225600.pem
+/podium context add work reporter-config-Dana-1769904000.pem
+/podium context              # list them; * marks the current one
+/podium context use work     # the next session reports to work
+```
+
+`podiumctl context` does the same from a shell, on the same file (`~/.podium/contexts.json`). The other verbs are `show`,
+`rename` and `remove`; `remove` never deletes the config file.
+
+- **Switching never touches a running session.** It keeps the server and the person it started with. Start a new
+  session to use the new context.
+- **Two servers at once.** Set `PODIUM_REPORTER_CONTEXT=work` in one terminal before starting Claude Code there. It wins over
+  the current context for that terminal only. `PODIUM_REPORTER_CONFIG` still wins over both.
+- **The status line and `/podium`** show the context, such as `podium v1.4.0 [work] ● 3 live`. A context that could not be
+  used shows `[context unusable]`.
+- **The name still has to match.** If `userName` or `PODIUM_USER` is set, a context whose file is for another person is
+  refused with "wrong config for this name". Leave both empty to use contexts for different people.
+- **A reissued config is a new file name.** A context points at the file you gave it, so after an Admin reissues your
+  config, point the context at the new file: `/podium context remove work`, then `/podium context add work <new file>`.
+- **A context that does not work** (the name is not defined, or its file is missing or not a reporter config) shows
+  under `Context problem:` in `/podium`, and the reporter uses the newest file so it keeps reporting. Fix it with
+  `/podium context`.
+- **With no contexts, nothing changes.**
 
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
+  **On Windows 11, Node.js must be installed** (the LTS installer from nodejs.org is enough). Install it before you start
+  the Claude desktop app, or quit the app and start it again afterwards, because the app reads its PATH when it starts. Without
+  `node` the connection over TLS cannot start and `/podium` says `no node`. The reporter looks on the PATH, then in
+  `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. For a `node.exe` anywhere else, set
+  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`. Use Node 20.17 or later.
+- **On Windows the reporter and its helper pass requests through a folder, not a socket.** On macOS and Linux the reporter sends to the helper over
+  a Unix socket. Windows has none the reporter can use: Node there has no Unix sockets, and Claude Code's `$.http.fetch` accepts only a Unix socket
+  path and refuses a Windows pipe address. So the reporter writes each request as a small file in `%USERPROFILE%\.podium\run\<session>\`, the helper
+  sends it over the same mutual TLS connection, and it answers on its own output; the replies are never written to disk. Nothing listens on a port. The file
+  is gone as soon as the helper has read it. By default only your account, SYSTEM and Administrators can open that folder, as with the config file.
+  The file holds only the method, path and body, no header: the reporter sends just `Content-Type`, which the helper sets, and a token is not needed with a certificate. The reason, the other options
+  and what is unknown are in [DECISIONS 51](decisions/51-the-reporter-config-folder-on-windows-is-userprofile-podium.md).
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
@@ -143,10 +232,11 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
 
   | Status line says | What it means and what to do |
   |---|---|
-  | `config too open` | Others can read the file. Run `chmod 600` on it |
+  | `config too open` | Others can read the file. Run `chmod 600` on it (macOS and Linux; Windows does not check this) |
   | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
-  | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
-  | `config unreadable` | The file is missing or is not a Podium reporter config. When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
+  | `offline, retrying` with `Last error: HTTP 502` | The helper could not reach the server. If the config file's `# server:` line says `localhost` and this is not the server's machine, change it to an address this machine reaches; see [the gotcha](gotchas/on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md) |
+  | `no node` | The helper could not find `node`. Install Node.js (required on Windows 11 too, then restart the Claude desktop app), put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
+  | `config unreadable` | The file is missing or is not a Podium reporter config. The status line adds the reason when the helper gave one (for example that the file holds more than one person certificate). When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
   | `certificate expired` | Your certificate expired on the date the message gives, and an expired certificate is not renewed. Ask an Admin to generate a new reporter config |
   | `certificate refused` | The server turned your certificate away, on a report or on a renewal: an Admin revoked it (Revoke certificate or Revoke all), it has expired, or it is not one this server issued. Ask an Admin to reissue your config. `token refused` is only for a session with no config file |
@@ -168,10 +258,14 @@ file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no 
   request whenever it changes on disk, if it is still for the same person. That is how a renewal made by another
   session reaches this one, and how a reissued config saved over the old file is used within seconds. The server
   address stays the one read at start. `/clear` keeps the helper running.
-- Where it runs: the Claude Code command line on macOS and Linux. The mod relies on `$.process`, which the engine
-  provides only on the command line, so the desktop app and VS Code are not covered. Windows is not a supported
-  platform; the mod can still read a Windows version string (see What leaves the session), but nothing else is
-  built or tested for it.
+- Where it runs: the Claude Code command line on macOS and Linux, and the Claude desktop app on macOS and Windows
+  (`$.process` works there, #408). The desktop app has no `/plugin marketplace`; the mod is added by uploading an
+  archive in Settings > Plugins. Each release has one attached, `podium-reporter-<version>.zip`, and so does the nightly
+  prerelease (#835). `node scripts/podium-reporter-zip.mjs` builds the same file from a checkout. An installed archive has no
+  `.git`, so `/podium` shows a clean build, not a dev build. A desktop session can start before its client attaches, so `session.start` reports no
+  surface; the mod counts the session as interactive once a client shows on the roster, and keeps that for the
+  session (#408). VS Code is not covered. On Windows 11 the desktop app connects over mutual TLS with a reporter config file when Node.js is installed (#834); nothing else is built or
+  tested for Windows.
 
 ## Messaging your other orchestrators
 
@@ -338,3 +432,12 @@ How hook-only sessions behave:
 - A finishing subagent does not mark the session as waiting on you. The `Stop` hook does, unless it lists
   background work or a scheduled wake-up still in flight. Then the session shows what it is waiting on
   instead. Podium reads the hook's `background_tasks` and `session_crons`, never a shell's command.
+- Where Claude Code skips the `classic.*` hooks (a Team or Enterprise login, or managed settings, where its guard
+  `cc-plugin-sec-default` runs first and passes the event on past the mod), the `Stop` hook never runs and the
+  engine offers no other call that lists background shells, monitors or wake-ups. The card shows no background
+  work, and a session idle on it reads as waiting for you. Background subagents still show as agent cards (#740).
+- On the same login a permission prompt still shows as waiting, read from `tool.check` (#741), with responding on or
+  off. Podium cannot answer it: the engine does not let a `tool.check` hook answer for the person, so the console
+  says the session cannot be answered once a turn ends with no classic hook having run (#742). Questions and plan
+  feedback still work. A plan waiting for approval and a subagent's prompt show the same way, as a wait on a
+  permission (`ExitPlanMode(…)` for a plan), and the console offers a plan only feedback, not approval (#764). See [the gotcha](gotchas/session-name-is-the-folder-and-classic-hooks-are-skipped.md).

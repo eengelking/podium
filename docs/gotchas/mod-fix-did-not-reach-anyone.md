@@ -14,7 +14,7 @@ order: 51
 
 **Why:** Installed copies only update when `version` in `mod/podium-reporter/.claude-plugin/plugin.json` changes.
 
-**Do:** The version is bumped in the release-prep PR, not in feature PRs. See "Releases" in `.claude/CLAUDE.md` for the
+**Do:** The version is bumped in the release-prep PR, not in feature PRs. See the `podium-release` skill (`.claude/skills/podium-release/`) for the
 files that change together, including `VERSION` in `mod/podium-reporter/hooks/register.ts` (the number the mod reports;
 a test checks the two match). CI (`mod-version-check`) checks the release PR into `main`.
 

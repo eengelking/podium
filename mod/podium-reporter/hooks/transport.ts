@@ -76,6 +76,8 @@ export interface HttpResult {
   status: number;
   ok: boolean;
   text: string;
+  /** Present when the reply came through the connection helper (#672); a plain fetch sets none. */
+  headers?: Record<string, string>;
 }
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<HttpResult>;
 
@@ -273,6 +275,19 @@ export class Transport {
         }
         return 'rejected';
       }
+      if (res.status === 403 && res.headers?.['x-podium-helper-error'] === 'ROUTE_NOT_ALLOWED') {
+        // The connection helper, not the server, refused: it does not carry this route, so asking again changes nothing until the mod and the helper agree.
+        // A server's own 403 (a feature that is off) has no such header and falls through to the outage path (#672).
+        // The events stay queued: they go out once the mod and the helper agree.
+        this.nextAttemptAt = now + REFUSED_RETRY_MS;
+        this.lastSentAt = now;
+        this.lastError = 'the connection helper does not carry this route (403)';
+        if (!this.loggedReject) {
+          this.loggedReject = true;
+          this.log('podium-reporter: the connection helper refused a report (403 ROUTE_NOT_ALLOWED): update podium-reporter, then restart the session');
+        }
+        return 'refused';
+      }
       if (res.status === 401) {
         // The token is wrong, revoked, or does not belong to the configured name. Keep the events, wait a long
         // while (nothing changes until the settings do), and say so once. The token is never put in a message.
@@ -321,8 +336,8 @@ export class Transport {
   }
 
   /** `problem` is what the TLS link says is wrong (#584), shown ahead of the connection state. */
-  statusText(problem?: string | null): string {
-    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}`;
+  statusText(problem?: string | null, context?: string | null): string {
+    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}${context ? ` [${context}]` : ''}`;
     if (problem) return `${name} ○ ${problem}`;
     if (this.refused) return `${name} ○ token refused`;
     if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;

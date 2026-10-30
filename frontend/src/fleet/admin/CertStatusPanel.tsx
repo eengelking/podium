@@ -66,6 +66,12 @@ export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now:
   const [names, setNames] = useState(false);
   const [asking, setAsking] = useState(false);
   const retireBtn = useRef<HTMLButtonElement>(null);
+  const openBtn = useRef<HTMLButtonElement>(null);
+  /** Closes the question without acting and puts focus back on the button that opened it (#672). */
+  const closeAsk = () => {
+    setAsking(false);
+    openBtn.current?.focus();
+  };
   // The confirmation takes focus when it opens: moved in code, not with autoFocus, which Sonar flags (S9379).
   useEffect(() => {
     if (asking) retireBtn.current?.focus();
@@ -127,7 +133,7 @@ export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now:
                     <span className="hint">kept for the overlap</span>
                   </td>
                   <td>
-                    <button type="button" className="btn sm" aria-expanded={asking} onClick={() => setAsking(true)}>
+                    <button ref={openBtn} type="button" className="btn sm" aria-expanded={asking} onClick={() => setAsking(true)}>
                       Retire old CA…
                     </button>
                   </td>
@@ -183,7 +189,7 @@ export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now:
           </table>
         </div>
         {rot && asking && (
-          <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && setAsking(false)}>
+          <div className="callout" role="alert" onKeyDown={(e) => e.key === "Escape" && closeAsk()}>
             <IconWarn className="wicon" />
             <h3>Retire the old CA?</h3>
             <p>
@@ -203,7 +209,7 @@ export function CertStatusPanel({ view, now, onRetire }: { view: CertsView; now:
               >
                 Retire old CA
               </button>
-              <button type="button" className="btn" onClick={() => setAsking(false)}>
+              <button type="button" className="btn" onClick={closeAsk}>
                 Cancel
               </button>
             </p>

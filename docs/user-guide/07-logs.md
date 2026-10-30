@@ -20,6 +20,9 @@ repeats it held back. The other events below (sessions, reporters, sweeps, Admin
 | `report.rejected`, `hook.rejected` | warn | A report or hook payload failed validation; `reason` and `path` say why |
 | `auth.failed` | warn | A request had no token, a wrong or revoked one, or a token that does not belong to the report's name |
 | `auth.throttled` | warn | One address made more failed `/api` requests in a minute than `PODIUM_FAILURE_LIMIT` allows; logged once per address and minute |
+| `server.test_timings` | warn | The server started with shortened idle or lock times (`PODIUM_TEST_TIMINGS=1`, for the end-to-end suite); the fields carry the times in effect. It never appears on a real server |
+| `server.weak_token` | warn | `PODIUM_TOKEN` is shorter than 24 characters; the `length` field says how long. Use a longer one (`podiumctl` makes one for you) |
+| `server.csp` | warn | The server could not read the page it serves to work out which inline script the content security policy allows, so none is allowed; `reason` says why |
 | `tls.*` | info, warn, error | Built-in TLS. Warnings and errors (`tls.failed`, `tls.renew_failed`, `tls.handshake_failed`, `tls.http_refused`, `tls.client_refused`) print folded like `auth.failed`. Info lines (`tls.listening`, `tls.ca_created`, renewals, rotations) print in text only at `debug` |
 | `report.conflict` | warn | A report for a session that belongs to someone else |
 | `reporter.connected` | info | A reporter (owner, machine, mod or settings hooks) was heard for the first time, or again after a silence |

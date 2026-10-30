@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, within, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, within, fireEvent, cleanup, act } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { GitLine } from "./components/Chips";
 import { SessionCard, cardTitle } from "./components/SessionCard";
@@ -122,6 +122,38 @@ describe("session card", () => {
     expect(badge.className).not.toContain("l2");
     expect(container.querySelector(".card")!.className).not.toContain("risk");
     expect(container.textContent).not.toContain("Likely losing context");
+  });
+
+  // #805: Claude Code compacted the session on its own. The Comp pill says so without calling it a blowout.
+  describe("the Comp pill", () => {
+    it("is not there without an automatic compaction", () => {
+      const { container } = renderCard(makeSession({ compactions: 0 }));
+      expect(container.querySelector(".comp")).toBeNull();
+    });
+
+    it("shows in the Context cell with its words for a screen reader, and no blowout badge", () => {
+      const { container } = renderCard(makeSession({ compactions: 1 }));
+      const pill = container.querySelector(".z3 .ctx .k .comp")!;
+      expect(pill).not.toBeNull();
+      expect(pill.querySelector("svg")).not.toBeNull();
+      expect(pill.textContent).toContain("Comp");
+      expect(pill.textContent).toContain("Compacted automatically 1 time");
+      expect(pill.getAttribute("title")).toBe("Claude Code compacted this session automatically 1 time");
+      expect(pill.className).not.toContain("icon");
+      expect(container.querySelector(".blow")).toBeNull();
+    });
+
+    it("counts in the plural", () => {
+      const { container } = renderCard(makeSession({ compactions: 3 }));
+      expect(container.querySelector(".comp")!.getAttribute("title")).toBe("Claude Code compacted this session automatically 3 times");
+    });
+
+    it("beside the blowout badge, both show in the label row and the row may wrap, so neither is clipped", () => {
+      const { container } = renderCard(makeSession({ compactions: 2, blowouts: blow(1, 0, 1) }));
+      const k = container.querySelector(".z3 .ctx .k")!;
+      expect(k.querySelector(".blow")).not.toBeNull();
+      expect(k.querySelector(".comp")!.textContent).toContain("Comp");
+    });
   });
 
   it("level 2: red badge and red edge; the sentence is the context readout's tooltip, not card text (#144)", () => {
@@ -508,6 +540,67 @@ describe("wall notices (#114)", () => {
     fireEvent.click(within(toast).getByRole("button", { name: "Close this message" }));
     expect(screen.queryByText("Notice turned off")).toBeNull();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the confirmation while the pointer or focus is on it, and clears it a full wait after both leave (WCAG 2.2.1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))));
+    render(<FleetView state={hidden()} />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Background sessions" }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const toast = screen.getByText("Notice turned off").closest(".toast") as HTMLElement;
+      fireEvent.mouseEnter(toast);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.mouseLeave(toast);
+      act(() => void vi.advanceTimersByTime(8_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      const link = within(toast).getByRole("link", { name: /Open Admin > Settings/ });
+      fireEvent.focus(link);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: within(toast).getByRole("button", { name: "Close this message" }) });
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: null });
+      act(() => void vi.advanceTimersByTime(8_999));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      act(() => void vi.advanceTimersByTime(2));
+      expect(screen.queryByText("Notice turned off")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps the confirmation when the pointer leaves while focus is still inside it (WCAG 2.2.1)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))));
+    render(<FleetView state={hidden()} />);
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "Close notice: Background sessions" }));
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const toast = screen.getByText("Notice turned off").closest(".toast") as HTMLElement;
+      const link = within(toast).getByRole("link", { name: /Open Admin > Settings/ });
+      fireEvent.focus(link);
+      fireEvent.mouseEnter(toast);
+      fireEvent.mouseLeave(toast);
+      act(() => void vi.advanceTimersByTime(30_000));
+      expect(screen.queryByText("Notice turned off")).not.toBeNull();
+      fireEvent.blur(link, { relatedTarget: null });
+      act(() => void vi.advanceTimersByTime(9_001));
+      expect(screen.queryByText("Notice turned off")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not render a notice that is switched off in Admin", () => {

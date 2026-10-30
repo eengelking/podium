@@ -18,7 +18,7 @@ Create these. Split further only if a file passes about 250 lines.
   `PlanPanel`, `AgentTree`, `AgentRow`).
 - **Side panel:** `SidePanel` (with `ActivityList`, `AgentDetail`, `FailureBox`, `BlowoutBox`, `ReportDocs`,
   `ActivityFeed`, `Modal`).
-- **Shared pieces:** `Chips` (`ModelChip`, `EffortMeter`, `StatusChip`, `BlowBadge`, `GitLine`), `Sparkline`,
+- **Shared pieces:** `Chips` (`ModelChip`, `EffortMeter`, `StatusChip`, `BlowBadge`, `CompBadge`, `GitLine`), `Sparkline`,
   `ResizeHandle`, `EdgeTab`.
 - **Hooks:** `useFleet`, `useActivityFeed`, `useResizable`, `usePanes`, `useHotkeys`, `useIdle`, `useTheme`,
   `usePeoplePrefs`, `useWallColumns`.

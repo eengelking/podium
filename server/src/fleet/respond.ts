@@ -22,7 +22,7 @@ import {
   type RespondInfo,
   type RespondKind,
 } from './protocol.js';
-import { nameKey } from './people.js';
+import { nameKey } from '../storage/rows.js';
 
 /** How long a closed ask stays readable, unless the session's next ask opens first. */
 export const CLOSED_KEEP_MS = 10 * 60_000;
@@ -61,8 +61,6 @@ interface AskEntry {
   ask: Ask;
   delivery: DeliveryEntry | null;
   closed: Closed | null;
-  /** A report made after the ask closed found the session running: the turn it closed in is going (#208). */
-  ran?: boolean;
 }
 
 /** Why the server let go of a delivery that has no result (#304, #326, #333, #334). */
@@ -261,27 +259,20 @@ export class RespondStore {
       if (e.closed || listed.has(id) || e.ask.openedAt > report.sentAt - REPORT_GRACE_MS) continue;
       this.setClosed(sid, e, { outcome: 'closed', at: this.now(), by: null, answer: null, planApproved: false, implicit: true });
     }
-    this.forgetOnIdle(sid, report);
+    this.forgetOnRun(sid, report);
   }
 
   /**
-   * A closed ask's outcome is stale once its turn is over (#208): the session was seen running after the ask closed and
-   * now reports itself idle (`waiting`) with no open ask. An idle report with no running one between could still be the
-   * moment before the session takes the answer, and one made before the ask closed says nothing about it.
+   * A closed ask's outcome is stale once the session is seen running after the ask closed (#829, which tightens #208's
+   * wait for the turn to end): the session took the answer and went on. A running report made before the close says
+   * nothing about it, and neither does a guessed close (`implicit`), which a later report may still reopen.
    */
-  private forgetOnIdle(sessionId: string, report: Report): void {
+  private forgetOnRun(sessionId: string, report: Report): void {
     const s = this.sessions.get(sessionId);
-    if (!s) return;
-    const status = report.session.status;
-    if (status === 'running') {
-      for (const e of s.asks.values()) if (e.closed && e.closed.at < report.sentAt) e.ran = true;
-      return;
-    }
-    if (status !== 'waiting') return;
-    for (const e of s.asks.values()) if (!e.closed) return;
+    if (!s || report.session.status !== 'running') return;
     let changed = false;
     for (const [id, e] of s.asks) {
-      if (e.closed && e.ran) {
+      if (e.closed && !e.closed.implicit && e.closed.at < report.sentAt) {
         s.asks.delete(id);
         changed = true;
       }

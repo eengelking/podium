@@ -3,5 +3,5 @@ import type { Fleet } from './fleet.js';
 import type { ReportDeps } from './reports.js';
 
 export function reportDepsOf(fleet: Fleet): ReportDeps {
-  return { db: fleet.db, now: fleet.now, pricing: () => fleet.prices.pricing(), retention: fleet.cfg.retention };
+  return { db: fleet.db, tx: fleet.storage.tx, now: fleet.now, pricing: () => fleet.prices.pricing(), retention: fleet.cfg.retention };
 }

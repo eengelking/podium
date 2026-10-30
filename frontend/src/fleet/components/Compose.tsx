@@ -32,7 +32,7 @@ export function OffNote(props: { edge: "off" | "old"; reason: CantReason; report
         <span>It reports through the settings hooks, which can't take an answer. Answer in the terminal or desktop app.</span>
       ) : props.reason === "print" ? (
         <span>
-          It runs with <code>claude -p</code>, which can't take an answer from Podium.
+          It is either a <code>claude -p</code> run, which can't take an answer, or a Claude desktop session that no window has opened yet. In the desktop app, open the session, and this note goes away. Otherwise, answer in the terminal.
         </span>
       ) : (
         <span>

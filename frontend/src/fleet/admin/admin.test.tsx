@@ -44,6 +44,20 @@ describe("Admin lock screen", () => {
     expect(screen.getByRole("button", { name: /^People(?! and)/ })).toHaveAttribute("aria-current", "page");
   });
 
+  it("moves focus to the page's heading when it opens, because the form it came from is gone (#636)", async () => {
+    fakeServer();
+    render(<AdminView />);
+    await unlock();
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
+  });
+
+  it("lets a password manager fill the form (3.3.8, #636)", async () => {
+    fakeServer();
+    render(<AdminView />);
+    expect(await screen.findByLabelText("Name")).toHaveAttribute("autocomplete", "username");
+    expect(screen.getByLabelText("Token")).toHaveAttribute("autocomplete", "current-password");
+  });
+
   it("puts the cursor in the Name field when the lock screen opens", async () => {
     fakeServer();
     render(<AdminView />);
@@ -182,6 +196,8 @@ describe("administrator names (#182)", () => {
 });
 
 describe("deleting people (#243)", () => {
+  // Each of these renders the whole fleet or Admin tree and clicks through it: about 0.1 s on a quiet machine, but past the 5 s default on a CI runner
+  // running coverage (#681). The limit is wide for the same reason as the Admin paging test, and the work is unchanged.
   it("selects rows, confirms in a dialog that names them, and deletes exactly those", async () => {
     const s = fakeServer({ people: 4 });
     render(<AdminView />);
@@ -205,7 +221,7 @@ describe("deleting people (#243)", () => {
     expect(screen.getByText("person-003")).toBeInTheDocument();
     expect(screen.queryByText(/selected/)).toBeNull();
     expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument();
-  });
+  }, 30_000);
 
   it("selects every row on the page with the header box, and Clear drops the selection", async () => {
     fakeServer({ people: 3 });
@@ -578,7 +594,8 @@ describe("Reporters tab (#142)", () => {
     fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: /Open details/ }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("This reporter is using the admin secret");
-    expect(alert).toHaveTextContent("/plugin configure podium-reporter");
+    expect(alert).toHaveTextContent("In Claude Code, run /plugin configure podium-reporter@eengelking-marketplace");
+    expect(alert).toHaveTextContent("In the Claude desktop app, open Settings > Plugins > Podium-Reporter > Settings");
   });
 
   it("pages a reporter's recent sessions and shows them and the turned-away reports as their own panels (issue #188)", async () => {

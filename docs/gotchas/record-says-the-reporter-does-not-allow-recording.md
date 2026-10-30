@@ -16,7 +16,8 @@ allow recording. Nothing is recorded.
 **Why:** The third yes answer is the reporter's `sessionRecording` option on the machine the session runs on, and it is
 off by default. The browser cannot turn it on, on purpose.
 
-**Do:** On that machine, run `/plugin configure podium-reporter@eengelking-marketplace` and turn on **Allow session
+**Do:** On that machine, in Claude Code, run `/plugin configure podium-reporter@eengelking-marketplace`, or in the Claude
+desktop app open Settings > Plugins > Podium-Reporter > Settings, and turn on **Allow session
 recording**, then start the recording again. Capture begins at the next reply, so allow a few seconds.
 
 <!-- nav:start -->

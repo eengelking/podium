@@ -18,7 +18,7 @@ with your name and token from **Sign in** at the far right of the top bar. The t
 how many.
 
 The page sits between the orchestrator list on the left and the Activity panel on the right, which open collapsed so
-the page gets the width. Open either from its edge tab or with `[` and `]`; the page remembers what you left open,
+the page gets the width. Open either from its edge tab or, with **Shortcuts** turned on, with `[` and `]`; the page remembers what you left open,
 apart from the Fleet page and the Board. Picking an orchestrator or an activity event takes you to that orchestrator.
 There is no wall here, so `w` does nothing. `\` still hides and shows the top bar.
 
@@ -41,8 +41,9 @@ Anything Podium replaced as a possible secret on the sending machine reads `[red
 One row per machine: its state, its system, whether messaging is on, its podium-reporter version, its last report and
 how many orchestrators are live. The state uses the same words as [Admin > Reporters](../05-admin/05-reporters.md): **Reporting**,
 **Idle**, **Silent** or **Not since restart**; hover or focus it to read what it means. **Off on the machine** means the
-reporter's `peers` option is off there, and only that machine can turn it on: in Claude Code there, run
-`/plugin configure podium-reporter` and set `peers` to on. **Reporter can't message: update it** means the mod is too
+reporter's `peers` option is off there, and only that machine can turn it on. In Claude Code there, run
+`/plugin configure podium-reporter@eengelking-marketplace` and set `peers` to on. In the Claude desktop app there, open
+**Settings** > **Plugins** > **Podium-Reporter** > **Settings** and turn on `peers`. **Reporter can't message: update it** means the mod is too
 old to send the option. A version this server does not support is marked **outdated** or **newer**, as on Admin >
 Reporters, whether or not the machine has a live session.
 

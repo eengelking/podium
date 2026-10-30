@@ -72,6 +72,8 @@ export interface ChangedFile {
   removed: number | null;
   /** The old path of a renamed file. */
   from: string | null;
+  /** The git hash of the file's content on disk (#631), so an edit that leaves the counts alone still shows. Absent for a deleted file, an older reporter, or when git could not hash it. */
+  rev?: string;
 }
 
 /**
@@ -303,6 +305,8 @@ export interface SessionReport {
   activityOutput?: boolean;
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
+  /** Whether the reporter's `fileDiffPreload` option is on (#631): the console may ask for every changed file's diff while its page is open. Absent from a reporter older than the release that adds it. */
+  fileDiffPreload?: boolean;
   /** The main loop's last 20 activity entries, as on an agent: only while someone watches the orchestrator. */
   activity?: ActivityEntry[];
   /** Whether and how far the session can be answered from Podium (#206). Absent from a reporter older than 0.14.0. */
@@ -934,6 +938,8 @@ export interface SessionView {
     loopsTotal: number;
     log: BlowoutLogEntry[];
   };
+  /** How many times Claude Code compacted the session on its own, any loop, counted from its stored compact events (#805). Shown as the Comp pill. */
+  compactions: number;
   plan: PlanView | null;
   /** The main loop's steps, tools and skills; null from a reporter older than 0.4.0 and for a hooks-only session. */
   loop: LoopReport | null;
@@ -960,6 +966,8 @@ export interface SessionView {
   activityOutput: boolean | null;
   /** Whether the reporter's fileDiff option is on (#319); null as for `activityFeed`. Held in memory. */
   fileDiff: boolean | null;
+  /** Whether the reporter's fileDiffPreload option is on (#631); null as for `fileDiff`. Held in memory. */
+  fileDiffPreload: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */
   respond: RespondInfo | null;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
@@ -1488,6 +1496,7 @@ function filesReport(v: unknown, path: string): FilesReport | null {
       added: intOrNull(fo.added, `${p}.added`),
       removed: intOrNull(fo.removed, `${p}.removed`),
       from: strOrNull(fo.from, `${p}.from`, LIMITS.filePath),
+      ...(fo.rev === undefined || fo.rev === null ? {} : { rev: str(fo.rev, `${p}.rev`, 64) }),
     };
   });
   return {
@@ -1544,6 +1553,7 @@ function session(v: unknown, path: string): SessionReport {
     ...(o.activityFeed === undefined || o.activityFeed === null ? {} : { activityFeed: bool(o.activityFeed, `${path}.activityFeed`) }),
     ...(o.activityOutput === undefined || o.activityOutput === null ? {} : { activityOutput: bool(o.activityOutput, `${path}.activityOutput`) }),
     ...(o.fileDiff === undefined || o.fileDiff === null ? {} : { fileDiff: bool(o.fileDiff, `${path}.fileDiff`) }),
+    ...(o.fileDiffPreload === undefined || o.fileDiffPreload === null ? {} : { fileDiffPreload: bool(o.fileDiffPreload, `${path}.fileDiffPreload`) }),
     ...activity(o.activity, `${path}.activity`),
     ...respondInfo(o.respond, `${path}.respond`),
     ...(o.asks === undefined || o.asks === null ? {} : { asks: asks(o.asks, `${path}.asks`) }),

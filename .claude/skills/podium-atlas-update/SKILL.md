@@ -53,4 +53,4 @@ The rail says "Reads from the repo at vX.Y.Z" and the footer says "at version X.
 - **A description must be true for the code as it is now**, not as the spec intends or the CHANGELOG once said.
 - **Do not paste file contents, tokens, hosts or paths from a developer's machine** into the page or the doc. Use the repo-relative path and a one-line description.
 - **The page has its own `:root` colors on purpose.** It is a project document, not part of the product, and is exempt from the tokens rule. Do not "fix" them.
-- **Keep the two files in step.** If you add a part to the page, ATLAS.md's parts table needs the row, and the reverse. The line "thirty parts" appears in the page's heading and in ATLAS.md's intro; update both when the count changes.
+- **Keep the two files in step.** If you add a part to the page, ATLAS.md's parts table needs the row, and the reverse. The count ("thirty-two parts" today) appears in the page's heading and in ATLAS.md's intro; update both when the count changes.

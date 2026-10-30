@@ -5,7 +5,8 @@
 // was last seen, so one that runs past midnight is not split. The hourly retention writes the rollups before it deletes
 // anything (`writeRollups`); the reports read today straight from the live tables with the same builder (`buildRollups`).
 import { repriced } from './derive.js';
-import { ROLLUP_KEEP_MS, type CostOf, type FleetDb, type SessionRow } from './db.js';
+import { ROLLUP_KEEP_MS, type CostOf, type SessionRow } from '../storage/rows.js';
+import type { FleetStore, Storage } from '../storage/types.js';
 import type { Pricing } from './pricing.js';
 
 // ---- days ---------------------------------------------------------------------------------------
@@ -125,8 +126,6 @@ const safeParse = <T>(text: string | null, fallback: T): T => {
 
 // ---- building -----------------------------------------------------------------------------------
 
-type StoredSession = SessionRow & { grp: string | null };
-
 /** How long a session ran, in whole seconds. */
 const durationS = (s: SessionRow): number => Math.max(0, Math.round(((s.ended_at ?? s.last_seen_at) - s.started_at) / 1000));
 
@@ -139,20 +138,13 @@ const outcomeOf = (s: SessionRow): string => s.end_reason ?? (s.ended_at === nul
  * The rollups of every stored session last seen at or after `fromMs`. `sessionsStarted` counts the sessions started on a
  * day, wherever they were last seen. The peak of live sessions is left at 0: `peakLiveByDay` reads it from the samples.
  */
-export function buildRollups(db: FleetDb, cost: CostOf, fromMs: number): DayRollups {
-  const sessions = db.db
-    .prepare(
-      `SELECT s.*, g.name AS grp FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
-       WHERE s.last_seen_at >= ? ORDER BY s.last_seen_at, s.id`,
-    )
-    .all(fromMs) as unknown as StoredSession[];
-  // Only the sessions chosen above, so the cost of a report follows its period and not the whole history (#529).
-  const chosen = 'SELECT id FROM sessions WHERE last_seen_at >= ?';
+export async function buildRollups(db: FleetStore, cost: CostOf, fromMs: number): Promise<DayRollups> {
+  const sessions = await db.sessionsSince(fromMs);
   const agentCount = new Map<string, number>();
-  for (const r of db.db.prepare(`SELECT session_id AS id, COUNT(*) AS n FROM agents WHERE session_id IN (${chosen}) GROUP BY session_id`).all(fromMs) as unknown as { id: string; n: number }[]) agentCount.set(r.id, r.n);
+  for (const r of await db.agentCountsSince(fromMs)) agentCount.set(r.id, r.n);
   const reporterOf = new Map<string, string>();
-  for (const r of db.db.prepare(`SELECT session_id AS id, MIN(reporter_key) AS k FROM reporter_sessions WHERE session_id IN (${chosen}) GROUP BY session_id`).all(fromMs) as unknown as { id: string; k: string }[]) reporterOf.set(r.id, r.k);
-  const failureRows = db.db.prepare(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${chosen})`).all(fromMs) as unknown as { id: string; f: string }[];
+  for (const r of await db.reporterKeysSince(fromMs)) reporterOf.set(r.id, r.k);
+  const failureRows = await db.failureRowsSince(fromMs);
   const failuresOf = new Map<string, { cls: string; tool: string }[]>();
   for (const r of failureRows) {
     const f = safeParse<{ class?: string; tool?: string | null } | null>(r.f, null);
@@ -262,8 +254,8 @@ export function buildRollups(db: FleetDb, cost: CostOf, fromMs: number): DayRoll
  * The most sessions live at one second on each day the samples cover. A session is live from its first sample to its last,
  * and a session that lives across midnight counts on both days.
  */
-export function peakLiveByDay(db: FleetDb): Map<string, number> {
-  const spans = db.db.prepare('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id').all() as unknown as { a: number; b: number }[];
+export async function peakLiveByDay(db: FleetStore): Promise<Map<string, number>> {
+  const spans = await db.sampleSpans();
   const perDay = new Map<string, [number, number][]>();
   for (const { a, b } of spans) {
     for (let day = localDay(a * 1000); day <= localDay(b * 1000); day = addDays(day, 1)) {
@@ -301,10 +293,11 @@ export interface RollupPolicy {
  * from what is left when no run has written it yet. A day's peak of live sessions
  * never goes down. Rollup rows older than `rollupMs` are deleted. Returns how many days it rebuilt and how many rows it dropped.
  */
-export function writeRollups(db: FleetDb, now: number, cost: CostOf, p: RollupPolicy): { days: number; deleted: number } {
-  return db.tx(() => {
+export function writeRollups(storage: Storage, now: number, cost: CostOf, p: RollupPolicy): Promise<{ days: number; deleted: number }> {
+  const db = storage.fleet;
+  return storage.tx(async () => {
     let rebuilt = 0;
-    const oldest = (db.db.prepare('SELECT MIN(last_seen_at) AS t FROM sessions').get() as { t: number | null }).t;
+    const oldest = await db.oldestSessionSeen();
     if (oldest !== null) {
       const sessionCutoff = now - p.sessionsMs;
       const firstDay = localDay(oldest);
@@ -312,36 +305,23 @@ export function writeRollups(db: FleetDb, now: number, cost: CostOf, p: RollupPo
       while (dayStart(fromDay) < sessionCutoff && fromDay < localDay(now)) fromDay = addDays(fromDay, 1);
       // The day the cutoff falls in is half swept. It is written when no earlier run did (the first run after an upgrade): a
       // partly built day is better than a hole, and a fuller one written earlier stays. Days wholly before it stay as they are (#529).
-      const written = new Set<string>();
-      for (const table of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'])
-        for (const r of db.db.prepare(`SELECT DISTINCT day FROM ${table} WHERE day < ?`).all(fromDay) as unknown as { day: string }[]) written.add(r.day);
+      const written = new Set(await db.rollupDaysBefore(fromDay));
       const cutoffDay = localDay(sessionCutoff);
       const wanted = (day: string): boolean => day >= fromDay || (day === cutoffDay && !written.has(day));
       // Build only from the earliest day that will be written, so an ordinary run does not read the whole retained history.
       const buildFrom = cutoffDay < fromDay && !written.has(cutoffDay) ? (cutoffDay > firstDay ? cutoffDay : firstDay) : fromDay;
-      const built = buildRollups(db, cost, dayStart(buildFrom));
-      const peaks = peakLiveByDay(db);
-      for (const table of ['usage_daily', 'sessions_daily', 'failures_daily']) db.db.prepare(`DELETE FROM ${table} WHERE day >= ?`).run(fromDay);
-      const putUsage = db.db.prepare('INSERT INTO usage_daily (day, owner, group_name, model, project, sessions, agents, cost_usd, unpriced_sessions, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const u of built.usage.filter((r) => wanted(r.day))) putUsage.run(u.day, u.owner, u.group, u.model, u.project, u.sessions, u.agents, u.costUsd, u.unpricedSessions, u.tokIn, u.tokOut, u.tokCr, u.tokCw);
-      const putSessions = db.db.prepare('INSERT INTO sessions_daily (day, outcome, model, effort, plan, sessions, duration_s, max_duration_s, agents, blowouts, max_context_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const s of built.sessions.filter((r) => wanted(r.day))) putSessions.run(s.day, s.outcome, s.model, s.effort, s.plan, s.sessions, s.durationS, s.maxDurationS, s.agents, s.blowouts, s.maxContextPct);
-      const putFailure = db.db.prepare('INSERT INTO failures_daily (day, owner, class, tool, count) VALUES (?, ?, ?, ?, ?)');
-      for (const f of built.failures.filter((r) => wanted(r.day))) putFailure.run(f.day, f.owner, f.cls, f.tool, f.count);
-      const putFleet = db.db.prepare(
-        `INSERT INTO fleet_daily (day, active_people, active_reporters, sessions_started, peak_live_sessions, reporter_versions_json, engine_versions_json) VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(day) DO UPDATE SET active_people = excluded.active_people, active_reporters = excluded.active_reporters, sessions_started = excluded.sessions_started,
-           peak_live_sessions = MAX(fleet_daily.peak_live_sessions, excluded.peak_live_sessions), reporter_versions_json = excluded.reporter_versions_json, engine_versions_json = excluded.engine_versions_json`,
-      );
-      for (const f of built.fleet) {
-        if (!wanted(f.day)) continue;
-        putFleet.run(f.day, f.activePeople, f.activeReporters, f.sessionsStarted, peaks.get(f.day) ?? 0, JSON.stringify(f.reporterVersions), JSON.stringify(f.engineVersions));
-        rebuilt += 1;
-      }
+      const built = await buildRollups(db, cost, dayStart(buildFrom));
+      const peaks = await peakLiveByDay(db);
+      await db.deleteRollupsFrom(fromDay);
+      await db.insertUsage(built.usage.filter((r) => wanted(r.day)));
+      await db.insertSessionsDaily(built.sessions.filter((r) => wanted(r.day)));
+      await db.insertFailures(built.failures.filter((r) => wanted(r.day)));
+      const days = built.fleet.filter((f) => wanted(f.day));
+      await db.upsertFleetDays(days.map((f) => ({ day: f, peak: peaks.get(f.day) ?? 0 })));
+      rebuilt += days.length;
     }
     const keepFrom = localDay(now - (p.rollupMs ?? ROLLUP_KEEP_MS));
-    let deleted = 0;
-    for (const table of ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily']) deleted += Number(db.db.prepare(`DELETE FROM ${table} WHERE day < ?`).run(keepFrom).changes);
+    const deleted = await db.deleteRollupsBefore(keepFrom);
     return { days: rebuilt, deleted };
   });
 }

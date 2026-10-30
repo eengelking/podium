@@ -457,6 +457,16 @@ describe("Admin > Server > Certificates (#586)", () => {
 describe("Admin > Server > Certificates, CA rotation (#588)", () => {
   const rotating = (onOldCa = 2, total = 6) => fakeCerts({ overlapDays: 120, rotation: { previousCa: fakeCert(3600, { serial: "OLD1" }, 3650), cross: fakeCert(30, { serial: "CR01" }, 120), startedAt: Date.now(), reporters: { onOldCa, total } } });
 
+  it("Escape on the retire confirmation returns focus to Retire old CA… (#672)", async () => {
+    await open(rotating());
+    const retire = await screen.findByRole("button", { name: "Retire old CA…" });
+    fireEvent.click(retire);
+    const ask = await screen.findByRole("alert");
+    fireEvent.keyDown(within(ask).getByRole("button", { name: "Retire old CA" }), { key: "Escape" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(retire).toHaveFocus();
+  });
+
   it("shows the blue status band, the previous CA row with the count, and Retire old CA…", async () => {
     await open(rotating());
     const b = await waitFor(() => {
@@ -551,6 +561,19 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
     expect(within(ask).getByRole("button", { name: "Cancel" })).toHaveFocus();
     fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
     expect(srv.certBodies).toEqual([]);
+  });
+
+  it("Escape and Cancel on the rotate confirmation return focus to Rotate CA… (#672)", async () => {
+    await open(fakeCerts({ overlapDays: 120 }));
+    const rotate = await screen.findByRole("button", { name: "Rotate CA…" });
+    for (const close of ["Escape", "Cancel"]) {
+      fireEvent.click(rotate);
+      const ask = await screen.findByRole("alert");
+      if (close === "Escape") fireEvent.keyDown(within(ask).getByRole("button", { name: "Cancel" }), { key: "Escape" });
+      else fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("alert"), close).toBeNull();
+      expect(rotate, close).toHaveFocus();
+    }
   });
 
   it("says why a planned rotation is off for a CA made before T10, and leaves the hard cutover (#638)", async () => {

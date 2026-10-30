@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Top Bar Edge Tab Gap</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #787, for approval. At 400 px the top bar wraps to two rows and the top edge tab (24 px tall, 12 px inside the bar's bottom edge) overlaps the last button
+   by 4 px, because the bar's bottom padding is 8 px. Proposal: 12 px bottom padding on .top, below the width where the page stacks (1040 px) only. At 1440 px nothing changes.
+   No root-level token block and no color of its own: colors come from tokens.css. Classes prefixed mk- are demo chrome. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.mk-demo { display: flex; gap: 8px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+main { padding: 20px 16px 48px; display: flex; flex-direction: column; gap: 18px; }
+h1 { font-size: 22px; margin: 0 0 6px; } h2 { font-size: 14px; margin: 0 0 6px; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 16px; }
+.mk-cell { display: flex; flex-direction: column; gap: 6px; }
+.mk-frame { width: 400px; max-width: 100%; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); }
+.mk-frame .top { padding-bottom: 8px; }
+.mk-after .top { padding-bottom: 12px; }
+.mk-frame .edge-tab { outline: 1px dashed var(--warn); outline-offset: 0; }
+.mk-line { padding: 14px 16px 10px; font-weight: 600; }
+</style>
+<div class="mk-demo"><b>Mode</b>
+  <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+  <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  <span>Dashed amber is the tab's real box.</span></div>
+<main class="podium">
+  <header><h1>Top bar: room for the edge tab</h1>
+    <p>Issue #787. Today the tab's top edge sits 4 px inside the last button on the bar's second row (Sign in signed out, History signed in) and touches the line below. The proposal adds 4 px of bottom padding to the bar below 1040 px. The bar is one row at 1440 px and unchanged there. No new component; the existing EdgeTab stays 32 x 24.</p></header>
+  <section><h2>400 px, signed out</h2><div class="mk-pair">
+    <div class="mk-cell mk-before"><b>Today</b><div class="mk-frame mk-before"><header class="top"><span class="pill">Fleet</span><span class="pill">3 sessions</span><span style="flex:1"></span><button class="btn" type="button">Settings</button><button class="btn" type="button">Sign in</button><button class="edge-tab edge-tab-top" type="button" data-tip="Hide top bar" aria-label="Hide top bar"><svg viewBox="0 0 10 10"><path d="M1.5 6.5 5 3l3.5 3.5"/></svg></button></header><div class="mk-line">Live fleet.</div></div></div>
+    <div class="mk-cell mk-after"><b>Proposed</b><div class="mk-frame mk-after"><header class="top"><span class="pill">Fleet</span><span class="pill">3 sessions</span><span style="flex:1"></span><button class="btn" type="button">Settings</button><button class="btn" type="button">Sign in</button><button class="edge-tab edge-tab-top" type="button" data-tip="Hide top bar" aria-label="Hide top bar"><svg viewBox="0 0 10 10"><path d="M1.5 6.5 5 3l3.5 3.5"/></svg></button></header><div class="mk-line">Live fleet.</div></div></div>
+  </div></section>
+</main>
+<script>
+document.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () {
+  document.documentElement.setAttribute('data-theme', b.dataset.mode);
+  document.querySelectorAll('[data-mode]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); }); }); });
+document.documentElement.setAttribute('data-theme', 'dark');
+</script>

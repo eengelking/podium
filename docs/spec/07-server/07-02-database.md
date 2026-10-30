@@ -10,6 +10,8 @@ order: 2
 
 Path: `PODIUM_DB` env, default `<repo>/data/podium.sqlite` (add `data/` to `.gitignore`). Pragmas: `journal_mode=WAL`, `synchronous=NORMAL`, `foreign_keys=ON`. Migrations are a numbered list applied in order and recorded in `schema_migrations`.
 
+The server reaches the database through async storage interfaces, and SQLite is the only adapter and the default (#313, [DECISIONS 48](../../decisions/48-storage-sits-behind-async-interfaces-with-sqlite-as-the-only-adapter.md)). A plain `PODIUM_DB` path or `:memory:` means a SQLite file; `kind://target` is reserved for choosing another registered kind, and an unknown kind stops the server at start. What the server keeps beside the database, today the TLS CA, lives in `PODIUM_DATA_DIR`, which is the folder of the SQLite file when it is not set. [How it is built](../../architecture/02-components/19-storage.md).
+
 The Activity history (#432) is a second file, `activity.sqlite`, in the same folder (`:memory:` when the main
 database is). It has its own schema version in `PRAGMA user_version`, WAL, `synchronous=NORMAL` and incremental
 auto-vacuum, and holds only these tables, which nothing in the main database references:
@@ -191,8 +193,8 @@ Everything else is held in the server's memory, in one store per live session, a
 state body or the stream:
 
 - the open asks, with their questions, plan text or tool input ([6.2](../06-reporter-protocol/06-02-the-report.md)), at most 8 per session;
-- a closed ask's outcome (who answered and when, the terminal's answer summary), until the session goes idle
-  with no open ask, for at most 10 minutes, or until its next ask opens;
+- a closed ask's outcome (who answered and when, the terminal's answer summary), until a report shows the session
+  running again after it closed, for at most 10 minutes, or until its next ask opens;
 - the pending deliveries: the one answer taken for each ask, and at most 20 messages and commands per session,
   each with who sent it, when, and its result once the mod reports one.
 

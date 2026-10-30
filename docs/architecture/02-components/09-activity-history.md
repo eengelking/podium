@@ -7,8 +7,8 @@ order: 9
 
 # Activity history
 
-Files: `server/src/fleet/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
-`activityHistorySettings.ts` (the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
+Files: `server/src/storage/sqlite/activityHistory.ts` (the store), `activityDb.ts` (the second database file),
+`activityHistorySettings.ts` (both in `server/src/storage/sqlite/`; the Admin's choice), `activityHistoryTypes.ts` (the shapes shared with the routes and
 the Admin pages), `sweeper.ts` (`purgeActivityHistory`), `frontend/src/fleet/admin/DataPage.tsx` and
 `StoredActivityTab.tsx`, and the window changes in `useActivityFeed.ts` and `ActivityFeed.tsx`. Issue #432; the
 reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `scripts/podium-seed-activity.ts`.
@@ -43,7 +43,7 @@ reasoning and the alternatives are DECISIONS 39. The seeder for load tests is `s
   `end`: sessions that are not live; the cap: oldest first) a chunk at a time: each chunk is its own transaction
   that selects some rows, deletes them and takes them off their sessions' aggregates, then yields to the event loop.
   The chunk size starts at 500 rows and adapts to about 25 ms a chunk (at most 5,000), because rows scattered through a
-  big file cost more to delete than rows that sit together. Compaction is `incremental_vacuum` in steps of 500 pages with
+  big file cost more to delete than rows that sit together. A chunk deletes its rows with `DELETE ... WHERE id IN (?, ...)` in batches of 200 ids (#808), not a JSON array read back by `json_each`. Compaction is `incremental_vacuum` in steps of 500 pages with
   a yield between, then a WAL checkpoint. A run writes one `activity_purged` admin log row when it removed something.
   `Fleet.retain()` (hourly) starts the removal of rows of sessions the main database no longer holds without waiting
   for it, and `deleteSession` does the same for one session. The Admin's deletes and `preview` (an estimate by index

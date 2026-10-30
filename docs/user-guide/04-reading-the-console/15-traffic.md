@@ -46,8 +46,8 @@ Both act on the two machines, so they also pause or remove every other conversat
 page says so and the link is as it was. An Admin can read anyone's conversation here, but cannot pause or remove
 another person's link on this page; **Pause all links** in Admin > Reporters pauses every link of a reporter.
 
-The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; `\` still hides and shows the top
-bar.
+The page has no left pane, right pane or wall, so `[`, `]` and `w` do nothing on it; with **Shortcuts** turned on, `\`
+still hides and shows the top bar.
 
 <!-- nav:start -->
 ---

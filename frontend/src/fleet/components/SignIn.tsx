@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRespond, type SignInResult } from "../useRespond";
 import { Modal } from "./Modal";
 
@@ -85,7 +85,7 @@ function useSignInForm(onDone?: () => void) {
           ref={tokenRef}
           className="mono"
           type="password"
-          autoComplete="off"
+          autoComplete="current-password"
           value={token}
           disabled={locked}
           onChange={(e) => setToken(e.target.value)}
@@ -132,8 +132,8 @@ export function SignInPanel() {
 }
 
 /** The top bar's dialog: the same form, closing once signed in and leaving the page as it was. */
-function SignInDialog(props: { onClose: () => void }) {
-  const f = useSignInForm(props.onClose);
+function SignInDialog(props: { onClose: () => void; onSignedIn: () => void }) {
+  const f = useSignInForm(props.onSignedIn);
   const ctx = useRespond();
   const historyOnly = ctx?.historyOnly === true;
   const recordingOnly = ctx?.recordingOnly === true;
@@ -165,6 +165,18 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
   const ctx = useRespond();
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
+  const who = useRef<HTMLSpanElement>(null);
+  const signedIn = ctx?.me?.signedIn === true;
+  // The Sign in button the dialog came from is replaced by who is signed in, so focus goes there and not to the page (#636).
+  // Only for a sign-in made in this dialog, not one made in another tab: the dialog says so, and the move waits for
+  // both that and the page showing who is signed in, in either order.
+  const [moveFocus, setMoveFocus] = useState(false);
+  useEffect(() => {
+    if (moveFocus && signedIn) {
+      setMoveFocus(false);
+      who.current?.focus();
+    }
+  }, [moveFocus, signedIn]);
   if (!ctx?.me?.enabled) return null;
   const close = () => {
     setOpen(false);
@@ -175,7 +187,7 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
       <span className="tb-sep" aria-hidden="true" />
       {ctx.me.signedIn ? (
         <span className="tb-me">
-          <span className="tb-who">
+          <span className="tb-who" ref={who} tabIndex={-1}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <circle cx="8" cy="5.5" r="2.7" />
               <path d="M2.8 13.5c.7-2.6 2.8-4 5.2-4s4.5 1.4 5.2 4" />
@@ -197,7 +209,7 @@ export function TopBarSignIn({ myReporters }: { myReporters?: MyReportersLink })
           Sign in
         </button>
       )}
-      {open && !ctx.me.signedIn && <SignInDialog onClose={close} />}
+      {open && !ctx.me.signedIn && <SignInDialog onClose={close} onSignedIn={() => (setMoveFocus(true), close())} />}
     </>
   );
 }

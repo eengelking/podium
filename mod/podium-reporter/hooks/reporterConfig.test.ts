@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { newestConfig, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
+import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, decodeBase64Utf8, isWindowsPath, mailboxDirFor, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
 
 const file = (user: string, issued: number, extra = '') =>
   [
@@ -36,25 +36,73 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
     expect(parseConfigHeaders(file('Dana', 1).replace('https://', 'http://'))).toBeNull()
   })
 
-  test('the newest by issued-at wins, whatever the names say, and other files are ignored', () => {
-    const picked = newestConfig([
-      { path: '/h/reporter-config-Dana-9999999999.pem', text: file('Dana', 100) },
-      { path: '/h/reporter-config-Dana-5.pem', text: file('Dana', 300) },
-      { path: '/h/reporter-config-Dana-7.pem', text: 'garbage' },
-      { path: '/h/notes.pem', text: file('Dana', 900) },
-    ])
-    expect(picked?.path).toBe('/h/reporter-config-Dana-5.pem')
-    expect(picked?.headers.issuedAt).toBe(300)
+  test('the epoch is the number at the end of the name (#607)', () => {
+    expect(nameEpoch('reporter-config-Dana-1770000000.pem')).toBe(1770000000)
+    expect(nameEpoch('reporter-config-Dana-Lee-5.pem')).toBe(5)
+    expect(nameEpoch('reporter-config-Dana-copy.pem')).toBeNull()
+    expect(nameEpoch('reporter-config-.pem')).toBeNull()
+    expect(nameEpoch('notes-5.pem')).toBeNull()
   })
 
-  test('no file, or none that parses, is no config', () => {
-    expect(newestConfig([])).toBeNull()
-    expect(newestConfig([{ path: '/h/reporter-config-x-1.pem', text: 'nope' }])).toBeNull()
+  test('names are tried newest epoch first, names with no epoch last, and other files are ignored (#607)', () => {
+    expect(configNamesNewestFirst(['reporter-config-D-5.pem', 'notes.pem', 'reporter-config-D-copy.pem', 'reporter-config-D-300.pem', 'reporter-config-A-copy.pem', 'reporter-config-D-70.pem'])).toEqual([
+      'reporter-config-D-300.pem',
+      'reporter-config-D-70.pem',
+      'reporter-config-D-5.pem',
+      'reporter-config-A-copy.pem',
+      'reporter-config-D-copy.pem',
+    ])
+    expect(configNamesNewestFirst([])).toEqual([])
   })
 
   test('the Podium folder is under the home folder', () => {
     expect(podiumHome('/home/dana')).toBe('/home/dana/.podium')
     expect(podiumHome('/home/dana/')).toBe('/home/dana/.podium')
+  })
+
+  test('the home folder is HOME, else USERPROFILE, else HOMEDRIVE plus HOMEPATH (#834)', () => {
+    expect(resolveHome({ HOME: '/home/dana', USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: '/home/dana', from: 'HOME' })
+    expect(resolveHome({ USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'USERPROFILE' })
+    expect(resolveHome({ HOME: '', USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'USERPROFILE' })
+    expect(resolveHome({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'HOMEDRIVE+HOMEPATH' })
+    expect(resolveHome({ HOMEDRIVE: 'C:' })).toEqual({ home: undefined, from: undefined })
+    expect(resolveHome({})).toEqual({ home: undefined, from: undefined })
+  })
+
+  test('a Windows home with a trailing backslash gives the Podium folder under it (#834)', () => {
+    expect(podiumHome('C:\\Users\\dana\\')).toBe('C:\\Users\\dana/.podium')
+    expect(podiumHome('C:\\Users\\dana')).toBe('C:\\Users\\dana/.podium')
+  })
+
+  test('a drive path or a UNC path is a Windows path, a POSIX path is not (#834)', () => {
+    expect(isWindowsPath('C:\\Users\\dana\\.podium\\a.pem')).toBe(true)
+    expect(isWindowsPath('d:/x')).toBe(true)
+    expect(isWindowsPath('\\\\server\\share\\a')).toBe(true)
+    expect(isWindowsPath('/home/dana/a.pem')).toBe(false)
+    expect(isWindowsPath('relative/a.pem')).toBe(false)
+  })
+
+  test('base64 is decoded as UTF-8 without Buffer or atob (#834)', () => {
+    const cases: Array<[string, string]> = [
+      ["", ""],
+      ["a", "YQ=="],
+      ["ab", "YWI="],
+      ["abc", "YWJj"],
+      ["{\"status\":200,\"body\":\"é€😀 ok\"}", "eyJzdGF0dXMiOjIwMCwiYm9keSI6IsOp4oKs8J+YgCBvayJ9"],
+    ]
+    for (const [text, b64] of cases) expect(decodeBase64Utf8(b64)).toBe(text)
+    expect(decodeBase64Utf8('YWI')).toBe('ab')
+    expect(decodeBase64Utf8(`YQ${'='.repeat(200000)}`)).toBe('a')
+    expect(() => decodeBase64Utf8('a')).toThrow()
+    expect(() => decodeBase64Utf8('ab!d')).toThrow()
+    expect(() => decodeBase64Utf8('/w==')).toThrow()
+  })
+
+  test('each session gets its own mailbox folder under the run folder (#834)', () => {
+    const a = mailboxDirFor('C:\\Users\\dana/.podium/run/', 'sess-1')
+    expect(a).toMatch(/^C:\\Users\\dana\/\.podium\/run\/[0-9a-f]{8}$/)
+    expect(mailboxDirFor('C:\\Users\\dana/.podium/run', 'sess-1')).toBe(a)
+    expect(mailboxDirFor('C:\\Users\\dana/.podium/run', 'sess-2')).not.toBe(a)
   })
 
   test('a socket path stays under the macOS limit even for a long session id', () => {

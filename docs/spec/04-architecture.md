@@ -42,17 +42,17 @@ mod/podium-reporter/                 the Claude Code mod
   hooks/*.test.ts                    run by `claude plugin test`
 server/src/fleet/
   protocol.ts                        Report + view types, validators
-  db.ts                              schema, migrations, queries
   ingest.ts                          Report → rows, events, blowouts, samples
   derive.ts                          SessionView, KPIs, blowout level, series
   sweeper.ts                         stale / linger / drop timers
   sse.ts                             client registry and broadcast
   routes.ts                          Express router mounted at /api/fleet
   respond.ts, respondRoutes.ts       responding from Podium (#206): the in-memory store, the mod's and the browser's routes
-  peer*.ts, peers.ts                 orchestrator messaging (#347, #412): the contract, the Admin's settings, the rights and
-                                     message stores, the service that joins them, and the routes
+  peerTypes.ts, peerRoutes.ts        orchestrator messaging (#347, #412): the contract and the routes
   lockout.ts                         wrong-credential lockout shared by Admin and the sign-in to respond
   *.test.ts
+server/src/storage/                  the async interfaces the server calls, and openStorage, which picks the implementation (#313)
+  sqlite/                            the only adapter: schema, migrations and queries (db.ts), the stores, the lock, activity.sqlite
 frontend/src/fleet/
   FleetApp.tsx, useFleet.ts (SSE + reducer), store.ts, format.ts
   components/…                       see section 8.2
@@ -60,6 +60,8 @@ frontend/src/fleet/
   *.test.tsx
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
+scripts/podium-golden.mjs            captures a server's answers on every read route and every table's rows, and diffs two captures, to prove a refactor changed no behavior (#313; has --help)
+scripts/promise-misuse.mjs            finds a Promise used as a value or left floating (a store call without await) in a tsconfig's files; `// promise-ok: <why>` allows a deliberate case; run over the repo by npm test (#809; has --help)
 scripts/podium-respond-demo.mjs      seeds a throwaway server with waiting sessions to answer (#206; has --help)
 scripts/podium-peers-demo.mjs        plays two people's reporters against a throwaway server to check messaging (#412; has --help)
 scripts/podium-peers-seed.mjs        seeds one person's reporters and requests (and with --talk, conversations), and prints their token, to view My reporters and Traffic (#415, #417; has --help)

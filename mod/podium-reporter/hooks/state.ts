@@ -17,6 +17,8 @@ import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, t
 import { backgroundSummary, MAIN_LOOP, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from './protocol.ts';
 
 export const BLOWOUT_DEDUP_MS = 2000;
+/** An automatic compaction counts as a blowout only when the context was at least this full (#803). Claude Code also compacts early, after a quiet stretch. */
+export const AUTO_COMPACT_BLOWOUT_FILL = 0.8;
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 export const EVENT_QUEUE_MAX = 500;
 /** Nothing changed yet (also what a session that is not in a repository reports). */
@@ -116,6 +118,8 @@ export interface LoopStats {
   /** Finished calls per tool name; at most MAX_TOOL_NAMES distinct names. */
   toolCounts: Record<string, number>;
   lastTool: string | null;
+  /** When the loop last took a step or ran a tool; read to say how long it was quiet before a compaction (#803). */
+  lastActiveAt: number | null;
   skills: string[];
   blowouts: number;
   blowTimes: number[];
@@ -214,6 +218,7 @@ export function emptyLoop(model: string | null = null): LoopStats {
     toolCalls: 0,
     toolCounts: {},
     lastTool: null,
+    lastActiveAt: null,
     skills: [],
     blowouts: 0,
     blowTimes: [],
@@ -470,7 +475,7 @@ export function step(s0: SessionState, i: StepInput, now: number): SessionState 
   const u = i.usage;
   const model = u?.model || i.model || loop.model;
   const effort = asEffort(i.effort);
-  const next: LoopStats = { ...loop, model: model ?? null, steps: loop.steps + 1, lastStopReason: i.stopReason };
+  const next: LoopStats = { ...loop, model: model ?? null, steps: loop.steps + 1, lastStopReason: i.stopReason, lastActiveAt: now };
   if (effort) next.effort = effort;
   if (u) {
     const t = { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheRead: u.cache_read_input_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0 };
@@ -495,7 +500,7 @@ export function step(s0: SessionState, i: StepInput, now: number): SessionState 
  * Counts a blowout on a loop. A second signal for the same loop within 2 s (a window-exceeded stop
  * followed by the auto-compaction it triggers) is the same blowout and only adds detail.
  */
-export function blowout(s: SessionState, agentId: string | null, kind: string, now: number, tokensBefore: number | null, tokensAfter: number | null): SessionState {
+export function blowout(s: SessionState, agentId: string | null, kind: string, now: number, tokensBefore: number | null, tokensAfter: number | null, extra: Record<string, unknown> = {}): SessionState {
   const loop = loopOf(s, agentId);
   if (!loop) return s;
   const last = loop.blowTimes[loop.blowTimes.length - 1];
@@ -504,10 +509,14 @@ export function blowout(s: SessionState, agentId: string | null, kind: string, n
   const ctx = tokensAfter !== null && loop.window ? tokensAfter : loop.ctxTokens;
   let next = putLoop(s, agentId, { ...loop, blowouts: n, blowTimes: [...loop.blowTimes, now].slice(-20), ctxTokens: ctx });
   const after = tokensAfter !== null && loop.window ? `, compacted to ${Math.round((tokensAfter / loop.window) * 100)}%` : '';
+  // The window and the fill are recorded so a blowout that fired with the context far from full can be told apart (#687).
   next = addEvent(next, 'blow', agentId, `context window exceeded (blowout #${n}) ${loopLabel(s, agentId)}${after}`, now, {
     kind,
     tokensBefore,
     tokensAfter,
+    window: loop.window ?? null,
+    percent: fillPercent(loop, tokensBefore),
+    ...extra,
   });
   return next;
 }
@@ -519,13 +528,31 @@ export interface CompactInput {
   tokensAfter?: number;
 }
 
-/** A compaction ran: automatic is a blowout; manual or a plugin's is only an event. */
+/** The whole-number percent of the window a context of `tokens` fills, or null when the window or the count is unknown. */
+function fillPercent(loop: LoopStats, tokens: number | null | undefined): number | null {
+  return loop.window && tokens != null ? Math.round((tokens / loop.window) * 100) : null;
+}
+
+/**
+ * A compaction ran. An automatic one is a blowout when the context was at least AUTO_COMPACT_BLOWOUT_FILL full or its fill is
+ * unknown; an earlier one (Claude Code compacts after a quiet stretch too) is only an event, like a manual or a plugin's (#803).
+ */
 export function compaction(s: SessionState, i: CompactInput, now: number): SessionState {
-  if (i.trigger === 'auto') return blowout(s, i.agentId ?? null, 'auto-compact', now, i.tokensBefore ?? null, i.tokensAfter ?? null);
-  if (i.trigger === 'manual' || i.trigger === 'plugin') {
-    const loop = loopOf(s, i.agentId);
+  const loop = loopOf(s, i.agentId);
+  const idleMs = loop?.lastActiveAt != null ? Math.max(0, now - loop.lastActiveAt) : null;
+  if (i.trigger === 'auto') {
+    const fill = loop?.window && typeof i.tokensBefore === 'number' && Number.isFinite(i.tokensBefore) ? i.tokensBefore / loop.window : null;
+    const last = loop?.blowTimes[loop.blowTimes.length - 1];
+    // A fill we can read below the threshold is not a blowout, unless it is the tail of one just counted (a window-exceeded stop).
+    const early = fill !== null && fill < AUTO_COMPACT_BLOWOUT_FILL && !(last !== undefined && now - last < BLOWOUT_DEDUP_MS);
+    if (!early) return blowout(s, i.agentId ?? null, 'auto-compact', now, i.tokensBefore ?? null, i.tokensAfter ?? null, { idleMs });
+  }
+  if (i.trigger === 'auto' || i.trigger === 'manual' || i.trigger === 'plugin') {
     const next = loop && i.tokensAfter !== undefined ? putLoop(s, i.agentId, { ...loop, ctxTokens: i.tokensAfter }) : s;
-    return addEvent(next, 'compact', i.agentId ?? null, `${i.trigger === 'manual' ? 'manual' : 'plugin'} compaction ${loopLabel(s, i.agentId)}`, now, {
+    const percent = loop ? fillPercent(loop, i.tokensBefore) : null;
+    const what = i.trigger === 'auto' ? `auto-compacted${percent === null ? '' : ` at ${percent}%`}` : `${i.trigger === 'manual' ? 'manual' : 'plugin'} compaction`;
+    return addEvent(next, 'compact', i.agentId ?? null, `${what} ${loopLabel(s, i.agentId)}`, now, {
+      ...(i.trigger === 'auto' ? { trigger: 'auto', window: loop?.window ?? null, percent, idleMs } : {}),
       tokensBefore: i.tokensBefore ?? null,
       tokensAfter: i.tokensAfter ?? null,
     });
@@ -728,10 +755,10 @@ export function reconcile(s: SessionState, list: readonly ListedAgent[], now: nu
 // ---- tools --------------------------------------------------------------------------------------
 
 /** A tool call is about to run in a loop: its last tool, and the end of any permission wait there. */
-export function toolStarted(s: SessionState, agentId: string | undefined, tool: string): SessionState {
+export function toolStarted(s: SessionState, agentId: string | undefined, tool: string, now: number | null = null): SessionState {
   const loop = loopOf(s, agentId);
   if (!loop) return s;
-  let next = putLoop(s, agentId, { ...loop, lastTool: clip(tool, 120) });
+  let next = putLoop(s, agentId, { ...loop, lastTool: clip(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
   if (next.waitReason === 'permission' && !agentId) next = withStatus({ ...next, waitReason: null, waitNote: null });
   return next;
 }
@@ -749,7 +776,7 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
   const loop = loopOf(s, i.agentId);
   if (loop) {
     const tool = clip(i.tool, 120);
-    const next: LoopStats = { ...loop, toolCalls: loop.toolCalls + 1, lastTool: tool };
+    const next: LoopStats = { ...loop, toolCalls: loop.toolCalls + 1, lastTool: tool, lastActiveAt: now };
     if (Object.hasOwn(loop.toolCounts, tool) || Object.keys(loop.toolCounts).length < MAX_TOOL_NAMES) {
       next.toolCounts = { ...loop.toolCounts, [tool]: (Object.hasOwn(loop.toolCounts, tool) ? loop.toolCounts[tool]! : 0) + 1 };
     }

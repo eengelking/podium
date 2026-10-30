@@ -19,7 +19,8 @@ It is off until all of these are on:
 - The server's **Respond from Podium** switch (Admin > Settings > Feature flags).
 - The server's **Agent activity feed** switch next to it.
 - On the session's machine, the mod's **Respond from Podium** option (`respond`) together with **Send an agent's recent
-  activity** (`activityFeed`). Set the option in Claude Code with `/plugin configure podium-reporter@eengelking-marketplace`.
+  activity** (`activityFeed`). Set the option in Claude Code with `/plugin configure podium-reporter@eengelking-marketplace`, or in the Claude desktop
+  app under **Settings** > **Plugins** > **Podium-Reporter** > **Settings**.
 
 It also needs podium-reporter 0.14.0 or later and a server started with a token. The `respond` option has four levels:
 

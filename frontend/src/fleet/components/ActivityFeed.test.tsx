@@ -134,6 +134,9 @@ describe("Activity feed", () => {
     await flush();
     expect(screen.getByText(/Recent tool calls and text appear here while the agent works/)).toBeInTheDocument();
     expect(screen.getByText(/activityFeed/)).toBeInTheDocument();
+    const how = document.querySelector(".ghost")!;
+    expect(how).toHaveTextContent("in Claude Code, run /plugin configure podium-reporter@eengelking-marketplace");
+    expect(how).toHaveTextContent("in the Claude desktop app, open Settings > Plugins > Podium-Reporter > Settings");
     expect(fetchActivity).not.toHaveBeenCalled();
   });
 

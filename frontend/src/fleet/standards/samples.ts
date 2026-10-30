@@ -31,6 +31,8 @@ export const SAMPLES: Sample[] = [
     a11y: "The logo link names the destination. The theme is a native select and the mode a radio group that moves with the arrow keys. The pane tab at the edge is a button that says what it collapses. The icon tab says Hide top bar or Show top bar and whether the bar is open.",
     cases: [
       { label: "Signed in", screen: "app-respond-wall", selector: "header.top" },
+      { label: "Shortcuts On: the word is a button that opens the list of keys", screen: "app-shortcuts-help", selector: ".kbd-link" },
+      { label: "The Keyboard shortcuts list, two columns split by a pipe", screen: "app-shortcuts-help", selector: ".podium-modal" },
       { label: "Every pane collapsed, the strip left", screen: "app-collapsed", selector: ".app" },
       { label: "Signed out, with Sign in", screen: "app-signed-out", selector: "header.top" },
       { label: "A certificate that ends soon, as a status pill that links to Certificates", screen: "top-cert-pill", selector: "header.top" },
@@ -74,6 +76,7 @@ export const SAMPLES: Sample[] = [
       { label: "Model chip and effort meter", screen: "wall", selector: `${card("s1")} .mdl` },
       { label: "Git line", screen: "wall", selector: `${card("s1")} .git` },
       { label: "Context blowout badge", screen: "wall", selector: `${card("s6")} .blow` },
+      { label: "Compaction pill, Claude Code compacted the session on its own", screen: "app-wall-comp", selector: `${card("s1")} .comp` },
       { label: "Status chip", screen: "app-agent", selector: ".det .st" },
       { label: "A non-Claude model, with no price", screen: "app-other-model", selector: `${card("s1")} .z1` },
     ],
@@ -85,7 +88,7 @@ export const SAMPLES: Sample[] = [
     purpose: "One session on the wall: who it is, what it is doing, what it costs and how healthy it is, with a status band at the foot.",
     use: ["Showing a session on the wall.", "Showing a state: running, waiting on you, done, or heartbeat lost."],
     avoid: ["Putting a second primary action inside the card. The whole card opens the session.", "Showing status by color alone. The band carries an icon and a word."],
-    a11y: "The card is one button that opens the session. Remove sits beside it, not inside it, so there is no button within a button. The session id is a role=button span that keeps its own click and keys.",
+    a11y: "The card is one button that opens the session. Remove sits beside it, not inside it, so there is no button within a button. The session id is a button beside the card's button, not inside it, at least 24 by 24 px.",
     cases: inWall([
       { label: "Running", screen: "wall", selector: card("s1") },
       { label: "Waiting on you", screen: "wall", selector: card("s2") },

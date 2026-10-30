@@ -17,6 +17,14 @@ DECISIONS 36.
 the session's report lists it in `diffs`; the mod (`handleDiffs` in `register.ts`) reads it with `readFileDiff` and
 answers `PUT …/diffs/:requestId`; the broker resolves the waiting request and drops its entry.
 
+**Loading ahead (#631, DECISIONS 47).** With `session.fileDiffPreload` true, `FilesList` makes a `DiffPreloader`
+(`frontend/src/fleet/diffPreload.ts`) and syncs it to the report. It asks for each file with `…/files/diff?path=&ahead=1`
+(the route refuses that unless the reporter allowed it and logs `file_diff_loaded`), two at a time, and keeps the replies in
+the component's memory; `FileDiffModal` reads its slot, moves the open file to the front with `want`, and posts
+`…/files/diff/opened` when it shows a diff that was loaded ahead. A file is loaded again when its `status`, counts, `from` or
+`rev` differ, `rev` being the `git hash-object` the mod adds to each Files entry in `readChanges`. The loader is disposed when
+the component unmounts. The server changes only in the two routes and `DiffBroker`'s memory of the option.
+
 **Mod.** `readFileDiff` takes the path only if the Files list names it, refuses a withheld path without running git,
 diffs against the same base as the list (`resolveRef`, shared with `readChanges`), strips the file headers, cuts at
 2,000 lines or 200,000 bytes, then `redactDiff` replaces anything that looks like a secret. Cutting comes first, so

@@ -3,7 +3,7 @@
 // never a header, a query string or a body.
 import { performance } from 'node:perf_hooks';
 import type { NextFunction, Request, Response } from 'express';
-import { sourceAddress } from '../fleet/people.js';
+import { sourceAddress } from '../storage/rows.js';
 import type { Logger } from './logger.js';
 
 /** `/api/fleet/sessions/:id` for a request a router matched, or null (static files, 404s). */

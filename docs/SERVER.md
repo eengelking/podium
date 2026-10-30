@@ -151,10 +151,11 @@ compare it with the one in the config.
 
 **3. Give each person a reporter config.** In Admin > People, **Create user** (or **Reissue config** on an existing
 person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
-person puts it in `~/.podium/`, runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. A session with no name of its own takes the file's name, so
+person puts it in `~/.podium/` (`%USERPROFILE%\.podium` on Windows, where there is no `chmod`), runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. A session with no name of its own takes the file's name, so
 nothing else needs setting. A name the session already has (the `userName` option or `PODIUM_USER`) must be the file's
 name, or the status line says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
-browser used when you created the person, plus the reporter port, so create people from the address they will reach. The
+browser used when you created the person, plus the reporter port, so create people from the address they will reach. A person with files for more than one server chooses between them with a
+context ([REPORTER.md](REPORTER.md#contexts-more-than-one-podium-server)). The
 steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
 
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
@@ -317,7 +318,8 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 |---|---|---|
 | `PORT` | `4317` | Server port (the Vite proxy follows it) |
 | `HOST` | `127.0.0.1` | Bind address. Podium is for one machine; leave it on localhost |
-| `PODIUM_DB` | `data/podium.sqlite` | SQLite database file (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording |
+| `PODIUM_DB` | `data/podium.sqlite` | The database. A path or `:memory:` is a SQLite file, the only kind there is (`kind://target` is how a later kind will be chosen; an unknown kind stops the server at start) (`podiumctl` uses `/data/podium.sqlite` in the container and `~/.podium/data/podium.sqlite` standalone). A second file, `activity.sqlite`, is created beside it when the Admin keeps Activity history or turns on Session recording |
+| `PODIUM_DATA_DIR` | the folder of `PODIUM_DB` | Folder for what the server keeps beside the database, today the TLS CA (`tls/`). Only needed when `PODIUM_DB` is not a file; a database that is not a file stops the server at start without it |
 | `PODIUM_HOST_HOME` | the server's own home | Home directory to show as `~` in session paths. `podiumctl` sets it to your home in the container, where the server's own home is `/home/node`. Ignored unless it is an absolute path |
 | `PODIUM_TOKEN` | empty | The admin secret. When set, `POST /api/fleet/report`, `POST /api/fleet/hook` and `DELETE` require `X-Podium-Token` (this or a person's token), and it opens Admin |
 | `PODIUM_TLS` | `off` | `on` makes the server create a CA and open a second port for reporters (HTTPS, client certificate required) beside the HTTP console. `podiumctl start --tls` sets it. Container mode keeps the CA in `~/.podium/tls` on your machine (standalone: `data/tls` beside the database): back that folder up and keep it private, because it holds the CA key. `podiumctl rm` keeps it unless you add `--purge-tls --yes`. Under rootless Podman on Linux the folder belongs to the container's user, so read or delete it with `podman unshare` |
@@ -325,6 +327,10 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_TLS_PUBLIC_PORT` | the listening reporter port | The reporter port people reach the server on, which goes into each reporter config. `podiumctl` sets it in container mode to your `PODIUM_TLS_PORT`. Set it yourself only when something else maps the port (a forwarder or a container you run by hand) |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |
 | `PODIUM_FAILURE_LIMIT` | `300` | Failed requests (a response of 400 or more) one address may make to `/api` in a minute before its requests get `429` (see [Failed requests are limited](#failed-requests-are-limited)). A value that is not a whole number of at least 1 stops the server at start |
+| `PODIUM_TEST_TIMINGS` | off | For the end-to-end suite only. Never set it on a real server. `1` lets the three `PODIUM_TEST_*` times below take effect. One of them set without it stops the server at start, and so does a value here other than `0` or `1` (SPEC 7.7) |
+| `PODIUM_TEST_ADMIN_IDLE_MS` | `600000` | Test only. Milliseconds Admin may sit idle before it locks (10 minutes). Needs `PODIUM_TEST_TIMINGS=1`. A value that is not a whole number from 1 to 999999999 stops the server at start |
+| `PODIUM_TEST_SIGN_IN_IDLE_MS` | `43200000` | Test only. Milliseconds a sign-in to respond may sit idle before it ends (12 hours). Same rules as above |
+| `PODIUM_TEST_LOCK_MS` | `900000` | Test only. Milliseconds five wrong tries lock an address out of Admin's unlock and the sign-in to respond (15 minutes). Same rules as above |
 | `PODIUM_TRUST_PROXY` | off | The reverse-proxy hops whose `X-Forwarded-For` and `X-Forwarded-Proto` the server believes (see [Behind a reverse proxy](#behind-a-reverse-proxy)) |
 | `TZ` | the server's own zone | Timezone whose midnight starts "today" for "Est. cost today". `podiumctl` gives the container your host's zone; set it with `podiumctl config set TZ=Europe/Berlin` to override |
 | `STALE_AFTER_MS` | `15000` | A session not heard from this long shows as stale |
@@ -364,5 +370,7 @@ To lower it:
 
 - Keep fewer sessions on screen.
 - Leave the tab hidden (animations pause while it is).
-- Use wall mode (`w`), which hides the side panes and top bar so the browser stops drawing them.
+- Use wall mode (the Wall mode button, or `w` once Shortcuts is on), which hides the side panes and top bar so the browser stops drawing them.
 - Close the console when nobody is looking.
+
+A hidden tab still receives and parses the stream and redraws on its refresh interval (#751), so closing the console saves more than hiding it. [Performance](PERFORMANCE.md) has measured figures for the server and the tab at four fleet sizes, and the ranked list of what would lower them.

@@ -28,7 +28,7 @@ Claude Code sessions at once and was tired of clicking through terminals to find
 turned out to be useful enough to share. I haven't compared it with every similar tool, so if another one fits
 how you work better, use that one. If you try Podium and something is missing, I'd like to hear about it.
 
-![Podium showing nine simulated Claude Code sessions: running, stale and failing orchestrators, context blowouts, and the activity feed](docs/images/podium-chaos.png)
+![Podium showing a busy wall of simulated Claude Code sessions: running, stale and failing orchestrators, context blowouts, subagents, cost and context meters, and the activity feed](docs/images/podium-chaos.png)
 
 For every session you see:
 
@@ -89,7 +89,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Introduction](docs/INTRODUCTION.md) | What Podium is, what it does and does not do, and where to read next |
 | [User guide](docs/user-guide/README.md) | Set Podium up, read the console and use Admin |
 | [Running the server](docs/SERVER.md) | Run it with `podiumctl`, let a team report to one server, put it [behind a reverse proxy](docs/SERVER.md#behind-a-reverse-proxy) or turn on [built-in TLS](docs/SERVER.md#built-in-tls), and change its settings |
-| [The reporter mod](docs/REPORTER.md) | Install `podium-reporter`, set its options and see what leaves a session |
+| [The reporter mod](docs/REPORTER.md) | Install `podium-reporter` (in a terminal, or by [uploading the archive in the Claude desktop app on Windows 11](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11)), set its options and see what leaves a session |
 | [Orchestrator messaging](docs/MESSAGING.md) | Let your own orchestrators on different machines message each other through Podium: setup, rights, limits, Traffic, troubleshooting and an end-to-end test |
 | [Session recording and replay](docs/REPLAY.md) | Record a session whole and play it back: the three yes answers, what is and is not captured, the notice, retention, limits and who can read it |
 | [Gotchas](docs/gotchas/README.md) | Sharp edges that are easy to hit, including [why one machine shows several rows on the Reporters page](docs/gotchas/README.md#reporters-and-machines) |
@@ -99,6 +99,7 @@ To serve the built UI and the API without a container, `npm run build` and then 
 | [Spec](docs/spec/README.md) | The build spec: intended behavior and requirements |
 | [Architecture](docs/architecture/README.md) | How it was built, where it departs from the spec and why, what was verified, known issues |
 | [Decisions](docs/decisions/README.md) | Why the significant choices were made |
+| [Performance](docs/PERFORMANCE.md) | What Podium costs to run at four fleet sizes, how to measure it, and what the performance audit found |
 | [Changelog](CHANGELOG.md) | What changed in each release |
 | [Contributing](CONTRIBUTING.md) | How to propose and land a change, and the tests and checks to run (PRs go to `development`, not `main`) |
 | [Security](.github/SECURITY.md) | How to report a vulnerability (privately) |

@@ -197,6 +197,7 @@ describe("the top bar", () => {
   });
 
   it("offers no Wall mode, and the wall's keys do nothing here", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     const { container } = page();
     await flush();
     expect(screen.queryByRole("button", { name: "Enter wall mode" })).toBeNull();
@@ -205,6 +206,7 @@ describe("the top bar", () => {
   });
 
   it("has no rail or side panel, so [ and ] leave the fleet's collapsed flags alone (#446)", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     page();
     await flush();
     for (const key of ["[", "]"]) fireEvent.keyDown(document, { key });
@@ -249,7 +251,7 @@ describe("the map", () => {
     expect(both.querySelector(".ln")).toHaveAttribute("marker-end");
     expect(both.querySelector(".pill text")!.textContent).toBe("5 messages");
     expect(both.querySelector(".pill .ic")).toBeNull();
-    const oneWay = line(/^claude-dashboard to arm64-check, 2 messages, a message waits for approval/);
+    const oneWay = line(/^claude-dashboard to arm64-check, 2 messages, waiting, a message needs approval/);
     expect(oneWay).toHaveClass("waiting");
     expect(oneWay.querySelector(".ln")).not.toHaveAttribute("marker-start");
     expect(oneWay.querySelector(".ln")).toHaveAttribute("marker-end", "url(#pm-ah-waiting)");
@@ -537,7 +539,7 @@ describe("for anyone but the owner", () => {
   it("says on the map that a link with a message waiting is also paused, keeping the waiting stroke", async () => {
     page({ me: ANN_ADMIN, traffic: fakeTraffic([link(DEV, TESTER, { state: "waiting", paused: true, messages: 3 })]) });
     await flush();
-    const both = line(/^claude-dashboard and Tester, 3 messages, a message waits for approval, paused\. Show the conversation$/);
+    const both = line(/^claude-dashboard and Tester, 3 messages, waiting, paused, a message needs approval\. Show the conversation$/);
     expect(both.querySelector(".pill text")!.textContent).toBe("3 messages, waiting, paused");
     expect(both).toHaveClass("edge", "waiting");
     expect(both).not.toHaveClass("paused");

@@ -66,7 +66,8 @@ function world(on: On) {
   on('session.repo', () => ({ value: null }))
   on('session.version', () => ({ value: { version: '2.1.303' } }))
   on('session.usage', () => ({ value: { startedAt: NOW, context: { tokens: 1000, window: 1_000_000, percent: 0.1 }, rateLimits: [], cost: { usd: 0.1 } } }))
-  on('session.surfaces', () => ({ value: ['terminal'] }))
+  const surfaces = { value: ['terminal'] as ('terminal' | 'desktop')[] }
+  on('session.surfaces', () => ({ value: surfaces.value }))
   on('agent.list', () => ({ value: [] }))
   on('command.register', (_$, e) => {
     registered.commands.push({ name: e.name, immediate: e.immediate })
@@ -148,7 +149,7 @@ function world(on: On) {
     return { result: { ok: true }, text: 'ok' }
   })
   on('classic.PermissionRequest', () => ({}))
-  return { calls, posts, logs, toasts, submitted, commands, registered, server, os, submit, dialog, clock }
+  return { calls, posts, logs, toasts, submitted, commands, registered, server, os, submit, dialog, clock, surfaces }
 }
 
 type World = ReturnType<typeof world>
@@ -225,12 +226,13 @@ describe('peers: when the mod takes part', () => {
     expect(peerResults(w)).toEqual([])
     // A tool left over from before a reload that turned the option off is refused, and nothing leaves the machine.
     const answer = await callTool($, w, 'podium_send', { to: 'Tester@ci-runner-01', text: 'hi' })
-    expect(answer).toBe("Not sent. Messaging is off on this machine: turn on podium-reporter's peers option there.")
+    expect(answer).toBe("Not sent. Orchestrator messaging is off for this session because the peers option is off on this machine: turn it on in podium-reporter's settings.")
     expect(peerCallsTo(w, '/messages')).toEqual([])
   })
 
   test('a claude -p run never takes part, with the option on', { options: ON }, async ($, on) => {
     const w = world(on)
+    w.surfaces.value = [] // a -p run draws nowhere and has no client
     w.server.peerDeliveries.push(message())
     await started($, w, null)
     await nextReply(w)
@@ -239,13 +241,43 @@ describe('peers: when the mod takes part', () => {
     expect(w.submitted).toEqual([])
   })
 
+  test('/podium says messaging is on, the surface, and how the reporter signs in (#825)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    const info = (await $.command.run(podium(''))).text ?? ''
+    expect(info).toContain('Messaging: on. peers option: on; interactive: yes (started on terminal); Podium says: takes part')
+    expect(info).toContain('Sign-in: a plain token (not a reporter config file)')
+  })
+
+  test('/podium: with the option off and no surface, says so (#825)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await started($, w, null)
+    const info = (await $.command.run(podium(''))).text ?? ''
+    expect(info).toContain('Messaging: off, because the peers option is off on this machine')
+    expect(info).toContain('interactive: no (started on no surface)')
+  })
+
+  test('/podium: a token without a userName says to set both', { options: { peers: true, token: 'tok-admin' } }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    expect((await $.command.run(podium(''))).text).toContain('Messaging: off, because there is no per-person token with a userName')
+  })
+
+  test('/podium: the server saying no after a report names the flag and the admin secret', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.peers = false
+    await started($, w)
+    expect((await $.command.run(podium(''))).text).toContain("Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret")
+  })
+
   test('the option on: the report says so, and the tools are offered once the reply says the session takes part', { options: ON }, async ($, on) => {
     const w = world(on)
     w.server.peers = false
     await started($, w)
     expect(w.posts.at(-1)!.session.peers).toBe(true)
     expect(w.registered.tools.filter((t) => t.startsWith('podium_'))).toEqual([])
-    expect(await callTool($, w, 'podium_peers', {})).toBe('Not listed. Orchestrator messaging is not on for this session in Podium right now.')
+    expect(await callTool($, w, 'podium_peers', {})).toBe("Not listed. Orchestrator messaging is off for this session because Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret, which belongs to no person.")
     w.server.peers = true
     await nextReply(w)
     await nextReply(w)
@@ -722,3 +754,42 @@ describe('peers: the OS in the report', () => {
 function podium(args: string) {
   return { command: 'podium', args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 80 } }
 }
+
+describe('peers: a session that starts before its client attaches (#408)', () => {
+  const tools = (w: World) => w.registered.tools.filter((t) => t.startsWith('podium_'))
+
+  test('a start with no surface becomes interactive once a desktop client attaches, so the tools are offered', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await started($, w, null)
+    expect(w.posts.at(-1)!.session.peers).toBe(false)
+    expect(tools(w)).toEqual([])
+    w.surfaces.value = ['desktop']
+    await nextReply(w)
+    await nextReply(w)
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+    expect(tools(w)).toEqual(['podium_peers', 'podium_send', 'podium_request_access'])
+  })
+
+  test('a later session.start with no surface does not undo it', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await started($, w, null)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+  })
+
+  test('a claude -p run, which never has a client, stays out of messaging', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await started($, w, null)
+    await nextReply(w)
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(false)
+    expect(tools(w)).toEqual([])
+  })
+})

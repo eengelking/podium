@@ -144,13 +144,16 @@ export class ActivityStore {
     return { entries: lease.entries.map(({ ref: _ref, ...e }) => (showOutput ? e : withoutOutput(e))), since: lease.since };
   }
 
-  /** The loops of a session someone is watching: the report reply's `watch`. */
-  watched(sessionId: string): string[] {
+  /**
+   * The loops of a session someone is watching: the report reply's `watch`. `stored` are the loops the Activity history wants
+   * (the caller read them from storage); without it the store asks its own `historyLoops`.
+   */
+  watched(sessionId: string, stored?: string[]): string[] {
     if (!this.isOn()) return [];
     this.expireSession(sessionId, this.now());
     const loops = [...(this.leases.get(sessionId)?.keys() ?? [])];
     if (this.feed.get(sessionId) !== true) return loops;
-    for (const loop of this.historyLoops(sessionId)) if (!loops.includes(loop)) loops.push(loop);
+    for (const loop of stored ?? this.historyLoops(sessionId)) if (!loops.includes(loop)) loops.push(loop);
     return loops;
   }
 

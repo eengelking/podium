@@ -13,7 +13,7 @@
 import { existsSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openActivityDb, recomputeAggregates, recomputeLoops } from '../server/src/fleet/activityDb.ts';
+import { openActivityDb, recomputeAggregates, recomputeLoops } from '../server/src/storage/sqlite/activityDb.ts';
 import { protectedFolders } from './podium-seed-history.ts';
 import { Rng } from './podium-sim.ts';
 

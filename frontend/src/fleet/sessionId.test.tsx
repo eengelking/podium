@@ -24,7 +24,7 @@ const page = () => render(<FocusView s={makeSession({ id: ID })} now={Date.now()
 describe("the session id on the card and the orchestrator page (#322)", () => {
   it("the card shows the first eight characters of the id on the path line", () => {
     const { container } = card();
-    const id = container.querySelector(".card .pathrow .sid")!;
+    const id = container.querySelector(".card-slot > .sid")!;
     expect(id.textContent).toBe("3f9a1c2e");
     expect(id.getAttribute("title")).toContain(ID);
     expect(id).toHaveAccessibleName(/Copy session id 3f9a1c2e/);
@@ -36,26 +36,44 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     const onOpen = vi.fn();
     const { container } = card(onOpen);
     await act(async () => {
-      fireEvent.click(container.querySelector(".card .sid")!);
+      fireEvent.click(container.querySelector(".card-slot > .sid")!);
     });
     expect(writeText).toHaveBeenCalledWith(ID);
     expect(onOpen).not.toHaveBeenCalled();
-    expect(container.querySelector(".card .sid")!.textContent).toBe("Copied");
+    expect(container.querySelector(".card-slot > .sid")!.textContent).toBe("Copied");
     act(() => {
       vi.advanceTimersByTime(COPIED_MS);
     });
-    expect(container.querySelector(".card .sid")!.textContent).toBe("3f9a1c2e");
+    expect(container.querySelector(".card-slot > .sid")!.textContent).toBe("3f9a1c2e");
   });
 
-  it("Enter on the card's id copies it without opening the card", async () => {
-    const writeText = stubClipboard();
-    const onOpen = vi.fn();
-    const { container } = card(onOpen);
+  it("the card's id is a real button beside the card's button, never inside it (#759)", () => {
+    const { container } = card();
+    expect(container.querySelector("button button, [role=button] button, button [role=button]")).toBeNull();
+    const sid = container.querySelector(".card-slot > button.sid")!;
+    expect(sid).not.toBeNull();
+    expect(sid.getAttribute("role")).toBeNull();
+    // After the card's button, so the tab order is the card, then its id.
+    expect(container.querySelector(".card-slot > .card")!.compareDocumentPosition(sid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The path row keeps an empty slot for it.
+    expect(container.querySelector(".card .pathrow .sidslot")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Copy session id 3f9a1c2e" })).toBe(sid);
+  });
+
+  it("the id's name contains its visible text while it says Copied or Copy failed (#759)", async () => {
+    stubClipboard();
+    const { container } = card();
     await act(async () => {
-      fireEvent.keyDown(container.querySelector(".card .sid")!, { key: "Enter" });
+      fireEvent.click(container.querySelector(".card-slot > .sid")!);
     });
-    expect(writeText).toHaveBeenCalledWith(ID);
-    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Copied" })).toBe(container.querySelector(".card-slot > .sid"));
+    cleanup();
+    stubClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+    const again = card();
+    await act(async () => {
+      fireEvent.click(again.container.querySelector(".card-slot > .sid")!);
+    });
+    expect(screen.getByRole("button", { name: "Copy failed" })).toBeTruthy();
   });
 
   it("the orchestrator page's id is a cell of the facts grid that copies the whole id, and the header no longer has it", async () => {
@@ -65,7 +83,7 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     const cell = container.querySelector(".facts .fact.copy .v.mono")!;
     expect(cell.textContent).toBe("3f9a1c2e");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Copy session id 3f9a1c2e/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Session 3f9a1c2e, copy the full id/ }));
     });
     expect(writeText).toHaveBeenCalledWith(ID);
     expect(container.querySelector(".facts .fact.copy .v.mono")!.textContent).toBe("Copied");
@@ -75,17 +93,17 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     stubClipboard(vi.fn().mockRejectedValue(new Error("denied")));
     const { container } = card();
     await act(async () => {
-      fireEvent.click(container.querySelector(".card .sid")!);
+      fireEvent.click(container.querySelector(".card-slot > .sid")!);
     });
-    expect(container.querySelector(".card .sid")!.textContent).toBe("Copy failed");
+    expect(container.querySelector(".card-slot > .sid")!.textContent).toBe("Copy failed");
   });
 
   it("when the browser has no clipboard, the id says Copy failed", async () => {
     vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
     const { container } = card();
     await act(async () => {
-      fireEvent.click(container.querySelector(".card .sid")!);
+      fireEvent.click(container.querySelector(".card-slot > .sid")!);
     });
-    expect(container.querySelector(".card .sid")!.textContent).toBe("Copy failed");
+    expect(container.querySelector(".card-slot > .sid")!.textContent).toBe("Copy failed");
   });
 });

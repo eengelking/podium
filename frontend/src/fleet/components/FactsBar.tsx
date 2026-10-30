@@ -67,7 +67,7 @@ export function CopyCell({ label, name, text, tip }: { label: string; name: stri
   return (
     <div {...props} role="group" aria-label={label} className={`fact copy ${props.className}`}>
       <button type="button" className="cellbtn" onClick={copy} aria-label={name} aria-describedby={tipId}>
-        <span className="k">{label}</span>
+        <span className="k">{label}</span>{" "}
         <span className="v soft" aria-live="polite">
           <span>{copied ? "Copied" : "Command"}</span>
           {copied ? <IconCheck /> : <IconCopy />}
@@ -100,8 +100,8 @@ function SessionCell({ id }: { id: string }) {
   const short = id.slice(0, SHORT_ID);
   return (
     <div className="fact copy">
-      <button type="button" className="cellbtn" onClick={copy} title={id} aria-label={`Copy session id ${short}`}>
-        <span className="k">Session</span>
+      <button type="button" className="cellbtn" onClick={copy} title={id} aria-label={`Session ${short}, copy the full id`}>
+        <span className="k">Session</span>{" "}
         <span className="v mono" aria-live="polite">
           <span>{state === "copied" ? "Copied" : state === "failed" ? "Copy failed" : short}</span>
           {state === "copied" ? <IconCheck /> : <IconCopy />}
@@ -230,10 +230,12 @@ function RecordingFact({ s, now }: { s: SessionView; now: number }) {
   };
   return (
     <div className="fact copy rec">
-      <button type="button" className="cellbtn" ref={opener} aria-haspopup="dialog" aria-label="Record this session" onClick={() => setOpen(true)}>
+      <button type="button" className="cellbtn" ref={opener} aria-haspopup="dialog" onClick={() => setOpen(true)}>
         <span className="k">Recording</span>
         <span className="v">
-          <span>Record</span>
+          <span>
+            Record<span className="vh"> this session</span>
+          </span>
           {mark("idle")}
         </span>
       </button>

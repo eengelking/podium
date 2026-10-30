@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { DiffPreloader } from "../diffPreload";
+import { usePageVisible } from "../usePageVisible";
 import type { ChangedFile, FilesReport, SessionView } from "../types";
 import { useRespond, type RespondContext } from "../useRespond";
 import { FileDiffModal } from "./FileDiffModal";
@@ -51,7 +53,7 @@ function Counts({ added, removed }: { added: number; removed: number }) {
 }
 
 /** The fields of a session the diff gate reads. */
-export type DiffSession = Pick<SessionView, "id" | "owner" | "fileDiff" | "status">;
+export type DiffSession = Pick<SessionView, "id" | "owner" | "fileDiff" | "fileDiffPreload" | "status">;
 
 /** Whether a name is the same person's, as the server compares them: case-insensitively. */
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -67,6 +69,36 @@ export function diffAccess(s: DiffSession | undefined, ctx: RespondContext | nul
   if (!ctx.me.name || !sameName(ctx.me.name, s.owner)) return { kind: "why", text: `Only ${s.owner} can open diffs.` };
   if (s.fileDiff !== true) return { kind: "why", text: "Turn on the fileDiff option of podium-reporter on this machine to open diffs." };
   return { kind: "open" };
+}
+
+/**
+ * The loader for this session's diffs (#631): made when the viewer may open diffs and the reporter allows reading ahead,
+ * kept in this component's memory only, and thrown away when the page, the session or the access goes. It follows the
+ * report (a new file is queued, an edited one reloaded, a file that left dropped) and holds still while the tab is hidden.
+ */
+function useDiffPreload(session: DiffSession | undefined, files: ChangedFile[] | undefined, on: boolean): DiffPreloader | undefined {
+  const ctx = useRespond();
+  const fileDiff = ctx?.api.fileDiff;
+  const [loader, setLoader] = useState<DiffPreloader>();
+  const visible = usePageVisible();
+  const id = session?.id;
+  const allowed = on && !!fileDiff && !!id && session?.fileDiffPreload === true;
+  useEffect(() => {
+    if (!allowed || !fileDiff || !id) return;
+    const made = new DiffPreloader((path, ahead) => fileDiff(id, path, ahead));
+    setLoader(made);
+    return () => {
+      made.dispose();
+      setLoader(undefined);
+    };
+  }, [allowed, fileDiff, id]);
+  useEffect(() => {
+    loader?.setPaused(!visible);
+  }, [loader, visible]);
+  useEffect(() => {
+    if (loader && files) loader.sync(files);
+  }, [loader, files]);
+  return loader;
 }
 
 function FileRow({ f, onOpen }: { f: ChangedFile; onOpen?: (f: ChangedFile, from: HTMLElement) => void }) {
@@ -106,7 +138,9 @@ function FileRow({ f, onOpen }: { f: ChangedFile; onOpen?: (f: ChangedFile, from
   if (!onOpen) return <li className={f.status}>{inner}</li>;
   return (
     <li className={`${f.status} openable`}>
-      <button type="button" aria-label={`Open diff of ${f.path}`} aria-haspopup="dialog" onClick={(e) => onOpen(f, e.currentTarget)}>
+      <button type="button" aria-haspopup="dialog" onClick={(e) => onOpen(f, e.currentTarget)}>
+        {/* The name is the words on the row with the action in front, so what a person says to reach it is in the name (axe label-content-name-mismatch, #800). */}
+        <span className="vh">Open diff of </span>
         {inner}
       </button>
     </li>
@@ -119,6 +153,8 @@ export function FilesList({ report, hint, session }: { report: FilesReport | nul
   const ctx = useRespond();
   const [diffOf, setDiffOf] = useState<ChangedFile | null>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const access = diffAccess(session, ctx);
+  const preload = useDiffPreload(session, report?.files, access.kind === "open");
   if (!report || report.files.length === 0) {
     return (
       <>
@@ -132,7 +168,6 @@ export function FilesList({ report, hint, session }: { report: FilesReport | nul
   const from = at * FILES_PER_PAGE;
   const shown = report.files.slice(from, from + FILES_PER_PAGE);
   const note = SINCE_NOTE[report.since];
-  const access = diffAccess(session, ctx);
   // The modal steps through every file the report holds, in this list's order. If a later report no longer has the open file, it shows that file alone.
   const idx = diffOf ? report.files.findIndex((f) => f.path === diffOf.path) : -1;
   const stepFiles = diffOf && idx < 0 ? [diffOf] : report.files;
@@ -155,7 +190,7 @@ export function FilesList({ report, hint, session }: { report: FilesReport | nul
         ))}
       </ul>
       {access.kind === "why" && <div className="foot-note" role="note">{access.text}</div>}
-      {diffOf && session && <FileDiffModal sessionId={session.id} files={stepFiles} index={Math.max(idx, 0)} since={report.since} onStep={(i) => setDiffOf(stepFiles[i] ?? diffOf)} onClose={close} />}
+      {diffOf && session && <FileDiffModal sessionId={session.id} files={stepFiles} index={Math.max(idx, 0)} since={report.since} preload={preload} onStep={(i) => setDiffOf(stepFiles[i] ?? diffOf)} onClose={close} />}
       <PageNav label="Files pages" at={at} pages={pages} from={from} shown={shown.length} total={report.files.length} perPage={FILES_PER_PAGE} onPage={setPage} />
       {(report.total > report.files.length || note) && (
         <div className="foot-note">

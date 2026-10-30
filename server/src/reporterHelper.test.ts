@@ -11,12 +11,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
-import { openDb } from './fleet/db.js';
-import { PeopleStore } from './fleet/people.js';
+import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { REPORTER_ROUTE_TEMPLATES } from './tlsHttp.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
-import { PersonCertStore } from './tlsClientAuth.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
 import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
@@ -417,6 +415,58 @@ describe('helper.mjs: it forwards the reporter routes and nothing else (#668)', 
   });
 });
 
+describe('helper.mjs: writeAtomic (#672)', () => {
+  const load = async () => ((await import(/* @vite-ignore */ HELPER)) as { writeAtomic: (file: string, text: string) => void }).writeAtomic;
+
+  it('writes the file at mode 0600 and leaves no temporary file', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const file = path.join(dir, 'config.pem');
+    writeAtomic(file, 'one');
+    writeAtomic(file, 'two');
+    expect(fs.readFileSync(file, 'utf8')).toBe('two');
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+  });
+
+  it('follows a destination that is a symlink: the target changes, the link stays a link, and no temporary file is left in either folder', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const other = tmp();
+    const target = path.join(other, 'target.pem');
+    const link = path.join(dir, 'config.pem');
+    fs.writeFileSync(target, 'original');
+    fs.symlinkSync(target, link);
+    writeAtomic(link, 'new');
+    expect(fs.readFileSync(target, 'utf8')).toBe('new');
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+    expect(fs.readdirSync(other)).toEqual(['target.pem']);
+  });
+
+  it('throws for a symlink whose target is missing, and creates nothing', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const link = path.join(dir, 'config.pem');
+    fs.symlinkSync(path.join(dir, 'gone.pem'), link);
+    expect(() => writeAtomic(link, 'new')).toThrow();
+    expect(fs.readdirSync(dir)).toEqual(['config.pem']);
+  });
+
+  it('does not write through a symlink planted at the temporary name', async () => {
+    const writeAtomic = await load();
+    const dir = tmp();
+    const file = path.join(dir, 'config.pem');
+    const victim = path.join(dir, 'victim.txt');
+    fs.writeFileSync(victim, 'untouched');
+    fs.symlinkSync(victim, `${file}.${process.pid}.tmp`);
+    writeAtomic(file, 'new');
+    expect(fs.readFileSync(victim, 'utf8')).toBe('untouched');
+    expect(fs.readFileSync(file, 'utf8')).toBe('new');
+  });
+});
+
 describe('helper.mjs: headerUser', () => {
   it('reads the name from the user line, line by line, however many blanks surround it', async () => {
     const { headerUser } = (await import(/* @vite-ignore */ HELPER)) as { headerUser: (t: string) => string };
@@ -452,10 +502,11 @@ const DAY = 86_400_000;
 /** A real Podium renewal route behind a real mutual-TLS listener, and a person whose certificate has the dates given. */
 async function renewing(dates: { from: number; to: number } | { days: number }, o: { renewStatus?: number; retryAfter?: string } = {}) {
   const p = await pki();
-  const db = openDb(':memory:');
-  const people = new PeopleStore(db);
-  const certs = new PersonCertStore(db);
-  const person = people.createPerson('Dana Lee').person;
+  const storage = openSqliteStorage(':memory:');
+  cleanup.push(() => storage.close());
+  const people = storage.people;
+  const certs = storage.personCerts;
+  const person = (await people.createPerson('Dana Lee')).person;
   const caFp = new X509Certificate(p.caCert).fingerprint256;
   let cert: string;
   let key: string;
@@ -466,7 +517,7 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     ({ cert, key } = signClientDated({ caCrt: path.join(p.dir, 'ca.crt'), caKey: path.join(p.dir, 'ca.key'), keyId: person.keyId, ...dates }));
   }
   const info = describeCert(cert);
-  certs.replace(person.id, { cert, info, issuerFingerprint: caFp }, Date.now());
+  await certs.replace(person.id, { cert, info, issuerFingerprint: caFp }, Date.now());
   p.person = { cert, key, info };
   const seen: string[] = [];
   const app = express();
@@ -477,14 +528,14 @@ async function renewing(dates: { from: number; to: number } | { days: number }, 
     if (o.retryAfter) res.set('retry-after', o.retryAfter);
     res.status(o.renewStatus).json({ ok: false, code: o.renewStatus === 429 ? 'TOO_SOON' : undefined });
   });
-  app.use('/api/reporter', createReporterRenewRouter({ certs, people, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
+  app.use('/api/reporter', createReporterRenewRouter({ certs, people, tx: storage.tx, logger: createLogger({ format: 'json', write: () => {} }), now: () => Date.now() + 2 * 3_600_000, settings: () => ({ lifetimeDays: 90 }), trustedIssuers: () => [caFp], issuer: () => ({ dir: p.dir, port: 0, caCerts: () => [p.caCert] }) }));
   app.get('/api/fleet/sessions/s1/peers', (req, res) => {
     const raw = (req.socket as unknown as { getPeerCertificate: () => { raw?: Buffer } }).getPeerCertificate().raw;
     seen.push(raw ? new X509Certificate(raw).fingerprint256 : 'none');
     res.json({ ok: true });
   });
   const url = await upstream(p, (req, res) => app(req, res), { requireClient: false });
-  const live = () => certs.listFor(person.id).filter((c) => c.revokedAt === null);
+  const live = async () => (await certs.listFor(person.id)).filter((c) => c.revokedAt === null);
   return { p, url, certs, person, seen, live, calls: () => renewCalls, original: new X509Certificate(cert).fingerprint256 };
 }
 
@@ -521,13 +572,13 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(f.text).toMatch(/^# user: Dana Lee$/m);
     expect(f.text).toContain(`# fingerprint: ${person.fingerprint256}`);
     expect(f.text).toContain(`# expires: ${new Date(person.validTo).toISOString()}`);
-    expect(r.live()).toHaveLength(2);
+    expect(await r.live()).toHaveLength(2);
     // the next request is made with the new certificate
     const a = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(a.status).toBe(200);
     expect(r.seen.at(-1)).toBe(person.fingerprint256);
     // the old certificate still works until it expires
-    expect(r.live().map((c) => c.fingerprint)).toContain(r.original);
+    expect((await r.live()).map((c) => c.fingerprint)).toContain(r.original);
   }, 30_000);
 
   it('does not renew while more than the threshold remains', async () => {
@@ -537,7 +588,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   });
 
   it('does not renew a short-lived certificate the moment it is issued: it waits until half its life is gone', async () => {
@@ -548,7 +599,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
     await new Promise((res) => setTimeout(res, 300));
     expect(fs.readFileSync(h.config, 'utf8')).toBe(original);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   });
 
   it.each([
@@ -567,7 +618,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(r.seen).toEqual([]);
     expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
     // it says the same on every request, and still asks the server for nothing
     const b = await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers');
     expect(b.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
@@ -585,7 +636,7 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(a.headers['x-podium-helper-error']).toBe('CERT_EXPIRED');
     expect(r.calls()).toBe(0);
     expect(fs.readFileSync(h.config, 'utf8')).toBe(before);
-    expect(r.live()).toHaveLength(1);
+    expect(await r.live()).toHaveLength(1);
   }, 30_000);
 
   it('a server that cannot renew right now does not stop the request, and the file is left alone', async () => {
@@ -623,8 +674,8 @@ describe('helper.mjs: renewing its own certificate', () => {
     expect(person.checkPrivateKey(createPrivateKey(f.key))).toBe(true);
     expect(f.mode).toBe(0o600);
     // the old certificate and the one new certificate; the second session took the first's instead of making a third
-    expect(r.live()).toHaveLength(2);
-    expect(r.live().map((c) => c.fingerprint)).toContain(person.fingerprint256);
+    expect(await r.live()).toHaveLength(2);
+    expect((await r.live()).map((c) => c.fingerprint)).toContain(person.fingerprint256);
     expect(fs.readdirSync(path.dirname(a.config)).filter((n) => n.includes('.tmp'))).toEqual([]);
     // both sessions now use the file's certificate
     r.seen.length = 0;
@@ -1096,5 +1147,174 @@ describe('helper.mjs: rewriteConfig', () => {
     const got = parseConfig(out);
     expect(got.ca.map((c) => new X509Certificate(c).fingerprint256)).toEqual([p.caCert, second.caCert].map((c) => new X509Certificate(c).fingerprint256));
     expect(new X509Certificate(got.cert).fingerprint256).toBe(new X509Certificate(p.person.cert).fingerprint256);
+  });
+});
+
+describe('helper.mjs: the mailbox mode, used where there is no Unix socket (#834)', () => {
+  interface Box {
+    proc: ChildProcess;
+    dir: string;
+    out: () => string;
+    exited: Promise<number | null>;
+  }
+
+  /** Starts the helper with `mailbox:<dir>` in place of a socket path; resolves once it prints `ready` or exits. */
+  async function runBox(p: Pki, server: string, before?: (dir: string) => void): Promise<Box> {
+    const root = tmp();
+    const config = path.join(root, 'reporter-config-Dana-1.pem');
+    fs.writeFileSync(config, configFor(p, server), { mode: 0o600 });
+    const dir = path.join(root, 'run', 'box');
+    if (before) {
+      fs.mkdirSync(dir, { recursive: true });
+      before(dir);
+    }
+    const proc = spawn(process.execPath, [HELPER, config, `mailbox:${dir}`, server], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    proc.stdout.on('data', (c) => (out += c));
+    proc.stderr.on('data', (c) => (out += c));
+    const exited = new Promise<number | null>((r) => proc.on('exit', (code) => r(code)));
+    cleanup.push(() => {
+      proc.kill('SIGKILL');
+    });
+    await new Promise<void>((resolve) => {
+      const t = setInterval(() => out.includes('ready') && (clearInterval(t), resolve()), 10);
+      void exited.then(() => (clearInterval(t), resolve()));
+    });
+    return { proc, dir, out: () => out, exited };
+  }
+
+  const request = (id: string, over: Record<string, unknown> = {}) =>
+    JSON.stringify({ id, method: 'GET', path: '/api/fleet/sessions/s1/peers', headers: {}, body: '', ...over });
+
+  /** The decoded `res <id> <base64>` line for `id`, waiting for it. */
+  async function answer(b: Box, id: string, ms = 3000): Promise<{ status: number; headers: Record<string, string>; body: string } | null> {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      const line = b.out().split('\n').find((l) => l.startsWith(`res ${id} `));
+      if (line) return JSON.parse(Buffer.from(line.slice(`res ${id} `.length), 'base64').toString('utf8'));
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
+  }
+
+  it('answers a request file with a res line, over the person’s certificate, and removes the file', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res, peer) => {
+      seen.push(peer?.fingerprint256 ?? 'none');
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => {
+        res.writeHead(201, { 'content-type': 'application/json', 'x-extra': 'kept' });
+        res.end(JSON.stringify({ path: req.url, method: req.method, echoed: b, type: req.headers['content-type'] }));
+      });
+    });
+    const b = await runBox(p, url);
+    expect(b.out()).toContain('ready');
+    fs.writeFileSync(path.join(b.dir, 'req-1.json'), request('1', { method: 'POST', path: '/api/fleet/report?x=1', headers: { 'content-type': 'application/json' }, body: '{"a":"é"}' }));
+    const a = await answer(b, '1');
+    expect(a?.status).toBe(201);
+    expect(a?.headers['x-extra']).toBe('kept');
+    expect(JSON.parse(a!.body)).toEqual({ path: '/api/fleet/report?x=1', method: 'POST', echoed: '{"a":"é"}', type: 'application/json' });
+    expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256]);
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+  });
+
+  it('refuses a route the helper does not forward, as the socket mode does', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{}'));
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-2.json'), request('2', { path: '/api/admin/settings' }));
+    const a = await answer(b, '2');
+    expect(a?.status).toBe(403);
+    expect(a?.headers['x-podium-helper-error']).toBe('ROUTE_NOT_ALLOWED');
+  });
+
+  it('waits for a request file that is not all written yet, then answers it', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{"ok":true}'));
+    const b = await runBox(p, url);
+    const file = path.join(b.dir, 'req-3.json');
+    const whole = request('3');
+    fs.writeFileSync(file, whole.slice(0, 20));
+    expect(await answer(b, '3', 600)).toBeNull();
+    fs.writeFileSync(file, whole);
+    expect((await answer(b, '3'))?.status).toBe(200);
+  });
+
+  it('ignores a request that is not one, removes it, and keeps working', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{}'));
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-4.json'), JSON.stringify({ id: '../x', method: 'GET', path: '/api/fleet/sessions/s1/peers' }));
+    fs.writeFileSync(path.join(b.dir, 'req-5.json'), request('5'));
+    expect((await answer(b, '5'))?.status).toBe(200);
+    expect(b.out()).not.toContain('res ../x');
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+  });
+
+  it('sets the content type itself and ignores any header in the file', async () => {
+    const p = await pki();
+    const seen: Array<Record<string, string | string[] | undefined>> = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push({ type: req.headers['content-type'], other: req.headers['x-other'], token: req.headers['x-podium-token'] });
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-6.json'), request('6', { method: 'POST', path: '/api/fleet/report', headers: { 'content-type': 'text/evil', 'x-other': 'one\r\nx-b: two', 'X-Podium-Token': 'secret' }, body: '{}' }));
+    expect((await answer(b, '6'))?.status).toBe(200);
+    expect(seen).toEqual([{ type: 'application/json', other: undefined, token: undefined }]);
+  });
+
+  it('answers 400 to a request whose method, path or body is not text, and sends nothing upstream', async () => {
+    const p = await pki();
+    let hits = 0;
+    const url = await upstream(p, (_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-7.json'), request('7', { body: 5 }));
+    fs.writeFileSync(path.join(b.dir, 'req-9.json'), request('9', { path: 7 }));
+    for (const id of ['7', '9']) {
+      const a = await answer(b, id);
+      expect(a?.status).toBe(400);
+      expect(a?.headers['x-podium-helper-error']).toBe('BAD_REQUEST');
+    }
+    expect(hits).toBe(0);
+  });
+
+  it('forwards the route the helper rebuilt from its list, not the text in the file', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push(req.url ?? '');
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-8.json'), request('8', { path: '/API/fleet/Sessions/s1/peers/' }));
+    expect((await answer(b, '8'))?.status).toBe(200);
+    expect(seen).toEqual(['/api/fleet/sessions/s1/peers']);
+  });
+
+  it('removes requests left by an earlier helper instead of sending them', async () => {
+    const p = await pki();
+    let hits = 0;
+    const url = await upstream(p, (_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    const b = await runBox(p, url, (dir) => fs.writeFileSync(path.join(dir, 'req-old.json'), request('old')));
+    expect(b.out()).toContain('ready');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+    expect(hits).toBe(0);
+    expect(b.out()).not.toContain('res old');
+  });
+
+  it('a named-pipe address is no longer an option: the helper takes a socket path or a mailbox', async () => {
+    const { isMailbox } = (await import(/* @vite-ignore */ HELPER)) as { isMailbox: (a: string) => string | null };
+    expect(isMailbox('mailbox:C:\\Users\\d\\.podium\\run\\ab')).toBe('C:\\Users\\d\\.podium\\run\\ab');
+    expect(isMailbox('/home/d/.podium/run/12345678.sock')).toBeNull();
   });
 });

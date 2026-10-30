@@ -5,7 +5,7 @@ import { respondGate } from "../respond";
 import { RespondButton } from "./Respond";
 import { COST_HINT_SESSION, currentStep, delegateText, dropAtOf, inferredStep, planProgress, sessionCounts, sessionElapsedSec, sessionTokens, TOKENS_HINT, treeOrder } from "../logic";
 import type { AgentView, LifecycleConfig, SessionView } from "../types";
-import { BlowBadge, ContextBar, Cost, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
+import { BlowBadge, CompBadge, ContextBar, Cost, cssVar, delegatesOf, EffortMeter, FAMILY_COLOR, GitLine, ModelChip, PlanBar, StateIcon, stateKind, type StateKind } from "./Chips";
 import { backgroundLead, backgroundTitle, toolOfNote, waitLead } from "../waiting";
 import { Sparkline } from "./Sparkline";
 import { OwnerLine } from "./People";
@@ -49,6 +49,18 @@ export interface CardPin {
   onToggle: () => void;
 }
 
+/** Lays `btn` (a sibling of the card button, absolutely placed in `host`) over `gap`. Offsets, not bounding boxes: a card that is entering is mid-transform, and its box would be scaled. */
+function placeOver(host: HTMLElement, gap: HTMLElement, btn: HTMLElement) {
+  let left = 0;
+  let top = 0;
+  for (let el: HTMLElement | null = gap; el && el !== host; el = el.offsetParent as HTMLElement | null) {
+    left += el.offsetLeft;
+    top += el.offsetTop;
+  }
+  btn.style.left = `${left}px`;
+  btn.style.top = `${top}px`;
+}
+
 /**
  * The pin button sits in the card's first row, just before the model, over the empty `.pinslot` the row keeps there.
  * A button cannot nest in the card's own button, so it is a sibling of it, placed from the slot's measured position.
@@ -61,15 +73,7 @@ function PinButton({ name, pin }: { name: string; pin: CardPin }) {
     const place = () => {
       const gap = host?.querySelector<HTMLElement>(".pinslot");
       if (!host || !gap || !btn.current) return;
-      // Offsets, not bounding boxes: a card that is entering is mid-transform, and its box would be scaled.
-      let left = 0;
-      let top = 0;
-      for (let el: HTMLElement | null = gap; el && el !== host; el = el.offsetParent as HTMLElement | null) {
-        left += el.offsetLeft;
-        top += el.offsetTop;
-      }
-      btn.current.style.left = `${left}px`;
-      btn.current.style.top = `${top}px`;
+      placeOver(host, gap, btn.current);
     };
     place();
     if (!host || typeof ResizeObserver === "undefined") {
@@ -88,6 +92,34 @@ function PinButton({ name, pin }: { name: string; pin: CardPin }) {
       <IconPin />
     </button>
   );
+}
+
+/**
+ * The copy-id button (#759) is a sibling of the card's button, laid over the empty `.sidslot` the path row keeps. The slot takes the button's size,
+ * so the row makes room for it, and the button takes the slot's place. The button's size changes with its text ("Copied"), so it is watched.
+ */
+function CardSessionId({ id }: { id: string }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const host = btn.current?.parentElement ?? null;
+    const place = () => {
+      const gap = host?.querySelector<HTMLElement>(".sidslot");
+      if (!host || !gap || !btn.current) return;
+      gap.style.width = `${btn.current.offsetWidth}px`;
+      gap.style.height = `${btn.current.offsetHeight}px`;
+      placeOver(host, gap, btn.current);
+    };
+    place();
+    if (!host || typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", place);
+      return () => window.removeEventListener("resize", place);
+    }
+    const ro = new ResizeObserver(place);
+    ro.observe(host);
+    ro.observe(btn.current!);
+    return () => ro.disconnect();
+  }, []);
+  return <SessionId ref={btn} id={id} />;
 }
 
 /** In the people view: the machine label, and whether the card names its owner (not in that owner's own band). */
@@ -186,7 +218,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <div className="path mono" title={s.project}>
             <bdi>{s.project}</bdi>
           </div>
-          <SessionId id={s.id} nested />
+          <span className="sidslot" aria-hidden="true" />
         </div>
         <GitLine git={s.git} />
         {hasNotes && (
@@ -266,6 +298,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           <span className="k">
             Context
             <BlowBadge n={s.blowouts.total} level={s.blowouts.level} />
+            <CompBadge n={s.compactions} />
           </span>
           <span className="v mono">{fmtPct(s.context.percent)}</span>
           {s.context.percent !== null && <ContextBar percent={s.context.percent} blowouts={s.blowouts.total} />}
@@ -290,6 +323,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
         <RespondButton s={s} />
       </div>
     )}
+    <CardSessionId id={s.id} />
     {props.pin && <PinButton name={s.name} pin={props.pin} />}
     {s.status === "stale" && props.onRemove && (
       <div className="remove-bar">

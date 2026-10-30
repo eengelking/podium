@@ -1,0 +1,160 @@
+name: E2E
+
+# End-to-end tests (#782, DECISIONS 49): Cypress, in the pinned cypress/included container, against Podium's own image on a private
+# container network. scripts/e2e-up.sh does all of it; nothing is installed on the runner except the repo's own `npm ci` (for axe-core).
+#
+# Runs on a manual dispatch ("Run workflow" in the Actions tab) and on a pull request into main, which is the development-to-main release PR:
+# the release gate. It does not run on a PR into development. A first run on a GitHub-hosted runner timed out on the first page load of several
+# spec files (#807); the fix in #814 has since passed five consecutive runs on a hosted runner and on the self-hosted runners (#815). The
+# E2E summary job passes when the run was skipped, so it can be a required check for the release PR once the maintainer makes it one.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Consecutive runs of the whole suite in one job, to show it is stable (the issue asks for five on an unchanged commit)"
+        type: number
+        default: 1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Does this change need the e2e run
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ "$BASE_REF" = "main" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Always runs for a manual run and for a PR into main."
+            exit 0
+          fi
+          git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
+          if grep -Eq '^(frontend/|server/|mod/|e2e/|scripts/e2e|Containerfile|package(-lock)?\.json|\.github/workflows/e2e\.yml)' "$RUNNER_TEMP/changed.txt"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No app, mod, e2e or workflow file changed: the e2e run is skipped."
+          fi
+
+  e2e:
+    name: Cypress in containers
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    # A run takes about 8 minutes, so five repeats (the most the issue asks for) with a cold image build fit well inside this. A GitHub
+    # expression has no arithmetic, so the limit cannot scale with `repeat`.
+    timeout-minutes: 90
+    # The self-hosted runners share one Podman host, and `scripts/e2e-up.sh down` (the last step) removes every e2e container, network and
+    # volume on it, whichever run made them. One e2e job at a time keeps it from tearing down another run's server.
+    concurrency:
+      group: e2e-self-hosted-host
+      cancel-in-progress: false
+    env:
+      # The self-hosted runners are containers that reach the host's rootless Podman through the Docker CLI (there is no podman binary
+      # in them), and their default buildx builder keeps a built image in its cache instead of loading it. The legacy builder loads it.
+      E2E_ENGINE: docker
+      DOCKER_BUILDKIT: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # Only axe-core is wanted from this (a frontend dev dependency, mounted read-only into the Cypress container). Cypress is never installed.
+      - name: Install the repo's dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Make this run's admin secret
+        run: |
+          secret="$(openssl rand -hex 20)"
+          echo "::add-mask::$secret"
+          echo "E2E_SECRET=$secret" >> "$GITHUB_ENV"
+
+      - name: Run the suite
+        env:
+          REPEAT: ${{ inputs.repeat || 1 }}
+          # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
+          # the runner's temp folder, which is the same path on both. (The runner context is not available in a job-level env.)
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -u -o pipefail
+          fail=0
+          for i in $(seq 1 "$REPEAT"); do
+            echo "::group::run $i of $REPEAT"
+            # The first run builds the image; the next ones reuse it.
+            if [ "$i" -eq 1 ]; then flags=""; else flags="--no-build"; fi
+            if bash scripts/e2e-up.sh $flags --out "$RUNNER_TEMP/e2e-results/run-$i" 2>&1 | tee "$RUNNER_TEMP/run-$i.log"; then
+              echo "run $i: passed"
+            else
+              echo "::endgroup::"
+              echo "::error::run $i failed"
+              fail=1
+              break
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+      # Seven days, because the repo is public and artifacts are world-readable: screenshots and the server log only, never video. The server
+      # log has the admin secret scrubbed by scripts/e2e-up.sh; this step checks every file (screenshots included, as bytes) and deletes the
+      # whole folder if the secret is anywhere in it, so nothing with a secret is uploaded.
+      - name: Check the uploaded files hold no secret
+        if: failure()
+        run: |
+          if [ -d "$RUNNER_TEMP/e2e-results" ] && grep -rlaF -- "$E2E_SECRET" "$RUNNER_TEMP/e2e-results"; then
+            echo "::error::a file in the results still holds the admin secret; not uploading"
+            rm -rf "$RUNNER_TEMP/e2e-results"
+          fi
+
+      - name: Upload failure screenshots and the scrubbed server log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-failure
+          path: ${{ runner.temp }}/e2e-results
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Remove anything the run left behind
+        if: always()
+        run: bash scripts/e2e-up.sh down
+
+  summary:
+    name: E2E summary
+    needs: [changes, e2e]
+    if: always()
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    steps:
+      - name: Report
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          E2E: ${{ needs.e2e.result }}
+        run: |
+          echo "change check: $CHANGES, e2e run: $E2E"
+          if [ "$CHANGES" != "success" ]; then echo "::error::the change check did not finish"; exit 1; fi
+          case "$E2E" in
+            success) echo "The e2e suite passed." ;;
+            skipped) echo "Skipped: nothing in this change needs the e2e run." ;;
+            *) echo "::error::the e2e suite did not pass ($E2E)"; exit 1 ;;
+          esac

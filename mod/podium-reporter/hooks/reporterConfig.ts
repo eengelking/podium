@@ -42,26 +42,45 @@ export function parseConfigHeaders(text: string): ConfigHeaders | null {
   return { user, server, issuedAt, expires: h.get('expires') || null, fingerprint: h.get('fingerprint') || null };
 }
 
-export interface ConfigCandidate {
-  path: string;
-  text: string;
+/** The epoch (seconds) a config file's name carries, `reporter-config-<name>-<epoch>.pem`; null for a name that has none. */
+export function nameEpoch(base: string): number | null {
+  if (!/^reporter-config-.+\.pem$/.test(base)) return null;
+  const stem = base.slice(0, -'.pem'.length);
+  const digits = stem.slice(stem.lastIndexOf('-') + 1);
+  return /^\d+$/.test(digits) && Number.isSafeInteger(Number(digits)) ? Number(digits) : null;
 }
 
-/** The newest `reporter-config-*.pem` by its issued-at header, whatever its name says; anything else is ignored. */
-export function newestConfig(files: ConfigCandidate[]): { path: string; headers: ConfigHeaders } | null {
-  let best: { path: string; headers: ConfigHeaders } | null = null;
-  for (const f of files) {
-    const base = f.path.slice(f.path.lastIndexOf('/') + 1);
-    if (!/^reporter-config-.+\.pem$/.test(base)) continue;
-    const headers = parseConfigHeaders(f.text);
-    if (headers && (!best || headers.issuedAt > best.headers.issuedAt)) best = { path: f.path, headers };
-  }
-  return best;
+/**
+ * The config file names in the order to try them (#607): newest epoch in the name first, then names with no epoch in
+ * name order. The mod reads the text of one file at a time in this order, so a private key it does not choose is never read.
+ */
+export function configNamesNewestFirst(names: string[]): string[] {
+  const rows = names.filter((n) => /^reporter-config-.+\.pem$/.test(n)).map((name) => ({ name, epoch: nameEpoch(name) }));
+  rows.sort((a, b) => (a.epoch === null ? (b.epoch === null ? 0 : 1) : b.epoch === null ? -1 : b.epoch - a.epoch) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return rows.map((r) => r.name);
 }
 
-/** `~/.podium/`, also podiumctl's home. */
+/** `home` without the `/` or `\` characters at its end (a Windows home can end in a backslash). A loop, like `trimTrailingSlashes`. */
+export function trimTrailingSeparators(home: string): string {
+  let end = home.length;
+  while (end > 0 && (home.charCodeAt(end - 1) === 47 || home.charCodeAt(end - 1) === 92)) end--;
+  return home.slice(0, end);
+}
+
+/** `~/.podium/` (`%USERPROFILE%\.podium` on Windows), also podiumctl's home. */
 export function podiumHome(home: string): string {
-  return `${trimTrailingSlashes(home)}/.podium`;
+  return `${trimTrailingSeparators(home)}/.podium`;
+}
+
+/**
+ * The home folder from the environment (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. Windows sets
+ * `USERPROFILE` and normally not `HOME`. An empty value counts as unset. `from` names the variable that gave it.
+ */
+export function resolveHome(env: Record<string, string | undefined>): { home: string | undefined; from: string | undefined } {
+  if (env.HOME) return { home: env.HOME, from: 'HOME' };
+  if (env.USERPROFILE) return { home: env.USERPROFILE, from: 'USERPROFILE' };
+  if (env.HOMEDRIVE && env.HOMEPATH) return { home: `${env.HOMEDRIVE}${env.HOMEPATH}`, from: 'HOMEDRIVE+HOMEPATH' };
+  return { home: undefined, from: undefined };
 }
 
 /** A short, stable name for a session id: the id can be long and a socket path cannot. */
@@ -69,6 +88,49 @@ function shortId(id: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 0x01000193) >>> 0;
   return h.toString(16).padStart(8, '0');
+}
+
+/** A Windows path: a drive (`C:\`, `C:/`) or a UNC share (`\\server\...`). */
+export function isWindowsPath(p: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\');
+}
+
+/**
+ * The folder a Windows session's requests go through (#834): one per session inside the helper's run folder. Windows has no socket the
+ * mod can reach (Node has no Unix sockets there, and the engine refuses a named-pipe address), so the mod writes each request into this
+ * folder and the helper answers on its stdout.
+ */
+export function mailboxDirFor(runDir: string, sessionId: string): string {
+  return `${trimTrailingSeparators(runDir)}/${shortId(sessionId)}`;
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Base64 text decoded as UTF-8 (#834), written out because the sandbox a mod runs in is not promised `Buffer`, `atob` or `TextDecoder`.
+ * Throws on a character outside the alphabet, a bad length, or bytes that are not UTF-8.
+ */
+export function decodeBase64Utf8(b64: string): string {
+  // A loop, not `/=+$/`, which backtracks super-linearly on a long run of `=`.
+  let end = b64.length;
+  while (end > 0 && b64.charCodeAt(end - 1) === 61) end--;
+  const clean = b64.slice(0, end);
+  if (clean.length % 4 === 1) throw new Error('bad base64 length');
+  let bits = 0;
+  let acc = 0;
+  let escaped = '';
+  for (const ch of clean) {
+    const v = B64.indexOf(ch);
+    if (v < 0) throw new Error('bad base64 character');
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      escaped += `%${((acc >> bits) & 0xff).toString(16).padStart(2, '0')}`;
+      acc &= (1 << bits) - 1;
+    }
+  }
+  return decodeURIComponent(escaped);
 }
 
 /** One socket per session inside the helper's private directory. */

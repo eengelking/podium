@@ -39,7 +39,7 @@ box, which gets it as a new turn once it is idle, does the work and sends the an
 
 What it is:
 
-- Messages between **one person's own** orchestrators. Every machine involved reports with that person's token.
+- Messages between **one person's own** orchestrators. Every machine involved reports as that person: with their token, or, on a server with TLS, with the certificate in their reporter config file.
 - Messages between **orchestrators** only, the main loop of a session. A subagent cannot send, and a message never
   reaches one.
 - Off until three switches are on: the Admin's flag, the `peers` option on each machine, and a right the owner gives.
@@ -84,7 +84,8 @@ orchestrators on one machine). A **conversation** is the messages between two or
 - **Authentication on.** The server needs an admin secret (`PODIUM_TOKEN`; `podiumctl start` sets one). With the
   server's auth off, messaging stays off. See [SERVER.md](SERVER.md#auth-token).
 - **A person and a token.** An Admin makes the person in Admin > People, which shows their token once. Every machine
-  that takes part reports with that token and that name. The admin secret cannot take part: its sessions belong to
+  that takes part reports with that token and that name, or with that person's reporter config file when the server
+  has TLS (the file holds the name and replaces the token; see [REPORTER.md](REPORTER.md)). The admin secret cannot take part: its sessions belong to
   no one. See [SERVER.md](SERVER.md#admin-and-per-person-tokens).
 - **A reporter that can message.** podium-reporter must be version 1.2.0 or later, the first with the `peers` option.
   An older one shows as **Reporter can't message: update it**.
@@ -110,13 +111,18 @@ What changes on screen:
 
 ### 2. Each machine turns on `peers`
 
-On every machine that takes part, in Claude Code:
+On every machine that takes part:
 
-1. Run `/plugin configure podium-reporter@eengelking-marketplace`.
+1. In Claude Code, run `/plugin configure podium-reporter@eengelking-marketplace`. In the Claude desktop app, open
+   Settings > Plugins > Podium-Reporter > Settings.
 2. Set `serverUrl` to the server, `token` to the person's token, `userName` to the person's name exactly as the
    Admin entered it, and **Message my other orchestrators** (`peers`) to on.
 3. Start a new session and send it a first prompt. A session reports from its first prompt, and once Podium answers
    that the session takes part, the mod registers the three tools.
+
+A machine that reports with a reporter config file takes part the same way. Messaging, the answers to
+permission prompts and Peers all work over the certificate connection, with no token on that machine. `peers` (and
+`respond`, `activityFeed`) still come from the options.
 
 For a terminal that should report as someone other than the saved options, start it with `PODIUM_USER` and
 `PODIUM_TOKEN` in its environment instead (see
@@ -239,6 +245,24 @@ The Admin sets four limits in Admin > Settings > Orchestrator messaging, for eve
 
 ## In the session
 
+### Why messaging is off
+
+`/podium` has a `Messaging:` line: `on`, or `off, because …` with the one cause, then `peers option`, `interactive` (with the
+surface the session started on) and what `Podium says`. A tool's refusal ("Not sent. Orchestrator messaging is off for this
+session because …") gives the same cause. The causes, in the order the mod checks them:
+
+| The line says | Fix |
+|---|---|
+| the session has ended | Start a session |
+| the `peers` option is off on this machine | Turn on **Message my other orchestrators** in podium-reporter's settings |
+| the session is not interactive | Nothing: a `claude -p` run never takes part |
+| there is no per-person token with a `userName`, or reporter config file | Set both `token` and `userName` to yours, or use your reporter config file. `Sign-in:` shows which one the mod uses |
+| the session has not reported yet | Send it a prompt |
+| Podium's messaging flag is off, or the reporter signs in with the admin secret | Ask the Admin to turn the flag on; sign in with your own token |
+
+An `Option problem:` line means a switch got a text such as `"true"`. The mod uses the default instead and does not read the text
+as true, so fix the setting.
+
 ### The tools
 
 With `peers` on, and once Podium says the session takes part, the orchestrator has three tools. Each answer is
@@ -354,7 +378,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 
 | You see | Cause | Fix |
 |---|---|---|
-| The session has no `podium_*` tools | The tools appear only once Podium says the session takes part. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection |
+| The session has no `podium_*` tools | The tools appear only once Podium says the session takes part. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection, and its `Messaging:` line gives the one cause (see [Why messaging is off](#why-messaging-is-off)) |
 | `podium_send` says "You cannot see an orchestrator called X. Run podium_peers for the list." | No right to see that machine, a typo, or the orchestrator is not live: it ended, or has not had its first prompt. Another person's orchestrator gets the same answer, so a refusal never says who exists | Run `podium_peers`: its `Not listed:` line gives the reason for your other machines. For an orchestrator on the same machine there is no such line; that machine needs the right to itself (the Grid's diagonal). Give the right on My reporters, or send the other session a prompt |
 | `podium_peers` leaves a machine out ("which has messaging off", "whose reporter is too old to message", "which you have no right to see", "with no orchestrator running") | What it says | Turn `peers` on there; update podium-reporter there; give a right on My reporters; start a session there |
 | A machine never appears at all, not even under `Not listed:` | It reports as another person, or with the admin secret. Messaging is only between one person's own reporters | Set that machine's `token` and `userName` to yours. See the wrong-person row below |
@@ -367,7 +391,7 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 | "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
 | "can see … but has no right to send there" | The right is **Can see** | Give **Can send** on My reporters, or have the orchestrator ask with `podium_request_access` |
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
-| My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | Run `/plugin configure podium-reporter@eengelking-marketplace` there and set `peers` on |
+| My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | In Claude Code there, run `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` on; in the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on `peers` |
 | My reporters or Admin shows **Reporter can't message: update it** | The reporter predates the `peers` option | Update podium-reporter on that machine ([Updating the mod](user-guide/09-updating-the-mod.md)) |
 | A machine box on Traffic reads "System not reported" | No live session on that machine and you are not signed in as its owner, or its reporter is too old to send the OS (`machine.os`) | Sign in from the top bar, or start a session on that machine |
 | A session reports to another server, or as another person, than you expect | How the reporter chooses: a session keeps the name and token it started with; at start it takes `PODIUM_USER` and `PODIUM_TOKEN` from the environment, both together, when either is set; otherwise the `userName` and `token` options. The options live under `podium-reporter@eengelking-marketplace` for the installed mod and `podium-reporter` for a `--plugin-dir` copy. A token that does not match its name gets `HTTP 401` | Check the environment and the right options key, then start a new session. See [More than one login on one machine](user-guide/02-set-it-up.md#more-than-one-login-on-one-machine) and [GOTCHAS](gotchas/running-session-keeps-its-old-identity.md) |

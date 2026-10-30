@@ -7,7 +7,7 @@ import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type Agen
 import { PAGE } from "./components/ActivityList";
 import type { AgentSort } from "./components/AgentTree";
 import { FocusView } from "./components/FocusView";
-import { ThemePicker } from "./components/ThemePicker";
+import { ShortcutsSwitch, ThemePicker } from "./components/ThemePicker";
 import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
@@ -25,6 +25,7 @@ import { isUrgentChange, readUpdateEvery, writeUpdateEvery } from "./updateInter
 import { UpdateEveryPicker } from "./components/UpdateEveryPicker";
 import { useResizable } from "./useResizable";
 import { useTheme } from "./useTheme";
+import { useShortcuts } from "./useShortcuts";
 import { useHotkeys } from "./useHotkeys";
 import { useIdle } from "./useIdle";
 import { usePageVisible } from "./usePageVisible";
@@ -102,9 +103,6 @@ function LiveFleetApp({ fleetOptions, board, myReporters, traffic }: { fleetOpti
 }
 
 export function FleetApp(props: FleetAppProps = {}) {
-  useEffect(() => {
-    document.title = APP_NAME;
-  }, []);
   if (props.state) return <FleetView state={props.state} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
   return <LiveFleetApp fleetOptions={props.fleetOptions} board={props.board} myReporters={props.myReporters} traffic={props.traffic} />;
 }
@@ -155,6 +153,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const consolePage = myReporters || traffic;
   const now = useNow(updateEvery * 1000);
   const theme = useTheme();
+  // The single-key shortcuts are off until a person turns them on, per browser (#636).
+  const [shortcuts, setShortcuts] = useShortcuts();
   // The open orchestrator is kept in the address (`#/?open=<id>`), as History's opened session is (#195).
   const [sel, setSel] = useState<string | null>(() => openIn(window.location.hash));
   const selRef = useRef(sel);
@@ -184,6 +184,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const showDetached = state.wall.showBackgroundSessions;
   /** The notice just closed, for the confirmation; `until` is the release an update notice was closed for. */
   const [closed, setClosed] = useState<{ name: string; until?: string } | null>(null);
+  /** The pointer or focus is on the confirmation, so its timer waits. */
+  const [held, setHeld] = useState(false);
   const sets = splitDetached(sorted, now, showDetached);
   // The people view (#34) switches on once any live session belongs to a named person.
   const people = usePeoplePrefs();
@@ -226,6 +228,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
   const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
   const selected = showsOrchestrator ? selSession : null;
+
+  // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
+  const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : traffic ? `${APP_NAME} traffic` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
+  useEffect(() => {
+    document.title = pageTitle;
+  }, [pageTitle]);
 
   const { prefs } = people;
   const spendByOwner = state.kpis?.costTodayByOwner ?? [];
@@ -351,12 +359,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       .then(() => setClosed({ name: n.name, until: version }))
       .catch((err: Error) => setNotice(`Could not close the notice: ${err.message}. Try again.`));
   };
-  // The confirmation clears itself after about 9 seconds.
+  // The confirmation clears itself after about 9 seconds, and waits while the pointer or focus is on it (WCAG 2.2.1);
+  // when both leave, the full wait starts again.
   useEffect(() => {
-    if (closed === null) return;
+    if (closed === null || held) return;
     const t = setTimeout(() => setClosed(null), 9000);
     return () => clearTimeout(t);
-  }, [closed]);
+  }, [closed, held]);
 
   const onRemove = (id: string) => {
     removeSession(id).catch((err: Error) => setNotice(`Could not remove the session: ${err.message}. Try again.`));
@@ -431,14 +440,19 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       Exit wall mode
     </button>
   ) : consolePage ? null : (
-    <button type="button" className="btn wall-enter" data-wall-control onClick={() => startWall(true)} aria-label="Enter wall mode" title="Collapse everything for a wall display (w)">
+    <button type="button" className="btn wall-enter" data-wall-control onClick={() => startWall(true)} aria-label="Enter wall mode" title={`Collapse everything for a wall display${shortcuts ? " (w)" : ""}`}>
       Wall mode
     </button>
   );
   useHotkeys((e) => {
+    // A wall left on from before still leaves with Esc, on My reporters too, as its Exit button says. Esc is not a printable key, so it needs no switch.
+    if (e.key === "Escape") {
+      if (panes.wall) stopWall();
+      return;
+    }
+    // Every other key is one printable character (WCAG 2.1.4): it does nothing until Shortcuts is turned on (#636).
+    if (!shortcuts) return;
     if (e.key === "\\") toggle("top");
-    // A wall left on from before still leaves with Esc, on My reporters too, as its Exit button says.
-    else if (e.key === "Escape" && panes.wall) stopWall();
     // Traffic draws no rail or side panel, so their keys do nothing there; the top bar's still works (#415).
     else if (traffic) return;
     else if (e.key === "[") toggle("left");
@@ -483,26 +497,33 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
         ) : panes.collapsed.top ? null : myReporters ? (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>My reporters.</b> Your own machines, and which of them may message each other.
             </span>
-            <ThemePicker theme={theme} />
+            <div className="bannerctl">
+              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
+              <ThemePicker theme={theme} />
+            </div>
           </div>
         ) : traffic ? (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>Traffic.</b> Which orchestrators message each other, and what they said.
             </span>
-            <ThemePicker theme={theme} />
+            <div className="bannerctl">
+              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
+              <ThemePicker theme={theme} />
+            </div>
           </div>
         ) : (
-          <div className="banner has-picker">
+          <div className="banner has-picker" role="region" aria-label="Display settings">
             <span>
               <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
             </span>
             <div className="bannerctl">
               <UpdateEveryPicker every={updateEvery} onChange={(n) => onUpdateEvery?.(n)} />
+              <ShortcutsSwitch on={shortcuts} onChange={setShortcuts} />
               <ThemePicker theme={theme} />
             </div>
           </div>
@@ -529,12 +550,14 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             collapsed={panes.collapsed.left}
             people={railPeople}
           />
-          <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} />
+          <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {myReporters ? (
               <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
             ) : (
               <main className="main" id="podium-main">
+                {/* An open orchestrator and a replay carry their own h1; the wall and the board get one a screen reader can find (#636). */}
+                {!selected && !(replaying && sel) && <h1 className="vh">{board ? "Board" : "Fleet"}</h1>}
                 {notice && (
                   <div className="callout notice" role="status">
                     <div>{notice}</div>
@@ -591,13 +614,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     people={wallPeople}
                   />
                 )}
-                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => setClosed(null)} />}
+                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
               </main>
             )}
             {/* My reporters shows no legend (#446). */}
             {!myReporters && <Legend />}
           </div>
-          <PaneEdgeTab side="right" collapsed={panes.collapsed.right} onToggle={() => toggle("right")} />
+          <PaneEdgeTab side="right" collapsed={panes.collapsed.right} onToggle={() => toggle("right")} shortcuts={shortcuts} />
           <SidePanel
             events={state.events}
             sessions={state.sessions}

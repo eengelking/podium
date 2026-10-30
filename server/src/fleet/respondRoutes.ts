@@ -10,7 +10,8 @@ import { randomBytes } from 'node:crypto';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, type PeopleStore } from './people.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, type SessionRow } from '../storage/rows.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
 import type { Lockout } from './lockout.js';
@@ -18,16 +19,15 @@ import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type D
 import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, MAIN_LOOP, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import type { BrowserHelpers } from './peerRoutes.js';
-import type { SessionRow } from './db.js';
-import { FILE_DIFF } from './featureFlags.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
 import { parseRead } from './activityHistoryInput.js';
+import { asyncHandler } from './asyncHandler.js';
 
 export interface RespondDeps {
   fleet: Fleet;
   /** The admin secret; null when authentication is off, and responding with it. */
   token: string | null;
-  people: PeopleStore | null;
+  people: PeopleStoreApi | null;
   logger: Logger;
   lockout: Lockout;
   requireToken: RequestHandler;
@@ -47,7 +47,7 @@ export interface RespondDeps {
 const COOKIE = 'podium_respond';
 const COOKIE_PATH = '/api';
 const LEGACY_COOKIE_PATH = '/api/fleet/respond';
-const SIGN_IN_IDLE_MS = 12 * 3600_000;
+export const SIGN_IN_IDLE_MS = 12 * 3600_000;
 const MAX_SIGN_INS = 200;
 const BODY_LIMIT = '64kb';
 const CLOSE_OUTCOMES: readonly AskCloseOutcome[] = ['terminal', 'closed', 'ended'];
@@ -103,10 +103,10 @@ function answerError(res: Response, err: AnswerError): void {
 /** What the fleet router asks of the sign-in once the respond routes are mounted. */
 export interface RespondAccess {
   /**
-   * Whether the request carries a valid sign-in of the session's owner or an Admin. It never refuses or throws, so a route
-   * that has no sign-in of its own can ask without changing who it answers.
+   * Reads the request's sign-in once and returns whether it is the sign-in of a given session's owner or an Admin. It never
+   * refuses or throws, so a route that has no sign-in of its own can ask without changing who it answers.
    */
-  canRead: (req: Request, row: SessionRow) => boolean;
+  reader: (req: Request) => Promise<(row: SessionRow) => boolean>;
 }
 
 export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAccess {
@@ -160,34 +160,37 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     'responding-off': 'responding was turned off first, before any result came back',
   };
   fleet.respond.trail = (t: DeliveryTrail) => {
-    // The store calls this mid-change; a failing log write must not leave a delivery half-updated.
-    try {
-      writeTrail(t);
-    } catch (err) {
+    // The store calls this mid-change and cannot wait for a read; a failing log write must not leave a delivery half-updated.
+    // The line is written when the session's name arrives.
+    writeTrail(t).catch((err: unknown) => {
       logger.warn('respond.trail_failed', `podium: could not log what became of a delivery in session ${t.sessionId}`, { session_id: t.sessionId, error: String(err) });
-    }
+    });
   };
-  const writeTrail = (t: DeliveryTrail) => {
-    const row = fleet.db.getSession(t.sessionId);
+  const writeTrail = async (t: DeliveryTrail) => {
+    const at = now();
+    const row = await fleet.db.getSession(t.sessionId);
     const where = `${logWords(t.delivery)} in ${row?.name ?? 'a session'} (${t.sessionId.slice(0, 8)}) [${shortDeliveryId(t.delivery)}]`;
     if (t.kind === 'result') {
-      people?.log('respond_result', `${where}: ${RESULT_WORDS[t.result]}`, trailSource, now(), actorOf(t.delivery.by));
+      await people?.log('respond_result', `${where}: ${RESULT_WORDS[t.result]}`, trailSource, at, actorOf(t.delivery.by));
       logger.info('respond.result', `podium: ${logWords(t.delivery).toLowerCase()} in session ${t.sessionId} came back ${t.result}`, { session_id: t.sessionId, kind: t.delivery.kind, result: t.result });
     } else {
-      people?.log('respond_dropped', `${where}: ${DROP_WORDS[t.why]}`, trailSource, now(), actorOf(t.by));
+      await people?.log('respond_dropped', `${where}: ${DROP_WORDS[t.why]}`, trailSource, at, actorOf(t.by));
       logger.info('respond.dropped', `podium: ${logWords(t.delivery).toLowerCase()} in session ${t.sessionId} was dropped (${t.why})`, { session_id: t.sessionId, kind: t.delivery.kind, why: t.why });
     }
   };
 
   // ---- the mod's side ---------------------------------------------------------------------------
 
-  /** The session a mod route is about, when responding is on and the credential owns it; otherwise answers and returns null. */
-  const modSession = (req: Request, res: Response, on: () => boolean = enabled, off = 'responding is off'): SessionRow | null => {
+  /**
+   * The session a mod route is about, when responding is on and the credential owns it; otherwise answers and returns null. `row` is
+   * the session as the handler just read it. This is synchronous so the checks and what the handler does next run in one turn,
+   * with nothing able to end or delete the session in between.
+   */
+  const modSession = (req: Request, res: Response, row: SessionRow | undefined, on: () => boolean = enabled, off = 'responding is off'): SessionRow | null => {
     if (!on()) {
       refuse(req, res, 403, off);
       return null;
     }
-    const row = fleet.db.getSession(req.params.id!);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -200,8 +203,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   };
 
   /** The mod's answer to a request for a file's diff (#319). The text goes to the one waiting browser request and nowhere else. */
-  router.put('/sessions/:id/diffs/:requestId', d.requireToken, express.json({ limit: '1mb' }), (req, res) => {
-    const row = modSession(req, res, diffEnabled, 'file diff is off');
+  router.put('/sessions/:id/diffs/:requestId', d.requireToken, express.json({ limit: '1mb' }), asyncHandler(async (req, res) => {
+    const row = modSession(req, res, await fleet.db.getSession(req.params.id!), diffEnabled, 'file diff is off');
     if (!row) return;
     const sent = (req.body as { text?: unknown } | undefined)?.text;
     if (typeof sent === 'string' && Buffer.byteLength(sent) > FILE_DIFF_LIMITS.answerBytes) {
@@ -215,10 +218,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     }
     fleet.diffs.answer(row.id, req.params.requestId!, v.reply);
     res.json({ ok: true });
-  });
+  }));
 
-  router.put('/sessions/:id/asks/:askId', d.requireToken, express.json({ limit: '512kb' }), (req, res) => {
-    const row = modSession(req, res);
+  router.put('/sessions/:id/asks/:askId', d.requireToken, express.json({ limit: '512kb' }), asyncHandler(async (req, res) => {
+    const row = modSession(req, res, await fleet.db.getSession(req.params.id!));
     if (!row) return;
     const v = validateAsk(req.body);
     if (!v.ok) {
@@ -233,10 +236,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     if (out === 'closed') res.status(409).json({ ok: false, error: 'closed' });
     else if (out === 'full') res.status(429).json({ ok: false, error: `at most ${RESPOND_LIMITS.asks} open asks per session` });
     else res.json({ ok: true });
-  });
+  }));
 
-  router.get('/sessions/:id/asks/:askId/answer', d.requireToken, async (req, res) => {
-    const row = modSession(req, res);
+  router.get('/sessions/:id/asks/:askId/answer', d.requireToken, asyncHandler(async (req, res) => {
+    const row = modSession(req, res, await fleet.db.getSession(req.params.id!));
     if (!row) return;
     const raw = typeof req.query.wait === 'string' && /^\d{1,3}$/.test(req.query.wait) ? Number(req.query.wait) : RESPOND_LIMITS.holdSeconds;
     const wait = Math.max(1, Math.min(RESPOND_LIMITS.holdSeconds, raw));
@@ -250,10 +253,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     else if (out.kind === 'none') res.status(204).end();
     else if (out.kind === 'unknown') res.status(404).json({ ok: false, error: 'unknown ask' });
     else res.status(410).json({ ok: false, error: 'closed', outcome: out.outcome });
-  });
+  }));
 
-  router.post('/sessions/:id/asks/:askId/close', d.requireToken, json, (req, res) => {
-    const row = modSession(req, res);
+  router.post('/sessions/:id/asks/:askId/close', d.requireToken, json, asyncHandler(async (req, res) => {
+    const row = modSession(req, res, await fleet.db.getSession(req.params.id!));
     if (!row) return;
     const b = req.body as Record<string, unknown> | undefined;
     const outcome = b?.outcome;
@@ -266,10 +269,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     withSource(sourceOf(req), () => fleet.respond.close(row.id, req.params.askId!, { outcome: outcome as AskCloseOutcome, at, answer, planApproved: b?.planApproved === true }));
     logger.debug('respond.closed', `podium: an ask in session ${row.id} closed (${outcome})`, { session_id: row.id, outcome });
     res.json({ ok: true });
-  });
+  }));
 
-  router.post('/sessions/:id/deliveries/:deliveryId/result', d.requireToken, json, (req, res) => {
-    const row = modSession(req, res);
+  router.post('/sessions/:id/deliveries/:deliveryId/result', d.requireToken, json, asyncHandler(async (req, res) => {
+    const row = modSession(req, res, await fleet.db.getSession(req.params.id!));
     if (!row) return;
     const result = (req.body as Record<string, unknown> | undefined)?.result;
     if (typeof result !== 'string' || !(DELIVERY_RESULTS as readonly string[]).includes(result)) {
@@ -284,7 +287,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // A retry of a result the delivery already has is answered 200 but logged once (#330).
     if (got === 'new') logger.info('respond.delivered', `podium: a delivery to session ${row.id} came back ${result}`, { session_id: row.id, result });
     res.json({ ok: true });
-  });
+  }));
 
   // ---- the browser's side -----------------------------------------------------------------------
 
@@ -318,7 +321,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   browser.use(json);
 
   /** Who a request's cookie says is signed in, or null. A revoked or rotated token, or an idle sign-in, ends it. */
-  const viewerOf = (req: Request): Viewer | null => {
+  const viewerOf = async (req: Request): Promise<Viewer | null> => {
     const sid = readCookie(req, COOKIE);
     const s = sid ? signIns.get(sid) : undefined;
     if (!sid || !s) return null;
@@ -326,13 +329,16 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     if (now() - s.last <= idleMs) {
       if (s.personId === null) viewer = d.token !== null ? { name: ADMIN_OWNER, actor: ADMIN_SECRET_ACTOR, admin: true, personId: null } : null;
       else {
-        const p = people?.getPerson(s.personId);
-        if (p && p.revokedAt === null && p.tokenHash === s.tokenHash) viewer = { name: p.name, actor: p.name, admin: people!.isAdministrator(p.id), personId: p.id };
+        const p = await people?.getPerson(s.personId);
+        if (p && p.revokedAt === null && p.tokenHash === s.tokenHash) viewer = { name: p.name, actor: p.name, admin: await people!.isAdministrator(p.id), personId: p.id };
       }
     }
+    // A sign-out that came in while the person was being read ends this sign-in: do not put it back.
+    const current = signIns.get(sid);
+    if (!current) return null;
     signIns.delete(sid);
     if (!viewer) return null;
-    signIns.set(sid, { ...s, last: now() }); // re-inserted, so the oldest entry is the least recently used
+    signIns.set(sid, { ...current, last: now() }); // re-inserted, so the oldest entry is the least recently used
     return viewer;
   };
 
@@ -341,8 +347,8 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       const sid = readCookie(req, COOKIE);
       return sid ? signIns.get(sid) : undefined;
     };
-    d.bridge.administratorOf = (req) => {
-      const v = signInEnabled() ? viewerOf(req) : null;
+    d.bridge.administratorOf = async (req) => {
+      const v = signInEnabled() ? await viewerOf(req) : null;
       return v?.admin && !signInOf(req)?.adminHeld ? { personId: v.personId } : null;
     };
     d.bridge.hold = (req) => {
@@ -355,13 +361,13 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     };
   }
 
-  browser.get('/me', (req, res) => {
-    const v = signInEnabled() ? viewerOf(req) : null;
+  browser.get('/me', asyncHandler(async (req, res) => {
+    const v = signInEnabled() ? await viewerOf(req) : null;
     const me: RespondMe = { enabled: signInEnabled(), signedIn: !!v, name: v?.name ?? null, admin: v?.admin ?? false };
     res.json(me);
-  });
+  }));
 
-  browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), (req, res) => {
+  browser.post('/sign-in', d.onSignIn ?? ((_req, _res, next) => next()), asyncHandler(async (req, res) => {
     if (!signInEnabled()) {
       refuse(req, res, 403, 'responding is off');
       return;
@@ -381,18 +387,24 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // A person's token only with that person's name; the admin secret only with the name Admin (7.7).
     let signIn: SignIn | null = null;
     let viewer: Viewer | null = null;
-    const found = checkNameToken(people, d.token, name, token);
+    const found = await checkNameToken(people, d.token, name, token);
+    // The sign-in was counted against this address while the person was being read: a lockout reached meanwhile refuses this one too, right or wrong.
+    const lockedNow = lockout.lockedFor(src);
+    if (lockedNow > 0) {
+      res.status(429).json({ ok: false, error: 'too many wrong tries', retryAfterSec: Math.ceil(lockedNow / 1000) });
+      return;
+    }
     if (found?.person) {
       const p = found.person;
       signIn = { personId: p.id, tokenHash: p.tokenHash, last: now() };
-      viewer = { name: p.name, actor: p.name, admin: people!.isAdministrator(p.id), personId: p.id };
+      viewer = { name: p.name, actor: p.name, admin: await people!.isAdministrator(p.id), personId: p.id };
     } else if (found) {
       signIn = { personId: null, tokenHash: null, last: now() };
       viewer = { name: ADMIN_OWNER, actor: ADMIN_SECRET_ACTOR, admin: true, personId: null };
     }
     if (!signIn || !viewer) {
       const { n, locked } = lockout.fail(src);
-      people?.log('respond_sign_in_failed', locked ? `Wrong name or token (${n}); locked for ${Math.round(lockout.lockMs / 60_000)} minutes` : `Wrong name or token (${n})`, src, now(), null);
+      await people?.log('respond_sign_in_failed', locked ? `Wrong name or token (${n}); locked for ${Math.round(lockout.lockMs / 60_000)} minutes` : `Wrong name or token (${n})`, src, now(), null);
       logger.warn('respond.sign_in_failed', `podium: a sign-in to respond from ${src} was refused`, { source: src, failures: n, locked });
       res.status(401).json({ ok: false, error: 'wrong name or token' });
       return;
@@ -404,10 +416,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     // A browser signed in before #215 holds a cookie at the old, narrower path; it is sent first and would shadow this one.
     res.clearCookie(COOKIE, { path: LEGACY_COOKIE_PATH });
     res.cookie(COOKIE, sid, { httpOnly: true, sameSite: 'strict', path: COOKIE_PATH, secure: req.secure });
-    people?.log('respond_sign_in', 'Signed in to respond', src, now(), viewer.actor);
+    await people?.log('respond_sign_in', 'Signed in to respond', src, now(), viewer.actor);
     logger.info('respond.sign_in', `podium: ${viewer.name} signed in to respond from ${src}`, { source: src, admin: viewer.admin });
     res.json({ ok: true, name: viewer.name, admin: viewer.admin });
-  });
+  }));
 
   browser.post('/sign-out', (req, res) => {
     const sid = readCookie(req, COOKIE);
@@ -417,18 +429,21 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     res.json({ ok: true });
   });
 
-  /** The signed-in viewer and the live session they may respond to; otherwise answers and returns null. */
-  const browserSession = (req: Request, res: Response): { v: Viewer; row: SessionRow } | null => {
+  /**
+   * The signed-in viewer and the live session they may respond to; otherwise answers and returns null. The viewer is read first and
+   * the session last, so the checks after the session is read and the handler's next steps run in one turn.
+   */
+  const browserSession = async (req: Request, res: Response): Promise<{ v: Viewer; row: SessionRow } | null> => {
     if (!enabled()) {
       refuse(req, res, 403, 'responding is off');
       return null;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 403, 'sign in to respond');
       return null;
     }
-    const row = fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id!);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;
@@ -441,9 +456,9 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   };
 
   /** Each answer, message and command the server takes: the admin log and the server log, never its text (7.7). */
-  const audit = (req: Request, v: Viewer, row: SessionRow, delivery: Delivery) => {
+  const audit = async (req: Request, v: Viewer, row: SessionRow, delivery: Delivery): Promise<void> => {
     const src = sourceOf(req);
-    people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${row.id.slice(0, 8)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
+    await people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${row.id.slice(0, 8)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
     logger.info('respond.sent', `podium: ${logWords(delivery).toLowerCase()} in session ${row.id}`, { session_id: row.id, kind: delivery.kind, admin: v.admin, source: src });
   };
 
@@ -452,17 +467,17 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
    * Administrator, and not another person. The request is held until the mod answers or FILE_DIFF_LIMITS.holdSeconds pass.
    * The text is never logged or kept; the admin log records only that the path was opened, and by whom.
    */
-  browser.get('/sessions/:id/files/diff', async (req, res) => {
+  browser.get('/sessions/:id/files/diff', asyncHandler(async (req, res) => {
     if (!diffEnabled()) {
       refuse(req, res, 403, 'file diff is off');
       return;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 401, 'sign in to open diffs');
       return;
     }
-    const row = fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id!);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
@@ -480,6 +495,12 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
+    // A load ahead (#631) is the console reading the file before anyone opened it; the reporter must have allowed that.
+    const ahead = req.query.ahead === '1';
+    if (ahead && fleet.diffs.preloadOn(row.id) !== true) {
+      refuse(req, res, 403, 'loading diffs ahead is off');
+      return;
+    }
     const got = await fleet.diffs.ask(row.id, path);
     if (got === 'busy') {
       res.status(429).json({ ok: false, error: 'too many diffs are waiting for this session' });
@@ -489,13 +510,48 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       res.status(504).json({ ok: false, error: 'no answer' });
       return;
     }
-    people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
-    logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
+    const kind = ahead ? 'loaded' : 'opened';
+    await people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    logger.info(`file_diff.${kind}`, `podium: a file diff was ${kind} in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
     res.json(got);
-  });
+  }));
 
-  browser.get('/sessions/:id/asks/:askId', (req, res) => {
-    const got = browserSession(req, res);
+  // The person opened a diff the console had already loaded ahead (#631): no request carried that open, so the browser says so.
+  browser.post('/sessions/:id/files/diff/opened', asyncHandler(async (req, res) => {
+    if (!diffEnabled()) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    const v = await viewerOf(req);
+    if (!v) {
+      refuse(req, res, 401, 'sign in to open diffs');
+      return;
+    }
+    const row = await fleet.db.getSession(req.params.id!);
+    if (!row || !fleet.isLive(row.id)) {
+      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
+      return;
+    }
+    if (row.owner === null || nameKey(row.owner) !== nameKey(v.name)) {
+      refuse(req, res, 403, 'not your session', { owner: row.owner });
+      return;
+    }
+    const path = typeof req.body?.path === 'string' ? req.body.path : '';
+    if (!path || path.length > LIMITS.filePath) {
+      res.status(400).json({ ok: false, error: 'path is needed', path: '$.path' });
+      return;
+    }
+    if (fleet.diffs.optionOn(row.id) !== true || fleet.diffs.preloadOn(row.id) !== true) {
+      refuse(req, res, 403, 'file diff is off');
+      return;
+    }
+    await people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: 'loaded ahead', source: sourceOf(req) });
+    res.status(204).end();
+  }));
+
+  browser.get('/sessions/:id/asks/:askId', asyncHandler(async (req, res) => {
+    const got = await browserSession(req, res);
     if (!got) return;
     const detail = fleet.respond.detail(got.row.id, req.params.askId!, got.v.name, got.row.last_seen_at);
     if (!detail) {
@@ -503,10 +559,10 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     res.json(detail);
-  });
+  }));
 
-  browser.post('/sessions/:id/asks/:askId/answer', (req, res) => {
-    const got = browserSession(req, res);
+  browser.post('/sessions/:id/asks/:askId/answer', asyncHandler(async (req, res) => {
+    const got = await browserSession(req, res);
     if (!got) return;
     const out = fleet.respond.answer(got.row.id, req.params.askId!, got.v.name, req.body);
     if (!out.ok) {
@@ -514,28 +570,28 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       answerError(res, out.err);
       return;
     }
-    audit(req, got.v, got.row, out.delivery);
+    await audit(req, got.v, got.row, out.delivery);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id });
-  });
+  }));
 
-  browser.post('/sessions/:id/messages', (req, res) => {
-    const got = browserSession(req, res);
+  browser.post('/sessions/:id/messages', asyncHandler(async (req, res) => {
+    const got = await browserSession(req, res);
     if (!got) return;
     const out = fleet.respond.message(got.row.id, got.v.name, req.body);
     if (!out.ok) {
       answerError(res, out.err);
       return;
     }
-    audit(req, got.v, got.row, out.delivery);
+    await audit(req, got.v, got.row, out.delivery);
     res.status(202).json({ ok: true, deliveryId: out.delivery.id, queued: got.row.status === 'running' });
-  });
+  }));
 
-  browser.delete('/deliveries/:deliveryId', (req, res) => {
+  browser.delete('/deliveries/:deliveryId', asyncHandler(async (req, res) => {
     if (!enabled()) {
       refuse(req, res, 403, 'responding is off');
       return;
     }
-    const v = viewerOf(req);
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 403, 'sign in to respond');
       return;
@@ -545,20 +601,20 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     else if (out === 'forbidden') refuse(req, res, 403, 'not your answer');
     else if (out === 'handed-over') res.status(409).json({ ok: false, error: 'handed over' });
     else res.json({ ok: true });
-  });
+  }));
 
   /**
    * A loop's stored Activity history, a page at a time (#432). Only the session's owner or an Admin, signed in. It works with
    * `respond` off: it needs a keep policy, which needs a token. Any session in the main database, live or not. The text is
    * never logged.
    */
-  browser.get('/sessions/:id/activity-history', (req, res) => {
-    const v = viewerOf(req);
+  browser.get('/sessions/:id/activity-history', asyncHandler(async (req, res) => {
+    const v = await viewerOf(req);
     if (!v) {
       refuse(req, res, 401, 'sign in to open the stored activity');
       return;
     }
-    const row = fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id!);
     if (!row) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;
@@ -572,7 +628,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     const loop = req.query.loop === undefined || req.query.loop === '' ? MAIN_LOOP : req.query.loop;
-    if (typeof loop !== 'string' || (loop !== MAIN_LOOP && !fleet.db.getAgents(row.id).some((a) => a.id === loop))) {
+    if (typeof loop !== 'string' || (loop !== MAIN_LOOP && !(await fleet.db.getAgents(row.id)).some((a) => a.id === loop))) {
       res.status(404).json({ ok: false, error: 'unknown loop', path: '$.loop' });
       return;
     }
@@ -582,23 +638,23 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     const limit = Math.min(Math.max(read.value.limit ?? ACTIVITY_HISTORY_PAGE, 1), ACTIVITY_HISTORY_PAGE_MAX);
-    const page: ActivityHistoryPage = fleet.activityHistory.page(row.id, loop, read.value.before, limit);
+    const page: ActivityHistoryPage = await fleet.activityHistory.page(row.id, loop, read.value.before, limit);
     res.json(page);
-  });
+  }));
 
   d.extendBrowser?.(browser, { viewerOf });
   router.use('/respond', browser);
   return {
-    canRead: (req, row) => {
-      const v = viewerOf(req);
-      return v !== null && viewerOwns(v, row);
+    reader: async (req) => {
+      const v = await viewerOf(req);
+      return (row) => v !== null && viewerOwns(v, row);
     },
   };
 }
 
 /** For the report route: whether this session takes answers now, and what waits for it (6.1). */
-export function replyFor(fleet: Fleet, token: string | null, sessionId: string): { respond: boolean; deliveries: Delivery[]; diffs: DiffRequest[] } {
-  const owner = fleet.db.getSession(sessionId)?.owner ?? null;
+export async function replyFor(fleet: Fleet, token: string | null, sessionId: string): Promise<{ respond: boolean; deliveries: Delivery[]; diffs: DiffRequest[] }> {
+  const owner = (await fleet.db.getSession(sessionId))?.owner ?? null;
   const respond = token !== null && fleet.respondFlagsOn() && owner !== null;
   const diffs = token !== null && fleet.features.featureOn(FILE_DIFF) && owner !== null ? fleet.diffs.listFor(sessionId) : [];
   return { respond, deliveries: respond ? fleet.respond.deliveriesFor(sessionId) : [], diffs };

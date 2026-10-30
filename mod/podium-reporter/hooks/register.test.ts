@@ -52,6 +52,8 @@ interface World {
   devBuild: { value: string | null }
   /** What `hostname` and macOS's `scutil --get LocalHostName` print; `local` null is a machine with no `scutil` (it exits 1). */
   hosts: { hostname: string; local: string | null }
+  /** What `claude agents --json` lists (#595); null is a machine where the command fails. */
+  agents: { value: { sessionId: string; name?: string }[] | null }
   /** Every status line the plugin set. */
   statuses: (string | undefined)[]
   /** What the server's reply says about itself: its build (#400). */
@@ -95,6 +97,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const gitAt: World['gitAt'] = {}
   const devBuild: World['devBuild'] = { value: null }
   const hosts: World['hosts'] = { hostname: 'Devs-MBP.local\n', local: null }
+  const agents: World['agents'] = { value: null }
   const statuses: World['statuses'] = []
   const serverBuild: World['serverBuild'] = { value: null }
   const fetched: World['fetched'] = []
@@ -133,6 +136,9 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('ui.log', () => ({ value: undefined }))
   on('process.run', (_$, e) => {
     ran.push([...e.argv])
+    if (e.argv[0] === 'claude' && e.argv[1] === 'agents') {
+      return { value: { exitCode: agents.value === null ? 1 : 0, stdout: agents.value === null ? '' : JSON.stringify(agents.value), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     if (e.argv[1] === '-C') {
       // the mod's own folder: a dev checkout names a commit, an installed copy is no repository (#400)
       const sub = e.argv.slice(3).join(' ')
@@ -194,7 +200,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -576,6 +582,79 @@ describe('podium-reporter end to end', () => {
     expect(w.posts.at(-1)!.session.name).toBe('explicit')
   })
 
+  test("background work comes only from classic.Stop; where Claude Code skips that hook the card shows none (#740)", async ($, on) => {
+    const w = world(on)
+    on('classic.Stop', () => ({}))
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await $.turn.start({ turnId: 't1', prompt: 'watch the build', agentId: undefined } as never)
+    // a background shell and a wake-up are launched; the engine offers no event or call that lists them
+    await $.tool.call({ tool: 'Bash', command: 'npm run watch', run_in_background: true } as never)
+    await $.turn.complete({ answer: 'started', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await w.clock.advance(1000)
+    // classic.Stop was skipped (Team/Enterprise guard): the session looks like one with nothing running, and waits on the person
+    expect(w.posts.at(-1)!.session.background ?? null).toBeNull()
+    expect(w.posts.at(-1)!.session).toMatchObject({ status: 'waiting', waitReason: 'input' })
+    // where the hook runs, the same session shows what it waits on
+    await $.classic.Stop({
+      stop_hook_active: false,
+      background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'npm run watch' }],
+      session_crons: [{ id: 'c1', schedule: '*/5 * * * *', recurring: true, prompt: 'check' }],
+    })
+    await w.clock.advance(1000)
+    const shown = w.posts.at(-1)!.session
+    expect(shown.waitReason).toBeNull()
+    expect(shown.background!.tasks[0]).toMatchObject({ type: 'shell', description: 'npm run watch' })
+    expect(shown.background!.wakeAt).not.toBeNull()
+    // a Stop with no lists clears it
+    await $.classic.Stop({ stop_hook_active: false })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.background ?? null).toBeNull()
+  })
+
+  test("the app's title from `claude agents --json` names a session no hook gave a title (#595)", async ($, on) => {
+    const w = world(on)
+    w.agents.value = [
+      { sessionId: 'someone-else', name: 'Other session' },
+      { sessionId: SID, name: '  Panel de agentes  ' },
+    ]
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    expect(w.ran).toContainEqual(['claude', 'agents', '--json'])
+    expect(w.posts.at(-1)!.session.name).toBe('Panel de agentes')
+    // the app's rename shows from the next poll
+    w.agents.value = [{ sessionId: SID, name: 'Renamed in the sidebar' }]
+    await w.clock.advance(30_000)
+    expect(w.posts.at(-1)!.session.name).toBe('Renamed in the sidebar')
+  })
+
+  test("a hook's title outranks the app's, and /podium name outranks both (#595)", async ($, on) => {
+    const w = world(on)
+    w.agents.value = [{ sessionId: SID, name: 'From the app' }]
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'From the hook' })
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.name).toBe('From the hook')
+    await $.command.run(podium('name explicit'))
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.name).toBe('explicit')
+  })
+
+  test("a failing or unlisted `claude agents --json` leaves the name alone, and the app's title does not carry over to a new id (#595)", async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.name).toBe('x')
+    w.agents.value = [{ sessionId: SID, name: 'From the app' }]
+    await w.clock.advance(30_000)
+    expect(w.posts.at(-1)!.session.name).toBe('From the app')
+    w.sessionId.value = 'sess-after-clear'
+    w.agents.value = null
+    await w.clock.advance(11_000)
+    expect(w.posts.at(-1)!.session.id).toBe('sess-after-clear')
+    expect(w.posts.at(-1)!.session.name).toBe('x')
+  })
+
   test("Claude Code's name does not carry over to a new session id (#322)", async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
@@ -652,6 +731,53 @@ describe('podium-reporter end to end', () => {
     w.surfaces.value = ['terminal']
     await w.clock.advance(1000)
     expect(w.posts.at(-1)!.session.attached).toBe(true)
+  })
+
+  test('a session the desktop app keeps open stays attached when another session is on screen (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    w.surfaces.value = []
+    await w.clock.advance(6000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    // Deleting the session from the app ends it, and that is what takes it off the wall.
+    await $.session.end({ reason: 'prompt_input_exit', sessionId: SID, resume: { id: SID } })
+    expect(w.posts.at(-1)!.session.status).toBe('done')
+  })
+
+  test('a session that starts on the desktop surface is attached even when its first roster read is empty (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: 'desktop', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+  })
+
+  test('a desktop client seen on the roster survives a failed roster read and a restart of the same session (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    w.surfaces.fail = true
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+    w.surfaces.fail = false
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(true)
+  })
+
+  test('a terminal session that never had the desktop app on it still reads as detached once its roster empties (#594)', async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['terminal']
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    await w.clock.advance(1000)
+    w.surfaces.value = []
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session.attached).toBe(false)
   })
 
   test('session.detach and session.attach pass through and the next report follows the roster', async ($, on) => {
@@ -1215,13 +1341,15 @@ function helperWorld(on: On, o: { files: Record<string, string>; node: string | 
     if (!names.length) throw new Error('ENOENT')
     return { value: names }
   })
-  on('fs.exists', (_$, e) => ({ value: e.path === o.node }))
+  let seen: { files: { text: Record<string, string> } } | null = null
+  on('fs.exists', (_$, e) => ({ value: e.path === o.node || e.path in (seen?.files.text ?? o.files) }))
   on('process.spawn', async function* (_$, e) {
     spawned.push({ argv: e.argv, env: e.env })
     for (const text of o.helperSays ?? ['ready\n']) yield { stream: 'stdout' as const, text }
     await new Promise(() => {})
   })
   const w = world(on, {}, o.files)
+  seen = w
   return { w, spawned }
 }
 
@@ -1305,6 +1433,146 @@ describe('podium-reporter over the TLS helper (#584)', () => {
     expect(w.statuses.at(-1)).toContain('config unreadable')
     const info = await $.command.run(podium(''))
     expect(info.text).toContain('/nowhere/mine.pem')
+  })
+
+  describe('the home folder on Windows (#834)', () => {
+    // The test engine reads a `C:\\` path as relative, so USERPROFILE holds a POSIX path here; the Windows spellings are in tlsLink.test.ts.
+    const WIN_CFG = '/Users/dana/.podium/reporter-config-Dana-1000.pem'
+
+    test('with no HOME, USERPROFILE finds the config, and /podium says where the home came from', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: { [WIN_CFG]: configText('Dana') }, node: '/usr/local/bin/node', env: { HOME: '', USERPROFILE: '/Users/dana' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(WIN_CFG)
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Home folder: /Users/dana (from USERPROFILE)')
+    })
+
+    test('with no home folder at all, /podium says so and the reporter keeps working over the token', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: {}, node: null, env: { HOME: '' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned).toEqual([])
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Home folder: no home folder found')
+    })
+
+    test('/podium context says which variables are empty when there is no home folder', async ($, on) => {
+      helperWorld(on, { files: {}, node: null, env: { HOME: '' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      const info = await $.command.run(podium('context'))
+      expect(info.text).toContain('USERPROFILE')
+    })
+  })
+
+  describe('contexts (#606)', () => {
+    const HOME_CFG = '/Users/dev/.podium/reporter-config-Dana-1000.pem'
+    const WORK_CFG = '/Users/dev/.podium/reporter-config-Dana-2000.pem'
+    const NEWEST_CFG = '/Users/dev/.podium/reporter-config-Dana-9000.pem'
+    const CONTEXTS = '/Users/dev/.podium/contexts.json'
+    const contexts = (current: string | null) => JSON.stringify({ current, contexts: { home: 'reporter-config-Dana-1000.pem', work: 'reporter-config-Dana-2000.pem' } })
+    const files = (current: string | null) => ({ [HOME_CFG]: configText('Dana'), [WORK_CFG]: configText('Dana'), [NEWEST_CFG]: configText('Dana'), [CONTEXTS]: contexts(current) })
+
+    test('the current context chooses the file, and the status line and /podium name it', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(WORK_CFG)
+      expect(w.statuses.at(-1)).toContain('[work]')
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Context: work (https://podium.lan:4318)')
+    })
+
+    test('PODIUM_REPORTER_CONTEXT picks another for this terminal', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'home' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a context that cannot be used falls back to the newest file and /podium says why', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'nope' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(NEWEST_CFG)
+      expect(w.statuses.at(-1)).toContain('[context unusable]')
+      const info = await $.command.run(podium(''))
+      expect(info.text).toContain('Context problem:')
+      expect(info.text).toContain('"nope"')
+    })
+
+    test('with no contexts file nothing changes: the newest file, no context line', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: { [HOME_CFG]: configText('Dana'), [NEWEST_CFG]: configText('Dana') }, node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(NEWEST_CFG)
+      const info = await $.command.run(podium(''))
+      expect(info.text).not.toContain('Context:')
+    })
+
+    test('/podium context use changes the file for the next session and leaves the running one alone', async ($, on) => {
+      const { w, spawned } = helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      const out = await $.command.run(podium('context use work'))
+      expect(out.text).toContain('next session')
+      expect(JSON.parse(w.files.text[CONTEXTS] as string).current).toBe('work')
+      expect(spawned).toHaveLength(1)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a reload keeps the file the context chose at the start, so a later use moves only the next session', async ($, on) => {
+      const held: Record<string, unknown> = { 'podium-reporter.chosenConfig': { path: HOME_CFG, context: 'home' } }
+      on('state.get', (_$, e) => ({ value: { value: held[`${e.plugin}.${e.key}`] ?? null, version: 1 } }))
+      on('state.set', (_$, e) => {
+        held[`${e.plugin}.${e.key}`] = e.value
+        return { value: e.value as never }
+      })
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(HOME_CFG)
+      expect(w.statuses.at(-1)).toContain('[home]')
+    })
+
+    test('a session with nothing held takes the current context and holds it', async ($, on) => {
+      const held: Record<string, unknown> = {}
+      on('state.get', (_$, e) => ({ value: { value: held[`${e.plugin}.${e.key}`] ?? null, version: 1 } }))
+      on('state.set', (_$, e) => {
+        held[`${e.plugin}.${e.key}`] = e.value
+        return { value: e.value as never }
+      })
+      const { w, spawned } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(spawned[0]?.argv[2]).toBe(WORK_CFG)
+      expect(held['podium-reporter.chosenConfig']).toEqual({ path: WORK_CFG, context: 'work' })
+    })
+
+    test('a context that cannot be used shows in the status line, not only in /podium', async ($, on) => {
+      const { w } = helperWorld(on, { files: files('work'), node: '/usr/local/bin/node', env: { PODIUM_REPORTER_CONTEXT: 'wrok' } })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      await w.clock.advance(1000)
+      expect(w.statuses.at(-1)).toContain('[context unusable]')
+    })
+
+    test('only the word context starts the command: contexts and contextual are not it', async ($, on) => {
+      helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      expect((await $.command.run(podium('contexts'))).text).not.toContain('* home')
+      expect((await $.command.run(podium('contextual use work'))).text).not.toContain('The current context is now')
+      expect((await $.command.run(podium('  context\tuse work  '))).text).toContain('The current context is now "work"')
+    })
+
+    test('/podium context lists the contexts', async ($, on) => {
+      helperWorld(on, { files: files('home'), node: '/usr/local/bin/node' })
+      await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+      const out = await $.command.run(podium('context'))
+      expect(out.text).toContain('* home')
+      expect(out.text).toContain('work')
+    })
   })
 
   test('a 401 over the helper says certificate refused in the status line, /podium and the toast, never the token (#646)', async ($, on) => {

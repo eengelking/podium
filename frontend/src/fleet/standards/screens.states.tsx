@@ -149,6 +149,16 @@ export const STATE_SCREENS: Record<string, Screen> = {
     act: async (b) => { pick(b, "s9"); await flush(); fireEvent.click(b.querySelector("#row-a1")!); await flush(); },
   }),
   "app-wall-bg": fleet([{ ...bgSession, id: "s7", name: "background-wait" }, makeSession({ id: "s1", name: "api-refactor" })]),
+  "app-wall-comp": fleet([makeSession({ id: "s1", name: "auto-compacted", compactions: 2 }), makeSession({ id: "s2", name: "api-refactor" })]),
+  "app-shortcuts-help": fleet([makeSession({ id: "s1", name: "api-refactor" })], {
+    act: async (b) => {
+      const field = [...b.querySelectorAll(".field")].find((f) => f.textContent?.startsWith("Shortcuts"));
+      fireEvent.click(field!.querySelector("button[role=switch]")!);
+      await flush();
+      fireEvent.click(b.querySelector(".kbd-link")!);
+      await settle();
+    },
+  }),
   "app-wall-deleg": fleet([delegating, makeSession({ id: "s1", name: "api-refactor" })]),
   "app-collapsed": fleet([makeSession()], { act: async (b) => { for (const btn of b.querySelectorAll('button[aria-label^="Collapse"]')) fireEvent.click(btn); await flush(); } }),
   "app-bg-wait": fleet([bgSession], { act: (b) => void fireEvent.click(b.querySelector('[data-session="s2"]')!) }),

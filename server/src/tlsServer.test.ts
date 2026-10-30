@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { hostCheck } from './hostCheck.js';
 import { createLogger } from './logging/logger.js';
 import { issuePersonCert } from './tlsPeople.js';
-import { publicTlsPort, startTls, tlsPortFrom } from './tlsServer.js';
+import { publicTlsPort, shortReason, startTls, tlsPortFrom } from './tlsServer.js';
 import { freePort, makeForgerCa, signClientDated, startTlsForTest } from './tlsTesting.js';
 
 const cleanup: Array<() => void> = [];
@@ -24,7 +24,7 @@ function setup() {
   const app = express();
   app.use(hostCheck({ bind: '127.0.0.1', allowed: ['podium.lan'] }));
   app.get('/api/fleet/sessions/s1/peers', (req, res) => res.json({ proto: req.protocol }));
-  return { root, dbPath: path.join(root, 'podium.sqlite'), lines, logger, app };
+  return { root, dataDir: root, lines, logger, app };
 }
 
 const get = (port: number, ca: string, host: string, servername = 'localhost', client?: { cert: string; key: string }) =>
@@ -62,18 +62,26 @@ describe('publicTlsPort', () => {
   });
 });
 
+describe('shortReason', () => {
+  it('keeps the reason of an OpenSSL error and nothing else, and leaves any other message alone (#672)', () => {
+    const raw = '807F90F401000000:error:0A0000C7:SSL routines:tls_process_client_certificate:peer did not return a certificate:../deps/openssl/openssl/ssl/statem/statem_srvr.c:3510:';
+    expect(shortReason(raw)).toBe('peer did not return a certificate');
+    expect(shortReason('socket hang up')).toBe('socket hang up');
+  });
+});
+
 describe('startTls', () => {
   it('does nothing unless PODIUM_TLS is on', async () => {
     const s = setup();
     for (const env of [{}, { PODIUM_TLS: 'off' }, { PODIUM_TLS: 'yes' }]) {
-      expect(await startTls({ env, app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })).toBeNull();
+      expect(await startTls({ env, app: s.app, dataDir: s.dataDir, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger })).toBeNull();
     }
     expect(fs.existsSync(path.join(s.root, 'tls'))).toBe(false);
   });
 
   it('serves the app over HTTPS with the Host check, and keeps the same CA after a restart', async () => {
     const s = setup();
-    const first = await startTlsForTest({ app: s.app, dbPath: s.dbPath, allowedHosts: ['podium.lan'], logger: s.logger });
+    const first = await startTlsForTest({ app: s.app, dataDir: s.dataDir, allowedHosts: ['podium.lan'], logger: s.logger });
     const port = first.port;
     const person = await issuePersonCert({ dir: path.join(s.root, 'tls'), keyId: 'aaaaaaaaaaaa' });
     try {
@@ -86,9 +94,12 @@ describe('startTls', () => {
     } finally {
       await new Promise((r) => first.server.close(r));
     }
-    expect(s.lines.map((l) => l.event)).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
+    // `startTlsForTest` retries a port another test file took first and logs `tls.failed` for it; that is not part of what this checks.
+    expect(s.lines.map((l) => l.event).filter((e) => e !== 'tls.failed')).toEqual(['tls.ca_created', 'tls.serving_created', 'tls.listening']);
+    // The line for the operator names the CA by whole bytes of its fingerprint and says when it ends.
+    expect(s.lines.at(-1)!.message).toMatch(/for reporters \(CA ([0-9A-F]{2}:){7}[0-9A-F]{2}, expires \d{4}-/);
 
-    const second = await startTlsForTest({ app: s.app, dbPath: s.dbPath, allowedHosts: ['podium.lan'], logger: s.logger });
+    const second = await startTlsForTest({ app: s.app, dataDir: s.dataDir, allowedHosts: ['podium.lan'], logger: s.logger });
     try {
       expect(second.material.ca).toEqual(first.material.ca);
       expect(second.material.serving).toEqual(first.material.serving);
@@ -100,7 +111,7 @@ describe('startTls', () => {
 
   it('logs a server error after it is listening instead of letting it escape', async () => {
     const s = setup();
-    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    const l = await startTlsForTest({ app: s.app, dataDir: s.dataDir, logger: s.logger });
     try {
       l.server.emit('error', new Error('boom'));
       l.server.emit('tlsClientError', new Error('bad handshake'), { destroy() {} });
@@ -111,9 +122,31 @@ describe('startTls', () => {
     }
   });
 
+  it('names the reason and the source of a failed handshake, and words repeats alike so the text log folds them (#672)', async () => {
+    const s = setup();
+    const l = await startTlsForTest({ app: s.app, dataDir: s.dataDir, logger: s.logger });
+    try {
+      const fail = (message: string, code: string | undefined, remoteAddress: string) =>
+        l.server.emit('tlsClientError', Object.assign(new Error(message), { code }), { remoteAddress, destroy() {} });
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '192.0.2.5');
+      fail('tlsv1 alert unknown ca', 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', '192.0.2.6');
+      fail('socket hang up', undefined, '192.0.2.7');
+      const [first, second, third] = s.lines.filter((x) => x.event === 'tls.handshake_failed');
+      expect(first).toMatchObject({ level: 'warn', reason: 'tlsv1 alert unknown ca', code: 'ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', remote: '192.0.2.5' });
+      expect(first!.message).toContain('ERR_SSL_TLSV1_ALERT_UNKNOWN_CA');
+      expect(first!.message).toContain('tlsv1 alert unknown ca');
+      expect(first!.message).not.toContain('192.0.2.5');
+      expect(second!.message).toBe(first!.message);
+      expect(third).toMatchObject({ reason: 'socket hang up', remote: '192.0.2.7' });
+      expect(third!.message).not.toContain('undefined');
+    } finally {
+      await new Promise((r) => l.server.close(r));
+    }
+  });
+
   it('logs tls.failed and returns null for a bad port, a bad CA folder, or a port in use', async () => {
     const s = setup();
-    const base = { app: s.app, dbPath: s.dbPath, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger };
+    const base = { app: s.app, dataDir: s.dataDir, bind: '127.0.0.1', httpPort: 4317, allowedHosts: [], logger: s.logger };
     expect(await startTls({ ...base, env: { PODIUM_TLS: 'on', PODIUM_TLS_PORT: 'x' } })).toBeNull();
 
     fs.mkdirSync(path.join(s.root, 'tls'));
@@ -155,7 +188,7 @@ describe('the reporter port is mutual TLS only (#665)', () => {
     s.app.post('/api/fleet/report', (_req, res) => res.json({ ok: true }));
     s.app.post('/api/reporter/renew', (_req, res) => res.json({ ok: true }));
     s.app.get('/api/fleet/sessions', (_req, res) => res.json({ console: true }));
-    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    const l = await startTlsForTest({ app: s.app, dataDir: s.dataDir, logger: s.logger });
     const port = l.port;
     cleanup.push(() => l.server.close());
     const dir = path.join(s.root, 'tls');
@@ -211,7 +244,7 @@ describe('rotating the CA on a running listener (#588)', () => {
   async function start() {
     const s = setup();
     s.app.get('/api/fleet/sessions/s2/peers', (req, res) => res.json({ authorized: (req.socket as unknown as { authorized: boolean }).authorized }));
-    const l = await startTlsForTest({ app: s.app, dbPath: s.dbPath, logger: s.logger });
+    const l = await startTlsForTest({ app: s.app, dataDir: s.dataDir, logger: s.logger });
     const port = l.port;
     cleanup.push(() => l.server.close());
     const dir = path.join(s.root, 'tls');

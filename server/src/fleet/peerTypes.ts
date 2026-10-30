@@ -11,10 +11,9 @@
 // - An orchestrator is a session's main loop. Only an orchestrator sends or receives; a session is one.
 
 import type { PeerLevel, PeerAnswer, PeerRequest, PeerRequestKind, PeerResult, PeerDelivery, ReporterCompat } from './protocol.js';
-import type { PeerLimits } from './peerSettings.js';
-import type { ReporterState } from './reporters.js';
+import type { PeerLimits, ReporterState } from '../storage/rows.js';
 
-export type { PeerLimits } from './peerSettings.js';
+export type { PeerLimits } from '../storage/rows.js';
 
 /** `<a>|<b>` with the two keys sorted, so a link has one name whichever way a message goes. */
 export function linkKey(a: string, b: string): string {
@@ -56,6 +55,9 @@ export interface ReporterRef {
   peers: boolean | null;
   version: string;
 }
+
+/** A reporter's machine name by key, or the key itself when it is unknown. A trail handler gets one that answers at once. */
+export type MachineName = (key: string) => string;
 
 /** Looks a reporter up by key, and lists one owner's reporters (compared case-insensitively, `nameKey`). */
 export interface ReporterLookup {

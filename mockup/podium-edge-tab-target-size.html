@@ -1,0 +1,231 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium Edge Tab Target Size</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Mockup for #636 (accessibility pass), for approval. WCAG 2.5.8 Target Size (Minimum), axe rule target-size: the edge tab (EdgeTab, .edge-tab, #626) is 32 x 16 on a horizontal
+   edge (top bar, KPI rows) and 16 x 32 on a vertical one (left and right panes, Plan / Files fold), so its short side is under 24 CSS px on the wall, Board, My reporters and Traffic.
+   This page puts today's tab beside three ways to reach 24 x 24 at least, in every placement. Colors and fonts come from tokens.css (linked above, also imported by fleet.css);
+   this file has no :root block and no color of its own. The placements use the app's real classes from fleet.css (.top, .kpi-block, .kpis, .fold-col, .rz, .btn). Classes prefixed mk- are demo chrome.
+   Each option below is only the CSS that would change .edge-tab; EdgeTab.tsx's markup, names, aria attributes and the chevrons stay as they are. */
+html, body { height: auto; }
+body { overflow-x: hidden; margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font-ui); }
+.mk-demo { position: sticky; top: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.mk-demo b { color: var(--ink); }
+.mk-demo .mk-grp { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.mk-demo button { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.mk-demo button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.mk-demo button:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+main.mk-page { max-width: 1280px; margin: 0 auto; padding: 20px 16px 56px; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 6px; }
+h3 { font-size: 13px; margin: 0; }
+p { margin: 0; max-width: 78ch; color: var(--ink2); }
+.mk-spec { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.mk-spec { overflow-x: clip; }
+.mk-cap { color: var(--muted); font-size: 12px; max-width: 90ch; }
+.mk-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.mk-opts > div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mk-opts b { color: var(--ink); }
+.mk-opts ul { margin: 0; padding-left: 18px; }
+.mk-opts .mk-rec { border-color: var(--axis); }
+.mk-row { display: flex; flex-direction: column; gap: 6px; }
+.mk-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; }
+.mk-cell { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mk-cell > b { font-size: 12px; color: var(--ink2); font-weight: 600; }
+.mk-size { font: 11.5px var(--font-mono); color: var(--muted); }
+.mk-size .mk-ok { color: var(--good-text); font-weight: 600; }
+.mk-size .mk-bad { color: var(--bad-text); font-weight: 600; }
+.mk-decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.mk-decisions div { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 10px 12px; color: var(--ink2); }
+.mk-decisions b { display: block; color: var(--ink); margin-bottom: 2px; }
+
+/* A stage: a small piece of the console in the app's own classes, with the tab where the app puts it. */
+.mk-st { position: relative; height: 112px; border: 1px dashed var(--border); border-radius: 8px; background: var(--bg); padding: 10px; }
+.mk-st.mk-tall { height: 150px; }
+.mk-pane { position: absolute; top: 0; bottom: 0; background: var(--surface); color: var(--muted); font-size: 12px; padding: 8px; }
+.mk-pane.mk-l { left: 0; border-right: 1px solid var(--border); border-radius: 8px 0 0 8px; }
+.mk-pane.mk-r { right: 0; border-left: 1px solid var(--border); border-radius: 0 8px 8px 0; }
+.mk-main { position: absolute; top: 8px; bottom: 8px; left: 112px; right: 112px; color: var(--muted); font-size: 12px; }
+.mk-main.mk-ml { left: 112px; right: 8px; }
+.mk-main.mk-mr { left: 8px; right: 112px; }
+.mk-below { display: flex; justify-content: center; margin-top: 6px; }
+.mk-st .top { padding: 6px 10px; }
+.mk-st .two { display: grid; gap: 16px; height: 100%; }
+.mk-st .two.folded { grid-template-columns: 28px minmax(0, 1fr); gap: 8px; }
+.mk-st .two .fold-col, .mk-st .two .mk-side { min-height: 0; }
+.mk-st .sec { padding: 8px 10px; }
+.mk-hits .mk-opt .edge-tab { outline: 1px dashed var(--warn); outline-offset: 0; }
+.mk-hits [data-nb] { outline: 1px dashed var(--sonnet); outline-offset: 0; }
+.mk-hits .rz[data-nb] { background: color-mix(in srgb, var(--sonnet) 22%, transparent); }
+
+/* Stacked layouts (what the 1040 px / 700 px rules do at 400 px): the fold's pill turns 90 degrees; folded, it is a bar across the width. fleet.css does this inside a media or container query, so it is restated here. */
+.mk-stack .edge-tab-fold { top: auto; bottom: -8px; right: 50%; transform: translateX(50%) rotate(90deg); }
+.mk-stack .fold-col.shut > .fold-clip, .mk-stack .fold-col.shut .fold-rail { display: none; }
+.mk-stack .fold-col.shut .edge-tab-fold { position: relative; left: auto; right: auto; bottom: auto; transform: none; display: flex; width: 100%; }
+.mk-stack .fold-col.shut .edge-tab-fold svg { transform: rotate(90deg); }
+
+/* THE OPTIONS. Every option sets two numbers on its wrapper: --et-long and --et-short (the pill's sides) and --et-bar (a folded, full-width bar's height). The rules below read them,
+   so each placement moves with its option. Offsets follow the short side: a tab that straddles an edge is centred on it, a tab in a strip is centred in the strip. */
+.mk-opt { --et-long: 32px; --et-short: 16px; --et-bar: 16px; --et-edge: 4px; }
+.mk-opt.o-a { --et-short: 24px; --et-bar: 24px; --et-edge: 0px; }
+.mk-opt.o-b { --et-short: 24px; --et-bar: 24px; --et-edge: 0px; }
+.mk-opt.o-c { --et-long: 24px; --et-short: 24px; --et-bar: 24px; --et-edge: 0px; }
+.podium .mk-opt .edge-tab-top, .podium .mk-opt .edge-tab-kpi { width: var(--et-long); height: var(--et-short); }
+.podium .mk-opt .edge-tab-left, .podium .mk-opt .edge-tab-right, .podium .mk-opt .edge-tab-fold { width: var(--et-short); height: var(--et-long); }
+.podium .mk-opt .top .edge-tab-top { top: calc(100% - var(--et-short) / 2); }
+.podium .mk-opt .kpi-block:not(.shut) .edge-tab-kpi { top: calc(100% - var(--et-short) / 2); }
+.podium .mk-opt .edge-tab-left.edge-tab-shut { left: var(--et-edge); }
+.podium .mk-opt .edge-tab-right.edge-tab-shut { right: var(--et-edge); }
+.podium .mk-opt .edge-tab-fold { right: calc(var(--et-short) / -2); }
+.podium .mk-opt .fold-col.shut .edge-tab-fold { right: auto; left: calc((28px - var(--et-short)) / 2); }
+.podium .mk-opt .kpi-block.shut .edge-tab-kpi { width: 100%; height: var(--et-bar); }
+.podium .mk-opt .mk-stack .edge-tab-fold { right: 50%; bottom: calc(var(--et-short) / -2); }
+.podium .mk-opt .mk-stack .fold-col.shut .edge-tab-fold { right: auto; left: auto; bottom: auto; width: 100%; height: var(--et-bar); }
+
+/* Option B: the visible pill is today's 32 x 16 (or 16 x 32), drawn by ::before; the button itself is the transparent 24 px box around it, so the element is what measures 24. */
+.podium .mk-opt.o-b .edge-tab { background: transparent; border-color: transparent; }
+.podium .mk-opt.o-b .edge-tab::before { content: ""; position: absolute; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.podium .mk-opt.o-b .edge-tab-top::before, .podium .mk-opt.o-b .edge-tab-kpi::before { inset: calc((var(--et-short) - 16px) / 2) 0; }
+.podium .mk-opt.o-b .edge-tab-left::before, .podium .mk-opt.o-b .edge-tab-right::before, .podium .mk-opt.o-b .edge-tab-fold::before { inset: 0 calc((var(--et-short) - 16px) / 2); }
+.podium .mk-opt.o-b .kpi-block.shut .edge-tab-kpi::before, .podium .mk-opt.o-b .mk-stack .fold-col.shut .edge-tab-fold::before { inset: 0; }
+.podium .mk-opt.o-b .edge-tab:hover { background: transparent; }
+.podium .mk-opt.o-b .edge-tab:hover::before { background: var(--sel); }
+.podium .mk-opt.o-b .edge-tab:focus-visible { outline: none; }
+.podium .mk-opt.o-b .edge-tab:focus-visible::before { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .mk-opt.o-b .edge-tab svg { position: relative; }
+
+/* Option C: a 24 x 24 disc in every placement, so the tab has one shape and no long side to rotate. A folded full-width bar keeps a bar's shape at 24 px. */
+.podium .mk-opt.o-c .edge-tab { border-radius: 50%; }
+.podium .mk-opt.o-c .kpi-block.shut .edge-tab-kpi, .podium .mk-opt.o-c .mk-stack .fold-col.shut .edge-tab-fold { border-radius: 12px; }
+</style>
+
+<div class="mk-demo" role="group" aria-label="Review controls">
+  <span class="mk-grp"><b>Mode</b>
+    <button type="button" data-mode="dark" aria-pressed="true">Dark</button>
+    <button type="button" data-mode="light" aria-pressed="false">Light</button>
+  </span>
+  <span class="mk-grp"><b>Hit areas</b>
+    <button type="button" id="mk-hits" aria-pressed="true">Outlined</button>
+  </span>
+  <span class="mk-grp">Dashed amber is the tab's real box. Dashed blue is a neighbouring target. Hover or Tab to a pill for its tip.</span>
+</div>
+
+<main class="mk-page podium mk-hits" id="mk-root">
+  <header>
+    <h1>Edge tab: a 24 px target</h1>
+    <p>Issue #636. WCAG 2.5.8 (Target Size, Minimum) wants a pointer target at least 24 by 24 CSS px, or an undersized one with no other target inside a 24 px circle around it. The edge tab is 32 x 16 on the top bar and the KPI rows, and 16 x 32 on the left and right panes and the Plan / Files fold, so its short side is 16. axe reports <code>target-size</code> on the wall, Board, My reporters and Traffic. It is likely the neighbouring targets (the pane's resize handle, a control just under the bar, the next column) that make the spacing exception fail, which is why the options below are judged on both size and what the bigger box touches.</p>
+    <p>Every placement is drawn four ways from the same markup: today's tab, and three options that reach at least 24 x 24. Under each is the box the browser measures (the number axe reads) and which neighbours it overlaps. Names, <code>aria-expanded</code>, <code>aria-controls</code>, chevrons, tips, shortcuts and the focus ring are unchanged in every option.</p>
+  </header>
+
+  <section class="mk-spec" aria-labelledby="opts">
+    <h2 id="opts">The options</h2>
+    <div class="mk-opts">
+      <div><b>Today: 32 x 16 pill</b>
+        <ul><li>Under 24 on its short side in every placement. Fails.</li><li>Straddles the resize handle (panes), the bar's edge (top) and the gap (fold).</li></ul></div>
+      <div class="mk-rec"><b>A (recommended): larger visible pill, 32 x 24 and 24 x 32</b>
+        <ul><li>Pro: the simplest change, one rule per placement, and the visible target and the real target are the same box, so a person sees what they can hit.</li><li>Pro: nothing hidden to explain or test.</li><li>Con: 8 px thicker everywhere; the visible weight on the pane edges and the top bar goes up by half.</li><li>Con: straddles 12 px, not 8, so it reaches further into what sits beside the edge: about 4 px more into a control under the bar. The resize handle is no worse off: today's tab already covers its whole 9 px width, and the tab's length along the handle does not change.</li></ul></div>
+      <div><b>B: same visible pill, a transparent 24 px box around it</b>
+        <ul><li>Pro: nothing changes visually; every layout stays exactly as it is.</li><li>Pro: the button element itself is 24 high, so axe measures 24 (a hit area drawn only by a pseudo-element would not be measured).</li><li>Con: the extra 4 px each side is invisible and sits on top of the neighbour: it reaches into any control within 4 px (a banner control under the top bar), and that overlap cannot be seen.</li><li>Con: the focus ring and hover fill move to a pseudo-element, so they no longer follow the box.</li></ul></div>
+      <div><b>C: a 24 x 24 disc</b>
+        <ul><li>Pro: smallest footprint that meets the minimum: it is 24 in both directions, so it is no wider than A's short side and it needs no rotating for the vertical edges.</li><li>Pro: one shape in every placement; folded bars keep a 24 px bar.</li><li>Con: it is a new look (the pill is the identity <code>#626</code> chose); a standards change is larger.</li><li>Con: the chevron stays 10 px in a bigger disc, which reads lighter.</li></ul></div>
+    </div>
+  </section>
+
+  <section class="mk-spec" aria-labelledby="cmp">
+    <h2 id="cmp">Every placement, four ways</h2>
+    <div class="mk-cap">Left to right: today, A, B, C. At 400 px they stack one above the other. The last two rows are the stacked layouts the Plan / Files fold takes below 1040 px, where the pill turns 90 degrees and, folded, becomes a bar across the width; the left and right panes are already 28 px bars at that width.</div>
+    <div id="mk-rows"></div>
+  </section>
+
+  <section class="mk-decisions" aria-label="Decisions for the maintainer">
+    <div><b>Recommendation: A</b>Take A, the larger visible pill (32 x 24 and 24 x 32). It is the only option where what a person sees is what they can hit, it needs no pseudo-element trick, and it is a size change to a documented component rather than a new component. If the maintainer finds the 8 px extra thickness too heavy on the pane edges, B is the fallback: it keeps today's look and still measures 24, at the cost of an invisible 4 px reach into whatever sits next to the edge. All four variants, today's included, already sit on the pane's resize handle (the handle is a target the tab fully covers); no option fixes that, and the code PR should decide whether the handle should end short of the tab. C is the option to pick only if a new shape is wanted anyway.</div>
+    <div><b>What would change in code</b>Only <code>.edge-tab</code> and its placement offsets in <code>fleet.css</code> (size, the straddle offset, the folded rail's tab position, the folded bars' height). <code>EdgeTab.tsx</code> and its markup do not change. The offsets move from 8 to 12 px to keep the pill centred on its edge.</div>
+    <div><b>Standards</b>This changes a documented component's size, so after the maintainer accepts an option, the PR adds a <code>Standards:</code> line under [Unreleased] and the release-prep PR brings <code>docs/standards/</code> in line. This mockup changes neither.</div>
+    <div><b>Left for the code PR</b>Re-run axe <code>target-size</code> on the wall, Board, My reporters and Traffic at 1440 and 400 px, and check the pane's resize handle still takes a drag at the edge the bigger tab now covers.</div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  function mode(m) {
+    root.setAttribute('data-theme', m);
+    document.querySelectorAll('[data-mode]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.mode === m)); });
+  }
+  document.querySelectorAll('[data-mode]').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.mode); measure(); }); });
+  var q = /[?&]mode=(light|dark)/.exec(location.search);
+  mode(q ? q[1] : 'dark');
+  var hits = document.getElementById('mk-hits'), page = document.getElementById('mk-root');
+  hits.addEventListener('click', function () { var on = hits.getAttribute('aria-pressed') !== 'true'; hits.setAttribute('aria-pressed', String(on)); page.classList.toggle('mk-hits', on); });
+
+  var P = { up: 'M1.5 6.5 5 3l3.5 3.5', down: 'M1.5 3.5 5 7l3.5-3.5', left: 'M6.5 1.5 3 5l3.5 3.5', right: 'M3.5 1.5 7 5 3.5 8.5' };
+  var uid = 0;
+  function tab(place, pts, label, open, shut) {
+    uid++;
+    return '<button type="button" class="edge-tab edge-tab-' + place + (shut ? ' edge-tab-shut' : '') + '" aria-expanded="' + open + '" aria-controls="mk-c' + uid + '" aria-label="' + label + '" data-tip="' + label + '"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="' + P[pts] + '"/></svg></button>';
+  }
+  function btn(text, nb) { return '<button type="button" class="btn" data-nb="' + nb + '">' + text + '</button>'; }
+  var ROWS = [
+    ['Left pane, open (straddles the rail and its resize handle)', function () {
+      return '<div class="mk-st" style="--rail-w:96px"><div class="mk-pane mk-l" style="width:96px">Rail</div><div class="rz rz-rail" role="separator" aria-orientation="vertical" aria-label="Resize the orchestrator list" data-nb="resize handle"></div><div class="mk-main mk-ml">Page</div>' + tab('left', 'left', 'Collapse the left pane', true) + '</div>'; }],
+    ['Left pane, collapsed (in the 24 px strip)', function () {
+      return '<div class="mk-st" style="--rail-w:24px"><div class="mk-pane mk-l" style="width:24px"></div><div class="mk-main" style="left:36px;right:8px">Page</div>' + tab('left', 'right', 'Expand the left pane', false, true) + '</div>'; }],
+    ['Right pane, open (the mirror)', function () {
+      return '<div class="mk-st" style="--side-w:96px"><div class="mk-pane mk-r" style="width:96px">Activity</div><div class="rz rz-side" role="separator" aria-orientation="vertical" aria-label="Resize the activity panel" data-nb="resize handle"></div><div class="mk-main mk-mr">Page</div>' + tab('right', 'right', 'Collapse the right pane', true) + '</div>'; }],
+    ['Top bar (straddles the bar; a control sits 6 px under it)', function () {
+      return '<div class="mk-st"><header class="top"><span class="pill">Fleet</span><span class="spacer" style="flex:1"></span>' + btn('Sign out', 'sign out') + tab('top', 'up', 'Hide top bar', true) + '</header><div class="mk-below">' + btn('Banner action', 'banner action') + '</div></div>'; }],
+    ['KPI rows, open (straddles the block; the next control is 14 px under)', function () {
+      return '<div class="mk-st mk-tall"><div class="kpi-block"><div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr))"><div class="kpi"><div class="k">Live</div><div class="v mono">7</div></div><div class="kpi"><div class="k">Running</div><div class="v mono">2</div></div><div class="kpi"><div class="k">Blowouts</div><div class="v mono">5</div></div></div>' + tab('kpi', 'up', 'Hide KPI rows', true) + '</div><div class="mk-below" style="margin-top:0">' + btn('Next control', 'next control') + '</div></div>'; }],
+    ['KPI rows, hidden (a bar across the width)', function () {
+      return '<div class="mk-st"><div class="kpi-block shut">' + tab('kpi', 'down', 'Show KPI rows', false) + '</div><div class="mk-below" style="margin-top:14px">' + btn('Next control', 'next control') + '</div></div>'; }],
+    ['Plan / Files fold, open (straddles the column edge; the next column is 16 px away)', function () {
+      return '<div class="mk-st"><div class="two" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"><div class="fold-col"><div class="fold-clip"><section class="sec"><h2>Plan</h2></section></div>' + tab('fold', 'left', 'Hide plan and files', true) + '</div><div class="mk-side"><section class="sec">' + btn('Files', 'files tab') + '</section></div></div></div>'; }],
+    ['Plan / Files fold, folded (in the 28 px rail)', function () {
+      return '<div class="mk-st"><div class="two folded"><div class="fold-col shut"><div class="fold-clip"><section class="sec"><h2>Plan</h2></section></div><div class="fold-rail"><span>Plan</span></div>' + tab('fold', 'right', 'Show plan and files', false) + '</div><div class="mk-side"><section class="sec">' + btn('Files', 'files tab') + '</section></div></div></div>'; }],
+    ['Fold, stacked and open (below 1040 px: the pill turns 90 degrees)', function () {
+      return '<div class="mk-st mk-stack"><div class="fold-col"><div class="fold-clip"><section class="sec"><h2>Plan</h2></section></div>' + tab('fold', 'left', 'Hide plan and files', true) + '</div><div class="mk-below" style="margin-top:14px">' + btn('Next control', 'next control') + '</div></div>'; }],
+    ['Fold, stacked and folded (a bar across the width)', function () {
+      return '<div class="mk-st mk-stack"><div class="fold-col shut"><div class="fold-clip"></div>' + tab('fold', 'right', 'Show plan and files', false) + '</div><div class="mk-below" style="margin-top:6px">' + btn('Next control', 'next control') + '</div></div>'; }]
+  ];
+  var OPTS = [['', 'Today'], ['o-a', 'A: 32 x 24 / 24 x 32'], ['o-b', 'B: 24 px box, same visible pill'], ['o-c', 'C: 24 x 24 disc']];
+  var out = '';
+  ROWS.forEach(function (r) {
+    out += '<div class="mk-row"><h3>' + r[0] + '</h3><div class="mk-cells">';
+    OPTS.forEach(function (o) {
+      out += '<div class="mk-cell mk-opt ' + o[0] + '"><b>' + o[1] + '</b>' + r[1]() + '<div class="mk-size" data-size></div></div>';
+    });
+    out += '</div></div>';
+  });
+  document.getElementById('mk-rows').innerHTML = out;
+
+  function overlap(a, b) {
+    var w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return w > 0 && h > 0 ? Math.round(Math.min(w, h)) : 0;
+  }
+  function measure() {
+    document.querySelectorAll('.mk-cell').forEach(function (c) {
+      var t = c.querySelector('.edge-tab'), r = t.getBoundingClientRect();
+      var w = Math.round(r.width * 10) / 10, h = Math.round(r.height * 10) / 10;
+      var ok = w >= 24 && h >= 24;
+      var hit = [];
+      c.querySelectorAll('[data-nb]').forEach(function (n) { var o = overlap(r, n.getBoundingClientRect()); if (o) hit.push(n.getAttribute('data-nb') + ' by ' + o + ' px'); });
+      // Text nodes, not innerHTML: the neighbour names come from data-nb attributes in the page.
+      var size = c.querySelector('[data-size]'), verdict = document.createElement('span');
+      verdict.className = ok ? 'mk-ok' : 'mk-bad';
+      verdict.textContent = ok ? 'meets 24' : 'under 24';
+      size.textContent = 'box ' + w + ' x ' + h + ' px, ';
+      size.appendChild(verdict);
+      size.appendChild(document.createTextNode(hit.length ? '; overlaps ' + hit.join(', ') : '; overlaps no other target'));
+    });
+  }
+  measure();
+  window.addEventListener('resize', measure);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
+})();
+</script>

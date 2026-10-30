@@ -7,7 +7,7 @@ order: 6
 
 # Known reporters
 
-Files: `server/src/fleet/reporters.ts`, `frontend/src/fleet/admin/ReportersTab.tsx`. Issues #142, #166, #167
+Files: `server/src/storage/sqlite/reporters.ts`, `frontend/src/fleet/admin/ReportersTab.tsx`. Issues #142, #166, #167
 and #221.
 
 **The store**

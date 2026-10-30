@@ -56,7 +56,7 @@ describe("orchestrator page", () => {
     expect(screen.getByText("$99.00", { selector: ".fact .v" })).toBeInTheDocument();
     const gone = fleetReducer(updated, { type: "removed", sessionId: "s1", reason: "done", at: Date.now() });
     rerender(<FleetView state={gone} />);
-    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: /api-refactor/ })).not.toBeInTheDocument();
     expect(screen.getByText(/api-refactor ended and left the fleet/)).toBeInTheDocument();
   });
 

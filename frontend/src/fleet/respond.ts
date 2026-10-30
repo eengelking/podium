@@ -31,7 +31,7 @@ export function neededKinds(kind: AskKind | null): RespondKind[] {
  */
 /**
  * Why a session can't take an answer (canAnswer said `old`): the settings hooks, a reporter older than 0.14.0, a
- * `claude -p` run, or PermissionRequest hooks that don't run there (an organization manages Claude Code).
+ * `claude -p` run or a Claude desktop session no window has opened yet (both report `not-interactive`, #837), or PermissionRequest hooks that don't run there (an organization manages Claude Code).
  */
 export type CantReason = "hooks" | "old" | "print" | "managed";
 export function cantReason(s: Pick<SessionView, "reporter" | "respond">): CantReason {

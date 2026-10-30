@@ -40,8 +40,9 @@ interface Report {
     plan: Plan | null;
     loop: LoopReport | null;            // the main loop's own steps, tools and skills; null from a reporter older than 0.4.0
     files: FilesReport | null;          // the files the session changed (5.7); null from a reporter older than 0.6.0
-    attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit; null from a reporter older than 0.7.0 or when the roster could not be read
+    attached: boolean | null;           // whether any client is attached (5.3, 5.4); false for a background session after /exit, and never for a session started on or seen on the desktop surface before it ends (5.4); null from a reporter older than 0.7.0 or when the roster could not be read
     fileDiff?: boolean;                 // whether the reporter's fileDiff option is on (5.9); absent from a reporter older than the release that adds it
+    fileDiffPreload?: boolean;          // whether the reporter's fileDiffPreload option is on, with fileDiff (#631, 5.9); absent from a reporter older than the release that adds it
     activityFeed?: boolean;             // whether the reporter's activityFeed option is on (5.9); absent from a reporter older than 0.13.0
     activityOutput?: boolean;           // whether the reporter's activityOutput option is on (#431); absent from a reporter older than the release that adds it
     activity?: ActivityEntry[];         // the main loop's activity feed, sent only while the reply's `watch` lists `@orchestrator` (6.4)
@@ -68,7 +69,8 @@ interface Report {
 interface FilesReport {
   files: { path: string; status: 'added' | 'modified' | 'deleted' | 'renamed';
            added: number | null; removed: number | null;   // null for a binary file
-           from: string | null }[];                         // the old path of a rename
+           from: string | null;                             // the old path of a rename
+           rev?: string }[];                                // git hash of the file's content on disk (#631); absent for a deleted file or when git could not hash it
   total: number; added: number; removed: number;            // over every changed file, not only the listed ones
   since: 'start' | 'upstream' | 'worktree';                 // what the diff is against: the starting commit, the upstream merge base, or HEAD
 }

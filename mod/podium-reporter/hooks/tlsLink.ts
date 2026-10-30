@@ -1,12 +1,15 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { newestConfig, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+import { configNamesNewestFirst, parseConfigHeaders, decodeBase64Utf8, isWindowsPath, mailboxDirFor, podiumHome, resolveHome, trimTrailingSeparators, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
+import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
 
 /** How long to wait for the helper's `ready` line. */
 export const READY_MS = 5000;
+/** How long a request waits for the helper's reply through the mailbox (#834); the upstream timeout is shorter, so a live helper always answers first. */
+export const REPLY_MS = 45_000;
 /** Do not restart a helper that exited more often than this. */
 export const RESTART_MIN_MS = 10_000;
 const HELPER_ERROR_HEADER = 'x-podium-helper-error';
@@ -19,6 +22,13 @@ export interface Problem {
   text: string;
 }
 
+/** What the helper sends back for a mailbox request (#834). */
+interface MailboxAnswer {
+  status: number;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
 /** The slice of the engine's `$` this file uses, so a test can stand in for it. */
 export interface LinkEngine {
   env: { get: (name: string) => Promise<string | undefined> };
@@ -26,6 +36,7 @@ export interface LinkEngine {
     read: (path: string) => Promise<unknown>;
     list: (path?: string) => Promise<Array<{ name: string; kind: string }>>;
     exists: (path: string) => Promise<boolean>;
+    write: (path: string, text: string) => Promise<void>;
   };
   process: {
     run: (argv: readonly string[], init?: { timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string }>;
@@ -36,27 +47,50 @@ export interface LinkEngine {
   plugin: { root: string };
 }
 
-interface EnvValues {
+export interface EnvValues {
   config: string | undefined;
+  /** `PODIUM_REPORTER_CONTEXT` (#606). */
+  context?: string | undefined;
   home: string | undefined;
+  /** The variable `home` came from (`HOME`, `USERPROFILE` or `HOMEDRIVE+HOMEPATH`), for `/podium` (#834). */
+  homeFrom?: string | undefined;
   node: string | undefined;
   tmp: string | undefined;
+  /** `ProgramFiles` and `LOCALAPPDATA`, where Windows installs node (#834). */
+  programFiles?: string | undefined;
+  localAppData?: string | undefined;
 }
 
-/** `$.env.get` takes a name written out in the source, so each one is spelled here. */
+/** `$.env.get` takes a name written out in the source, so each one is spelled here; a lookup that throws, in its call or its promise, reads as unset. */
+async function envValue(get: () => Promise<string | undefined>): Promise<string | undefined> {
+  try {
+    return await get();
+  } catch {
+    return undefined;
+  }
+}
+
+/** The home folder and the variable it came from (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. */
+export async function readHome($: Pick<LinkEngine, 'env'>): Promise<{ home: string | undefined; from: string | undefined }> {
+  return resolveHome({
+    HOME: await envValue(() => $.env.get('HOME')),
+    USERPROFILE: await envValue(() => $.env.get('USERPROFILE')),
+    HOMEDRIVE: await envValue(() => $.env.get('HOMEDRIVE')),
+    HOMEPATH: await envValue(() => $.env.get('HOMEPATH')),
+  });
+}
+
 async function readEnv($: LinkEngine): Promise<EnvValues> {
-  const get = async (p: Promise<string | undefined>) => {
-    try {
-      return await p;
-    } catch {
-      return undefined;
-    }
-  };
+  const { home, from } = await readHome($);
   return {
-    config: await get($.env.get('PODIUM_REPORTER_CONFIG')),
-    home: await get($.env.get('HOME')),
-    node: await get($.env.get('PODIUM_NODE')),
-    tmp: await get($.env.get('TMPDIR')),
+    config: await envValue(() => $.env.get('PODIUM_REPORTER_CONFIG')),
+    context: await envValue(() => $.env.get('PODIUM_REPORTER_CONTEXT')),
+    home,
+    homeFrom: from,
+    node: await envValue(() => $.env.get('PODIUM_NODE')),
+    programFiles: await envValue(() => $.env.get('ProgramFiles')),
+    localAppData: await envValue(() => $.env.get('LOCALAPPDATA')),
+    tmp: await envValue(() => $.env.get('TMPDIR')),
   };
 }
 
@@ -72,36 +106,86 @@ async function readText($: LinkEngine, path: string): Promise<string | null> {
 export interface FoundConfig {
   path: string;
   headers: ConfigHeaders;
+  /** The context that chose this file (#606); absent when the file came from the environment or from the newest-file rule. */
+  context?: string;
 }
 
-/** `PODIUM_REPORTER_CONFIG` if set, otherwise the newest `reporter-config-*.pem` in `~/.podium/`. Null: no config, the reporter works as today. */
-export async function findConfig($: LinkEngine, env?: EnvValues): Promise<{ found: FoundConfig | null; problem: Problem | null; env: EnvValues }> {
+/** The config file the context `name` points at, or why it cannot be used. */
+async function contextFile($: LinkEngine, home: string, name: string | null, fromEnv: boolean, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null }> {
+  // The file this session's context chose at its start, kept across a reload so a later `use` does not move a running session (#606).
+  if (held) {
+    const text = await readText($, held.path);
+    const headers = text === null ? null : parseConfigHeaders(text);
+    if (headers) return { found: { path: held.path, headers, context: held.context }, problem: null };
+  }
+  const source = fromEnv ? 'PODIUM_REPORTER_CONTEXT' : 'the current context';
+  const bad = (why: string): { found: null; problem: Problem } => ({
+    found: null,
+    problem: { code: 'CONTEXT_INVALID', status: 'context unusable', text: `${why} The newest reporter config file is used instead. Check it with /podium context.` },
+  });
+  const contextsPath = `${podiumHome(home)}/${CONTEXTS_FILE}`;
+  const contextsText = await readText($, contextsPath);
+  // A file that is there but cannot be read is a problem, not an absent file: the newest file may be another server.
+  if (contextsText === null && (await $.fs.exists(contextsPath).catch(() => false))) return bad(`${contextsPath} cannot be read.`);
+  if (contextsText === null) return fromEnv ? bad(`PODIUM_REPORTER_CONTEXT names "${name}", but there is no ${podiumHome(home)}/${CONTEXTS_FILE}.`) : { found: null, problem: null };
+  const contexts = parseContexts(contextsText);
+  if (!contexts) return bad(`${podiumHome(home)}/${CONTEXTS_FILE} is not a valid contexts file.`);
+  const which = name ?? contexts.current;
+  if (!which) return { found: null, problem: null };
+  const file = Object.hasOwn(contexts.contexts, which) ? contexts.contexts[which] : undefined;
+  if (!file) return bad(`${fromEnv ? source : 'The current context'} names "${which}", which is not one of the contexts.`);
+  const path = contextFilePath(home, file);
+  const text = await readText($, path);
+  const headers = text === null ? null : parseConfigHeaders(text);
+  if (!headers) return bad(`The context "${which}" points at ${path}, which is missing or is not a Podium reporter config file.`);
+  return { found: { path, headers, context: which }, problem: null };
+}
+
+/**
+ * The reporter config file, in this order (#606): `PODIUM_REPORTER_CONFIG`; the context `PODIUM_REPORTER_CONTEXT` names, or
+ * else the current one in `~/.podium/contexts.json`; the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name.
+ * `held` is the file a context chose earlier in this session; it is used again while it is still a config file. A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
+ * reporter still works. Null `found`: no config, the reporter works as today.
+ */
+export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; homeNote: string | null; env: EnvValues }> {
   const e = env ?? (await readEnv($));
   if (e.config) {
     const text = await readText($, e.config);
     const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: e.config, headers }, problem: null, env: e };
+    if (headers) return { found: { path: e.config, headers }, problem: null, contextProblem: null, homeNote: null, env: e };
     return {
       found: null,
       env: e,
+      contextProblem: null,
+      homeNote: null,
       problem: { code: 'CONFIG_INVALID', status: 'config unreadable', text: `PODIUM_REPORTER_CONFIG names ${e.config}, which is missing or is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line).` },
     };
   }
-  if (!e.home) return { found: null, problem: null, env: e };
+  if (!e.home) {
+    const homeNote = 'no home folder found (HOME, USERPROFILE and HOMEDRIVE+HOMEPATH are all empty), so no reporter config file can be read. Set PODIUM_REPORTER_CONFIG to its full path.';
+    return { found: null, problem: null, contextProblem: null, homeNote, env: e };
+  }
+  const chosen = await contextFile($, e.home, e.context || null, !!e.context, held);
+  if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, homeNote: null, env: e };
   const dir = podiumHome(e.home);
   let names: Array<{ name: string; kind: string }> = [];
   try {
     names = await $.fs.list(dir);
   } catch {
-    return { found: null, problem: null, env: e };
+    return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
   }
-  const files: Array<{ path: string; text: string }> = [];
-  for (const n of names) {
-    if (n.kind !== 'file' || !/^reporter-config-.+\.pem$/.test(n.name)) continue;
-    const text = await readText($, `${dir}/${n.name}`);
-    if (text !== null) files.push({ path: `${dir}/${n.name}`, text });
+  // Newest by the epoch in the name, and the first that parses wins: the key of a file that is not chosen is never read (#607).
+  for (const name of configNamesNewestFirst(names.filter((n) => n.kind === 'file').map((n) => n.name))) {
+    const text = await readText($, `${dir}/${name}`);
+    const headers = text === null ? null : parseConfigHeaders(text);
+    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
   }
-  return { found: newestConfig(files), problem: null, env: e };
+  return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
+}
+
+/** A POSIX path (`/usr/bin/node`) or a Windows drive path (`C:\Program Files\nodejs\node.exe`, `C:/x`). */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 }
 
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */
@@ -110,7 +194,7 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
   try {
     const r = await $.process.run(['node', '-p', 'process.execPath'], { timeoutMs: 5000 });
     const p = r.stdout.trim();
-    if (r.exitCode === 0 && p.startsWith('/')) return p;
+    if (r.exitCode === 0 && isAbsolutePath(p)) return p;
   } catch {
     // not on this PATH
   }
@@ -125,6 +209,9 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
       // no nvm
     }
   }
+  // Windows (#834): the machine-wide installer, the per-user installer, and Volta.
+  if (env.programFiles) places.push(`${trimTrailingSeparators(env.programFiles)}/nodejs/node.exe`);
+  if (env.localAppData) places.push(`${trimTrailingSeparators(env.localAppData)}/Programs/nodejs/node.exe`, `${trimTrailingSeparators(env.localAppData)}/Volta/bin/node.exe`);
   for (const p of places) if (await $.fs.exists(p).catch(() => false)) return p;
   return null;
 }
@@ -191,11 +278,18 @@ function startupWords(line: string): [string, string] | null {
   return code ? [code, space < 0 ? '' : rest.slice(space).trim()] : null;
 }
 
+const STATUS_REASON_MAX = 60
+
+/** `config unreadable`, with the helper's reason after it (cut to fit a status line) so the status says what is wrong with the file (#672). */
+function configStatus(reason: string | undefined): string {
+  const short = reason && reason.length > STATUS_REASON_MAX ? `${reason.slice(0, STATUS_REASON_MAX - 1)}…` : reason
+  return short ? `config unreadable: ${short}` : 'config unreadable'
+}
 export function problemFromStartup(line: string, path: string): Problem {
   const w = startupWords(line);
   const code = w?.[0] ?? 'HELPER_EXITED';
   if (code === 'CONFIG_PERMISSIONS') return { code, status: 'config too open', text: `The reporter config file ${path} can be read by other people, and it holds your private key. Run: chmod 600 ${path}` };
-  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: 'config unreadable', text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
+  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: configStatus(w?.[1]), text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
   return { code, status: 'helper stopped', text: `The Podium connection helper stopped${w ? `: ${w[1] || code}` : ''}. It restarts on the next session.` };
 }
 
@@ -268,13 +362,22 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   }
 
   const home = env.home === undefined ? undefined : trimTrailingSlashes(env.home);
-  // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
-  const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${trimTrailingSlashes(env.tmp)}/podium-run` : null];
   const sessionKey = `${found.path}:${o.now()}`;
-  const socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
+  // Windows has no socket the mod can reach (#834): the requests go through a folder the helper watches, and its replies come back on its stdout.
+  const windows = isWindowsPath(found.path);
+  let socket: string | undefined;
+  if (windows) {
+    if (home) socket = `mailbox:${mailboxDirFor(`${podiumHome(home)}/run`, sessionKey)}`;
+    else return brokenLink(found, { code: 'SOCKET_PATH', status: 'helper cannot start', text: 'No home folder was found to hold the helper’s request folder. Set HOME or USERPROFILE.' });
+  } else {
+    // The home folder first. The temporary folder is the fallback only where the platform names a private one (TMPDIR); a shared /tmp is never assumed.
+    const dirs = [home ? `${podiumHome(home)}/run` : null, env.tmp ? `${trimTrailingSlashes(env.tmp)}/podium-run` : null];
+    socket = dirs.filter((d): d is string => !!d).map((d) => socketPathFor(d, sessionKey)).find((p) => utf8Length(p) < SOCKET_PATH_MAX);
+  }
   if (!socket) {
     return brokenLink(found, { code: 'SOCKET_PATH', status: 'helper cannot start', text: 'No folder is short enough to hold the helper’s socket (a Unix socket path is at most 104 bytes).' });
   }
+  const mailbox = windows ? socket.slice('mailbox:'.length) : null;
 
   const helper = `${$.plugin.root}/hooks/helper.mjs`;
   const serverUrl = trimTrailingSlashes(headers.server);
@@ -288,6 +391,43 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   let stopped = false;
   // The server's clock minus this machine's, from the Date header of the last reply the server itself sent; undefined until one comes.
   let serverOffsetMs: number | undefined;
+
+  // Requests through the mailbox (#834), waiting for the helper's `res <id> <base64>` line.
+  const pending = new Map<string, { resolve: (a: MailboxAnswer) => void; reject: (e: Error) => void }>();
+  let sequence = 0;
+  const idBase = o.now().toString(36);
+  const answerFromHelper = (line: string) => {
+    const [, id, body] = line.trim().split(' ');
+    const waiting = id ? pending.get(id) : undefined;
+    if (!waiting || !body) return;
+    try {
+      const a = JSON.parse(decodeBase64Utf8(body)) as MailboxAnswer;
+      if (typeof a.status !== 'number') throw new Error('no status');
+      waiting.resolve(a);
+    } catch {
+      log(`podium-reporter helper: a reply for ${id} could not be read`);
+    }
+  };
+  /**
+   * One request through the mailbox: a file the helper takes, and the reply line it answers with. The file holds no header: the reporter sends only
+   * Content-Type, which the helper sets, and the token, which the server ignores when the certificate is present and which should not sit in a file.
+   */
+  const viaMailbox = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } | undefined): Promise<HttpResult & { headers: Record<string, string> }> => {
+    const id = `${idBase}-${++sequence}`;
+    const answer = new Promise<MailboxAnswer>((resolve, reject) => pending.set(id, { resolve, reject }));
+    answer.catch(() => {});
+    try {
+      await $.fs.write(`${mailbox}/req-${id}.json`, JSON.stringify({ id, method: init?.method ?? 'GET', path: url.slice(serverUrl.length) || '/', body: init?.body ?? '' }));
+      const late = $.clock.sleep(REPLY_MS).then(() => {
+        throw new Error('the Podium connection helper did not answer in time');
+      });
+      late.catch(() => {});
+      const a = await Promise.race([answer, late]);
+      return { status: a.status, ok: a.status >= 200 && a.status < 300, text: a.body ?? '', headers: a.headers ?? {} };
+    } finally {
+      pending.delete(id);
+    }
+  };
 
   const start = (): Promise<boolean> => {
     if (starting) return starting;
@@ -306,15 +446,20 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
         let said = '';
         try {
           iterator = stream[Symbol.asyncIterator]();
+          // A line may arrive in two pieces; only a finished line is read.
+          let carry = '';
           for (;;) {
             const next = await iterator.next();
             if (next.done) break;
-            for (const line of next.value.text.split('\n')) {
+            const lines = (carry + next.value.text).split('\n');
+            carry = lines.pop() as string;
+            for (const line of lines) {
               if (line.trim() === 'ready') {
                 running = true;
                 problem = expiredNote;
                 settle(true);
               } else if (line.startsWith('error ')) said = line;
+              else if (line.startsWith('res ')) answerFromHelper(line);
               else if (line.trim()) log(`podium-reporter helper: ${line.trim().slice(0, 200)}`);
             }
           }
@@ -324,6 +469,10 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
         running = false;
         iterator = null;
         if (!stopped) problem = problemFromStartup(said, found.path);
+        for (const [id, p] of pending) {
+          pending.delete(id);
+          p.reject(new Error(problem?.text ?? 'the Podium connection helper stopped'));
+        }
         settle(false);
       })();
       // A sleep the engine abandons (the module unloads) rejects: nothing is waiting on it then.
@@ -363,7 +512,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
         else if (o.now() - lastStart >= RESTART_MIN_MS) await start();
         if (!running) throw new Error(problem?.text ?? 'the Podium connection helper is not running');
       }
-      const res = await $.http.fetch(`http://podium${url.slice(serverUrl.length) || '/'}`, { ...init, socketPath: socket });
+      const res = mailbox === null ? await $.http.fetch(`http://podium${url.slice(serverUrl.length) || '/'}`, { ...init, socketPath: socket }) : await viaMailbox(url, init);
       const code = res.headers?.[HELPER_ERROR_HEADER];
       if (code) {
         // An outage has no words of its own: it must not wipe a standing certificate problem.

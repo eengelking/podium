@@ -8,7 +8,7 @@ group: Reference
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
-the first section lists the thirty parts on that page's system map, the second lists the reporter's hooks and
+the first section lists the thirty-two parts on that page's system map, the second lists the reporter's hooks and
 timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
 [Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
@@ -47,9 +47,9 @@ to do travels back in the reply to a report.
 | Reporter | Transport and timer | A timer that posts a full snapshot and any unsent events to the server, and reads the reply. Backs off while the server is offline. |
 | Reporter | Claude Code session | The process being watched: an orchestrator plus the agents it launches. Podium never wraps or replaces it. |
 | Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. |
-| Reporter | TLS helper | A script the mod starts once per session. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. |
+| Reporter | TLS helper | A script the mod starts once per session. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. The mod picks its config file by `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT`, then the current context in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem`. |
 | Reporter | Collectors | Small readers for what hooks do not carry: git branch and changed files, machine id, build, models. |
-| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff on request, and a whole-session recording. Each is redacted and size-capped. |
+| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. |
 | Reporter | Simulator, settings hooks | Other ways to report: a simulator that fakes a busy fleet, and Claude Code's settings hooks for sessions started without the mod. |
 
 ### Network
@@ -57,7 +57,7 @@ to do travels back in the reply to a report.
 | Location | Item | Description |
 |---|---|---|
 | Network | HTTP :4317 | The main listener: the console, the API, Admin, and reporters that send a token. Plain HTTP, bound to `127.0.0.1` by default. |
-| Network | mTLS :4318 | Only with built-in TLS on. HTTPS that requires a client certificate from the Podium CA, and answers 404 to anything but reporter routes. |
+| Network | mTLS :4318 | Only with built-in TLS on. HTTPS that requires a client certificate from the Podium CA, and answers 404 to anything but reporter routes. A valid client certificate is trusted from the first connection; the HTTP reporter gate stays open until the first-run decision about reporters over HTTP is stored. |
 | Network | Reverse proxy | Optional. Your own TLS-terminating proxy in front of the console, for a network you do not trust. |
 
 ### Server
@@ -65,8 +65,8 @@ to do travels back in the reply to a report.
 | Location | Item | Description |
 |---|---|---|
 | Server | Ingest | Validates each report field by field, then stores it in one database transaction. |
-| Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). |
-| Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. |
+| Server | Fleet | Owns the set of live sessions and the clock, and turns rows into the `SessionView` every browser sees (state, context fill, cost). It takes one `Storage`, loads its settings in `init()` before the server listens, and sends every broadcast through one ordered queue. |
+| Server | Sweeper | A one-second loop that marks quiet sessions stale, drops lost ones, removes ended ones and fills quiet seconds in the charts. A timer body whose previous run is still going is skipped. |
 | Server | State and stream | `GET /state` for the first paint and `GET /stream`, a server-sent-events feed of changes. |
 | Server | Routers and identity | The routes for reports, hooks, state, stream and sessions, and the code that turns a certificate or token into an owner. |
 | Server | Guard chain | Middleware that runs first on the HTTP port: Host check, security headers, the reporter HTTP gate, request log and the failed-request limiter. |
@@ -80,8 +80,10 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `podium.sqlite` | The main database: sessions, agents, events, samples, people, groups, reporters, messages, rollups, settings and the Admin log. |
-| Storage | `activity.sqlite` | A second file for opt-in activity history and session recordings. Nothing is written to it unless an Admin turns one of them on. |
+| Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`, and each kind declares its own default target) and loads it on demand. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
+| Storage | SQLite adapter (the default) | The only adapter built today, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the numbered migrations, one lock per connection, and both database files. Another adapter (not built) would sit beside it, register its own kind and own its own database; this is the replaceable part. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). |
+| Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging, daily rollups, settings and the Admin log. |
+| Storage | `activity.sqlite` | The SQLite adapter's second file, for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 
 ### Console
 
@@ -89,7 +91,7 @@ to do travels back in the reply to a report.
 |---|---|---|
 | Console | The wall | One card per session: model, effort, plan, agents, context fill, cost and branch, grouped by person. |
 | Console | Live store | Loads `/state`, then applies stream messages with a pure reducer so every tab shows the same state. |
-| Console | Orchestrator page | One orchestrator in detail: plan, changed files, each agent's task and answer, failures and the live activity feed. |
+| Console | Orchestrator page | One orchestrator in detail: plan, changed files (their diffs loaded in the background), each agent's task and answer, failures and the live activity feed. |
 | Console | Respond modal | Lets a session's owner answer a question, approve a plan or a tool call, send a message, or run `/clear` and `/compact`. |
 | Console | Admin | The Admin pages, in four groups: people and access, server, reporting, and activity. |
 | Console | Reporters, Traffic, Replay | Rights between your orchestrators, a map of messages between machines, and a recorded session played back. |
@@ -117,8 +119,8 @@ passed on, so a bug in Podium cannot fail a tool call.
 | Reporter | `tool.check` | Runs where a permission prompt is about to show, and checks that a permission request follows. If none does, the permission hooks are not running here. |
 | Reporter | `session.compact` | Records a compaction and its before and after token counts. |
 | Reporter | `classic.SessionStart`, `classic.UserPromptSubmit` | Carry Claude Code's own session title, so a `/rename` shows from the next prompt. Also notice a move to a new folder. |
-| Reporter | Git timer | Reads the branch, ahead and behind counts and changed files every 10 s. |
-| Reporter | `command.run` (`/podium`) | The `/podium` command: shows the link and connection state, names the session, and answers a messaging request. |
+| Reporter | Git timer | Reads the branch, ahead and behind counts and changed files every 10 s, and on every third run the Claude desktop app's title for the session (`claude agents --json`). |
+| Reporter | `command.run` (`/podium`) | The `/podium` command: shows the link, the connection state and how the reporter signs in, says why messaging is on or off, names the session, and answers a messaging request. |
 | Reporter | `session.attach`, `session.detach` | A client joining or leaving: reads the list of attached clients at once, so a background session is told from one with someone on it. |
 | Reporter | `skill.prompt` | Records a skill loading, unless a `Skill` tool call or a running agent already accounts for it. |
 | Reporter | `classic.Notification`, `classic.Stop` | A notification from Claude Code, and the list of background work and scheduled wake-ups still running when a turn stops. |
@@ -161,12 +163,13 @@ code. A function's line number is on the page, not here, because it moves.
 | Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `mod/podium-reporter/hooks/register.ts`. |
 | Reporter | `peerPrompt` | The frame around a peer message. In `mod/podium-reporter/hooks/peers.ts`. |
 | Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `mod/podium-reporter/hooks/helper.mjs`. |
+| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `mod/podium-reporter/hooks/helper.mjs`. |
 | Reporter | `readGit` | Branch, ahead/behind. In `mod/podium-reporter/hooks/git.ts`. |
 | Reporter | `readChanges` | Changed files with +/- counts. In `mod/podium-reporter/hooks/git.ts`. |
 | Reporter | `machineIdPath` | Where the random machine id is kept. In `mod/podium-reporter/hooks/machine.ts`. |
 | Reporter | `osFromSwVers` | Reads the macOS version. In `mod/podium-reporter/hooks/machine.ts`. |
 | Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `mod/podium-reporter/hooks/recording.ts`. |
-| Reporter | `handleDiffs` | Reads one file's diff when its owner asks. In `mod/podium-reporter/hooks/register.ts`. |
+| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `mod/podium-reporter/hooks/register.ts`. |
 | Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `mod/podium-reporter/hooks/diffRedact.ts`. |
 | Reporter | `setWatched` | Records which loops someone is watching. In `mod/podium-reporter/hooks/state.ts`. |
 | Reporter | `ingestHook` | Takes a settings-hook report, giving a reduced view. In `server/src/fleet/fleet.ts`. |
@@ -175,6 +178,7 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
+| Network | `class TlsBoot` | Holds the listener from the turn it serves; the HTTP gate is active only once the seed is stored. In `server/src/tlsBoot.ts`. |
 | Network | `startTls` | Starts the mutual-TLS listener. In `server/src/tlsServer.ts`. |
 | Network | `reporterPortOnly` | Answers 404 to any path that is not a reporter route. In `server/src/tlsServer.ts`. |
 
@@ -184,11 +188,17 @@ code. A function's line number is on the page, not here, because it moves.
 |---|---|---|
 | Server | `validateReport` | Checks every field of a report by hand. In `server/src/fleet/protocol.ts`. |
 | Server | `ingestReport` | Stores a validated report in one transaction. In `server/src/fleet/ingest.ts`. |
-| Server | `class Fleet` | The live set, the clock and the views. In `server/src/fleet/fleet.ts`. |
+| Server | `class Fleet` | The live set, the clock and the views, over one Storage. In `server/src/fleet/fleet.ts`. |
+| Server | `init` | Loads the stored settings and the live candidates; the server listens only after it. In `server/src/fleet/fleet.ts`. |
+| Server | `noteOrchestrator` | Puts the reporter in the peer directory, in the session's own serial turn. In `server/src/fleet/fleet.ts`. |
 | Server | `state()` | The snapshot for a browser's first paint. In `server/src/fleet/fleet.ts`. |
+| Server | `enqueue` | Every broadcast goes through one ordered queue. In `server/src/fleet/fleet.ts`. |
+| Server | `flush` | Waits until every queued message is sent; shutdown calls it before the databases close. In `server/src/fleet/fleet.ts`. |
+| Server | `class Serializer` | One turn at a time per session id, and exclusive jobs for sweeps. In `server/src/fleet/serial.ts`. |
+| Server | `class LiveFeatureFlags` | A write-through cache, read synchronously and written asynchronously. In `server/src/fleet/liveSettings.ts`. |
 | Server | `sessionView` | Turns database rows into the SessionView the browsers get. In `server/src/fleet/derive.ts`. |
 | Server | `sessionStatus` | Done, stale (silent too long) or the status last reported. In `server/src/fleet/derive.ts`. |
-| Server | `startSweeper` | The one-second housekeeping loop. In `server/src/fleet/sweeper.ts`. |
+| Server | `startSweeper` | The one-second housekeeping loop; a timer body is skipped while its previous run is still going. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeActivityHistory` | Removes stored activity past its retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `purgeRecordings` | Removes recordings past their retention. In `server/src/fleet/sweeper.ts`. |
 | Server | `class SseHub` | The open browser streams, and broadcasts to them. In `server/src/fleet/sse.ts`. |
@@ -199,10 +209,10 @@ code. A function's line number is on the page, not here, because it moves.
 | Server | `securityHeaders` | Security headers and the Content-Security-Policy. In `server/src/securityHeaders.ts`. |
 | Server | `createAdminRouter` | The Admin API with its own sign-in and log. In `server/src/admin/adminRouter.ts`. |
 | Server | `class Lockout` | Locks an address out after five wrong tries. In `server/src/fleet/lockout.ts`. |
-| Server | `class PeerService` | Finds live orchestrators and carries messages. In `server/src/fleet/peers.ts`. |
-| Server | `class PeerRights` | Who may message whom, and the limits. In `server/src/fleet/peerRights.ts`. |
-| Server | `pair` | The same-owner rule for messaging rights. In `server/src/fleet/peerRights.ts`. |
-| Server | `class PeerMessages` | Stores, checks and hands over messages. In `server/src/fleet/peerMessages.ts`. |
+| Server | `class PeerService` | Finds live orchestrators and carries messages. In `server/src/storage/sqlite/peerService.ts`. |
+| Server | `class PeerRights` | Who may message whom, and the limits. In `server/src/storage/sqlite/peerRights.ts`. |
+| Server | `pair` | The same-owner rule for messaging rights. In `server/src/storage/sqlite/peerRights.ts`. |
+| Server | `class PeerMessages` | Stores, checks and hands over messages. In `server/src/storage/sqlite/peerMessages.ts`. |
 | Server | `peerReplyFor` | The messaging items that ride a report's reply. In `server/src/fleet/peerRoutes.ts`. |
 | Server | `ensureTls` | Makes or reads the CA. In `server/src/tlsCa.ts`. |
 | Server | `issueServing` | The serving certificate. In `server/src/tlsCa.ts`. |
@@ -223,7 +233,23 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/fleet/recordings.ts`. |
+| Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
+| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
+| Storage | `openStorage` | Async; loads the chosen kind's adapter on demand. In `server/src/storage/index.ts`. |
+| Storage | `registerStorageKind` | Adds an implementation to the registry. In `server/src/storage/index.ts`. |
+| Storage | `StorageKind` | What a registered kind declares: fileBased, defaultTarget() and load. In `server/src/storage/index.ts`. |
+| Storage | `defaultDbFile` | The default kind's default target, taken from the registry. In `server/src/storage/index.ts`. |
+| Storage | `dataDir` | PODIUM_DATA_DIR, else a file target's folder; holds tls/. In `server/src/storage/index.ts`. |
+| Storage | `runStorageContract` | The suite every implementation must pass. In `server/src/storage/contract.ts`. |
+| Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
+| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |
+| Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
+| Storage | `SqliteActivityHistoryOpts` | The neutral history options plus what only this adapter honors (vacuumPages). In `server/src/storage/sqlite/activityHistory.ts`. |
+| Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
+| Storage | `sqliteReference` | What the contract suite reads back from SQLite. In `server/src/storage/sqlite/contractReference.ts`. |
+| Storage | `openDb` | Opens the main file, sets WAL and applies the migrations. In `server/src/storage/sqlite/db.ts`. |
+| Storage | `openActivityDb` | Opens the activity file, sets incremental vacuum and WAL, applies its steps. In `server/src/storage/sqlite/activityDb.ts`. |
+| Storage | `activityDbPath` | The activity file's path, beside the main one. In `server/src/storage/sqlite/activityDb.ts`. |
 
 ### Console
 
@@ -238,6 +264,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `visibleSessions` | What the current filter shows. In `frontend/src/fleet/store.ts`. |
 | Console | `OrchestratorDetail` | Plan, files, agents and activity for one orchestrator. In `frontend/src/fleet/components/OrchestratorDetail.tsx`. |
 | Console | `readEvery` | How often the activity feed polls. In `frontend/src/fleet/useActivityFeed.ts`. |
+| Console | `class DiffPreloader` | Loads every changed file's diff in page memory, 2 at a time. In `frontend/src/fleet/diffPreload.ts`. |
 | Console | `RespondModal` | Answer a question, plan or permission prompt. In `frontend/src/fleet/components/Respond.tsx`. |
 | Console | `MyReportersPage` | Rights between your orchestrators. In `frontend/src/fleet/MyReporters.tsx`. |
 | Console | `TrafficPage` | The map of messages between machines. In `frontend/src/fleet/Traffic.tsx`. |
@@ -272,7 +299,7 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Location | Item | Description |
 |---|---|---|
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
-| Storage | `podium.sqlite` | The main database in WAL mode: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
-| Storage | `activity.sqlite` | Opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
-| Storage | Certificates and config | The CA and serving keys in `/data/tls`, podiumctl settings in `~/.podium/config.env`, a person's config file, and the reporter's machine id and pinned machine name. |
+| Storage | `podium.sqlite` | The SQLite adapter's main file, in WAL mode. The app reaches it only through the `Storage` interface and the adapter, which owns it: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
+| Storage | `activity.sqlite` | The SQLite adapter's second file: opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
+| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
 | Console | Preferences and cookies | Convenience only: theme, pins and collapsed panes. The respond and Admin cookies are `HttpOnly` and `SameSite=Strict`. Tokens are never written to storage. |

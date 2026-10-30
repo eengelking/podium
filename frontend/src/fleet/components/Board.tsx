@@ -44,7 +44,7 @@ function Card({ card, showOrchestrator, flash, fresh, onOpen }: { card: BoardCar
   // The live wording replaces the step's text while it is in progress; showing both said the same thing twice.
   const work = !card.waiting && step.state === "active" && step.activeText ? step.activeText : step.text;
   return (
-    <a className={cls} href="#/" data-key={card.key} aria-label={`${step.text}, ${card.waiting ? "waiting" : step.state}, ${s.name}`} onClick={open}>
+    <a className={cls} href="#/" data-key={card.key} onClick={open}>
       {showOrchestrator && (
         <div className="kb-title" style={cssVar(FAMILY_COLOR[s.modelFamily])}>
           <i aria-hidden="true" />
@@ -54,6 +54,8 @@ function Card({ card, showOrchestrator, flash, fresh, onOpen }: { card: BoardCar
       <div className="kb-text">{work}</div>
       {whyLine && <div className="kb-wait">{whyLine}</div>}
       {step.ownerLabel && <div className="kb-own">{step.ownerLabel}</div>}
+      {/* The link is named by what it shows, so the name holds the words on it; the state, and the session when no title shows it, are what is added (2.5.3, #636). */}
+      <span className="vh">{`${showOrchestrator ? "" : `, ${s.name}`}, ${card.waiting ? "waiting" : step.state}`}</span>
     </a>
   );
 }

@@ -248,7 +248,11 @@ A file's diff is source code. Reads are open by design, so this is the one read 
   admin secret. A session with no owner has no one who can. Everyone else gets `403`. Opening is kept to the
   owner because a diff is source code and fewer people who can read it means fewer places it can leak.
 - Each diff opened is not written to the admin log with its text. The log records only that the diff of a
-  path was opened, by whom (`file_diff_opened`: actor, session, path), never the text.
+  path was opened, by whom (`file_diff_opened`: actor, session, path), never the text. A diff loaded ahead
+  (#631, `GET …/files/diff?path=…&ahead=1`, refused with `403` unless the reporter sent `fileDiffPreload`)
+  is logged when it is loaded as `file_diff_loaded` with the same fields. Opening one that was already loaded
+  makes no diff request, so the browser tells the server with `POST …/files/diff/opened`, owner only, which
+  writes `file_diff_opened`.
 - Signed out, or for a session that is not yours, the Files row shows the counts and no link, with a line
   that says why ([8.1](../08-ui/08-01-what-the-ui-must-do.md)).
 
@@ -281,7 +285,7 @@ A file's diff is source code. Reads are open by design, so this is the one read 
 - A new sign-in to respond starts without a hold, and another browser's sign-in is unaffected. The hold lives
   in memory with the sign-in and ends with it.
 - The Admin button in the top bar shows only to a browser signed in to respond as an Administrator
-  (`GET respond/me` says `admin`), and not on the Admin page itself. Anyone else reaches Admin at `#/admin`, which shows the name-and-token
+  (`GET respond/me` says `admin`), and not on the Admin page itself (`TopBar.tsx`). Signed out or signed in as anyone else, there is no Admin button in the top bar. Anyone else reaches Admin at `#/admin`, which shows the name-and-token
   sign-in.
 - Hiding the button is not the check: every Admin route except `GET session` and the two unlocks needs an
   open session.
@@ -688,6 +692,17 @@ read the open routes.
 - The first refusal for an address in a window is logged as `auth.throttled` (`warn`). The counters are in memory only.
 - The address is the one Express sees, so behind a proxy it follows `PODIUM_TRUST_PROXY` (7.7, reverse proxy).
 - It is separate from the wrong-secret throttle and the Admin and sign-in lockout, which are unchanged.
+
+## Test-only timings (#791)
+
+- The end-to-end suite shortens three times with environment variables: `PODIUM_TEST_ADMIN_IDLE_MS` (the Admin idle lock, 10 minutes),
+  `PODIUM_TEST_SIGN_IN_IDLE_MS` (the sign-in to respond ending when idle, 12 hours) and `PODIUM_TEST_LOCK_MS` (the lockout, 15 minutes).
+  Each is a whole number of milliseconds from 1 to 999999999, read once at start. The number of wrong tries stays 5.
+- They count only with `PODIUM_TEST_TIMINGS=1`. A timing set without the flag, a value that is not a whole number in that range, or a
+  flag that is not `0` or `1` stops the server at start.
+- When any is active the server logs a `warn` event `server.test_timings` (fields: the timings in effect) saying never to set it on a real
+  server.
+- With none set, the times are the ones above and nothing differs. See DECISIONS 50.
 
 ## Plain HTTP warnings (#306)
 

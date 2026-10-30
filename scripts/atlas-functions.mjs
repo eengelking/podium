@@ -17,7 +17,7 @@ export const LOCATIONS = [
   ['Reporter', ['hooks', 'tx', 'cc', 'tools', 'helper', 'collect', 'rec', 'alt']],
   ['Network', ['p4317', 'p4318', 'proxy']],
   ['Server', ['ingest', 'fleet', 'sweeper', 'sse', 'routes', 'guards', 'admin', 'peers', 'ca', 'brokers', 'logs']],
-  ['Storage', ['db', 'adb']],
+  ['Storage', ['db', 'adapter', 'pdb', 'adb']],
   ['Console', ['ui_wall', 'ui_store', 'ui_detail', 'ui_respond', 'ui_admin', 'ui_traffic']],
 ];
 

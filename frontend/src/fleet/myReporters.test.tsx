@@ -170,6 +170,7 @@ describe("the top bar", () => {
   });
 
   it("keeps the top bar's own shortcut but not the wall's, which this page does not draw (#415)", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     const { container } = page();
     await flush();
     const top = document.getElementById("podium-top")!;
@@ -188,6 +189,7 @@ describe("the top bar", () => {
     const server = fakeServer();
     const state = stateFrom({ sessions: [makeSession({ id: "s-mac", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
     const api = respondApi();
+    localStorage.setItem("podium.shortcuts", "true");
     const { container, rerender } = render(<FleetView myReporters={false} state={state} respondApi={api} peersApi={server.api} />);
     await flush();
     fireEvent.keyDown(document, { key: "w" });
@@ -245,6 +247,7 @@ describe("the rail and the Activity panel around the page (#446)", () => {
   });
 
   it("opens and closes each panel from its tab and from [ and ], and keeps the flags apart from the wall's and the Board's", async () => {
+    localStorage.setItem("podium.shortcuts", "true");
     page();
     await flush();
     fireEvent.click(left());
@@ -456,7 +459,10 @@ describe("Your reporters", () => {
     expect(within(mac).getByText("On").querySelector(".dot.running")).not.toBeNull();
     expect(within(win).getByText("Off on the machine").querySelector(".dot:not(.running)")).not.toBeNull();
     expect(win).toHaveTextContent("1.1.0");
-    expect(screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/)).toBeInTheDocument();
+    const off = screen.getByText(/win-lab has messaging off\. Only that machine can turn it on/);
+    // Both routes: the terminal command with the full key, and the Claude desktop app's settings (#837).
+    expect(off).toHaveTextContent("In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.");
+    expect(off).toHaveTextContent("In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers.");
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();
   });
 

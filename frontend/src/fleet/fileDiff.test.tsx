@@ -9,6 +9,9 @@ import { RespondProvider, type RespondContext } from "./useRespond";
 import { RespondError, type RespondApi } from "./respondApi";
 import type { FileDiffReply, FilesReport, RespondMe, SessionView } from "./types";
 
+// A Files row is named by its words with the action in front: "Open diff of", the file name, then its status and folder (#800).
+const diffRow = (path: string) => new RegExp(`^Open diff of\\s*${path.split("/").pop()!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+
 afterEach(cleanup);
 
 const OWNER: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
@@ -66,7 +69,7 @@ describe("who gets a button", () => {
   it("is the session's signed-in owner, with the option on: each row a button that names its path", async () => {
     await show();
     const b = screen.getAllByRole("button", { name: /Open diff of/ });
-    expect(b.map((x) => x.getAttribute("aria-label"))).toEqual(["Open diff of src/a.ts", "Open diff of docs/new.md", "Open diff of img/logo.png"]);
+    expect(b.map((x) => x.querySelector(".fn")!.getAttribute("title"))).toEqual(["src/a.ts", "docs/new.md", "img/logo.png"]);
     expect(screen.queryByRole("note")).toBeNull();
   });
   it("says to sign in when signed out", async () => {
@@ -110,7 +113,7 @@ describe("the modal", () => {
     let done!: (r: FileDiffReply) => void;
     const fileDiff = vi.fn(() => new Promise<FileDiffReply>((r) => (done = r)));
     const { api } = await show({ api: fakeApi(fileDiff) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     const dialog = screen.getByRole("dialog");
     expect(fileDiff).toHaveBeenCalledWith("sess-ed", "src/a.ts");
     expect(within(dialog).getByRole("status").textContent).toContain("Loading");
@@ -127,7 +130,7 @@ describe("the modal", () => {
   });
   it("draws the diff as text: markup in a line is shown, never parsed", async () => {
     await show();
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     const dialog = screen.getByRole("dialog");
     expect(dialog.querySelector("img")).toBeNull();
@@ -135,7 +138,7 @@ describe("the modal", () => {
   });
   it("gives the path as the title and the status, counts and base as the sub line", async () => {
     await show();
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("heading").textContent).toBe("src/a.ts");
@@ -143,7 +146,7 @@ describe("the modal", () => {
   });
   it("marks added and removed lines with + and − as well as a tint, and keeps line numbers", async () => {
     await show();
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     const left = screen.getByRole("dialog").querySelectorAll(".sbs .pane")[0]!;
     expect(left.querySelector(".l.r .m")!.textContent).toBe("−");
@@ -155,7 +158,7 @@ describe("the modal", () => {
   });
   it("says how much was cut", async () => {
     await show({ api: fakeApi(vi.fn(async () => ok({ truncated: true, shownLines: 2000, totalLines: 10190, redactions: 0 }))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("dialog").querySelector(".foot-note")!.textContent).toBe("Showing the first 2,000 lines of 10,190.");
   });
@@ -165,26 +168,26 @@ describe("the modal", () => {
     ["withheld", /never reads the diff of files that usually hold secrets/],
   ] as const)("says plainly what a %s file is", async (status, words) => {
     await show({ api: fakeApi(vi.fn(async () => ok({ status, text: null }))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("dialog").textContent).toMatch(words);
     expect(screen.queryByRole("alert")).toBeNull();
   });
   it("names the command to run for a diff that is too large", async () => {
     await show({ api: fakeApi(vi.fn(async () => ok({ status: "too-large", text: null }))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("dialog").querySelector("code")!.textContent).toBe("git diff -- src/a.ts");
   });
   it("says there is nothing to draw for a file with no lines", async () => {
     await show({ api: fakeApi(vi.fn(async () => ok({ text: "", shownLines: 0, totalLines: 0, redactions: 0 }))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("dialog").textContent).toContain("No line changes to show.");
   });
   it("shows an unavailable diff as an error with what to do", async () => {
     await show({ api: fakeApi(vi.fn(async () => ok({ status: "unavailable", text: null }))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("alert").textContent).toContain("Close this and open the file again.");
   });
@@ -197,19 +200,19 @@ describe("the modal", () => {
     [404, {}, /session has ended/],
   ] as const)("explains a %i from the server", async (status, body, words) => {
     await show({ api: fakeApi(vi.fn(async () => Promise.reject(new RespondError(status, body)))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("alert").textContent).toMatch(words);
   });
   it("explains a failure to reach the server", async () => {
     await show({ api: fakeApi(vi.fn(async () => Promise.reject(new Error("offline")))) });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.getByRole("alert").textContent).toMatch(/could not be loaded/);
   });
   it("closes with the X, Esc and the dimmed area, and gives focus back to the row", async () => {
     await show();
-    const row = () => screen.getByRole("button", { name: "Open diff of src/a.ts" });
+    const row = () => screen.getByRole("button", { name: diffRow("src/a.ts") });
     for (const close of [
       () => fireEvent.click(screen.getByRole("button", { name: /^Close/ })),
       () => fireEvent.keyDown(document, { key: "Escape" }),
@@ -227,7 +230,7 @@ describe("the modal", () => {
   });
   it("keeps the two sides level when one is scrolled sideways", async () => {
     await show();
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     const [left, right] = [...screen.getByRole("dialog").querySelectorAll<HTMLElement>(".sbs .pane")];
     left!.scrollLeft = 120;
@@ -245,7 +248,7 @@ describe("the modal", () => {
     const fileDiff = vi.fn(async () => ok());
     await show({ api: fakeApi(fileDiff) });
     for (let i = 0; i < 2; i++) {
-      fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+      fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
       await flush();
       fireEvent.keyDown(document, { key: "Escape" });
       await flush();
@@ -255,7 +258,7 @@ describe("the modal", () => {
   it("shows the rename source in the sub line", async () => {
     const report: FilesReport = { ...REPORT, files: [{ path: "docs/GUIDE.md", status: "renamed", from: "docs/USER.md", added: 2, removed: 1 }], total: 1 };
     await show({ report });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of docs/GUIDE.md" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("docs/GUIDE.md") }));
     await flush();
     expect(screen.getByRole("dialog").querySelector(".sub2")!.textContent).toContain("R · from docs/USER.md");
   });
@@ -268,7 +271,7 @@ describe("the Wrap lines switch (#623)", () => {
   });
   async function open() {
     await show();
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     return screen.getByRole("dialog");
   }
@@ -309,7 +312,7 @@ describe("the Wrap lines switch (#623)", () => {
   it("sits at the right of the bottom row, after the pager and the note", async () => {
     const api = fakeApi(vi.fn(async () => ok({ truncated: true, shownLines: 2000, totalLines: 10190 })));
     await show({ api });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     const row = screen.getByRole("dialog").querySelector(".mf")!;
     expect([...row.children].map((e) => e.className)).toEqual(["pager", "foot-note", "sw"]);
@@ -317,7 +320,7 @@ describe("the Wrap lines switch (#623)", () => {
   it("is not shown where no diff is drawn", async () => {
     const api = fakeApi(vi.fn(async () => ok({ status: "binary", text: "" })));
     await show({ api });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/a.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
     await flush();
     expect(screen.queryByRole("switch")).toBeNull();
   });
@@ -360,7 +363,7 @@ describe("stepping through the files (#630)", () => {
   const pos = (dlg: HTMLElement) => dlg.querySelector(".mf .pager span")!.textContent;
   async function openAt(report: FilesReport, name: string, fileDiff = vi.fn(async (_s: string, path: string) => diffFor(path))) {
     await show({ api: fakeApi(fileDiff), report });
-    fireEvent.click(screen.getByRole("button", { name: `Open diff of ${name}` }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow(name) }));
     await flush();
     return { dlg: screen.getByRole("dialog"), fileDiff };
   }
@@ -407,7 +410,7 @@ describe("stepping through the files (#630)", () => {
   it("steps through every file the report holds, not only the page the first one was opened from", async () => {
     const report = many(45);
     await show({ api: fakeApi(vi.fn(async (_s: string, path: string) => diffFor(path))), report });
-    fireEvent.click(screen.getByRole("button", { name: "Open diff of src/f20.ts" }));
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/f20.ts") }));
     await flush();
     const dlg = screen.getByRole("dialog");
     expect(pos(dlg)).toBe("Showing file 20 of 45");
@@ -506,10 +509,88 @@ describe("stepping through the files (#630)", () => {
   });
   it("gives focus back to the row that opened it on close, after stepping", async () => {
     await openAt(REPORT, "src/a.ts");
-    const row = screen.getByRole("button", { name: "Open diff of src/a.ts" });
+    const row = screen.getByRole("button", { name: diffRow("src/a.ts") });
     await stepTo(next());
     fireEvent.keyDown(document, { key: "Escape" });
     await flush();
     expect(document.activeElement).toBe(row);
+  });
+});
+
+describe("loading ahead (#631)", () => {
+  const withOpened = (fileDiff: RespondApi["fileDiff"]) => {
+    const api = fakeApi(fileDiff) as RespondApi & { fileDiffOpened: ReturnType<typeof vi.fn> };
+    api.fileDiffOpened = vi.fn(async () => ({}));
+    return api;
+  };
+  const setHidden = (hidden: boolean) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  afterEach(() => setHidden(false));
+
+  it("loads every changed file's diff when the page opens, marked as ahead, and opens a loaded one with no wait", async () => {
+    const fileDiff = vi.fn(async (_id: string, path: string, _ahead?: boolean) => ok({ path }));
+    const api = withOpened(fileDiff);
+    await show({ api, s: { fileDiffPreload: true } });
+    expect(fileDiff.mock.calls.map((c) => [c[1], c[2]])).toEqual([["src/a.ts", true], ["docs/new.md", true], ["img/logo.png", true]]);
+    fileDiff.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: diffRow("src/a.ts") }));
+    expect(screen.queryByText(/^Loading/)).toBeNull();
+    expect(screen.getAllByText(/process\.env\.KEY/).length).toBeGreaterThan(0);
+    await flush();
+    expect(fileDiff).not.toHaveBeenCalled();
+    expect(api.fileDiffOpened).toHaveBeenCalledWith("sess-ed", "src/a.ts");
+  });
+  it("reads a diff only when it is opened where the reporter has not allowed reading ahead", async () => {
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: false } });
+    expect(fileDiff).not.toHaveBeenCalled();
+    cleanup();
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: null } });
+    expect(fileDiff).not.toHaveBeenCalled();
+  });
+  it("loads nothing where the viewer cannot open diffs", async () => {
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true, owner: "Alex" } });
+    expect(fileDiff).not.toHaveBeenCalled();
+  });
+  it("loads nothing while the tab is hidden, and starts when it is shown", async () => {
+    setHidden(true);
+    const fileDiff = vi.fn(async () => ok());
+    await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true } });
+    expect(fileDiff).not.toHaveBeenCalled();
+    setHidden(false);
+    await flush();
+    expect(fileDiff).toHaveBeenCalled();
+  });
+  it("reloads a file whose content marker moved, keeping the old text on screen, and asks for a new file", async () => {
+    let text = "first";
+    const fileDiff = vi.fn(async (_id: string, path: string) => ok({ path, text: `@@ -1 +1 @@\n-x\n+${text}` }));
+    const session = makeSession({ id: "sess-ed", owner: "Ed", status: "running", fileDiff: true, fileDiffPreload: true });
+    const tree = (report: FilesReport) => (
+      <RespondProvider api={withOpened(fileDiff)} flagsOn={false} diffOn>
+        <FilesList report={report} hint={null} session={session} />
+      </RespondProvider>
+    );
+    const view = render(tree(REPORT));
+    await flush();
+    fileDiff.mockClear();
+    text = "second";
+    const edited: FilesReport = { ...REPORT, files: [{ ...REPORT.files[0]!, rev: "new" }, ...REPORT.files.slice(1), { path: "z.ts", status: "added", from: null, added: 1, removed: 0 }], total: 4 };
+    view.rerender(tree(edited));
+    await flush();
+    expect(fileDiff.mock.calls.map((c) => c[1]).sort()).toEqual(["src/a.ts", "z.ts"]);
+  });
+  it("throws the diffs away when the page is left, and keeps nothing in the browser", async () => {
+    const before = JSON.stringify({ ...localStorage });
+    const fileDiff = vi.fn(async () => ok());
+    const { unmount } = await show({ api: withOpened(fileDiff), s: { fileDiffPreload: true } });
+    unmount();
+    fileDiff.mockClear();
+    await flush();
+    expect(fileDiff).not.toHaveBeenCalled();
+    expect(JSON.stringify({ ...localStorage })).toBe(before);
+    expect(document.cookie).toBe("");
   });
 });

@@ -84,7 +84,7 @@ evaluates to the result)
   `usage: { input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, model } | null`.
 - Per loop: record the model and the **observed effort**. Context tokens are `input + cache_read +
   cache_creation` of the latest step. Accumulate token totals and cost.
-- If `stopReason === "model_context_window_exceeded"` or `"compaction"`, record a blowout.
+- If `stopReason === "model_context_window_exceeded"` or `"compaction"`, record a blowout. The `blow` event's `data` carries the loop's `window` and how full it was (`percent`, `null` when the window or the tokens before are unknown), so a blowout that fired far from full can be told apart (#687).
 - With the `activityFeed` option on and the loop watched ([6.4](../06-reporter-protocol/06-04-failure-and-excerpt-rules.md)):
   - read the stream with `for await (const chunk of stream)`;
   - yield every chunk on, unchanged and in order;
@@ -101,7 +101,19 @@ evaluates to the result)
 **`session.compact`** (result: `{ messages, tokensBefore?, tokensAfter?, usage? }` or `{ skip }`)
 - Await `next(e)`.
 - If the result has `messages` and `trigger === "auto"`, record a **blowout** with `tokensBefore`,
-  `tokensAfter` and `agentId`.
+  `tokensAfter` and `agentId`, unless the context was far from full (below).
+- An automatic compaction counts only when the loop's context was at least **80%** of its window
+  (`tokensBefore` over `window`). A real overflow arrives near 100%. Claude Code also compacts on its own
+  after a quiet stretch, probably a prompt-cache timeout, and two captured cases fell at 22% and 25% of a
+  1M window (#803). The 80% is not measured: any value between about 30% and 90% fits the data, and it is
+  a named constant in the reporter. Below it, log a `compact` event reading "auto-compacted at 22%", not a
+  blowout; the count, the card badge and the Blowouts KPI do not change. When the fill cannot be computed
+  (the window or `tokensBefore` is unknown), record the blowout, because that was the behavior before and
+  the safe default when the reporter cannot tell. An automatic compaction within 2 seconds of a blowout
+  already counted for the loop (a `window-exceeded` stop and the compaction it triggers) is the same
+  blowout, at any fill.
+- Either event's `data` carries `idleMs`, how long the loop had been quiet (since its last step or tool
+  call, `null` if unknown), so a compaction after a quiet stretch can be told from one after activity.
 - For `manual`, log a `compact` event, not a blowout.
 - Ignore `precompute` and `skip`.
 
@@ -322,8 +334,18 @@ keep planning" and messages can.
   one is not taken as final.
 - Verified: `tool.check` carries the call's `tool_use_id`, and where the hooks run it resolves to `ask` 3 to
   11 ms before `classic.PermissionRequest` fires, for Bash and for ExitPlanMode alike.
-- **Unverified (no managed setup available):** that no PermissionRequest fires in a managed setup, and so that
-  the method catches it.
+- **Observed on a Team or Enterprise login (#595, #742):** Claude Code's guard `cc-plugin-sec-default` runs first
+  and passes `classic.*` events on past the mod, so no PermissionRequest fires. Not reproduced here: no managed
+  setup was available, so the fallbacks are tested against the mock engine only.
+- Where the hook doesn't run, the `ask` records the prompt as a wait (waiting on a permission, with the tool and
+  its input), once even if the hook arrives late, with responding on or off (#741, #742). `no-permission-hooks` is
+  set as soon as a main-loop turn ends with no classic hook having run, not only after the first prompt; any
+  `classic.*` hook clears the doubt. A session whose only turns before its first hook were not user prompts reads
+  as "cannot be answered" until a PermissionRequest fires.
+- A `tool.check` hook cannot answer: it gives the verdict and never who answers it, and its `allow` does not
+  dismiss a dialog the person must answer. So a tool permission is answered in the terminal.
+- `classic.Stop` is the only source of `background`. Where it is skipped the reporter sends none and the wait
+  reads as `input` (#740).
 - The safety net for plans is the approval's `not-taken` fallback: an approval the session doesn't take is
   reported and left to the terminal. A tool ask needs none: it is announced from the PermissionRequest hook, so
   where that hook doesn't run there is no tool ask to answer.
@@ -406,6 +428,11 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - The tools are registered once a reply first says `peers: true`. With the option off, or in a `claude -p` run,
   they are never registered, and the report's `session.peers` is false. A tool left from before a reload that
   turned the option off refuses the call.
+- `/podium` says which of these holds (#825): a `Messaging:` line, `on` or `off, because <the first cause that applies>`, with the
+  option as the mod read it, whether the session is interactive and the surface it started on, and what the last reply said;
+  a `Sign-in:` line, a plain token or the reporter config file in use; and an `Option problem:` line for a switch option whose
+  value is not `true` or `false`. The mod does not read the text `"true"` as true. It shows only what the mod holds, never a
+  token. A tool's refusal gives the same cause.
 - Only the main loop, the orchestrator, sends and receives. A tool registered with `$.tool.register` cannot be
   kept from subagents, so the tool refuses a call made by one. **Verified (2.1.303, #411):** a foreground agent,
   a background agent and a fork all list the tool and can call it. Its `tool.call` carries `agentId` on every

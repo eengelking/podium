@@ -2,13 +2,14 @@
 import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
 import { createFleetRouter } from './routes.js';
 import { fixtureReport } from './testing.js';
 
-function app() {
-  const fleet = new Fleet(new FleetDb(openDb(':memory:')), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' });
+async function app() {
+  const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' });
+  await fleet.init();
   const a = express();
   a.use('/api/fleet', createFleetRouter(fleet, { log: () => {} }));
   return { a, fleet };
@@ -19,7 +20,7 @@ const post = (a: express.Express, body: string | Buffer, type = 'application/jso
 
 describe('junk input', () => {
   it('malformed JSON, raw control characters, a 1 MB body and 5,000 agents all get a 4xx', async () => {
-    const { a, fleet } = app();
+    const { a, fleet } = await app();
     const cases: [string, string | Buffer][] = [
       ['truncated JSON', '{"v":1,"session":'],
       ['not JSON', 'hello'],
@@ -42,7 +43,7 @@ describe('junk input', () => {
   });
 
   it('invalid UTF-8 never crashes it, and escaped control characters are stripped', async () => {
-    const { a, fleet } = app();
+    const { a, fleet } = await app();
     const r = fixtureReport();
     const json = JSON.stringify({ ...r, session: { ...r.session, name: 'NAME_HERE' } });
     const [head, tail] = json.split('NAME_HERE') as [string, string];
@@ -60,7 +61,7 @@ describe('junk input', () => {
   });
 
   it('a wrong content type is a 400, not a crash', async () => {
-    const { a, fleet } = app();
+    const { a, fleet } = await app();
     expect((await post(a, 'v=1', 'application/x-www-form-urlencoded')).status).toBe(400);
     expect((await post(a, JSON.stringify(fixtureReport()), 'text/plain')).status).toBe(400);
     fleet.close();

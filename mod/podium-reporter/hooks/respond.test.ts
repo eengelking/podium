@@ -707,3 +707,74 @@ describe('respond: where PermissionRequest hooks do not run', () => {
     expect(w.posts.at(-1)!.session.respond?.limits).toEqual([])
   })
 })
+
+describe('respond: a login whose classic hooks are skipped (#742)', () => {
+  const waits = (w: World) => w.posts.flatMap((p) => p.events).filter((ev) => ev.kind === 'wait' && ev.text.startsWith('waiting on you'))
+
+  test('a prompt tool.check announced, with no PermissionRequest, still reaches the card as waiting on a permission', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.checkDecision.value = 'ask'
+    await $.tool.check({ tool: 'Edit', input: { file_path: '/x' }, tool_use_id: 'toolu_skip1' } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(5000)
+    const s = w.posts.at(-1)!.session
+    expect(s.status).toBe('waiting')
+    expect(s.waitReason).toBe('permission')
+    expect(s.waitNote).toBe('Edit(/x)')
+    expect(waits(w)).toHaveLength(1)
+  })
+
+  test('a PermissionRequest that does fire records the prompt once, not twice', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.checkDecision.value = 'ask'
+    await $.tool.check({ tool: 'Edit', input: { file_path: '/x' }, tool_use_id: 'toolu_skip2' } as never)
+    await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' } } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(5000)
+    expect(waits(w)).toHaveLength(1)
+  })
+
+  test('a PermissionRequest that comes late finds the prompt already on the card and does not add a second', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    w.checkDecision.value = 'ask'
+    await $.tool.check({ tool: 'Edit', input: { file_path: '/x' }, tool_use_id: 'toolu_skip3' } as never)
+    await w.clock.advance(2500)
+    await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: { file_path: '/x' } } as never)
+    await w.clock.advance(5000)
+    expect(waits(w)).toHaveLength(1)
+    expect(w.posts.at(-1)!.session.respond?.limits).toEqual([])
+  })
+
+  test('a turn that ends with no classic hook having run says the session cannot be answered, before any prompt', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await w.clock.advance(2500)
+    await w.clock.advance(5000)
+    expect(w.posts.at(-1)!.session.respond).toEqual({ level: 'everything', accepts: ['question', 'message', 'plan-feedback', 'command'], limits: ['no-permission-hooks'] })
+  })
+
+  test('a turn with any classic hook having run keeps every kind', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.turn.start({ text: 'go', turnId: 't1' })
+    await $.classic.Notification({ notification_type: 'idle_prompt', message: '' } as never)
+    await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't1', reason: 'answer' })
+    await w.clock.advance(2500)
+    await w.clock.advance(5000)
+    expect(w.posts.at(-1)!.session.respond?.limits).toEqual([])
+  })
+
+  test('a subagent’s turn ending says nothing about the hooks', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 't2', reason: 'answer', agentId: 'agent-1' } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(5000)
+    expect(w.posts.at(-1)!.session.respond?.limits).toEqual([])
+  })
+})

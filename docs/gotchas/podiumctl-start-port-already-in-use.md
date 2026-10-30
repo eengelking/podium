@@ -28,5 +28,5 @@ How `start` behaves:
 <!-- nav:start -->
 ---
 
-Previous: [The status line says "refused: session belongs to someone else"](refused-session-belongs-to-someone-else.md) · Up: [Gotchas](README.md) · Next: [I changed a setting and nothing happened](changed-a-setting-and-nothing-happened.md)
+Previous: [The status line says "refused: session belongs to someone else"](refused-session-belongs-to-someone-else.md) · Up: [Gotchas](README.md) · Next: [A refused client certificate shows as "socket hang up", not a TLS alert](refused-client-certificate-looks-like-a-reset.md)
 <!-- nav:end -->

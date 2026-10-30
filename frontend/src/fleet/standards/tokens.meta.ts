@@ -29,6 +29,7 @@ export const TOKEN_DOCS: Record<string, TokenDoc> = {
   good: t("Status", "A mark that something is running or fine: a dot, a switch that is on."),
   "good-text": t("Status", "Green text, checked for 4.5:1 on the surface it sits on."),
   warn: t("Status", "Waiting on you, or something to look at: the mark and its text."),
+  "warn-text": t("Status", "Amber text on the light Podium theme, checked for 4.5:1: the dirty count on the git line."),
   serious: t("Status", "A session whose heartbeat is lost, and a reporter that has gone silent."),
   crit: t("Status", "A failure: the mark, the failure box's border and wash."),
   "crit-text": t("Status", "Red text, checked for 4.5:1."),

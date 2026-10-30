@@ -53,6 +53,9 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [The status line has a warning sign in front of podium v0.11.1 ● 1 live](warning-sign-before-the-status-line.md): Claude Code puts the warning sign and the mod's name on every pinned mod line; it is not a Podium warning and nothing removes it.
 - [The effort shown is the old one after I run /effort](effort-shows-the-old-level-after-effort.md): The mod reads effort from each model request and has no event for the change; send your next prompt and the new level shows.
 - [Installing the mod from the marketplace fails with "Permission denied (publickey)"](marketplace-install-permission-denied-publickey.md): The owner/repo shorthand makes Claude Code clone over SSH; use the full https URL for the marketplace entry.
+- [My session's name is the folder, and background tasks, notifications and permission answers are missing](session-name-is-the-folder-and-classic-hooks-are-skipped.md): On a Team or Enterprise login Claude Code skips the mod's classic hooks; the name now comes from claude agents, the rest still does not report.
+- [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md): A session reads its podium-reporter options once, when it starts; run /reload-plugins in it after turning an option on.
+- [On Windows, /podium says offline with HTTP 502 when the config file names localhost](on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md): A config issued for https://localhost:4318 cannot work from another machine; edit its # server: line to an address that machine reaches.
 
 **Reporters and machines**
 
@@ -63,6 +66,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [Rows that read "Not since restart" and never go away](not-since-restart-rows-never-go-away.md): A container's address changes on each restart and leaves an addr row behind; remove the rows in Admin or turn on Forget old reporters.
 - [I changed my reporter settings and a running session did not change who it reports as](running-session-keeps-its-old-identity.md): A session takes its name and token once, when it starts; quit Claude Code and start a new session, or set PODIUM_USER and PODIUM_TOKEN.
 - [The status line says "refused: session belongs to someone else"](refused-session-belongs-to-someone-else.md): The server refuses reports for a session owned by another person; quit Claude Code and start a new session.
+- [A refused client certificate shows as "socket hang up", not a TLS alert](refused-client-certificate-looks-like-a-reset.md): Under TLS 1.3 the reporter port refuses a bad client certificate after the handshake, so it reads as a reset; check the certificate, not the network.
 
 **Running the server**
 
@@ -91,6 +95,8 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A new session is not on the wall until I send a prompt](new-session-not-on-the-wall-until-a-prompt.md): Podium keeps a session off the wall until it has done something; send a prompt and the card appears.
 - [A session I closed is still on the wall](closed-session-is-still-on-the-wall.md): Closing the window can move the conversation to the background; end it with claude stop and the card leaves.
 - [A session started without the mod stays "live" for ten minutes after it goes quiet](hook-only-session-stays-live-for-ten-minutes.md): Settings hooks send no heartbeat, so a hook-only session goes stale after 10 minutes; install the mod for faster detection.
+- [A session in the Claude desktop app stays on the wall until I delete it](desktop-session-stays-on-the-wall-until-deleted.md): The desktop app keeps every sidebar session open, so each card stays until you delete the session from the sidebar.
+- [Blowouts 1x on a card that is nowhere near full](blowout-on-a-card-nowhere-near-full.md): An automatic compaction after a quiet stretch is the likely cause; it is not a usage reset or an overflow.
 
 **Orchestrator messaging**
 
@@ -118,4 +124,6 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md): Installed copies update only when the plugin.json version changes, and that bump happens in the release-prep PR.
 - [A new color theme shows up in the dropdown but the page stays on Podium's colors](new-color-theme-has-no-effect.md): A theme lives in themes.ts, tokens.css and the inline script in index.html; update all three.
 - [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md): A fake tool.check that answers ask is denied by Claude Code 2.1.310's test engine; the mod's tests answer allow and set ask only where a test needs it.
+- [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md): Every storage call returns a promise; a missing await passes the type checker. Await it, and keep Storage.tx free of other waits.
+- [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md): Node on Windows has no Unix sockets, so the EACCES is an invalid pipe name, not a permission; the mod reaches the Windows helper through a request folder.
 <!-- entries:end -->

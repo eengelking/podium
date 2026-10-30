@@ -2,9 +2,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { openDb, FleetDb } from './db.js';
+import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
-import { PeopleStore } from './people.js';
 import { createFleetRouter } from './routes.js';
 import { createLogger, type Logger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
@@ -253,24 +252,24 @@ describe('RespondStore', () => {
     expect(s.summaries(sid).map((a) => a.id)).toEqual(['toolu_t']);
   });
 
-  it('forgets a closed ask once the session goes idle with no open ask (#208)', () => {
+  it('forgets a closed ask once the session is seen running after it closed (#208, #829)', () => {
     const { s, sid, tick } = store();
-    const report = (status: 'running' | 'waiting', open: Ask[] = []): Report => {
+    const report = (status: 'running' | 'waiting', sentAt: number): Report => {
       const r = fixtureReport();
       r.session.status = status;
-      r.session.asks = open;
-      r.sentAt = T0 + 2000;
+      r.session.asks = [];
+      r.sentAt = sentAt;
       return r;
     };
     s.announce(sid, QUESTION);
     tick(500);
     s.close(sid, 'toolu_q', { outcome: 'terminal', at: T0 + 500 });
-    // Still the turn the ask closed in: the outcome stays readable.
-    tick(1500);
-    s.noteReport(report('running'), true);
+    // A report made before the close says nothing about it.
+    s.noteReport(report('running', T0 + 100), true);
     expect(s.summaries(sid).map((a) => a.id)).toEqual(['toolu_q']);
-    // The turn ended and nothing is open: the outcome goes, long before ten minutes.
-    s.noteReport(report('waiting'), true);
+    // The session took the answer and runs again: the outcome goes now, not when the turn ends.
+    tick(1500);
+    s.noteReport(report('running', T0 + 2000), true);
     expect(s.summaries(sid)).toEqual([]);
   });
 
@@ -353,20 +352,21 @@ describe('RespondStore', () => {
 const SECRET = 'admin-secret';
 const H = { 'X-Podium-Respond': '1' };
 
-function setup(opts: { secret?: string | null; respond?: boolean; onSignIn?: express.RequestHandler; logger?: Logger } = {}) {
+async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn?: express.RequestHandler; logger?: Logger } = {}) {
   const secret = opts.secret === undefined ? SECRET : opts.secret;
-  const db = openDb(':memory:');
-  const fleet = new Fleet(new FleetDb(db), { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
-  const people = new PeopleStore(db);
+  const storage = openSqliteStorage(':memory:');
+  const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+  await fleet.init();
+  const people = storage.people;
   const lockout = new Lockout(fleet.now);
   const respondBridge = createRespondBridge();
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
-  app.use('/api/admin', createAdminRouter({ secret, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
   closers.push(() => fleet.close());
-  if (opts.respond !== false) fleet.features.setFeature('respond', true);
-  const ed = people.createPerson('Ed');
-  const alex = people.createPerson('Alex');
+  if (opts.respond !== false) await fleet.features.setFeature('respond', true);
+  const ed = await people.createPerson('Ed');
+  const alex = await people.createPerson('Alex');
   return { app, fleet, people, ed, alex };
 }
 
@@ -388,7 +388,7 @@ async function signedIn(app: express.Express, name: string, token: string) {
 describe('the plain-HTTP note on sign-in (#306)', () => {
   it('runs ahead of the sign-in and never changes its answer', async () => {
     const seen = vi.fn((_req: express.Request, _res: express.Response, next: express.NextFunction) => next());
-    const { app, ed } = setup({ onSignIn: seen });
+    const { app, ed } = await setup({ onSignIn: seen });
     expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: ed.token })).status).toBe(200);
     expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: 'wrong' })).status).toBe(401);
     expect(seen).toHaveBeenCalledTimes(2);
@@ -397,43 +397,43 @@ describe('the plain-HTTP note on sign-in (#306)', () => {
 
 describe('the switches', () => {
   it('is off with authentication off, and with either Admin flag off: the routes refuse and the reply says so', async () => {
-    const off = setup({ secret: null });
+    const off = await setup({ secret: null });
     expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false });
     expect((await request(off.app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: off.ed.token })).status).toBe(403);
     const r = await request(off.app).post('/api/fleet/report').send(report('Ed'));
     expect(r.body).toMatchObject({ respond: false, deliveries: [] });
 
-    const flagOff = setup({ respond: false });
+    const flagOff = await setup({ respond: false });
     const rep = await request(flagOff.app).post('/api/fleet/report').set('X-Podium-Token', flagOff.ed.token).send(report('Ed'));
     expect(rep.body).toMatchObject({ respond: false, deliveries: [] });
     expect((await request(flagOff.app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', flagOff.ed.token).send(QUESTION)).status).toBe(403);
 
-    const feedOff = setup();
-    feedOff.fleet.features.setFeature('activity-feed', false);
+    const feedOff = await setup();
+    await feedOff.fleet.features.setFeature('activity-feed', false);
     expect((await request(feedOff.app).get('/api/fleet/respond/me')).body.enabled).toBe(false);
   });
 
   it('drops every ask and answer it held when the Respond flag goes off', async () => {
-    const { app, fleet, ed } = setup();
+    const { app, fleet, ed } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [QUESTION]));
     expect(fleet.respond.summaries('sess-ed')).toHaveLength(1);
-    fleet.features.setFeature('respond', false);
+    await fleet.features.setFeature('respond', false);
     expect(fleet.respond.summaries('sess-ed')).toEqual([]);
   });
 });
 
 describe('signing in', () => {
   it('takes a person’s name (any case) with their token, and the name Admin with the admin secret', async () => {
-    const { app, ed, people } = setup();
+    const { app, ed, people } = await setup();
     const agent = await signedIn(app, 'ed', ed.token);
     expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false });
     const admin = await signedIn(app, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true });
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 
   it('refuses a token with someone else’s name, never saying which was wrong, and an empty field', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const res = await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Alex', token: ed.token });
     expect(res.status).toBe(401);
     expect(res.body).toEqual({ ok: false, error: 'wrong name or token' });
@@ -442,7 +442,7 @@ describe('signing in', () => {
   });
 
   it('locks an address out after five wrong tries, counted together with wrong Admin unlocks', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     for (let i = 0; i < 3; i++) expect((await request(app).post('/api/admin/unlock').set('X-Podium-Admin', '1').send({ name: 'Admin', token: 'nope' })).status).toBe(401);
     for (let i = 0; i < 2; i++) expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: 'nope' })).status).toBe(401);
     const locked = await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: ed.token });
@@ -451,7 +451,7 @@ describe('signing in', () => {
   });
 
   it('refuses a change without the header or from another origin, and sets no CORS header', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     expect((await request(app).post('/api/fleet/respond/sign-in').send({ name: 'Ed', token: ed.token })).status).toBe(403);
     const other = await request(app).post('/api/fleet/respond/sign-in').set(H).set('Origin', 'http://evil.example').send({ name: 'Ed', token: ed.token });
     expect(other.status).toBe(403);
@@ -460,24 +460,24 @@ describe('signing in', () => {
   });
 
   it('ends a sign-in on sign-out, and when the person’s token is rotated or revoked', async () => {
-    const { app, ed, people } = setup();
+    const { app, ed, people } = await setup();
     const a = await signedIn(app, 'Ed', ed.token);
     await a.post('/api/fleet/respond/sign-out').set(H);
     expect((await a.get('/api/fleet/respond/me')).body.signedIn).toBe(false);
     const b = await signedIn(app, 'Ed', ed.token);
-    people.rotate(ed.person.id);
+    await people.rotate(ed.person.id);
     expect((await b.get('/api/fleet/respond/me')).body.signedIn).toBe(false);
   });
 });
 
 describe('answering, end to end', () => {
   it('runs a question from the mod’s announcement to the browser’s answer, the held request, and the session taking it', async () => {
-    const { app, fleet, ed, people } = setup();
+    const { app, fleet, ed, people } = await setup();
     const rep = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
     expect(rep.body).toMatchObject({ respond: true, deliveries: [] });
     expect((await request(app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', ed.token).send(QUESTION)).status).toBe(200);
-    expect(fleet.view('sess-ed')?.asks).toEqual([{ id: 'toolu_q', kind: 'question', agentId: null, openedAt: T0, count: 2, state: 'open' }]);
-    expect(JSON.stringify(fleet.state())).not.toContain('Page size?');
+    expect((await fleet.view('sess-ed'))?.asks).toEqual([{ id: 'toolu_q', kind: 'question', agentId: null, openedAt: T0, count: 2, state: 'open' }]);
+    expect(JSON.stringify(await fleet.state())).not.toContain('Page size?');
 
     // The modal reads the whole ask; the mod waits for an answer.
     fleet.activity.watch('sess-ed', MAIN_LOOP, 5);
@@ -498,12 +498,12 @@ describe('answering, end to end', () => {
     expect((await browser.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_q')).body).toMatchObject({ state: 'closed', closed: { outcome: 'podium', by: 'Ed' } });
 
     // The admin log names who and what, never the text.
-    const log = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_sent');
+    const log = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sent');
     expect(log).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Answered a question in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]` })]);
     expect(JSON.stringify(log)).not.toContain('25/50/100');
 
     // And what became of it, matched to the answer by the short id (#304).
-    const result = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+    const result = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
     expect(result).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Answered a question in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: the session took it` })]);
   });
 
@@ -518,66 +518,66 @@ describe('answering, end to end', () => {
 
     for (const result of DELIVERY_RESULTS) {
       it(`writes respond_result for ${result}`, async () => {
-        const { app, ed, people } = setup();
+        const { app, ed, people } = await setup();
         await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
         const b = await signedIn(app, 'Ed', ed.token);
         const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #205' });
         await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
         const post = await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result });
         expect(post.status).toBe(200);
-        const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+        const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
         expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Sent a message in invoice-v2 (sess-ed) [${m.body.deliveryId.slice(0, 12)}]: ${WORDS[result]}` })]);
-        expect(JSON.stringify(people.listLog({ page: 1, pageSize: 50 }).rows)).not.toContain('secret words');
+        expect(JSON.stringify((await people.listLog({ page: 1, pageSize: 50 })).rows)).not.toContain('secret words');
       });
     }
 
     it('names the admin secret as the actor for a delivery Admin sent', async () => {
-      const { app, people } = setup();
+      const { app, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...report('Admin'), userName: 'Admin' });
       const admin = await signedIn(app, 'Admin', SECRET);
       const m = await admin.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...report('Admin'), userName: 'Admin' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', SECRET).send({ result: 'took' });
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'respond_result')?.actor).toBe('Admin secret');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'respond_result')?.actor).toBe('Admin secret');
     });
 
     it('writes one respond_result row when the mod posts the same result for an answer twice (#327)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
       const post = () => request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${sent.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'took' });
       expect((await post()).status).toBe(200);
       expect((await post()).status).toBe(200);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
     });
 
     it('writes one respond_result row when the mod posts queued twice for a message (#327)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
       const post = (result: string) => request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result });
       expect((await post('queued')).status).toBe(200);
       expect((await post('queued')).status).toBe(200);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(1);
     });
 
     it('still writes a row for each different result of one message, queued and then took (#327)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
       for (const result of ['queued', 'took']) {
         expect((await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result })).status).toBe(200);
       }
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result');
       expect(rows.map((r) => r.detail.split(': ')[1]).sort()).toEqual(['the session queued it', 'the session took it']);
     });
 
     it('logs respond.delivered once when the mod posts the same result twice, and answers 200 both times (#330)', async () => {
       const lines: string[] = [];
-      const { app, ed } = setup({ logger: createLogger({ format: 'json', write: (l) => lines.push(l) }) });
+      const { app, ed } = await setup({ logger: createLogger({ format: 'json', write: (l) => lines.push(l) }) });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
@@ -591,7 +591,7 @@ describe('answering, end to end', () => {
 
     it('logs respond.delivered for each different result of one message (#330)', async () => {
       const lines: string[] = [];
-      const { app, ed } = setup({ logger: createLogger({ format: 'json', write: (l) => lines.push(l) }) });
+      const { app, ed } = await setup({ logger: createLogger({ format: 'json', write: (l) => lines.push(l) }) });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
@@ -603,54 +603,54 @@ describe('answering, end to end', () => {
     });
 
     it('writes no row for a result the server does not hold a delivery for', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const r = await request(app).post('/api/fleet/sessions/sess-ed/deliveries/dlv_nope/result').set('X-Podium-Token', ed.token).send({ result: 'took' });
       expect(r.status).toBe(404);
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((x) => x.kind === 'respond_result')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((x) => x.kind === 'respond_result')).toEqual([]);
     });
 
     it('writes respond_dropped when the sender discards an answer before the session has it', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
       expect(sent.status).toBe(202);
       expect((await b.delete(`/api/fleet/respond/deliveries/${sent.body.deliveryId}`).set(H)).status).toBe(200);
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Allowed a tool once in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: discarded by its sender, so it never reached the session` })]);
     });
 
     it('writes respond_dropped when the terminal closes the ask before the session has the answer', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([expect.objectContaining({ actor: 'Ed', detail: `Denied a tool in invoice-v2 (sess-ed) [${sent.body.deliveryId.slice(0, 12)}]: the ask closed first, so it never reached the session` })]);
     });
 
     it('writes no dropped row for an answer the session already has', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await request(app).get('/api/fleet/sessions/sess-ed/asks/toolu_t/answer?wait=1').set('X-Podium-Token', ed.token);
       await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     const ended = (): Report => ({ ...report('Ed'), session: { ...report('Ed').session, status: 'done' } });
 
     it('writes respond_dropped for a message still waiting when the session ends (#326)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const sent = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #326' });
       const clear = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: '/clear' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toHaveLength(2);
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
@@ -663,17 +663,17 @@ describe('answering, end to end', () => {
     });
 
     it('writes no dropped row for a message the session already took when it ends (#326)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const took = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'one' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${took.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'took' });
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     it('writes respond_dropped for a message still queued when the session ends, and not for one that later got took (#334)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const queued = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #334' });
@@ -683,7 +683,7 @@ describe('answering, end to end', () => {
       await post(later.body.deliveryId, 'queued');
       await post(later.body.deliveryId, 'took');
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toEqual([
         expect.objectContaining({ actor: 'Ed', detail: `Sent a message in invoice-v2 (sess-ed) [${queued.body.deliveryId.slice(0, 12)}]: the session ended while it was still queued, so Podium cannot tell whether it was read` }),
       ]);
@@ -691,13 +691,13 @@ describe('answering, end to end', () => {
     });
 
     it('writes respond_dropped for a message and an answer still waiting when the session is deleted (#333)', async () => {
-      const { app, fleet, ed, people } = setup();
+      const { app, fleet, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const msg = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #333' });
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
-      fleet.deleteSession('sess-ed');
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      await fleet.deleteSession('sess-ed');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
           `Sent a message in invoice-v2 (sess-ed) [${msg.body.deliveryId.slice(0, 12)}]: the session was deleted first, before any result came back`,
@@ -709,23 +709,26 @@ describe('answering, end to end', () => {
     });
 
     it('writes no row when the session is deleted for a delivery that already has a result (#333)', async () => {
-      const { app, fleet, ed, people } = setup();
+      const { app, fleet, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
       const b = await signedIn(app, 'Ed', ed.token);
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'one' });
       await request(app).post(`/api/fleet/sessions/sess-ed/deliveries/${m.body.deliveryId}/result`).set('X-Podium-Token', ed.token).send({ result: 'queued' });
-      fleet.deleteSession('sess-ed');
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
+      await fleet.deleteSession('sess-ed');
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped')).toEqual([]);
     });
 
     it('writes respond_dropped for what is still waiting when responding is turned off (#333)', async () => {
-      const { app, fleet, ed, people } = setup();
+      const { app, fleet, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const msg = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'secret words about issue #333' });
       const ans = await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' });
-      fleet.features.setFeature('respond', false);
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      await fleet.features.setFeature('respond', false);
+      // The delivery log lines are written once the session's name has been read (#313): wait, for at most 2 s, until both are there.
+      const dropped = async () => (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
+      for (let waited = 0; (await dropped()).length < 2 && waited < 2000; waited += 5) await new Promise((r) => setTimeout(r, 5));
+      const rows = await dropped();
       expect(rows.map((r) => r.detail).sort()).toEqual(
         [
           `Sent a message in invoice-v2 (sess-ed) [${msg.body.deliveryId.slice(0, 12)}]: responding was turned off first, before any result came back`,
@@ -736,21 +739,21 @@ describe('answering, end to end', () => {
     });
 
     it('writes one respond_dropped row per delivery when a session ends and is then deleted (#333)', async () => {
-      const { app, fleet, ed, people } = setup();
+      const { app, fleet, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'one' });
       await b.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
       await request(app).get('/api/fleet/sessions/sess-ed/asks/toolu_t/answer?wait=1').set('X-Podium-Token', ed.token); // the mod has this answer; no result yet
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(ended());
-      fleet.deleteSession('sess-ed');
-      const rows = people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_dropped');
+      await fleet.deleteSession('sess-ed');
+      const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_dropped');
       expect(rows).toHaveLength(2);
       expect(new Set(rows.map((r) => r.detail.match(/\[(dlv_\w+)\]/)?.[1])).size).toBe(2);
     });
 
     it('answers 404 to a repeat of a final result, and writes one respond_result row (#329)', async () => {
-      const { app, ed, people } = setup();
+      const { app, ed, people } = await setup();
       await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [TOOL]));
       const b = await signedIn(app, 'Ed', ed.token);
       const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'hello' });
@@ -762,12 +765,12 @@ describe('answering, end to end', () => {
         expect(again.status).toBe(404);
         expect(again.body).toEqual({ ok: false, error: 'unknown delivery' });
       }
-      expect(people.listLog({ page: 1, pageSize: 50 }).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(2);
+      expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_result')).toHaveLength(2);
     });
   });
 
   it('refuses a second answer, an answer to a closed ask, someone else’s session, and no sign-in', async () => {
-    const { app, ed, alex } = setup();
+    const { app, ed, alex } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [QUESTION, TOOL]));
     const edB = await signedIn(app, 'Ed', ed.token);
     const alexB = await signedIn(app, 'Alex', alex.token);
@@ -787,7 +790,7 @@ describe('answering, end to end', () => {
   });
 
   it('lets only the session’s own credential announce or wait, and refuses no token', async () => {
-    const { app, alex, ed } = setup();
+    const { app, alex, ed } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
     expect((await request(app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').send(QUESTION)).status).toBe(401);
     expect((await request(app).put('/api/fleet/sessions/sess-ed/asks/toolu_q').set('X-Podium-Token', alex.token).send(QUESTION)).status).toBe(403);
@@ -797,7 +800,7 @@ describe('answering, end to end', () => {
   });
 
   it('hands messages over in the reply to a report, and refuses one the session does not take', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed'));
     const b = await signedIn(app, 'Ed', ed.token);
     const m = await b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'Start on issue #205.' });
@@ -810,7 +813,7 @@ describe('answering, end to end', () => {
   });
 
   it('serves the whole ask only to its owner or an Admin', async () => {
-    const { app, ed, alex } = setup();
+    const { app, ed, alex } = await setup();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(report('Ed', 'sess-ed', [PLAN]));
     const alexB = await signedIn(app, 'Alex', alex.token);
     expect((await alexB.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).status).toBe(403);
@@ -823,31 +826,31 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   const AH = { 'X-Podium-Admin': '1' };
 
   it('scopes the sign-in cookie to /api so the Admin routes receive it', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const res = await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: ed.token });
     expect(String(res.headers['set-cookie'])).toMatch(/podium_respond=[^;]+; Path=\/api;/);
   });
 
   it('opens Admin, with no second sign-in, for an Administrator signed in to respond', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(401);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Priya');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Priya');
   });
 
   it('opens Admin for the admin secret signed in as Admin', async () => {
-    const { app, people } = setup();
+    const { app, people } = await setup();
     const agent = await signedIn(app, 'Admin', SECRET);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
-    expect(people.listLog({ page: 1, pageSize: 50 }).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Admin secret');
+    expect((await people.listLog({ page: 1, pageSize: 50 })).rows.find((r) => r.kind === 'unlock')?.actor).toBe('Admin secret');
   });
 
   it('refuses an ordinary person, and a browser that is not signed in', async () => {
-    const { app, ed } = setup();
+    const { app, ed } = await setup();
     const agent = await signedIn(app, 'Ed', ed.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(401);
@@ -855,9 +858,9 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   });
 
   it('stays locked after an explicit Lock Admin, until the person unlocks with a name and token or signs in again (#272)', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -872,10 +875,10 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   });
 
   it('keeps the hold when a different Administrator unlocks Admin with their own name and token in that browser (#272)', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
-    const quinn = people.createPerson('Quinn', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
+    const quinn = await people.createPerson('Quinn', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -885,9 +888,9 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   });
 
   it('lets a new sign-in to respond open Admin again after Lock Admin (#272)', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.post('/api/admin/lock').set(AH)).status).toBe(200);
@@ -897,36 +900,36 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   });
 
   it('opens Admin from a sign-in made only for the Activity history: respond off, a keep policy on (#432)', async () => {
-    const { app, fleet, people } = setup({ respond: false });
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, fleet, people } = await setup({ respond: false });
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     // nothing needs a sign-in yet
     expect((await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Priya', token: priya.token })).status).toBe(403);
-    expect(fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
+    expect(await fleet.activityHistorySettings.set({ policy: 'all' })).toMatchObject({ ok: true });
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
     expect((await agent.get('/api/admin/people').set(AH)).status).toBe(200);
     // an ordinary person is still refused
-    const eve = people.createPerson('Eve');
+    const eve = await people.createPerson('Eve');
     const ed = await signedIn(app, 'Eve', eve.token);
     expect((await ed.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
   });
 
   it('refuses it when respond is off and no keep policy is on, even for a sign-in made earlier (#432)', async () => {
-    const { app, fleet, people } = setup({ respond: false });
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
-    fleet.activityHistorySettings.set({ policy: 'all' });
+    const { app, fleet, people } = await setup({ respond: false });
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
+    await fleet.activityHistorySettings.set({ policy: 'all' });
     const agent = await signedIn(app, 'Priya', priya.token);
-    fleet.activityHistorySettings.set({ policy: 'default' });
+    await fleet.activityHistorySettings.set({ policy: 'default' });
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
     expect((await agent.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false, signedIn: false });
   });
 
   it('does not hold another browser signed in as the same Administrator (#272)', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const laptop = await signedIn(app, 'Priya', priya.token);
     const desk = await signedIn(app, 'Priya', priya.token);
     expect((await laptop.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(200);
@@ -935,12 +938,12 @@ describe('opening Admin from a sign-in to respond (#215)', () => {
   });
 
   it('refuses once the person has left Administrators, and without the Admin header', async () => {
-    const { app, people } = setup();
-    const admins = people.allGroups().find((g) => g.name === 'Administrators')!;
-    const priya = people.createPerson('Priya', admins.id);
+    const { app, people } = await setup();
+    const admins = (await people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const priya = await people.createPerson('Priya', admins.id);
     const agent = await signedIn(app, 'Priya', priya.token);
     expect((await agent.post('/api/admin/unlock/from-respond')).status).toBe(403);
-    people.setGroup(priya.person.id, null);
+    await people.setGroup(priya.person.id, null);
     expect((await agent.post('/api/admin/unlock/from-respond').set(AH)).status).toBe(401);
   });
 });

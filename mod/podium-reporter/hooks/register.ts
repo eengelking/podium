@@ -10,6 +10,7 @@
 import { modBuild } from './build.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from './git.ts';
+import { readAppTitle } from './agentName.ts';
 import { readFileDiff } from './fileDiff.ts';
 import { follow } from './place.ts';
 import { shortName } from './models.ts';
@@ -55,7 +56,8 @@ import {
 } from './state.ts';
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
-import { findConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
+import { findConfig, readHome, startLink, unusableLink, type Link } from './tlsLink.ts';
+import { contextCommand, type ContextIO } from './contexts.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
@@ -90,6 +92,7 @@ import {
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from './peers.ts';
+import { connectionLine, messagingLine, optionProblem, messagingOffReason, nonBooleanOptions, type MessagingFacts } from './messagingStatus.ts';
 import {
   answeredLine,
   answersMap,
@@ -109,8 +112,10 @@ import {
   toolDenied,
 } from './respond.ts';
 
-export const VERSION = '1.3.1';
+export const VERSION = '1.4.0';
 const GIT_POLL_MS = 10_000;
+/** The app's title is read on every third git poll, so about every 30 s: it costs a process each time (#595). */
+const APP_TITLE_EVERY = 3;
 /** session.end has one ~1.5 s bound for every hook and core together; stay well inside it. */
 const END_FLUSH_MS = 1000;
 const ERRORS_KEPT = 20;
@@ -134,6 +139,8 @@ interface Options {
   activityOutput: boolean;
   /** Answer requests for one file's diff (#319). */
   fileDiff: boolean;
+  /** Tell the console it may read every changed file's diff while its page is open (#631). On unless set to false. */
+  fileDiffPreload: boolean;
   /** What this session accepts from Podium (#206). */
   respond: RespondLevel;
   /** Message the owner's other orchestrators through Podium (#347, #414). */
@@ -162,8 +169,14 @@ interface Runtime {
   storedName: string | null;
   /** Claude Code's own name for a session, from a hook's `session_title`, with the id it was taken under; null until a hook carries one (#322). It counts only while that id is the session being reported, so a /clear or resume never inherits it. The hook's own `session_id` is not used: the reporter keys everything on `$.session.id()`. */
   claudeName: { id: string; name: string } | null;
+  /** The title the Claude desktop app shows for the session, from `claude agents --json`, with the id it was read under (#595). It names the session only while no hook has carried a `session_title` for that id: a Team or Enterprise login has Claude Code's guard skip those hooks. */
+  appName: { id: string; name: string } | null;
+  /** Git polls run so far; the app's title is read on the first and every APP_TITLE_EVERY-th after it. */
+  polls: number;
   engineVersion: string | null;
   hostSurface: string | null;
+  /** Whether the session started on the desktop surface or a desktop client has been on its roster; the app keeps such a session open while another is on screen (#594). */
+  sawDesktop: boolean;
   /** The commit of a dev build of this mod, found once per load (#400); null for a release or an installed copy. */
   build: string | null;
   flushing: boolean;
@@ -206,6 +219,7 @@ export function readOptions(o: Record<string, unknown>): Options {
     activityFeed: o.activityFeed === true,
     activityOutput: o.activityOutput === true,
     fileDiff: o.fileDiff === true,
+    fileDiffPreload: o.fileDiffPreload !== false,
     respond: respondLevel(o.respond),
     peers: o.peers === true,
     sessionRecording: o.sessionRecording === true,
@@ -215,9 +229,12 @@ export function readOptions(o: Record<string, unknown>): Options {
 // ---- module state (reset by register) -----------------------------------------------------------
 
 let opts: Options = readOptions({});
+/** The switch options whose value was not true or false, as the mod got them: `/podium` names each (#825). `readOptions` stays strict, so a mistyped consent option never turns itself on. */
+let badOptions: { name: string; got: string }[] = [];
 /** The name and token this session reports as: taken once at session.start and held (#226), never read live from the options. */
 let who: Identity = { userName: '', token: '' };
 const IDENTITY = { plugin: 'podium-reporter', key: 'identity' } as const;
+const CHOSEN_CONFIG = { plugin: 'podium-reporter', key: 'chosenConfig' } as const;
 let rt: Runtime | null = null;
 /** Where the name in `who` came from, for the wrong-config message (#647); empty when `who` has none. */
 let nameSource = '';
@@ -225,6 +242,10 @@ let nameSource = '';
 let nameIsSetting = false;
 /** The helper that makes the TLS connection, when a reporter config file exists (#584); null sends reports as before, through `$.http.fetch`. */
 let link: Link | null = null;
+/** The context the link was chosen by and the reason a named one was not used (#606); both belong to the link and end with it. */
+let linkContext: { name: string | null; problem: string | null } = { name: null, problem: null };
+/** The home folder the reporter config was looked for in, the variable it came from, and why none was found (#834); shown by `/podium`. */
+let linkHome: { home: string | undefined; from: string | undefined; note: string | null } = { home: undefined, from: undefined, note: null };
 /** The start of `link` that is under way, so two overlapping session.start events share it. */
 let linking: Promise<void> | null = null;
 /** Bumped by each register (a reload, or a new test): a wait for an answer started under an older one stops. */
@@ -275,6 +296,8 @@ const HOLD_SECONDS = 20;
 const APPROVAL_CONFIRM_MS = 5000;
 /** How long after tool.check says `ask` a PermissionRequest must fire before the hooks are taken as not running. */
 const PERMISSION_CHECK_MS = 2000;
+/** The `checks` key of the watch for a turn that ended with no classic hook run (#742). */
+const HOOKS_CHECK = 'hooks-check';
 
 let asks = new Map<string, OpenAsk>();
 let outbox: OutItem[] = [];
@@ -285,9 +308,13 @@ let diffsDone: string[] = [];
 /** null until known; false once a prompt showed with no PermissionRequest; true once one fired. */
 let permissionHooks: boolean | null = null;
 let lastPermissionAt = 0;
+/** Whether any classic hook has run in this session; a login that skips them never sets it (#742). */
+let classicSeen = false;
 let checks = new Map<string, { cancel: () => void }>();
 /** Each loop's latest tool call, so a PermissionRequest (which has no tool_use_id) can be paired with it. */
 let lastCalls = new Map<string, { tool: string; input: string; id: string }>();
+/** Calls that ended while their tool.check was still waiting for a PermissionRequest: answered, so no prompt is left to show (#741). */
+let endedChecks = new Set<string>();
 /** The `seq` a recorded tool call got, by its tool_use_id, so an answer or approval from Podium points at its call (#353). Dropped when the call ends. */
 let callSeqs = new Map<string, number>();
 /** A /clear or /compact sent from Podium and running now: the first mark of that kind is Podium's, and only while the command runs (#353). */
@@ -384,6 +411,20 @@ function peersWanted(r: Runtime): boolean {
   return opts.peers && r.interactive;
 }
 
+/** What `/podium` and a tool's refusal say about why messaging is on or off (#825). */
+function messagingFacts(r: Runtime): MessagingFacts {
+  const t = r.transport;
+  return {
+    option: opts.peers,
+    interactive: r.interactive,
+    surface: r.hostSurface,
+    serverSays: t.peers,
+    signedIn: !!link?.headers || (who.userName.trim() !== '' && who.token.trim() !== ''),
+    reported: t.sent > 0,
+    ended: r.state.ended,
+  };
+}
+
 /** Whether the mod takes part now (SPEC 5.3 "When the mod takes part"): its own switches, and the server's last word. */
 function peersOn(r: Runtime | null): r is Runtime {
   return !!r && peersWanted(r) && r.transport.peers && !r.state.ended;
@@ -410,7 +451,7 @@ function metaOf(r: Runtime, now: number) {
     build: r.build,
     now,
     storedName: r.storedName,
-    claudeName: r.claudeName?.id === r.state.id ? r.claudeName.name : null,
+    claudeName: (r.claudeName?.id === r.state.id ? r.claudeName.name : null) ?? (r.appName?.id === r.state.id ? r.appName.name : null),
     optionName: opts.sessionName || null,
     userName: who.userName || null,
     machine: r.machine,
@@ -418,6 +459,7 @@ function metaOf(r: Runtime, now: number) {
     activity: opts.activityFeed,
     activityOutput: opts.activityOutput,
     fileDiff: opts.fileDiff,
+    fileDiffPreload: opts.fileDiffPreload,
     sessionRecording: opts.sessionRecording,
     respond: respondNow(r),
     asks: r.transport.respond && opts.respond !== 'off' ? openAsks(r) : null,
@@ -433,7 +475,7 @@ function devNote(version: string, build: string | null | undefined): string {
 
 function showStatus($: Engine, r: Runtime): void {
   if (!opts.showStatus) return;
-  const text = r.transport.statusText(link?.problem()?.status);
+  const text = r.transport.statusText(link?.problem()?.status, linkContext.problem ? 'context unusable' : linkContext.name);
   if (text === r.lastStatus) return;
   r.lastStatus = text;
   try {
@@ -547,11 +589,20 @@ async function readUsage($: Engine, r: Runtime): Promise<void> {
   }
 }
 
-/** The roster of attached clients. An empty one is a background session with nobody on it; a failed read says nothing. */
+/**
+ * The roster of attached clients. An empty one is a background session with nobody on it, unless the desktop app has
+ * attached to it before: it only attaches the session on screen and keeps the rest open (#594). A failed read says nothing.
+ */
 async function readSurfaces($: Engine, r: Runtime): Promise<void> {
   try {
     const clients = await $.session.surfaces();
-    r.state = setAttached(r.state, clients.length > 0);
+    if (clients.includes('desktop')) r.sawDesktop = true;
+    // A client that attaches after `session.start` (Desktop does, #408) shows a person is on the session; the start's null surface was only a snapshot.
+    if (clients.length > 0 && !r.interactive) {
+      r.interactive = true;
+      void attempt(() => $.store.set(`${INTERACTIVE_KEY}${r.state.id}`, true), undefined);
+    }
+    r.state = setAttached(r.state, clients.length > 0 || r.sawDesktop);
   } catch (err) {
     record($, 'session.surfaces', err);
   }
@@ -584,8 +635,22 @@ async function findBuild($: Engine): Promise<string | null> {
   }, root);
 }
 
+/** Take the title the desktop app shows for the session (#595). A failed read keeps the last title; a rename shows from the next read. */
+async function pollAppTitle($: Engine, r: Runtime): Promise<void> {
+  const id = r.state.id;
+  if (r.claudeName?.id === id) return; // a hook's title outranks the app's, so the process is not worth running
+  const name = await readAppTitle(async (argv) => {
+    const res = await $.process.run(argv, { timeoutMs: 5000 });
+    return { exitCode: res.exitCode, stdout: res.stdout };
+  }, id);
+  if (!name || r.state.id !== id || (r.appName?.id === id && r.appName.name === name)) return;
+  r.appName = { id, name };
+  r.state = { ...r.state, dirty: true };
+}
+
 async function pollGit($: Engine, r: Runtime): Promise<void> {
   try {
+    if (r.polls++ % APP_TITLE_EVERY === 0) void pollAppTitle($, r); // not awaited: a slow `claude` must not hold up the git reads
     await movePlace($, r);
     const cwd = r.state.cwd;
     const run = async (argv: string[]) => {
@@ -619,6 +684,13 @@ async function loadBase($: Engine, id: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** The store key prefix for a session a client was seen on, so a reload or a later start keeps it interactive (#408). */
+const INTERACTIVE_KEY = 'interactive:';
+
+async function wasInteractive($: Engine, id: string): Promise<boolean> {
+  return (await attempt<unknown>(() => $.store.get(`${INTERACTIVE_KEY}${id}`), undefined)) === true;
 }
 
 async function loadName($: Engine, id: string): Promise<string | null> {
@@ -766,7 +838,7 @@ function random(): number {
 async function machineId($: Engine): Promise<string> {
   const path = machineIdPath(
     await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    await attempt(() => $.env.get('HOME'), undefined),
+    (await readHome($)).home,
   );
   const shared = async () => (path ? parseMachineIdFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
   const fromFile = await shared();
@@ -793,7 +865,7 @@ async function machineId($: Engine): Promise<string> {
 async function machineName($: Engine): Promise<string | null> {
   const path = machineNamePath(
     await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    await attempt(() => $.env.get('HOME'), undefined),
+    (await readHome($)).home,
   );
   const pinnedName = async () => (path ? parseMachineNameFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
   const pinned = await pinnedName();
@@ -1171,6 +1243,7 @@ function permissionSeen(r: Runtime, id: string | null): void {
   if (id) {
     checks.get(id)?.cancel();
     checks.delete(id);
+    endedChecks.delete(id);
   }
   if (permissionHooks !== true) {
     permissionHooks = true;
@@ -1178,8 +1251,39 @@ function permissionSeen(r: Runtime, id: string | null): void {
   }
 }
 
-/** tool.check said a prompt is about to show: if no PermissionRequest follows, the hooks don't run here (SPEC 5.3). */
-function startPermissionCheck($: Engine, id: string): void {
+/** A prompt on the card, once: the PermissionRequest hook and the tool.check fallback (#742) may both report the same one. */
+function recordPermission(r: Runtime, tool: string, input: unknown): void {
+  const next = permissionRequest(r.state, tool, input, nowMs());
+  if (r.state.waitReason === 'permission' && r.state.waitNote === next.waitNote) return;
+  r.state = next;
+}
+
+/**
+ * A turn ended and no classic hook has run at all: a login that skips them (#742), so a prompt cannot be answered
+ * from Podium, said now and not only after the first prompt.
+ */
+function startHooksCheck($: Engine): void {
+  checks.get(HOOKS_CHECK)?.cancel();
+  try {
+    checks.set(
+      HOOKS_CHECK,
+      $.clock.after(PERMISSION_CHECK_MS, () => {
+        checks.delete(HOOKS_CHECK);
+        if (classicSeen || permissionHooks !== null || !rt) return;
+        permissionHooks = false;
+        rt.state = { ...rt.state, dirty: true };
+      }),
+    );
+  } catch {
+    // no clock: leave it unknown
+  }
+}
+
+/**
+ * tool.check said a prompt is about to show: if no PermissionRequest follows, the hooks don't run here (SPEC 5.3), and
+ * the prompt is put on the card from what tool.check saw (#742).
+ */
+function startPermissionCheck($: Engine, id: string, tool: string, input: unknown): void {
   const startedAt = nowMs();
   checks.get(id)?.cancel();
   try {
@@ -1188,6 +1292,7 @@ function startPermissionCheck($: Engine, id: string): void {
       if (lastPermissionAt >= startedAt || !rt) return;
       permissionHooks = false;
       rt.state = { ...rt.state, dirty: true };
+      if (!endedChecks.delete(id)) recordPermission(rt, tool, input);
     });
     checks.set(id, h);
   } catch {
@@ -1527,7 +1632,8 @@ function ownerName(): string {
 
 /** The mod's refusal when it does not take part now. */
 function notTakingPart(prefix: string): string {
-  return refusalAnswer(prefix, opts.peers ? 'orchestrator messaging is not on for this session in Podium right now' : "messaging is off on this machine: turn on podium-reporter's peers option there");
+  const why = rt ? messagingOffReason(messagingFacts(rt)) : null;
+  return refusalAnswer(prefix, `orchestrator messaging is off for this session${why ? ` because ${why}` : ' in Podium right now'}`);
 }
 
 /** A tool call that carries an `agentId` comes from a subagent (or one of the engine's own forks): refused, whoever it is. */
@@ -1662,12 +1768,19 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
   if (link && (!link.headers || (who.userName.trim() && who.userName.trim() !== link.user))) {
     link.stop();
     link = null;
+    linkContext = { name: null, problem: null };
   }
   if (!link) {
     // Two overlapping starts wait for one helper, not one each.
     linking ??= (async () => {
-      const found = await findConfig($ as never).catch(() => null);
+      // A reload starts over, so the file a context chose at the start is read back from $.state and kept: a later `use` is for the next session (#606).
+      const held = (await attempt(async () => (await $.state.get(CHOSEN_CONFIG)).value, null)) ?? null;
+      const found = await findConfig($ as never, undefined, held).catch(() => null);
+      if (found?.found?.context && found.found.path !== held?.path) await attempt(() => $.state.set(CHOSEN_CONFIG, { path: found.found!.path, context: found.found!.context! }), undefined);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
+      if (found?.contextProblem) record($, 'tls', new Error(found.contextProblem.text));
+      linkContext = { name: found?.found?.context ?? null, problem: found?.contextProblem?.text ?? null };
+      if (found) linkHome = { home: found.env.home, from: found.env.homeFrom, note: found.homeNote };
       if (found?.problem) link = unusableLink(found.env.config ?? '', opts.serverUrl, found.problem);
       else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), nameSource, nameIsSetting, now: nowMs, log: (line) => void remember('tls', line) });
     })().finally(() => {
@@ -1695,8 +1808,11 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     kick: null,
     storedName: await loadName($, id),
     claudeName: same && rt ? rt.claudeName : null,
+    appName: same && rt ? rt.appName : null,
+    polls: 0,
     engineVersion: version?.version ?? null,
     hostSurface: e.surface,
+    sawDesktop: e.surface === 'desktop' || (same && rt ? rt.sawDesktop : false),
     flushing: false,
     peerFlushing: false,
     lastStatus: null,
@@ -1708,7 +1824,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     skillCalls: 0,
     machine: rt?.machine ?? (await readMachine($)),
     clearedFrom: same && rt ? rt.clearedFrom : null,
-    interactive: e.surface !== null,
+    interactive: e.surface !== null || (same && !!rt?.interactive) || (await wasInteractive($, id)),
     sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };
   acted = await loadActed($);
@@ -1718,8 +1834,8 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     // immediate: an answer to a request typed during a turn runs at once, not when the turn ends (#411). The other verbs run mid-turn too.
     await $.command.register({
       name: 'podium',
-      description: 'Podium fleet console: link, connection state, naming this session, and answering a messaging request',
-      argumentHint: '[name <text> | allow <id> | decline <id> | deliver <id>]',
+      description: 'Podium fleet console: link, connection state, naming this session, which Podium server (context), and answering a messaging request',
+      argumentHint: '[name <text> | context [list|show|add|rename|remove|use] | allow <id> | decline <id> | deliver <id>]',
       immediate: true,
     });
   } catch (err) {
@@ -1780,11 +1896,37 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
   }
 }
 
-/** /podium, /podium name <text>, and /podium allow|decline|deliver <id> (#414). */
+/** `/podium context ...` (#606): the files are read and written through `$.fs`; a missing file reads as null. */
+async function contextVerb($: Engine, args: string): Promise<string> {
+  const { home } = await readHome($);
+  if (!home) return 'Podium: cannot find your home folder (HOME, USERPROFILE and HOMEDRIVE+HOMEPATH are empty), so contexts cannot be read or changed.';
+  const io: ContextIO = {
+    // A file that is not there reads as null; one that is there and cannot be read throws, so a command never rewrites a file it could not read.
+    read: async (path) => {
+      if (!(await $.fs.exists(path).catch(() => false))) return null;
+      const t = await $.fs.read(path);
+      return typeof t === 'string' ? t : null;
+    },
+    write: async (path, text) => {
+      await $.fs.write(path, text);
+    },
+  };
+  try {
+    return await contextCommand(io, home, args, (await attempt(() => $.env.get('PODIUM_REPORTER_CONTEXT'), undefined)) || undefined);
+  } catch (err) {
+    record($, 'context', err);
+    return `Podium: the context command failed (${err instanceof Error ? err.message : String(err)}).`;
+  }
+}
+
+/** /podium, /podium name <text>, /podium context ..., and /podium allow|decline|deliver <id> (#414). */
 async function podiumCommand($: Engine, args: string): Promise<string> {
   const r = rt;
   const verb = parseAnswer(args);
   if (verb) return answerRequest($, verb.answer, verb.id);
+  // The word `context`, alone or followed by whitespace; startsWith and a one-character test, so no pattern can backtrack over the rest.
+  const trimmed = args.trim();
+  if (trimmed.startsWith('context') && (trimmed.length === 7 || /\s/.test(trimmed.charAt(7)))) return contextVerb($, trimmed.slice(7));
   const name = nameArg(args);
   if (name !== null && r) {
     try {
@@ -1805,16 +1947,22 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
   return [
     `Podium fleet console: ${serverBase()}/#/`,
     link ? `TLS: ${link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`}` : '',
+    link && linkContext.name ? `Context: ${linkContext.name} (${link.serverUrl}). Switch it for the next session with /podium context use <name>.` : '',
+    linkContext.problem ? `Context problem: ${linkContext.problem}` : '',
+    linkHome.home ? `Home folder: ${linkHome.home} (from ${linkHome.from})` : linkHome.note ? `Home folder: ${linkHome.note}` : '',
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
     `Versions: reporter ${devNote(VERSION, r.build)}${t.serverVersion ? `, server ${devNote(t.serverVersion, t.serverBuild)}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',
+    connectionLine({ configPath: link?.headers ? link.configPath : null, tokenSet: who.token.trim() !== '' }),
+    messagingLine(messagingFacts(r)),
+    ...badOptions.map(optionProblem),
     `Reports sent: ${t.sent}, failed: ${t.failed}, rejected: ${t.rejected}; events queued: ${t.queue.length}${t.dropped ? `, dropped: ${t.dropped}` : ''}`,
     `Last error: ${t.lastError ?? errors[errors.length - 1]?.message ?? 'none'}`,
     `Session: ${r.state.id}${r.storedName ? ` (named "${r.storedName}")` : ''}`,
     describeBackground(r.state),
     peersOn(r) ? openRequestsLine(peerOpen.map((id) => peerKnown.get(id)).filter((q): q is PeerRequest => !!q)) : '',
     hooks.length ? `Reporter time per hook: ${hooks.join('; ')}` : '',
-    'Name this session: /podium name <text>',
+    'Name this session: /podium name <text>. Contexts (which Podium server): /podium context',
   ]
     .filter(Boolean)
     .join('\n');
@@ -1913,6 +2061,7 @@ async function sendRecording($: Engine, now: number): Promise<void> {
 
 export const register: Register = (on, rawOptions) => {
   opts = readOptions(rawOptions as Record<string, unknown>);
+  badOptions = nonBooleanOptions(rawOptions as Record<string, unknown>);
   who = { userName: '', token: '' };
   link?.stop();
   link = null;
@@ -1928,9 +2077,11 @@ export const register: Register = (on, rawOptions) => {
   acted = [];
   permissionHooks = null;
   lastPermissionAt = 0;
+  classicSeen = false;
   for (const c of checks.values()) c.cancel();
   checks = new Map();
   lastCalls = new Map();
+  endedChecks = new Set();
   callSeqs = new Map();
   ranFromPodium = null;
   messagesLineShown = false;
@@ -2025,6 +2176,7 @@ export const register: Register = (on, rawOptions) => {
     safe('turn.complete', (r) => {
       r.state = turnComplete(r.state, { agentId: e.agentId, reason: e.reason, answer: e.answer }, nowMs());
     });
+    if (!e.agentId && opts.respond !== 'off' && !classicSeen && permissionHooks === null) startHooksCheck($);
     return res;
   }).catch(($, e, next) => next(e));
 
@@ -2089,7 +2241,7 @@ export const register: Register = (on, rawOptions) => {
     const tool = String(e.tool);
     const input = e as unknown as Record<string, unknown>;
     safe('tool.call', (r) => {
-      r.state = toolStarted(r.state, e.agentId, tool);
+      r.state = toolStarted(r.state, e.agentId, tool, nowMs());
       if (opts.activityFeed && isWatched(r.state, e.agentId)) r.state = addActivity(r.state, e.agentId, activityEntry(tool, input, e.tool_use_id, nowMs()));
       if (tool === 'Agent' && e.tool_use_id) r.state = agentRequested(r.state, e.tool_use_id, input, nowMs());
       if (tool === 'Skill') r.skillCalls++;
@@ -2123,6 +2275,7 @@ export const register: Register = (on, rawOptions) => {
     }
     safe('tool.call.result', (r) => {
       r.state = toolResult(r.state, { agentId: e.agentId, tool, input, result: (res ?? {}) as { deny?: string; isError?: boolean; text?: string } }, nowMs());
+      if (e.tool_use_id && checks.has(e.tool_use_id)) endedChecks.add(e.tool_use_id);
       if (e.tool_use_id) settleToolAsk(e.tool_use_id, res as ToolResult | undefined);
       // How a finished call ended goes with the feed alone (#598); its output only with the option on and a viewer on the loop.
       if (tool === 'Bash' && e.tool_use_id && opts.activityFeed) {
@@ -2140,7 +2293,8 @@ export const register: Register = (on, rawOptions) => {
     const res = await next(e);
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
-      if (opts.respond !== 'off' && id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id);
+      // Not gated on responding (#741): the wait on the card does not depend on Podium answering.
+      if (id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input);
     });
     return res;
   }).catch(($, e, next) => next(e));
@@ -2171,8 +2325,9 @@ export const register: Register = (on, rawOptions) => {
 
   on('classic.PermissionRequest', async ($, e, next) => {
     const agentId = (e as { agent_id?: string }).agent_id;
+    classicSeen = true;
     safe('classic.PermissionRequest', (r) => {
-      r.state = permissionRequest(r.state, e.tool_name, e.tool_input, nowMs());
+      recordPermission(r, e.tool_name, e.tool_input);
       const call = lastCalls.get(loopKey(agentId));
       permissionSeen(r, call && call.tool === e.tool_name ? call.id : null);
     });
@@ -2192,6 +2347,7 @@ export const register: Register = (on, rawOptions) => {
   }).catch(($, e, next) => next(e));
 
   on('classic.Notification', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.Notification', (r) => {
       r.state = notification(r.state, e.notification_type, e.message, nowMs());
     });
@@ -2200,12 +2356,14 @@ export const register: Register = (on, rawOptions) => {
 
   // Claude Code's own session name (#322): the title rides on these two hooks, so a rename shows from the next prompt.
   on('classic.SessionStart', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.SessionStart', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
     return next(e);
   }).catch(($, e, next) => next(e));
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.UserPromptSubmit', (r) => takeClaudeName(r, e));
     await movedBy($, e.cwd);
     return next(e);
@@ -2214,6 +2372,7 @@ export const register: Register = (on, rawOptions) => {
   // The Stop hook lists the background work and scheduled wake-ups still in flight (#119): a session idle on
   // them is not waiting on the person.
   on('classic.Stop', async ($, e, next) => {
+    classicSeen = true;
     safe('classic.Stop', (r) => {
       const now = nowMs();
       const crons = (e.session_crons ?? []).map((c) => ({ ...c, nextAt: nextCronAt(c.schedule, now) }));
