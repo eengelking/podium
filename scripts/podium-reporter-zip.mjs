@@ -95,7 +95,13 @@ export function buildReporterZip(modDir = MOD, suffix = "") {
 
 function option(args, flag) {
   const i = args.indexOf(flag);
-  return i === -1 ? undefined : args[i + 1];
+  if (i === -1) return undefined;
+  const value = args[i + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`${flag} needs a value.\n\n${USAGE}`);
+    process.exit(1);
+  }
+  return value;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

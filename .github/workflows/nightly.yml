@@ -168,14 +168,15 @@ jobs:
 
           git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
           # The reporter as an archive for Claude Desktop (#835), named for the version development carries and the day.
-          node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}"
+          zip="$(node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}")"
+          test -f "$zip"
 
           # A same-day rerun after a new commit moves the tag, so the old release of that day goes first. It is replaced, never left empty.
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release delete "$tag" --cleanup-tag --yes
           fi
 
-          gh release create "$tag" "podium-${tag}.tar.gz" podium-reporter-*-"${tag}".zip \
+          gh release create "$tag" "podium-${tag}.tar.gz" "$zip" \
             --target "$SHA" \
             --title "Nightly ${day}" \
             --notes-file notes.md \

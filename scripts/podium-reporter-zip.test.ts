@@ -74,6 +74,14 @@ describe("podium-reporter-zip", () => {
     expect(spawnSync("node", [SCRIPT, "--out", mkdtempSync(join(tmpdir(), "reporter-zip-")), "--expect-version", version]).status).toBe(0);
   });
 
+  it("refuses a flag with no value instead of skipping the check it guards", () => {
+    for (const args of [["--expect-version"], ["--out", "--suffix", "-x"]]) {
+      const r = spawnSync("node", [SCRIPT, ...args], { encoding: "utf8" });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("needs a value");
+    }
+  });
+
   it("prints usage for --help and -h", () => {
     for (const flag of ["--help", "-h"]) expect(execFileSync("node", [SCRIPT, flag], { encoding: "utf8" })).toContain("Usage:");
   });
