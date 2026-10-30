@@ -47,7 +47,7 @@ export interface RespondDeps {
 const COOKIE = 'podium_respond';
 const COOKIE_PATH = '/api';
 const LEGACY_COOKIE_PATH = '/api/fleet/respond';
-const SIGN_IN_IDLE_MS = 12 * 3600_000;
+export const SIGN_IN_IDLE_MS = 12 * 3600_000;
 const MAX_SIGN_INS = 200;
 const BODY_LIMIT = '64kb';
 const CLOSE_OUTCOMES: readonly AskCloseOutcome[] = ['terminal', 'closed', 'ended'];

@@ -18,6 +18,7 @@ import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { Lockout } from "./fleet/lockout.js";
 import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { readTestTimings } from "./testTimings.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
 import { REPORTER_SUPPORT } from "./fleet/compat.js";
@@ -108,17 +109,19 @@ app.use(securityHeaders({ scriptHashes: pageScripts }));
 app.use(reporterHttpGate({ active: () => tlsBoot.gateActive, allowed: () => tlsSettings.allowReportersOverHttp(), logger, rejected: (source, reason) => void reporters.rejected(source, reason, Date.now()).catch((err: Error) => logger.warn("reporters.reject_note_failed", `podium: could not note a refused reporter request: ${err.message}`, { reason: err.message })) }));
 app.use(requestLog(logger));
 // Five wrong credentials from one address lock it out of Admin's unlock and the sign-in to respond together (#206).
-const lockout = new Lockout();
+// The end-to-end suite shortens the idle and lock times behind PODIUM_TEST_TIMINGS=1 (#791, DECISIONS 50); a real server never sets it.
+const testTimings = readTestTimings(process.env, logger);
+const lockout = new Lockout(Date.now, undefined, testTimings.lockMs);
 // Admin opens without a second sign-in for a browser already signed in to respond as an Administrator (#215).
 const respondBridge = createRespondBridge();
 // Responding over plain HTTP beyond loopback sends the sign-in unencrypted: say so, never block (#306).
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
 // Failed requests from one address are limited ahead of every /api route; successful ones are never counted. PODIUM_FAILURE_LIMIT raises it.
 app.use("/api", failureLimiter({ logger, max: parseFailureLimit(process.env.PODIUM_FAILURE_LIMIT) }));
-app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
+app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, signInIdleMs: testTimings.signInIdleMs, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, tx: storage.tx, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsBoot.listener?.renewer ?? null, rotation: () => tlsBoot.listener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, reporters, peers: fleet.peers, activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsBoot.listener?.renewer ?? null, rotation: () => tlsBoot.listener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, idleMs: testTimings.adminIdleMs, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
