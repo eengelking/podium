@@ -8,6 +8,7 @@
 import { X509Certificate, generateKeyPairSync, randomBytes, randomInt } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import { duplexPair } from 'node:stream';
 import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -459,9 +460,136 @@ function fail(code, message) {
   process.exit(1);
 }
 
-/** A Windows named-pipe address (`\\\\.\\pipe\\...`): there is no file to make private, delete or `chmod` (#834). */
-export function isPipePath(p) {
-  return p.startsWith('\\\\.\\pipe\\');
+/**
+ * `mailbox:<folder>` in place of a socket path (#834). Windows cannot give the mod a socket: Node has no Unix sockets there (its local
+ * sockets are named pipes, and a `.sock` path is an invalid pipe name), and the engine refuses a pipe address as a network location.
+ * So the mod writes each request into the folder and this helper answers on its stdout. Returns the folder, or null for a socket path.
+ */
+export function isMailbox(arg) {
+  return arg.startsWith('mailbox:') ? arg.slice('mailbox:'.length) : null;
+}
+
+const MAILBOX_NAME = /^req-([0-9A-Za-z-]{1,40})\.json$/;
+const MAILBOX_POLL_MS = 250;
+/** A request file that still is not valid JSON this long after it was written is not going to be. */
+const MAILBOX_STALE_MS = 10_000;
+const MAILBOX_REPLY_MAX = 2 * 1024 * 1024;
+
+/**
+ * One HTTP request through `server`, in memory: no socket is opened, and the helper's own handler answers it, so the routes it
+ * forwards, the certificate checks and the error headers are exactly those of a request over a socket.
+ */
+function inMemoryRequest(server, { method, path: target, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const [clientSide, serverSide] = duplexPair();
+    for (const side of [clientSide, serverSide]) {
+      // http expects these of a net.Socket.
+      for (const name of ['setTimeout', 'setNoDelay', 'setKeepAlive', 'ref', 'unref']) side[name] = () => side;
+      side.on('error', () => {});
+    }
+    const done = () => {
+      clientSide.destroy();
+      serverSide.destroy();
+    };
+    // No `agent` option: with one, http ignores createConnection and opens a real connection.
+    const sent = {};
+    for (const [k, v] of Object.entries(headers)) if (!HOP_HEADERS.has(k.toLowerCase()) && k.toLowerCase() !== 'content-length') sent[k] = v;
+    server.emit('connection', serverSide);
+    const req = http.request({ method, path: target, headers: { ...sent, host: 'podium' }, createConnection: () => clientSide }, (res) => {
+      const chunks = [];
+      let size = 0;
+      res.on('data', (c) => {
+        size += c.length;
+        if (size > MAILBOX_REPLY_MAX) {
+          done();
+          reject(Object.assign(new Error('the reply is larger than the helper passes on'), { code: 'REPLY_TOO_LARGE' }));
+        } else chunks.push(c);
+      });
+      res.on('error', (err) => (done(), reject(err)));
+      res.on('end', () => {
+        const out = {};
+        for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) out[k] = Array.isArray(v) ? v.join(', ') : v;
+        done();
+        resolve({ status: res.statusCode ?? 502, headers: out, body: Buffer.concat(chunks).toString('utf8') });
+      });
+    });
+    req.on('error', (err) => (done(), reject(err)));
+    req.end(body);
+  });
+}
+
+/** True for a request the mod could have written: a name that carries its id, a method, a path and string headers. */
+function mailboxRequest(name, req) {
+  const id = MAILBOX_NAME.exec(name)?.[1];
+  if (!id || !req || typeof req !== 'object' || req.id !== id) return null;
+  if (typeof req.method !== 'string' || typeof req.path !== 'string' || !req.path.startsWith('/')) return null;
+  const headers = req.headers ?? {};
+  if (typeof headers !== 'object' || Object.values(headers).some((v) => typeof v !== 'string')) return null;
+  if (req.body !== undefined && typeof req.body !== 'string') return null;
+  return { id, method: req.method, path: req.path, headers, body: req.body ?? '' };
+}
+
+/**
+ * Answers the request files in `dir` through `server`. A file is taken once it parses as JSON (the engine does not write a file in one
+ * step, so a half-written one is left alone), removed, and answered with one stdout line `res <id> <base64 of {status, headers, body}>`.
+ * Files left by an earlier helper are removed unanswered.
+ */
+function serveMailbox(server, dir) {
+  if (typeof duplexPair !== 'function') return fail('MAILBOX_UNSUPPORTED', 'the mailbox needs Node 20.17 or later');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const name of fs.readdirSync(dir)) if (name.startsWith('req-')) fs.rmSync(path.join(dir, name), { force: true });
+  } catch (err) {
+    return fail(err.code ?? 'SOCKET_DIR', err.message);
+  }
+  const busy = new Set();
+  const reply = (id, answer) => process.stdout.write(`res ${id} ${Buffer.from(JSON.stringify(answer)).toString('base64')}\n`);
+  const scan = () => {
+    let names;
+    try {
+      names = fs.readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (!name.startsWith('req-') || busy.has(name)) continue;
+      const file = path.join(dir, name);
+      let st;
+      let text;
+      try {
+        st = fs.statSync(file);
+        text = fs.readFileSync(file, 'utf8');
+      } catch {
+        continue; // still being written, or locked for a moment
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        if (Date.now() - st.mtimeMs > MAILBOX_STALE_MS) fs.rmSync(file, { force: true });
+        continue;
+      }
+      const req = mailboxRequest(name, parsed);
+      fs.rmSync(file, { force: true });
+      if (!req) continue;
+      busy.add(name);
+      inMemoryRequest(server, req)
+        .then((answer) => reply(req.id, answer))
+        .catch((err) => {
+          const code = classifyError(err);
+          reply(req.id, { status: 502, headers: { 'content-type': 'application/json', 'x-podium-helper-error': code }, body: JSON.stringify({ error: code, message: String(err.message ?? err) }) });
+        })
+        .finally(() => busy.delete(name));
+    }
+  };
+  try {
+    fs.watch(dir, () => scan()).on('error', () => {});
+  } catch {
+    // the poll below still finds the files
+  }
+  // Not unref'd: in this mode these are what keep the process alive.
+  setInterval(scan, MAILBOX_POLL_MS);
+  process.stdout.write('ready\n');
 }
 
 /** Makes a directory only this user can enter; refuses one that is someone else's or open to others. */
@@ -650,16 +778,7 @@ function main(configPath, socketPath, serverUrl) {
     req.pipe(up);
   });
 
-  const pipe = isPipePath(socketPath);
-  try {
-    if (!pipe) {
-      privateDir(path.dirname(socketPath));
-      if (fs.existsSync(socketPath) && fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
-    }
-  } catch (err) {
-    return fail(err.code ?? 'SOCKET_DIR', err.message);
-  }
-
+  const box = isMailbox(socketPath);
   let owned = false;
   const cleanup = () => {
     if (!owned) return;
@@ -679,14 +798,25 @@ function main(configPath, socketPath, serverUrl) {
   process.on('SIGHUP', stop);
   process.on('exit', cleanup);
 
-  server.on('error', (err) => fail(err.code ?? 'LISTEN', `cannot listen on ${socketPath}: ${err.message}`));
-  const umask = process.umask(0o177);
-  server.listen(socketPath, () => {
-    process.umask(umask);
-    owned = true;
-    if (!pipe) fs.chmodSync(socketPath, 0o600);
-    process.stdout.write('ready\n');
-  });
+  if (box !== null) {
+    serveMailbox(server, box);
+  } else {
+    try {
+      privateDir(path.dirname(socketPath));
+      if (fs.existsSync(socketPath) && fs.lstatSync(socketPath).isSocket()) fs.unlinkSync(socketPath);
+    } catch (err) {
+      return fail(err.code ?? 'SOCKET_DIR', err.message);
+    }
+
+    server.on('error', (err) => fail(err.code ?? 'LISTEN', `cannot listen on ${socketPath}: ${err.message}`));
+    const umask = process.umask(0o177);
+    server.listen(socketPath, () => {
+      process.umask(umask);
+      owned = true;
+      fs.chmodSync(socketPath, 0o600);
+      process.stdout.write('ready\n');
+    });
+  }
 
   // A session that is idle still renews in time: look at the certificate now and then, and once at start.
   setInterval(() => void maybeRenew(), RENEW_CHECK_MS).unref();
@@ -705,7 +835,7 @@ function main(configPath, socketPath, serverUrl) {
     }
     if (gone) stop();
   }, PARENT_POLL_MS).unref?.();
-  // unref'd timers do not keep the process alive; the listening server does.
+  // unref'd timers do not keep the process alive; the listening server (or the mailbox poll) does.
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {

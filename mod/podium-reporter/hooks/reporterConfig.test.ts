@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, isWindowsPath, pipePathFor, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
+import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, decodeBase64Utf8, isWindowsPath, mailboxDirFor, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
 
 const file = (user: string, issued: number, extra = '') =>
   [
@@ -82,11 +82,26 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
     expect(isWindowsPath('relative/a.pem')).toBe(false)
   })
 
-  test('the Windows helper listens on a named pipe whose name carries the nonce and the session (#834)', () => {
-    const a = pipePathFor('aabbccddeeff00112233', 'sess-1')
-    expect(a).toMatch(/^\\\\\.\\pipe\\podium-aabbccddeeff00112233-[0-9a-f]{8}$/)
-    expect(pipePathFor('aabbccddeeff00112233', 'sess-2')).not.toBe(a)
-    expect(pipePathFor('112233445566778899aa', 'sess-1')).not.toBe(a)
+  test('base64 is decoded as UTF-8 without Buffer or atob (#834)', () => {
+    const cases: Array<[string, string]> = [
+      ["", ""],
+      ["a", "YQ=="],
+      ["ab", "YWI="],
+      ["abc", "YWJj"],
+      ["{\"status\":200,\"body\":\"é€😀 ok\"}", "eyJzdGF0dXMiOjIwMCwiYm9keSI6IsOp4oKs8J+YgCBvayJ9"],
+    ]
+    for (const [text, b64] of cases) expect(decodeBase64Utf8(b64)).toBe(text)
+    expect(decodeBase64Utf8('YWI')).toBe('ab')
+    expect(() => decodeBase64Utf8('a')).toThrow()
+    expect(() => decodeBase64Utf8('ab!d')).toThrow()
+    expect(() => decodeBase64Utf8('/w==')).toThrow()
+  })
+
+  test('each session gets its own mailbox folder under the run folder (#834)', () => {
+    const a = mailboxDirFor('C:\\Users\\dana/.podium/run/', 'sess-1')
+    expect(a).toMatch(/^C:\\Users\\dana\/\.podium\/run\/[0-9a-f]{8}$/)
+    expect(mailboxDirFor('C:\\Users\\dana/.podium/run', 'sess-1')).toBe(a)
+    expect(mailboxDirFor('C:\\Users\\dana/.podium/run', 'sess-2')).not.toBe(a)
   })
 
   test('a socket path stays under the macOS limit even for a long session id', () => {

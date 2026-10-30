@@ -96,11 +96,38 @@ export function isWindowsPath(p: string): boolean {
 }
 
 /**
- * Where the Windows helper listens (#834). Unix sockets are refused there (`listen EACCES`, whatever the folder), so it uses a
- * named pipe. A pipe has no private folder around it, so the name carries a random `nonce` only this session's mod and helper know.
+ * The folder a Windows session's requests go through (#834): one per session inside the helper's run folder. Windows has no socket the
+ * mod can reach (Node has no Unix sockets there, and the engine refuses a named-pipe address), so the mod writes each request into this
+ * folder and the helper answers on its stdout.
  */
-export function pipePathFor(nonce: string, sessionId: string): string {
-  return `\\\\.\\pipe\\podium-${nonce}-${shortId(sessionId)}`;
+export function mailboxDirFor(runDir: string, sessionId: string): string {
+  return `${trimTrailingSeparators(runDir)}/${shortId(sessionId)}`;
+}
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Base64 text decoded as UTF-8 (#834), written out because the sandbox a mod runs in is not promised `Buffer`, `atob` or `TextDecoder`.
+ * Throws on a character outside the alphabet, a bad length, or bytes that are not UTF-8.
+ */
+export function decodeBase64Utf8(b64: string): string {
+  const clean = b64.replace(/=+$/, '');
+  if (clean.length % 4 === 1) throw new Error('bad base64 length');
+  let bits = 0;
+  let acc = 0;
+  let escaped = '';
+  for (const ch of clean) {
+    const v = B64.indexOf(ch);
+    if (v < 0) throw new Error('bad base64 character');
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      escaped += `%${((acc >> bits) & 0xff).toString(16).padStart(2, '0')}`;
+      acc &= (1 << bits) - 1;
+    }
+  }
+  return decodeURIComponent(escaped);
 }
 
 /** One socket per session inside the helper's private directory. */

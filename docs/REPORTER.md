@@ -184,7 +184,9 @@ unless you say otherwise. A context is a name for one file, and the current cont
   the Claude desktop app, or quit the app and start it again afterwards, because the app reads its PATH when it starts. Without
   `node` the connection over TLS cannot start and `/podium` says `no node`. The reporter looks on the PATH, then in
   `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. For a `node.exe` anywhere else, set
-  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`.
+  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`. Use Node 20.17 or later. Windows has no
+  socket the reporter can reach, so there the reporter and its helper pass requests through a folder, `%USERPROFILE%\.podium\run\`, which
+  only your account, SYSTEM and Administrators can open by default.
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
