@@ -193,7 +193,7 @@ Every route except `GET /respond/me` needs the browser's respond session ([7.7](
 - `delivery` is the answer taken for it, from whoever sent it. `mine` is whether this browser's person sent it.
 - Owner or Admin only (`403 { ok: false, error: "not your session", owner }` otherwise). `404` for an ask the
   server doesn't hold.
-- A closed ask stays readable until the session reports itself idle with no open ask (#208), for at most 10
+- A closed ask stays readable until a report shows the session running again after it closed (#829), for at most 10
   minutes, or until the same session's next ask opens.
 
 **`POST /api/fleet/respond/sessions/:id/asks/:askId/answer`**: answers an open ask.
