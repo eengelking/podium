@@ -34,6 +34,42 @@ describe('display settings', () => {
     cy.get('button.edge-tab-left').should('have.attr', 'data-tip', 'Collapse the left pane ([)');
   });
 
+  it('makes the word Shortcuts a link to the list of every key while the switch is on, and closes it with the X, Esc or a click outside, returning focus to the link (#828)', () => {
+    cy.openConsole('#/');
+    cy.get('[aria-label="Display settings"]').as('row');
+    cy.get('@row').find('.kbd-link').should('not.exist');
+    shortcutSwitch().click().should('have.attr', 'aria-checked', 'true');
+    cy.get('@row').contains('button.kbd-link', 'Shortcuts').as('link').click();
+    cy.get('[role=dialog]').should('contain', 'Keyboard shortcuts').within(() => {
+      cy.get('.kbd-col code').then(($c) => expect([...$c].map((c) => c.textContent)).to.deep.eq(['\\', '[', ']', 'w', 'Esc']));
+      cy.contains('Does nothing on Traffic, which has no rail.');
+      cy.contains('Does nothing on Traffic or My reporters, which draw no wall.');
+      cy.get('.kbd-cols').should(($g) => expect(getComputedStyle($g[0]).gridTemplateColumns.split(' ')).to.have.length(3));
+      cy.get('button.x').click();
+    });
+    cy.get('[role=dialog]').should('not.exist');
+    cy.focused().should('have.class', 'kbd-link');
+    cy.get('@link').click();
+    cy.get('body').type('{esc}');
+    cy.get('[role=dialog]').should('not.exist');
+    cy.focused().should('have.class', 'kbd-link');
+    cy.get('@link').click();
+    cy.get('.scrim').click('topLeft');
+    cy.get('[role=dialog]').should('not.exist');
+    cy.focused().should('have.class', 'kbd-link');
+    shortcutSwitch().click().should('have.attr', 'aria-checked', 'false');
+    cy.get('@row').find('.kbd-link').should('not.exist');
+  });
+
+  it('stacks the two columns of the shortcuts list at 400 px', () => {
+    cy.viewport(400, 900);
+    cy.openConsole('#/');
+    shortcutSwitch().click();
+    cy.get('button.kbd-link').click();
+    cy.get('.kbd-cols').should(($g) => expect(getComputedStyle($g[0]).gridTemplateColumns.split(' ')).to.have.length(1));
+    cy.get('.kbd-cols .pipe').should(($p) => expect($p[0].getBoundingClientRect().height).to.eq(1));
+  });
+
   it('collapses and expands each pane and the top bar from its edge tab and remembers it in podium.collapsed', () => {
     cy.openConsole('#/');
     cy.get('button.edge-tab-left').click().should('have.attr', 'aria-expanded', 'false');

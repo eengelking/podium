@@ -86,6 +86,13 @@ pages, responding, the orchestrator page and the right panel.
   are. While it is off the four keys do nothing, `Esc` still leaves wall mode, and every button still works. The
   pane controls' tips and the Wall mode button's title name their keys only while it is on. The switch's own hint
   (its `title` and `aria-describedby`) names all four keys.
+- While Shortcuts is on, the word "Shortcuts" is a button (`.kbd-link`, a 1px dotted `--muted` underline, `--ink` on
+  hover, a pointer cursor and a focus ring) that opens the console's `Modal`, "Keyboard shortcuts" (#828). The modal
+  lists every shortcut in two columns split by a 1px `--border` pipe, `\`, `[` and `]` on the left and `w` and `Esc`
+  on the right, each key in the inline code chip, with a note where a key does nothing (`[` and `]` on Traffic, `w`
+  on Traffic and My reporters). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
+  the dimmed area close it, and focus returns to the word. While the switch is off the word is a plain label. One
+  array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
 - Every collapse control in the app is one pill, `EdgeTab` (`.edge-tab`): the top bar's, the Kanban KPI rows',
   the Plan / Files fold's and both panes'. It shows a styled tip (`data-tip`) on hover and keyboard focus, and a

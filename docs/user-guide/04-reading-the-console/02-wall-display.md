@@ -13,6 +13,8 @@ The keys in the last column are off until you turn on **Shortcuts** in the bar a
 choice is kept in this browser, so each browser you use needs it turned on once. With it off, the buttons still work
 and `Esc` still leaves wall mode.
 
+With **Shortcuts** on, its name is a link: press it to open a list of every key and what it does.
+
 | Part | Button | Key |
 |---|---|---|
 | Left pane | The tab on its edge, labeled "Collapse the left pane" | `[` |
