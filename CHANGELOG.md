@@ -31,6 +31,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **The `E2E` workflow runs on the self-hosted runners (#815, from #782).** All three jobs use the same `runs-on` as `ci.yml` (`[self-hosted, Linux, X64]`, `ubuntu-latest` for a fork PR), and the e2e job takes a host-wide concurrency group so two runs never share the runners' Podman host, because the cleanup step removes every e2e container on it. The workflow is still manual only.
+
 - **`.claude/PROJECT.md` now opens with the storage rule (#817).** A "Read This First" section and a new Do Not say that every database query goes through `Storage` from `openStorage`, and that direct SQLite use (`node:sqlite`, `sqliteHandle`, `activityHandle`, raw SQL outside the adapter) is not allowed, because PostgreSQL, MariaDB and other databases are planned as adapters. It points to the storage page and DECISIONS 48, and names `neutral.test.ts`, which already enforces it. No code changed.
 
 - **The SQLite adapter's two queries that used its JSON functions now run on any SQL database (#808).** `countAutoCompactions` reads the session's `compact` events and counts the automatic ones in code, and the Activity history's bulk delete binds its ids in batches of 200 instead of passing a JSON array to `json_each`. No schema change, no migration, same counts, same rows left, same speed. A new test fails if a query in `server/src/storage/sqlite/` uses `json_extract`, `json_each`, `json_object`, `json_group_array` or `->>`, so a second database has fewer queries to port (#314). One difference: a compact event whose stored data is not valid JSON is now skipped instead of making the count throw.

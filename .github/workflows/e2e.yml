@@ -27,7 +27,7 @@ concurrency:
 jobs:
   changes:
     name: Does this change need the e2e run
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     outputs:
       run: ${{ steps.decide.outputs.run }}
     steps:
@@ -59,10 +59,15 @@ jobs:
     name: Cypress in containers
     needs: changes
     if: needs.changes.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     # A run takes about 8 minutes, so five repeats (the most the issue asks for) with a cold image build fit well inside this. A GitHub
     # expression has no arithmetic, so the limit cannot scale with `repeat`.
     timeout-minutes: 90
+    # The self-hosted runners share one Podman host, and `scripts/e2e-up.sh down` (the last step) removes every e2e container, network and
+    # volume on it, whichever run made them. One e2e job at a time keeps it from tearing down another run's server.
+    concurrency:
+      group: e2e-self-hosted-host
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
 
@@ -131,7 +136,7 @@ jobs:
     name: E2E summary
     needs: [changes, e2e]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     steps:
       - name: Report
         env:
