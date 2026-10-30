@@ -111,9 +111,9 @@ The helper forwards only the calls in `REPORTER_ROUTES`, a copy of `REPORTER_ROU
 Unix sockets (its local sockets are named pipes, and a `.sock` path is an invalid pipe name, which libuv reports as `EACCES`), and the engine's
 `$.http.fetch` takes `socketPath` as a Unix socket and refuses a pipe address (`\\.\pipe\...`) as a network location, as it does any path that starts
 with two separators. So when the config path is a Windows path, `startLink` gives the helper `mailbox:<folder>` in place of a socket path, with the
-folder `.podium/run/<session>/` (`mailboxDirFor`). Each request is written by the mod with `$.fs.write` as `req-<id>.json` (method, path, headers, body;
-the `X-Podium-Token` header is left out). The helper (`serveMailbox`, watching the folder with a 250 ms poll behind it) takes a file once it parses as
-JSON, because a write is not atomic; deletes it; checks the pieces (`wellFormed`) and rebuilds the method and path from `REPORTER_ROUTES`; and sends the
+folder `.podium/run/<session>/` (`mailboxDirFor`). Each request is written by the mod with `$.fs.write` as `req-<id>.json` (method, path and body; no header, because the reporter sends only `Content-Type`, which the helper sets, and a token, which the
+server ignores when the certificate is present). The helper (`serveMailbox`, watching the folder with a 250 ms poll behind it) takes a file once it parses as
+JSON, because a write is not atomic; deletes it; checks that the pieces are text (`wellFormed`) and rebuilds the method and path from `REPORTER_ROUTES`; and sends the
 request through its own handler in memory (`inMemoryRequest`, on `stream.duplexPair`, so no port or pipe is opened and the route list, the certificate
 checks and the error headers are those of the socket mode). It answers with one stdout line, `res <id> <base64 of {status, headers, body}>`. The mod reads
 its stdout already, keeps a line that arrives in two pieces, matches the reply to the waiting request by id (`viaMailbox`), and gives up after

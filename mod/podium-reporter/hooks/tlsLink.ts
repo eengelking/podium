@@ -408,16 +408,16 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
       log(`podium-reporter helper: a reply for ${id} could not be read`);
     }
   };
-  /** One request through the mailbox: a file the helper takes, and the reply line it answers with. */
+  /**
+   * One request through the mailbox: a file the helper takes, and the reply line it answers with. The file holds no header: the reporter sends only
+   * Content-Type, which the helper sets, and the token, which the server ignores when the certificate is present and which should not sit in a file.
+   */
   const viaMailbox = async (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } | undefined): Promise<HttpResult & { headers: Record<string, string> }> => {
     const id = `${idBase}-${++sequence}`;
-    // The server ignores a token when the certificate is present, and the file should not hold one.
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(init?.headers ?? {})) if (k.toLowerCase() !== 'x-podium-token') headers[k] = v;
     const answer = new Promise<MailboxAnswer>((resolve, reject) => pending.set(id, { resolve, reject }));
     answer.catch(() => {});
     try {
-      await $.fs.write(`${mailbox}/req-${id}.json`, JSON.stringify({ id, method: init?.method ?? 'GET', path: url.slice(serverUrl.length) || '/', headers, body: init?.body ?? '' }));
+      await $.fs.write(`${mailbox}/req-${id}.json`, JSON.stringify({ id, method: init?.method ?? 'GET', path: url.slice(serverUrl.length) || '/', body: init?.body ?? '' }));
       const late = $.clock.sleep(REPLY_MS).then(() => {
         throw new Error('the Podium connection helper did not answer in time');
       });

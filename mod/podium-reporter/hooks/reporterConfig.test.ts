@@ -92,6 +92,7 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
     ]
     for (const [text, b64] of cases) expect(decodeBase64Utf8(b64)).toBe(text)
     expect(decodeBase64Utf8('YWI')).toBe('ab')
+    expect(decodeBase64Utf8(`YQ${'='.repeat(200000)}`)).toBe('a')
     expect(() => decodeBase64Utf8('a')).toThrow()
     expect(() => decodeBase64Utf8('ab!d')).toThrow()
     expect(() => decodeBase64Utf8('/w==')).toThrow()

@@ -190,7 +190,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
   path and refuses a Windows pipe address. So the reporter writes each request as a small file in `%USERPROFILE%\.podium\run\<session>\`, the helper
   sends it over the same mutual TLS connection, and it answers on its own output; the replies are never written to disk. Nothing listens on a port. The file
   is gone as soon as the helper has read it. By default only your account, SYSTEM and Administrators can open that folder, as with the config file.
-  The `X-Podium-Token` header is left out of the file, because the server ignores a token when the certificate is present. The reason, the other options
+  The file holds only the method, path and body, no header: the reporter sends just `Content-Type`, which the helper sets, and a token is not needed with a certificate. The reason, the other options
   and what is unknown are in [DECISIONS 51](decisions/51-the-reporter-config-folder-on-windows-is-userprofile-podium.md).
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and

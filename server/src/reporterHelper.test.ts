@@ -1253,7 +1253,20 @@ describe('helper.mjs: the mailbox mode, used where there is no Unix socket (#834
     expect(fs.readdirSync(b.dir)).toEqual([]);
   });
 
-  it('answers 400 to a request whose headers could split the request, and sends nothing upstream', async () => {
+  it('sets the content type itself and ignores any header in the file', async () => {
+    const p = await pki();
+    const seen: Array<Record<string, string | string[] | undefined>> = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push({ type: req.headers['content-type'], other: req.headers['x-other'], token: req.headers['x-podium-token'] });
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-6.json'), request('6', { method: 'POST', path: '/api/fleet/report', headers: { 'content-type': 'text/evil', 'x-other': 'one\r\nx-b: two', 'X-Podium-Token': 'secret' }, body: '{}' }));
+    expect((await answer(b, '6'))?.status).toBe(200);
+    expect(seen).toEqual([{ type: 'application/json', other: undefined, token: undefined }]);
+  });
+
+  it('answers 400 to a request whose method, path or body is not text, and sends nothing upstream', async () => {
     const p = await pki();
     let hits = 0;
     const url = await upstream(p, (_req, res) => {
@@ -1261,12 +1274,13 @@ describe('helper.mjs: the mailbox mode, used where there is no Unix socket (#834
       res.end('{}');
     });
     const b = await runBox(p, url);
-    fs.writeFileSync(path.join(b.dir, 'req-6.json'), request('6', { headers: { 'x-a': 'one\r\nx-b: two' } }));
-    fs.writeFileSync(path.join(b.dir, 'req-7.json'), request('7', { headers: { 'bad name': 'v' } }));
-    const six = await answer(b, '6');
-    expect(six?.status).toBe(400);
-    expect(six?.headers['x-podium-helper-error']).toBe('BAD_REQUEST');
-    expect((await answer(b, '7'))?.status).toBe(400);
+    fs.writeFileSync(path.join(b.dir, 'req-7.json'), request('7', { body: 5 }));
+    fs.writeFileSync(path.join(b.dir, 'req-9.json'), request('9', { path: 7 }));
+    for (const id of ['7', '9']) {
+      const a = await answer(b, id);
+      expect(a?.status).toBe(400);
+      expect(a?.headers['x-podium-helper-error']).toBe('BAD_REQUEST');
+    }
     expect(hits).toBe(0);
   });
 

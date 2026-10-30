@@ -468,11 +468,11 @@ describe('starting the helper (#584)', () => {
       expect(f.fetched).toEqual([])
       expect(f.written).toHaveLength(1)
       const w = f.written[0] as { path: string; text: string }
-      const sent = JSON.parse(w.text) as { id: string; method: string; path: string; headers: Record<string, string>; body: string }
+      const sent = JSON.parse(w.text) as { id: string; method: string; path: string; body: string }
       expect(w.path).toBe(`${dir}/req-${sent.id}.json`)
       expect(sent).toMatchObject({ method: 'POST', path: '/api/fleet/report?x=1', body: '{"a":1}' })
       expect(sent.id).toMatch(/^[0-9a-z]+-1$/)
-      expect(sent.headers).toEqual({ 'content-type': 'application/json' })
+      expect(sent).not.toHaveProperty('headers')
       expect(w.text).not.toContain('secret')
     })
 

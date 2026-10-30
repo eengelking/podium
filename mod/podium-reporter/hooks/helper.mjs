@@ -479,7 +479,7 @@ const MAILBOX_REPLY_MAX = 2 * 1024 * 1024;
  * One HTTP request through `server`, in memory: no socket is opened, and the helper's own handler answers it, so the routes it
  * forwards, the certificate checks and the error headers are exactly those of a request over a socket.
  */
-function inMemoryRequest(server, { method, path: target, headers, body }) {
+function inMemoryRequest(server, { method, path: target, body }) {
   return new Promise((resolve, reject) => {
     const [clientSide, serverSide] = duplexPair();
     for (const side of [clientSide, serverSide]) {
@@ -491,11 +491,10 @@ function inMemoryRequest(server, { method, path: target, headers, body }) {
       clientSide.destroy();
       serverSide.destroy();
     };
-    // No `agent` option: with one, http ignores createConnection and opens a real connection.
-    const sent = {};
-    for (const [k, v] of Object.entries(headers)) if (!HOP_HEADERS.has(k.toLowerCase()) && k.toLowerCase() !== 'content-length') sent[k] = v;
     server.emit('connection', serverSide);
-    const req = http.request({ method, path: target, headers: { ...sent, host: 'podium' }, createConnection: () => clientSide }, (res) => {
+    // No `agent` option: with one, http ignores createConnection and opens a real connection. The reporter sends one header, Content-Type, so the
+    // helper sets it and takes none from the file.
+    const req = http.request({ method, path: target, headers: { 'content-type': 'application/json', host: 'podium' }, createConnection: () => clientSide }, (res) => {
       const chunks = [];
       let size = 0;
       res.on('data', (c) => {
@@ -518,22 +517,16 @@ function inMemoryRequest(server, { method, path: target, headers, body }) {
   });
 }
 
-const HEADER_NAME = /^[A-Za-z0-9-]{1,64}$/;
-// eslint-disable-next-line no-control-regex
-const HEADER_VALUE = /^[^\u0000-\u001f\u007f]{0,4096}$/;
-
-/** The request the mod wrote in `name`: `{ id, method, path, headers, body }`, or null when it is not one (a name that carries no id, or an id that differs from the file's). */
+/** The request the mod wrote in `name`: `{ id, method, path, body }`, or null when it is not one (a name that carries no id, or an id that differs from the file's). */
 function mailboxRequest(name, req) {
   const id = MAILBOX_NAME.exec(name)?.[1];
   if (!id || !req || typeof req !== 'object' || req.id !== id) return null;
-  return { id, method: req.method, path: req.path, headers: req.headers ?? {}, body: req.body ?? '' };
+  return { id, method: req.method, path: req.path, body: req.body ?? '' };
 }
 
-/** True when the pieces are what the mod writes: strings, and header names and values that cannot end a header and start another. */
+/** True when the pieces are what the mod writes: a method, a path and a body, all text. */
 function wellFormed(req) {
-  if (typeof req.method !== 'string' || typeof req.path !== 'string' || typeof req.body !== 'string') return false;
-  if (!req.headers || typeof req.headers !== 'object' || Array.isArray(req.headers)) return false;
-  return Object.entries(req.headers).every(([k, v]) => HEADER_NAME.test(k) && typeof v === 'string' && HEADER_VALUE.test(v));
+  return typeof req.method === 'string' && typeof req.path === 'string' && typeof req.body === 'string';
 }
 
 const refusal = (code, status, message) => ({ status, headers: { 'content-type': 'application/json', 'x-podium-helper-error': code }, body: JSON.stringify({ error: code, message }) });
@@ -598,7 +591,7 @@ function serveMailbox(server, dir) {
         continue;
       }
       busy.add(name);
-      inMemoryRequest(server, { method: route.method, path: route.path, headers: req.headers, body: req.body })
+      inMemoryRequest(server, { method: route.method, path: route.path, body: req.body })
         .then((answer) => reply(req.id, answer))
         .catch((err) => {
           const code = classifyError(err);

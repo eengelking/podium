@@ -111,7 +111,10 @@ const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
  * Throws on a character outside the alphabet, a bad length, or bytes that are not UTF-8.
  */
 export function decodeBase64Utf8(b64: string): string {
-  const clean = b64.replace(/=+$/, '');
+  // A loop, not `/=+$/`, which backtracks super-linearly on a long run of `=`.
+  let end = b64.length;
+  while (end > 0 && b64.charCodeAt(end - 1) === 61) end--;
+  const clean = b64.slice(0, end);
   if (clean.length % 4 === 1) throw new Error('bad base64 length');
   let bits = 0;
   let acc = 0;
