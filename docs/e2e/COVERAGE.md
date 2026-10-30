@@ -63,7 +63,7 @@ A change to what the console does comes with its specs in the same PR. Load the 
 to green. By hand:
 
 1. Put the spec in the folder of its area under `e2e/cypress/e2e/`, named for what it covers. The first lines say which SPEC section it checks.
-2. Start with `before(() => cy.resetServer())`. It restarts the server on an empty database and seeds it, so a spec file never depends on another. `cy.resetServer({ seedArgs: '--bulk 30' })`, `{ env: ['STALE_AFTER_MS=2000'] }` and `{ noSeed: true }` change the data or the server's timings.
+2. Start with `before(() => cy.resetServer())`. It restarts the server on an empty database and seeds it, so a spec file never depends on another. `cy.resetServer({ seedArgs: '--bulk 30' })`, `{ env: ['STALE_AFTER_MS=2000'] }` and `{ noSeed: true }` change the data or the server's timings. The test-only timings (`PODIUM_TEST_TIMINGS=1` with `PODIUM_TEST_ADMIN_IDLE_MS`, `PODIUM_TEST_SIGN_IN_IDLE_MS` or `PODIUM_TEST_LOCK_MS`) go in `env` the same way (DECISIONS 50).
 3. Open a page with `cy.openConsole('#/board')` (it waits until the stream is live). Sign in with `cy.signIn('Ed')` or `cy.signIn('Admin')`, unlock Admin with `cy.unlockAdmin()` or `cy.openAdmin('Settings')`. They set the cookie with a request: the admin secret is never typed into a field and never logged.
 4. Make a change happen with `cy.reportAgain('api', { costUsd: 7.25 })` (a reporter's next report), `cy.setFlags({ respond: false })`, `cy.task('server:pause')` and `server:resume`.
 5. Assert with Cypress's retrying queries. Never `cy.wait(ms)`, never read a clock-derived value, never rely on a count that can still be changing. The config has `retries: 0` on purpose.
@@ -161,6 +161,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Feature | Spec | Covered by |
 |---|---|---|
 | Lock screen, who may open Admin, the menu, count badges, Lock Admin, the narrow menu, no token | SPEC 8.1 Admin layout | `e2e/cypress/e2e/admin/access.cy.js` |
+| Timer-driven sign-in states (#791, DECISIONS 50), each on a server restarted with `PODIUM_TEST_TIMINGS=1` and a short time: the Admin idle lock (the lock screen returns with no action); the sign-in to respond ending when idle (the page checks once a minute, so about 70 s); the lockout (five wrong tries, the message in Admin's unlock and in the console's sign-in, the lift after the lock time) | SPEC 7.7 Test-only timings | `e2e/cypress/e2e/admin/idle-lock.cy.js`, `e2e/cypress/e2e/admin/lockout.cy.js`, `e2e/cypress/e2e/respond/sign-in-idle.cy.js` |
 | People: create, token shown once, search, group, the actions menu by mouse and by key, rotate, revoke, delete, bulk select; Groups | SPEC 8.1 People, Groups | `e2e/cypress/e2e/admin/people-groups.cy.js` |
 | Reporters: filters, search, sort, details, ignore rules, removal | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters.cy.js` |
 | Reporters: outdated and newer versions and the top bar's counts, the admin-secret band and Show only these, the details of both, ignoring a version, Select all, "Not since restart" | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-states.cy.js` |
@@ -205,7 +206,6 @@ Each of these is a stated gap, not a covered feature.
 
 | Feature | Why |
 |---|---|
-| Admin idle lock (10 minutes), Respond sign-in ending after 12 hours of idleness, sign-in lockout | Their timings cannot be reached without a test-only timing knob, which was left out on purpose. Tracked in #791. |
 | Real Fullscreen API | Headless Chrome refuses the request, because Cypress's clicks are not a user gesture. The spec checks that a refusal changes nothing and, with `requestFullscreen` stubbed, the app's own wall-mode state. The real call is checked by hand. |
 | Real TLS: the Certificates page with a CA, the reporter certificate and its renewal | The throwaway server is plain HTTP. Covered by `server/src/tls*.test.ts` and `frontend/src/fleet/admin/certificates.test.tsx`. |
 | The reporter mod inside Claude Code | Out of scope (`npm run test:mod`). The suite plays the mod's reports and its diff answers. |

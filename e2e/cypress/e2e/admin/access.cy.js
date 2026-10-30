@@ -1,4 +1,4 @@
-// SPEC 8.1 Admin: the lock screen, who may open Admin, the menu and Lock Admin. The idle lock (10 minutes) is out of scope here (#791).
+// SPEC 8.1 Admin: the lock screen, who may open Admin, the menu and Lock Admin. The idle lock (10 minutes) is in idle-lock.cy.js and the lockout in lockout.cy.js (#791).
 import { seeded } from '../../../support/commands';
 
 describe('admin: access', () => {

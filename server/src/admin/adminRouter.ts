@@ -90,6 +90,7 @@ export interface AdminRouterOptions {
 
 const COOKIE = 'podium_admin';
 const MAX_SESSIONS = 20;
+export const ADMIN_IDLE_MS = 10 * 60_000;
 
 const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
@@ -122,7 +123,7 @@ function publicPerson(p: PersonRow, groupName: string | null) {
 export function createAdminRouter(opts: AdminRouterOptions): Router {
   const { people, wall, prices, features, reporters, peers, storage } = opts;
   const now = opts.now ?? Date.now;
-  const idleMs = opts.idleMs ?? 10 * 60_000;
+  const idleMs = opts.idleMs ?? ADMIN_IDLE_MS;
   const maxFails = opts.maxFails ?? 5;
   const lockMs = opts.lockMs ?? 15 * 60_000;
   const logger = opts.logger ?? (opts.log ? loggerFromLine(opts.log) : createLogger({ secrets: opts.secret ? [opts.secret] : [] }));
