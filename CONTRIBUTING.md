@@ -71,6 +71,8 @@ GitHub runner. To read a failure, find the spec and test title in the Cypress ou
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
+The `PODIUM_TEST_*` variables (decision 50) shorten the Admin idle lock, the sign-in idle end and the lockout so a spec can reach them. They are for the end-to-end suite only, count only with `PODIUM_TEST_TIMINGS=1`, and are never set on a real server.
+
 `frontend/src/fleet/a11y.axe.test.tsx` runs axe-core over the console's pages and the standards pages inside `npm test`. A new page or a
 big new state gets a case there. It cannot judge contrast or target size, which need a real layout; scan those in a browser (inject
 `axe.min.js` in a page and run it in each theme and mode) when a change touches color or size. A violation that is known goes in its
