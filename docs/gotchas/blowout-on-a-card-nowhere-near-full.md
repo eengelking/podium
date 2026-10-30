@@ -20,5 +20,5 @@ order: 58
 <!-- nav:start -->
 ---
 
-Previous: [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md) · Up: [Gotchas](README.md)
+Previous: [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md) · Up: [Gotchas](README.md) · Next: [On Windows, /podium says offline with HTTP 502 when the config file names localhost](on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md)
 <!-- nav:end -->

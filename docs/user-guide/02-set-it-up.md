@@ -65,6 +65,22 @@ orchestrator page, from your next prompt. A session in the Claude desktop app ta
 within about half a minute. `/podium name <text>` sets a name too, and wins over both. The card and the
 orchestrator page also show the first eight characters of the session id. Click it to copy the whole id. On the orchestrator page it is the **Session** cell of the facts grid.
 
+## Reporting from Windows 11 with a reporter config file
+
+This is for the Claude desktop app on Windows 11 when your server uses built-in TLS and an Admin gave you a reporter config file
+(`reporter-config-<name>-<epoch>.pem`). The server itself does not run on Windows.
+
+1. Install Node.js 20.17 or later from nodejs.org. Quit the Claude desktop app and start it again, so it sees `node`.
+2. Create the folder `%USERPROFILE%\.podium` (for example `C:\Users\<name>\.podium`) and save the file in it. File Explorer can hide the
+   extension: check that the name ends in `.pem` and not `.pem.txt`. There is no `chmod 600` on Windows; the folder is in your user profile, which other accounts cannot open.
+3. Open the file in a text editor and read the `# server:` line. It must be an address this machine can reach. A file issued for
+   `https://localhost:4318` only works on the server's own machine; change `localhost` to the server's address.
+4. Install the reporter mod as in step 2 above, start a session and run `/podium`.
+
+You should see a `Home folder:` line naming your user folder, a `Sign-in:` line that names the reporter config file, and `TLS: connected over HTTPS`.
+On Windows the reporter passes its requests to the helper through small files in `%USERPROFILE%\.podium\run\`, and nothing listens on a port. Why, and
+what to check if it does not connect, is in [Over TLS](../REPORTER.md#over-tls) and [Something is wrong](03-something-is-wrong.md).
+
 ## More than one login on one machine
 
 Most people can skip this section.

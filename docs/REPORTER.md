@@ -184,9 +184,14 @@ unless you say otherwise. A context is a name for one file, and the current cont
   the Claude desktop app, or quit the app and start it again afterwards, because the app reads its PATH when it starts. Without
   `node` the connection over TLS cannot start and `/podium` says `no node`. The reporter looks on the PATH, then in
   `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. For a `node.exe` anywhere else, set
-  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`. Use Node 20.17 or later. Windows has no
-  socket the reporter can reach, so there the reporter and its helper pass requests through a folder, `%USERPROFILE%\.podium\run\`, which
-  only your account, SYSTEM and Administrators can open by default.
+  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`. Use Node 20.17 or later.
+- **On Windows the reporter and its helper pass requests through a folder, not a socket.** On macOS and Linux the reporter sends to the helper over
+  a Unix socket. Windows has none the reporter can use: Node there has no Unix sockets, and Claude Code's `$.http.fetch` accepts only a Unix socket
+  path and refuses a Windows pipe address. So the reporter writes each request as a small file in `%USERPROFILE%\.podium\run\<session>\`, the helper
+  sends it over the same mutual TLS connection, and it answers on its own output; the replies are never written to disk. Nothing listens on a port. The file
+  is gone as soon as the helper has read it. By default only your account, SYSTEM and Administrators can open that folder, as with the config file.
+  The `X-Podium-Token` header is left out of the file, because the server ignores a token when the certificate is present. The reason, the other options
+  and what is unknown are in [DECISIONS 51](decisions/51-the-reporter-config-folder-on-windows-is-userprofile-podium.md).
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
@@ -202,6 +207,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
   |---|---|
   | `config too open` | Others can read the file. Run `chmod 600` on it (macOS and Linux; Windows does not check this) |
   | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
+  | `offline, retrying` with `Last error: HTTP 502` | The helper could not reach the server. If the config file's `# server:` line says `localhost` and this is not the server's machine, change it to an address this machine reaches; see [the gotcha](gotchas/on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md) |
   | `no node` | The helper could not find `node`. Install Node.js (required on Windows 11 too, then restart the Claude desktop app), put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
   | `config unreadable` | The file is missing or is not a Podium reporter config. The status line adds the reason when the helper gave one (for example that the file holds more than one person certificate). When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
@@ -229,8 +235,8 @@ unless you say otherwise. A context is a name for one file, and the current cont
   (`$.process` works there, #408). The desktop app has no `/plugin marketplace`; the mod is added by uploading an
   archive in Settings > Plugins. A desktop session can start before its client attaches, so `session.start` reports no
   surface; the mod counts the session as interactive once a client shows on the roster, and keeps that for the
-  session (#408). VS Code is not covered. Windows is not otherwise a supported platform; nothing else is built or
-  tested for it.
+  session (#408). VS Code is not covered. On Windows 11 the desktop app connects over mutual TLS with a reporter config file when Node.js is installed (#834); nothing else is built or
+  tested for Windows.
 
 ## Messaging your other orchestrators
 
