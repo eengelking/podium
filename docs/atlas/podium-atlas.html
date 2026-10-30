@@ -283,7 +283,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
         <div><dt>Console</dt><dd>React, plain CSS tokens</dd></div>
         <div><dt>Ports</dt><dd>4317 HTTP · 4318 mutual TLS (when built-in TLS is on)</dd></div>
         <div><dt>Direction</dt><dd>Sessions call out; nothing calls in</dd></div>
-        <div><dt>Code</dt><dd>≈56k lines + ≈51k lines of tests</dd></div>
+        <div><dt>Code</dt><dd>≈63k lines + ≈59k lines of tests</dd></div>
         <div><dt>Release</dt><dd>One version for server and mod</dd></div>
       </dl>
     </section>
@@ -313,13 +313,13 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       <h3 class="sub mt2">How much is tested</h3>
       <div class="panel pad mt">
         <div class="cl"><span><i style="background:var(--c-reporter)"></i>Source lines</span><span><i style="background:var(--c-server)"></i>Test lines</span></div>
-        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 18.6 thousand source, 21.0 thousand test. Reporter mod 8.7 and 7.6. Console 24.8 and 20.0. Scripts 4.1 and 2.1."></svg>
+        <svg class="chart" id="chart" viewBox="0 0 760 270" role="img" aria-label="Lines of source and test code per area. Server 21.3 thousand source, 25.0 thousand test. Reporter mod 9.6 and 9.2. Console 25.3 and 21.3. Scripts 6.6 and 3.6."></svg>
         <details class="tv"><summary>View as a table</summary>
           <table><thead><tr><th>Area</th><th>Source</th><th>Tests</th></tr></thead><tbody>
-            <tr><td>Server</td><td>18,593</td><td>20,986</td></tr><tr><td>Reporter mod</td><td>8,665</td><td>7,629</td></tr>
-            <tr><td>Console</td><td>24,794</td><td>19,971</td></tr><tr><td>Scripts</td><td>4,128</td><td>2,111</td></tr></tbody></table>
+            <tr><td>Server</td><td>21,265</td><td>25,003</td></tr><tr><td>Reporter mod</td><td>9,611</td><td>9,155</td></tr>
+            <tr><td>Console</td><td>25,314</td><td>21,274</td></tr><tr><td>Scripts</td><td>6,639</td><td>3,569</td></tr></tbody></table>
         </details>
-        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-23: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 8 lines. Tests fail the build if the version numbers drift from the code. The design standards are compared with the app by <code>npm run standards:parity</code>, which CI runs on pull requests into main. Prose docs are not checked against code.</p>
+        <p class="note" style="margin:12px 0 0">Counted from the repository on 2026-10-30: .ts, .tsx and .mjs files, excluding dependencies and snapshot files. The reporter mod row counts its hooks folder; its type declarations add 11 lines. Tests fail the build if the version numbers drift from the code. The design standards are compared with the app by <code>npm run standards:parity</code>, which CI runs on pull requests into main. Prose docs are not checked against code.</p>
       </div>
     </section>
 
@@ -1233,9 +1233,9 @@ const pr=$("#princ");PR.forEach(p=>pr.append(el("div",{class:"pr"},[el("div",{},
 
 /* ---------- chart ---------- */
 (function(){
- const D=[["Console",24794,19971],["Server",18593,20986],["Reporter mod",8665,7629],["Scripts",4128,2111]];
- const c=$("#chart"),max=25000,x0=130,W=560,rowH=58,y0=14;
- [0,5000,10000,15000,20000,25000].forEach(v=>{const x=x0+v/max*W;c.append(sv("line",{x1:x,x2:x,y1:y0-6,y2:y0+rowH*D.length-8,class:"gr"}));c.append(sv("text",{x,y:y0+rowH*D.length+10,class:"ax","text-anchor":"middle",text:v===0?"0":(v/1000)+"k"}))});
+ const D=[["Console",25314,21274],["Server",21265,25003],["Reporter mod",9611,9155],["Scripts",6639,3569]];
+ const c=$("#chart"),max=30000,x0=130,W=560,rowH=58,y0=14;
+ [0,5000,10000,15000,20000,25000,30000].forEach(v=>{const x=x0+v/max*W;c.append(sv("line",{x1:x,x2:x,y1:y0-6,y2:y0+rowH*D.length-8,class:"gr"}));c.append(sv("text",{x,y:y0+rowH*D.length+10,class:"ax","text-anchor":"middle",text:v===0?"0":(v/1000)+"k"}))});
  D.forEach((d,i)=>{const y=y0+i*rowH;
   c.append(sv("text",{x:x0-12,y:y+30,"text-anchor":"end",text:d[0]}));
   [[d[1],"var(--c-reporter)",0],[d[2],"var(--c-server)",1]].forEach(([v,col,k])=>{
