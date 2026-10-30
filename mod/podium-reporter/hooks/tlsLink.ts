@@ -1,7 +1,7 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { configNamesNewestFirst, parseConfigHeaders, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+import { configNamesNewestFirst, parseConfigHeaders, podiumHome, resolveHome, trimTrailingSeparators, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
 import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
@@ -46,6 +46,9 @@ export interface EnvValues {
   homeFrom?: string | undefined;
   node: string | undefined;
   tmp: string | undefined;
+  /** `ProgramFiles` and `LOCALAPPDATA`, where Windows installs node (#834). */
+  programFiles?: string | undefined;
+  localAppData?: string | undefined;
 }
 
 /** `$.env.get` takes a name written out in the source, so each one is spelled here; a lookup that throws, in its call or its promise, reads as unset. */
@@ -75,6 +78,8 @@ async function readEnv($: LinkEngine): Promise<EnvValues> {
     home,
     homeFrom: from,
     node: await envValue(() => $.env.get('PODIUM_NODE')),
+    programFiles: await envValue(() => $.env.get('ProgramFiles')),
+    localAppData: await envValue(() => $.env.get('LOCALAPPDATA')),
     // TMPDIR where the platform has it; Windows names its private temporary folder TEMP, or TMP (#834).
     tmp: (await envValue(() => $.env.get('TMPDIR'))) || (await envValue(() => $.env.get('TEMP'))) || (await envValue(() => $.env.get('TMP'))),
   };
@@ -169,13 +174,18 @@ export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: 
   return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
 }
 
+/** A POSIX path (`/usr/bin/node`) or a Windows drive path (`C:\Program Files\nodejs\node.exe`, `C:/x`). */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
+}
+
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */
 export async function findNode($: LinkEngine, env: EnvValues): Promise<string | null> {
   if (env.node) return (await $.fs.exists(env.node).catch(() => false)) ? env.node : null;
   try {
     const r = await $.process.run(['node', '-p', 'process.execPath'], { timeoutMs: 5000 });
     const p = r.stdout.trim();
-    if (r.exitCode === 0 && p.startsWith('/')) return p;
+    if (r.exitCode === 0 && isAbsolutePath(p)) return p;
   } catch {
     // not on this PATH
   }
@@ -190,6 +200,9 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
       // no nvm
     }
   }
+  // Windows (#834): the machine-wide installer, the per-user installer, and Volta.
+  if (env.programFiles) places.push(`${trimTrailingSeparators(env.programFiles)}/nodejs/node.exe`);
+  if (env.localAppData) places.push(`${trimTrailingSeparators(env.localAppData)}/Programs/nodejs/node.exe`, `${trimTrailingSeparators(env.localAppData)}/Volta/bin/node.exe`);
   for (const p of places) if (await $.fs.exists(p).catch(() => false)) return p;
   return null;
 }

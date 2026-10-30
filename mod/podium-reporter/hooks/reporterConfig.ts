@@ -61,7 +61,7 @@ export function configNamesNewestFirst(names: string[]): string[] {
 }
 
 /** `home` without the `/` or `\` characters at its end (a Windows home can end in a backslash). A loop, like `trimTrailingSlashes`. */
-function trimTrailingSeparators(home: string): string {
+export function trimTrailingSeparators(home: string): string {
   let end = home.length;
   while (end > 0 && (home.charCodeAt(end - 1) === 47 || home.charCodeAt(end - 1) === 92)) end--;
   return home.slice(0, end);

@@ -324,6 +324,26 @@ describe('finding node (#584)', () => {
   test('none anywhere is null', async () => {
     expect(await findNode(fake({}).$, env)).toBeNull()
   })
+
+  test('a Windows path from the PATH is a node (#834)', async () => {
+    expect(await findNode(fake({ pathNode: 'C:\\Program Files\\nodejs\\node.exe' }).$, env)).toBe('C:\\Program Files\\nodejs\\node.exe')
+    expect(await findNode(fake({ pathNode: 'D:/tools/node.exe' }).$, env)).toBe('D:/tools/node.exe')
+    expect(await findNode(fake({ pathNode: 'node.exe' }).$, env)).toBeNull()
+  })
+
+  test('on Windows the usual places are Program Files, the per-user installer and Volta (#834)', async () => {
+    const win = { ...env, home: 'C:\\Users\\dana', programFiles: 'C:\\Program Files', localAppData: 'C:\\Users\\dana\\AppData\\Local' }
+    expect(await findNode(fake({ files: { 'C:\\Program Files/nodejs/node.exe': '' } }).$, win)).toBe('C:\\Program Files/nodejs/node.exe')
+    expect(await findNode(fake({ files: { 'C:\\Users\\dana\\AppData\\Local/Programs/nodejs/node.exe': '' } }).$, win)).toBe('C:\\Users\\dana\\AppData\\Local/Programs/nodejs/node.exe')
+    expect(await findNode(fake({ files: { 'C:\\Users\\dana\\AppData\\Local/Volta/bin/node.exe': '' } }).$, win)).toBe('C:\\Users\\dana\\AppData\\Local/Volta/bin/node.exe')
+    expect(await findNode(fake({}).$, win)).toBeNull()
+  })
+
+  test('readEnv takes ProgramFiles and LOCALAPPDATA for those places (#834)', async () => {
+    const r = await findConfig(fake({ env: { ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\L' } }).$)
+    expect(r.env.programFiles).toBe('C:\\Program Files')
+    expect(r.env.localAppData).toBe('C:\\L')
+  })
 })
 
 describe('what a helper error means to the person (#584)', () => {

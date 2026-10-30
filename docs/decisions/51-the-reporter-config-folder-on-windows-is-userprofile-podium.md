@@ -17,6 +17,7 @@ order: 51
 - `/podium` shows a `Home folder:` line with the folder and the variable it came from, or says that none was found and names the three variables. A missing home does not stop the plain-token path.
 - The helper's socket folder falls back to `TMPDIR`, then `TEMP`, then `TMP`.
 - The helper skips `chmod` on Windows, and treats a `.sock` file in its private folder as a stale socket there, because Windows lists an AF_UNIX socket file as a plain file.
+- The search for `node` accepts a Windows drive path from the PATH, and falls back to `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. It took only paths that start with `/`, so a Windows `node` was found and then thrown away.
 - `podiumctl` needed no change: it uses `os.homedir()`, which Node resolves from `USERPROFILE` on Windows.
 - The "readable by others" check stays off on Windows (as before). The docs say so and do not tell Windows users to run `chmod`.
 
