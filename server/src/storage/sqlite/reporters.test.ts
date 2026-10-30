@@ -195,10 +195,10 @@ describe('reporters', () => {
 
   it('carries each session\'s peers value when two reporter rows merge (#838)', () => {
     const anon = (over: Partial<ReporterSeen> = {}) => seen({ machineId: null, machineName: null, owner: null, ...over });
-    store.record(anon({ source: '10.88.0.133', sessionId: 's1', peers: false }), START + MIN);
+    store.record(anon({ source: '192.0.2.133', sessionId: 's1', peers: false }), START + MIN);
     // s2 reports from a new address first, so it gets a row of its own; s1 then turns up there and folds that row in.
-    store.record(anon({ source: '10.88.0.135', sessionId: 's2', peers: true }), START + 2 * MIN);
-    store.record(anon({ source: '10.88.0.135', sessionId: 's1', peers: false }), START + 3 * MIN);
+    store.record(anon({ source: '192.0.2.135', sessionId: 's2', peers: true }), START + 2 * MIN);
+    store.record(anon({ source: '192.0.2.135', sessionId: 's1', peers: false }), START + 3 * MIN);
     const rows = store.list({}, START + 3 * MIN).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.peers).toBe(true);
