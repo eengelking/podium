@@ -89,9 +89,10 @@ jobs:
       - name: Run the suite
         env:
           REPEAT: ${{ inputs.repeat || 1 }}
-          # The self-hosted runners have Podman (their label) and a Docker whose default builder keeps a built image in its cache instead of
-          # loading it; the script would pick Docker only because Podman is not first on the PATH of a hosted runner.
-          E2E_ENGINE: ${{ github.event.pull_request.head.repo.fork && 'docker' || 'podman' }}
+          # The self-hosted runners are containers that reach the host's rootless Podman through the Docker CLI (there is no podman binary
+          # in them), and their default buildx builder keeps a built image in its cache instead of loading it. The legacy builder loads it.
+          E2E_ENGINE: docker
+          DOCKER_BUILDKIT: "0"
         run: |
           set -u -o pipefail
           fail=0
