@@ -95,30 +95,34 @@ export function buildReporterZip(modDir = MOD, suffix = "") {
 
 function option(args, flag) {
   const i = args.indexOf(flag);
-  if (i === -1) return undefined;
+  if (i === -1) return { value: undefined };
   const value = args[i + 1];
-  if (value === undefined || value.startsWith("--")) {
-    console.error(`${flag} needs a value.\n\n${USAGE}`);
-    process.exit(1);
+  if (value === undefined || value.startsWith("--")) return { error: `${flag} needs a value.\n\n${USAGE}` };
+  return { value };
+}
+
+/** Runs the command line `args`; returns the exit code and what to print to stdout and stderr. */
+export function run(args, modDir = MOD) {
+  if (args.includes("--help") || args.includes("-h")) return { code: 0, out: USAGE };
+  const suffix = option(args, "--suffix");
+  const expect = option(args, "--expect-version");
+  const outDir = option(args, "--out");
+  const bad = suffix.error ?? expect.error ?? outDir.error;
+  if (bad) return { code: 1, err: bad };
+  const zip = buildReporterZip(modDir, suffix.value ?? "");
+  if (expect.value !== undefined && expect.value !== zip.version) {
+    return { code: 1, err: `The mod is version ${zip.version}, not ${expect.value}. Not building.` };
   }
-  return value;
+  const dir = resolve(outDir.value ?? ".");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, zip.name);
+  writeFileSync(file, zip.bytes);
+  return { code: 0, out: file };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  if (args.includes("--help") || args.includes("-h")) {
-    console.log(USAGE);
-    process.exit(0);
-  }
-  const zip = buildReporterZip(MOD, option(args, "--suffix") ?? "");
-  const expected = option(args, "--expect-version");
-  if (expected !== undefined && expected !== zip.version) {
-    console.error(`The mod is version ${zip.version}, not ${expected}. Not building.`);
-    process.exit(1);
-  }
-  const out = resolve(option(args, "--out") ?? ".");
-  mkdirSync(out, { recursive: true });
-  const file = join(out, zip.name);
-  writeFileSync(file, zip.bytes);
-  console.log(file);
+  const { code, out, err } = run(process.argv.slice(2));
+  if (out) console.log(out);
+  if (err) console.error(err);
+  process.exitCode = code;
 }

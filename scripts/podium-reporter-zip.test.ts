@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { buildReporterZip, included, listFiles, zipBytes } from "./podium-reporter-zip.mjs";
+import { buildReporterZip, included, listFiles, run, zipBytes } from "./podium-reporter-zip.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "podium-reporter-zip.mjs");
@@ -104,5 +104,14 @@ describe("podium-reporter-zip", () => {
     expect(zip.name).toBe("podium-reporter-9.9.9.zip");
     expect(zip.files).toEqual([".claude-plugin/plugin.json", "hooks/a.ts", "hooks/b.ts"]);
     expect(readZip(zipBytes([["x/é.txt", Buffer.from("hi")]])).get("x/é.txt")?.toString()).toBe("hi");
+  });
+
+  it("runs the command line in process: writes the zip, checks the version, reports a bad flag", () => {
+    const dir = mkdtempSync(join(tmpdir(), "reporter-zip-"));
+    expect(run(["--out", dir, "--suffix", "-x", "--expect-version", version])).toEqual({ code: 0, out: join(dir, `podium-reporter-${version}-x.zip`) });
+    expect(run(["--out", dir, "--expect-version", "0.0.0"]).err).toContain(`version ${version}, not 0.0.0`);
+    expect(run(["--out"]).err).toContain("--out needs a value");
+    expect(run(["--suffix", "--out", dir]).code).toBe(1);
+    expect(run(["-h"])).toMatchObject({ code: 0 });
   });
 });
