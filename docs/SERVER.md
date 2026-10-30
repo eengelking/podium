@@ -327,6 +327,10 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_TLS_PUBLIC_PORT` | the listening reporter port | The reporter port people reach the server on, which goes into each reporter config. `podiumctl` sets it in container mode to your `PODIUM_TLS_PORT`. Set it yourself only when something else maps the port (a forwarder or a container you run by hand) |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |
 | `PODIUM_FAILURE_LIMIT` | `300` | Failed requests (a response of 400 or more) one address may make to `/api` in a minute before its requests get `429` (see [Failed requests are limited](#failed-requests-are-limited)). A value that is not a whole number of at least 1 stops the server at start |
+| `PODIUM_TEST_TIMINGS` | off | For the end-to-end suite only. Never set it on a real server. `1` lets the three `PODIUM_TEST_*` times below take effect. One of them set without it stops the server at start, and so does a value here other than `0` or `1` (SPEC 7.7) |
+| `PODIUM_TEST_ADMIN_IDLE_MS` | `600000` | Test only. Milliseconds Admin may sit idle before it locks (10 minutes). Needs `PODIUM_TEST_TIMINGS=1`. A value that is not a whole number from 1 to 999999999 stops the server at start |
+| `PODIUM_TEST_SIGN_IN_IDLE_MS` | `43200000` | Test only. Milliseconds a sign-in to respond may sit idle before it ends (12 hours). Same rules as above |
+| `PODIUM_TEST_LOCK_MS` | `900000` | Test only. Milliseconds five wrong tries lock an address out of Admin's unlock and the sign-in to respond (15 minutes). Same rules as above |
 | `PODIUM_TRUST_PROXY` | off | The reverse-proxy hops whose `X-Forwarded-For` and `X-Forwarded-Proto` the server believes (see [Behind a reverse proxy](#behind-a-reverse-proxy)) |
 | `TZ` | the server's own zone | Timezone whose midnight starts "today" for "Est. cost today". `podiumctl` gives the container your host's zone; set it with `podiumctl config set TZ=Europe/Berlin` to override |
 | `STALE_AFTER_MS` | `15000` | A session not heard from this long shows as stale |
