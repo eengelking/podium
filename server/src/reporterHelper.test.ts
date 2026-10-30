@@ -1149,3 +1149,172 @@ describe('helper.mjs: rewriteConfig', () => {
     expect(new X509Certificate(got.cert).fingerprint256).toBe(new X509Certificate(p.person.cert).fingerprint256);
   });
 });
+
+describe('helper.mjs: the mailbox mode, used where there is no Unix socket (#834)', () => {
+  interface Box {
+    proc: ChildProcess;
+    dir: string;
+    out: () => string;
+    exited: Promise<number | null>;
+  }
+
+  /** Starts the helper with `mailbox:<dir>` in place of a socket path; resolves once it prints `ready` or exits. */
+  async function runBox(p: Pki, server: string, before?: (dir: string) => void): Promise<Box> {
+    const root = tmp();
+    const config = path.join(root, 'reporter-config-Dana-1.pem');
+    fs.writeFileSync(config, configFor(p, server), { mode: 0o600 });
+    const dir = path.join(root, 'run', 'box');
+    if (before) {
+      fs.mkdirSync(dir, { recursive: true });
+      before(dir);
+    }
+    const proc = spawn(process.execPath, [HELPER, config, `mailbox:${dir}`, server], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    proc.stdout.on('data', (c) => (out += c));
+    proc.stderr.on('data', (c) => (out += c));
+    const exited = new Promise<number | null>((r) => proc.on('exit', (code) => r(code)));
+    cleanup.push(() => {
+      proc.kill('SIGKILL');
+    });
+    await new Promise<void>((resolve) => {
+      const t = setInterval(() => out.includes('ready') && (clearInterval(t), resolve()), 10);
+      void exited.then(() => (clearInterval(t), resolve()));
+    });
+    return { proc, dir, out: () => out, exited };
+  }
+
+  const request = (id: string, over: Record<string, unknown> = {}) =>
+    JSON.stringify({ id, method: 'GET', path: '/api/fleet/sessions/s1/peers', headers: {}, body: '', ...over });
+
+  /** The decoded `res <id> <base64>` line for `id`, waiting for it. */
+  async function answer(b: Box, id: string, ms = 3000): Promise<{ status: number; headers: Record<string, string>; body: string } | null> {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      const line = b.out().split('\n').find((l) => l.startsWith(`res ${id} `));
+      if (line) return JSON.parse(Buffer.from(line.slice(`res ${id} `.length), 'base64').toString('utf8'));
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return null;
+  }
+
+  it('answers a request file with a res line, over the person’s certificate, and removes the file', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res, peer) => {
+      seen.push(peer?.fingerprint256 ?? 'none');
+      let b = '';
+      req.on('data', (c) => (b += c));
+      req.on('end', () => {
+        res.writeHead(201, { 'content-type': 'application/json', 'x-extra': 'kept' });
+        res.end(JSON.stringify({ path: req.url, method: req.method, echoed: b, type: req.headers['content-type'] }));
+      });
+    });
+    const b = await runBox(p, url);
+    expect(b.out()).toContain('ready');
+    fs.writeFileSync(path.join(b.dir, 'req-1.json'), request('1', { method: 'POST', path: '/api/fleet/report?x=1', headers: { 'content-type': 'application/json' }, body: '{"a":"é"}' }));
+    const a = await answer(b, '1');
+    expect(a?.status).toBe(201);
+    expect(a?.headers['x-extra']).toBe('kept');
+    expect(JSON.parse(a!.body)).toEqual({ path: '/api/fleet/report?x=1', method: 'POST', echoed: '{"a":"é"}', type: 'application/json' });
+    expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256]);
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+  });
+
+  it('refuses a route the helper does not forward, as the socket mode does', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{}'));
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-2.json'), request('2', { path: '/api/admin/settings' }));
+    const a = await answer(b, '2');
+    expect(a?.status).toBe(403);
+    expect(a?.headers['x-podium-helper-error']).toBe('ROUTE_NOT_ALLOWED');
+  });
+
+  it('waits for a request file that is not all written yet, then answers it', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{"ok":true}'));
+    const b = await runBox(p, url);
+    const file = path.join(b.dir, 'req-3.json');
+    const whole = request('3');
+    fs.writeFileSync(file, whole.slice(0, 20));
+    expect(await answer(b, '3', 600)).toBeNull();
+    fs.writeFileSync(file, whole);
+    expect((await answer(b, '3'))?.status).toBe(200);
+  });
+
+  it('ignores a request that is not one, removes it, and keeps working', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{}'));
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-4.json'), JSON.stringify({ id: '../x', method: 'GET', path: '/api/fleet/sessions/s1/peers' }));
+    fs.writeFileSync(path.join(b.dir, 'req-5.json'), request('5'));
+    expect((await answer(b, '5'))?.status).toBe(200);
+    expect(b.out()).not.toContain('res ../x');
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+  });
+
+  it('sets the content type itself and ignores any header in the file', async () => {
+    const p = await pki();
+    const seen: Array<Record<string, string | string[] | undefined>> = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push({ type: req.headers['content-type'], other: req.headers['x-other'], token: req.headers['x-podium-token'] });
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-6.json'), request('6', { method: 'POST', path: '/api/fleet/report', headers: { 'content-type': 'text/evil', 'x-other': 'one\r\nx-b: two', 'X-Podium-Token': 'secret' }, body: '{}' }));
+    expect((await answer(b, '6'))?.status).toBe(200);
+    expect(seen).toEqual([{ type: 'application/json', other: undefined, token: undefined }]);
+  });
+
+  it('answers 400 to a request whose method, path or body is not text, and sends nothing upstream', async () => {
+    const p = await pki();
+    let hits = 0;
+    const url = await upstream(p, (_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-7.json'), request('7', { body: 5 }));
+    fs.writeFileSync(path.join(b.dir, 'req-9.json'), request('9', { path: 7 }));
+    for (const id of ['7', '9']) {
+      const a = await answer(b, id);
+      expect(a?.status).toBe(400);
+      expect(a?.headers['x-podium-helper-error']).toBe('BAD_REQUEST');
+    }
+    expect(hits).toBe(0);
+  });
+
+  it('forwards the route the helper rebuilt from its list, not the text in the file', async () => {
+    const p = await pki();
+    const seen: string[] = [];
+    const url = await upstream(p, (req, res) => {
+      seen.push(req.url ?? '');
+      res.end('{}');
+    });
+    const b = await runBox(p, url);
+    fs.writeFileSync(path.join(b.dir, 'req-8.json'), request('8', { path: '/API/fleet/Sessions/s1/peers/' }));
+    expect((await answer(b, '8'))?.status).toBe(200);
+    expect(seen).toEqual(['/api/fleet/sessions/s1/peers']);
+  });
+
+  it('removes requests left by an earlier helper instead of sending them', async () => {
+    const p = await pki();
+    let hits = 0;
+    const url = await upstream(p, (_req, res) => {
+      hits++;
+      res.end('{}');
+    });
+    const b = await runBox(p, url, (dir) => fs.writeFileSync(path.join(dir, 'req-old.json'), request('old')));
+    expect(b.out()).toContain('ready');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(fs.readdirSync(b.dir)).toEqual([]);
+    expect(hits).toBe(0);
+    expect(b.out()).not.toContain('res old');
+  });
+
+  it('a named-pipe address is no longer an option: the helper takes a socket path or a mailbox', async () => {
+    const { isMailbox } = (await import(/* @vite-ignore */ HELPER)) as { isMailbox: (a: string) => string | null };
+    expect(isMailbox('mailbox:C:\\Users\\d\\.podium\\run\\ab')).toBe('C:\\Users\\d\\.podium\\run\\ab');
+    expect(isMailbox('/home/d/.podium/run/12345678.sock')).toBeNull();
+  });
+});

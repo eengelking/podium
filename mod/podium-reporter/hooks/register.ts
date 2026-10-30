@@ -56,7 +56,7 @@ import {
 } from './state.ts';
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from './transport.ts';
-import { findConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
+import { findConfig, readHome, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { contextCommand, type ContextIO } from './contexts.ts';
 import { activityCall, activityText, explainPrompt } from './failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
@@ -244,6 +244,8 @@ let nameIsSetting = false;
 let link: Link | null = null;
 /** The context the link was chosen by and the reason a named one was not used (#606); both belong to the link and end with it. */
 let linkContext: { name: string | null; problem: string | null } = { name: null, problem: null };
+/** The home folder the reporter config was looked for in, the variable it came from, and why none was found (#834); shown by `/podium`. */
+let linkHome: { home: string | undefined; from: string | undefined; note: string | null } = { home: undefined, from: undefined, note: null };
 /** The start of `link` that is under way, so two overlapping session.start events share it. */
 let linking: Promise<void> | null = null;
 /** Bumped by each register (a reload, or a new test): a wait for an answer started under an older one stops. */
@@ -836,7 +838,7 @@ function random(): number {
 async function machineId($: Engine): Promise<string> {
   const path = machineIdPath(
     await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    await attempt(() => $.env.get('HOME'), undefined),
+    (await readHome($)).home,
   );
   const shared = async () => (path ? parseMachineIdFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
   const fromFile = await shared();
@@ -863,7 +865,7 @@ async function machineId($: Engine): Promise<string> {
 async function machineName($: Engine): Promise<string | null> {
   const path = machineNamePath(
     await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    await attempt(() => $.env.get('HOME'), undefined),
+    (await readHome($)).home,
   );
   const pinnedName = async () => (path ? parseMachineNameFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
   const pinned = await pinnedName();
@@ -1778,6 +1780,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
       if (found?.contextProblem) record($, 'tls', new Error(found.contextProblem.text));
       linkContext = { name: found?.found?.context ?? null, problem: found?.contextProblem?.text ?? null };
+      if (found) linkHome = { home: found.env.home, from: found.env.homeFrom, note: found.homeNote };
       if (found?.problem) link = unusableLink(found.env.config ?? '', opts.serverUrl, found.problem);
       else if (found?.found) link = await startLink($ as never, found.found, found.env, { sessionName: who.userName.trim(), nameSource, nameIsSetting, now: nowMs, log: (line) => void remember('tls', line) });
     })().finally(() => {
@@ -1895,8 +1898,8 @@ async function end($: Engine, e: { reason: string; sessionId: string; resume?: {
 
 /** `/podium context ...` (#606): the files are read and written through `$.fs`; a missing file reads as null. */
 async function contextVerb($: Engine, args: string): Promise<string> {
-  const home = await attempt(() => $.env.get('HOME'), undefined);
-  if (!home) return 'Podium: cannot find your home folder, so contexts cannot be read or changed.';
+  const { home } = await readHome($);
+  if (!home) return 'Podium: cannot find your home folder (HOME, USERPROFILE and HOMEDRIVE+HOMEPATH are empty), so contexts cannot be read or changed.';
   const io: ContextIO = {
     // A file that is not there reads as null; one that is there and cannot be read throws, so a command never rewrites a file it could not read.
     read: async (path) => {
@@ -1946,6 +1949,7 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     link ? `TLS: ${link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`}` : '',
     link && linkContext.name ? `Context: ${linkContext.name} (${link.serverUrl}). Switch it for the next session with /podium context use <name>.` : '',
     linkContext.problem ? `Context problem: ${linkContext.problem}` : '',
+    linkHome.home ? `Home folder: ${linkHome.home} (from ${linkHome.from})` : linkHome.note ? `Home folder: ${linkHome.note}` : '',
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
     `Versions: reporter ${devNote(VERSION, r.build)}${t.serverVersion ? `, server ${devNote(t.serverVersion, t.serverBuild)}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',

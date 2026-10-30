@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { findConfig, findNode, problemFor, problemFromStartup, startLink, type FoundConfig, type LinkEngine } from './tlsLink.ts'
+import { findConfig, findNode, problemFor, problemFromStartup, REPLY_MS, startLink, type FoundConfig, type LinkEngine } from './tlsLink.ts'
 
 const NOW = Date.parse('2026-02-01T00:00:00Z')
 
@@ -11,6 +11,12 @@ interface Fake {
   fetched: { url: string; socketPath?: string; headers?: Record<string, string> }[]
   spawned: { argv: readonly string[]; env?: Record<string, string> }[]
   finishHelper: () => void
+  /** Say something on the helper's stdout. */
+  emit: (text: string) => void
+  /** What the mod wrote through $.fs.write. */
+  written: { path: string; text: string }[]
+  /** The sleeps that are waiting, resolved by the test. */
+  sleeps: { ms: number; wake: () => void }[]
 }
 
 /** A stand-in for `$`: files by path, the PATH's `node`, what the helper prints, and what the helper answers. */
@@ -21,11 +27,25 @@ function fake(o: {
   helperOut?: string[]
   helperExits?: boolean
   answers?: Array<{ status: number; headers?: Record<string, string> }>
+  /** Called after each $.fs.write, to let the helper answer. */
+  onWrite?: (path: string, text: string, emit: (text: string) => void) => void
 }): Fake {
   const files = o.files ?? {}
   const fetched: Fake['fetched'] = []
   const spawned: Fake['spawned'] = []
-  let end: () => void = () => {}
+  let finished = false
+  let wake: () => void = () => {}
+  const queue: string[] = [...(o.helperOut ?? ['ready\n'])]
+  const emit = (t: string) => {
+    queue.push(t)
+    wake()
+  }
+  const end = () => {
+    finished = true
+    wake()
+  }
+  const written: Fake['written'] = []
+  const sleeps: Fake['sleeps'] = []
   const answers = [...(o.answers ?? [])]
   const $: LinkEngine = {
     env: { get: async (n) => o.env?.[n] },
@@ -44,6 +64,10 @@ function fake(o: {
         return names
       },
       exists: async (p) => p in files,
+      write: async (p, t) => {
+        written.push({ path: p, text: t })
+        o.onWrite?.(p, t, emit)
+      },
     },
     process: {
       run: async () => {
@@ -52,17 +76,15 @@ function fake(o: {
       },
       spawn: (req) => {
         spawned.push(req)
-        const lines = o.helperOut ?? ['ready\n']
-        const done = new Promise<void>((r) => (end = r))
         return {
           [Symbol.asyncIterator]() {
-            let i = 0
             return {
               async next() {
-                if (i < lines.length) return { done: false as const, value: { stream: 'stdout', text: lines[i++] as string } }
-                if (o.helperExits) return { done: true as const, value: undefined }
-                await done
-                return { done: true as const, value: undefined }
+                for (;;) {
+                  if (queue.length) return { done: false as const, value: { stream: 'stdout', text: queue.shift() as string } }
+                  if (o.helperExits || finished) return { done: true as const, value: undefined }
+                  await new Promise<void>((r) => (wake = r))
+                }
               },
               async return() {
                 end()
@@ -80,10 +102,10 @@ function fake(o: {
         return { status: a.status, ok: a.status < 300, text: '{}', headers: a.headers ?? {} }
       },
     },
-    clock: { sleep: () => new Promise<void>(() => {}) },
+    clock: { sleep: (ms) => new Promise<void>((wakeUp) => sleeps.push({ ms, wake: wakeUp })) },
     plugin: { root: '/plugin' },
   }
-  return { $, fetched, spawned, finishHelper: () => end() }
+  return { $, fetched, spawned, finishHelper: () => end(), emit, written, sleeps }
 }
 
 const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundConfig => ({
@@ -91,6 +113,40 @@ const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundCo
   headers: { user, server: 'https://podium.lan:4318', issuedAt: 1, expires, fingerprint: 'AA' },
 })
 const env = { config: undefined, context: undefined, home: '/home/d', node: undefined, tmp: undefined }
+
+describe('finding the reporter config on Windows (#834)', () => {
+  const win = 'C:\\Users\\dana'
+  const file = `${win}/.podium/reporter-config-Dana-5.pem`
+
+  test('with no HOME, USERPROFILE names the home folder', async () => {
+    const f = fake({ env: { USERPROFILE: win }, files: { [file]: text('Dana', 5) } })
+    const r = await findConfig(f.$)
+    expect(r.found?.path).toBe(file)
+    expect(r.env.homeFrom).toBe('USERPROFILE')
+    expect(r.homeNote).toBeNull()
+  })
+
+  test('with only HOMEDRIVE and HOMEPATH, they name the home folder', async () => {
+    const f = fake({ env: { HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\dana' }, files: { [file]: text('Dana', 5) } })
+    const r = await findConfig(f.$)
+    expect(r.found?.path).toBe(file)
+    expect(r.env.homeFrom).toBe('HOMEDRIVE+HOMEPATH')
+  })
+
+  test('HOME still wins where it is set, so macOS and Linux are unchanged', async () => {
+    const r = await findConfig(fake({ env: { HOME: '/home/d', USERPROFILE: win }, files: { '/home/d/.podium/reporter-config-Dana-5.pem': text('Dana', 5) } }).$)
+    expect(r.found?.path).toBe('/home/d/.podium/reporter-config-Dana-5.pem')
+    expect(r.env.homeFrom).toBe('HOME')
+  })
+
+  test('no home folder at all is said, not silent, and does not block the plain-token path', async () => {
+    const r = await findConfig(fake({}).$)
+    expect(r.found).toBeNull()
+    expect(r.problem).toBeNull()
+    expect(r.homeNote).toContain('HOME')
+    expect(r.homeNote).toContain('USERPROFILE')
+  })
+})
 
 describe('finding the reporter config (#584)', () => {
   test('no file means no link: the reporter works as today', async () => {
@@ -283,6 +339,26 @@ describe('finding node (#584)', () => {
   test('none anywhere is null', async () => {
     expect(await findNode(fake({}).$, env)).toBeNull()
   })
+
+  test('a Windows path from the PATH is a node (#834)', async () => {
+    expect(await findNode(fake({ pathNode: 'C:\\Program Files\\nodejs\\node.exe' }).$, env)).toBe('C:\\Program Files\\nodejs\\node.exe')
+    expect(await findNode(fake({ pathNode: 'D:/tools/node.exe' }).$, env)).toBe('D:/tools/node.exe')
+    expect(await findNode(fake({ pathNode: 'node.exe' }).$, env)).toBeNull()
+  })
+
+  test('on Windows the usual places are Program Files, the per-user installer and Volta (#834)', async () => {
+    const win = { ...env, home: 'C:\\Users\\dana', programFiles: 'C:\\Program Files', localAppData: 'C:\\Users\\dana\\AppData\\Local' }
+    expect(await findNode(fake({ files: { 'C:\\Program Files/nodejs/node.exe': '' } }).$, win)).toBe('C:\\Program Files/nodejs/node.exe')
+    expect(await findNode(fake({ files: { 'C:\\Users\\dana\\AppData\\Local/Programs/nodejs/node.exe': '' } }).$, win)).toBe('C:\\Users\\dana\\AppData\\Local/Programs/nodejs/node.exe')
+    expect(await findNode(fake({ files: { 'C:\\Users\\dana\\AppData\\Local/Volta/bin/node.exe': '' } }).$, win)).toBe('C:\\Users\\dana\\AppData\\Local/Volta/bin/node.exe')
+    expect(await findNode(fake({}).$, win)).toBeNull()
+  })
+
+  test('readEnv takes ProgramFiles and LOCALAPPDATA for those places (#834)', async () => {
+    const r = await findConfig(fake({ env: { ProgramFiles: 'C:\\Program Files', LOCALAPPDATA: 'C:\\L' } }).$)
+    expect(r.env.programFiles).toBe('C:\\Program Files')
+    expect(r.env.localAppData).toBe('C:\\L')
+  })
 })
 
 describe('what a helper error means to the person (#584)', () => {
@@ -339,6 +415,150 @@ describe('starting the helper (#584)', () => {
     expect(s?.argv[3]).toMatch(/^\/home\/d\/\.podium\/run\/[0-9a-f]{8}\.sock$/)
     expect(s?.argv[4]).toBe('https://podium.lan:4318')
     expect(s?.env).toEqual({ NODE_TLS_REJECT_UNAUTHORIZED: '', NODE_OPTIONS: '' })
+  })
+
+  describe('on Windows the requests go through a mailbox folder, not a socket (#834)', () => {
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    /** Base64 of the UTF-8 of `text`; the mod sandbox has no Buffer. */
+    const base64 = (text: string): string => {
+      const bytes: number[] = []
+      for (const part of encodeURIComponent(text).split(/(%[0-9A-F]{2})/)) {
+        if (part.length === 3 && part.startsWith('%')) bytes.push(parseInt(part.slice(1), 16))
+        else for (const ch of part) bytes.push(ch.charCodeAt(0))
+      }
+      let out = ''
+      for (let i = 0; i < bytes.length; i += 3) {
+        const [a, b, c] = [bytes[i] as number, bytes[i + 1], bytes[i + 2]]
+        const n = (a << 16) | ((b ?? 0) << 8) | (c ?? 0)
+        out += ALPHABET.charAt((n >> 18) & 63) + ALPHABET.charAt((n >> 12) & 63) + (b === undefined ? '=' : ALPHABET.charAt((n >> 6) & 63)) + (c === undefined ? '=' : ALPHABET.charAt(n & 63))
+      }
+      return out
+    }
+    const reply = (status: number, headers: Record<string, string>, body: string) => base64(JSON.stringify({ status, headers, body }))
+    /** Lets the promises that are ready run; the sandbox has no setTimeout. */
+    const settle = async () => {
+      for (let i = 0; i < 30; i++) await Promise.resolve()
+    }
+    const winFound: FoundConfig = { ...found(), path: 'C:\\Users\\dana/.podium/reporter-config-Dana-Lee-1.pem' }
+    const winEnv = { ...env, home: 'C:\\Users\\dana' }
+    /** A helper that answers every request file with `status` and `body`. */
+    const answering = (status = 200, headers: Record<string, string> = {}, body = '{"ok":true}') => (_p: string, text: string, emit: (t: string) => void) => {
+      const { id } = JSON.parse(text) as { id: string }
+      emit(`res ${id} ${reply(status, headers, body)}\n`)
+    }
+    const start = async (o: Parameters<typeof fake>[0] = {}) => {
+      const f = fake({ pathNode: 'C:\\Program Files\\nodejs\\node.exe', onWrite: answering(), ...o })
+      const link = await startLink(f.$, winFound, winEnv, opts)
+      return { f, link }
+    }
+    const get = (link: Awaited<ReturnType<typeof start>>['link'], path = '/a') => link.fetch(`https://podium.lan:4318${path}`, { method: 'GET', headers: {} })
+
+    test('the helper is given a mailbox folder under the Podium folder, and no Unix socket path', async () => {
+      const { f, link } = await start()
+      expect(link.problem()).toBeNull()
+      expect(f.spawned[0]?.argv[3]).toMatch(/^mailbox:C:\\Users\\dana\/\.podium\/run\/[0-9a-f]{8}$/)
+    })
+
+    test('a request is written as a file, the reply line resolves it, and $.http.fetch is not used', async () => {
+      const { f, link } = await start({ onWrite: answering(201, { date: 'Sun, 01 Feb 2026 00:00:00 GMT' }, '{"n":1}') })
+      const dir = (f.spawned[0]?.argv[3] as string).slice('mailbox:'.length)
+      const res = await link.fetch('https://podium.lan:4318/api/fleet/report?x=1', { method: 'POST', headers: { 'content-type': 'application/json', 'X-Podium-Token': 'secret' }, body: '{"a":1}' })
+      expect(res).toMatchObject({ status: 201, ok: true, text: '{"n":1}' })
+      expect(res.headers?.date).toBe('Sun, 01 Feb 2026 00:00:00 GMT')
+      expect(f.fetched).toEqual([])
+      expect(f.written).toHaveLength(1)
+      const w = f.written[0] as { path: string; text: string }
+      const sent = JSON.parse(w.text) as { id: string; method: string; path: string; body: string }
+      expect(w.path).toBe(`${dir}/req-${sent.id}.json`)
+      expect(sent).toMatchObject({ method: 'POST', path: '/api/fleet/report?x=1', body: '{"a":1}' })
+      expect(sent.id).toMatch(/^[0-9a-z]+-1$/)
+      expect(sent).not.toHaveProperty('headers')
+      expect(w.text).not.toContain('secret')
+    })
+
+    test('a reply line that arrives in two pieces is put together', async () => {
+      const { link } = await start({
+        onWrite: (_p, text, emit) => {
+          const { id } = JSON.parse(text) as { id: string }
+          const line = `res ${id} ${reply(200, {}, 'hello')}\n`
+          emit(line.slice(0, 20))
+          emit(line.slice(20))
+        },
+      })
+      expect((await get(link)).text).toBe('hello')
+    })
+
+    test('two requests in flight are each given their own reply, whatever the order', async () => {
+      const held: Array<() => void> = []
+      const { link } = await start({
+        onWrite: (_p, text, emit) => {
+          const { id, path } = JSON.parse(text) as { id: string; path: string }
+          held.push(() => emit(`res ${id} ${reply(200, {}, path)}\n`))
+        },
+      })
+      const a = get(link, '/one')
+      const b = get(link, '/two')
+      await settle()
+      held[1]?.()
+      held[0]?.()
+      expect([(await a).text, (await b).text]).toEqual(['/one', '/two'])
+    })
+
+    test('a line that is not a reply, and a reply nobody is waiting for, are ignored', async () => {
+      const { link } = await start({
+        onWrite: (_p, text, emit) => {
+          const { id } = JSON.parse(text) as { id: string }
+          emit('some log line\n')
+          emit(`res nobody ${reply(200, {}, 'x')}\n`)
+          emit('res bad-base64 !!!\n')
+          emit(`res ${id} ${reply(200, {}, 'mine')}\n`)
+        },
+      })
+      expect((await get(link)).text).toBe('mine')
+    })
+
+    test('a helper error header in the reply becomes a problem, as over a socket', async () => {
+      const { link } = await start({ onWrite: answering(502, { 'x-podium-helper-error': 'CLIENT_CERT_REJECTED' }, '{}') })
+      await get(link)
+      expect(link.problem()?.code).toBe('CLIENT_CERT_REJECTED')
+    })
+
+    test('a 401 from the server is a certificate the server turned away', async () => {
+      const { link } = await start({ onWrite: answering(401, {}, '{}') })
+      await get(link)
+      expect(link.problem()?.code).toBe('CLIENT_CERT_REJECTED')
+    })
+
+    test('a helper that stops while a request waits fails that request with the reason', async () => {
+      const { f, link } = await start({ onWrite: () => {} })
+      const pending = get(link)
+      await settle()
+      f.finishHelper()
+      await expect(pending).rejects.toThrow()
+    })
+
+    test('a reply that never comes fails the request after the wait', async () => {
+      const { f, link } = await start({ onWrite: () => {} })
+      const pending = get(link)
+      await settle()
+      f.sleeps.filter((x) => x.ms === REPLY_MS).forEach((x) => x.wake())
+      await expect(pending).rejects.toThrow(/did not answer/)
+    })
+
+    test('a request file that cannot be written fails that request', async () => {
+      const { f, link } = await start()
+      f.$.fs.write = async () => {
+        throw new Error('EACCES')
+      }
+      await expect(get(link)).rejects.toThrow('EACCES')
+    })
+
+    test('without a home folder to hold the mailbox, the link says so', async () => {
+      const f = fake({ pathNode: 'C:\\node\\node.exe' })
+      const link = await startLink(f.$, winFound, { ...env, home: undefined }, opts)
+      expect(link.problem()?.code).toBe('SOCKET_PATH')
+      expect(f.spawned).toEqual([])
+    })
   })
 
   test('requests go to the helper on its socket, with the path kept, and never to http://<server>', async () => {

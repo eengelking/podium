@@ -55,6 +55,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [Installing the mod from the marketplace fails with "Permission denied (publickey)"](marketplace-install-permission-denied-publickey.md): The owner/repo shorthand makes Claude Code clone over SSH; use the full https URL for the marketplace entry.
 - [My session's name is the folder, and background tasks, notifications and permission answers are missing](session-name-is-the-folder-and-classic-hooks-are-skipped.md): On a Team or Enterprise login Claude Code skips the mod's classic hooks; the name now comes from claude agents, the rest still does not report.
 - [The Activity section says to turn on activityFeed, but the option is on](activity-feed-says-turn-on-the-option-but-it-is-on.md): A session reads its podium-reporter options once, when it starts; run /reload-plugins in it after turning an option on.
+- [On Windows, /podium says offline with HTTP 502 when the config file names localhost](on-windows-podium-says-offline-http-502-when-the-config-names-localhost.md): A config issued for https://localhost:4318 cannot work from another machine; edit its # server: line to an address that machine reaches.
 
 **Reporters and machines**
 
@@ -124,4 +125,5 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A new color theme shows up in the dropdown but the page stays on Podium's colors](new-color-theme-has-no-effect.md): A theme lives in themes.ts, tokens.css and the inline script in index.html; update all three.
 - [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md): A fake tool.check that answers ask is denied by Claude Code 2.1.310's test engine; the mod's tests answer allow and set ask only where a test needs it.
 - [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md): Every storage call returns a promise; a missing await passes the type checker. Await it, and keep Storage.tx free of other waits.
+- [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md): Node on Windows has no Unix sockets, so the EACCES is an invalid pipe name, not a permission; the mod reaches the Windows helper through a request folder.
 <!-- entries:end -->
