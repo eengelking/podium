@@ -61,7 +61,19 @@ The session appears in Podium once you send its first prompt. A session that has
 off the wall, because Claude Code's background daemon also runs idle twins and spares that report too (see
 "Sessions that have not done anything yet" in [docs/user-guide/](user-guide/README.md)).
 
-- `/podium` prints the console link, the connection state and report counts.
+- `/podium` prints the console link, the connection state and report counts. It also says how the reporter signs in and
+  why messaging is on or off (#825), from what the mod already holds; it never prints a token:
+  - `Sign-in:` is `a plain token`, `reporter config file <path> (mTLS)` or `none`.
+  - `Messaging:` is `on`, or `off, because <reason>`, then the facts behind it: `peers option` (`on` or `off`, as the mod
+    read it), `interactive` (`yes` or `no`, with the surface the session started on: `terminal`, `desktop`, `vscode`,
+    or `no surface`) and `Podium says` (`takes part`, `does not take part`, or `nothing yet` before the first reply).
+    The reason is the first that applies: the session has ended; the `peers` option is off on this machine; the session
+    is not interactive (a `claude -p` run); there is no per-person token with a `userName` and no reporter config file;
+    the session has not reported yet; or Podium says no, which means its messaging flag is off or the reporter signs in
+    with the admin secret.
+  - `Option problem:` names a switch option whose value is not `true` or `false` (the text `"true"`, say). The mod does not
+    read such a text as true, so a consent option is never turned on by a stray value; it uses the default and the line
+    says which option to fix.
 - `/podium name <text>` gives the session a display name. Without one, a name you gave the session in Claude
   Code (for example with `/rename`) is its name in Podium, picked up from the next prompt. The title the Claude
   desktop app shows for the session comes next, read from `claude agents --json` about every 30 seconds (#595); it is

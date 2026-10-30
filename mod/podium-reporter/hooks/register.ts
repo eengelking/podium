@@ -92,6 +92,7 @@ import {
   SUBAGENT_SEND,
   TOOL_DESCRIPTIONS,
 } from './peers.ts';
+import { connectionLine, messagingLine, optionProblem, messagingOffReason, nonBooleanOptions, type MessagingFacts } from './messagingStatus.ts';
 import {
   answeredLine,
   answersMap,
@@ -228,6 +229,8 @@ export function readOptions(o: Record<string, unknown>): Options {
 // ---- module state (reset by register) -----------------------------------------------------------
 
 let opts: Options = readOptions({});
+/** The switch options whose value was not true or false, as the mod got them: `/podium` names each (#825). `readOptions` stays strict, so a mistyped consent option never turns itself on. */
+let badOptions: { name: string; got: string }[] = [];
 /** The name and token this session reports as: taken once at session.start and held (#226), never read live from the options. */
 let who: Identity = { userName: '', token: '' };
 const IDENTITY = { plugin: 'podium-reporter', key: 'identity' } as const;
@@ -404,6 +407,20 @@ function responding(r: Runtime | null, kind: RespondKind): boolean {
 /** Whether this session's orchestrator may say it takes part in messaging: the option on, and a person on the session. */
 function peersWanted(r: Runtime): boolean {
   return opts.peers && r.interactive;
+}
+
+/** What `/podium` and a tool's refusal say about why messaging is on or off (#825). */
+function messagingFacts(r: Runtime): MessagingFacts {
+  const t = r.transport;
+  return {
+    option: opts.peers,
+    interactive: r.interactive,
+    surface: r.hostSurface,
+    serverSays: t.peers,
+    signedIn: !!link?.headers || (who.userName.trim() !== '' && who.token.trim() !== ''),
+    reported: t.sent > 0,
+    ended: r.state.ended,
+  };
 }
 
 /** Whether the mod takes part now (SPEC 5.3 "When the mod takes part"): its own switches, and the server's last word. */
@@ -1601,7 +1618,8 @@ function ownerName(): string {
 
 /** The mod's refusal when it does not take part now. */
 function notTakingPart(prefix: string): string {
-  return refusalAnswer(prefix, opts.peers ? 'orchestrator messaging is not on for this session in Podium right now' : "messaging is off on this machine: turn on podium-reporter's peers option there");
+  const why = rt ? messagingOffReason(messagingFacts(rt)) : null;
+  return refusalAnswer(prefix, `orchestrator messaging is off for this session${why ? ` because ${why}` : ' in Podium right now'}`);
 }
 
 /** A tool call that carries an `agentId` comes from a subagent (or one of the engine's own forks): refused, whoever it is. */
@@ -1919,6 +1937,9 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
     `Connection: ${t.online === null ? 'not tried yet' : t.online ? 'online' : 'offline, retrying'}${t.liveSessions !== null ? ` (${t.liveSessions} live sessions)` : ''}`,
     `Versions: reporter ${devNote(VERSION, r.build)}${t.serverVersion ? `, server ${devNote(t.serverVersion, t.serverBuild)}` : ''}`,
     t.ownerNotice() ?? t.versionNotice() ?? t.updateNotice() ?? '',
+    connectionLine({ configPath: link?.headers ? link.configPath : null, tokenSet: who.token.trim() !== '' }),
+    messagingLine(messagingFacts(r)),
+    ...badOptions.map(optionProblem),
     `Reports sent: ${t.sent}, failed: ${t.failed}, rejected: ${t.rejected}; events queued: ${t.queue.length}${t.dropped ? `, dropped: ${t.dropped}` : ''}`,
     `Last error: ${t.lastError ?? errors[errors.length - 1]?.message ?? 'none'}`,
     `Session: ${r.state.id}${r.storedName ? ` (named "${r.storedName}")` : ''}`,
@@ -2024,6 +2045,7 @@ async function sendRecording($: Engine, now: number): Promise<void> {
 
 export const register: Register = (on, rawOptions) => {
   opts = readOptions(rawOptions as Record<string, unknown>);
+  badOptions = nonBooleanOptions(rawOptions as Record<string, unknown>);
   who = { userName: '', token: '' };
   link?.stop();
   link = null;

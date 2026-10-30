@@ -244,6 +244,24 @@ The Admin sets four limits in Admin > Settings > Orchestrator messaging, for eve
 
 ## In the session
 
+### Why messaging is off
+
+`/podium` has a `Messaging:` line: `on`, or `off, because …` with the one cause, then `peers option`, `interactive` (with the
+surface the session started on) and what `Podium says`. A tool's refusal ("Not sent. Orchestrator messaging is off for this
+session because …") gives the same cause. The causes, in the order the mod checks them:
+
+| The line says | Fix |
+|---|---|
+| the session has ended | Start a session |
+| the `peers` option is off on this machine | Turn on **Message my other orchestrators** in podium-reporter's settings |
+| the session is not interactive | Nothing: a `claude -p` run never takes part |
+| there is no per-person token with a `userName`, or reporter config file | Set both `token` and `userName` to yours, or use your reporter config file. `Sign-in:` shows which one the mod uses |
+| the session has not reported yet | Send it a prompt |
+| Podium's messaging flag is off, or the reporter signs in with the admin secret | Ask the Admin to turn the flag on; sign in with your own token |
+
+An `Option problem:` line means a switch got a text such as `"true"`. The mod uses the default instead and does not read the text
+as true, so fix the setting.
+
 ### The tools
 
 With `peers` on, and once Podium says the session takes part, the orchestrator has three tools. Each answer is

@@ -428,6 +428,11 @@ points are marked **Verified** with what it found (ARCHITECTURE "Mod API finding
 - The tools are registered once a reply first says `peers: true`. With the option off, or in a `claude -p` run,
   they are never registered, and the report's `session.peers` is false. A tool left from before a reload that
   turned the option off refuses the call.
+- `/podium` says which of these holds (#825): a `Messaging:` line, `on` or `off, because <the first cause that applies>`, with the
+  option as the mod read it, whether the session is interactive and the surface it started on, and what the last reply said;
+  a `Sign-in:` line, a plain token or the reporter config file in use; and an `Option problem:` line for a switch option whose
+  value is not `true` or `false`. The mod does not read the text `"true"` as true. It shows only what the mod holds, never a
+  token. A tool's refusal gives the same cause.
 - Only the main loop, the orchestrator, sends and receives. A tool registered with `$.tool.register` cannot be
   kept from subagents, so the tool refuses a call made by one. **Verified (2.1.303, #411):** a foreground agent,
   a background agent and a fork all list the tool and can call it. Its `tool.call` carries `agentId` on every
