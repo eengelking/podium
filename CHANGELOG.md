@@ -41,6 +41,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
+- **The console says where to turn on a reporter option in the Claude desktop app, not only in the terminal (#837, from #408).** My reporters, Admin > Reporters > Messaging, the admin-secret fix in Admin > Reporters, the recording picker and the Activity section now name both routes: `/plugin configure podium-reporter@eengelking-marketplace` (the full key, where two of them had left out `@eengelking-marketplace`) and Settings > Plugins > Podium-Reporter > Settings. A session the reporter calls `not-interactive` is no longer told it "runs with `claude -p`": the console cannot tell a `claude -p` run from a Desktop session no window has opened yet, so its note says it is either. The user guide, `docs/MESSAGING.md`, a gotcha, SPEC 6.8 and 8.1 and the e2e map say the same. No standard is changed here: `docs/standards/` shows the old My reporters note until the release-prep PR.
+
 - **The README screenshot shows the console as it is today (#827).** `docs/images/podium-chaos.png` is retaken from the current build at 1914 px wide, on a throwaway server fed by the simulator with 12 sessions, chaos on and nested agents, so it shows only simulated data. The alt text is updated to match.
 
 - **The `E2E` workflow runs on the self-hosted runners (#815, from #782).** All three jobs use the same `runs-on` as `ci.yml` (`[self-hosted, Linux, X64]`, `ubuntu-latest` for a fork PR), and the e2e job takes a host-wide concurrency group so two runs never share the runners' Podman host, because the cleanup step removes every e2e container on it. It now also runs on a pull request into `main`, the release PR, and still not on a PR into `development`.

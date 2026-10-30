@@ -198,6 +198,7 @@ describe("the picker", () => {
     expect(dialog.textContent).toMatch(/does not allow recording/);
     expect(dialog.textContent).toMatch(/Ed has not turned on the sessionRecording option/);
     expect(dialog.textContent).toMatch(/\/plugin configure podium-reporter@eengelking-marketplace/);
+    expect(dialog.textContent).toMatch(/in the Claude desktop app under Settings > Plugins > Podium-Reporter > Settings/);
     expect(within(dialog).getByRole("button", { name: "Start recording" })).toBeDisabled();
     for (const box of within(dialog).getAllByRole("checkbox")) expect(box).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

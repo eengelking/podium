@@ -9,6 +9,7 @@ import { Pager } from "./Pager";
 import { Panel, Section } from "./Page";
 import { failText, useList } from "./useList";
 import { useReporterMessaging, WarnIcon } from "./ReporterMessaging";
+import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
 
 export interface ReporterPaging {
   page: number;
@@ -607,7 +608,7 @@ function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked
           <ol>
             <li>In Admin &gt; People, make a person for whoever runs this reporter, and copy their token.</li>
             <li>
-              In Claude Code{d.source ? ` on ${d.source}` : ""}, run <span className="mono">/plugin configure podium-reporter</span>.
+              {d.source ? `On ${d.source}, open` : "Open"} the reporter's options. In Claude Code, run <span className="mono">{OPTION_CMD}</span>. In the Claude desktop app, open {DESKTOP_OPTIONS}.
             </li>
             <li>
               Enter that token as <span className="mono">token</span> and the person's name as <span className="mono">userName</span>.

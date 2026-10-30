@@ -10,6 +10,7 @@ import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerRep
 import { ADMIN } from "../people";
 import { ReadGate } from "../readGate";
 import { Blank } from "../components/Blank";
+import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
 
 export const PEER_FLAG = "peer-messaging";
 
@@ -80,7 +81,7 @@ function cannot(r: PeerRef): ReactNode {
   if (r.peers === false) {
     return (
       <Blank title={`Messaging is off on ${r.machine}`}>
-        Only that machine can turn it on: in Claude Code there, run <span className="mono">/plugin configure podium-reporter</span> and set <span className="mono">peers</span> to on. Until then there is nothing to set here.
+        Only that machine can turn it on. In Claude Code there, run <span className="mono">{OPTION_CMD}</span> and set <span className="mono">peers</span> to on. In the Claude desktop app there, open {DESKTOP_OPTIONS} and turn on <span className="mono">peers</span>. Until then there is nothing to set here.
       </Blank>
     );
   }

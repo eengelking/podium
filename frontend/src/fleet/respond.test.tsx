@@ -459,7 +459,11 @@ describe("when Podium can't send the answer", () => {
     expect(screen.queryByText(/claude plugin update/)).toBeNull();
     cleanup();
     await modal(session({ respond: { level: "everything", accepts: [], limits: ["not-interactive"] } }), fakeApi());
-    expect(screen.getByText(/which can't take an answer from Podium\./)).toBeInTheDocument();
+    // Podium cannot tell a claude -p run from a Desktop session no window has opened yet, so the line fits both (#837).
+    const note = screen.getByText(/or a Claude desktop session that no window has opened yet/);
+    expect(note).toHaveTextContent("It is either a claude -p run, which can't take an answer, or a Claude desktop session that no window has opened yet.");
+    expect(note).toHaveTextContent("Otherwise, answer in the terminal.");
+    expect(screen.queryByText(/It runs with/)).toBeNull();
     expect(screen.queryByText(/claude plugin update/)).toBeNull();
     cleanup();
     const managed = { level: "everything" as const, accepts: ["question" as const, "message" as const, "plan-feedback" as const, "command" as const], limits: ["no-permission-hooks" as const] };

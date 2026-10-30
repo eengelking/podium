@@ -272,6 +272,10 @@ describe("a reporter's Messaging section (#416)", () => {
     s.reporters.push({ key: "win01", state: "reporting", name: "win-lab", named: true, who: "Dana", credential: "pdm_0000000000aa", adminSecret: false, version: "0.16.0", compat: "ok", firstSeenAt: 1, lastSeenAt: 40_000, sessions: 1, live: 0 });
     await openReporter("win-lab");
     expect(await within(await screen.findByRole("region", { name: "Messaging" })).findByText("Messaging is off on win-lab")).toBeInTheDocument();
+    // Both routes, as My reporters says them (#837).
+    expect(within(messaging()).getByText(/Only that machine can turn it on/)).toHaveTextContent(
+      "In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on. In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers. Until then there is nothing to set here.",
+    );
     expect(within(messaging()).queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("button", { name: /all links/ })).toBeNull();
     expect(screen.getByText("Off on the machine")).toBeInTheDocument();

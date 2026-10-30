@@ -4,8 +4,7 @@ import type { RecordingGrant, SessionView } from "../types";
 import { useRespond } from "../useRespond";
 import { recordingFail } from "./RecordingLayer";
 import { Modal } from "./Modal";
-
-const OPTION_CMD = "/plugin configure podium-reporter@eengelking-marketplace";
+import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
 
 function Para({ lead, children }: { lead?: string; children: ReactNode }) {
   return (
@@ -139,7 +138,7 @@ export function RecordPicker({ s, onClose }: { s: SessionView; onClose: () => vo
     body = (
       <>
         <Para lead="This session's reporter does not allow recording.">
-          Recording needs two yes answers: the Admin&apos;s switch and the session&apos;s owner. {owner} has not turned on the sessionRecording option in podium-reporter on this machine, so nothing can be recorded. They can turn it on with <code>{OPTION_CMD}</code>.
+          Recording needs two yes answers: the Admin&apos;s switch and the session&apos;s owner. {owner} has not turned on the sessionRecording option in podium-reporter on this machine, so nothing can be recorded. They can turn it on in Claude Code with <code>{OPTION_CMD}</code>, or in the Claude desktop app under {DESKTOP_OPTIONS}.
         </Para>
         {options}
         <div className="formacts">

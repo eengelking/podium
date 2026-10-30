@@ -64,7 +64,9 @@ Reporter 0.14.0 adds `session.respond`, `session.asks`, `session.clearedFrom`, t
   - The modal's note names the version from `reporterVersion`, or reads "an older podium-reporter" without
     one, and asks for an update.
   - For a session reported by the settings hooks, a `claude -p` run, or a computer where the permission hooks
-    don't run, the note says that instead and asks for no update, as the mockup's frames show.
+    don't run, the note says that instead and asks for no update, as the mockup's frames show. A session that
+    reports `not-interactive` may be a `claude -p` run or a Claude desktop session no window has opened yet, and
+    the console cannot tell them apart, so its note names both (#837).
 - A 0.13 reporter now shows `· update available` on its status line.
 - A server older than this ignores the new fields and sends no `respond`, so a 0.14 reporter never announces
   an ask to it.
