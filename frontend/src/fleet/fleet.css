@@ -503,6 +503,22 @@ body.modal-open #root { filter: blur(5px); }
 .podium .modal .mb blockquote { margin: 0 0 10px; padding: 2px 12px; border-left: 2px solid var(--axis); color: var(--ink2); }
 .podium .modal .mb a { color: var(--ink); text-underline-offset: 2px; }
 .podium .modal .mb .muted, .podium .modal .mb .mnote { color: var(--muted); }
+/* The word Shortcuts as a button while the switch is On (#828, mockup/podium-shortcuts-help.html): the dotted underline of a help term, but it acts. */
+.podium .kbd-link { appearance: none; background: none; border: 0; border-bottom: 1px dotted var(--muted); border-radius: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+.podium .kbd-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.podium .kbd-link:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; border-radius: 2px; }
+/* The list of shortcuts: two columns split by a 1px pipe, stacked under 480 px with a rule between them. */
+.podium .kbd-cols { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 0 22px; }
+.podium .kbd-cols .pipe { background: var(--border); }
+.podium .modal .mb .kbd-col { display: grid; gap: 12px; align-content: start; margin: 0; padding: 0; list-style: none; max-width: none; }
+.podium .modal .mb .kbd-col li { display: grid; gap: 2px; margin: 0; }
+.podium .kbd-col .what { color: var(--ink); }
+.podium .kbd-col .note { color: var(--muted); font-size: 12px; }
+.podium .kbd-col .keys { display: inline-flex; gap: 4px; align-items: center; }
+@media (max-width: 480px) {
+  .podium .kbd-cols { grid-template-columns: 1fr; gap: 14px 0; }
+  .podium .kbd-cols .pipe { height: 1px; }
+}
 
 /* The activity feed (issue #118, mockup/podium-agent-feed.html), in the agent and orchestrator panels and in the
    modal. Tool calls use the delegating blue for their name; redactions the critical red. */
