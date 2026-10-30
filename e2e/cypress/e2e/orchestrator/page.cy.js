@@ -61,7 +61,7 @@ describe('orchestrator page', () => {
       cy.contains('1.84M');
       cy.contains('ed-mbp');
       cy.contains('macOS 26.1');
-      cy.contains('1.3.1');
+      cy.readFile('/repo/package.json').then((pkg) => cy.contains(pkg.version));
       cy.contains('1 failed');
     });
   });

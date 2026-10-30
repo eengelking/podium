@@ -14,6 +14,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
 ### Added
 
 - **Every release and every nightly carries the reporter as a zip (#835, from #408).** Claude Desktop's Settings > Plugins takes only an archive, so `podium-reporter-<version>.zip` is attached to the GitHub Release of each `vX.Y.Z` tag (new `release.yml`), and `podium-reporter-<version>-nightly-<date>.zip` to the nightly prerelease. `node scripts/podium-reporter-zip.mjs` builds it, the same way in CI and by hand, with `.claude-plugin/plugin.json` and `hooks/hooks.json` at its root and no tests. Releases are now published as the docs site and this archive (`.claude/PROJECT.md`, `podium-release`).
@@ -928,7 +930,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/eengelking/podium/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eengelking/podium/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eengelking/podium/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/eengelking/podium/compare/v1.2.1...v1.2.2

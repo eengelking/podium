@@ -10,7 +10,7 @@ describe('admin: reporters', () => {
     cy.get('table tbody tr').should('have.length', 4);
     cy.contains('tr', 'ed-mbp').should('contain.text', 'Ed');
     cy.contains('tr', 'alex-laptop').should('contain.text', 'Alex');
-    cy.contains('tr', 'build-pi').should('contain.text', '1.3.1');
+    cy.readFile('/repo/package.json').then((pkg) => cy.contains('tr', 'build-pi').should('contain.text', pkg.version));
   });
 
   it('counts the reporters in each state filter', () => {

@@ -112,7 +112,7 @@ import {
   toolDenied,
 } from './respond.ts';
 
-export const VERSION = '1.3.1';
+export const VERSION = '1.4.0';
 const GIT_POLL_MS = 10_000;
 /** The app's title is read on every third git poll, so about every 30 s: it costs a process each time (#595). */
 const APP_TITLE_EVERY = 3;

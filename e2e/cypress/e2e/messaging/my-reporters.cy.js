@@ -40,14 +40,14 @@ describe('my reporters', () => {
     it('lists the three reporters of this person with system, messaging, version and live orchestrators', () => {
       cy.get('table.ptab tbody tr').should('have.length', 3);
       // The cells, in order: State, Machine, System, Messaging, Reporter version, Last report, Live orchestrators.
-      cy.contains('table.ptab tr', 'ed-mbp').find('td').then(($td) => {
+      cy.readFile('/repo/package.json').then((pkg) => cy.contains('table.ptab tr', 'ed-mbp').find('td').then(($td) => {
         const cell = (i) => $td.eq(i).text().trim();
         expect(cell(0)).to.contain('Reporting');
         expect(cell(2)).to.contain('macOS 26.1');
         expect(cell(3)).to.contain('On');
-        expect(cell(4)).to.eq('1.3.1');
+        expect(cell(4)).to.eq(pkg.version);
         expect(cell(6)).to.eq('8');
-      });
+      }));
       cy.contains('table.ptab tr', 'build-pi').should('contain.text', 'Debian 12, arm64');
       cy.contains('Showing 1 to 3 of 3');
     });
