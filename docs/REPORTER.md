@@ -180,6 +180,11 @@ unless you say otherwise. A context is a name for one file, and the current cont
 - **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
+  **On Windows 11, Node.js must be installed** (the LTS installer from nodejs.org is enough). Install it before you start
+  the Claude desktop app, or quit the app and start it again afterwards, because the app reads its PATH when it starts. Without
+  `node` the connection over TLS cannot start and `/podium` says `no node`. The reporter looks on the PATH, then in
+  `%ProgramFiles%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs` and `%LOCALAPPDATA%\Volta\bin`. For a `node.exe` anywhere else, set
+  `PODIUM_NODE` to its full path, for example `C:\tools\node\node.exe`.
 - **It renews its own certificate.** Your certificate lasts 90 days by default. With 30 days left, or half its lifetime if that is shorter, the helper asks the server
   for a new one and saves it in the same file, in one step, so no session sees half a file. Nothing for you to do, and
   several sessions at once are fine. A certificate that has expired is not renewed: the reporter checks its date before it
@@ -195,7 +200,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
   |---|---|
   | `config too open` | Others can read the file. Run `chmod 600` on it (macOS and Linux; Windows does not check this) |
   | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
-  | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
+  | `no node` | The helper could not find `node`. Install Node.js (required on Windows 11 too, then restart the Claude desktop app), put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
   | `config unreadable` | The file is missing or is not a Podium reporter config. The status line adds the reason when the helper gave one (for example that the file holds more than one person certificate). When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |
   | `wrong config for this name` | The file is for another person than the name this session already has, from the `userName` option or `PODIUM_USER` (the message says which). Use that person's file, or empty that setting so the session takes the file's name |
   | `certificate expired` | Your certificate expired on the date the message gives, and an expired certificate is not renewed. Ask an Admin to generate a new reporter config |
