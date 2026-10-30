@@ -94,7 +94,7 @@ describe('connectionLine: token or reporter config file', () => {
   })
 
   test('a reporter config file names the file', () => {
-    expect(connectionLine({ configPath: '/home/ed/.podium/ed.json', tokenSet: true })).toBe('Sign-in: reporter config file /home/ed/.podium/ed.json (mTLS)')
+    expect(connectionLine({ configPath: '/home/tester/.podium/test.json', tokenSet: true })).toBe('Sign-in: reporter config file /home/tester/.podium/test.json (mTLS)')
   })
 
   test('neither', () => {
