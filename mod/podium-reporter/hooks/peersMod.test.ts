@@ -66,7 +66,8 @@ function world(on: On) {
   on('session.repo', () => ({ value: null }))
   on('session.version', () => ({ value: { version: '2.1.303' } }))
   on('session.usage', () => ({ value: { startedAt: NOW, context: { tokens: 1000, window: 1_000_000, percent: 0.1 }, rateLimits: [], cost: { usd: 0.1 } } }))
-  on('session.surfaces', () => ({ value: ['terminal'] }))
+  const surfaces = { value: ['terminal'] as ('terminal' | 'desktop')[] }
+  on('session.surfaces', () => ({ value: surfaces.value }))
   on('agent.list', () => ({ value: [] }))
   on('command.register', (_$, e) => {
     registered.commands.push({ name: e.name, immediate: e.immediate })
@@ -148,7 +149,7 @@ function world(on: On) {
     return { result: { ok: true }, text: 'ok' }
   })
   on('classic.PermissionRequest', () => ({}))
-  return { calls, posts, logs, toasts, submitted, commands, registered, server, os, submit, dialog, clock }
+  return { calls, posts, logs, toasts, submitted, commands, registered, server, os, submit, dialog, clock, surfaces }
 }
 
 type World = ReturnType<typeof world>
@@ -231,6 +232,7 @@ describe('peers: when the mod takes part', () => {
 
   test('a claude -p run never takes part, with the option on', { options: ON }, async ($, on) => {
     const w = world(on)
+    w.surfaces.value = [] // a -p run draws nowhere and has no client
     w.server.peerDeliveries.push(message())
     await started($, w, null)
     await nextReply(w)
@@ -249,6 +251,7 @@ describe('peers: when the mod takes part', () => {
 
   test('/podium: with the option off and no surface, says so (#825)', async ($, on) => {
     const w = world(on)
+    w.surfaces.value = []
     await started($, w, null)
     const info = (await $.command.run(podium(''))).text ?? ''
     expect(info).toContain('Messaging: off, because the peers option is off on this machine')
@@ -751,3 +754,42 @@ describe('peers: the OS in the report', () => {
 function podium(args: string) {
   return { command: 'podium', args, origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 80 } }
 }
+
+describe('peers: a session that starts before its client attaches (#408)', () => {
+  const tools = (w: World) => w.registered.tools.filter((t) => t.startsWith('podium_'))
+
+  test('a start with no surface becomes interactive once a desktop client attaches, so the tools are offered', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await started($, w, null)
+    expect(w.posts.at(-1)!.session.peers).toBe(false)
+    expect(tools(w)).toEqual([])
+    w.surfaces.value = ['desktop']
+    await nextReply(w)
+    await nextReply(w)
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+    expect(tools(w)).toEqual(['podium_peers', 'podium_send', 'podium_request_access'])
+  })
+
+  test('a later session.start with no surface does not undo it', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = ['desktop']
+    await started($, w, null)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+    w.surfaces.value = []
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(true)
+  })
+
+  test('a claude -p run, which never has a client, stays out of messaging', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.surfaces.value = []
+    await started($, w, null)
+    await nextReply(w)
+    await nextReply(w)
+    expect(w.posts.at(-1)!.session.peers).toBe(false)
+    expect(tools(w)).toEqual([])
+  })
+})

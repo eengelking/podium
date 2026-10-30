@@ -214,10 +214,12 @@ unless you say otherwise. A context is a name for one file, and the current cont
   request whenever it changes on disk, if it is still for the same person. That is how a renewal made by another
   session reaches this one, and how a reissued config saved over the old file is used within seconds. The server
   address stays the one read at start. `/clear` keeps the helper running.
-- Where it runs: the Claude Code command line on macOS and Linux. The mod relies on `$.process`, which the engine
-  provides only on the command line, so the desktop app and VS Code are not covered. Windows is not a supported
-  platform; the mod can still read a Windows version string (see What leaves the session), but nothing else is
-  built or tested for it.
+- Where it runs: the Claude Code command line on macOS and Linux, and the Claude desktop app on macOS and Windows
+  (`$.process` works there, #408). The desktop app has no `/plugin marketplace`; the mod is added by uploading an
+  archive in Settings > Plugins. A desktop session can start before its client attaches, so `session.start` reports no
+  surface; the mod counts the session as interactive once a client shows on the roster, and keeps that for the
+  session (#408). VS Code is not covered. Windows is not otherwise a supported platform; nothing else is built or
+  tested for it.
 
 ## Messaging your other orchestrators
 

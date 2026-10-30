@@ -595,6 +595,11 @@ async function readSurfaces($: Engine, r: Runtime): Promise<void> {
   try {
     const clients = await $.session.surfaces();
     if (clients.includes('desktop')) r.sawDesktop = true;
+    // A client that attaches after `session.start` (Desktop does, #408) shows a person is on the session; the start's null surface was only a snapshot.
+    if (clients.length > 0 && !r.interactive) {
+      r.interactive = true;
+      void attempt(() => $.store.set(`${INTERACTIVE_KEY}${r.state.id}`, true), undefined);
+    }
     r.state = setAttached(r.state, clients.length > 0 || r.sawDesktop);
   } catch (err) {
     record($, 'session.surfaces', err);
@@ -677,6 +682,13 @@ async function loadBase($: Engine, id: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** The store key prefix for a session a client was seen on, so a reload or a later start keeps it interactive (#408). */
+const INTERACTIVE_KEY = 'interactive:';
+
+async function wasInteractive($: Engine, id: string): Promise<boolean> {
+  return (await attempt<unknown>(() => $.store.get(`${INTERACTIVE_KEY}${id}`), undefined)) === true;
 }
 
 async function loadName($: Engine, id: string): Promise<string | null> {
@@ -1809,7 +1821,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     skillCalls: 0,
     machine: rt?.machine ?? (await readMachine($)),
     clearedFrom: same && rt ? rt.clearedFrom : null,
-    interactive: e.surface !== null,
+    interactive: e.surface !== null || (same && !!rt?.interactive) || (await wasInteractive($, id)),
     sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };
   acted = await loadActed($);
