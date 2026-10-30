@@ -1149,3 +1149,25 @@ describe('helper.mjs: rewriteConfig', () => {
     expect(new X509Certificate(got.cert).fingerprint256).toBe(new X509Certificate(p.person.cert).fingerprint256);
   });
 });
+
+describe('helper.mjs: on Windows (#834)', () => {
+  type Helper = { usesModes: (platform?: string) => boolean; isStaleSocket: (p: string, st: { isSocket: () => boolean; isFile: () => boolean }, platform?: string) => boolean };
+  const load = async () => (await import(/* @vite-ignore */ HELPER)) as Helper;
+  const stat = (o: { socket?: boolean; file?: boolean }) => ({ isSocket: () => !!o.socket, isFile: () => !!o.file });
+
+  it('file modes mean something everywhere but Windows', async () => {
+    const { usesModes } = await load();
+    expect(usesModes('darwin')).toBe(true);
+    expect(usesModes('linux')).toBe(true);
+    expect(usesModes('win32')).toBe(false);
+  });
+
+  it('a leftover socket is deleted where lstat says socket; on Windows a .sock file counts too', async () => {
+    const { isStaleSocket } = await load();
+    expect(isStaleSocket('/h/run/ab.sock', stat({ socket: true }), 'linux')).toBe(true);
+    expect(isStaleSocket('/h/run/ab.sock', stat({ file: true }), 'linux')).toBe(false);
+    expect(isStaleSocket('C:\\h\\run/ab.sock', stat({ file: true }), 'win32')).toBe(true);
+    expect(isStaleSocket('C:\\h\\run/notes.txt', stat({ file: true }), 'win32')).toBe(false);
+    expect(isStaleSocket('C:\\h\\run/ab.sock', stat({}), 'win32')).toBe(false);
+  });
+});

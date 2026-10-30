@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
+import { configNamesNewestFirst, nameEpoch, parseConfigHeaders, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts'
 
 const file = (user: string, issued: number, extra = '') =>
   [
@@ -58,6 +58,20 @@ describe('the reporter config file (#584, SPEC 5.9)', () => {
   test('the Podium folder is under the home folder', () => {
     expect(podiumHome('/home/dana')).toBe('/home/dana/.podium')
     expect(podiumHome('/home/dana/')).toBe('/home/dana/.podium')
+  })
+
+  test('the home folder is HOME, else USERPROFILE, else HOMEDRIVE plus HOMEPATH (#834)', () => {
+    expect(resolveHome({ HOME: '/home/dana', USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: '/home/dana', from: 'HOME' })
+    expect(resolveHome({ USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'USERPROFILE' })
+    expect(resolveHome({ HOME: '', USERPROFILE: 'C:\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'USERPROFILE' })
+    expect(resolveHome({ HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\dana' })).toEqual({ home: 'C:\\Users\\dana', from: 'HOMEDRIVE+HOMEPATH' })
+    expect(resolveHome({ HOMEDRIVE: 'C:' })).toEqual({ home: undefined, from: undefined })
+    expect(resolveHome({})).toEqual({ home: undefined, from: undefined })
+  })
+
+  test('a Windows home with a trailing backslash gives the Podium folder under it (#834)', () => {
+    expect(podiumHome('C:\\Users\\dana\\')).toBe('C:\\Users\\dana/.podium')
+    expect(podiumHome('C:\\Users\\dana')).toBe('C:\\Users\\dana/.podium')
   })
 
   test('a socket path stays under the macOS limit even for a long session id', () => {

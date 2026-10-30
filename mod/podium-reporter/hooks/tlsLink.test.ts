@@ -92,6 +92,47 @@ const found = (user = 'Dana Lee', expires = '2026-04-01T00:00:00.000Z'): FoundCo
 })
 const env = { config: undefined, context: undefined, home: '/home/d', node: undefined, tmp: undefined }
 
+describe('finding the reporter config on Windows (#834)', () => {
+  const win = 'C:\\Users\\ed'
+  const file = `${win}/.podium/reporter-config-Dana-5.pem`
+
+  test('with no HOME, USERPROFILE names the home folder', async () => {
+    const f = fake({ env: { USERPROFILE: win }, files: { [file]: text('Dana', 5) } })
+    const r = await findConfig(f.$)
+    expect(r.found?.path).toBe(file)
+    expect(r.env.homeFrom).toBe('USERPROFILE')
+    expect(r.homeNote).toBeNull()
+  })
+
+  test('with only HOMEDRIVE and HOMEPATH, they name the home folder', async () => {
+    const f = fake({ env: { HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\ed' }, files: { [file]: text('Dana', 5) } })
+    const r = await findConfig(f.$)
+    expect(r.found?.path).toBe(file)
+    expect(r.env.homeFrom).toBe('HOMEDRIVE+HOMEPATH')
+  })
+
+  test('HOME still wins where it is set, so macOS and Linux are unchanged', async () => {
+    const r = await findConfig(fake({ env: { HOME: '/home/d', USERPROFILE: win }, files: { '/home/d/.podium/reporter-config-Dana-5.pem': text('Dana', 5) } }).$)
+    expect(r.found?.path).toBe('/home/d/.podium/reporter-config-Dana-5.pem')
+    expect(r.env.homeFrom).toBe('HOME')
+  })
+
+  test('no home folder at all is said, not silent, and does not block the plain-token path', async () => {
+    const r = await findConfig(fake({}).$)
+    expect(r.found).toBeNull()
+    expect(r.problem).toBeNull()
+    expect(r.homeNote).toContain('HOME')
+    expect(r.homeNote).toContain('USERPROFILE')
+  })
+
+  test('the temporary-folder fallback for the socket is TMPDIR, else TEMP, else TMP', async () => {
+    const r = await findConfig(fake({ env: { TEMP: 'C:\\Temp' } }).$)
+    expect(r.env.tmp).toBe('C:\\Temp')
+    expect((await findConfig(fake({ env: { TMPDIR: '/t', TEMP: 'C:\\Temp' } }).$)).env.tmp).toBe('/t')
+    expect((await findConfig(fake({ env: { TMP: 'C:\\Tmp' } }).$)).env.tmp).toBe('C:\\Tmp')
+  })
+})
+
 describe('finding the reporter config (#584)', () => {
   test('no file means no link: the reporter works as today', async () => {
     const r = await findConfig(fake({}).$, env)

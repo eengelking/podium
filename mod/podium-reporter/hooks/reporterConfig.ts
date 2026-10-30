@@ -60,9 +60,27 @@ export function configNamesNewestFirst(names: string[]): string[] {
   return rows.map((r) => r.name);
 }
 
-/** `~/.podium/`, also podiumctl's home. */
+/** `home` without the `/` or `\` characters at its end (a Windows home can end in a backslash). A loop, like `trimTrailingSlashes`. */
+function trimTrailingSeparators(home: string): string {
+  let end = home.length;
+  while (end > 0 && (home.charCodeAt(end - 1) === 47 || home.charCodeAt(end - 1) === 92)) end--;
+  return home.slice(0, end);
+}
+
+/** `~/.podium/` (`%USERPROFILE%\.podium` on Windows), also podiumctl's home. */
 export function podiumHome(home: string): string {
-  return `${trimTrailingSlashes(home)}/.podium`;
+  return `${trimTrailingSeparators(home)}/.podium`;
+}
+
+/**
+ * The home folder from the environment (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. Windows sets
+ * `USERPROFILE` and normally not `HOME`. An empty value counts as unset. `from` names the variable that gave it.
+ */
+export function resolveHome(env: Record<string, string | undefined>): { home: string | undefined; from: string | undefined } {
+  if (env.HOME) return { home: env.HOME, from: 'HOME' };
+  if (env.USERPROFILE) return { home: env.USERPROFILE, from: 'USERPROFILE' };
+  if (env.HOMEDRIVE && env.HOMEPATH) return { home: `${env.HOMEDRIVE}${env.HOMEPATH}`, from: 'HOMEDRIVE+HOMEPATH' };
+  return { home: undefined, from: undefined };
 }
 
 /** A short, stable name for a session id: the id can be long and a socket path cannot. */

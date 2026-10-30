@@ -137,7 +137,11 @@ The levels of `respond`:
 ## Over TLS
 
 When the Admin gives you a reporter config file (`reporter-config-<name>-<epoch>.pem`), save it in `~/.podium/` and
-run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. The reporter then
+run `chmod 600` on it: it holds your private key, and the reporter refuses a file others can read. On Windows the folder is
+`%USERPROFILE%\.podium` (for example `C:\Users\<name>\.podium`); there is no `chmod`, and your user folder is
+already closed to other accounts, so keep the file there and do not share it. The reporter finds your home folder from `HOME`,
+else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`, and `/podium` shows which one it used on a `Home folder:` line (or says
+that none was found). The reporter then
 connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is still sent, inside the TLS connection, and the server ignores it when your certificate is present. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
@@ -189,7 +193,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
 
   | Status line says | What it means and what to do |
   |---|---|
-  | `config too open` | Others can read the file. Run `chmod 600` on it |
+  | `config too open` | Others can read the file. Run `chmod 600` on it (macOS and Linux; Windows does not check this) |
   | `connecting` | The session has not heard from the server yet. It goes once the first report is answered |
   | `no node` | The helper could not find `node`. Install Node.js, put it on the PATH Claude Code starts with, or set `PODIUM_NODE` to its full path |
   | `config unreadable` | The file is missing or is not a Podium reporter config. The status line adds the reason when the helper gave one (for example that the file holds more than one person certificate). When `PODIUM_REPORTER_CONFIG` names a file that cannot be used, the message gives its path and the session sends nothing, not even over HTTP. Fix the path or ask the Admin for a new file |

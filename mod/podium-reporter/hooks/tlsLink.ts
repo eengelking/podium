@@ -1,7 +1,7 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { configNamesNewestFirst, parseConfigHeaders, podiumHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+import { configNamesNewestFirst, parseConfigHeaders, podiumHome, resolveHome, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
 import { trimTrailingSlashes } from './machine.ts';
 import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
 import type { FetchLike, HttpResult } from './transport.ts';
@@ -42,25 +42,41 @@ export interface EnvValues {
   /** `PODIUM_REPORTER_CONTEXT` (#606). */
   context?: string | undefined;
   home: string | undefined;
+  /** The variable `home` came from (`HOME`, `USERPROFILE` or `HOMEDRIVE+HOMEPATH`), for `/podium` (#834). */
+  homeFrom?: string | undefined;
   node: string | undefined;
   tmp: string | undefined;
 }
 
 /** `$.env.get` takes a name written out in the source, so each one is spelled here. */
+async function envValue(p: Promise<string | undefined>): Promise<string | undefined> {
+  try {
+    return await p;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The home folder and the variable it came from (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. */
+export async function readHome($: Pick<LinkEngine, 'env'>): Promise<{ home: string | undefined; from: string | undefined }> {
+  return resolveHome({
+    HOME: await envValue($.env.get('HOME')),
+    USERPROFILE: await envValue($.env.get('USERPROFILE')),
+    HOMEDRIVE: await envValue($.env.get('HOMEDRIVE')),
+    HOMEPATH: await envValue($.env.get('HOMEPATH')),
+  });
+}
+
 async function readEnv($: LinkEngine): Promise<EnvValues> {
-  const get = async (p: Promise<string | undefined>) => {
-    try {
-      return await p;
-    } catch {
-      return undefined;
-    }
-  };
+  const { home, from } = await readHome($);
   return {
-    config: await get($.env.get('PODIUM_REPORTER_CONFIG')),
-    context: await get($.env.get('PODIUM_REPORTER_CONTEXT')),
-    home: await get($.env.get('HOME')),
-    node: await get($.env.get('PODIUM_NODE')),
-    tmp: await get($.env.get('TMPDIR')),
+    config: await envValue($.env.get('PODIUM_REPORTER_CONFIG')),
+    context: await envValue($.env.get('PODIUM_REPORTER_CONTEXT')),
+    home,
+    homeFrom: from,
+    node: await envValue($.env.get('PODIUM_NODE')),
+    // TMPDIR where the platform has it; Windows names its private temporary folder TEMP, or TMP (#834).
+    tmp: (await envValue($.env.get('TMPDIR'))) || (await envValue($.env.get('TEMP'))) || (await envValue($.env.get('TMP'))),
   };
 }
 
@@ -117,36 +133,40 @@ async function contextFile($: LinkEngine, home: string, name: string | null, fro
  * `held` is the file a context chose earlier in this session; it is used again while it is still a config file. A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
  * reporter still works. Null `found`: no config, the reporter works as today.
  */
-export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; env: EnvValues }> {
+export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; homeNote: string | null; env: EnvValues }> {
   const e = env ?? (await readEnv($));
   if (e.config) {
     const text = await readText($, e.config);
     const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: e.config, headers }, problem: null, contextProblem: null, env: e };
+    if (headers) return { found: { path: e.config, headers }, problem: null, contextProblem: null, homeNote: null, env: e };
     return {
       found: null,
       env: e,
       contextProblem: null,
+      homeNote: null,
       problem: { code: 'CONFIG_INVALID', status: 'config unreadable', text: `PODIUM_REPORTER_CONFIG names ${e.config}, which is missing or is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line).` },
     };
   }
-  if (!e.home) return { found: null, problem: null, contextProblem: null, env: e };
+  if (!e.home) {
+    const homeNote = 'no home folder found (HOME, USERPROFILE and HOMEDRIVE+HOMEPATH are all empty), so no reporter config file can be read. Set PODIUM_REPORTER_CONFIG to its full path.';
+    return { found: null, problem: null, contextProblem: null, homeNote, env: e };
+  }
   const chosen = await contextFile($, e.home, e.context || null, !!e.context, held);
-  if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, env: e };
+  if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, homeNote: null, env: e };
   const dir = podiumHome(e.home);
   let names: Array<{ name: string; kind: string }> = [];
   try {
     names = await $.fs.list(dir);
   } catch {
-    return { found: null, problem: null, contextProblem: chosen.problem, env: e };
+    return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
   }
   // Newest by the epoch in the name, and the first that parses wins: the key of a file that is not chosen is never read (#607).
   for (const name of configNamesNewestFirst(names.filter((n) => n.kind === 'file').map((n) => n.name))) {
     const text = await readText($, `${dir}/${name}`);
     const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, contextProblem: chosen.problem, env: e };
+    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
   }
-  return { found: null, problem: null, contextProblem: chosen.problem, env: e };
+  return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
 }
 
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */
