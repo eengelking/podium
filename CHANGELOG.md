@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Added
+
+- **The GitHub runner image is tracked in the repo (#871).** `runner/Containerfile` and its `runner/entrypoint.sh` build the image that runs this project's GitHub Actions runners. They live in their own folder so nobody mistakes them for the root `Containerfile`, which still builds the Podium image and is the only one `podiumctl`, the e2e scripts and the workflows use. No behavior of Podium changes.
+
 ### Changed
 
 - **The console runs on React 19 (#290).** `react`, `react-dom`, `@types/react` and `@types/react-dom` move from 18 to 19.3 together, which also supersedes Dependabot's PR #12 and #340 (each moved only half of the four). Four things the new types reject are fixed: `useRowAnchor` takes a ref that may be empty, `Board` gives `useRef` its argument, `FileDiffModal`'s ref callback returns nothing, and `Rail`, `Wall` and `ActivityFeed` import the `JSX` type, since a clean install no longer provides it as a global. Several Admin and top-bar tests failed now and then on 19: its scheduler runs a component's mount effects in a later task than the commit, so a form's effect could write the saved value back over a test's edit. The test setup now makes every `findBy` and `waitFor` also wait until React's scheduler is idle, gives the wait 5 s instead of 1 s and a test 20 s instead of 5 s, and `scheduler` is a dev dependency of the frontend for it; a few assertions also wait for what they check. Nothing a person sees or does changes.

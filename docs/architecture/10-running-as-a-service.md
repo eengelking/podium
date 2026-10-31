@@ -57,6 +57,17 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
   It is installed from `eengelking-marketplace` (39). Its `token` option is secret, so it is set with
   `/plugin configure`, not the `/config` menu.
 
+## The GitHub runner image
+
+`runner/Containerfile` is not the Podium image. It builds the image that runs this project's GitHub Actions runners
+(`ghcr.io/actions/actions-runner` plus the Docker CLI, `libatomic1` and `dirmngr`), and `podiumctl`, the e2e scripts and the
+release workflows never read it. The root `Containerfile` is the only one they build. Build the runner image with
+`podman build -t localhost/gh-runner:latest -f runner/Containerfile runner`. The Docker CLI inside it talks to the
+host's rootless Podman socket, which is how container jobs, `services:` and `docker build` work on a runner.
+`runner/entrypoint.sh` registers a runner once from `GH_REPO` and `RUNNER_TOKEN`, saves the registration in
+`$STATE_DIR` and reuses it on later starts. Neither file holds a secret; the token is passed at run time. How the host
+starts the instances (the install script and the Quadlet unit) is not in this repo.
+
 ## Verified
 
 On macOS with Podman 6.1.2: build, start, token enforcement (401 without, accepted with), non-root user, restart,
