@@ -17,6 +17,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 ### Changed
 
 - **The console runs on React 19 (#290).** `react`, `react-dom`, `@types/react` and `@types/react-dom` move from 18 to 19.3 together, which also supersedes Dependabot's PR #12 and #340 (each moved only half of the four). Four things the new types reject are fixed: `useRowAnchor` takes a ref that may be empty, `Board` gives `useRef` its argument, `FileDiffModal`'s ref callback returns nothing, and `Rail`, `Wall` and `ActivityFeed` import the `JSX` type, since a clean install no longer provides it as a global. Several Admin and top-bar tests failed now and then on 19: its scheduler runs a component's mount effects in a later task than the commit, so a form's effect could write the saved value back over a test's edit. The test setup now makes every `findBy` and `waitFor` also wait until React's scheduler is idle, gives the wait 5 s instead of 1 s and a test 20 s instead of 5 s, and `scheduler` is a dev dependency of the frontend for it; a few assertions also wait for what they check. Nothing a person sees or does changes.
+  Standards: no token, component, variant or pattern changes; the generated pages in `docs/standards/` differ from the app only in ids, because React 19 builds `useId` values as `_r_…_` where 18 built `:r…:`, so release-prep regenerates them with `podium-standards-update`; approved by the maintainer in the work on #290 (PR #859).
 
 ## [1.4.0] - 2026-10-30
 
