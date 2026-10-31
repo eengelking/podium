@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import { planProgress, sessionCounts } from "../logic";
 import type { SessionView } from "../types";
 import { backgroundOf, BlowBadge, ModelChip, PlanBar, sessionDot, stateKind } from "./Chips";

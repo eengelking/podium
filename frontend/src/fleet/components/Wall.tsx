@@ -6,7 +6,7 @@ import { splitText, type Split } from "./Rail";
 import { SessionCard } from "./SessionCard";
 import { Band, PeopleCluster } from "./People";
 import { isFlat, type GroupBy, type Unit } from "../people";
-import type { ComponentProps, CSSProperties } from "react";
+import type { ComponentProps, CSSProperties, JSX } from "react";
 import { useWallColumns } from "../useWallColumns";
 import { Sparkline } from "./Sparkline";
 import { placePinned, type Pin } from "../pins";
