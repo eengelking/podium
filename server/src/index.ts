@@ -9,6 +9,7 @@ const REPO_ROOT = path.join(__dirname, "..", "..");
 loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 
 import fs from "node:fs";
+import http from "node:http";
 import express from "express";
 import { createRouter } from "./routes.js";
 import { dataDir, openStorage, storageSpec } from "./storage/index.js";
@@ -18,6 +19,7 @@ import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { Lockout } from "./fleet/lockout.js";
 import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { serveSpa } from "./spa.js";
 import { readTestTimings } from "./testTimings.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
 import { forgetReporters, purgeStored, startSweeper } from "./fleet/sweeper.js";
@@ -126,12 +128,11 @@ app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, report
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
-app.use(express.static(frontendDist));
-app.get("*", pageLimiter(), (_req, res) => {
-  res.sendFile(path.join(frontendDist, "index.html"));
-});
+serveSpa(app, frontendDist, pageLimiter());
 
-const server = app.listen(PORT, HOST, () => {
+// http.createServer(app).listen is what Express 4's app.listen did. Express 5's also hands a listen error to the callback, which would
+// log "listening" for a port that is taken and leave the process running; here the error stays uncaught and stops the process (#392).
+const server = http.createServer(app).listen(PORT, HOST, () => {
   // The settings an agent needs to read a deployment; never the token, a header value or a ship URL's password.
   const s = logging.settings;
   logger.info("server.start", `Podium server listening on http://${HOST}:${PORT}`, {

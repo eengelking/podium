@@ -4,7 +4,8 @@
 // responding's /respond router, so they share its sign-in, its cross-site check and its no-store header. Every browser route needs
 // the signed-in person to be the session's owner or an Admin. A recording's text goes to the one reader and nowhere else: it is
 // never logged, and the Admin log carries only who did what to which session, with counts.
-import express, { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
@@ -56,7 +57,7 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStoreApi | null, l
 /** The mod's route (SPEC 7.1). */
 export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
-  const json = express.json({ limit: BATCH_BODY_LIMIT });
+  const json = jsonBody({ limit: BATCH_BODY_LIMIT });
 
   router.post('/sessions/:id/recording', d.requireToken, json, asyncHandler(async (req, res) => {
     const v = validateRecordingBatch(req.body);

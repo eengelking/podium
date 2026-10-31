@@ -8,7 +8,8 @@
 // everyone, never the text. The text of a message is never logged here: the Admin log and the server log get who, to
 // whom, whose and what happened.
 import { AsyncLocalStorage } from 'node:async_hooks';
-import express, { type Request, type RequestHandler, type Response, type Router } from 'express';
+import { type Request, type RequestHandler, type Response, type Router } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
@@ -130,7 +131,7 @@ export function peerReplyFor(fleet: Fleet, token: string | null, sessionId: stri
 export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
   const now = fleet.now;
-  const json = express.json({ limit: MESSAGE_BODY_LIMIT });
+  const json = jsonBody({ limit: MESSAGE_BODY_LIMIT });
   const withSource = wirePeerLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
 
