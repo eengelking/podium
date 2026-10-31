@@ -279,7 +279,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
       </div>
       <dl class="glance" aria-label="At a glance">
         <div><dt>Shape</dt><dd>Reporter mod → server → browser</dd></div>
-        <div><dt>Server</dt><dd>Node 24, Express, SQLite</dd></div>
+        <div><dt>Server</dt><dd>Node 26, Express, SQLite</dd></div>
         <div><dt>Console</dt><dd>React, plain CSS tokens</dd></div>
         <div><dt>Ports</dt><dd>4317 HTTP · 4318 mutual TLS (when built-in TLS is on)</dd></div>
         <div><dt>Direction</dt><dd>Sessions call out; nothing calls in</dd></div>
@@ -465,7 +465,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
         <div class="panel pad">
           <h4>Container mode</h4>
           <ul class="tight">
-            <li>Two-stage Node 24 image, runs as the non-root <code>node</code> user.</li>
+            <li>Two-stage Node 26 image, runs as the non-root <code>node</code> user.</li>
             <li>Named volume <code>podium-data</code> holds both SQLite files.</li>
             <li>With TLS on, the CA lives on the host in <code>~/.podium/tls</code>, mounted at <code>/data/tls</code>.</li>
             <li>Secrets reach the server through the environment rather than the command line.</li>

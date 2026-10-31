@@ -12,7 +12,7 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 ## Container mode
 
-- `Containerfile` is a two-stage Node 24 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
+- `Containerfile` is a two-stage Node 26 build. The build stage runs `npm ci --ignore-scripts` and both builds. The runtime stage
   has production deps for `server`, the two `dist` trees, user `node`, and the `/data` volume.
 - The engine is Podman or Docker (`--engine`, saved as `PODIUMCTL_ENGINE`; default Podman if it is installed, else
   Docker). Every command takes the same arguments on both, so `podiumctl` only swaps the binary. Three differences
