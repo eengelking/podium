@@ -23,7 +23,7 @@ If your idea needs one of those, open an issue and say why before writing code.
 
 ## Setting up
 
-You need Node 24 and npm. The mod's own tests and type check also need Claude Code installed.
+You need Node 26 and npm. The mod's own tests and type check also need Claude Code installed.
 
 ```sh
 git clone https://github.com/eengelking/podium.git && cd podium

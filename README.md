@@ -52,7 +52,7 @@ prices and you can change any price in Admin > Model prices. It is never a bill.
 
 ## Quick start
 
-Requires Node 24 and npm.
+Requires Node 26 and npm.
 
 ```sh
 npm install

@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
 
       - name: Install the GitHub CLI
         # The runners are generic and do not ship `gh` (#698). The job installs it, with no sudo, from the pinned release

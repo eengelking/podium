@@ -1,5 +1,5 @@
 # Podium server + UI. Build: podiumctl build   (or: podman build -t localhost/podium:latest -f Containerfile ., or docker build the same)
-FROM docker.io/library/node:24-slim AS build
+FROM docker.io/library/node:26-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
@@ -15,7 +15,7 @@ COPY frontend frontend
 COPY scripts scripts
 RUN npm run build -w frontend && npm run build -w server
 
-FROM docker.io/library/node:24-slim
+FROM docker.io/library/node:26-slim
 # The server makes the CA and its certificates by calling openssl (built-in TLS, #577); the slim image does not carry it.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4317 PODIUM_DB=/data/podium.sqlite

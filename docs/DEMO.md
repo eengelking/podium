@@ -41,7 +41,7 @@ Podium watches. It never types into a terminal, and the only thing it can send i
 Use two terminals and one browser window. Keep the browser and the Claude terminal side by side so the
 viewer sees both at once.
 
-1. Install and start the server (Node 24 and npm):
+1. Install and start the server (Node 26 and npm):
 
    ```sh
    npm install
