@@ -36,5 +36,5 @@ elif [[ ! -f "$DEST/index.d.ts" ]]; then
   echo "No claude-code.d.ts found. Load the plugin-authoring skill in a Claude Code session, or pass a path." >&2
   exit 2
 fi
-"$ROOT/node_modules/.bin/tsc" -p "$MOD/tsconfig.json"
+node "$ROOT/node_modules/typescript/bin/tsc" -p "$MOD/tsconfig.json"
 echo "mod type-check passed"
