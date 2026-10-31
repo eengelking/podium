@@ -18,7 +18,7 @@ import { createFleetRouter } from "./fleet/routes.js";
 import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { Lockout } from "./fleet/lockout.js";
-import { failureLimiter, pageLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { failureLimiter, parseFailureLimit } from "./failureLimiter.js";
 import { serveSpa } from "./spa.js";
 import { readTestTimings } from "./testTimings.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
@@ -128,7 +128,7 @@ app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, report
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
-serveSpa(app, frontendDist, pageLimiter());
+serveSpa(app, frontendDist);
 
 // http.createServer(app).listen is what Express 4's app.listen did. Express 5's also hands a listen error to the callback, which would
 // log "listening" for a port that is taken and leave the process running; here the error stays uncaught and stops the process (#392).

@@ -17,12 +17,9 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dist, { recursive: true, force: true }));
 
-function appWith(limited: string[] = []) {
+function appWith(limit?: { max?: number }) {
   const app = express();
-  serveSpa(app, dist, (req, _res, next) => {
-    limited.push(req.path);
-    next();
-  });
+  serveSpa(app, dist, limit);
   return app;
 }
 
@@ -63,11 +60,13 @@ describe('serveSpa', () => {
   });
 
   it('limits the fallback pages, and not the built files', async () => {
-    const limited: string[] = [];
-    const app = appWith(limited);
-    await request(app).get('/assets/app.js');
-    await request(app).get('/admin');
-    expect(limited).toEqual(['/admin']);
+    const app = appWith({ max: 2 });
+    for (let i = 0; i < 5; i++) expect((await request(app).get('/assets/app.js')).status).toBe(200);
+    expect((await request(app).get('/admin')).status).toBe(200);
+    expect((await request(app).get('/a/b')).status).toBe(200);
+    const res = await request(app).get('/c');
+    expect(res.status).toBe(429);
+    expect(res.headers['retry-after']).toMatch(/^\d+$/);
   });
 
   // Express 5's res.sendFile answers 404 for an absolute path with a dot-directory anywhere in it; Express 4 served it. A checkout under
@@ -77,7 +76,7 @@ describe('serveSpa', () => {
     fs.mkdirSync(hidden, { recursive: true });
     fs.writeFileSync(path.join(hidden, 'index.html'), '<!doctype html><title>console</title>');
     const app = express();
-    serveSpa(app, hidden, (_req, _res, next) => next());
+    serveSpa(app, hidden);
     for (const url of ['/', '/admin', '/a/b/c']) {
       const res = await request(app).get(url);
       expect([url, res.status]).toEqual([url, 200]);
