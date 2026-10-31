@@ -7,6 +7,8 @@
 // that turns body-parser errors into 400, 413 and 415.
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
 import request from 'supertest';
 import { openSqliteStorage } from './storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet/fleet.js';
@@ -48,6 +50,17 @@ describe('jsonBody', () => {
   it('passes a body-parser error on to the error handler', async () => {
     const res = await request(echo()).post('/x').set('Content-Type', 'application/json').send('{"a":');
     expect(res.status).toBe(400);
+  });
+});
+
+describe('how the server reads a body', () => {
+  // A route that went back to a bare express.json would lose the `{}` guarantee, and nothing else would notice.
+  it('only jsonBody calls express.json', () => {
+    const src = __dirname;
+    const offenders = (fs.readdirSync(src, { recursive: true }) as string[])
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && path.basename(f) !== 'jsonBody.ts')
+      .filter((f) => /\bexpress\.json\s*\(/.test(fs.readFileSync(path.join(src, f), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });
 

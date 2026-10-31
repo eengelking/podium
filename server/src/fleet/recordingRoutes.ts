@@ -71,7 +71,7 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     };
     const off = () => refuse(403, 'recording is off');
     if (!recordingEnabled(fleet, d.token)) return off();
-    const row = await fleet.db.getSession(req.params.id as string);
+    const row = await fleet.db.getSession(req.params.id!);
     if (!row) return refuse(404, 'unknown session', '$.id');
     if (!credentialOwns(d.identityOf(res), row)) return refuse(409, 'that session belongs to someone else', '$.session.id');
     // The checks and the write are one step of the store: the session cannot end, and the consent cannot change, in between.
