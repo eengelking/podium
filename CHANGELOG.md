@@ -14,6 +14,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+### Changed
+
+- **The console runs on React 19 (#290).** `react`, `react-dom`, `@types/react` and `@types/react-dom` move from 18 to 19.3 together, which also supersedes Dependabot's PR #12 and #340 (each moved only half of the four). Three places the new types reject are fixed: `useRowAnchor` takes a ref that may be empty, `Board` gives `useRef` its argument, and `FileDiffModal`'s ref callback returns nothing. Several Admin and top-bar tests asserted straight after a screen appeared, which React 18 happened to have finished drawing; they now wait for what they check. Nothing a person sees or does changes.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added

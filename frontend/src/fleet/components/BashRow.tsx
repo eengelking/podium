@@ -150,7 +150,7 @@ export interface RowAnchor {
  * browser does not do it). The row keeps the place it had in the list, and one whose top was above the list comes back to the top.
  * A list that follows its newest row stays at its end instead.
  */
-export function useRowAnchor(list: RefObject<HTMLElement>, following: boolean): RowAnchor {
+export function useRowAnchor(list: RefObject<HTMLElement | null>, following: boolean): RowAnchor {
   const pending = useRef<{ li: HTMLElement; top: number } | null>(null);
   const follow = useRef(following);
   follow.current = following;

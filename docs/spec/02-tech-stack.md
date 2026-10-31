@@ -14,7 +14,7 @@ order: 2
 | Server | Node 24 (already in use), Express 4 (already in the repo), TypeScript | Matches the existing `server/` workspace. |
 | Database | SQLite through Node's built-in `node:sqlite` (`DatabaseSync`), behind async storage interfaces with SQLite as the only adapter (#313) | No native build step, no new dependency, plenty for one machine. If `node:sqlite` proves unusable under vitest, fall back to `better-sqlite3` and say why in `docs/architecture/`. Bump `@types/node` in `server/` to a version that declares `node:sqlite`. |
 | Live updates | Server-Sent Events (`text/event-stream`) | One-way push, built into browsers, no dependency, reconnects by itself. |
-| Frontend | React 18 + Vite + TypeScript (already in the repo) | Matches the existing `frontend/` workspace. |
+| Frontend | React 19 + Vite + TypeScript (already in the repo) | Matches the existing `frontend/` workspace. |
 | Charts | Hand-written inline SVG | The mockup's charts are small polylines with markers; a library would fight the design. |
 | Styling | Plain CSS with custom properties, ported from the mockup | The mockup defines the tokens for both themes. |
 | Tests | vitest (server, frontend), `claude plugin test` (mod) | vitest is already configured. The mod's tests must run on the engine itself. |

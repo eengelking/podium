@@ -94,7 +94,7 @@ function DiffView({ text }: { text: string }) {
     <div className="mb diffmb">
       <div className="sbs" role="group" aria-label="Diff, old on the left and new on the right">
         {[left, right].map((cells, side) => (
-          <div key={side} className="pane" ref={(el) => (panes.current[side] = el)} onScroll={follow(side)}>
+          <div key={side} className="pane" ref={(el) => { panes.current[side] = el; }} onScroll={follow(side)}>
             <div className="pane-h">{side === 0 ? "Before" : "After"}</div>
             <pre aria-label={side === 0 ? "Before" : "After"}>
               {cells.map((c, i) => (
