@@ -34,12 +34,6 @@ async function open(certs: CertsView | null = fakeCerts()) {
   fireEvent.click(screen.getByRole("button", { name: "Certificates" }));
   return srv;
 }
-// The page is drawn once its table is. The settings forms copy the saved values into their drafts in effects that also run on mount; let
-// them run before a test edits a field, because under React 19 they can land after the edit and put the old value back (#290).
-const ready = async () => {
-  await screen.findByRole("table", { name: "Certificate status" });
-  await act(async () => {});
-};
 const table = (name: string) => screen.getByRole("table", { name });
 const band = () => document.querySelector(".band");
 
@@ -62,7 +56,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
   it("says why when the certificates cannot be read", async () => {
     const srv = await open();
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     cleanup();
     srv.certs = null;
     srv.unlocked = true;
@@ -97,7 +91,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     [4, "crit hot", "bad", "expires in 4 days", "The serving certificate expires in 4 days."],
   ])("shows the band and badge for %i days left", async (days, bandClass, badgeClass, badgeText, title) => {
     await open(fakeCerts({ serving: fakeCert(days) }));
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveClass(...`band ${bandClass}`.split(" "));
     expect(band()).toHaveTextContent(title);
     expect(band()).toHaveTextContent("Podium renews it automatically.");
@@ -125,7 +119,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
   it("makes Renew now the primary action when the serving certificate has expired", async () => {
     await open(fakeCerts({ serving: fakeCert(-2) }));
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveClass("crit", "hot");
     expect(band()).toHaveTextContent(/^The serving certificate expired on \d{4}-\d{2}-\d{2}\.Reporters are refused until it is renewed\.$/);
     expect(within(table("Certificate status")).getByText("expired 2 days ago", { selector: ".badge" })).toHaveClass("badge", "bad");
@@ -140,7 +134,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
   it("walks through the recovery when the CA has expired, and makes Rotate CA… the one primary button", async () => {
     await open(fakeCerts({ ca: fakeCert(-2, { serial: "CA01" }) }));
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveClass("crit", "hot");
     expect(band()).toHaveTextContent("The certificate authority expired on");
     expect(band()).toHaveTextContent("Rotate the CA, then give each person a new reporter config.");
@@ -157,7 +151,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
   it("uses the CA's own words when it is the first to run out", async () => {
     await open(fakeCerts({ ca: fakeCert(20) }));
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveTextContent("The certificate authority expires in 20 days.");
     expect(band()).toHaveTextContent("The CA is rotated by hand.");
   });
@@ -266,7 +260,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("shows the four numbers, with the reporter's from the server", async () => {
       await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       expect(field("Serving certificate lifetime").value).toBe("365");
       expect(field("Renew when this many days remain").value).toBe("30");
       expect(field("Reporter certificate lifetime").value).toBe("90");
@@ -276,7 +270,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("saves a number when the field is left, with the flat key, and keeps what the server answers", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       for (const [label, key, v] of [
         ["Serving certificate lifetime", "tls.serving.lifetimeDays", 90],
         ["Renew when this many days remain", "tls.serving.renewBeforeDays", 14],
@@ -291,7 +285,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("does not save a value that did not change", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       fireEvent.blur(field("Serving certificate lifetime"));
       expect(srv.certBodies).toEqual([]);
     });
@@ -299,7 +293,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     it("shows a rejected value in place, with the server's words, and clears it when the value is put back", async () => {
       const srv = await open();
       srv.certError = "The serving certificate lifetime must be a whole number of days from 30 to 825";
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       const f = field("Serving certificate lifetime");
       fireEvent.change(f, { target: { value: "900" } });
       fireEvent.blur(f);
@@ -317,7 +311,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("asks for a whole number without calling the server when the box is empty or not whole", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       const f = field("Renew when this many days remain");
       fireEvent.change(f, { target: { value: "" } });
       fireEvent.blur(f);
@@ -349,7 +343,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("goes back to the sign-in when the session has lapsed while saving", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       srv.expire = true;
       fireEvent.change(field("Serving certificate lifetime"), { target: { value: "90" } });
       fireEvent.blur(field("Serving certificate lifetime"));
@@ -360,7 +354,7 @@ describe("Admin > Server > Certificates (#586)", () => {
   describe("Rotate by hand and the earlier certificates", () => {
     it("renews now, says so, and reads the page again", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       const calls = srv.calls.length;
       fireEvent.click(screen.getByRole("button", { name: "Renew now" }));
       expect(await screen.findByText("Renewed. The old certificate is kept as a backup.")).toHaveAttribute("role", "status");
@@ -371,7 +365,7 @@ describe("Admin > Server > Certificates (#586)", () => {
     it("shows why a renewal failed, in place", async () => {
       const srv = await open();
       srv.certError = "openssl was not found in the container";
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       fireEvent.click(screen.getByRole("button", { name: "Renew now" }));
       const err = await screen.findByText("openssl was not found in the container");
       expect(err).toHaveAttribute("role", "alert");
@@ -380,7 +374,7 @@ describe("Admin > Server > Certificates (#586)", () => {
 
     it("goes back to the sign-in when the session has lapsed while renewing", async () => {
       const srv = await open();
-      await ready();
+      await screen.findByRole("table", { name: "Certificate status" });
       srv.expire = true;
       fireEvent.click(screen.getByRole("button", { name: "Renew now" }));
       expect(await screen.findByRole("button", { name: "Unlock Admin" })).toBeInTheDocument();
@@ -491,14 +485,14 @@ describe("Admin > Server > Certificates, CA rotation (#588)", () => {
 
   it("still warns that the serving certificate is about to expire while a rotation is open", async () => {
     await open({ ...rotating(), serving: fakeCert(8) });
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(band()).toHaveTextContent("The serving certificate expires in 8 days.");
     expect(band()).not.toHaveTextContent("rotation is in progress");
   });
 
   it("has no previous CA row and no rotation band when nothing is rotating", async () => {
     await open();
-    await ready();
+    await screen.findByRole("table", { name: "Certificate status" });
     expect(screen.queryByText("Previous certificate authority")).toBeNull();
     expect(band()).toBeNull();
   });

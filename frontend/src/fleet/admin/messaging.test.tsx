@@ -108,7 +108,6 @@ describe("the limits in Admin > Settings (#416)", () => {
     const s = server();
     await openTab(/^Settings/);
     const rate = await screen.findByLabelText(/^Messages per minute/);
-    await act(async () => {}); // let the form's own effects run first, so they cannot put the old value back over the edit (#290)
     s.expire = true;
     fireEvent.change(rate, { target: { value: "7" } });
     fireEvent.blur(rate);
