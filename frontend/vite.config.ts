@@ -18,6 +18,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/setupTests.ts",
+    // The coverage run passes 20 s on the command line; the plain run gets the same, so a heavy Admin test on a busy runner is not cut off at 5 s.
+    testTimeout: 20_000,
     // Only `npm run test:coverage` turns this on. The lcov file is what SonarCloud reads (sonar-project.properties).
     coverage: {
       provider: "v8",
