@@ -220,7 +220,7 @@ describe("deleting people (#243)", () => {
     expect(screen.getByText("person-001")).toBeInTheDocument();
     expect(screen.getByText("person-003")).toBeInTheDocument();
     expect(screen.queryByText(/selected/)).toBeNull();
-    expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("button", { name: /^People(?! and)/ })).getByText("2")).toBeInTheDocument());
   }, 30_000);
 
   it("selects every row on the page with the header box, and Clear drops the selection", async () => {
@@ -530,7 +530,7 @@ describe("Reporters tab (#142)", () => {
 
   it("lists reporters with a count on the tab, the state strip and the versions, and says what Silent means", async () => {
     await openReporters();
-    expect(screen.getByRole("button", { name: /Reporters/ })).toHaveTextContent("2");
+    await waitFor(() => expect(screen.getByRole("button", { name: /Reporters/ })).toHaveTextContent("2"));
     const rows = within(screen.getByRole("table")).getAllByRole("row");
     expect(rows).toHaveLength(3);
     expect(rows[1]).toHaveTextContent("studio-m2");
@@ -759,7 +759,7 @@ describe("Reporters tab (#142)", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Ignore and remove" }));
     await waitFor(() => expect(state.rules).toEqual([expect.objectContaining({ kind: "key", pattern: "9f3a1c7d2e40" })]));
     expect(await screen.findByRole("table")).toBeInTheDocument();
-    expect(screen.queryByText("studio-m2")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("studio-m2")).toBeNull());
   });
 
   it("keeps Ignore… and Remove from list together in one actions group beside the name (issue #247)", async () => {

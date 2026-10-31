@@ -176,7 +176,7 @@ describe("totals stay fresh (#432)", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     await openData();
     expect(screen.getByText("1,000 entries, 420 KB")).toBeInTheDocument();
-    expect(within(nav()).getByRole("button", { name: /^Stored activity/ })).toHaveTextContent("Stored activity5");
+    await waitFor(() => expect(within(nav()).getByRole("button", { name: /^Stored activity/ })).toHaveTextContent("Stored activity5"));
     s.activity = { ...s.activity, totals: { entries: 83_977, bytes: 430_000, sessions: 2, fileBytes: 1 }, lastPurge: { at: Date.UTC(2026, 9, 20, 11, 2), entries: 5, bytes: 2048 } };
     await act(async () => {
       vi.advanceTimersByTime(30_000);

@@ -1,5 +1,5 @@
 // The Admin screens (#354): the real AdminView against the same in-memory stand-in for /api/admin that the Admin tests use.
-import { act, fireEvent, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { AdminView } from "../admin/AdminView";
 import { fakeCert, fakeCerts, fakeServer, type FakePeerRef, type FakePeers } from "../admin/fakeAdmin";
@@ -46,6 +46,11 @@ function admin(tab: RegExp | null, opts: Parameters<typeof fakeServer>[0] = {}, 
     },
     act: async () => {
       await screen.findByRole("navigation", { name: "Admin sections" });
+      // The count beside People is set by the People tab, which is the one open at first, when its list arrives. Wait for it before
+      // any click, so every sample shows it the way the app does once loaded, and not only the ones whose list beat the click.
+      await waitFor(() => {
+        if (!within(screen.getByRole("navigation", { name: "Admin sections" })).getByRole("button", { name: /^People(?! and)/ }).querySelector(".n")) throw new Error("the People count is not drawn yet");
+      });
       if (tab) fireEvent.click(screen.getByRole("button", { name: tab }));
       await settle();
       await after?.();

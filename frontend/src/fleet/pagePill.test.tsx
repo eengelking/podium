@@ -1,6 +1,6 @@
 // #225: the pill after the logo names the page, and the page supplies its text.
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
 import { TopBar } from "./components/TopBar";
 import { HistoryView } from "./HistoryView";
@@ -67,7 +67,7 @@ describe("the page pill in the top bar", () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => (String(url).includes("/session") ? session : new Response("{}", { status: 404 }))));
     const admin = render(<AdminView fleetOptions={flags(true)} respondApi={{ me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", admin: true })) } as unknown as RespondApi} />);
     expect(await screen.findByRole("link", { name: "Traffic" })).toBeInTheDocument();
-    expect(names(admin.container)).toEqual(["Fleet", "Board", "History", "Traffic", "My reporters"]);
+    await waitFor(() => expect(names(admin.container)).toEqual(["Fleet", "Board", "History", "Traffic", "My reporters"]));
     expect(screen.queryByRole("link", { name: "Back to fleet" })).toBeNull();
     expect(pageName(admin.container)).toBe("Admin");
     expect(admin.container.querySelector("header.top")?.id).toBe("podium-top");

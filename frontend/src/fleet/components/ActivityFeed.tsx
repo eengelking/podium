@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import { fmtCount, fmtDay } from "../format";
 import { reporterBelow } from "../logic";
 import type { ActivityEntryView, SessionView } from "../types";
