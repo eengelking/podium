@@ -7,7 +7,8 @@
 // /api (so Admin, #215, sees it too), held in memory only. Every change needs X-Podium-Respond: 1 and, when an Origin is sent, this
 // server's own host; no CORS is offered. Nothing here logs or stores the text of an answer, a question or a plan.
 import { randomBytes } from 'node:crypto';
-import express, { Router, type Request, type RequestHandler, type Response } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
 import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, FILE_DIFF, type SessionRow } from '../storage/rows.js';
@@ -21,7 +22,7 @@ import type { Logger } from '../logging/logger.js';
 import type { BrowserHelpers } from './peerRoutes.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
 import { parseRead } from './activityHistoryInput.js';
-import { asyncHandler } from './asyncHandler.js';
+import { asyncHandler, type NamedParams } from './asyncHandler.js';
 
 export interface RespondDeps {
   fleet: Fleet;
@@ -30,7 +31,7 @@ export interface RespondDeps {
   people: PeopleStoreApi | null;
   logger: Logger;
   lockout: Lockout;
-  requireToken: RequestHandler;
+  requireToken: RequestHandler<NamedParams>;
   identityOf: (res: Response) => Identity;
   /** Idle time before a sign-in ends. */
   signInIdleMs?: number;
@@ -114,7 +115,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   const now = fleet.now;
   const idleMs = d.signInIdleMs ?? SIGN_IN_IDLE_MS;
   const signIns = new Map<string, SignIn>();
-  const json = express.json({ limit: BODY_LIMIT });
+  const json = jsonBody({ limit: BODY_LIMIT });
 
   /** Authentication on, and both of the Admin's flags. The reporter's own switches are the mod's to check. */
   const enabled = (): boolean => d.token !== null && fleet.respondFlagsOn();
@@ -127,7 +128,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || (d.alsoSignIn?.() ?? false);
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason, ...extra });
   };
 
@@ -203,7 +204,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   };
 
   /** The mod's answer to a request for a file's diff (#319). The text goes to the one waiting browser request and nowhere else. */
-  router.put('/sessions/:id/diffs/:requestId', d.requireToken, express.json({ limit: '1mb' }), asyncHandler(async (req, res) => {
+  router.put('/sessions/:id/diffs/:requestId', d.requireToken, jsonBody({ limit: '1mb' }), asyncHandler(async (req, res) => {
     const row = modSession(req, res, await fleet.db.getSession(req.params.id!), diffEnabled, 'file diff is off');
     if (!row) return;
     const sent = (req.body as { text?: unknown } | undefined)?.text;
@@ -220,7 +221,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
     res.json({ ok: true });
   }));
 
-  router.put('/sessions/:id/asks/:askId', d.requireToken, express.json({ limit: '512kb' }), asyncHandler(async (req, res) => {
+  router.put('/sessions/:id/asks/:askId', d.requireToken, jsonBody({ limit: '512kb' }), asyncHandler(async (req, res) => {
     const row = modSession(req, res, await fleet.db.getSession(req.params.id!));
     if (!row) return;
     const v = validateAsk(req.body);
@@ -443,7 +444,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'sign in to respond');
       return null;
     }
-    const row = await fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id as string);
     if (!row || !fleet.isLive(row.id)) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;

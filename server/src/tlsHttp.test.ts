@@ -47,7 +47,7 @@ function appWith(o: { allow: boolean; on?: boolean }) {
   app.set('trust proxy', true);
   const refused: Array<[string | null, string]> = [];
   app.use(reporterHttpGate({ active: () => o.on ?? true, allowed: () => o.allow, logger, rejected: (s, r) => refused.push([s, r]) }));
-  app.all('*', (_req, res) => void res.json({ ok: true }));
+  app.all('/{*splat}', (_req, res) => void res.json({ ok: true }));
   return { app, refused };
 }
 

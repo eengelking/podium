@@ -3,7 +3,8 @@
 // restart) or ten idle minutes ends it. Nothing here ever returns, logs or stores a token or the secret: a token is shown once,
 // in the response that creates or rotates it.
 import { randomBytes } from 'node:crypto';
-import express, { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
 import type { ActivityHistoryApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
@@ -190,7 +191,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   // The Activity history delete takes up to 200 session ids, so its own parser (below) has a larger limit.
   const STORED_DELETE = '/stored-activity/delete';
-  const smallJson = express.json({ limit: '8kb' });
+  const smallJson = jsonBody({ limit: '8kb' });
   router.use((req, res, next) => (req.path === STORED_DELETE ? next() : smallJson(req, res, next)));
 
   async function sessionValid(req: Request): Promise<boolean> {
@@ -388,7 +389,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       tlsOff(res);
       return null;
     }
-    const id = idParam(req.params.id ?? '');
+    const id = idParam(typeof req.params.id === 'string' ? req.params.id : '');
     if (id === null) {
       res.status(400).json({ ok: false, error: 'bad id' });
       return null;
@@ -868,7 +869,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
   };
 
-  router.post(STORED_DELETE, express.json({ limit: '64kb' }), asyncHandler(async (req, res) => {
+  router.post(STORED_DELETE, jsonBody({ limit: '64kb' }), asyncHandler(async (req, res) => {
     const body = parseDeleteBody(req.body);
     if (!body.ok) return void res.status(400).json({ ok: false, error: body.error });
     if (('match' in body.value ? body.value.match.source : body.value.source) === 'recordings') {

@@ -4,7 +4,8 @@
 // responding's /respond router, so they share its sign-in, its cross-site check and its no-store header. Every browser route needs
 // the signed-in person to be the session's owner or an Admin. A recording's text goes to the one reader and nowhere else: it is
 // never logged, and the Admin log carries only who did what to which session, with counts.
-import express, { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
@@ -56,7 +57,7 @@ export function wireRecordingLogs(fleet: Fleet, people: PeopleStoreApi | null, l
 /** The mod's route (SPEC 7.1). */
 export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
-  const json = express.json({ limit: BATCH_BODY_LIMIT });
+  const json = jsonBody({ limit: BATCH_BODY_LIMIT });
 
   router.post('/sessions/:id/recording', d.requireToken, json, asyncHandler(async (req, res) => {
     const v = validateRecordingBatch(req.body);
@@ -92,7 +93,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const now = fleet.now;
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason, ...extra });
   };
 
@@ -110,7 +111,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       refuse(req, res, 401, 'sign in to open the recording');
       return null;
     }
-    const row = await fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id as string);
     if (!row) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;

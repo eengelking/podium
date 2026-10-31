@@ -1,5 +1,6 @@
 // Express router for Podium, mounted at /api/fleet (SPEC 7.1, 7.7).
-import express, { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
+import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import { serverBuild } from './build.js';
 import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
@@ -138,7 +139,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   const router = Router();
   // Set when the respond routes are mounted below; the live activity route reads the viewer through it.
   let respondAccess: RespondAccess | undefined;
-  const json = express.json({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'] });
+  const json = jsonBody({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'] });
 
   const guesses = opts.guesses ?? new GuessThrottle(fleet.now);
   /** A person's token is 192 random bits, so it cannot be guessed and is never throttled; anything else could be a guess at the admin secret. */

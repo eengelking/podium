@@ -11,7 +11,7 @@ Built (#578 to #590, then #665, #667 and #668). #591, a CA option on `$.http.fet
 blocked on the engine. This records the structure so the sub-issues agree. The rules are in
 `docs/spec/` 5.9, 6, 7.1 and 7.7, and the reasoning is in DECISIONS 42.
 
-**Listeners.** `server/src/index.ts` has one `app.listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
+**Listeners.** `server/src/index.ts` has one `http.createServer(app).listen`. With `PODIUM_TLS=on`, `tlsServer.ts` (`startTls`) also
 starts `https.createServer` on the reporter port (`4318`, `PODIUM_TLS_PORT`) with the same Express app behind
 `reporterPortOnly`, next to the HTTP listener (`4317`), after `tlsCa.ts` (`ensureTls`) has made or read the CA and serving certificate. Any failure there
 (openssl missing, a half-present CA, a bad or busy port) logs `tls.failed` and leaves HTTP running. The Host check
