@@ -2,7 +2,7 @@
 // keyed by file name. The sync script writes them, and the parity test compares them with what is on disk.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, waitFor } from "@testing-library/react";
 import { vi } from "vitest";
 import { FLEET_DIR, tokenBlocks } from "../../../../scripts/standards-inventory";
 import { atWall } from "../testState";
@@ -32,6 +32,10 @@ export async function renderSample(sample: Sample, screens: Record<string, Scree
       const { container } = render(screen.make());
       const body = container.ownerDocument.body;
       await screen.act?.(body);
+      // A count in a menu or a list is set by an effect, which React 19 runs after the commit. Every async query waits for React's
+      // scheduler to go idle (setupTests.ts), so this empty one lets those effects finish before the markup is taken, and a page never
+      // depends on whether the count had arrived (#290).
+      await waitFor(() => {});
       for (const c of sample.cases.filter((x) => x.screen === id)) {
         const hit = body.querySelector(c.selector);
         if (!hit) throw new Error(`sample ${sample.id}: ${c.selector} matched nothing on screen ${id}`);
