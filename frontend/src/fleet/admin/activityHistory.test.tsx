@@ -1,7 +1,7 @@
 // Admin > Server > Data and Stored activity (#432, mockup/podium-activity-history.html): the menu, the policy form and each of its
 // confirmations, the two pages' links to each other, and bulk delete by ids, by filter and of everything.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AdminView } from "./AdminView";
 import { fakeServer } from "./fakeAdmin";
 import { fmtBytes } from "./activityFormat";
@@ -44,6 +44,9 @@ async function openPage(name: string | RegExp) {
 const openData = async () => {
   await openPage("Data");
   await screen.findByRole("form", { name: "Activity history retention" });
+  // The form copies the saved settings into its draft in an effect that also runs on mount. Let it run before a test edits the draft:
+  // under React 19 it can land after the edit and put the old value back (#290).
+  await act(async () => {});
 };
 const navStored = () => within(screen.getByRole("navigation", { name: "Admin sections" })).getByRole("button", { name: /^Stored activity/ });
 const openStored = async () => {

@@ -16,7 +16,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Changed
 
-- **The console runs on React 19 (#290).** `react`, `react-dom`, `@types/react` and `@types/react-dom` move from 18 to 19.3 together, which also supersedes Dependabot's PR #12 and #340 (each moved only half of the four). Three places the new types reject are fixed: `useRowAnchor` takes a ref that may be empty, `Board` gives `useRef` its argument, and `FileDiffModal`'s ref callback returns nothing. Several Admin and top-bar tests asserted straight after a screen appeared, which React 18 happened to have finished drawing; they now wait for what they check, up to 5 s instead of 1 s, and a test may run 20 s instead of 5 s. Nothing a person sees or does changes.
+- **The console runs on React 19 (#290).** `react`, `react-dom`, `@types/react` and `@types/react-dom` move from 18 to 19.3 together, which also supersedes Dependabot's PR #12 and #340 (each moved only half of the four). Three places the new types reject are fixed: `useRowAnchor` takes a ref that may be empty, `Board` gives `useRef` its argument, and `FileDiffModal`'s ref callback returns nothing. Several Admin and top-bar tests asserted straight after a screen appeared, which React 18 happened to have finished drawing; they now wait for what they check, up to 5 s instead of 1 s, and a test may run 20 s instead of 5 s; two Admin tests also let a form's own effects run before they edit it, which React 19 can otherwise run afterwards and put the old value back. Nothing a person sees or does changes.
 
 ## [1.4.0] - 2026-10-30
 
