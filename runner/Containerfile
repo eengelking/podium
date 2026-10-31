@@ -9,14 +9,15 @@ FROM ghcr.io/actions/actions-runner:latest
 # which is what makes container jobs, services: and docker build work.
 USER root
 ARG DOCKER_VERSION=27.3.1
-RUN curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" \
+RUN curl --proto '=https' --tlsv1.2 -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" \
       | tar -xz -C /usr/local/bin --strip-components=1 docker/docker
 # Node 26 (actions/setup-node) links libatomic.so.1, which the base image lacks.
 # dirmngr: gpg keyserver fetches (e.g. sonarqube-scan-action's key import) need it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libatomic1 dirmngr \
  && rm -rf /var/lib/apt/lists/*
+# Owned by root, so the runner user cannot change the script it starts with.
+COPY --chmod=755 entrypoint.sh /home/runner/entrypoint.sh
 USER runner
 
-COPY --chown=runner:runner entrypoint.sh /home/runner/entrypoint.sh
 ENTRYPOINT ["/home/runner/entrypoint.sh"]
