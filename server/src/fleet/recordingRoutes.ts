@@ -71,7 +71,7 @@ export function mountRecordingRoutes(router: Router, d: PeerDeps): void {
     };
     const off = () => refuse(403, 'recording is off');
     if (!recordingEnabled(fleet, d.token)) return off();
-    const row = await fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id as string);
     if (!row) return refuse(404, 'unknown session', '$.id');
     if (!credentialOwns(d.identityOf(res), row)) return refuse(409, 'that session belongs to someone else', '$.session.id');
     // The checks and the write are one step of the store: the session cannot end, and the consent cannot change, in between.
@@ -93,7 +93,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const now = fleet.now;
 
   const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason, ...extra });
   };
 
@@ -111,7 +111,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
       refuse(req, res, 401, 'sign in to open the recording');
       return null;
     }
-    const row = await fleet.db.getSession(req.params.id!);
+    const row = await fleet.db.getSession(req.params.id as string);
     if (!row) {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return null;

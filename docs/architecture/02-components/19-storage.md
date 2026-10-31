@@ -113,8 +113,9 @@ Two things the old synchronous code got for free are now explicit.
   after. A sweep and a retention run use it, because they span sessions.
 - **One broadcast queue.** `Fleet` sends every message to the consoles through one ordered queue, so messages leave in the
   order they were asked for however long each one's reads take. `await fleet.flush()` resolves when the queue, and the queued
-  history writes described below, have drained. `fleet/asyncHandler.ts` wraps an Express 4 handler so a rejected promise
-  becomes a 500 instead of a request that never answers.
+  history writes described below, have drained. `fleet/asyncHandler.ts` hands a rejected promise from a handler to the error middleware, so it
+  becomes a 500 instead of a request that never answers. Express 4 needed it; Express 5 does it on its own, and the wrapper stays
+  for its types.
 
 ## Start and stop
 

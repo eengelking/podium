@@ -70,6 +70,21 @@ describe('serveSpa', () => {
     expect(limited).toEqual(['/admin']);
   });
 
+  // Express 5's res.sendFile answers 404 for an absolute path with a dot-directory anywhere in it; Express 4 served it. A checkout under
+  // ~/.local or ~/.cache is such a path, so the page must be named relative to its folder.
+  it('opens the page when the build sits under a dot-directory', async () => {
+    const hidden = path.join(dist, '.hidden', 'dist');
+    fs.mkdirSync(hidden, { recursive: true });
+    fs.writeFileSync(path.join(hidden, 'index.html'), '<!doctype html><title>console</title>');
+    const app = express();
+    serveSpa(app, hidden, (_req, _res, next) => next());
+    for (const url of ['/', '/admin', '/a/b/c']) {
+      const res = await request(app).get(url);
+      expect([url, res.status]).toEqual([url, 200]);
+      expect(res.text).toContain('<title>console</title>');
+    }
+  });
+
   it('answers 404 for a path when the build has no index.html', async () => {
     fs.rmSync(path.join(dist, 'index.html'));
     expect((await request(appWith()).get('/admin')).status).toBe(404);

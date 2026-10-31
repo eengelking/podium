@@ -389,7 +389,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       tlsOff(res);
       return null;
     }
-    const id = idParam(req.params.id ?? '');
+    const id = idParam(typeof req.params.id === 'string' ? req.params.id : '');
     if (id === null) {
       res.status(400).json({ ok: false, error: 'bad id' });
       return null;

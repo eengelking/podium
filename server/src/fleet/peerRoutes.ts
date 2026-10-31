@@ -17,7 +17,7 @@ import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
-import { asyncHandler } from './asyncHandler.js';
+import { asyncHandler, type NamedParams } from './asyncHandler.js';
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -25,7 +25,7 @@ export interface PeerDeps {
   token: string | null;
   people: PeopleStoreApi | null;
   logger: Logger;
-  requireToken: RequestHandler;
+  requireToken: RequestHandler<NamedParams>;
   identityOf: (res: Response) => Identity;
 }
 
@@ -136,7 +136,7 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   const enabled = () => peersEnabled(fleet, d.token);
 
   const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: req.params.id ?? null });
+    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
     res.status(status).json({ ok: false, error: reason });
   };
 

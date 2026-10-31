@@ -18,7 +18,7 @@ function appWith(o: { max: number; windowMs?: number; logs?: unknown[] }) {
 describe('pageLimiter', () => {
   it('lets a page be fetched until the limit, then answers 429 with Retry-After', async () => {
     const app = express();
-    app.get('*', pageLimiter({ max: 2 }), (_req, res) => res.send('page'));
+    app.get('/{*splat}', pageLimiter({ max: 2 }), (_req, res) => res.send('page'));
     expect((await request(app).get('/a')).status).toBe(200);
     expect((await request(app).get('/b')).status).toBe(200);
     const res = await request(app).get('/c');
