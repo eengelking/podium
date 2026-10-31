@@ -40,5 +40,5 @@ failed; with it, none of 48 did. One run at a time hides it.
 <!-- nav:start -->
 ---
 
-Previous: [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md) · Up: [Gotchas](README.md)
+Previous: [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md) · Up: [Gotchas](README.md) · Next: [npx tsc prints Version 6 although the project is on TypeScript 7](npx-tsc-says-version-6-but-the-project-is-on-typescript-7.md)
 <!-- nav:end -->

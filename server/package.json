@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../node_modules/typescript/bin/tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --testTimeout=20000"
@@ -21,7 +21,7 @@
     "@types/supertest": "^7.2.1",
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",
-    "typescript": "^5.5.0",
+    "typescript": "^7.0.2",
     "vitest": "^5.0.5"
   }
 }

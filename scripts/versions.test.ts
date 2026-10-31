@@ -47,3 +47,29 @@ describe("package versions", () => {
     expect(lock.packages.frontend.version).toBe(root);
   });
 });
+
+describe("TypeScript compiler", () => {
+  // @typescript/typescript6 brings a second `tsc`, and npm links that one into node_modules/.bin, so a bare `tsc` runs
+  // TypeScript 6 and passes. The scripts name the TypeScript 7 binary by its path instead (gotcha "npx tsc prints Version 6").
+  it("no package script or shell script runs a bare tsc", () => {
+    const bare = /(^|[;&|]\s*)(npx\s+)?tsc(\s|$)|\.bin\/tsc/;
+    const scripts = ["package.json", "frontend/package.json", "server/package.json"].flatMap((p) =>
+      Object.values(JSON.parse(read(p)).scripts as Record<string, string>),
+    );
+    const shell = read("scripts/podium-mod-typecheck.sh").split("\n").filter((l) => !l.trim().startsWith("#"));
+    expect([...scripts, ...shell].filter((l) => bare.test(l))).toEqual([]);
+  });
+
+  // The scripts point at the hoisted root copy (`../node_modules/typescript/bin/tsc`), which holds while both workspaces ask for the same range.
+  it("frontend and server ask for the same typescript, and the installed one has that major", () => {
+    const range = (p: string) => JSON.parse(read(p)).devDependencies.typescript as string;
+    expect(range("frontend/package.json")).toBe(range("server/package.json"));
+    const major = /\d+/.exec(range("server/package.json"))?.[0];
+    expect(JSON.parse(read("node_modules/typescript/package.json")).version.split(".")[0]).toBe(major);
+  });
+
+  // TypeScript 7 has no JavaScript compiler API. The guard tests and promise-misuse.mjs get it from the 6.x line.
+  it("the compiler API comes from @typescript/typescript6 on 6.x", () => {
+    expect(JSON.parse(read("package.json")).devDependencies["@typescript/typescript6"]).toMatch(/^\^6\./);
+  });
+});
