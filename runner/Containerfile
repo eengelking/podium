@@ -1,0 +1,22 @@
+# GitHub Actions runner image. This is NOT the Podium image: the Podium server and UI are built from the Containerfile
+# at the repo root. Build this one with:  podman build -t localhost/gh-runner:latest -f runner/Containerfile runner
+# (use /usr/bin/podman on a host where another podman comes first on PATH). Nothing here is secret: the repo and the
+# registration token are passed at run time (GH_REPO, RUNNER_TOKEN), and entrypoint.sh keeps the saved registration in
+# $STATE_DIR. See docs/architecture/10-running-as-a-service.md.
+FROM ghcr.io/actions/actions-runner:latest
+
+# Docker CLI only (no daemon): talks to the host's rootless Podman socket,
+# which is what makes container jobs, services: and docker build work.
+USER root
+ARG DOCKER_VERSION=27.3.1
+RUN curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz" \
+      | tar -xz -C /usr/local/bin --strip-components=1 docker/docker
+# Node 26 (actions/setup-node) links libatomic.so.1, which the base image lacks.
+# dirmngr: gpg keyserver fetches (e.g. sonarqube-scan-action's key import) need it.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libatomic1 dirmngr \
+ && rm -rf /var/lib/apt/lists/*
+USER runner
+
+COPY --chown=runner:runner entrypoint.sh /home/runner/entrypoint.sh
+ENTRYPOINT ["/home/runner/entrypoint.sh"]
