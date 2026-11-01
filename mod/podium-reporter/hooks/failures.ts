@@ -1,5 +1,6 @@
 // Failure classification, excerpts and redaction (SPEC 6.4). Pure: no `$` here.
 import type { Failure, FailureClass } from './protocol.ts';
+import { redactBounded, redactUrlCredentials } from './diffRedact.ts';
 
 export const LIMITS = {
   call: 300,
@@ -28,6 +29,7 @@ const KEY_VALUE = /((?:password|passwd|token|secret|apikey|api_key)["']?\s*[=:]\
 /** Replaces anything that looks like a secret with `[redacted]`. */
 export function redact(text: string): string {
   let out = text;
+  out = redactUrlCredentials(out);
   for (const re of SECRET_PATTERNS) out = out.replace(re, '[redacted]');
   return out.replace(KEY_VALUE, (_m, key: string) => `${key}[redacted]`);
 }
@@ -105,7 +107,7 @@ export function activityCall(tool: string, input: Record<string, unknown>): stri
     const first = Object.entries(input).find(([k]) => !ENGINE_KEYS.has(k));
     arg = first ? str(first[1]) : '';
   }
-  return clip(flatten(`${tool} ${arg}`), LIMITS.activity);
+  return summary(`${tool} ${arg}`);
 }
 
 /**
@@ -116,9 +118,17 @@ function flatten(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, ACTIVITY_RAW);
 }
 
+/**
+ * A row's summary: whitespace collapsed, redacted by `redactBounded` (the redactor the whole command goes through, so the
+ * two cannot differ for one input, #895) and then by `clip`, cut to 300 characters. Redaction runs before the cut.
+ */
+function summary(text: string): string {
+  return clip(redactBounded(flatten(text)).text, LIMITS.activity);
+}
+
 /** One activity-feed entry for the text a model request wrote: whitespace collapsed, redacted, cut to 300 characters. Empty for text that is only whitespace. */
 export function activityText(text: string): string {
-  return clip(flatten(text), LIMITS.activity);
+  return summary(text);
 }
 
 export interface FailureCandidate {

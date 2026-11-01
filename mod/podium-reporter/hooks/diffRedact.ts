@@ -47,6 +47,11 @@ const LABELLED: RegExp[] = [
 ]
 
 const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/[^\s/:@"'`]+:)([^\s/@"'`]+)(@)/gi
+/** `scheme://user:password@host` with the password replaced by `[redacted]`, for callers that do not run the whole redactor. */
+export function redactUrlCredentials(text: string): string {
+  return text.replaceAll(URL_CREDENTIALS, (_m, head: string, pass: string, at: string) => (pass === MARK ? _m : `${head}${MARK}${at}`))
+}
+
 const HEADER = /\b((?:proxy-)?authorization|set-cookie|cookie|x-api-key|x-auth-token|x-access-token)(["']?\s*[:=]\s*["']?)([^"'\n]+)/gi
 const PEM_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/
 const PEM_INLINE = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/g
@@ -171,4 +176,39 @@ export function redactDiff(diff: string): Redacted {
 export function redactText(text: string): Redacted {
   const r = redactDiff(text.split('\n').map((line) => ` ${line}`).join('\n'))
   return { text: r.text.split('\n').map((line) => line.slice(1)).join('\n'), redactions: r.redactions }
+}
+
+/** Longest stretch redacted in one piece. The redactor's cost grows with the square of a line, so a minified file or a base64 blob is read in pieces. */
+const REDACT_PIECE = 1000
+
+/**
+ * `redactText` for a text of any size. A line longer than REDACT_PIECE is redacted in pieces (cut at a space when it has one)
+ * and put back together, so a 100,000 character line costs milliseconds, not seconds. A secret that straddles a cut is not
+ * seen, like one split across two entries (SPEC 6.4, what redaction does not cover).
+ */
+export function redactBounded(text: string, redact: (t: string) => Redacted = redactText): Redacted {
+  if (text.length <= REDACT_PIECE) return redact(text)
+  const counts: number[] = []
+  const pieces: string[] = []
+  for (const line of text.split('\n')) {
+    let n = 0
+    let at = 0
+    do {
+      let end = Math.min(at + REDACT_PIECE, line.length)
+      const space = end < line.length ? line.lastIndexOf(' ', end) : -1
+      if (space > at) end = space + 1
+      pieces.push(line.slice(at, end))
+      n++
+      at = end
+    } while (at < line.length)
+    counts.push(n)
+  }
+  const r = redact(pieces.join('\n'))
+  const out = r.text.split('\n')
+  // The put-back below counts lines. If the redactor ever adds or removes one, keep what it returned (every piece redacted, the
+  // cuts left as line breaks) rather than shift content into the wrong line.
+  if (out.length !== pieces.length) return r
+  let i = 0
+  const lines = counts.map((n) => out.slice(i, (i += n)).join(''))
+  return { text: lines.join('\n'), redactions: r.redactions }
 }

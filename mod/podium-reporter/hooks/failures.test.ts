@@ -94,6 +94,21 @@ describe('redaction and limits', () => {
 })
 
 describe('activity entries (#118)', () => {
+  test('a password in a connection URL is redacted wherever a command is shown (#895)', () => {
+    const command = 'psql postgres://postgres:secret@localhost:5432/db'
+    expect(redact(command)).toBe('psql postgres://postgres:[redacted]@localhost:5432/db')
+    expect(summarizeCall('Bash', { command })).not.toContain('secret')
+  })
+
+  test('a password in a connection URL is redacted in the row summary, as it is in the Command block (#895)', () => {
+    const command = 'PODIUM_TEST_PG=postgres://postgres:secret@localhost:5432/db echo hi'
+    const call = activityCall('Bash', { command })
+    expect(call).not.toContain('secret')
+    expect(call).toContain('postgres://postgres:[redacted]@localhost:5432/db')
+    expect(activityText(command)).not.toContain('secret')
+    expect(activityCall('Bash', { command: `${'x '.repeat(140)}${command}` })).not.toContain('secret')
+  })
+
   test('a tool call is its name and a short summary of its arguments', () => {
     expect(activityCall('Bash', { command: 'npm   test\n-- people' })).toBe('Bash npm test -- people')
     expect(activityCall('Read', { file_path: 'docs/spec/README.md', offset: 560 })).toBe('Read docs/spec/README.md')
