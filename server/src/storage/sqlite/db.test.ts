@@ -164,6 +164,37 @@ describe('openDb', () => {
     db.close();
   });
 
+  it('gives existing peer messages and certificates their old insertion order as seq when it migrates to 25 (#822)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    // A database made by 1.4.0: migration 25 has not run, so neither table has a seq column.
+    const old = openDb(file);
+    for (const t of ['peer_messages', 'person_certificates']) {
+      old.exec(`DROP INDEX ${t}_seq`);
+      old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
+    }
+    old.exec('DELETE FROM schema_migrations WHERE version = 25');
+    old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('Ada', 'ada', 'aabbccddeeff', '${'0'.repeat(64)}', 1000)`);
+    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
+    for (const id of ['c', 'a', 'b']) {
+      old.exec(`INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at)
+        VALUES ('${id}', 'ed', 'l', 'k1', 'k2', 's1', 's2', 'n1', 'm1', 'n2', 'm2', 't-${id}', 5000, 'ready', 5000)`);
+    }
+    for (const fp of ['fz', 'fa']) {
+      old.exec(`INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at)
+        VALUES ('${fp}', '01', 'ca', 1, 'PEM', 1, 99999, 7000)`);
+    }
+    old.close();
+
+    const db = openDb(file);
+    expect(db.prepare('SELECT id FROM peer_messages ORDER BY sent_at, seq').all()).toEqual([{ id: 'c' }, { id: 'a' }, { id: 'b' }]);
+    expect(db.prepare('SELECT seq FROM peer_messages ORDER BY seq').all()).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+    expect(db.prepare('SELECT fingerprint_sha256 AS f FROM person_certificates ORDER BY issued_at DESC, seq DESC').all()).toEqual([{ f: 'fa' }, { f: 'fz' }]);
+    expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 25').all()).toEqual([{ version: 25 }]);
+    db.close();
+  });
+
   it('is idempotent on an existing file and turns WAL on', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
     tmpDirs.push(dir);
