@@ -42,6 +42,7 @@ jobs:
   test-postgres:
     name: Test with PostgreSQL
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17

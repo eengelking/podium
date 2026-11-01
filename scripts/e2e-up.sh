@@ -144,7 +144,8 @@ LIMITS=()
   # A seeded session stays on the wall for the whole run: long stale, linger and drop times, so no spec depends on a clock.
   printf 'STALE_AFTER_MS=7200000\nHOOK_STALE_AFTER_MS=7200000\nDROP_AFTER_MS=14400000\nLINGER_MS=7200000\nDETACHED_HIDE_AFTER_MS=7200000\n' >>"$WORK/server.env"
   if [[ "$DB_KIND" == postgres ]]; then
-    printf 'PODIUM_DB=postgres://%s:%s@%s:5432/%s\n' "$PG_USER" "$PG_PASS" "$PG" "$PG_NAME" >>"$WORK/server.env"
+    # The image sets no PODIUM_DATA_DIR, and a database that is not a file has no folder for the TLS CA, so name /data here.
+    printf 'PODIUM_DB=postgres://%s:%s@%s:5432/%s\nPODIUM_DATA_DIR=/data\n' "$PG_USER" "$PG_PASS" "$PG" "$PG_NAME" >>"$WORK/server.env"
     printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' "$PG_USER" "$PG_PASS" "$PG_NAME" >"$WORK/pg.env"
   fi
   printf 'PODIUM_E2E_SECRET=%s\n' "$SECRET" >"$WORK/seed.env"

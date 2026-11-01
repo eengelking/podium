@@ -20,7 +20,8 @@ const HELP = `Usage: node scripts/throwaway-db.mjs create <server-url> [name-par
        node scripts/throwaway-db.mjs is-postgres <value>
 
 create  makes podium_<name-part>_<random> on the PostgreSQL server <server-url> names and prints its URL.
-drop    drops the database <database-url> names, closing any connection to it first. It refuses a name that does not start with podium_.
+drop    drops the database <database-url> names, closing any connection to it first. It accepts only a name of the shape create
+        makes, podium_<part>_<10 hex digits> (part: 1 to 20 lower-case letters or digits), and refuses every other name, podium_prod included.
 label   prints host:port/dbname for a URL, leaving out the user and the password.
 is-postgres  exits 0 for a postgres:// or postgresql:// URL, 1 for anything else (a SQLite path, empty).`;
 
@@ -33,6 +34,9 @@ export function labelOf(value) {
 }
 
 const safeName = (part) => `podium_${String(part || 'tmp').replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 20) || 'tmp'}_${randomBytes(5).toString('hex')}`;
+
+/** The only names `drop` accepts: exactly the shape `safeName` makes (a part of 1 to 20 letters or digits, then 10 hex digits). A real database such as podium_prod never matches. */
+export const DROPPABLE = /^podium_[a-z0-9]{1,20}_[0-9a-f]{10}$/;
 
 /** Creates an empty database on the server `serverUrl` names and returns its URL. */
 export async function createDatabase(serverUrl, part) {
@@ -50,7 +54,7 @@ export async function createDatabase(serverUrl, part) {
 export async function dropDatabase(databaseUrl) {
   const url = new URL(databaseUrl);
   const name = decodeURIComponent(url.pathname.slice(1));
-  if (!/^podium_[a-z0-9_]+$/.test(name)) throw new Error(`refusing to drop "${name}": not a database this script made`);
+  if (!DROPPABLE.test(name)) throw new Error(`refusing to drop "${name}": not a database this script made`);
   url.pathname = '/postgres';
   const admin = new pg.Client({ connectionString: url.toString() });
   await admin.connect();

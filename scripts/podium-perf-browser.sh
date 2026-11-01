@@ -41,18 +41,10 @@ done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/podium-perf-browser.XXXXXX")"
-# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
-# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
-DB="$TMP/podium.sqlite"
-if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
-  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-perf-browser)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; rm -rf "$TMP"; exit 2; }
-  echo "podium-perf-browser: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
-fi
-drop_db() { [[ "$DB" == "$TMP/podium.sqlite" ]] || node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 PIDS=()
-PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
-URL="http://127.0.0.1:$PORT"
-TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
+DB="$TMP/podium.sqlite"
+DB_MADE=0   # 1 once a PostgreSQL database exists that cleanup must drop
+drop_db() { (( DB_MADE )) || return 0; node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 
 cleanup() {
   for p in "${PIDS[@]:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done
@@ -61,7 +53,20 @@ cleanup() {
   rm -rf "$TMP"
   drop_db
 }
+# Installed before the database is made, so no exit after that can skip the drop.
 trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
+if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-perf-browser)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; exit 2; }
+  DB_MADE=1
+  echo "podium-perf-browser: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
+fi
+PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
+URL="http://127.0.0.1:$PORT"
+TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
 
 [[ -f "$ROOT/server/dist/index.js" && -d "$ROOT/frontend/dist" ]] || { echo "build first: npm run build" >&2; exit 1; }
 

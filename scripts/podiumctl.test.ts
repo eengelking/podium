@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import * as modContexts from "../mod/podium-reporter/hooks/contexts.ts";
 import { parseConfigHeaders } from "../mod/podium-reporter/hooks/reporterConfig.ts";
 import {
-  bootUnitStale, buildId, changeContexts, configHeaders, dbLabel, isNetworkDb, parseContexts, serializeContexts, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, stableNodePath, systemdUnit, tlsStorageWarning,
+  bootUnitStale, buildId, changeContexts, configHeaders, dbLabel, isNetworkDb, parseContexts, serializeContexts, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, sqliteFile, standaloneDataDir, stableNodePath, systemdUnit, tlsStorageWarning,
 // @ts-expect-error bin/podiumctl has no extension, so tsc cannot find it; vitest loads it as ESM
 } from "../bin/podiumctl";
 
@@ -295,12 +295,46 @@ describe("podiumctl command construction", () => {
     expect(serverEnv(resolveConfig({}, { mode: "standalone" }), false)).not.toHaveProperty("PODIUM_DATA_DIR");
   });
 
+  it("never prints a character of a password that breaks the URL's authority (#822)", () => {
+    const cases: Array<[string, string]> = [
+      ["postgres://podium:pa#ss@db.lan:5432/podium", "pa#ss"],
+      ["postgres://u:p?x@h/d", "p?x"],
+      ["postgres://u:a/b@h/d", "a/b"],
+      ["postgres://u:1?zq@h/d", "zq"],
+    ];
+    for (const [url, secret] of cases) {
+      const label = dbLabel(url);
+      const masked = (maskConfig({ PODIUM_DB: url }) as Record<string, string>).PODIUM_DB;
+      for (const out of [label, masked]) {
+        expect(out).toContain("(hidden)");
+        for (const part of [secret, ...secret.split(/[#?/%]/).filter((s) => s.length > 1), "podium:", "u:"]) expect(out).not.toContain(part);
+      }
+      expect(label).toBe(`${url.split("://")[0]}://(hidden)`);
+      expect(masked).toBe(label);
+    }
+    expect(dbLabel("postgres://podium@db.lan/podium")).toBe("db.lan/podium");
+    expect(dbLabel("postgres://db.lan:5432/podium")).toBe("db.lan:5432/podium");
+    expect(dbLabel("postgres://u:p@[::1]:5432/d")).toBe("[::1]:5432/d");
+    expect(dbLabel("not a url://")).toBe("not a url://");
+    expect(dbLabel("postgres://")).toBe("postgres://(hidden)");
+  });
+
+  it("puts a standalone server's data folder beside a SQLite file, with or without sqlite://, and under the home for the network (#822)", () => {
+    expect(standaloneDataDir("sqlite:///home/u/data/p.sqlite", "/h")).toBe("/home/u/data");
+    expect(standaloneDataDir("/home/u/data/p.sqlite", "/h")).toBe("/home/u/data");
+    expect(standaloneDataDir("sqlite://:memory:", "/h")).toBe(".");
+    expect(standaloneDataDir(":memory:", "/h")).toBe(".");
+    expect(standaloneDataDir("postgres://u:p@db.lan/podium", "/h")).toBe("/h/data");
+    expect(sqliteFile("sqlite:///a/b.db")).toBe("/a/b.db");
+    expect(sqliteFile("/a/b.db")).toBe("/a/b.db");
+  });
+
   it("shows a database on the network by host:port/dbname only (#822)", () => {
     expect(dbLabel("postgres://podium:hunter2@db.lan:5432/podium")).toBe("db.lan:5432/podium");
     expect(dbLabel("postgresql://u:p@db.lan/x?sslmode=require")).toBe("db.lan/x");
     expect(dbLabel("/data/podium.sqlite")).toBe("/data/podium.sqlite");
     expect(dbLabel(undefined)).toBe("");
-    expect(dbLabel("postgres://u:p@[bad")).toBe("(unreadable PODIUM_DB)");
+    expect(dbLabel("postgres://u:p@[bad")).toBe("postgres://(hidden)");
     expect(isNetworkDb("sqlite://x.db")).toBe(false);
     expect(isNetworkDb("x.db")).toBe(false);
     expect(isNetworkDb("postgres://h/d")).toBe(true);
