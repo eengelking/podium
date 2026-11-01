@@ -10,14 +10,13 @@ on:
     branches: [development, main]
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: read
-  pull-requests: read
-
+# Permissions are set on each job, not for the workflow: the two jobs need different ones (githubactions:S8264).
 jobs:
   # Split from scan so the adapter's tests (#822) can have a PostgreSQL service: scan's self-hosted runner is a container on a shared
   # Podman host, where a service's published port is not reachable as localhost. This job holds no secret; it hands scan the lcov files.
   coverage:
+    permissions:
+      contents: read # checkout only; this job holds no secret
     if: >-
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
@@ -72,6 +71,9 @@ jobs:
 
   scan:
     needs: coverage
+    permissions:
+      contents: read
+      pull-requests: read # the scanner reads the PR it decorates
     # A fork's PR gets no SONAR_TOKEN, so it cannot be scanned.
     if: >-
       github.event_name == 'push' ||
