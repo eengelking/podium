@@ -72,8 +72,28 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
   return { text: out, values: values.map((v) => (v === undefined ? null : v)) };
 }
 
+/** Whether the error came from the server (it carries a SQLSTATE `code`), as opposed to a lost or broken connection. */
+function isDatabaseError(err: unknown): boolean {
+  return typeof (err as { code?: unknown } | null)?.code === 'string' && (err as { code: string }).code.length === 5;
+}
+
 /** The key of the session advisory lock that keeps a second Podium off a database. Advisory locks are per database, so one constant is enough. */
 export const SINGLE_PROCESS_LOCK_KEY = '7366773961';
+
+/**
+ * `pg` lets what the URL carries override the settings given beside it, so a URL with `?options=-c search_path=public` would move the
+ * tables to `public`. The two parameters the adapter sets itself are taken out of the URL, so nothing can override them.
+ */
+export function withoutSettings(url: string): string {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('options');
+    u.searchParams.delete('application_name');
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
 
 /** What a pool asks of the server's settings. */
 export interface PoolOptions { connectionString: string; schema: string; max: number; name: string }
@@ -89,9 +109,16 @@ export class PgDb {
   private readonly gate = new AsyncLock();
 
   constructor(opts: PoolOptions) {
-    this.pool = new pg.Pool({ connectionString: opts.connectionString, max: opts.max, types, application_name: `podium-${opts.name}`, options: `-c search_path=${opts.schema}` });
+    this.pool = new pg.Pool({ connectionString: withoutSettings(opts.connectionString), max: opts.max, types, application_name: `podium-${opts.name}`, options: `-c search_path=${opts.schema}` });
     // An idle client that loses its connection must not take the process down.
     this.pool.on('error', () => undefined);
+  }
+
+  private failure: Error | undefined;
+
+  /** Shuts the connection for good: every later call rejects with `err`. Used when the single-process lock is lost. */
+  fail(err: Error): void {
+    this.failure ??= err;
   }
 
   /** Whether the caller is inside a `tx`. */
@@ -100,6 +127,7 @@ export class PgDb {
   }
 
   async query<T extends object = Record<string, unknown>>(sql: string, params?: Params): Promise<{ rows: T[]; count: number }> {
+    if (this.failure) throw this.failure;
     const { text, values } = numbered(sql, params);
     const r = await (this.client.getStore() ?? this.pool).query(text, values);
     return { rows: r.rows as T[], count: r.rowCount ?? 0 };
@@ -120,24 +148,42 @@ export class PgDb {
 
   /** Runs statements that take no values, such as a migration's script. */
   async exec(script: string): Promise<void> {
+    if (this.failure) throw this.failure;
     await (this.client.getStore() ?? this.pool).query(script);
   }
 
   /** Commits when `fn` resolves, rolls back when it rejects. Inside a `tx` it joins that one. Each `tx` holds one pooled client from its first statement to its last. */
   tx<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.failure) return Promise.reject(this.failure);
     if (this.inTx()) return fn();
     return this.gate.run(async () => {
       const client = await this.pool.connect();
+      // The pool listens to an idle client only; while this one is held, a lost connection must not become an uncaught exception.
+      client.on('error', () => undefined);
+      // Set when the connection is no longer good: the client is then destroyed and not handed back to the pool.
+      let broken: Error | undefined;
+      const note = (err: unknown): void => {
+        if (!isDatabaseError(err)) broken ??= err instanceof Error ? err : new Error(String(err));
+      };
       try {
         await client.query('BEGIN');
         const out = await this.client.run(client, fn);
-        await client.query('COMMIT');
+        try {
+          await client.query('COMMIT');
+        } catch (err) {
+          // A COMMIT that fails leaves the client in an unknown state, even when the server answered.
+          broken ??= err instanceof Error ? err : new Error(String(err));
+          throw err;
+        }
         return out;
       } catch (err) {
-        await client.query('ROLLBACK').catch(() => undefined);
+        note(err);
+        await client.query('ROLLBACK').catch((e: unknown) => {
+          broken ??= e instanceof Error ? e : new Error(String(e));
+        });
         throw err;
       } finally {
-        client.release();
+        client.release(broken);
       }
     });
   }
@@ -151,8 +197,9 @@ export class PgDb {
       await this.exec(`RELEASE SAVEPOINT ${name}`);
       return out;
     } catch (err) {
-      await this.exec(`ROLLBACK TO SAVEPOINT ${name}`);
-      await this.exec(`RELEASE SAVEPOINT ${name}`);
+      // The caller needs the error that sent us here; a failed cleanup must not replace it. The transaction then fails at its end.
+      await this.exec(`ROLLBACK TO SAVEPOINT ${name}`).catch(() => undefined);
+      await this.exec(`RELEASE SAVEPOINT ${name}`).catch(() => undefined);
       throw err;
     }
   }
