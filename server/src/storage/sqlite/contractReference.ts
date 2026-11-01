@@ -4,11 +4,13 @@ import type { ContractReference } from '../contract.js';
 import { FleetDb, openDb } from './db.js';
 import { PeopleStore } from './people.js';
 import { ReporterStore } from './reporters.js';
+import { openSqliteStorage } from './index.js';
 
 export function sqliteReference(): ContractReference {
   return {
     people: new PeopleStore(openDb(':memory:')),
     fleet: new FleetDb(openDb(':memory:')),
+    storage: () => openSqliteStorage(':memory:', 0),
     reporters: new ReporterStore(openDb(':memory:'), 0),
   };
 }
