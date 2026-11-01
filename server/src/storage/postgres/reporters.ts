@@ -274,7 +274,7 @@ export class PgReporterStore implements ReporterStoreApi {
 
   async keys(opts: { q?: string; state?: string; admin?: boolean }, now: number): Promise<string[]> {
     const { sub, params, filter } = this.view(opts, now);
-    return (await this.db.all<{ key: string }>(`SELECT q.key FROM (${sub}) q${filter}`, params)).map((r) => r.key);
+    return (await this.db.all<{ key: string }>(`SELECT q.key FROM (${sub}) q${filter} ORDER BY q.key`, params)).map((r) => r.key);
   }
 
   async get(key: string, now: number, opts: { page?: number; pageSize?: number } = {}): Promise<ReporterDetail | undefined> {

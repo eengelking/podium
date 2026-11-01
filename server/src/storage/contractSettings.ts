@@ -1,5 +1,5 @@
 // Contract cases for the settings stores (#890): feature flags, the wall's display settings, model prices, the TLS settings, the
-// peer server settings and a person's certificates. Each runs one scenario over the adapter and over the SQLite reference
+// peer server settings and a person's certificates. Each runs one scenario over the adapter and over the reference
 // (`sameOnBoth`) and states in itself what a value must be where two equal wrong answers would pass.
 import { it, expect } from 'vitest';
 import { sameOnBoth, type Openers } from './contractSame.js';
@@ -9,7 +9,7 @@ import type { Storage } from './types.js';
 const T0 = 1_800_000_000_000;
 
 export function settingsCases(o: Openers): void {
-  it('matches SQLite for feature flags: unknown ids, defaults, and what the console is sent', async () => {
+  it('matches the reference for feature flags: unknown ids, defaults, and what the console is sent', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const f = s.featureFlags;
       await rec('view (fresh)', f.view());
@@ -26,7 +26,7 @@ export function settingsCases(o: Openers): void {
     expect(Object.keys(t.get('view (fresh)') as object).sort()).toEqual(FEATURES.map((d) => d.id).sort());
   });
 
-  it('matches SQLite for the wall settings, and a setter says whether it changed the value', async () => {
+  it('matches the reference for the wall settings, and a setter says whether it changed the value', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const w = s.wallSettings;
       await rec('view (fresh)', w.view());
@@ -48,7 +48,7 @@ export function settingsCases(o: Openers): void {
     expect(t.get('update dismissed')).toBe('1.2.3');
   });
 
-  it('matches SQLite for model prices: validation messages, saved rows, and resetting a row', async () => {
+  it('matches the reference for model prices: validation messages, saved rows, and resetting a row', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const m = s.modelPrices;
       await rec('overrides (fresh)', m.overrides());
@@ -71,7 +71,7 @@ export function settingsCases(o: Openers): void {
     expect(t.get('overrides (reset)')).toEqual({});
   });
 
-  it('matches SQLite for the TLS settings, the reporter setting and the first-run seed of "allow reporters over HTTP"', async () => {
+  it('matches the reference for the TLS settings, the reporter setting and the first-run seed of "allow reporters over HTTP"', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const tls = s.tlsSettings;
       await rec('get (fresh)', tls.get());
@@ -95,7 +95,7 @@ export function settingsCases(o: Openers): void {
     expect(t.get('allow (still off)')).toBe(false);
   });
 
-  it('matches SQLite for the peer server settings: values checked first, nothing saved on one failure', async () => {
+  it('matches the reference for the peer server settings: values checked first, nothing saved on one failure', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       // The peer store needs the flag and the live directory; the settings store does not, and is reached through the same call.
       const p = s.peers({ now: () => T0, flagOn: () => true, startedAt: T0 } as never).settings;
@@ -112,7 +112,7 @@ export function settingsCases(o: Openers): void {
     expect(t.get('retainMs (fresh)')).not.toBe(t.get('retainMs (after)'));
   });
 
-  it('matches SQLite for certificates: replacing revokes the earlier live ones, renewing keeps them, revoking counts', async () => {
+  it('matches the reference for certificates: replacing revokes the earlier live ones, renewing keeps them, revoking counts', async () => {
     const cert = (n: number, issuer = 'ca-a') => ({
       cert: `PEM${n}`, issuerFingerprint: issuer,
       info: { fingerprintSha256: `fp${n}`, serial: `0${n}`, notBefore: new Date(T0).toISOString(), notAfter: new Date(T0 + 86_400_000).toISOString() },

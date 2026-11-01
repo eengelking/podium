@@ -288,7 +288,7 @@ export class ReporterStore {
   /** Every key a filtered view holds, not one page of it: what "select all in this filter" removes. */
   keys(opts: { q?: string; state?: string; admin?: boolean }, now: number): string[] {
     const { sub, params, filter } = this.view(opts, now);
-    return (this.stmt(`SELECT q.key FROM (${sub}) q${filter}`).all(params) as unknown as { key: string }[]).map((r) => r.key);
+    return (this.stmt(`SELECT q.key FROM (${sub}) q${filter} ORDER BY q.key`).all(params) as unknown as { key: string }[]).map((r) => r.key);
   }
 
   get(key: string, now: number, opts: { page?: number; pageSize?: number } = {}): ReporterDetail | undefined {

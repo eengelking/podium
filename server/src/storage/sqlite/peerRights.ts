@@ -412,8 +412,8 @@ export class PeerRights implements PeerRightsApi {
     const key = nameKey(owner);
     const rows =
       about === undefined
-        ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, id').all()
-        : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, id').all(about, about);
+        ? this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, from_key, to_key, kind, id').all()
+        : this.stmt('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, from_key, to_key, kind, id').all(about, about);
     return (rows as unknown as DbRequest[]).filter((r) => nameKey(r.owner) === key).map(toRequest);
   }
 

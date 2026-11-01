@@ -13,6 +13,9 @@ import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingAdminR
 import { fixtureReport } from '../fleet/testing.js';
 import { PeopleError, nameKey } from './rows.js';
 import { settingsCases } from './contractSettings.js';
+import { activityCases } from './contractActivity.js';
+import { peerCases } from './contractPeers.js';
+import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
 import type { StoredSessionRow } from '../fleet/activityHistoryTypes.js';
 import type { AgentRow, BlowoutRow, EventRow, GroupListRow, PersonListRow, PersonRow, ReporterRow, ReporterSeen, SampleRow, SessionRow } from './rows.js';
 import type { FleetStoreApi, PeopleStoreApi, ReporterStoreApi, Storage } from './types.js';
@@ -24,7 +27,7 @@ type Sync<T> = { [K in keyof T]: T[K] extends (...args: infer A) => Promise<infe
 export interface ContractReference {
   people: Sync<Pick<PeopleStoreApi, 'adminReportingAllowed' | 'setAdminReporting' | 'createGroup' | 'log' | 'listLog' | 'allGroups'>>;
   fleet: Sync<Pick<FleetStoreApi, 'upsertSession' | 'getSession' | 'liveCandidates'>>;
-  /** A fresh SQLite storage, which gives the reference answers for the stores that have no synchronous class to compare with (#890). */
+  /** A fresh reference storage, which gives the reference answers for the stores that have no synchronous class to compare with (#890). */
   storage: () => Storage | Promise<Storage>;
   reporters: Sync<Pick<ReporterStoreApi, 'record' | 'list'>> & { peerLookup(): PeerReporterLookup };
 }
@@ -118,6 +121,11 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
   describe(`${name} storage contract`, () => {
     const against = { open, referenceStorage: () => reference().storage() };
     settingsCases(against);
+    fleetCases(against);
+    peopleCases(against);
+    reporterCases(against);
+    peerCases(against);
+    activityCases(against);
 
     it('matches the synchronous stores for people, the admin log and settings', async () => {
       const store = await open();

@@ -428,7 +428,7 @@ export class FleetDb {
 
   /** The session that continued `id` after a /clear, if any (the newest when there are several). */
   clearedInto(id: string): string | null {
-    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC LIMIT 1').get(id) as { id: string } | undefined;
+    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC, id DESC LIMIT 1').get(id) as { id: string } | undefined;
     return r?.id ?? null;
   }
 
@@ -456,7 +456,8 @@ export class FleetDb {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
        FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
-       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
+       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
+       ORDER BY s.id`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
       id: string;
       name: string;

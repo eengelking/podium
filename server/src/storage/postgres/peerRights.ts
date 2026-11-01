@@ -402,8 +402,8 @@ export class PgPeerRights implements PeerRightsStoreApi {
     const key = nameKey(owner);
     const rows =
       about === undefined
-        ? await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, id')
-        : await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, id', [about, about]);
+        ? await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, from_key, to_key, kind, id')
+        : await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, from_key, to_key, kind, id', [about, about]);
     return rows.filter((r) => nameKey(r.owner) === key).map(toRequest);
   }
 
