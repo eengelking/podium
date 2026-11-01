@@ -6,7 +6,7 @@ import { DEFAULT_STORAGE_KIND, dataDir, defaultDbFile, openStorage, registerStor
 
 describe('which storage PODIUM_DB names', () => {
   it('is a SQLite file at <repo>/data/podium.sqlite when unset or empty', () => {
-    expect(storageSpec({})).toEqual({ kind: 'sqlite', target: defaultDbFile() });
+    expect(storageSpec({})).toEqual({ kind: 'sqlite', target: defaultDbFile(), label: defaultDbFile() });
     expect(storageSpec({ PODIUM_DB: '' }).target).toBe(defaultDbFile());
     expect(defaultDbFile().endsWith(path.join('data', 'podium.sqlite'))).toBe(true);
   });
@@ -20,24 +20,24 @@ describe('which storage PODIUM_DB names', () => {
   it('accepts a registered kind with no default target when PODIUM_DB names its target', () => {
     const off = registerStorageKind('nodefault', { fileBased: false, load: async () => () => { throw new Error('not opened'); } });
     try {
-      expect(storageSpec({ PODIUM_DB: 'nodefault://x' })).toEqual({ kind: 'nodefault', target: 'x' });
+      expect(storageSpec({ PODIUM_DB: 'nodefault://x' })).toEqual({ kind: 'nodefault', target: 'x', label: 'x' });
     } finally { off(); }
   });
 
   it('keeps a plain path and :memory: exactly as given', () => {
-    expect(storageSpec({ PODIUM_DB: '/data/podium.sqlite' })).toEqual({ kind: 'sqlite', target: '/data/podium.sqlite' });
+    expect(storageSpec({ PODIUM_DB: '/data/podium.sqlite' })).toMatchObject({ kind: 'sqlite', target: '/data/podium.sqlite' });
     expect(storageSpec({ PODIUM_DB: 'rel/dir/x.db' }).target).toBe('rel/dir/x.db');
-    expect(storageSpec({ PODIUM_DB: ':memory:' })).toEqual({ kind: 'sqlite', target: ':memory:' });
+    expect(storageSpec({ PODIUM_DB: ':memory:' })).toMatchObject({ kind: 'sqlite', target: ':memory:' });
   });
 
   it('strips the scheme from sqlite://, so paths derived from it match the plain form', () => {
-    expect(storageSpec({ PODIUM_DB: 'sqlite:///data/podium.sqlite' })).toEqual({ kind: 'sqlite', target: '/data/podium.sqlite' });
+    expect(storageSpec({ PODIUM_DB: 'sqlite:///data/podium.sqlite' })).toMatchObject({ kind: 'sqlite', target: '/data/podium.sqlite' });
     expect(storageSpec({ PODIUM_DB: 'sqlite://:memory:' }).target).toBe(':memory:');
   });
 
   it('refuses a kind nobody registered, naming the ones that exist', () => {
-    expect(() => storageSpec({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite)');
-    expect(() => openStorage({ PODIUM_DB: 'postgres://h/db' })).toThrow(/unknown storage kind "postgres"/);
+    expect(() => storageSpec({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres)');
+    expect(() => openStorage({ PODIUM_DB: 'mysql://h/db' })).toThrow(/unknown storage kind "mysql"/);
   });
 
   it('opens a SQLite storage for :memory: and for sqlite://:memory:', async () => {
@@ -46,6 +46,37 @@ describe('which storage PODIUM_DB names', () => {
       expect(await s.tx(async () => 1)).toBe(1);
       await s.close();
     }
+  });
+});
+
+describe('the PostgreSQL kind', () => {
+  it('is picked by postgres:// and by its alias postgresql://, with the rest as the target', () => {
+    expect(storageSpec({ PODIUM_DB: 'postgres://u:pw@db.example:5433/podium' })).toEqual({ kind: 'postgres', target: 'u:pw@db.example:5433/podium', label: 'db.example:5433/podium' });
+    expect(storageSpec({ PODIUM_DB: 'postgresql://u@h/d' }).kind).toBe('postgres');
+  });
+
+  it('labels a target with the host, port and database only, never the user or the password', () => {
+    for (const v of ['postgres://admin:s3cret@h:5432/podium', 'postgres://admin:s3cret@h:5432/podium?sslmode=require', 'postgres://admin:s3cret@h/podium']) {
+      const { label } = storageSpec({ PODIUM_DB: v });
+      expect(label).not.toContain('s3cret');
+      expect(label).not.toContain('admin');
+    }
+    expect(storageSpec({ PODIUM_DB: 'postgres://admin:s3cret@h:5432/podium' }).label).toBe('h:5432/podium');
+    expect(storageSpec({ PODIUM_DB: 'postgres://admin:s3cret@h/podium' }).label).toBe('h/podium');
+  });
+
+  it('labels a target that does not parse without echoing it', () => {
+    expect(storageSpec({ PODIUM_DB: 'postgres://u:s3cret@' }).label).toBe('postgres://<unparseable>');
+    expect(storageSpec({ PODIUM_DB: 'postgres://u:s3cret@ho st/db' }).label).toBe('postgres://<unparseable>');
+  });
+
+  it('has no default target and needs a data directory', () => {
+    expect(() => dataDir({ PODIUM_DB: 'postgres://h/db' })).toThrow('PODIUM_DATA_DIR is required when PODIUM_DB is postgres://...');
+  });
+
+  it('labels a SQLite target as it was given', () => {
+    expect(storageSpec({ PODIUM_DB: '/data/podium.sqlite' }).label).toBe('/data/podium.sqlite');
+    expect(storageSpec({ PODIUM_DB: ':memory:' }).label).toBe(':memory:');
   });
 });
 
@@ -89,7 +120,7 @@ describe('loading an adapter only when its kind is chosen', () => {
     let loaded = 0;
     const off = registerStorageKind('lazydb', { fileBased: false, load: async () => { loaded++; return () => openSqliteStorage(':memory:'); } });
     try {
-      expect(() => openStorage({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, lazydb)');
+      expect(() => openStorage({ PODIUM_DB: 'bogus://x' })).toThrow('PODIUM_DB: unknown storage kind "bogus" (known: sqlite, postgres, lazydb)');
       expect(loaded).toBe(0);
     } finally { off(); }
   });
