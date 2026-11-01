@@ -111,10 +111,10 @@ const mkSeen = (id: string, name: string | null, over: Partial<ReporterSeen> = {
   sessionId: `s-${id}`, os: 'macOS', peers: true, ...over,
 });
 
-export function runStorageContract(name: string, open: () => Storage, reference: () => ContractReference): void {
+export function runStorageContract(name: string, open: () => Storage | Promise<Storage>, reference: () => ContractReference): void {
   describe(`${name} storage contract`, () => {
     it('matches the synchronous stores for people, the admin log and settings', async () => {
-      const store = open();
+      const store = await open();
       const { people } = reference();
       expect(await store.people.adminReportingAllowed()).toBe(people.adminReportingAllowed());
       await store.people.setAdminReporting(false);
@@ -129,7 +129,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('matches the synchronous stores for sessions', async () => {
-      const store = open();
+      const store = await open();
       const { fleet } = reference();
       await store.fleet.upsertSession(session());
       fleet.upsertSession(session());
@@ -140,7 +140,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('matches the synchronous stores for reporters and the peer lookup', async () => {
-      const store = open();
+      const store = await open();
       const { reporters } = reference();
       const key = await store.reporters.record(seen, 50);
       expect(key).toBe(reporters.record(seen, 50));
@@ -155,7 +155,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns the fleet rows with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const f = store.fleet;
       // a row with every nullable field empty, and one with every field filled
       await f.upsertSession(session({ id: 'bare' }));
@@ -202,7 +202,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns people, groups and the Admin log with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const p = store.people;
       const group = await p.createGroup('Crew', T0);
       expect(Object.keys(group).sort(byText)).toEqual(['id', 'name']);
@@ -232,7 +232,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns reporter rows with the types the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       await store.fleet.upsertSession(session({ id: 's-m1', owner: 'ed' }));
       const key = await store.reporters.record(mkSeen('m1', 'box'), T0);
       await store.reporters.record(mkSeen('m2', null, { kind: 'hooks', source: '127.0.0.2', credential: null, os: null, peers: null }), T0 + 1);
@@ -248,7 +248,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('keeps people names unique whatever their case or spacing', async () => {
-      const store = open();
+      const store = await open();
       const p = store.people;
       const { person } = await p.createPerson('Ed', null, T0);
       for (const again of ['ed', ' ED ', 'eD']) {
@@ -266,7 +266,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns lists in the order the app relies on, ties included', async () => {
-      const store = open();
+      const store = await open();
       const { fleet: f, people: p } = store;
       // Events: newest first; equal times by id, descending, as the bytes of the id compare (so 'b' > 'a' > 'B').
       for (const [id, t] of [['b', 100], ['B', 100], ['a', 100], ['c', 200], ['z', 50]] as const) await f.insertEvent({ id, session_id: 's1', agent_id: null, t, kind: 'k', text: id, data_json: null });
@@ -326,7 +326,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns a person\'s certificates newest first, those issued in the same millisecond last-stored first', async () => {
-      const store = open();
+      const store = await open();
       const { person } = await store.people.createPerson('cert-owner', null, T0);
       const cert = (n: number) => ({
         cert: `PEM${n}`, issuerFingerprint: n % 2 ? 'ca-a' : 'ca-b',
@@ -342,7 +342,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns the messages of a conversation in the order they were sent, ties included', async () => {
-      const store = open();
+      const store = await open();
       let now = T0;
       const peers = store.peers({ now: () => now, flagOn: () => true, startedAt: T0 });
       const a = await store.reporters.record(mkSeen('a', 'box-a', { sessionId: 'sa' }), T0);
@@ -377,7 +377,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
     });
 
     it('returns recordings and the Activity history with the types and order the interfaces declare', async () => {
-      const store = open();
+      const store = await open();
       const memory = { now: T0, live: new Set(['B1', 'a1', 'c1']) };
       const act = store.activity({
         history: {

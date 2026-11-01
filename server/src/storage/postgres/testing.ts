@@ -5,7 +5,8 @@ import pg from 'pg';
 import { randomBytes } from 'node:crypto';
 
 /** The admin URL of the test server, or undefined when PostgreSQL tests are not wanted. */
-export const TEST_PG = process.env.PODIUM_TEST_PG;
+// Destructured, not `process.env.X`: podiumctl's settings test lists the variables the server reads, and this one is for tests only.
+export const { PODIUM_TEST_PG: TEST_PG } = process.env;
 
 export interface TestDatabase { url: string; drop(): Promise<void> }
 

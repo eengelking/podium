@@ -36,6 +36,8 @@ export interface FleetConfig {
   throttleMs: number;
   /** What names the storage in the log and the health check. A label only: it need not be a file. */
   dbPath: string;
+  /** The storage kind, for the health check. */
+  dbKind?: string;
 }
 
 export const DEFAULT_CONFIG: Omit<FleetConfig, 'home' | 'dbPath'> = {
@@ -56,7 +58,7 @@ function envMs(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
 }
 
 /** Lifecycle and retention settings from the environment (SPEC 7.2, 7.5). */
-export function configFromEnv(env: NodeJS.ProcessEnv, base: { home: string; dbPath: string }): FleetConfig {
+export function configFromEnv(env: NodeJS.ProcessEnv, base: { home: string; dbPath: string; dbKind?: string }): FleetConfig {
   const d = DEFAULT_CONFIG;
   // A containerised server cannot see the host's home, so podiumctl passes it in. Anything but an absolute
   // path other than `/` is ignored: a home of `/` would turn every path into `~/...`.
@@ -745,12 +747,13 @@ export class Fleet {
     return formatSse('snapshot', await this.state());
   }
 
-  async health(): Promise<{ ok: true; dbPath: string; liveSessions: number; uptimeSec: number; reporterVersionsSeen: string[]; serverVersion: string; serverBuild: string | null; reporterSupport: ReporterSupport; sseClients: number; maxClockSkewMs: number }> {
+  async health(): Promise<{ ok: true; dbPath: string; dbKind: string; liveSessions: number; uptimeSec: number; reporterVersionsSeen: string[]; serverVersion: string; serverBuild: string | null; reporterSupport: ReporterSupport; sseClients: number; maxClockSkewMs: number }> {
     let skew = 0;
     for (const id of this.live.keys()) skew = Math.max(skew, Math.abs(this.clockSkew.get(id) ?? 0));
     return {
       ok: true,
       dbPath: this.cfg.dbPath,
+      dbKind: this.cfg.dbKind ?? 'unknown',
       liveSessions: await this.visibleCount(),
       uptimeSec: Math.floor((this.now() - this.startedAt) / 1000),
       reporterVersionsSeen: await this.db.distinctReporterVersions(),

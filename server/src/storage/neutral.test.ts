@@ -1,5 +1,5 @@
-// The neutral storage contract must not name the SQLite adapter (#313): another database implements `types.ts` without
-// reading anything under `sqlite/`. Only `index.ts` may import the adapter, and only on demand, to register its loader.
+// The neutral storage contract must not name an adapter (#313, #822): another database implements `types.ts` without
+// reading anything under `sqlite/` or `postgres/`. Only `index.ts` may import an adapter, and only on demand, to register its loader.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import ts from '@typescript/typescript6';
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const ADAPTER = path.join(SRC, 'storage', 'sqlite');
+const ADAPTERS = [path.join(SRC, 'storage', 'sqlite'), path.join(SRC, 'storage', 'postgres')];
 const REGISTRY = path.join(SRC, 'storage', 'index.ts');
 
 function sourceFiles(dir: string): string[] {
@@ -42,17 +42,19 @@ function staticSpecifiers(file: string): string[] {
   });
 }
 
-const names = (s: string): boolean => s.includes('storage/sqlite/') || s.includes('./sqlite/') || s.includes('node:sqlite');
+const names = (s: string): boolean =>
+  s.includes('storage/sqlite/') || s.includes('./sqlite/') || s.includes('node:sqlite') ||
+  s.includes('storage/postgres/') || s.includes('./postgres/') || s === 'pg' || s.startsWith('pg/') || s === 'postgres' || s === 'postgres-js';
 
 describe('the neutral storage contract', () => {
-  const neutral = sourceFiles(SRC).filter((f) => !f.startsWith(ADAPTER + path.sep) && f !== REGISTRY);
+  const neutral = sourceFiles(SRC).filter((f) => !ADAPTERS.some((a) => f.startsWith(a + path.sep)) && f !== REGISTRY);
 
   it('finds the files it guards', () => {
     expect(neutral.some((f) => f.endsWith(path.join('storage', 'types.ts')))).toBe(true);
     expect(neutral.some((f) => f.endsWith(path.join('fleet', 'protocol.ts')))).toBe(true);
   });
 
-  it('is not imported by name from the SQLite adapter outside the adapter and the registry', () => {
+  it('is not imported by name from an adapter (SQLite or PostgreSQL) or its driver outside the adapters and the registry', () => {
     const offenders = neutral.flatMap((f) => specifiers(f).filter(names).map((s) => `${path.relative(SRC, f)} imports "${s}"`));
     expect(offenders).toEqual([]);
   });
@@ -62,13 +64,19 @@ describe('the neutral storage contract', () => {
     expect(staticSpecifiers(REGISTRY).filter(names)).toEqual([]);
   });
 
+  it('keeps the PostgreSQL driver out of every file but the PostgreSQL adapter', () => {
+    const all = sourceFiles(SRC).filter((f) => !f.startsWith(ADAPTERS[1]! + path.sep));
+    const offenders = all.flatMap((f) => specifiers(f).filter((s) => s === 'pg' || s.startsWith('pg/')).map((s) => `${path.relative(SRC, f)} imports "${s}"`));
+    expect(offenders).toEqual([]);
+  });
+
   it('does not reach for the SQLite test handles outside the adapter (test files may)', () => {
     const offenders = neutral.filter((f) => /\b(sqliteHandle|activityHandle)\b/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(SRC, f));
     expect(offenders).toEqual([]);
   });
 
   it('names no database outside the adapter and the registry, in code, strings or comments', () => {
-    const word = /\b(sqlite|vacuum|pragma|rowid|wal)\b/i;
+    const word = /\b(sqlite|vacuum|pragma|rowid|wal|postgres|postgresql|pg_\w+|podium_lower)\b/i;
     const hits = neutral.flatMap((f) =>
       fs.readFileSync(f, 'utf8').split('\n').flatMap((line, i) => {
         const m = word.exec(line);

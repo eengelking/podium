@@ -288,3 +288,5 @@ export class PgPeopleStore implements PeopleStoreApi {
     return { total, page, pageSize, rows };
   }
 }
+
+export const pgPeople = (db: PgDb): PeopleStoreApi => new PgPeopleStore(db);
