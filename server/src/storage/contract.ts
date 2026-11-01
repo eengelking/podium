@@ -13,6 +13,7 @@ import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingAdminR
 import { fixtureReport } from '../fleet/testing.js';
 import { PeopleError, nameKey } from './rows.js';
 import { settingsCases } from './contractSettings.js';
+import { reportCases } from './contractReports.js';
 import { activityCases } from './contractActivity.js';
 import { peerCases } from './contractPeers.js';
 import { fleetCases, peopleCases, reporterCases } from './contractFleet.js';
@@ -126,6 +127,7 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
     reporterCases(against);
     peerCases(against);
     activityCases(against);
+    reportCases(against);
 
     it('matches the synchronous stores for people, the admin log and settings', async () => {
       const store = await open();

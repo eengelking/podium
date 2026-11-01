@@ -197,7 +197,7 @@ export class PgFleetStore implements FleetStoreApi {
   }
 
   async distinctReporterVersions(): Promise<string[]> {
-    return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL')).map((r) => r.v);
+    return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v')).map((r) => r.v);
   }
 
   // ---- agents ---------------------------------------------------------------------------------

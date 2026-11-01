@@ -568,7 +568,7 @@ export class FleetDb {
 
   distinctReporterVersions(): string[] {
     return (
-      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL').all() as {
+      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v').all() as {
         v: string;
       }[]
     ).map((r) => r.v);
