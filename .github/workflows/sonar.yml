@@ -15,24 +15,37 @@ permissions:
   pull-requests: read
 
 jobs:
-  scan:
-    # A fork's PR gets no SONAR_TOKEN, so it cannot be scanned.
+  # Split from scan so the adapter's tests (#822) can have a PostgreSQL service: scan's self-hosted runner is a container on a shared
+  # Podman host, where a service's published port is not reachable as localhost. This job holds no secret; it hands scan the lcov files.
+  coverage:
     if: >-
       github.event_name == 'push' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        (github.base_ref == 'development' || github.head_ref == 'development'))
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust # a throwaway service for one job, reachable only from the runner; no password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # Sonar needs full history for blame and new-code detection
 
       - uses: actions/setup-node@v7
         with:
           node-version: 26
           cache: npm
 
-      # No lifecycle scripts: this job holds SONAR_TOKEN, and nothing here needs an install script (Sonar rule S6505).
       - name: Install
         run: npm ci --ignore-scripts
 
@@ -47,6 +60,45 @@ jobs:
           # relative to the repo root once the leading ../ is dropped.
           sed -i -e 's#^SF:\.\./#SF:#' -e 's#^SF:src/#SF:server/src/#' server/coverage/lcov.info
           sed -i 's#^SF:src/#SF:frontend/src/#' frontend/coverage/lcov.info
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lcov
+          path: |
+            server/coverage/lcov.info
+            frontend/coverage/lcov.info
+          retention-days: 1
+          if-no-files-found: error
+
+  scan:
+    needs: coverage
+    # A fork's PR gets no SONAR_TOKEN, so it cannot be scanned.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.base_ref == 'development' || github.head_ref == 'development'))
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Sonar needs full history for blame and new-code detection
+
+      # The coverage job's lcov files, already relative to the repo root. The artifact keeps the server/ and frontend/ folders.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: lcov
+          path: .
+
+      # Kept for the standards parity step below (PRs into main, and main), which runs the app's own code. Coverage no longer runs here.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      # No lifecycle scripts: this job holds SONAR_TOKEN, and nothing here needs an install script (Sonar rule S6505).
+      - name: Install
+        run: npm ci --ignore-scripts
 
       - uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
