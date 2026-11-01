@@ -29,7 +29,7 @@ import {
 import { nameKey } from '../rows.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
-import { MAX_NOTICES, cleanPeerText, roundTripsUsed, type TripRow } from '../sqlite/peerMessages.js';
+import { MAX_NOTICES, cleanPeerText, roundTripsUsed, type TripRow } from '../peerText.js';
 import type { PgDb } from './conn.js';
 
 /** Two orchestrators share an address when their names and machines match the way `resolve` compares them. */

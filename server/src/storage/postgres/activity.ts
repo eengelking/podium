@@ -2,7 +2,7 @@
 // own pool and their own lock, as the SQLite adapter keeps them on their own file. A call that was one step is one step under the lock;
 // a chunked removal takes the lock one chunk at a time inside the classes. Nothing here waits on the main database while it holds the
 // lock: what the server must read from there is read first and passed in.
-import { AsyncLock } from '../sqlite/lock.js';
+import { AsyncLock } from '../lock.js';
 import type { RecordingTrail } from '../rows.js';
 import type { ActivityHistoryApi, ActivityStorage, ActivityStoreOptions, SessionRecordingsApi } from '../types.js';
 import type { PgDb } from './conn.js';

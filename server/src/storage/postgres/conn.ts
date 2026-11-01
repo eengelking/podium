@@ -2,7 +2,7 @@
 // edge that make PostgreSQL hand back what the interfaces declare. Nothing outside `storage/postgres/` imports `pg`.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
-import { AsyncLock } from '../sqlite/lock.js';
+import { AsyncLock } from '../lock.js';
 
 /** A value the stores bind. `undefined` is bound as NULL. */
 export type Param = string | number | boolean | null | undefined | bigint;
@@ -161,7 +161,8 @@ export class PgDb {
     return this.gate.run(async () => {
       const client = await this.pool.connect();
       // The pool listens to an idle client only; while this one is held, a lost connection must not become an uncaught exception.
-      client.on('error', () => undefined);
+      const swallow = (): void => undefined;
+      client.on('error', swallow);
       // Set when the connection is no longer good: the client is then destroyed and not handed back to the pool.
       let broken: Error | undefined;
       const note = (err: unknown): void => {
@@ -185,6 +186,8 @@ export class PgDb {
         });
         throw err;
       } finally {
+        // The client lives on in the pool: take the handler off so a long-lived client does not collect one per transaction.
+        client.off('error', swallow);
         client.release(broken);
       }
     });

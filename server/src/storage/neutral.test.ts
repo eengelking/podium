@@ -70,6 +70,15 @@ describe('the neutral storage contract', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('keeps the adapters apart: neither imports the other or the other\'s driver (test files may)', () => {
+    const [sqliteDir, pgDir] = ADAPTERS as [string, string];
+    const offenders = [
+      ...sourceFiles(sqliteDir).flatMap((f) => specifiers(f).filter((s) => s.includes('/postgres/') || s.startsWith('../postgres') || s === 'pg' || s.startsWith('pg/')).map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
+      ...sourceFiles(pgDir).flatMap((f) => specifiers(f).filter((s) => s.includes('/sqlite/') || s.startsWith('../sqlite') || s === 'node:sqlite').map((s) => `${path.relative(SRC, f)} imports "${s}"`)),
+    ];
+    expect(offenders).toEqual([]);
+  });
+
   it('does not reach for the SQLite test handles outside the adapter (test files may)', () => {
     const offenders = neutral.filter((f) => /\b(sqliteHandle|activityHandle)\b/.test(fs.readFileSync(f, 'utf8'))).map((f) => path.relative(SRC, f));
     expect(offenders).toEqual([]);
