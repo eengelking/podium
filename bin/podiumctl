@@ -26,8 +26,12 @@ export const PASSTHROUGH = [
   'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY', 'PODIUM_FAILURE_LIMIT',
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
-/** Keys podiumctl itself owns. Standalone-only: PODIUM_DB. Container-only: PODIUMCTL_ENGINE. */
-export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB', 'PODIUM_TLS', 'PODIUM_TLS_PORT'];
+/**
+ * Keys podiumctl itself owns. PODIUM_DB is a SQLite file in standalone mode only; a database on the network
+ * (`postgres://user:password@host:5432/dbname`) is passed through in either mode. PODIUM_DATA_DIR (the folder for the TLS
+ * CA) is standalone-only: the container's is always /data. Container-only: PODIUMCTL_ENGINE.
+ */
+export const OWN_KEYS = ['PODIUMCTL_MODE', 'PODIUMCTL_ENGINE', 'PODIUMCTL_PORT', 'PODIUMCTL_BIND', 'PODIUM_TOKEN', 'PODIUM_DB', 'PODIUM_DATA_DIR', 'PODIUM_TLS', 'PODIUM_TLS_PORT'];
 const ALL_KEYS = [...OWN_KEYS, ...PASSTHROUGH];
 /** Keys an older config may still hold. Ignored by the server; `config unset` removes them, `config set` refuses. */
 export const RETIRED_KEYS = ['ANTHROPIC_ADMIN_API_KEY'];
@@ -85,6 +89,14 @@ Built-in TLS (off by default; \`podiumctl start --tls\` or \`podiumctl config se
   PODIUM_TLS            on or off. On: the server makes its own CA and opens a second port for reporters (mutual TLS only); the console stays on HTTP
   PODIUM_TLS_PORT       Reporter port on this machine (mutual TLS, default 4318); the HTTP port is unchanged
                         Container mode publishes it on the --bind address and keeps the CA in ~/.podium/tls
+
+Database (SQLite by default):
+  PODIUM_DB             A SQLite file (standalone mode only), or a database on the network, e.g.
+                        podiumctl config set PODIUM_DB=postgres://user:password@db.lan:5432/podium, then podiumctl restart.
+                        Works in both modes; the container then needs no /data/podium.sqlite. Output shows host:port/dbname
+                        only, never the user or the password (\`config\` hides them unless --show-token).
+  PODIUM_DATA_DIR       Folder for the TLS CA (standalone mode; default: the folder of the SQLite file, else ~/.podium/data).
+                        Container mode always uses /data.
 
 Host names (a page on another site can rebind its name to this machine, so the server refuses a request whose
 Host is not one it expects; 127.0.0.1, localhost and [::1] always work, and so does the --bind address):
@@ -173,7 +185,22 @@ export function resolveConfig(file, flags = {}, installed = ['podman']) {
   const tlsPort = Number(file.PODIUM_TLS_PORT || INNER_TLS_PORT);
   if (!Number.isInteger(tlsPort) || tlsPort < 1 || tlsPort > 65535) throw new Error(`invalid HTTPS port "${file.PODIUM_TLS_PORT}"`);
   if (tls && tlsPort === port) throw new Error(`the HTTPS port and the HTTP port must be different, both are ${port}`);
-  return { mode, engine, port, bind, tls, tlsPort, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
+  return { mode, engine, port, bind, tls, tlsPort, token: file.PODIUM_TOKEN, db: file.PODIUM_DB, dataDir: file.PODIUM_DATA_DIR, extra: Object.fromEntries(PASSTHROUGH.filter((k) => file[k] !== undefined).map((k) => [k, file[k]])) };
+}
+
+/** True when PODIUM_DB names a database on the network (`kind://...`) rather than a SQLite file. `sqlite://path` is a file. */
+export function isNetworkDb(value) {
+  const m = /^([a-z][a-z0-9+.-]*):\/\//.exec(value ?? '');
+  return !!m && m[1] !== 'sqlite';
+}
+
+/** What a log or a status line may say of a database: `host:port/dbname` for one on the network, never the user or the password. */
+export function dbLabel(value) {
+  if (!isNetworkDb(value)) return value || '';
+  try {
+    const u = new URL(value);
+    return `${u.host}${u.pathname}`;
+  } catch { return '(unreadable PODIUM_DB)'; }
 }
 
 /** Environment the server process gets (the token and other settings live here, never on a command line). */
@@ -183,8 +210,8 @@ export function serverEnv(cfg, inContainer) {
   if (cfg.token !== undefined) env.PODIUM_TOKEN = cfg.token;
   // The container's own home is /home/node, so the server needs the host's to show session paths as ~/...
   // The container runs in UTC, so without the host's zone "Est. cost today" would restart at UTC midnight (#139).
-  if (inContainer) Object.assign(env, { TZ: cfg.extra.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone, HOST: '0.0.0.0', PORT: String(INNER_PORT), PODIUM_DB: '/data/podium.sqlite', PODIUM_HOST_HOME: os.homedir() });
-  else Object.assign(env, { HOST: cfg.bind, PORT: String(cfg.port), PODIUM_DB: cfg.db ?? '' });
+  if (inContainer) Object.assign(env, { TZ: cfg.extra.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone, HOST: '0.0.0.0', PORT: String(INNER_PORT), PODIUM_DB: isNetworkDb(cfg.db) ? cfg.db : '/data/podium.sqlite', PODIUM_DATA_DIR: '/data', PODIUM_HOST_HOME: os.homedir() });
+  else Object.assign(env, { HOST: cfg.bind, PORT: String(cfg.port), PODIUM_DB: cfg.db ?? '', ...(cfg.dataDir ? { PODIUM_DATA_DIR: cfg.dataDir } : {}) });
   // Inside the container the HTTPS port is always the image's; the host side is mapped by containerRunArgs.
   // The server writes the port people reach it on into each reporter config, which in a container is the host's (#649).
   if (cfg.tls) Object.assign(env, { PODIUM_TLS: 'on', PODIUM_TLS_PORT: String(inContainer ? INNER_TLS_PORT : cfg.tlsPort), ...(inContainer ? { PODIUM_TLS_PUBLIC_PORT: String(cfg.tlsPort) } : {}) });
@@ -269,6 +296,7 @@ WantedBy=default.target
 export function maskConfig(file) {
   const shown = { ...file };
   if (shown.PODIUM_TOKEN) shown.PODIUM_TOKEN = '(hidden; --show-token or `podiumctl token`)';
+  if (isNetworkDb(shown.PODIUM_DB)) shown.PODIUM_DB = `${shown.PODIUM_DB.split('://')[0]}://(hidden)@${dbLabel(shown.PODIUM_DB)}`;
   if (shown.PODIUM_LOG_SHIP_HEADERS) {
     shown.PODIUM_LOG_SHIP_HEADERS = shown.PODIUM_LOG_SHIP_HEADERS.split(';').filter((p) => p.trim())
       .map((p) => (p.includes('=') ? `${p.split('=')[0].trim()}=(hidden)` : '(hidden)')).join(';');
@@ -436,8 +464,12 @@ const serverEntry = () => path.join(REPO_ROOT, 'server', 'dist', 'index.js');
 function standaloneEnv(cfg) {
   const env = { ...process.env, ...serverEnv(cfg, false) };
   if (!env.PODIUM_DB) env.PODIUM_DB = path.join(homeDir(), 'data', 'podium.sqlite');
-  fs.mkdirSync(path.dirname(env.PODIUM_DB), { recursive: true });
-  if (cfg.tls) makePrivateDir(path.join(path.dirname(env.PODIUM_DB), 'tls'));
+  // The server keeps its TLS CA in PODIUM_DATA_DIR, else the folder of a SQLite file. A database on the network has no
+  // such folder, so it gets the same default folder the SQLite file would have.
+  if (!env.PODIUM_DATA_DIR) env.PODIUM_DATA_DIR = isNetworkDb(env.PODIUM_DB) ? path.join(homeDir(), 'data') : path.dirname(env.PODIUM_DB);
+  fs.mkdirSync(env.PODIUM_DATA_DIR, { recursive: true });
+  if (!isNetworkDb(env.PODIUM_DB)) fs.mkdirSync(path.dirname(env.PODIUM_DB), { recursive: true });
+  if (cfg.tls) makePrivateDir(path.join(env.PODIUM_DATA_DIR, 'tls'));
   return env;
 }
 function requireBuilt() {
@@ -535,7 +567,7 @@ async function cmdStart(cfg) {
   }
   if (!up) fail(`started, but the server did not answer at ${dashUrl(cfg)}. See: podiumctl logs`);
   say(`Podium is up at ${dashUrl(cfg)}  (${cfg.mode} mode${cfg.mode === 'container' ? `, ${cfg.engine}` : ''})`);
-  if (cfg.tls) say(`TLS is on: reporters connect on port ${cfg.tlsPort} with their certificate (mutual TLS only); the console stays on HTTP port ${cfg.port}. The CA is kept in ${cfg.mode === 'container' ? tlsDirPath() : path.join(path.dirname(standaloneEnv(cfg).PODIUM_DB), 'tls')}; back it up and keep it private.`);
+  if (cfg.tls) say(`TLS is on: reporters connect on port ${cfg.tlsPort} with their certificate (mutual TLS only); the console stays on HTTP port ${cfg.port}. The CA is kept in ${cfg.mode === 'container' ? tlsDirPath() : path.join(standaloneEnv(cfg).PODIUM_DATA_DIR, 'tls')}; back it up and keep it private.`);
 }
 
 async function cmdStop(cfg) {
@@ -582,6 +614,7 @@ async function cmdStatus(cfg) {
   const ok = running && (await healthy(cfg));
   lines.push(`health:   ${running ? (ok ? 'answering' : 'not answering') : '-'}`);
   lines.push(`url:      ${dashUrl(cfg)}`);
+  if (isNetworkDb(cfg.db)) lines.push(`database: ${dbLabel(cfg.db)}`);
   lines.push(`tls:      ${cfg.tls ? `on (reporter port ${cfg.tlsPort}, mutual TLS)` : 'off'}`);
   lines.push(`token:    ${cfg.token === undefined ? 'not generated yet (created on first start)' : cfg.token === '' ? 'none (auth off)' : 'set (podiumctl token)'}`);
   lines.push(`on boot:  ${bootState()}`);

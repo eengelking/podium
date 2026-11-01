@@ -15,8 +15,9 @@ throwaway Podium server built from this checkout. docs/MESSAGING.md has the step
 up    Makes a work folder and writes a new admin secret to a file in it (mode 0600).
       The folder must be new or empty, or one an earlier up made. Builds the server
       and the UI from this checkout (npm run build), unless --no-build. Starts
-      the server on --port in the background, with its database in the work folder,
-      and waits for it. Seeds one person with podium-peers-seed.mjs --talk, which turns
+      the server on --port in the background, with its database in the work folder
+      (or, when $PODIUM_DB is a postgres:// URL, a new database on that server, whose
+      URL goes in a 0600 file in the work folder; down drops it), and waits for it. Seeds one person with podium-peers-seed.mjs --talk, which turns
       on the messaging, responding and activity-feed flags, adds four made-up machines
       with conversations, and writes the person's name and token to a 0600 file. Then
       starts the Claude Code sessions in tmux, one window each, each in its own git
@@ -24,7 +25,8 @@ up    Makes a work folder and writes a new admin secret to a file in it (mode 06
       reporting to the server as that person. Prints the URL, the person's name and
       where the token and secret files are, never the token or the secret.
 down  Kills the tmux session, stops the server that up started (by its saved pid) and
-      removes the work folder, unless --keep. It removes only a folder up made, and
+      drops the PostgreSQL database up made, if any, and removes the work folder,
+      unless --keep (which keeps both). It removes only a folder up made, and
       never /, the home folder, this checkout, a folder holding it, or a link.
 
 Options:
@@ -133,6 +135,7 @@ SECRET_FILE="$DIR/admin-secret"
 SEED_FILE="$DIR/seed.out"
 SETTINGS="$DIR/settings.json"
 PID_FILE="$DIR/server.pid"
+DB_URL_FILE="$DIR/database-url"
 LOG_FILE="$DIR/server.log"
 
 say() { printf '%s\n' "$*"; }
@@ -192,11 +195,22 @@ up() {
     if (( ! DRY )) && [[ ! -f "$ROOT/server/dist/index.js" || ! -f "$ROOT/frontend/dist/index.html" ]]; then die "--no-build, but server/dist or frontend/dist is missing; run up without it"; fi
   fi
 
-  step "start the server from $ROOT on $URL, database $DIR/podium.sqlite, log $LOG_FILE, pid in $PID_FILE"
+  # A SQLite file in the work folder, or, when PODIUM_DB is a postgres:// URL, a database of its own on that server, which down drops.
+  # Its URL (it holds the password) goes in a 0600 file, never on a command line or in the output.
+  local db="$DIR/podium.sqlite" dblabel="$DIR/podium.sqlite"
+  if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+    dblabel="a throwaway database on $(node "$ROOT/scripts/throwaway-db.mjs" label "$PODIUM_DB")"
+    if (( ! DRY )); then
+      db="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" peers)" || die "could not make a database on the PostgreSQL server in PODIUM_DB"
+      printf '%s\n' "$db" >"$DB_URL_FILE"
+      dblabel="$(node "$ROOT/scripts/throwaway-db.mjs" label "$db")"
+    fi
+  fi
+  step "start the server from $ROOT on $URL, database $dblabel, log $LOG_FILE, pid in $PID_FILE"
   if (( ! DRY )); then
     (
       cd "$ROOT"
-      PODIUM_TOKEN="$(cat "$SECRET_FILE")" PORT="$PORT" HOST=127.0.0.1 PODIUM_DB="$DIR/podium.sqlite" \
+      PODIUM_TOKEN="$(cat "$SECRET_FILE")" PORT="$PORT" HOST=127.0.0.1 PODIUM_DB="$db" PODIUM_DATA_DIR="$DIR" \
         nohup node server/dist/index.js >"$LOG_FILE" 2>&1 &
       echo $! >"$PID_FILE"
     )
@@ -278,6 +292,17 @@ down() {
       kill "$pid" 2>/dev/null || true
       for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
       kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+    fi
+  fi
+
+  if (( DRY )); then
+    step "drop the PostgreSQL database up made, if $DB_URL_FILE exists"
+  elif [[ -f "$DIR/$MARKER" && -f "$DB_URL_FILE" ]]; then
+    if (( KEEP )); then
+      say "keeping the PostgreSQL database named in $DB_URL_FILE"
+    else
+      step "drop the throwaway PostgreSQL database up made"
+      node "$ROOT/scripts/throwaway-db.mjs" drop "$(cat "$DB_URL_FILE")" || say "could not drop it; drop it by hand (its name is in $DB_URL_FILE)"
     fi
   fi
 

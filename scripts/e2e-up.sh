@@ -39,6 +39,12 @@ Environment:
   E2E_CPUS / E2E_MEMORY
                     Limit the server and Cypress containers (for example E2E_CPUS=2 E2E_MEMORY=4g, the size of a GitHub runner), to
                     reproduce a slow machine. Default: unlimited.
+  E2E_DB            sqlite (default) or postgres. With postgres a PostgreSQL container runs beside the server on the same private
+                    network, the server gets PODIUM_DB=postgres://... for it, and "a fresh database" (the specs' restart) drops and
+                    recreates that database instead of emptying /data. The password is random per run, kept in a mode-600 env file
+                    and scrubbed from the server log copy; the server's own output shows host:port/dbname only.
+  E2E_PG_IMAGE      The PostgreSQL image for E2E_DB=postgres (default docker.io/library/postgres:17-alpine; 13 or newer, for DROP
+                    DATABASE ... WITH (FORCE)).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
 
@@ -48,6 +54,9 @@ USAGE
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DB_KIND="${E2E_DB:-sqlite}"
+PG_IMAGE="${E2E_PG_IMAGE:-docker.io/library/postgres:17-alpine}"
+[[ "$DB_KIND" == sqlite || "$DB_KIND" == postgres ]] || { echo "E2E_DB must be sqlite or postgres, not \"$DB_KIND\" (see --help)" >&2; exit 2; }
 CMD="run"
 BUILD=1
 ENGINE="${E2E_ENGINE:-}"
@@ -108,6 +117,9 @@ NET="podium-e2e-$RUN"
 SRV="podium-e2e-$RUN-srv"
 VOL="podium-e2e-$RUN-data"
 CYC="podium-e2e-$RUN-cy"
+PG="podium-e2e-$RUN-pg"
+PG_USER=podium
+PG_NAME=podium_e2e
 PORT=4317
 URL="http://$SRV:$PORT"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-e2e.XXXXXX")"
@@ -121,6 +133,7 @@ VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$ROOT/package.json" | head 
 CTL_PID=""
 # The secret as a sed pattern, so a custom E2E_SECRET with a / or & in it still scrubs.
 SECRET_RE="$(printf '%s' "$SECRET" | sed 's/[][\.*^$/&]/\\&/g')"
+PG_PASS="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 32)"
 EXTRA_ENV=()
 LIMITS=()
 [[ -n "${E2E_CPUS:-}" ]] && LIMITS+=(--cpus "$E2E_CPUS")
@@ -130,18 +143,22 @@ LIMITS=()
   printf 'PORT=%s\nHOST=0.0.0.0\nPODIUM_TOKEN=%s\nPODIUM_ALLOWED_HOSTS=%s\nPODIUM_LOG=info\nPODIUM_FAILURE_LIMIT=100000\n' "$PORT" "$SECRET" "$SRV" >"$WORK/server.env"
   # A seeded session stays on the wall for the whole run: long stale, linger and drop times, so no spec depends on a clock.
   printf 'STALE_AFTER_MS=7200000\nHOOK_STALE_AFTER_MS=7200000\nDROP_AFTER_MS=14400000\nLINGER_MS=7200000\nDETACHED_HIDE_AFTER_MS=7200000\n' >>"$WORK/server.env"
+  if [[ "$DB_KIND" == postgres ]]; then
+    printf 'PODIUM_DB=postgres://%s:%s@%s:5432/%s\n' "$PG_USER" "$PG_PASS" "$PG" "$PG_NAME" >>"$WORK/server.env"
+    printf 'POSTGRES_USER=%s\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=%s\n' "$PG_USER" "$PG_PASS" "$PG_NAME" >"$WORK/pg.env"
+  fi
   printf 'PODIUM_E2E_SECRET=%s\n' "$SECRET" >"$WORK/seed.env"
   printf 'CYPRESS_ADMIN_SECRET=%s\nCYPRESS_E2E_SERVER=%s\nCYPRESS_baseUrl=%s\nCI=1\nNO_COLOR=1\n' "$SECRET" "$SRV" "$URL" >"$WORK/cypress.env"
 )
 # CI masks the secret by itself; this keeps it out of the log when the runner sets it.
-if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; fi
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND" == postgres ]] && echo "::add-mask::$PG_PASS"; fi
 
 teardown() {
   local code=$?
   trap - EXIT INT TERM
   [[ -n "$CTL_PID" ]] && { touch "$CTL/stop"; wait "$CTL_PID" 2>/dev/null; }
   # The server log, scrubbed of the secret, for the CI artifact. The repo is public and artifacts are world-readable.
-  $E logs "$SRV" 2>&1 | sed "s/$SECRET_RE/[secret]/g" >"$OUT/server.log" 2>/dev/null
+  $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$PG_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
   chmod 666 "$OUT/server.log" 2>/dev/null
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
     $E rm -f "$CYC" >/dev/null 2>&1
@@ -169,6 +186,32 @@ server_wait() {
   done
   if [[ -z "$got" ]]; then fail "the server did not answer /api/fleet/health"; $E logs --tail 20 "$SRV" 2>&1 | sed "s/$SECRET_RE/[secret]/g" >&2; return 1; fi
   if [[ "$got" != "$VERSION" ]]; then fail "serverVersion is $got but package.json says $VERSION: the image is stale (rebuild without --no-build)"; return 1; fi
+}
+
+# ---- the database (E2E_DB=postgres) ------------------------------------------------------------------------------------
+
+# psql inside the PostgreSQL container, on its own socket (the image trusts local connections), as the one user the run makes.
+pg_psql() { $E exec -i "$PG" psql -v ON_ERROR_STOP=1 -q -U "$PG_USER" "$@"; }
+
+# The official image starts a temporary server (socket only) to run its init, then restarts: a TCP query on 127.0.0.1 only answers
+# from the final one. fsync off, because this database is thrown away.
+pg_create() {
+  $E run -d --name "$PG" --label "$LABEL=$RUN" --network "$NET" --network-alias "$PG" ${LIMITS[@]+"${LIMITS[@]}"} \
+    --env-file "$WORK/pg.env" "$PG_IMAGE" -c fsync=off -c synchronous_commit=off >/dev/null || return 1
+  local i
+  for i in $(seq 1 120); do
+    pg_psql -h 127.0.0.1 -d "$PG_NAME" -tAc 'select 1' >/dev/null 2>&1 && return 0
+    [[ "$($E inspect -f '{{.State.Running}}' "$PG" 2>/dev/null)" == true ]] || break
+    sleep 0.5
+  done
+  fail "PostgreSQL did not answer"
+  $E logs --tail 20 "$PG" 2>&1 | sed "s/$PG_PASS/[db password]/g" >&2
+  return 1
+}
+
+# An empty database of the same name, for a fresh start. The server is down (held) while this runs, so nothing is connected.
+pg_reset() {
+  pg_psql -d postgres -c "DROP DATABASE IF EXISTS $PG_NAME WITH (FORCE)" -c "CREATE DATABASE $PG_NAME"
 }
 
 # The server container is made once and lives for the whole run. Its PID 1 is a small supervisor that starts the server as a child, so a
@@ -218,6 +261,7 @@ server_create() {
   $E rm -f "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
+  if [[ "$DB_KIND" == postgres ]]; then pg_create || return 1; fi
   $E run -d --name "$SRV" --label "$LABEL=$RUN" --network "$NET" --ip "$SRV_IP" --network-alias "$SRV" ${LIMITS[@]+"${LIMITS[@]}"} \
     --env-file "$WORK/server.env" -v "$VOL:/data" --entrypoint sh "$SERVER_IMAGE" -c "$SUPERVISOR" >/dev/null || return 1
   server_wait
@@ -227,6 +271,8 @@ server_create() {
 server_fresh() {
   local e v vars="" q="'" qq="'\\''"
   for e in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do v="${e#*=}"; vars+="${e%%=*}='${v//$q/$qq}'"$'\n'; done
+  # With PostgreSQL the supervisor's wipe of /data does not empty the database: hold the server down, recreate the database, then start.
+  if [[ "$DB_KIND" == postgres ]]; then server_kill hold </dev/null && pg_reset || return 1; fi
   printf '%s' "$vars" | server_kill restart wipe || return 1
   server_wait && client_wait
 }
@@ -295,7 +341,7 @@ for _ in 1 2 3 4 5 6 7 8; do
   if $E network create --label "$LABEL=$RUN" --subnet "$SUBNET.0/24" "$NET" >/dev/null 2>&1; then SRV_IP="$SUBNET.10"; break; fi
 done
 [[ -n "$SRV_IP" ]] || { fail "could not create the network"; exit 2; }
-say "run $RUN: server $SRV, network $NET"
+say "run $RUN: server $SRV, network $NET, database $DB_KIND"
 server_create || exit 1
 server_seed || exit 1
 say "server is $VERSION and seeded"
