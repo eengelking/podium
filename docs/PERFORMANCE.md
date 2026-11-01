@@ -15,6 +15,7 @@ Contents:
 - [The shape of it](#the-shape-of-it)
 - [How to measure](#how-to-measure)
 - [Baselines](#baselines)
+- [Storage latency: SQLite and PostgreSQL](#storage-latency-sqlite-and-postgresql)
 - [Findings, ranked](#findings-ranked)
 - [Looked at and left alone](#looked-at-and-left-alone)
 - [What is still open](#what-is-still-open)
@@ -31,13 +32,14 @@ validation.
 
 ## How to measure
 
-Three scripts in `scripts/` take the numbers on this page. Each starts its own throwaway server on a free port with a temporary database and
+Four scripts in `scripts/` take the numbers on this page. Each starts its own throwaway server on a free port with a temporary database and
 stops everything it started. None of them touches a server you use. Build first with `npm run build`.
 
 | Script | Measures |
 |---|---|
 | `scripts/podium-perf.mjs` | Server CPU and resident memory, event-loop delay, SSE bytes and messages per second by event type (raw and gzipped), the size of the full state. Idle, small, medium and large fleets, two runs each, and whether the two runs agree within a margin |
 | `scripts/podium-perf-browser.sh` | An open tab in headless Chrome: DOM nodes, JavaScript heap, long tasks, frames per second, bytes transferred |
+| `scripts/podium-perf-storage.mjs` | The report and snapshot paths on one database, SQLite or PostgreSQL, on the same machine or behind a delay proxy with a stated round-trip time: latency percentiles, throughput, queries per report and per snapshot, and which statements they are |
 | `scripts/podium-perf-mod.mjs` | The reporter mod's own code: what one tool call adds to a session's state, and what building and serializing one report costs, by number of agents |
 
 Existing scripts that belong with these: `scripts/podium-soak.sh` for resident memory over a long run, `scripts/gpu-sample.sh` for the GPU
@@ -96,6 +98,77 @@ The reporter, from `scripts/podium-perf-mod.mjs` (400 tool calls per count):
 | 0 | 0.54 / 5.5 | 0.00 | 0.9 |
 | 20 | 1.17 / 1.42 | 0.08 | 18.1 |
 | 200 | 4.58 / 46.04 | 0.42 | 155.6 |
+
+## Storage latency: SQLite and PostgreSQL
+
+The server reads the database in many small steps: a report is about 67 statements on PostgreSQL and a snapshot about 205. In-process
+SQLite makes each one cost microseconds. On PostgreSQL each one is a network round trip, so the cost of a path is close to its number of
+statements times the round-trip time. This section records that cost (#822), and which reads to batch. The measurements are for the
+`postgres` adapter as it stands; no product code was changed to take them.
+
+How it was taken: `scripts/podium-perf-storage.mjs`, on the maintainer's Mac (Node 24, macOS arm64), 2026-10-31, simulator seed 822, 20
+sessions with 10 agents each, and one stream client open, as a console would be. A report is posted to a throwaway server (a free port, a
+database of its own that the script drops). "Same machine" is PostgreSQL in a Podman container, reached on `localhost`; Podman runs it
+in a VM, so it is not a bare loopback. "Network hop" puts a TCP proxy in front of the same server that holds every chunk back by half the
+stated round-trip time in each direction, on top of the real one. It models delay only, not bandwidth or loss. Three runs for each row,
+each on a fresh server and database; the cells show the lowest and the highest run, so the spread is visible.
+
+| Database | Round trip added | Report p50 (ms) | Report p95 (ms) | Report p99 (ms) | Reports/s, one at a time | Reports/s, 8 at a time | Queries per report | Snapshot p50 (ms) | Queries per snapshot |
+|---|---|---|---|---|---|---|---|---|---|
+| SQLite | none | 0.71 to 0.79 | 1.0 to 1.4 | 1.5 to 4.4 | 950 to 1,233 | 1,649 to 1,671 | not counted | 3.8 to 4.0 | not counted |
+| PostgreSQL, same machine | none | 18.3 to 19.4 | 23.4 to 26.0 | 52 to 69 | 49 to 51 | 75 to 78 | 67 | 58 to 62 | 205 |
+| PostgreSQL, network hop | 1 ms | 229 to 233 | 709 to 755 | 756 to 842 | 3.2 | 4.3 to 4.5 | 111 | 658 to 685 | 287 to 291 |
+| PostgreSQL, network hop | 5 ms | 517 to 747 | 1,347 to 1,468 | 1,480 to 1,724 | 1.2 to 1.4 | 2.4 | 153 to 168 | 1,844 to 1,909 | 384 to 398 |
+
+- The first three rows posted 200 reports one at a time and 400 eight at a time, and fetched the snapshot 20 times. The 5 ms rows used 100,
+  200 and 10 to keep the run short, so their percentiles rest on fewer samples. The 5 ms report p50 has the widest spread of any cell.
+- The snapshot is `GET /api/fleet/state` with 20 sessions, about 365 KB.
+- On the same machine PostgreSQL is about 25 times SQLite for a report and about 15 times for a snapshot. Both are still small in absolute
+  terms: a report in under 20 ms, a snapshot in about 60 ms.
+- Over a hop the cost follows the statement count. At 1 ms a report is 230 ms and a snapshot is 0.7 s; at 5 ms they are 0.5 to 0.75 s and
+  1.9 s. The p95 is three times the p50 at 1 ms because some reports also pay for the `session` and sample work that runs between them.
+- The query count per report rises with the delay (67, 111, 160). The extra statements look like the same work done more often (read from the statement counts; the cause was not isolated): when a report
+  is slow, the per-session throttle expires between reports, so the `session` message for a session is built (blowouts, compact events,
+  samples, the person's group) instead of being coalesced into the next one, and sample writes land inside a slow snapshot. The
+  67 is the floor.
+- No target for these paths is written down. As a yardstick, taken here and for the maintainer to confirm, a report should answer in
+  under 100 ms and a snapshot in under 250 ms on a hop of 1 ms or less. PostgreSQL on the same machine meets it; a hop of 1 ms does not,
+  by about two and three times.
+
+### Which statements dominate
+
+The script counts every statement the `pg` driver is given (BEGIN and COMMIT included), takes off the idle rate, and groups by the start
+of the SQL text. On the same machine:
+
+| Path | Statement | Per call | Share |
+|---|---|---|---|
+| Report | `SELECT * FROM sessions WHERE id = $1`, from `visibleCount()`, which reads one row for each live session to fill `liveSessions` in the reply | 23.6 | 35% |
+| Report | `INSERT INTO agents ... ON CONFLICT`, one per agent in the report | 13.4 | 20% |
+| Report | `INSERT INTO agent_texts ... ON CONFLICT`, one per agent | 13.4 | 20% |
+| Report | `BEGIN`, `COMMIT` | 2.5 each | 7% |
+| Report | everything else (agents read-back, events, sample, settings, session upsert) | about 10 | 15% |
+| Snapshot | `sessions WHERE id`, and the agents read, each twice per session | 43 each | 42% |
+| Snapshot | blowouts, compact events, samples, the owner's group, and the loop row, once per session | 21.5 each | 52% |
+| Snapshot | the rest (totals, history, dropped sessions, BEGIN and COMMIT) | about 8 | 4% |
+
+### Which reads to batch
+
+None of these removes a live stream field or reads it less often. Each reads the same data in fewer round trips, and each is a new method on
+the store interface in `server/src/storage/types.ts`, as every query must be.
+
+1. **`visibleCount()` (about 24 of 67 statements per report).** The server already holds the live set in memory. Count from it, or read the
+   live ids in one `WHERE id = ANY($1)`. This is the largest single saving and it is on the hot path of every report.
+2. **The agent upserts (about 27 of 67).** Write the agents of a report with one multi-row statement (`INSERT ... SELECT ... FROM unnest(...)
+   ON CONFLICT`) and the same for `agent_texts`, or skip the agents whose row has not changed since the last report.
+3. **The snapshot (about 190 of 205).** Read the sessions, agents, blowouts, compact events, samples, groups and loop rows of all live
+   sessions with one `WHERE session_id = ANY($1)` each, then group them in code. That is about 12 statements instead of 205.
+
+These are estimates from the counts, not measurements: if the three land, a report drops from about 67 to about 15 statements and a
+snapshot from about 205 to about 15, which at 1 ms would be roughly 50 ms and 60 ms. Take the numbers again with the script after each one.
+Caching is not needed for the report path once the reads are batched; do not cache anything the stream carries.
+
+To take the numbers again: `npm run build -w server`, then `node scripts/podium-perf-storage.mjs --help`. For example,
+`--db "$PODIUM_TEST_PG" --rtt 1 --reports 600 --serial 200 --states 20 --runs 3`. Omit `--db` for SQLite.
 
 ## Findings, ranked
 
