@@ -1,27 +1,175 @@
-// The session recordings on PostgreSQL (#822), in the `podium_activity` schema. The surface is `sqlite/recordings.ts`'s with the
-// database work asynchronous. Not ported yet: every method that touches the database rejects until this file is filled in. What reads
-// memory only (`enabled`, `noteOption`, `optionOn`, `forgetSession`, `forgetPodiumPrompt`) is final and keeps the SQLite shapes.
-import type { StoredActivityList, StoredFilter } from '../../fleet/activityHistoryTypes.js';
-import type { RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingState, RecordingView } from '../../fleet/protocol.js';
+// The session recordings on PostgreSQL (#822), in the `podium_activity` schema: the logic of `sqlite/recordings.ts` with the database
+// work asynchronous. A call that was one step is one `step` (the connection takes its lock around it, see `activity.ts`) and the
+// reads-then-writes inside it run in one transaction; the removals take one `step` per chunk with a turn for the event loop between.
+import { scrubStored } from '../../logging/redact.js';
+import type { StoredActivityList, StoredFilter, StoredSessionRow } from '../../fleet/activityHistoryTypes.js';
+import {
+  MAIN_LOOP,
+  RECORDING_LIMITS,
+  type RecordingAdminRow,
+  type RecordingBatch,
+  type RecordingEntry,
+  type RecordingGrant,
+  type RecordingKind,
+  type RecordingLimit,
+  type RecordingLoopInfo,
+  type RecordingRow,
+  type RecordingState,
+  type RecordingView,
+} from '../../fleet/protocol.js';
 import type { PurgeRecordingsResult, RecordingMeta, RecordingTotals, RecordingTrail, RemoveResult, StoredState } from '../rows.js';
 import type { PgDb } from './conn.js';
 import type { PgRecordingsOptions } from './activityTypes.js';
 
-const notYet = (name: string): Promise<never> => Promise.reject(new Error(`postgres adapter: recordings ${name} is not ported yet`));
+const MB = 1024 * 1024;
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+const CHUNK_ROWS = 5000;
+const ROW_OVERHEAD = 48;
+
+/** Room a new recording needs under the disk budget: one full request. With less left the start is refused (SPEC 7.7). */
+const START_HEADROOM_BYTES = RECORDING_LIMITS.bodyBytes;
+/** How far apart (ms) a prompt Podium delivered and the mod's `prompt` entry for it may be and still count as the same prompt. */
+const PROMPT_MATCH_MS = 10 * 60_000;
+
+/** Whitespace folded, so a prompt matches however the line breaks and spaces came through. */
+const squash = (s: string): string => s.replaceAll(/\s+/g, ' ').trim();
+
+/** A prompt Podium delivered, waiting for the mod's entry that carries it. */
+interface PodiumDelivery {
+  loop: string;
+  at: number;
+  by: string;
+  text: string;
+  ref?: string;
+}
+
+/** Gives the event loop a turn: queued requests, timers and reports run before the next chunk. */
+const yieldNow = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+interface RecRow {
+  sessionId: string;
+  name: string;
+  project: string | null;
+  owner: string | null;
+  state: StoredState;
+  limitKind: RecordingLimit | null;
+  loops: string[];
+  startedBy: string | null;
+  startedAt: number | null;
+  stoppedBy: string | null;
+  stoppedAt: number | null;
+  entries: number;
+  bytes: number;
+  oldestT: number | null;
+  lastT: number | null;
+}
+
+// Aliases are quoted: PostgreSQL folds an unquoted one to lower case.
+const ROW_SQL =
+  'SELECT session_id AS "sessionId", name, project, owner, state, limit_kind AS "limitKind", loops, started_by AS "startedBy", started_at AS "startedAt", stopped_by AS "stoppedBy", stopped_at AS "stoppedAt", entries, bytes, oldest_t AS "oldestT", last_t AS "lastT" FROM rec_sessions';
+
+type RecDbRow = Omit<RecRow, 'loops'> & { loops: string };
+
+function rowOf(r: RecDbRow): RecRow {
+  let loops: string[] = [];
+  try {
+    const v: unknown = JSON.parse(r.loops);
+    if (Array.isArray(v)) loops = v.filter((x): x is string => typeof x === 'string');
+  } catch {
+    loops = [];
+  }
+  return { ...r, loops };
+}
+
+/** An entry as stored: the mod's (a prompt Podium delivered carries its sender in `by`), or a mark the server wrote. */
+interface Stored {
+  loop: string;
+  seq: number;
+  at: number;
+  kind: RecordingKind;
+  text: string;
+  name?: string | null;
+  callSeq?: number | null;
+  failed?: boolean;
+  cut?: boolean;
+  lost?: number | null;
+  by?: string | null;
+}
+
+const sizeOf = (e: Stored): number => Buffer.byteLength(e.text) + e.kind.length + e.loop.length + (e.name?.length ?? 0) + (e.by?.length ?? 0) + ROW_OVERHEAD;
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 type Target = { ids: string[] } | { match: StoredFilter } | { all: true };
+
+interface PageRow {
+  n: number;
+  seq: number;
+  loop: string;
+  at: number;
+  kind: RecordingKind;
+  text: string;
+  name: string | null;
+  callSeq: number | null;
+  failed: number | null;
+  cut: number | null;
+  lost: number | null;
+  by: string | null;
+}
+
+const viewOf = (r: PageRow): RecordingRow => ({
+  n: r.n,
+  seq: r.seq,
+  loop: r.loop,
+  at: r.at,
+  kind: r.kind,
+  text: r.text,
+  ...(r.name === null ? {} : { name: r.name }),
+  ...(r.callSeq === null ? {} : { callSeq: r.callSeq }),
+  ...(r.failed ? { failed: true } : {}),
+  ...(r.cut ? { cut: true } : {}),
+  ...(r.lost === null ? {} : { lost: r.lost }),
+  ...(r.by === null ? {} : { by: r.by }),
+});
+
+const PAGE_COLS = 'n, seq, loop, at, kind, text, name, call_seq AS "callSeq", failed, cut, lost, "by"';
 
 export class PgSessionRecordings {
   /** Set by the connection: where what a recording did on its own is told. */
   trail: ((t: RecordingTrail) => void) | null = null;
+  /** Per session: whether the last report said the reporter's `sessionRecording` option is on. In memory; a report restores it. */
   private readonly options = new Map<string, boolean>();
-  private readonly deliveries = new Map<string, { ref?: string }[]>();
+  /** Per session: prompts Podium delivered that the mod's matching entry has not yet claimed. In memory only. */
+  private readonly deliveries = new Map<string, PodiumDelivery[]>();
+  /** Sessions whose recording was deleted and whose rows are still going, so a new recording waits for them. */
+  private readonly deleting = new Set<string>();
+  private readonly chunk: number;
 
   constructor(
     protected readonly db: PgDb,
     protected readonly opts: PgRecordingsOptions,
-  ) {}
+  ) {
+    this.chunk = Math.max(opts.chunkRows ?? CHUNK_ROWS, 1);
+  }
 
+  private step<T>(fn: () => Promise<T>): Promise<T> {
+    return this.opts.step ? this.opts.step(fn) : fn();
+  }
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.opts.exclusive ? this.opts.exclusive(fn) : fn();
+  }
+
+  /** Gives the removed rows' space back where the store does that; the amount is not known on PostgreSQL, so it is 0. */
+  private async compact(): Promise<number> {
+    await this.opts.compact?.();
+    return 0;
+  }
+
+  // ---- consent --------------------------------------------------------------------------------
+
+  /** The Admin's flag is on and the server has a token. */
   enabled(): boolean {
     return this.opts.authOn && this.opts.flagOn();
   }
@@ -35,123 +183,586 @@ export class PgSessionRecordings {
     return this.options.get(sessionId) === true;
   }
 
+  /** The session left the server's live set: what is remembered about its option goes. */
   forgetSession(sessionId: string): void {
     this.options.delete(sessionId);
     this.deliveries.delete(sessionId);
   }
 
+  /** A message that will never reach the mod (discarded, refused, closed) is no longer waiting for its prompt entry. */
   forgetPodiumPrompt(sessionId: string, ref: string): void {
     const list = this.deliveries.get(sessionId);
     if (list) this.deliveries.set(sessionId, list.filter((d) => d.ref !== ref));
   }
 
-  has(_sessionId: string): Promise<boolean> {
-    return notYet('has');
+  private async row(sessionId: string): Promise<RecRow | undefined> {
+    const r = await this.db.get<RecDbRow>(`${ROW_SQL} WHERE session_id = ?`, [sessionId]);
+    return r ? rowOf(r) : undefined;
   }
 
-  capturing(_sessionId: string): Promise<boolean> {
-    return notYet('capturing');
+  /** Whether a recording is held for the session, whatever its state. */
+  async has(sessionId: string): Promise<boolean> {
+    return (await this.row(sessionId)) !== undefined;
   }
 
-  acceptsUntil(_sessionId: string): Promise<number | null> {
-    return notYet('acceptsUntil');
+  /** `recording` only while the flag is on and the session is live; a recording whose session ended, or whose flag went off, is `stopped`. */
+  private stateOf(r: RecRow): StoredState {
+    return r.state === 'recording' && !(this.enabled() && this.opts.isLive(r.sessionId)) ? 'stopped' : r.state;
   }
 
-  keptUntilOf(_sessionId: string): Promise<number | null> {
-    return notYet('keptUntilOf');
+  /** Whether the session may send entries now: all three yes answers, and the batch's loops chosen. */
+  async capturing(sessionId: string): Promise<boolean> {
+    const r = this.enabled() ? await this.row(sessionId) : undefined;
+    return !!r && this.stateOf(r) === 'recording' && this.optionOn(sessionId);
   }
 
-  grant(_sessionId: string): Promise<RecordingGrant> {
-    return notYet('grant');
+  /**
+   * Up to which `at` the mod's route takes entries: no end while capturing, the stop's time for a recording a person (or the
+   * session's /clear) stopped, so the last interval before the stop is not lost; null for everything else.
+   */
+  async acceptsUntil(sessionId: string): Promise<number | null> {
+    if (await this.capturing(sessionId)) return Number.POSITIVE_INFINITY;
+    const r = this.enabled() && this.optionOn(sessionId) ? await this.row(sessionId) : undefined;
+    return r?.state === 'stopped' ? r.stoppedAt! : null;
   }
 
-  view(_sessionId: string, _loops?: { loop: string; name: string }[]): Promise<RecordingView | null> {
-    return notYet('view');
+  private keptUntil(r: RecRow): number {
+    // The oldest part still held goes first. With nothing stored yet there is no part, so the time is counted from now.
+    return (r.oldestT ?? this.opts.now()) + this.opts.settings().keepHours * HOUR_MS;
   }
 
-  loopInfo(_sessionId: string, _loops?: { loop: string; name: string }[]): Promise<RecordingLoopInfo[]> {
-    return notYet('loopInfo');
+  /** When the oldest part of the session's recording goes, or null when none is held (or the server has no token, as for `view`). */
+  async keptUntilOf(sessionId: string): Promise<number | null> {
+    if (!this.opts.authOn) return null;
+    const r = await this.row(sessionId);
+    return r ? this.keptUntil(r) : null;
   }
 
-  totalBytes(): Promise<number> {
-    return notYet('totalBytes');
+  /** The consent state a report's reply and a batch's reply carry (SPEC 6.1). */
+  async grant(sessionId: string): Promise<RecordingGrant> {
+    const enabled = this.enabled();
+    const owner = this.optionOn(sessionId);
+    const r = enabled ? await this.row(sessionId) : undefined;
+    if (!r) {
+      return { state: 'off', consent: { admin: enabled, chosen: false, owner }, loops: [], limit: null, startedBy: null, startedAt: null, stoppedBy: null, stoppedAt: null, keptUntil: null, bytes: 0 };
+    }
+    const state = this.stateOf(r);
+    return {
+      state,
+      consent: { admin: true, chosen: state === 'recording', owner },
+      loops: state === 'recording' ? r.loops : [],
+      limit: state === 'limit' ? r.limitKind : null,
+      startedBy: r.startedBy,
+      startedAt: r.startedAt,
+      stoppedBy: r.stoppedBy,
+      stoppedAt: r.stoppedAt,
+      keptUntil: this.keptUntil(r),
+      bytes: r.bytes,
+    };
   }
 
-  totals(): Promise<RecordingTotals> {
-    return notYet('totals');
+  /** What everyone sees of a recording: state, who started it, which loops and when it goes. Never any text. */
+  async view(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): Promise<RecordingView | null> {
+    if (!this.opts.authOn) return null;
+    const r = await this.row(sessionId);
+    if (!r) return null;
+    const chosen = new Set(r.loops);
+    const loops: RecordingLoopInfo[] = all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
+    return {
+      state: this.stateOf(r),
+      limit: r.state === 'limit' ? r.limitKind : null,
+      startedBy: r.startedBy,
+      startedAt: r.startedAt,
+      stoppedBy: r.stoppedBy,
+      stoppedAt: r.stoppedAt,
+      keptUntil: this.keptUntil(r),
+      bytes: r.bytes,
+      loops,
+      ownerAllows: this.optionOn(sessionId),
+    };
   }
 
-  start(_sessionId: string, _loops: string[], _by: string, _meta: RecordingMeta): Promise<'ok' | 'limit' | 'budget' | 'busy'> {
-    return notYet('start');
+  /** Every loop of a session with whether it is recorded, for the replay's loop filter. */
+  async loopInfo(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): Promise<RecordingLoopInfo[]> {
+    const chosen = new Set((await this.row(sessionId))?.loops ?? []);
+    return all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
   }
 
-  choose(_sessionId: string, _loops: string[], _by: string, _meta: RecordingMeta, _available: string[]): Promise<'ended' | 'unknown-loop' | 'ok' | 'limit' | 'budget' | 'busy'> {
-    return notYet('choose');
+  // ---- choosing, stopping --------------------------------------------------------------------
+
+  async totalBytes(): Promise<number> {
+    const r = await this.db.get<{ b: number | null }>('SELECT COALESCE(SUM(bytes), 0) AS b FROM rec_sessions');
+    return Number(r?.b ?? 0);
   }
 
-  accept(_sessionId: string, _batch: RecordingBatch, _meta: RecordingMeta): Promise<
+  /**
+   * Someone with the right chose to record the session's loops from now on. Nothing before this moment is kept. Starts a new
+   * recording, changes the loops of a running one, or starts a stopped one again. `limit` when its own limit stopped it (delete
+   * it first), `budget` while less than one request is left under the Admin's budget, `busy` while a delete of it is still going.
+   */
+  start(sessionId: string, loops: string[], by: string, meta: RecordingMeta): Promise<'ok' | 'limit' | 'budget' | 'busy'> {
+    return this.db.tx(async () => {
+      if (this.deleting.has(sessionId)) return 'busy' as const;
+      const r = await this.row(sessionId);
+      if (r?.state === 'limit') return 'limit' as const;
+      if ((await this.totalBytes()) + START_HEADROOM_BYTES > this.opts.settings().budgetMb * MB) return 'budget' as const;
+      const now = this.opts.now();
+      // A recording that is running keeps who started it and when; one that was stopped starts again from now.
+      const keep = r?.state === 'recording' ? r : undefined;
+      await this.db.run(
+        `INSERT INTO rec_sessions (session_id, name, project, owner, state, loops, started_by, started_at) VALUES (?, ?, ?, ?, 'recording', ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET name = excluded.name, project = excluded.project, owner = excluded.owner, state = 'recording',
+           loops = excluded.loops, started_by = ?, started_at = ?, stopped_by = NULL, stopped_at = NULL`,
+        [sessionId, meta.name, meta.project, meta.owner, JSON.stringify(loops), by, now, keep ? keep.startedBy : by, keep ? keep.startedAt : now],
+      );
+      return 'ok' as const;
+    });
+  }
+
+  /**
+   * The browser route's checks and `start` as one step: the session is still running, every chosen loop is one of `available`
+   * (the loops the session has, read just before), and then the choice is stored.
+   */
+  choose(sessionId: string, loops: string[], by: string, meta: RecordingMeta, available: string[]): Promise<'ended' | 'unknown-loop' | 'ok' | 'limit' | 'budget' | 'busy'> {
+    return this.db.tx(async () => {
+      if (!this.opts.isLive(sessionId)) return 'ended' as const;
+      const known = new Set(available);
+      if (loops.some((l) => !known.has(l))) return 'unknown-loop' as const;
+      return this.start(sessionId, loops, by, meta);
+    });
+  }
+
+  /**
+   * The mod route's checks and the write as one step: the session is running, the three yes answers still hold (or a person's stop
+   * still takes the last interval), and then the batch is stored. `ended` carries whether a recording is held, for the refusal.
+   */
+  accept(sessionId: string, batch: RecordingBatch, meta: RecordingMeta): Promise<
     { kind: 'ended'; held: boolean } | { kind: 'off' } | { kind: 'stored'; stored: number; before: RecordingState; recording: RecordingGrant }
   > {
-    return notYet('accept');
+    return this.db.tx(async () => {
+      if (!this.opts.isLive(sessionId)) return { kind: 'ended' as const, held: await this.has(sessionId) };
+      if ((await this.acceptsUntil(sessionId)) === null) return { kind: 'off' as const };
+      const before = (await this.grant(sessionId)).state;
+      const stored = await this.ingest(sessionId, batch, meta);
+      return { kind: 'stored' as const, stored, before, recording: await this.grant(sessionId) };
+    });
   }
 
-  stateFor(_sessionId: string): Promise<StoredState | undefined> {
-    return notYet('stateFor');
+  /** The recording's state as the Admin's table shows it, or undefined when there is none. */
+  async stateFor(sessionId: string): Promise<StoredState | undefined> {
+    const r = await this.row(sessionId);
+    return r ? this.stateOf(r) : undefined;
   }
 
-  stop(_sessionId: string, _by: string): Promise<{ grant: RecordingGrant; changed: boolean } | null> {
-    return notYet('stop');
+  /**
+   * Stop capture and keep what was recorded. Null when there is no recording. A recording already stopped is left as it is
+   * (`changed` false), so it is neither marked again nor logged again.
+   */
+  async stop(sessionId: string, by: string): Promise<{ grant: RecordingGrant; changed: boolean } | null> {
+    const r = await this.row(sessionId);
+    if (!r) return null;
+    const changed = r.state === 'recording';
+    if (changed) {
+      const now = this.opts.now();
+      await this.db.tx(async () => {
+        await this.db.run("UPDATE rec_sessions SET state = 'stopped', stopped_by = ?, stopped_at = ? WHERE session_id = ?", [by, now, sessionId]);
+        await this.mark(sessionId, 'stopped', '', by);
+      });
+    }
+    return { grant: await this.grant(sessionId), changed };
   }
 
-  stopAll(_by: string): Promise<string[]> {
-    return notYet('stopAll');
+  /** The Admin turned the flag off: every running recording stops and keeps what it has. Returns the sessions stopped. */
+  async stopAll(by: string): Promise<string[]> {
+    const ids = (await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording'")).map((x) => x.id);
+    const now = this.opts.now();
+    await this.db.tx(async () => {
+      for (const id of ids) {
+        await this.db.run("UPDATE rec_sessions SET state = 'stopped', stopped_by = ?, stopped_at = ? WHERE session_id = ?", [by, now, id]);
+        await this.mark(id, 'stopped', '', by);
+      }
+    });
+    for (const id of ids) this.emit({ kind: 'stopped', sessionId: id, by });
+    return ids;
   }
 
-  carryOver(_oldId: string, _newId: string, _meta: RecordingMeta): Promise<boolean> {
-    return notYet('carryOver');
+  /**
+   * A /clear gave the session a new id. When the old one was being recorded, the new one is recorded from its first report with the
+   * same starter and the orchestrator's loop; the owner's option is the new session's own, as its report says (#353, SPEC 6.4).
+   */
+  async carryOver(oldId: string, newId: string, meta: RecordingMeta): Promise<boolean> {
+    if (!this.enabled() || this.deleting.has(newId)) return false;
+    const old = await this.row(oldId);
+    if (old?.state !== 'recording' || !old.loops.includes(MAIN_LOOP) || (await this.row(newId))) return false;
+    const now = this.opts.now();
+    await this.db.tx(async () => {
+      await this.db.run("UPDATE rec_sessions SET state = 'stopped', stopped_by = NULL, stopped_at = ? WHERE session_id = ?", [now, oldId]);
+      await this.db.run(
+        "INSERT INTO rec_sessions (session_id, name, project, owner, state, loops, started_by, started_at) VALUES (?, ?, ?, ?, 'recording', ?, ?, ?)",
+        [newId, meta.name, meta.project, meta.owner, JSON.stringify([MAIN_LOOP]), old.startedBy, old.startedAt ?? now],
+      );
+    });
+    this.emit({ kind: 'carried', sessionId: newId, from: oldId, by: old.startedBy });
+    return true;
   }
 
-  ingest(_sessionId: string, _batch: RecordingBatch, _meta?: RecordingMeta): Promise<number> {
-    return notYet('ingest');
+  private emit(t: RecordingTrail): void {
+    try {
+      this.trail?.(t);
+    } catch {
+      // the Admin log is best effort here: a failing write must not undo a stop
+    }
   }
 
-  notePodiumPrompt(_sessionId: string, _loop: string, _e: { at: number; text: string; by: string }, _ref?: string): Promise<void> {
-    return notYet('notePodiumPrompt');
+  // ---- capture --------------------------------------------------------------------------------
+
+  private async bump(sessionId: string, entries: number, bytes: number, t: number): Promise<void> {
+    await this.db.run(
+      'UPDATE rec_sessions SET entries = entries + ?, bytes = bytes + ?, oldest_t = LEAST(COALESCE(oldest_t, ?), ?), last_t = GREATEST(COALESCE(last_t, ?), ?) WHERE session_id = ?',
+      [entries, bytes, t, t, t, t, sessionId],
+    );
   }
 
-  page(_sessionId: string, _before: number | null, _limit: number, _loop: string | null): Promise<{ entries: RecordingRow[]; olderBefore: number | null; total: number }> {
-    return notYet('page');
+  private async insert(sessionId: string, e: Stored, t: number): Promise<number> {
+    const b = sizeOf(e);
+    await this.db.run(
+      'INSERT INTO rec_entries (session_id, loop, seq, at, t, kind, text, name, call_seq, failed, cut, lost, "by", b) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [sessionId, e.loop, e.seq, e.at, t, e.kind, e.text, e.name ?? null, e.callSeq ?? null, e.failed ? 1 : null, e.cut ? 1 : null, e.lost ?? null, e.by ?? null, b],
+    );
+    return b;
   }
 
-  adminList(_opts: { page: number; pageSize: number; state?: StoredState; q?: string }): Promise<{ total: number; page: number; pageSize: number; rows: RecordingAdminRow[]; totals: RecordingTotals }> {
-    return notYet('adminList');
+  /** The next sequence number for an entry the server writes in a loop: 0, -1, -2 ..., never in the mod's range from 1. */
+  private async serverSeq(sessionId: string, loop: string): Promise<number> {
+    const r = await this.db.get<{ s: number }>('SELECT COALESCE(MIN(seq), 1) - 1 AS s FROM rec_entries WHERE session_id = ? AND loop = ? AND seq <= 0', [sessionId, loop]);
+    return Number(r?.s);
   }
 
-  listStored(_f: StoredFilter, _page: number, _pageSize: number): Promise<StoredActivityList> {
-    return notYet('listStored');
+  /** An entry the server writes (a mark), in the orchestrator's loop unless told otherwise. */
+  private async mark(sessionId: string, kind: RecordingKind, text: string, by: string | null, loop: string = MAIN_LOOP, at: number = this.opts.now()): Promise<void> {
+    const now = this.opts.now();
+    const b = await this.insert(sessionId, { loop, seq: await this.serverSeq(sessionId, loop), at, kind, text, by }, now);
+    await this.bump(sessionId, 1, b, now);
   }
 
-  idsFor(_body: Target): Promise<string[]> {
-    return notYet('idsFor');
+  private async setLimit(sessionId: string, which: RecordingLimit): Promise<void> {
+    await this.db.run("UPDATE rec_sessions SET state = 'limit', limit_kind = ?, stopped_at = ? WHERE session_id = ?", [which, this.opts.now(), sessionId]);
+    await this.mark(sessionId, 'limit', which === 'budget' ? 'The recording stopped: the disk budget was reached.' : 'The recording stopped: this session reached its size limit.', null);
   }
 
-  removeMany(_ids: string[]): Promise<RemoveResult> {
-    return notYet('removeMany');
+  /**
+   * Stores a batch the mod sent for a session that may send (see `capturing`). An entry already held, by (loop, seq), is dropped;
+   * so is one of a loop nobody chose. The entry that would pass the session's limit or the disk budget, and everything after it,
+   * is not stored; the recording stops with a `limit` mark instead. Returns how many entries were new.
+   */
+  async ingest(sessionId: string, batch: RecordingBatch, meta?: RecordingMeta): Promise<number> {
+    const r = await this.row(sessionId);
+    if (!r) return 0;
+    // A stopped recording takes the entries captured before the stop (the mod's last interval) and none after it.
+    const until = r.state === 'stopped' ? r.stoppedAt! : Number.POSITIVE_INFINITY;
+    const s = this.opts.settings();
+    const cap = s.sessionMb * MB;
+    const budget = s.budgetMb * MB;
+    const chosen = new Set(r.loops);
+    const secrets = this.opts.secrets?.() ?? [];
+    const now = this.opts.now();
+    let total = await this.totalBytes();
+    let size = r.bytes;
+    let stored = 0;
+    let added = 0;
+    const hit: { sessionId: string; which: RecordingLimit; bytes: number }[] = [];
+    await this.db.tx(async () => {
+      for (const e of batch.entries) {
+        if (!chosen.has(e.loop) || e.at > until) continue;
+        if (await this.db.get('SELECT 1 AS x FROM rec_entries WHERE session_id = ? AND loop = ? AND seq = ?', [sessionId, e.loop, e.seq])) continue;
+        const entry = this.clean(e, secrets);
+        const by = this.takeDelivery(sessionId, e);
+        if (by !== null) entry.by = by;
+        const b = sizeOf(entry);
+        const which: RecordingLimit | null = size + b > cap ? 'session' : total + b > budget ? 'budget' : null;
+        if (which && r.state === 'stopped') break; // a late entry never turns a stop into a limit
+        if (which) {
+          await this.setLimit(sessionId, which);
+          hit.push({ sessionId, which, bytes: size });
+          if (which === 'budget') {
+            for (const other of await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ?", [sessionId])) {
+              await this.setLimit(other.id, 'budget');
+              hit.push({ sessionId: other.id, which: 'budget', bytes: 0 });
+            }
+          }
+          break;
+        }
+        await this.insert(sessionId, entry, now);
+        size += b;
+        total += b;
+        added += b;
+        stored++;
+      }
+      if (stored) await this.bump(sessionId, stored, added, now);
+      if (meta) await this.db.run('UPDATE rec_sessions SET name = ?, project = ?, owner = ? WHERE session_id = ?', [meta.name, meta.project, meta.owner, sessionId]);
+    });
+    for (const h of hit) this.emit({ kind: 'limit', ...h });
+    return stored;
   }
 
-  removeFor(_body: Target): Promise<RemoveResult> {
-    return notYet('removeFor');
+  /** The mod's entry as stored: Podium's own credentials replaced, the rest as the mod redacted it (SPEC 6.4). */
+  private clean(e: RecordingEntry, secrets: readonly string[]): Stored {
+    return {
+      loop: e.loop,
+      seq: e.seq,
+      at: e.at,
+      kind: e.kind,
+      text: scrubStored(e.text, secrets, false),
+      name: e.name,
+      callSeq: e.callSeq,
+      failed: e.failed,
+      cut: e.cut,
+      lost: e.lost,
+      // The mod names the sender of what it took from Podium (a decision, a /clear, a /compact); a prompt's is added by `takeDelivery`.
+      by: e.kind === 'decision' || e.kind === 'clear' || e.kind === 'compact' ? (e.by ?? null) : null,
+    };
   }
 
-  removeSession(_sessionId: string): Promise<RemoveResult> {
-    return notYet('removeSession');
+  /**
+   * A message delivered from Podium to a recorded loop is remembered (loop, time, sender, text as redacted here), not stored. The
+   * mod records every prompt of the loop and cannot tell where one came from, so when its matching `prompt` entry arrives in
+   * `ingest` the server adds the sender to that entry. A delivery no entry ever matches stores nothing. `ref` names the delivery,
+   * so one taken back before the mod got it can be forgotten.
+   */
+  async notePodiumPrompt(sessionId: string, loop: string, e: { at: number; text: string; by: string }, ref?: string): Promise<void> {
+    if (!(await this.capturing(sessionId))) return;
+    const r = await this.row(sessionId);
+    if (!r?.loops.includes(loop)) return;
+    const now = this.opts.now();
+    const kept = (this.deliveries.get(sessionId) ?? []).filter((d) => now - d.at <= PROMPT_MATCH_MS);
+    kept.push({ loop, at: e.at, by: e.by, ref, text: squash(scrubStored(e.text.slice(0, RECORDING_LIMITS.text), this.opts.secrets?.() ?? [], true)) });
+    this.deliveries.set(sessionId, kept);
   }
 
-  dropMissingSessions(_exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
-    return notYet('dropMissingSessions');
+  /** Takes the oldest remembered delivery that this mod `prompt` entry is: same loop, close in time, its text exactly the delivered one once whitespace is folded. */
+  private takeDelivery(sessionId: string, e: RecordingEntry): string | null {
+    const list = this.deliveries.get(sessionId);
+    if (e.kind !== 'prompt' || !list) return null;
+    const text = squash(e.text); // the mod redacted it already; a second pass is not idempotent
+    if (text === '') return null;
+    const i = list.findIndex((d) => d.loop === e.loop && Math.abs(e.at - d.at) <= PROMPT_MATCH_MS && d.text === text);
+    return i < 0 ? null : list.splice(i, 1)[0]!.by;
   }
 
-  purge(_now?: number): Promise<PurgeRecordingsResult> {
-    return notYet('purge');
+  // ---- reads ----------------------------------------------------------------------------------
+
+  /**
+   * One page of a replay, oldest first: the newest `limit` rows older than `before` (an `n`), of one loop when given. `olderBefore`
+   * is the `n` to pass for the next older page, or null. `total` counts the rows the loop filter matches.
+   */
+  async page(sessionId: string, before: number | null, limit: number, loop: string | null): Promise<{ entries: RecordingRow[]; olderBefore: number | null; total: number }> {
+    const size = Math.min(Math.max(Math.floor(limit) || RECORDING_LIMITS.page, 1), RECORDING_LIMITS.page);
+    const at = before ?? Number.MAX_SAFE_INTEGER;
+    const rows =
+      loop === null
+        ? await this.db.all<PageRow>(`SELECT ${PAGE_COLS} FROM rec_entries WHERE session_id = ? AND n < ? ORDER BY n DESC LIMIT ?`, [sessionId, at, size])
+        : await this.db.all<PageRow>(`SELECT ${PAGE_COLS} FROM rec_entries WHERE session_id = ? AND loop = ? AND n < ? ORDER BY n DESC LIMIT ?`, [sessionId, loop, at, size]);
+    rows.reverse();
+    const oldest = rows[0]?.n;
+    let olderBefore: number | null = null;
+    if (oldest !== undefined) {
+      const older =
+        loop === null
+          ? await this.db.get('SELECT 1 AS x FROM rec_entries WHERE session_id = ? AND n < ? LIMIT 1', [sessionId, oldest])
+          : await this.db.get('SELECT 1 AS x FROM rec_entries WHERE session_id = ? AND loop = ? AND n < ? LIMIT 1', [sessionId, loop, oldest]);
+      olderBefore = older ? oldest : null;
+    }
+    const total =
+      loop === null
+        ? ((await this.row(sessionId))?.entries ?? 0)
+        : Number((await this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM rec_entries WHERE session_id = ? AND loop = ?', [sessionId, loop]))?.c ?? 0);
+    return { entries: rows.map(viewOf), olderBefore, total };
+  }
+
+  async totals(rows?: RecRow[]): Promise<RecordingTotals> {
+    const held = rows ?? (await this.all());
+    return { recordings: held.length, bytes: held.reduce((a, r) => a + r.bytes, 0), running: held.filter((r) => this.stateOf(r) === 'recording').length };
+  }
+
+  private async all(): Promise<RecRow[]> {
+    return (await this.db.all<RecDbRow>(`${ROW_SQL} ORDER BY COALESCE(last_t, started_at, 0) DESC, session_id`)).map(rowOf);
+  }
+
+  /** The Admin's Recordings table: running or kept, a page at a time. `state` and `q` (name, id or owner) narrow it. */
+  async adminList(opts: { page: number; pageSize: number; state?: StoredState; q?: string }): Promise<{ total: number; page: number; pageSize: number; rows: RecordingAdminRow[]; totals: RecordingTotals }> {
+    const q = opts.q?.trim().toLowerCase();
+    const held = await this.all();
+    const rows = held
+      .map((r): RecordingAdminRow => {
+        const agents = r.loops.filter((l) => l !== MAIN_LOOP).length;
+        const main = r.loops.includes(MAIN_LOOP);
+        const label = main ? (agents ? `orchestrator and ${plural(agents, 'agent', 'agents')}` : 'orchestrator') : plural(agents, 'agent', 'agents');
+        return { sessionId: r.sessionId, name: r.name, owner: r.owner, startedBy: r.startedBy, state: this.stateOf(r), limit: r.state === 'limit' ? r.limitKind : null, loops: r.loops.length, label, bytes: r.bytes, keptUntil: this.keptUntil(r) };
+      })
+      .filter((r) => (!opts.state || r.state === opts.state) && (!q || r.name.toLowerCase().includes(q) || r.sessionId.toLowerCase().includes(q) || (r.owner ?? '').toLowerCase().includes(q)));
+    const size = Math.min(Math.max(Math.floor(opts.pageSize) || 25, 1), 200);
+    const page = Math.max(Math.floor(opts.page) || 1, 1);
+    return { total: rows.length, page, pageSize: size, rows: rows.slice((page - 1) * size, page * size), totals: await this.totals(held) };
+  }
+
+  /** The recordings a Stored activity filter matches (Source = Recordings). The loop filter does not apply to a whole recording. */
+  private matching(f: StoredFilter, held: RecRow[]): RecRow[] {
+    const q = f.q?.trim().toLowerCase();
+    const now = this.opts.now();
+    return held.filter(
+      (r) =>
+        r.entries > 0 &&
+        (!q || r.name.toLowerCase().includes(q) || r.sessionId.toLowerCase().includes(q)) &&
+        (!f.project || r.project === f.project) &&
+        (!f.owner || r.owner === f.owner) &&
+        (typeof f.olderThanDays !== 'number' || (r.oldestT ?? Infinity) < now - f.olderThanDays * DAY_MS) &&
+        (typeof f.from !== 'number' || (r.lastT ?? -Infinity) >= f.from) &&
+        (typeof f.to !== 'number' || (r.oldestT ?? Infinity) < f.to),
+    );
+  }
+
+  /** The Stored activity page for Source = Recordings: the same shape as the Activity history's list. `fileBytes` is the caller's to fill. */
+  async listStored(f: StoredFilter, page: number, pageSize: number): Promise<StoredActivityList> {
+    const size = Math.min(Math.max(Math.floor(pageSize) || 25, 1), 200);
+    const pg = Math.max(Math.floor(page) || 1, 1);
+    const stored = (await this.all()).filter((r) => r.entries > 0);
+    const hits = this.matching(f, stored);
+    const sum = (rs: RecRow[]) => ({ entries: rs.reduce((a, r) => a + r.entries, 0), sessions: rs.length, bytes: rs.reduce((a, r) => a + r.bytes, 0) });
+    const distinct = (pick: (r: RecRow) => string | null) => [...new Set(stored.map(pick).filter((v): v is string => v !== null))].sort((a, b) => a.localeCompare(b));
+    return {
+      total: hits.length,
+      page: pg,
+      pageSize: size,
+      rows: hits.slice((pg - 1) * size, pg * size).map((r): StoredSessionRow => ({ sessionId: r.sessionId, name: r.name, project: r.project, owner: r.owner, live: this.opts.isLive(r.sessionId), entries: r.entries, bytes: r.bytes, oldestAt: r.oldestT ?? 0 })),
+      totals: { ...sum(stored), fileBytes: 0 },
+      match: sum(hits),
+      projects: distinct((r) => r.project),
+      owners: distinct((r) => r.owner),
+    };
+  }
+
+  /** The session ids a Stored activity delete means for Source = Recordings. */
+  async idsFor(body: Target): Promise<string[]> {
+    if ('ids' in body) return body.ids;
+    const held = await this.all();
+    if ('match' in body) return this.matching(body.match, held).map((r) => r.sessionId);
+    return held.map((r) => r.sessionId);
+  }
+
+  // ---- removal --------------------------------------------------------------------------------
+
+  /**
+   * Deletes whole recordings for good and stops their capture at once (the rows that carry the state go in the first step); the
+   * entries then go in chunks with a turn for the event loop between them, and the space is given back once.
+   */
+  removeMany(ids: string[]): Promise<RemoveResult> {
+    return this.removeBy(() => Promise.resolve(ids));
+  }
+
+  /** `removeMany` for the recordings a Stored activity delete means, chosen in the same step that removes the rows that carry their state. */
+  removeFor(body: Target): Promise<RemoveResult> {
+    return this.removeBy(() => this.idsFor(body));
+  }
+
+  private async removeBy(pick: () => Promise<string[]>): Promise<RemoveResult> {
+    const each = await this.step(() =>
+      this.db.tx(async () => {
+        const gone: RemoveResult['each'] = [];
+        for (const id of await pick()) {
+          const r = await this.row(id);
+          if (!r) continue;
+          await this.db.run('DELETE FROM rec_sessions WHERE session_id = ?', [id]);
+          this.deleting.add(id);
+          gone.push({ sessionId: id, name: r.name, entries: r.entries, bytes: r.bytes });
+        }
+        return gone;
+      }),
+    );
+    if (!each.length) return { entries: 0, sessions: 0, bytes: 0, freed: 0, each };
+    try {
+      const freed = await this.exclusive(async () => {
+        for (const g of each) await this.deleteEntriesOf(g.sessionId);
+        return this.compact();
+      });
+      return { entries: each.reduce((a, g) => a + g.entries, 0), sessions: each.length, bytes: each.reduce((a, g) => a + g.bytes, 0), freed, each };
+    } finally {
+      for (const g of each) this.deleting.delete(g.sessionId);
+    }
+  }
+
+  private async deleteEntriesOf(sessionId: string): Promise<void> {
+    for (;;) {
+      const done = await this.step(() => this.db.run('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)', [sessionId, this.chunk]));
+      if (done < this.chunk) return;
+      await yieldNow();
+    }
+  }
+
+  /** The session is gone from the main database: its recording goes with it. */
+  removeSession(sessionId: string): Promise<RemoveResult> {
+    return this.removeMany([sessionId]);
+  }
+
+  /** Removes the recordings of sessions the main database no longer holds (their own retention ran out). Returns the entries removed. */
+  async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    const stored = await this.step(async () => (await this.db.all<{ id: string }>('SELECT session_id AS id FROM rec_sessions')).map((r) => r.id));
+    const missing: string[] = [];
+    for (const id of stored) if (!(await exists(id))) missing.push(id);
+    // Asked again just before the rows that carry the consent go, so a session that reported again since keeps its recording.
+    const ids: string[] = [];
+    for (const id of missing) if (!(await exists(id))) ids.push(id);
+    return (await this.removeMany(ids)).entries;
+  }
+
+  /**
+   * Removes every part older than `keepHours`, counted from when it was stored, in chunks. A recording left with nothing is dropped
+   * unless it is still running, or was started less than `keepHours` ago (a chosen recording that stored nothing yet stays that long).
+   * Gives the space back when it removed something. Frequent (every 5 minutes), so a short time is honored.
+   */
+  purge(now: number = this.opts.now()): Promise<PurgeRecordingsResult> {
+    return this.exclusive(async () => {
+      const cutoff = now - this.opts.settings().keepHours * HOUR_MS;
+      const touched = new Set<string>();
+      let entries = 0;
+      let bytes = 0;
+      for (;;) {
+        const rows = await this.step(() =>
+          this.db.tx(async () => {
+            const gone = await this.db.all<{ sid: string; b: number }>('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b', [cutoff, this.chunk]);
+            const per = new Map<string, { n: number; b: number }>();
+            for (const g of gone) {
+              const p = per.get(g.sid) ?? { n: 0, b: 0 };
+              p.n++;
+              p.b += g.b;
+              per.set(g.sid, p);
+            }
+            for (const [sid, p] of per) await this.db.run('UPDATE rec_sessions SET entries = entries - ?, bytes = bytes - ? WHERE session_id = ?', [p.n, p.b, sid]);
+            return gone;
+          }),
+        );
+        for (const g of rows) {
+          touched.add(g.sid);
+          entries++;
+          bytes += g.b;
+        }
+        if (rows.length < this.chunk) break;
+        await yieldNow();
+      }
+      const dropped = await this.step(() =>
+        this.db.tx(async () => {
+          for (const sid of touched) await this.db.run('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?', [sid, sid]);
+          let n = 0;
+          for (const r of await this.db.all<{ id: string }>('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?', [cutoff])) {
+            const row = await this.row(r.id);
+            if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;
+            await this.db.run('DELETE FROM rec_sessions WHERE session_id = ?', [r.id]);
+            n++;
+          }
+          return n;
+        }),
+      );
+      const freed = entries || dropped ? await this.compact() : 0;
+      return { entries, bytes, sessions: touched.size, freed };
+    });
   }
 }
