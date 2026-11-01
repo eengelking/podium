@@ -38,7 +38,7 @@ jobs:
   # The PostgreSQL adapter's tests (#822) are skipped unless PODIUM_TEST_PG names a server, and `npm test` above sets none. This job gives
   # them one: a service container with a health check, on a GitHub-hosted runner (the self-hosted runners above are containers on a shared
   # Podman host, where a service's published port is not reachable as localhost). Each test file makes and drops its own database, so
-  # the one server serves them all. The password is the throwaway service's own, not a secret.
+  # the one server serves them all. The service trusts connections (no password): it lives for one job and only the runner reaches it.
   test-postgres:
     name: Test with PostgreSQL
     runs-on: ubuntu-latest
@@ -47,7 +47,7 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_PASSWORD: podium
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -56,7 +56,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      PODIUM_TEST_PG: postgres://postgres:podium@localhost:5432/postgres
+      PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
 
