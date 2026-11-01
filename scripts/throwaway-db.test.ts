@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import pg from "pg";
 import { describe, expect, it } from "vitest";
-import { createDatabase, dropDatabase, isPostgresUrl, labelOf } from "./throwaway-db.mjs";
+import { createDatabase, DROPPABLE, dropDatabase, isPostgresUrl, labelOf } from "./throwaway-db.mjs";
 
 // Read like testing.ts does: podiumctl's settings test greps the server's source, not this folder, but the same habit keeps one spelling.
 const { PODIUM_TEST_PG: TEST_PG } = process.env;
@@ -40,6 +40,16 @@ describe("throwaway-db (#822)", () => {
   it("refuses to create on a SQLite path and to drop a database it did not make", async () => {
     await expect(createDatabase("/tmp/x.sqlite")).rejects.toThrow(/not a postgres/);
     await expect(dropDatabase("postgres://u:p@h/production")).rejects.toThrow(/refusing to drop/);
+  });
+
+  it("drops only the name shape create makes: podium_<part>_<10 hex>", async () => {
+    for (const name of ["podium_prod", "podium_perfstorage", "podium_x_ZZZ", "podium_x_abcdef012", "podium_x_abcdef01234", "podium__abcdef0123", "podium_x_ABCDEF0123", "postgres"]) {
+      await expect(dropDatabase(`postgres://u:p@h/${name}`), name).rejects.toThrow(/refusing to drop/);
+    }
+    expect(cli("drop", "postgres://u:p@h/podium_prod").stderr).toMatch(/refusing to drop/);
+    expect(cli("--help").stdout).toMatch(/podium_<part>_<10 hex digits>/);
+    expect(DROPPABLE.test("podium_perfstorage_0123456789")).toBe(true);
+    expect(DROPPABLE.test("podium_podiumperfbrowser_abcdef0123")).toBe(true);
   });
 
   describe.skipIf(!TEST_PG)("against a PostgreSQL server", () => {

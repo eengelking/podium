@@ -61,8 +61,10 @@ two modes, chosen with `--mode` and saved in `~/.podium/config.env`. The reasoni
 
 `PODIUM_DB=postgres://user:password@host:5432/dbname` works in both modes (#822, DECISIONS 53). `podiumctl` passes it through,
 and in container mode it replaces `/data/podium.sqlite`, so the container needs no database file; `/data` still holds the TLS
-CA. `PODIUM_DATA_DIR` is `/data` in the container and, standalone, the folder of the SQLite file or `~/.podium/data` for a
-database on the network. `podiumctl config` hides the user and the password, and its status line shows `host:port/dbname`.
+CA. `podiumctl` sets `PODIUM_DATA_DIR` to `/data` in the container and, standalone, to the folder of the SQLite file or
+`~/.podium/data` for a database on the network. The Containerfile does not set it, so a SQLite container run without
+`podiumctl` keeps the CA beside its database file, and one with a PostgreSQL `PODIUM_DB` and no `PODIUM_DATA_DIR` stops at
+start with a message that names the variable. `podiumctl config` hides the user and the password, and its status line shows `host:port/dbname`.
 
 ## The GitHub runner image
 

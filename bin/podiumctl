@@ -194,13 +194,34 @@ export function isNetworkDb(value) {
   return !!m && m[1] !== 'sqlite';
 }
 
-/** What a log or a status line may say of a database: `host:port/dbname` for one on the network, never the user or the password. */
+/** The file a SQLite PODIUM_DB names: `sqlite:///a/b.db` and `/a/b.db` both give `/a/b.db`. */
+export function sqliteFile(value) {
+  return String(value ?? '').replace(/^sqlite:\/\//, '');
+}
+
+/** The folder a standalone server keeps its TLS CA in: beside a SQLite file, else `<home>/data` (a database on the network has no folder). */
+export function standaloneDataDir(db, home) {
+  return isNetworkDb(db) ? path.join(home, 'data') : path.dirname(sqliteFile(db));
+}
+
+/**
+ * What a log or a status line may say of a database: `host:port/dbname` for one on the network, never the user or the password.
+ * It fails closed. A password with an unescaped `#`, `?` or `/` ends the URL's authority early and would put part of itself in the
+ * host, so anything that does not parse to a clean host prints only the scheme and `(hidden)`.
+ */
 export function dbLabel(value) {
   if (!isNetworkDb(value)) return value || '';
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//.exec(value)[1];
+  const hidden = `${scheme}://(hidden)`;
   try {
+    const rest = value.slice(scheme.length + 3);
+    // Text after the first `/`, `?` or `#` is not authority. An `@` there means a password cut the authority short.
+    const end = rest.search(/[/?#]/);
+    if (end !== -1 && rest.indexOf('@', end) !== -1) return hidden;
     const u = new URL(value);
+    if (!/^(\[[0-9a-f:.]+\]|[a-z0-9._-]+)(:\d+)?$/i.test(u.host)) return hidden;
     return `${u.host}${u.pathname}`;
-  } catch { return '(unreadable PODIUM_DB)'; }
+  } catch { return hidden; }
 }
 
 /** Environment the server process gets (the token and other settings live here, never on a command line). */
@@ -296,7 +317,10 @@ WantedBy=default.target
 export function maskConfig(file) {
   const shown = { ...file };
   if (shown.PODIUM_TOKEN) shown.PODIUM_TOKEN = '(hidden; --show-token or `podiumctl token`)';
-  if (isNetworkDb(shown.PODIUM_DB)) shown.PODIUM_DB = `${shown.PODIUM_DB.split('://')[0]}://(hidden)@${dbLabel(shown.PODIUM_DB)}`;
+  if (isNetworkDb(shown.PODIUM_DB)) {
+    const label = dbLabel(shown.PODIUM_DB);
+    shown.PODIUM_DB = label.includes('(hidden)') ? label : `${shown.PODIUM_DB.split('://')[0]}://(hidden)@${label}`;
+  }
   if (shown.PODIUM_LOG_SHIP_HEADERS) {
     shown.PODIUM_LOG_SHIP_HEADERS = shown.PODIUM_LOG_SHIP_HEADERS.split(';').filter((p) => p.trim())
       .map((p) => (p.includes('=') ? `${p.split('=')[0].trim()}=(hidden)` : '(hidden)')).join(';');
@@ -466,9 +490,9 @@ function standaloneEnv(cfg) {
   if (!env.PODIUM_DB) env.PODIUM_DB = path.join(homeDir(), 'data', 'podium.sqlite');
   // The server keeps its TLS CA in PODIUM_DATA_DIR, else the folder of a SQLite file. A database on the network has no
   // such folder, so it gets the same default folder the SQLite file would have.
-  if (!env.PODIUM_DATA_DIR) env.PODIUM_DATA_DIR = isNetworkDb(env.PODIUM_DB) ? path.join(homeDir(), 'data') : path.dirname(env.PODIUM_DB);
+  if (!env.PODIUM_DATA_DIR) env.PODIUM_DATA_DIR = standaloneDataDir(env.PODIUM_DB, homeDir());
   fs.mkdirSync(env.PODIUM_DATA_DIR, { recursive: true });
-  if (!isNetworkDb(env.PODIUM_DB)) fs.mkdirSync(path.dirname(env.PODIUM_DB), { recursive: true });
+  if (!isNetworkDb(env.PODIUM_DB)) fs.mkdirSync(path.dirname(sqliteFile(env.PODIUM_DB)), { recursive: true });
   if (cfg.tls) makePrivateDir(path.join(env.PODIUM_DATA_DIR, 'tls'));
   return env;
 }

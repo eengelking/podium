@@ -201,7 +201,12 @@ up() {
   if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
     dblabel="a throwaway database on $(node "$ROOT/scripts/throwaway-db.mjs" label "$PODIUM_DB")"
     if (( ! DRY )); then
+      # Installed before the database is made: an up that fails from here on (the server does not start, the seed fails) drops it
+      # again, so a failed up leaves no database behind. A finished up clears UP_DB, and down drops the database from then on.
+      UP_DB=""
+      trap 'drop_failed_up_db' EXIT
       db="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" peers)" || die "could not make a database on the PostgreSQL server in PODIUM_DB"
+      UP_DB="$db"
       printf '%s\n' "$db" >"$DB_URL_FILE"
       dblabel="$(node "$ROOT/scripts/throwaway-db.mjs" label "$db")"
     fi
@@ -273,6 +278,15 @@ JSON
   say "Sessions:  tmux attach -t $TMUX_NAME (windows:$names); accept the trust prompt in each"
   say "Next:      on My reporters, let this machine send to itself (the Grid's diagonal), or turn on Trust my own reporters"
   say "Stop:      scripts/podium-peers-e2e.sh down --dir '$DIR' --tmux $TMUX_NAME"
+  UP_DB=""
+}
+
+# EXIT trap of an up that made a database: drops it unless up finished (UP_DB cleared). Nothing to do when none was made.
+drop_failed_up_db() {
+  [[ -n "${UP_DB:-}" ]] || return 0
+  if node "$ROOT/scripts/throwaway-db.mjs" drop "$UP_DB" >/dev/null 2>&1; then rm -f "$DB_URL_FILE"
+  else echo "up failed and could not drop its database; drop it by hand (its name is in $DB_URL_FILE)" >&2; fi
+  UP_DB=""
 }
 
 down() {

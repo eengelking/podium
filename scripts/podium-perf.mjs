@@ -322,8 +322,12 @@ async function runOnce(name, fleet, run) {
       await sleep(500);
       if (sim.exitCode === null) signal('SIGKILL');
     }
-    await server.stop();
-    await server.cleanup();
+    // cleanup drops the throwaway database, so it runs even when stop throws.
+    try {
+      await server.stop();
+    } finally {
+      await server.cleanup();
+    }
   }
 }
 
