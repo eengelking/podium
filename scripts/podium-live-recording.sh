@@ -14,7 +14,9 @@ Usage: scripts/podium-live-recording.sh <command> [args]
   api <dir> <METHOD> <path> [json]
                           call the server as the signed-in Admin (respond and admin headers sent)
   stop <dir> [name]       kill that tmux session; with no name, kills every p353-live-* session
-  clean <dir>             stop the server and delete the work dir (only if it was made by `server`)
+  clean <dir>             stop the server and delete the work dir (only if it was made by `server`); drops its PostgreSQL database, if any
+
+With PODIUM_DB set to a postgres:// URL, `server` runs on a new database on that server instead of a SQLite file.
 
 Steps: server, then `session`, answer the folder-trust prompt (tmux send-keys -t <name> Down Enter), send one prompt
 (the mod reports after a session's first turn), find the session id with
@@ -39,7 +41,15 @@ case "${1:-}" in
     openssl rand -hex 24 > "$dir/secret"
     echo "$port" > "$dir/port"
     [[ -f "$HERE/server/dist/index.js" ]] || die "run npm run build first"
-    HOST=127.0.0.1 PORT="$port" PODIUM_DB="$dir/data/podium.sqlite" PODIUM_TOKEN="$(cat "$dir/secret")" \
+    # A SQLite file in the work dir, or, when PODIUM_DB is a postgres:// URL, a database of its own on that server (its URL, with the
+    # password, in a file in the 0700 work dir; `clean` drops it).
+    db="$dir/data/podium.sqlite"
+    if node "$HERE/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+      db="$(node "$HERE/scripts/throwaway-db.mjs" create "$PODIUM_DB" live)" || die "could not make a database on the PostgreSQL server in PODIUM_DB"
+      printf '%s\n' "$db" > "$dir/database-url"
+      echo "database: $(node "$HERE/scripts/throwaway-db.mjs" label "$db") (throwaway)"
+    fi
+    HOST=127.0.0.1 PORT="$port" PODIUM_DB="$db" PODIUM_DATA_DIR="$dir/data" PODIUM_TOKEN="$(cat "$dir/secret")" \
       nohup node "$HERE/server/dist/index.js" > "$dir/server.log" 2>&1 &
     echo $! > "$dir/server.pid"
     sleep 2
@@ -92,6 +102,7 @@ EOF
     dir="$2"
     [[ -f "$dir/server.pid" && -f "$dir/secret" ]] || die "not a work dir made by 'server': $dir"
     kill "$(cat "$dir/server.pid")" 2>/dev/null
+    if [[ -f "$dir/database-url" ]]; then node "$HERE/scripts/throwaway-db.mjs" drop "$(cat "$dir/database-url")" || echo "could not drop the PostgreSQL database; its URL is in $dir/database-url"; fi
     rm -r "$dir"
     echo "removed $dir"
     ;;

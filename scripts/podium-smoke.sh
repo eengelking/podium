@@ -21,6 +21,9 @@ that no process it started is left running.
   --keep      Keep the temporary directory (logs, database) for inspection
   -h, --help  Show this help
 
+PODIUM_DB: a postgres:// URL makes the server use a new database on that PostgreSQL server (dropped at the end) instead of a
+SQLite file. Any other value is ignored.
+
 Exit code 0 when every check passes, 1 when one fails, 2 on a setup error.
 USAGE
 }
@@ -41,6 +44,14 @@ TSX="$ROOT/node_modules/.bin/tsx"
 VITE_BIN="$ROOT/node_modules/.bin/vite"
 [[ -x "$TSX" ]] || { echo "tsx not found; run npm install" >&2; exit 2; }
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/podium-smoke.XXXXXX")"
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
+DB="$TMP/podium.sqlite"
+if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-smoke)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; rm -rf "$TMP"; exit 2; }
+  echo "podium-smoke: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
+fi
+drop_db() { [[ "$DB" == "$TMP/podium.sqlite" ]] || node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 PIDS=()
 FAILED=0
 LINGER_MS=3000
@@ -57,7 +68,7 @@ cleanup() {
   for p in "${PIDS[@]:-}"; do [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null && left=1; done
   if pgrep -f "$TMP" >/dev/null 2>&1; then left=1; fi
   if [[ $left == 1 ]]; then echo "  FAIL  processes left running"; FAILED=1; else echo "  ok    no process left running"; fi
-  if [[ $KEEP == 1 ]]; then echo "kept $TMP"; else rm -rf "$TMP"; fi
+  if [[ $KEEP == 1 ]]; then echo "kept $TMP"; else rm -rf "$TMP"; drop_db; fi
 }
 trap 'cleanup; exit $([[ $FAILED == 0 ]] && echo 0 || echo 1)' EXIT
 trap 'exit 1' INT TERM
@@ -65,7 +76,7 @@ trap 'exit 1' INT TERM
 PORT="$(free_port)"
 echo "podium-smoke: server on 127.0.0.1:$PORT, temp $TMP"
 
-PODIUM_DB="$TMP/podium.sqlite" PORT="$PORT" LINGER_MS="$LINGER_MS" "$TSX" "$ROOT/server/src/index.ts" >"$TMP/server.log" 2>&1 &
+PODIUM_DB="$DB" PODIUM_DATA_DIR="$TMP" PORT="$PORT" LINGER_MS="$LINGER_MS" "$TSX" "$ROOT/server/src/index.ts" >"$TMP/server.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/api/fleet/health" >/dev/null && break; sleep 0.25; done
 curl -sf "http://127.0.0.1:$PORT/api/fleet/health" >/dev/null || { echo "server did not start:"; cat "$TMP/server.log"; exit 2; }

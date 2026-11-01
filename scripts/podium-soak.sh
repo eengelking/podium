@@ -18,6 +18,9 @@ and how many messages each SSE client received in the first and last 30 s.
                 the same database; check sessions come back stale, then running
   -h, --help    Show this help
 
+PODIUM_DB: a postgres:// URL makes the server use a new database on that PostgreSQL server (dropped at the end) instead of a
+SQLite file. Any other value is ignored.
+
 Everything it starts is stopped at the end, and its temp files are removed.
 Exit code 1 when a check fails (SSE client starved, restart did not recover).
 USAGE
@@ -44,6 +47,14 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TSX="$ROOT/node_modules/.bin/tsx"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/podium-soak.XXXXXX")"
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
+DB="$TMP/podium.sqlite"
+if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-soak)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; rm -rf "$TMP"; exit 2; }
+  echo "podium-soak: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
+fi
+drop_db() { [[ "$DB" == "$TMP/podium.sqlite" ]] || node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 PIDS=()
 FAILED=0
 PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
@@ -54,12 +65,13 @@ cleanup() {
   sleep 0.5
   for p in "${PIDS[@]:-}"; do [[ -n "$p" ]] && kill -9 "$p" 2>/dev/null; done
   rm -rf "$TMP"
+  drop_db
 }
 trap 'cleanup; exit $FAILED' EXIT
 trap 'FAILED=1; exit 1' INT TERM
 
 start_server() {
-  PODIUM_DB="$TMP/podium.sqlite" PORT="$PORT" "$TSX" "$ROOT/server/src/index.ts" >>"$TMP/server.log" 2>&1 &
+  PODIUM_DB="$DB" PODIUM_DATA_DIR="$TMP" PORT="$PORT" "$TSX" "$ROOT/server/src/index.ts" >>"$TMP/server.log" 2>&1 &
   SERVER=$!
   PIDS+=($SERVER)
   for _ in $(seq 1 80); do curl -sf "$URL/api/fleet/health" >/dev/null && return 0; sleep 0.25; done

@@ -16,6 +16,10 @@ on:
         description: "Consecutive runs of the whole suite in one job, to show it is stable (the issue asks for five on an unchanged commit)"
         type: number
         default: 1
+      databases:
+        description: "Which database the server runs on, space separated: sqlite, postgres, or both (E2E_DB in scripts/e2e-up.sh). Each is a full run of the suite."
+        type: string
+        default: "sqlite postgres"
 
 permissions:
   contents: read
@@ -62,7 +66,9 @@ jobs:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     # A run takes about 8 minutes, so five repeats (the most the issue asks for) with a cold image build fit well inside this. A GitHub
     # expression has no arithmetic, so the limit cannot scale with `repeat`.
-    timeout-minutes: 90
+    # Each database is a full run of the suite, one after the other (the self-hosted host takes one e2e job at a time, see below), so the
+    # limit holds two databases at five repeats each.
+    timeout-minutes: 180
     # The self-hosted runners share one Podman host, and `scripts/e2e-up.sh down` (the last step) removes every e2e container, network and
     # volume on it, whichever run made them. One e2e job at a time keeps it from tearing down another run's server.
     concurrency:
@@ -94,25 +100,31 @@ jobs:
       - name: Run the suite
         env:
           REPEAT: ${{ inputs.repeat || 1 }}
+          DATABASES: ${{ inputs.databases || 'sqlite postgres' }}
           # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
           # the runner's temp folder, which is the same path on both. (The runner context is not available in a job-level env.)
           TMPDIR: ${{ runner.temp }}
         run: |
           set -u -o pipefail
           fail=0
-          for i in $(seq 1 "$REPEAT"); do
-            echo "::group::run $i of $REPEAT"
-            # The first run builds the image; the next ones reuse it.
-            if [ "$i" -eq 1 ]; then flags=""; else flags="--no-build"; fi
-            if bash scripts/e2e-up.sh $flags --out "$RUNNER_TEMP/e2e-results/run-$i" 2>&1 | tee "$RUNNER_TEMP/run-$i.log"; then
-              echo "run $i: passed"
-            else
+          built=0
+          for db in $DATABASES; do
+            case "$db" in sqlite|postgres) ;; *) echo "::error::unknown database $db (sqlite or postgres)"; exit 1 ;; esac
+            for i in $(seq 1 "$REPEAT"); do
+              echo "::group::$db: run $i of $REPEAT"
+              # The first run builds the image; every later one, on either database, reuses it.
+              if [ "$built" -eq 0 ]; then flags=""; else flags="--no-build"; fi
+              built=1
+              if E2E_DB="$db" bash scripts/e2e-up.sh $flags --out "$RUNNER_TEMP/e2e-results/$db-run-$i" 2>&1 | tee "$RUNNER_TEMP/$db-run-$i.log"; then
+                echo "$db run $i: passed"
+              else
+                echo "::endgroup::"
+                echo "::error::$db run $i failed"
+                fail=1
+                break 2
+              fi
               echo "::endgroup::"
-              echo "::error::run $i failed"
-              fail=1
-              break
-            fi
-            echo "::endgroup::"
+            done
           done
           exit "$fail"
 

@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createDatabase, dropDatabase, isPostgresUrl, labelOf } from './throwaway-db.mjs';
 import { createGzip, gzipSync, constants as zc } from 'node:zlib';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,6 +45,11 @@ Options
   -h, --help       show this help
 
 CPU and resident memory come from proc_pid_rusage on macOS (python3 ctypes) and from ps elsewhere (CPU then has ps's coarse time).
+Environment
+  PODIUM_DB        a postgres:// URL of a PostgreSQL server: each run makes a database of its own on it and drops it at the end,
+                   so the baseline can be taken on PostgreSQL. Anything else (a SQLite path) is ignored; the default is a SQLite
+                   file in the temp folder.
+
 Everything the script starts is stopped at the end.`;
 
 const args = process.argv.slice(2);
@@ -137,10 +143,16 @@ class Server {
     writeFileSync(this.preload, PRELOAD(this.elFile));
     this.port = await freePort();
     this.url = `http://127.0.0.1:${this.port}`;
+    // A SQLite file in the temp folder, or, when PODIUM_DB is a postgres:// URL, a database of its own on that server (dropped by cleanup).
+    this.db = path.join(this.dir, 'podium.sqlite');
+    if (isPostgresUrl(process.env.PODIUM_DB)) {
+      this.db = await createDatabase(process.env.PODIUM_DB, 'perf');
+      log(`database: ${labelOf(this.db)} (throwaway)`);
+    }
     const out = openSync(path.join(this.dir, 'server.log'), 'w');
     this.child = spawn(process.execPath, ['--import', this.preload, path.join(ROOT, 'server/dist/index.js')], {
       cwd: ROOT,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(this.port), HOST: '127.0.0.1', PODIUM_DB: path.join(this.dir, 'podium.sqlite'), PODIUM_TOKEN: this.token, PODIUM_LOG_LEVEL: 'info' },
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: String(this.port), HOST: '127.0.0.1', PODIUM_DB: this.db, PODIUM_DATA_DIR: this.dir, PODIUM_TOKEN: this.token, PODIUM_LOG_LEVEL: 'info' },
       stdio: ['ignore', out, out],
     });
     this.exited = new Promise((r) => this.child.once('exit', r));
@@ -176,7 +188,8 @@ class Server {
     await this.exited;
     clearTimeout(force);
   }
-  cleanup() {
+  async cleanup() {
+    if (this.db && isPostgresUrl(this.db) && !KEEP) await dropDatabase(this.db).catch((e) => log(`could not drop the database: ${e.message}`));
     if (!KEEP) rmSync(this.dir, { recursive: true, force: true });
     else log(`kept: ${this.dir}`);
   }
@@ -310,7 +323,7 @@ async function runOnce(name, fleet, run) {
       if (sim.exitCode === null) signal('SIGKILL');
     }
     await server.stop();
-    server.cleanup();
+    await server.cleanup();
   }
 }
 
