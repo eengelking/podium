@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ActivityHistory } from './activityHistory.js';
 import { SessionRecordings } from './recordings.js';
 import type { ActivityHistoryApi, ActivityStorage, ActivityStoreOptions, SessionRecordingsApi } from '../types.js';
-import { AsyncLock } from './lock.js';
+import { AsyncLock } from '../lock.js';
 import type { RecordingTrail } from '../rows.js';
 
 /**

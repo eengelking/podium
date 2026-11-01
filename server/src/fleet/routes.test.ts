@@ -165,6 +165,12 @@ describe('reads', () => {
     expect(res.body.reporterSupport).toEqual({ min: expect.any(String), max: expect.any(String) });
   });
 
+  it('GET /health names the storage kind', async () => {
+    expect((await request((await setup()).app).get('/api/fleet/health')).body.dbKind).toBe('unknown');
+    const { app } = await setup(null, { dbKind: 'postgres' });
+    expect((await request(app).get('/api/fleet/health')).body.dbKind).toBe('postgres');
+  });
+
   it('GET /history lists ended sessions of a day', async () => {
     const { app, fleet } = await setup();
     const r = fixtureReport();

@@ -16,6 +16,9 @@ and how many frames the page drew. Needs `npm run build` first.
   --width PX     Viewport width (default 1440)
   -h, --help     Show this help
 
+PODIUM_DB: a postgres:// URL makes the server use a new database on that PostgreSQL server (dropped at the end) instead of a
+SQLite file. Any other value is ignored.
+
 Everything it starts is stopped at the end and its temp files are removed. GPU is measured by scripts/gpu-sample.sh (see #280).
 USAGE
 }
@@ -39,21 +42,35 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/podium-perf-browser.XXXXXX")"
 PIDS=()
-PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
-URL="http://127.0.0.1:$PORT"
-TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
+DB="$TMP/podium.sqlite"
+DB_MADE=0   # 1 once a PostgreSQL database exists that cleanup must drop
+drop_db() { (( DB_MADE )) || return 0; node "$ROOT/scripts/throwaway-db.mjs" drop "$DB" >/dev/null 2>&1; }
 
 cleanup() {
   for p in "${PIDS[@]:-}"; do [[ -n "$p" ]] && kill "$p" 2>/dev/null; done
   sleep 0.5
   for p in "${PIDS[@]:-}"; do [[ -n "$p" ]] && kill -9 "$p" 2>/dev/null; done
   rm -rf "$TMP"
+  drop_db
 }
+# Installed before the database is made, so no exit after that can skip the drop.
 trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+# The database: a SQLite file in the temp folder, or, when PODIUM_DB names a PostgreSQL server, a database of its own on that server
+# (dropped at the end; what is already on the server is never touched). Only a postgres:// value is read; a SQLite path is ignored.
+if node "$ROOT/scripts/throwaway-db.mjs" is-postgres "${PODIUM_DB:-}"; then
+  DB="$(node "$ROOT/scripts/throwaway-db.mjs" create "$PODIUM_DB" podium-perf-browser)" || { echo "could not make a database on the PostgreSQL server in PODIUM_DB" >&2; exit 2; }
+  DB_MADE=1
+  echo "podium-perf-browser: database $(node "$ROOT/scripts/throwaway-db.mjs" label "$DB") (throwaway, dropped at the end)"
+fi
+PORT="$(node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
+URL="http://127.0.0.1:$PORT"
+TOKEN="$(node -e "console.log(require('crypto').randomBytes(24).toString('hex'))")"
 
 [[ -f "$ROOT/server/dist/index.js" && -d "$ROOT/frontend/dist" ]] || { echo "build first: npm run build" >&2; exit 1; }
 
-PODIUM_DB="$TMP/podium.sqlite" PODIUM_TOKEN="$TOKEN" PORT="$PORT" HOST=127.0.0.1 node "$ROOT/server/dist/index.js" >"$TMP/server.log" 2>&1 &
+PODIUM_DB="$DB" PODIUM_DATA_DIR="$TMP" PODIUM_TOKEN="$TOKEN" PORT="$PORT" HOST=127.0.0.1 node "$ROOT/server/dist/index.js" >"$TMP/server.log" 2>&1 &
 PIDS+=($!)
 for _ in $(seq 1 80); do curl -sf "$URL/api/health" >/dev/null && break; sleep 0.25; done
 curl -sf "$URL/api/health" >/dev/null || { echo "server did not start"; cat "$TMP/server.log"; exit 1; }

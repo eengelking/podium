@@ -80,8 +80,9 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`, and each kind declares its own default target) and loads it on demand. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
-| Storage | SQLite adapter (the default) | The only adapter built today, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the numbered migrations, one lock per connection, and both database files. Another adapter (not built) would sit beside it, register its own kind and own its own database; this is the replaceable part. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). |
+| Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`; `postgres` is the other kind, and `postgresql://` is an alias for it; each kind declares its own default target, which `postgres` does not have, and a `label()` for the log and the health check: `host:port/dbname`, never a user or password) and loads it on demand. `/health` shows that label as `dbPath` and the kind as `dbKind`. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
+| Storage | SQLite adapter (the default) | One of two adapters, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the 25 numbered migrations, one lock per connection, and both database files. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). Migration 25 adds a `seq` column to `peer_messages` and `person_certificates`, an explicit insertion order that replaces SQLite's `rowid` on a tie. |
+| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Each schema has one baseline step and later changes are new steps. |
 | Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging, daily rollups, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file, for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
 
@@ -234,19 +235,27 @@ code. A function's line number is on the page, not here, because it moves.
 | Location | Item | Description |
 |---|---|---|
 | Storage | `Storage` | The async store interfaces the app layer uses, and tx. In `server/src/storage/types.ts`. |
-| Storage | `storageSpec` | Reads PODIUM_DB once into a kind and a target; an unknown kind throws. In `server/src/storage/index.ts`. |
+| Storage | `storageSpec` | Reads PODIUM_DB once into a kind, a target and a label; an unknown kind throws. In `server/src/storage/index.ts`. |
 | Storage | `openStorage` | Async; loads the chosen kind's adapter on demand. In `server/src/storage/index.ts`. |
 | Storage | `registerStorageKind` | Adds an implementation to the registry. In `server/src/storage/index.ts`. |
-| Storage | `StorageKind` | What a registered kind declares: fileBased, defaultTarget() and load. In `server/src/storage/index.ts`. |
+| Storage | `StorageKind` | What a registered kind declares: fileBased, defaultTarget(), load and label(). In `server/src/storage/index.ts`. |
 | Storage | `defaultDbFile` | The default kind's default target, taken from the registry. In `server/src/storage/index.ts`. |
 | Storage | `dataDir` | PODIUM_DATA_DIR, else a file target's folder; holds tls/. In `server/src/storage/index.ts`. |
 | Storage | `runStorageContract` | The suite every implementation must pass. In `server/src/storage/contract.ts`. |
+| Storage | `health` | The /health answer; dbPath is the database label and dbKind its kind. In `server/src/fleet/fleet.ts`. |
+| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/lock.ts`. |
 | Storage | `openSqliteStorage` | Builds every store on one connection, each call behind one lock. In `server/src/storage/sqlite/index.ts`. |
-| Storage | `class AsyncLock` | One queue per connection; a call inside its own transaction runs directly. In `server/src/storage/sqlite/lock.ts`. |
 | Storage | `class ActivityConnection` | The activity file's own connection and lock. In `server/src/storage/sqlite/activity.ts`. |
 | Storage | `SqliteActivityHistoryOpts` | The neutral history options plus what only this adapter honors (vacuumPages). In `server/src/storage/sqlite/activityHistory.ts`. |
 | Storage | `class SessionRecordings` | Stores recordings within their caps. In `server/src/storage/sqlite/recordings.ts`. |
 | Storage | `sqliteReference` | What the contract suite reads back from SQLite. In `server/src/storage/sqlite/contractReference.ts`. |
+| Storage | `openPostgresStorage` | Takes the single-process lock, migrates both schemas and builds every store. In `server/src/storage/postgres/index.ts`. |
+| Storage | `class PgDb` | One pool; tx takes transactions one at a time and a call inside one joins it. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `numbered` | Turns the SQLite stores' ? and :name placeholders into $n. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `toSafeNumber` | Bigint and numeric as numbers; an unsafe integer is an error. In `server/src/storage/postgres/conn.ts`. |
+| Storage | `acquireSingleProcessLock` | A session advisory lock; a second server refuses to start. In `server/src/storage/postgres/singleProcess.ts`. |
+| Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
+| Storage | `class PgActivityConnection` | The Activity history and recordings on their own pool. In `server/src/storage/postgres/activity.ts`. |
 | Storage | `openDb` | Opens the main file, sets WAL and applies the migrations. In `server/src/storage/sqlite/db.ts`. |
 | Storage | `openActivityDb` | Opens the activity file, sets incremental vacuum and WAL, applies its steps. In `server/src/storage/sqlite/activityDb.ts`. |
 | Storage | `activityDbPath` | The activity file's path, beside the main one. In `server/src/storage/sqlite/activityDb.ts`. |
@@ -301,5 +310,6 @@ Six operations the atlas page walks step by step. Each row gives the steps in or
 | Server | Memory only: open asks and answers, the live activity feed, diff requests, the messaging directory, Admin sessions, the update notice | The most sensitive live data. Gone on restart, on purpose. |
 | Storage | `podium.sqlite` | The SQLite adapter's main file, in WAL mode. The app reaches it only through the `Storage` interface and the adapter, which owns it: the live fleet, people and certificates, reporters, messaging, daily rollups, plans and short text excerpts, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file: opt-in activity history and session recordings. The file exists from startup, but no rows are written unless an Admin turns one of them on. |
-| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
+| Storage | PostgreSQL database | Used instead of the two files above when `PODIUM_DB` is a `postgres://` address: one database with two schemas, `podium` and `podium_activity`, holding the same tables as `podium.sqlite` and `activity.sqlite`. Text is `COLLATE "C"` and times are bigint milliseconds. Nothing is written to `podium_activity` unless an Admin turns on history or recording. The log and the health check show `host:port/dbname`, never the user or the password. |
+| Storage | Certificates and config | The CA and serving keys in `/data/tls` (the `tls/` folder of the data directory: `PODIUM_DATA_DIR`, else the SQLite file's folder; a `postgres://` database has no folder, so `PODIUM_DATA_DIR` is required), podiumctl settings in `~/.podium/config.env`, a person's config file, the context names in `~/.podium/contexts.json` (set by `podiumctl context` or `/podium context`), and the reporter's machine id and pinned machine name. |
 | Console | Preferences and cookies | Convenience only: theme, pins and collapsed panes. The respond and Admin cookies are `HttpOnly` and `SameSite=Strict`. Tokens are never written to storage. |

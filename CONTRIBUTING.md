@@ -48,6 +48,7 @@ npm run test:mod       # the mod's tests (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
+E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
@@ -69,6 +70,18 @@ network and volume it made; no port opens on your machine and Cypress is never i
 one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
+
+**The PostgreSQL adapter's tests** (`server/src/storage/postgres/`, decision 53) run only when `PODIUM_TEST_PG` names a PostgreSQL server; without it they are skipped, so `npm test` needs no database and a skip is not a pass. Each test file makes its own database on that server and drops it after, so the server can be shared and the tests can run in parallel. Start a throwaway server in a container, with a placeholder password of your own, and never point the variable at a database you care about:
+
+```sh
+podman run -d --name podium-test-pg -e POSTGRES_PASSWORD=change-me -p 55432:5432 docker.io/library/postgres:17
+export PODIUM_TEST_PG=postgres://postgres:change-me@localhost:55432/postgres
+npm test -w server                                       # the whole server suite, PostgreSQL tests included
+npx vitest run server/src/storage/postgres/people.test.ts # one file
+podman rm -f podium-test-pg                              # when you are done
+```
+
+CI's `test-postgres` job does the same with a service container. `scripts/throwaway-db.mjs` makes and drops a database on a PostgreSQL server for the scripts that start their own server (smoke, soak, perf, the peers e2e): when `PODIUM_DB` names one, they use a database of their own on it instead of a SQLite file (`--help` lists the commands). `E2E_DB=postgres npm run e2e` runs the Cypress suite against PostgreSQL in containers.
 
 The `PODIUM_TEST_*` variables (decision 50) shorten the Admin idle lock, the sign-in idle end and the lockout so a spec can reach them. They are for the end-to-end suite only, count only with `PODIUM_TEST_TIMINGS=1`, and are never set on a real server.
 

@@ -315,6 +315,18 @@ CREATE INDEX IF NOT EXISTS person_certificates_person ON person_certificates(per
     // while any of its live sessions does, so a `claude -p` run reporting false cannot switch the machine Off.
     sql: 'ALTER TABLE reporter_sessions ADD COLUMN peers INTEGER;',
   },
+  {
+    version: 25,
+    // An explicit insertion order for the two tables that were ordered by SQLite's rowid on a tie (#822): a database with no rowid
+    // has none to give. Existing rows take their rowid; a new row takes the next number (the stores add it on insert).
+    sql: `
+ALTER TABLE peer_messages ADD COLUMN seq INTEGER;
+UPDATE peer_messages SET seq = rowid;
+CREATE INDEX IF NOT EXISTS peer_messages_seq ON peer_messages(sent_at, seq);
+ALTER TABLE person_certificates ADD COLUMN seq INTEGER;
+UPDATE person_certificates SET seq = rowid;
+CREATE INDEX IF NOT EXISTS person_certificates_seq ON person_certificates(person_id, seq);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -395,7 +407,7 @@ export class FleetDb {
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
   liveCandidates(endedAfter: number): SessionRow[] {
     return this.stmt(
-      'SELECT * FROM sessions WHERE dropped_at IS NULL AND (ended_at IS NULL OR ended_at > ?) ORDER BY started_at',
+      'SELECT * FROM sessions WHERE dropped_at IS NULL AND (ended_at IS NULL OR ended_at > ?) ORDER BY started_at, id',
     ).all(endedAfter) as unknown as SessionRow[];
   }
 
@@ -424,7 +436,7 @@ export class FleetDb {
   endedBetween(from: number, to: number): SessionRow[] {
     return this.stmt(
       `SELECT * FROM sessions WHERE (dropped_at >= :from AND dropped_at < :to)
-         OR (dropped_at IS NULL AND ended_at >= :from AND ended_at < :to) ORDER BY started_at`,
+         OR (dropped_at IS NULL AND ended_at >= :from AND ended_at < :to) ORDER BY started_at, id`,
     ).all({ from, to }) as unknown as SessionRow[];
   }
 
@@ -651,7 +663,7 @@ export class FleetDb {
   }
 
   getBlowouts(sessionId: string): BlowoutRow[] {
-    return this.stmt('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t').all(sessionId) as unknown as BlowoutRow[];
+    return this.stmt('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t, id').all(sessionId) as unknown as BlowoutRow[];
   }
 
   countBlowouts(sessionId?: string): number {

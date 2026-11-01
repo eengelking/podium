@@ -48,7 +48,7 @@ export class PersonCertStore {
 
   /** The person's certificates, newest first. */
   listFor(personId: number): PersonCertRow[] {
-    return (this.stmt('SELECT * FROM person_certificates WHERE person_id = ? ORDER BY issued_at DESC, rowid DESC').all(personId) as unknown as DbCert[]).map(toRow);
+    return (this.stmt('SELECT * FROM person_certificates WHERE person_id = ? ORDER BY issued_at DESC, seq DESC').all(personId) as unknown as DbCert[]).map(toRow);
   }
 
   /** The newest certificate that is not revoked, or undefined. */
@@ -58,8 +58,8 @@ export class PersonCertStore {
 
   private insert(personId: number, c: CertToStore, now: number): void {
     this.stmt(
-      `INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO person_certificates (fingerprint_sha256, serial, issuer_fingerprint, person_id, cert_pem, not_before, not_after, issued_at, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM person_certificates))`,
     ).run(c.info.fingerprintSha256, c.info.serial, c.issuerFingerprint, personId, c.cert, Date.parse(c.info.notBefore), Date.parse(c.info.notAfter), now);
   }
 
@@ -98,7 +98,7 @@ export class PersonCertStore {
   reportersByIssuer(cutoff: number): { total: number; byIssuer: Record<string, number> } {
     const rows = this.stmt(
       `SELECT c.issuer_fingerprint AS issuer FROM person_certificates c
-       WHERE c.rowid = (SELECT MAX(p.rowid) FROM person_certificates p WHERE p.person_id = c.person_id AND p.revoked_at IS NULL AND p.not_after > ?)`,
+       WHERE c.seq = (SELECT MAX(p.seq) FROM person_certificates p WHERE p.person_id = c.person_id AND p.revoked_at IS NULL AND p.not_after > ?)`,
     ).all(cutoff) as unknown as Array<{ issuer: string }>;
     const byIssuer: Record<string, number> = {};
     for (const r of rows) byIssuer[r.issuer] = (byIssuer[r.issuer] ?? 0) + 1;

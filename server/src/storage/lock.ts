@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
- * One queue per SQLite connection. The three stores share the connection, so a call from another task must never run
+ * One queue per database connection. The stores of an adapter share the connection, so a call from another task must never run
  * inside someone's open transaction: every adapter call takes this lock, and `tx` holds it for its whole callback.
  * A call made inside a `tx` callback sees this lock in its async context, so it runs directly instead of queueing
  * behind the transaction that is waiting on it.

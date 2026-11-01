@@ -36,9 +36,10 @@ npm run e2e                                    # the whole suite
 npm run e2e -- -- --spec "cypress/e2e/wall/**" # one folder (everything after the second -- goes to Cypress)
 npm run e2e -- --no-build                      # reuse the image built by the last run
 npm run e2e:down                               # remove anything an interrupted run left behind
+E2E_DB=postgres npm run e2e                    # the same suite with PostgreSQL behind the server (default: sqlite)
 ```
 
-`scripts/e2e-up.sh --help` lists the options. A run builds the image, makes a private network with a fresh admin secret that
+`scripts/e2e-up.sh --help` lists the options. With `E2E_DB=postgres` a PostgreSQL container (`E2E_PG_IMAGE`, default `postgres:17-alpine`) runs beside the server on the same private network, the server gets `PODIUM_DB=postgres://...` for it, and the specs' "fresh database" restart drops and recreates that database instead of emptying `/data`. Its password is random per run and scrubbed from the server log copy. The specs are the same for both databases. A run builds the image, makes a private network with a fresh admin secret that
 nothing prints, starts the server on it, seeds it with `scripts/e2e-seed.mjs`, runs Cypress in a second container and then
 removes every container, network and volume it made, whatever the result. No port is opened on your machine and your own
 Podium is never touched. The first run pulls the Cypress image, about 2.5 GB.
@@ -52,7 +53,7 @@ passes when the run was skipped, so it can be a required check for the release P
 1. Open the failed job and find the spec file and test title in the Cypress output: the group is the feature, the title is the rule.
 2. Download the `e2e-failure` artifact from the run. It holds `screenshots/<spec>/<test> (failed).png`, one for each failure, and
    `server.log`, the server's log with the admin secret scrubbed. It is kept 7 days. There is no video.
-3. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
+3. The workflow's `databases` input (default `sqlite postgres`) picks which database the server runs on; each is a full run of the suite, one after the other, so the job's limit is 180 minutes. Run it with `sqlite` or `postgres` alone to reproduce one. A run with `repeat` set (Actions, Run workflow) does the whole suite that many times in one job and stops at the first failure.
 4. To reproduce it, run the same spec locally with `--spec`. A failure that shows only on some runs is a flaky spec: do not
    add a retry or a wait. Find the assertion that reads something before it settles and make it a retrying one.
 

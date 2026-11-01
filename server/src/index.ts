@@ -42,8 +42,9 @@ import { startUpdateCheck } from "./fleet/updateCheck.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its target (a plain path, or what follows `kind://`), which only labels the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
-const DB_PATH = storageSpec(process.env).target;
+// PODIUM_DB is read once, here, before anything else uses it: an unknown kind throws now. DB_PATH is its label (a plain path as given, or `host:port/dbname` for a database on the network, never a user or a password), which only names the database in the log and the health check. DATA_DIR (PODIUM_DATA_DIR, else the folder of a file-based database) is where the TLS folder lives.
+const DB_SPEC = storageSpec(process.env);
+const DB_PATH = DB_SPEC.label;
 const DATA_DIR = dataDir(process.env);
 const TOKEN = process.env.PODIUM_TOKEN || null;
 
@@ -58,7 +59,7 @@ if (TOKEN && TOKEN.length < 24) {
 warnIfTlsNotPersistent({ env: process.env, dataDir: DATA_DIR, logger });
 
 const storage = await openStorage(process.env);
-const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH });
+const fleetConfig = configFromEnv(process.env, { home: os.homedir(), dbPath: DB_PATH, dbKind: DB_SPEC.kind });
 // The Activity history lives in its own file beside the database (#432), opened by the storage; nothing is written to it under the default policy.
 const fleet = new Fleet(storage, fleetConfig, Date.now, logger, { authOn: TOKEN !== null, secret: TOKEN });
 // The live set is read from the database before anything listens or sweeps.
@@ -139,6 +140,7 @@ const server = http.createServer(app).listen(PORT, HOST, () => {
     bind: HOST,
     port: PORT,
     db_path: DB_PATH,
+    db_kind: DB_SPEC.kind,
     auth: TOKEN !== null,
     node_version: process.version,
     reporter_min: REPORTER_SUPPORT.min,

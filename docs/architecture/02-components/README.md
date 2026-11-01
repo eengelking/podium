@@ -31,7 +31,7 @@ Most subsections name the files that own them and the issue that introduced them
 - [Logging](16-logging.md): How the server's logging works, where it lives and what it keeps.
 - [Shared contract](17-shared-contract.md): Where the Report types live on the server and in the mod, and how a test keeps them identical.
 - [Other server parts](18-other-server-parts.md): The smaller server parts that have no page of their own, such as model prices.
-- [Storage](19-storage.md): How the server reaches its database: async interfaces, SQLite as the only adapter, the locks, the write-through caches and the rules for calling it.
+- [Storage](19-storage.md): How the server reaches its database: async interfaces, the SQLite and PostgreSQL adapters, the locks, the write-through caches and the rules for calling it.
 <!-- entries:end -->
 
 <!-- nav:start -->

@@ -12,6 +12,7 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
+    timeout-minutes: 60 # three test attempts of up to 15 minutes, plus install and build
     steps:
       - uses: actions/checkout@v7
 
@@ -24,7 +25,8 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Test (server, frontend, simulator, podiumctl)
-        run: npm test
+        # A failed attempt is retried twice (scripts/ci-retry.sh), so a flaky test does not fail the PR; each retry leaves a warning.
+        run: scripts/ci-retry.sh --name "Test" --timeout 15m -- npm test
 
       - name: Build (UI, server, scripts type-check)
         run: npm run build
@@ -34,6 +36,43 @@ jobs:
       - name: Standards match the app (PRs into main, and main)
         if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         run: npm run standards:parity
+
+  # The PostgreSQL adapter's tests (#822) are skipped unless PODIUM_TEST_PG names a server, and `npm test` above sets none. This job gives
+  # them one: a service container with a health check, on a GitHub-hosted runner (the self-hosted runners above are containers on a shared
+  # Podman host, where a service's published port is not reachable as localhost). Each test file makes and drops its own database, so
+  # the one server serves them all. The service trusts connections (no password): it lives for one job and only the runner reaches it.
+  test-postgres:
+    name: Test with PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 40 # three test attempts of up to 10 minutes, plus install
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PODIUM_TEST_PG: postgres://postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      # The server's suite holds the adapter's tests and the scripts' tests (throwaway-db among them). The frontend's already ran above.
+      - name: Test the server with PostgreSQL behind it
+        run: scripts/ci-retry.sh --name "Test the server with PostgreSQL behind it" --timeout 10m -- npm test -w server
 
 # Not run here: `npm run test:mod` and `npm run typecheck:mod` need the Claude Code CLI and its plugin API
 # declarations, which the runners do not have. Run them locally when the mod changes (CONTRIBUTING.md).
