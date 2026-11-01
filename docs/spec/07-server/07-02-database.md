@@ -261,6 +261,32 @@ The thresholds are env-configurable: `RETAIN_SAMPLES_MS`, `RETAIN_EVENTS_MS`, `R
 `RETAIN_ADMIN_LOG_MS` and `RETAIN_ROLLUP_MS` (395 days). `GET /api/admin/log` also returns the period as `retainMs`, and Admin > Admin log says
 "Entries are kept for N days."
 
+## PostgreSQL (#822)
+
+`PODIUM_DB=postgres://user:password@host:5432/dbname` (or `postgresql://`) makes PostgreSQL the database
+([DECISIONS 53](../../decisions/53-postgresql-is-the-second-storage-adapter-on-the-pg-driver-with-one-process-per.md)). The
+database must exist and be empty or made by Podium; the server creates its schemas and tables and migrates them at start. The
+tables above, and every rule that comes with them, hold on PostgreSQL as written, with these differences in how they are kept:
+
+- **Two schemas in one database.** The main tables are in the schema `podium`. The Activity history (`entries`,
+  `stored_sessions`, `loops`) and the recordings (`rec_sessions`, `rec_entries`) are in `podium_activity`, with their own
+  connections, as they are in `activity.sqlite`. Each has its own `schema_migrations` table (`version`, `applied_at`) in place
+  of `schema_migrations` in the main file and `PRAGMA user_version` in the Activity file.
+- **One baseline migration.** Version 1 of each schema creates the end state of the SQLite migrations (migration 25 included).
+  A later change is the next numbered step.
+- **Types.** Times are `BIGINT` milliseconds, reals are `DOUBLE PRECISION`, ids that were `INTEGER PRIMARY KEY` are `BIGINT`
+  identity columns, and flags stay 0/1 integers. A number the server reads is a JavaScript number; a whole number above
+  `Number.MAX_SAFE_INTEGER` is an error.
+- **Text compares as bytes.** Every text column is `COLLATE "C"`, and the case-folding the SQLite tables do with `lower()` uses
+  `podium_lower`, which folds ASCII letters only.
+- **Order.** Where two rows can tie, the order ends on `seq` or `id`: peer messages by `sent_at, seq`, person certificates by
+  `issued_at DESC, seq DESC`, sessions by `started_at, id`, blowouts by `t, id`. SQLite migration 25 adds `seq` to
+  `peer_messages` and `person_certificates` for it.
+- **No pragmas, no VACUUM.** Autovacuum gives back space, and the Activity history's compaction does nothing.
+- **Limits.** One server process for each database: the server holds a session advisory lock, and a second server on the same
+  database stops at start. Podium does not move data from a SQLite file into PostgreSQL, and it supports no read replica or high
+  availability. The password is never logged or returned by `/health`, which show `host:port/dbname`.
+
 <!-- nav:start -->
 ---
 
