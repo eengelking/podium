@@ -5,7 +5,6 @@ import { PgPeerMessages } from './peerMessages.js';
 import { PgPeerSettings } from './peerSettings.js';
 import { isIdle, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerRequest, type Report } from '../../fleet/protocol.js';
-import type { PeerLimits } from '../settings.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -131,10 +130,6 @@ export class PgPeerService {
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
   async setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): ReturnType<PgPeerRights['setDefaults']> {
     return this.rights.setDefaults(owner, patch, await this.settings.limits(), actor);
-  }
-
-  serverLimits(): Promise<PeerLimits> {
-    return this.settings.limits();
   }
 
   /**

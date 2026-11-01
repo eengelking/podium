@@ -7,7 +7,7 @@ import type { PgDb } from './conn.js';
 import { PgPeerService } from './peerService.js';
 import { pgPeerLookup } from './peerLookup.js';
 
-export const pgPeers = (db: PgDb, opts: PeerStoreOptions): PeerStoreApi => peerStoreOver(db, pgPeerLookup(db), opts);
+export const pgPeers = (db: PgDb, opts: PeerStoreOptions): PeerStoreApi => peerStoreOver(db, pgPeerLookup(db, opts.startedAt), opts);
 
 /** The store over a given reporter lookup (the tests pass a hand-written one). */
 export function peerStoreOver(db: PgDb, lookup: AsyncPeerReporterLookup, opts: PeerStoreOptions): PeerStoreApi {

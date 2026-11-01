@@ -354,6 +354,29 @@ describe.skipIf(!TEST_PG)('postgres peer store', () => {
       expect(names).toEqual(['box-a', 'box-b']);
     });
 
+    it('tells the orchestrator that asked for access what the owner answered, as a notice', async () => {
+      const w = await world('send', 'none');
+      const asked = await w.peers.rights.requestAccess({ owner: 'ed', fromKey: 'b', toKey: 'a', right: 'see', reason: 'to look', by: 'beta', fromSession: 'sb' });
+      if (!asked.ok || asked.state !== 'asked') throw new Error('not asked');
+      expect((await w.peers.answer(asked.request.id, 'ed', 'allow', ED)).ok).toBe(true);
+      const second = await w.peers.rights.requestAccess({ owner: 'ed', fromKey: 'b', toKey: 'a', right: 'send', reason: 'to send', by: 'beta', fromSession: 'sb' });
+      if (!second.ok || second.state !== 'asked') throw new Error('not asked');
+      expect((await w.peers.answer(second.request.id, 'ed', 'decline', ED)).ok).toBe(true);
+      const texts = (await w.peers.replyFor('sb', true)).peerDeliveries.map((d) => d.text);
+      expect(texts).toEqual([
+        'ed allowed your request for access to box-a: can see. Run podium_peers to see what you can reach now.',
+        'ed declined your request for access to box-a.',
+      ]);
+    });
+
+    it('runs with the default handlers when the routes set none', async () => {
+      const w = await world('send', 'send');
+      const bare = peerStoreOver(db, fakeReporters(T0).lookup, { now: () => T0, flagOn: () => false, startedAt: T0 });
+      expect(bare.flagOn()).toBe(false);
+      await bare.rights.pauseLink(null, 'a', 'b', true, ED);
+      expect(w.peers.withSource('src', () => 1)).toBe(1);
+    });
+
     it('lists the conversations and reads one through the store', async () => {
       const w = await world('send', 'send');
       sent(await w.peers.messages.send('sa', 'beta@box-b', 'hi'));
