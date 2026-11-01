@@ -23,7 +23,7 @@ describe.skipIf(!TEST_PG)('postgres storage', () => {
   });
   runStorageContract('postgres', async () => {
     const td = await createTestDatabase();
-    const storage = await openPostgresStorage(target(td));
+    const storage = await openPostgresStorage(target(td), 0);
     const entry = { td, storage };
     opened.push(entry);
     return { ...storage, close: async () => { await storage.close(); await td.drop(); opened.splice(opened.indexOf(entry), 1); } };
@@ -102,7 +102,7 @@ describe.skipIf(!TEST_PG)('opening the PostgreSQL storage', () => {
     a.recordings.forgetPodiumPrompt('s1', 'x');
     a.recordings.forgetSession('s1');
     expect(a.recordings.optionOn('s1')).toBe(false);
-    await expect(a.history.totals()).rejects.toThrow('not ported yet');
+    expect(await a.recordings.has('s1')).toBe(false);
     await s.close();
     await s.close();
   });

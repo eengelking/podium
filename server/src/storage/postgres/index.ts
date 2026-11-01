@@ -22,7 +22,7 @@ const MAIN_POOL = 10;
 const ACTIVITY_POOL = 4;
 
 /** Opens the database `target` names (what follows `postgres://`), takes the single-process lock and brings both schemas up to date. */
-export async function openPostgresStorage(target: string): Promise<Storage> {
+export async function openPostgresStorage(target: string, now: number = Date.now()): Promise<Storage> {
   const url = `postgres://${target}`;
   const lock = await acquireSingleProcessLock(url);
   const main = new PgDb({ connectionString: url, schema: MAIN_SCHEMA, max: MAIN_POOL, name: 'main' });
@@ -44,7 +44,7 @@ export async function openPostgresStorage(target: string): Promise<Storage> {
     activity: (opts) => activityOf().build(opts),
     fleet: pgFleet(main),
     people: pgPeople(main),
-    reporters: pgReporters(main),
+    reporters: pgReporters(main, now),
     featureFlags: pgFeatureFlags(main),
     wallSettings: pgWallSettings(main),
     modelPrices: pgModelPrices(main),
