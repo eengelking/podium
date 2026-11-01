@@ -131,4 +131,31 @@ describe.skipIf(!TEST_PG)('postgres connection', () => {
       await db.close();
     }
   });
+
+  it('leaves no error listener on a pooled client after a transaction', async () => {
+    const db = new PgDb({ connectionString: td.url, schema: MAIN_SCHEMA, max: 1, name: 'listeners' });
+    const warnings: string[] = [];
+    const onWarning = (w: Error): void => void warnings.push(w.name);
+    process.on('warning', onWarning);
+    try {
+      // A failing transaction takes the same path (it destroys its client, so it runs before the one that is measured).
+      await expect(db.tx(async () => { throw new Error('boom'); })).rejects.toThrow('boom');
+      await db.tx(async () => undefined);
+      const held = await db.pool.connect();
+      const before = held.listenerCount('error');
+      held.release();
+      for (let i = 0; i < 30; i++) await db.tx(async () => db.get('SELECT 1'));
+      const again = await db.pool.connect();
+      const after = again.listenerCount('error');
+      const same = again === held;
+      again.release();
+      expect(same).toBe(true);
+      expect(after).toBe(before);
+      await new Promise((r) => setImmediate(r));
+      expect(warnings).not.toContain('MaxListenersExceededWarning');
+    } finally {
+      process.off('warning', onWarning);
+      await db.close();
+    }
+  });
 });

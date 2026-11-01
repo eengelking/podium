@@ -4,7 +4,7 @@ import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { PgPeerMessages, type PgPeerRightsView } from './peerMessages.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
-import { MAX_NOTICES } from '../sqlite/peerMessages.js';
+import { MAX_NOTICES } from '../peerText.js';
 import { linkKey, type LiveOrchestrator, type MessageTrail, type PeerRequestRow, type ReporterRef, type SendOutcome, type Refusal } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerLevel } from '../../fleet/protocol.js';
 import type { AsyncPeerReporterLookup } from '../types.js';

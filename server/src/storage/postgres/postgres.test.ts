@@ -6,12 +6,11 @@ import { openStorage } from '../index.js';
 import { sqliteReference } from '../sqlite/contractReference.js';
 import type { Storage } from '../types.js';
 import { openPostgresStorage } from './index.js';
-import { notPorted } from './notPorted.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
 
 const target = (td: TestDatabase): string => td.url.replace(/^postgres:\/\//, '');
 
-// The whole contract against PostgreSQL. A store that is not ported yet fails here until its slice fills it in. A test that fails
+// The whole contract against PostgreSQL. A test that fails
 // before its own close leaves its database and storage behind, so every one opened is also dropped after the file.
 describe.skipIf(!TEST_PG)('postgres storage', () => {
   const opened: { td: TestDatabase; storage: Storage }[] = [];
@@ -28,16 +27,6 @@ describe.skipIf(!TEST_PG)('postgres storage', () => {
     opened.push(entry);
     return { ...storage, close: async () => { await storage.close(); await td.drop(); opened.splice(opened.indexOf(entry), 1); } };
   }, sqliteReference);
-});
-
-describe('a store that is not ported yet', () => {
-  it('rejects every method and is not a thenable', async () => {
-    const store = notPorted<{ get(): Promise<number> }>('thing');
-    await expect(store.get()).rejects.toThrow('postgres adapter: thing is not ported yet');
-    expect((store as unknown as { then?: unknown }).then).toBeUndefined();
-    expect(await Promise.resolve(store)).toBe(store);
-    expect((store as unknown as Record<symbol, unknown>)[Symbol.iterator]).toBeUndefined();
-  });
 });
 
 describe.skipIf(!TEST_PG)('opening the PostgreSQL storage', () => {

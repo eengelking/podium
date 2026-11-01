@@ -37,16 +37,18 @@ Contents:
 | `rows.ts` | The row types, errors, constants and pure helpers the stores share, and the one place app code imports them from |
 | `features.ts` | The notice and feature flag tables and their ids (re-exported by `rows.ts`) |
 | `settings.ts` | The limits, defaults, ranges and value checks for the Admin's settings (re-exported by `rows.ts`) |
+| `lock.ts` | `AsyncLock`, the queue each adapter puts in front of a connection |
+| `peerText.ts` | The pure helpers both messaging stores share: control-character cleaning, round trips used, the notice cap |
 | `contract.ts` | The checks a store must pass, run against each adapter: the same results as the synchronous stores, the type of every field of the main rows, how names compare, and the order lists come back in |
 | `reportQueries.ts` | The fleet-wide reporting queries behind Admin > Reporting |
 
-Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
+Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; neither adapter imports the other (`neutral.test.ts` checks that too: what they share lives in these files); `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
 `activityHandle`; the shared test builders that need raw SQL (`rollupFixtures.ts`) live in `storage/sqlite/`.
 The adapter imports from them, never the other way round, and its `openSqliteStorage` is typed against the interfaces in
 `types.ts`, so a signature that drifts is a compile error there.
 
 `server/src/storage/sqlite/` is the default adapter. `index.ts` there (`openSqliteStorage`) builds it, `peers.ts` and
-`activity.ts` wrap the messaging and Activity history services, and `lock.ts` holds the lock. The rest of the folder is the
+`activity.ts` wrap the messaging and Activity history services. The rest of the folder is the
 synchronous SQLite classes the adapter wraps: `db.ts` (schema, migrations, the fleet queries), `people.ts`, `reporters.ts`,
 `peerService.ts`, `peerRights.ts`, `peerMessages.ts`, `peerSettings.ts`, `featureFlags.ts`, `wallSettings.ts`,
 `modelPrices.ts`, `recordingSettings.ts`, `activityHistorySettings.ts`, `activityDb.ts`, `activityHistory.ts`,
@@ -90,7 +92,7 @@ the SQLite file; on PostgreSQL the Activity history is a schema in the same data
 
 This section is about SQLite; [PostgreSQL does the same differently](#the-postgresql-adapter).
 
-Each SQLite connection has one `AsyncLock` (`storage/sqlite/lock.ts`): a queue that runs one adapter call at a time. The
+Each SQLite connection has one `AsyncLock` (`storage/lock.ts`): a queue that runs one adapter call at a time. The
 main file and `activity.sqlite` are separate connections with separate locks, so a slow Activity history write does not
 hold up a report, and nothing spans the two files.
 
