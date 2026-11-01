@@ -4,7 +4,7 @@
 import type { Storage } from '../types.js';
 import { PgDb } from './conn.js';
 import { ACTIVITY_SCHEMA, ACTIVITY_STEPS, MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
-import { acquireSingleProcessLock } from './singleProcess.js';
+import { acquireSingleProcessLock, exitOnLockLost, type LockOptions } from './singleProcess.js';
 import { PgActivityConnection } from './activity.js';
 import { pgFleet } from './fleet.js';
 import { pgPeople } from './people.js';
@@ -21,12 +21,24 @@ import { pgPersonCerts } from './personCerts.js';
 const MAIN_POOL = 10;
 const ACTIVITY_POOL = 4;
 
-/** Opens the database `target` names (what follows `postgres://`), takes the single-process lock and brings both schemas up to date. */
-export async function openPostgresStorage(target: string, now: number = Date.now()): Promise<Storage> {
+/**
+ * Opens the database `target` names (what follows `postgres://`), takes the single-process lock and brings both schemas up to date.
+ * If the lock is lost later (its connection dropped and could not be taken again, or another server took it) every call rejects and
+ * `onLockLost` is called once; the default stops the process through its normal shutdown. `lockOptions` tunes the retries.
+ */
+export async function openPostgresStorage(target: string, now: number = Date.now(), onLockLost: (err: Error) => void = exitOnLockLost, lockOptions: Omit<LockOptions, 'onLost'> = {}): Promise<Storage> {
   const url = `postgres://${target}`;
-  const lock = await acquireSingleProcessLock(url);
+  const dbs: PgDb[] = [];
+  const lock = await acquireSingleProcessLock(url, {
+    ...lockOptions,
+    onLost: (err) => {
+      for (const d of dbs) d.fail(err);
+      onLockLost(err);
+    },
+  });
   const main = new PgDb({ connectionString: url, schema: MAIN_SCHEMA, max: MAIN_POOL, name: 'main' });
   const activityDb = new PgDb({ connectionString: url, schema: ACTIVITY_SCHEMA, max: ACTIVITY_POOL, name: 'activity' });
+  dbs.push(main, activityDb);
   try {
     await migrate(main, MAIN_SCHEMA, MAIN_STEPS);
     await migrate(activityDb, ACTIVITY_SCHEMA, ACTIVITY_STEPS);
