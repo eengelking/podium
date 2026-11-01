@@ -294,7 +294,7 @@ export class PeerMessages implements PeerMessagesApi {
   }
 
   private tripRows(a: string, b: string): TripRow[] {
-    const rs = this.stmt(`SELECT ${TRIP_COLS} FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, rowid`).all(a, b, b, a) as unknown as {
+    const rs = this.stmt(`SELECT ${TRIP_COLS} FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`).all(a, b, b, a) as unknown as {
       from_session: string;
       state: string;
       approved: number;
@@ -333,8 +333,8 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const state: MessageState = approvalWhy ? 'approval' : 'ready';
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0)`,
+      `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
     ).run(id, sender.owner, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now);
     let requestId: string | null = null;
     if (approvalWhy) {
@@ -360,7 +360,7 @@ export class PeerMessages implements PeerMessagesApi {
   deliveriesFor(sessionId: string, idle: boolean): PeerDelivery[] {
     const out: PeerDelivery[] = (this.notices.get(sessionId) ?? []).map((n) => ({ id: n.id, kind: 'notice', at: n.at, from: null, text: n.text }));
     const messages = idle
-      ? this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, rowid`, sessionId).filter(
+      ? this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN ('ready', 'handed') ORDER BY sent_at, seq`, sessionId).filter(
           (m) => !this.rights.effective(m.fromKey, m.toKey).paused,
         )
       : [];
@@ -431,7 +431,7 @@ export class PeerMessages implements PeerMessagesApi {
   ended(sessionId: string): void {
     this.liveDir.delete(sessionId);
     this.notices.delete(sessionId);
-    for (const m of this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN (${HELD_SQL}) ORDER BY sent_at, rowid`, sessionId)) this.drop(m, 'receiver-ended');
+    for (const m of this.rows(`SELECT * FROM peer_messages WHERE to_session = ? AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, sessionId)) this.drop(m, 'receiver-ended');
   }
 
   deleted(sessionIds: string[]): void {
@@ -441,7 +441,7 @@ export class PeerMessages implements PeerMessagesApi {
       this.notices.delete(sid);
     }
     for (const sid of sessionIds) {
-      for (const m of this.rows(`SELECT * FROM peer_messages WHERE (from_session = ? OR to_session = ?) AND state IN (${HELD_SQL}) ORDER BY sent_at, rowid`, sid, sid)) {
+      for (const m of this.rows(`SELECT * FROM peer_messages WHERE (from_session = ? OR to_session = ?) AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, sid, sid)) {
         this.drop(m, 'session-deleted');
       }
       this.stmt('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?').run(sid, sid);
@@ -449,11 +449,11 @@ export class PeerMessages implements PeerMessagesApi {
   }
 
   linkRemoved(a: string, b: string): void {
-    for (const m of this.rows(`SELECT * FROM peer_messages WHERE link = ? AND state IN (${HELD_SQL}) ORDER BY sent_at, rowid`, linkKey(a, b))) this.drop(m, 'link-removed');
+    for (const m of this.rows(`SELECT * FROM peer_messages WHERE link = ? AND state IN (${HELD_SQL}) ORDER BY sent_at, seq`, linkKey(a, b))) this.drop(m, 'link-removed');
   }
 
   dropAll(): void {
-    for (const m of this.rows(`SELECT * FROM peer_messages WHERE state IN (${HELD_SQL}) ORDER BY sent_at, rowid`)) this.drop(m, 'messaging-off');
+    for (const m of this.rows(`SELECT * FROM peer_messages WHERE state IN (${HELD_SQL}) ORDER BY sent_at, seq`)) this.drop(m, 'messaging-off');
     this.notices.clear();
   }
 
@@ -463,7 +463,7 @@ export class PeerMessages implements PeerMessagesApi {
     // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
     const all = this.rows(
       `SELECT id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved
-       FROM peer_messages ORDER BY sent_at, rowid`,
+       FROM peer_messages ORDER BY sent_at, seq`,
     );
     const owner = filter.owner === undefined ? null : nameKey(filter.owner);
     const groups = new Map<string, MessageRow[]>();
@@ -512,7 +512,7 @@ export class PeerMessages implements PeerMessagesApi {
   }
 
   conversation(a: string, b: string): MessageRow[] {
-    return this.rows(`SELECT * FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, rowid`, a, b, b, a);
+    return this.rows(`SELECT * FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, a, b, b, a);
   }
 
   retain(cutoff: number): number {

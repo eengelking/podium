@@ -284,7 +284,7 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       });
       for (const [id, at] of [['b', 20], ['a', 20], ['A', 20], ['z', 10], ['y', 30]] as const) await f.upsertAgent(agent(id, at));
       expect((await f.getAgents('s1')).map((a) => a.id)).toEqual(['z', 'A', 'a', 'b', 'y']);
-      // Samples and blowouts: by time. (Blowouts with the same time have no declared order.)
+      // Samples and blowouts: by time. Blowouts with the same time come back in the order they were stored.
       for (const t of [30, 10, 20]) await f.upsertSample({ session_id: 's1', t, tokens_total: t, tokens_delta: 1, peak_context: 0, running_agents: 0, cost_usd: null });
       expect((await f.samplesSince('s1', 0)).map((x) => x.t)).toEqual([10, 20, 30]);
       expect((await f.samplesSince('s1', 20)).map((x) => x.t)).toEqual([20, 30]);
@@ -292,10 +292,16 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       expect((await f.sampleBefore('s1', 30))!.t).toBe(20);
       for (const t of [300, 100, 200]) await f.insertBlowout({ session_id: 's1', agent_id: null, t, kind: 'compact', tokens_before: null, tokens_after: null });
       expect((await f.getBlowouts('s1')).map((b) => b.t)).toEqual([100, 200, 300]);
+      for (const kind of ['tie-b', 'tie-a']) await f.insertBlowout({ session_id: 's1', agent_id: null, t: 150, kind, tokens_before: null, tokens_after: null });
+      expect((await f.getBlowouts('s1')).filter((b) => b.t === 150).map((b) => b.kind)).toEqual(['tie-b', 'tie-a']);
       // Sessions: the live set and an ended range come back by start time.
       for (const [id, started] of [['s3', 3000], ['s2', 2000], ['s4', 4000]] as const) await f.upsertSession(session({ id, started_at: started, ended_at: started + 1, last_seen_at: started + 1 }));
       expect((await f.liveCandidates(0)).map((r) => r.id)).toEqual(['s1', 's2', 's3', 's4']);
       expect((await f.endedBetween(0, 10_000)).map((r) => r.id)).toEqual(['s2', 's3', 's4']);
+      // The same start time: by id, as bytes.
+      for (const id of ['t-b', 't-B', 't-a']) await f.upsertSession(session({ id, started_at: 5000, ended_at: 5001, last_seen_at: 5001 }));
+      expect((await f.liveCandidates(4999)).map((r) => r.id)).toEqual(['s1', 't-B', 't-a', 't-b']);
+      expect((await f.endedBetween(5000, 5002)).map((r) => r.id)).toEqual(['t-B', 't-a', 't-b']);
 
       // People and groups: by name, ignoring case.
       for (const n of ['bob', 'Alice', 'Carol', 'alice-2']) await p.createPerson(n, null, T0);
@@ -312,6 +318,26 @@ export function runStorageContract(name: string, open: () => Storage, reference:
       const owned = await store.reporters.peerLookup().ofOwner('ED');
       expect(owned.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
       expect((await store.reporters.list({ sort: 'name', dir: 1 }, T0)).rows.map((r) => r.key)).toEqual(['m-a', 'm-2', 'm-b', 'm-c']);
+      // One rule for text (#822): bytes compare as they are, and a case-insensitive key folds ASCII letters only. So `zed` sorts before
+      // `Émile`, which sorts before `émile`, whatever the database's locale.
+      for (const [id, name] of [['m-e1', 'émile'], ['m-e2', 'Émile'], ['m-z', 'zed']] as const) await store.reporters.record(mkSeen(id, name), T0);
+      expect((await store.reporters.list({ sort: 'name', dir: 1 }, T0)).rows.map((r) => r.key).slice(4)).toEqual(['m-z', 'm-e2', 'm-e1']);
+      await store.close();
+    });
+
+    it('returns a person\'s certificates newest first, those issued in the same millisecond last-stored first', async () => {
+      const store = open();
+      const { person } = await store.people.createPerson('cert-owner', null, T0);
+      const cert = (n: number) => ({
+        cert: `PEM${n}`, issuerFingerprint: n % 2 ? 'ca-a' : 'ca-b',
+        info: { fingerprintSha256: `fp${n}`, serial: `0${n}`, notBefore: new Date(T0).toISOString(), notAfter: new Date(T0 + 86_400_000).toISOString() },
+      }) as unknown as Parameters<Storage['personCerts']['add']>[1];
+      for (const n of [1, 2]) await store.personCerts.add(person.id, cert(n), T0);
+      await store.personCerts.add(person.id, cert(3), T0 - 1);
+      expect((await store.personCerts.listFor(person.id)).map((c) => c.fingerprint)).toEqual(['fp2', 'fp1', 'fp3']);
+      expect((await store.personCerts.current(person.id))!.fingerprint).toBe('fp2');
+      const by = await store.personCerts.reportersByIssuer(T0 - 5);
+      expect(by).toEqual({ total: 1, byIssuer: { 'ca-a': 1 } });
       await store.close();
     });
 
