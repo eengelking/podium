@@ -39,7 +39,9 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
   const map = list ? null : (params as Record<string, Param> | undefined);
   let out = '';
   let quote = '';
+  let skipTo = 0; // the loop counter is not changed inside the loop: a name that was just read is skipped by position
   for (let i = 0; i < sql.length; i++) {
+    if (i < skipTo) continue;
     const c = sql[i]!;
     if (quote) {
       out += c;
@@ -65,7 +67,7 @@ export function numbered(sql: string, params: Params | undefined): { text: strin
         named.set(name, at);
       }
       out += `$${at}`;
-      i = j - 1;
+      skipTo = j;
     } else out += c;
   }
   if (list && values.length !== list.length) throw new Error('storage: fewer ? placeholders than values');

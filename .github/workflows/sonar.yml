@@ -11,6 +11,12 @@ on:
     types: [opened, synchronize, reopened]
 
 # Permissions are set on each job, not for the workflow: the two jobs need different ones (githubactions:S8264).
+
+# A newer push to a PR cancels the scan still running for the older one. Two overlapping scans finish in any order, and the one that
+# finishes last becomes the PR's analysis, so an older commit's result could replace the newer one's (#822).
+concurrency:
+  group: sonar-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # Split from scan so the adapter's tests (#822) can have a PostgreSQL service: scan's self-hosted runner is a container on a shared
   # Podman host, where a service's published port is not reachable as localhost. This job holds no secret; it hands scan the lcov files.

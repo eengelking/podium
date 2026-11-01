@@ -11,7 +11,7 @@
 set -o pipefail
 
 name="" limit="10m" attempts=3
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --name) name="$2"; shift 2 ;;
@@ -21,7 +21,7 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
-if [ $# -eq 0 ]; then echo "ci-retry: no command given (see --help)" >&2; exit 2; fi
+if [[ $# -eq 0 ]]; then echo "ci-retry: no command given (see --help)" >&2; exit 2; fi
 name="${name:-$*}"
 
 log="$(mktemp)"
@@ -33,13 +33,13 @@ while :; do
   timeout "$limit" "$@" 2>&1 | tee "$log"
   code=$?
   echo "::endgroup::"
-  if [ "$code" -eq 0 ]; then
-    if [ "$attempt" -gt 1 ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  if [[ "$code" -eq 0 ]]; then
+    if [[ "$attempt" -gt 1 && -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       echo "$name: passed on attempt $attempt of $attempts — a retry hid a failure, see the warning above" >> "$GITHUB_STEP_SUMMARY"
     fi
     exit 0
   fi
-  if [ "$attempt" -ge "$attempts" ]; then
+  if [[ "$attempt" -ge "$attempts" ]]; then
     echo "::error::$name failed on attempt $attempt of $attempts (exit $code)"
     exit "$code"
   fi
