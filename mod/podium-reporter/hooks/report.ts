@@ -1,7 +1,7 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
 import { DETAIL_CHARS_PER_REPORT } from './activityDetail.ts';
-import { clip, excerpt, LIMITS } from './failures.ts';
+import { cap, clip, excerpt, LIMITS } from './failures.ts';
 import { lastSegment } from './git.ts';
 import { family, windowOf } from './models.ts';
 import { toPlan } from './plan.ts';
@@ -81,7 +81,7 @@ function cleanFailure(f: Failure | null): Failure | null {
   if (!f) return null;
   return {
     ...f,
-    tool: f.tool ? clip(f.tool, 120) : null,
+    tool: f.tool ? cap(f.tool, 120) : null,
     call: f.call ? clip(f.call, 300) : null,
     outputTail: f.outputTail.slice(-12).map((l) => clip(l, 240)),
     evidence: f.evidence.slice(0, 5).map((l) => clip(l, 240)),
@@ -97,17 +97,17 @@ function pct(tokens: number | null, window: number | null): number | null {
 /** The fields an agent entry and the main loop's block share: skills, last tool, call counts and steps. */
 function loopFields(l: LoopStats): LoopReport {
   return {
-    skills: l.skills.slice(0, 50).map((k) => clip(k, 120)),
+    skills: l.skills.slice(0, 50).map((k) => cap(k, 120)),
     lastTool: l.lastTool,
     toolCalls: l.toolCalls,
-    toolCounts: Object.fromEntries(Object.entries(l.toolCounts).map(([k, n]) => [clip(k, 120), n])),
+    toolCounts: Object.fromEntries(Object.entries(l.toolCounts).map(([k, n]) => [cap(k, 120), n])),
     steps: { done: l.steps, total: null },
   };
 }
 
 /** The rows the server accepts: model ids clipped, and no more than it takes. */
 function usageRows(rows: ModelUsage[]): ModelUsage[] {
-  return rows.slice(0, 40).map((r) => ({ ...r, model: clip(r.model, 120) }));
+  return rows.slice(0, 40).map((r) => ({ ...r, model: cap(r.model, 120) }));
 }
 
 /** The most a command or an output may hold as the server takes it: the 20,000-character cut plus the marker (`activityDetail`). */
@@ -118,7 +118,7 @@ function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntr
   return list.map((e) => {
     const out: ActivityEntry = { at: e.at, kind: e.kind, text: clip(e.text, LIMITS.activity) };
     if (e.kind !== 'tool') return out;
-    if (e.id !== undefined) out.id = clip(e.id, 200);
+    if (e.id !== undefined) out.id = cap(e.id, 200);
     if (e.command !== undefined) {
       out.command = e.command.slice(0, DETAIL_MAX);
       if (e.commandCut) out.commandCut = true;
@@ -138,10 +138,10 @@ function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntr
 export function agentReport(a: AgentState, fullText = false, activity = false, activityOutput = false): AgentReport {
   const window = a.window ?? (a.model ? windowOf(a.model) : null);
   return {
-    id: clip(a.id, 200),
+    id: cap(a.id, 200),
     parentId: a.parentId,
     kind: a.kind,
-    type: clip(a.type, 120),
+    type: cap(a.type, 120),
     name: a.name ? clip(a.name, 80) : null,
     description: clip(a.description, 240),
     model: a.model,
@@ -286,7 +286,7 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       loop: loopFields(s.main),
       attached: s.attached,
       ...(s.status === 'waiting' && s.background ? { background: s.background } : {}),
-      files: { ...s.files, files: s.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) },
+      files: { ...s.files, files: s.files.files.map((f) => ({ ...f, path: cap(f.path, 300), from: f.from === null ? null : cap(f.from, 300) })) },
       activityFeed: activity,
       activityOutput: meta.activityOutput === true,
       fileDiff: meta.fileDiff === true,

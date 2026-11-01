@@ -45,7 +45,7 @@ describe('redaction and limits', () => {
       expect(r.includes(leak)).toBe(false)
     }
     expect(r).toContain('password=[redacted]')
-    expect(r).toContain('auth [redacted]')
+    expect(r).toContain('auth Bearer [redacted]')
     expect(redact('plain text stays')).toBe('plain text stays')
   })
 

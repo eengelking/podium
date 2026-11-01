@@ -31,7 +31,8 @@ const SHAPES: RegExp[] = [
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{30,}/g,
   /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
-  /\b(?:sk|rk|pk)_live_[A-Za-z0-9]{16,}/g,
+  /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/g,
+  /\bpk_live_[A-Za-z0-9]{16,}/g,
   /\bwhsec_[A-Za-z0-9]{16,}/g,
   /\bnpm_[A-Za-z0-9]{30,}/g,
   /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}/g,
@@ -46,24 +47,37 @@ const LABELLED: RegExp[] = [
   /(SharedAccessKey=)[^;\s"']+/g,
 ]
 
-const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/[^\s/:@"'`]+:)([^\s/@"'`]+)(@)/gi
-/** `scheme://user:password@host` with the password replaced by `[redacted]`, for callers that do not run the whole redactor. */
-export function redactUrlCredentials(text: string): string {
-  return text.replaceAll(URL_CREDENTIALS, (_m, head: string, pass: string, at: string) => (pass === MARK ? _m : `${head}${MARK}${at}`))
-}
-
+const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]*:\/\/[^\s/:@"'`]*:)([^\s/"'`]+)(@)/gi
+// `https://<token>@github.com`: the user part alone is the secret. Not for ssh, git, sftp or scp, where it is a user name.
+const URL_TOKEN_USER = /\b((?:https?|wss?|ftps?):\/\/)([^\s/:@"'`]{6,})(@)/gi
 const HEADER = /\b((?:proxy-)?authorization|set-cookie|cookie|x-api-key|x-auth-token|x-access-token)(["']?\s*[:=]\s*["']?)([^"'\n]+)/gi
 const PEM_BEGIN = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/
 const PEM_INLINE = /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/g
 const PEM_INLINE_ONCE = new RegExp(PEM_INLINE.source)
 const PEM_END = /-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/
 
-const KEYWORD = 'password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|salt|auth(?:[_-]?token)?'
+const KEYWORD = 'password|passwd|pwd|pw|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|salt|auth(?:[_-]?token)?'
 // prefix, keyword, suffix, then an optional `?`/`!`, an optional quote, the operator, and the value (quoted or bare).
 const KEYED = new RegExp(`([A-Za-z0-9_.-]*?)(${KEYWORD})([A-Za-z0-9_.-]*)([?!]?["'\\]]?\\s*(?::=|=|:)\\s*)("[^"]*"|'[^']*'|\`[^\`]*\`|[^\\s"'\`,;&)}\\]]+)`, 'gi')
-const FLAG = /(--(?:password|passwd|pass|token|secret|api-?key|auth(?:-token)?|access-key|client-secret)(?:=|\s+))([^\s$<-]\S*)/gi
+const FLAG = /(--(?:password|passwd|pass|passphrase|passin|passout|(?:http|ftp|proxy)-password|token|secret|api-?key|auth(?:-token)?|access-key|secret-access-key|session-token|client-secret)(?:=|\s+))([^\s$<-]\S*)/gi
 const MYSQL = /\b(mysql|mysqldump|mariadb)\b([^\n]*?\s-p)([^\s]+)/g
 const SSHPASS = /(\bsshpass\b[^\n]*?\s-p\s*)(\S+)/g
+// A short flag that takes a password, of the tools that have one: `docker login -p`, `az login -p`, `mongosh -p`, `redis-cli -a`, `sqlcmd -P`. Per tool, because `docker run -p 8080:80` and `docker ps -a` are not passwords.
+const SHORT_PASSWORD_FLAG = /(\b(?:(?:docker|podman|nerdctl)\s+login|az\s+login|mongosh?)\b[^\n]*?\s-p\s*|\bredis-cli\b[^\n]*?\s-a\s+|\b(?:sqlcmd|bcp)\b[^\n]*?\s-P\s*)([^\s$<-]\S*)/g
+// `curl -u user:password`, `--user user:password`, `--proxy-user`: the part after the colon.
+const USER_PASS = /(\b(?:curl|wget|http|https|xh|aria2c|lftp|ftp)\b[^\n]*?\s(?:-u|--user|--proxy-user|--http-user)(?:=|\s*)[^\s:'"]+:)([^\s'"]+)/g
+// `-pass pass:secret`, `-passin pass:secret`, `env:VAR` is a reference and stays.
+const OPENSSL_PASS = /(\bpass:)(?!env:|file:|fd:|stdin)([^\s'"]+)/g
+// `curl -b name=value` / `--cookie`: the cookie is a login. A file name (`-b cookies.txt`) has no `=` and stays.
+const COOKIE_FLAG = /(\b(?:curl|wget|http)\b[^\n]*?\s(?:-b|--cookie)(?:=|\s+))("[^"]*=[^"]*"|'[^']*=[^']*'|[^\s"'=-][^\s=]*=\S*)/g
+// `smbclient -U user%password`.
+const PERCENT_PASSWORD = /(\s-U\s*[^\s%]+%)(\S+)/g
+// `htpasswd -b file user password`.
+const HTPASSWD = /(\bhtpasswd\b[^\n]*?\s-\w*b\w*\s+\S+\s+\S+\s+)([^\s-]\S*)/g
+// `.npmrc`: `//registry/:_authToken=...`, `_auth=`, `_password=`, also as `npm config set <key> <value>`.
+const NPM_AUTH = /(\b_auth(?:Token)?|\b_password)(=|\s+)([^\s"']+)/g
+// `aws configure set aws_secret_access_key <value>`, `git config ... <key> <value>` where the key says it is a secret.
+const CONFIG_SET = /(\b(?:configure|config)\s+set\s+\S*(?:secret|token|password|passwd|key)\S*\s+)(\S+)/gi
 
 const TYPE_WORDS = /^(?:true|false|null|undefined|nil|none|string|number|boolean|any|unknown|void|object|never|bigint|symbol)$/i
 const PLACEHOLDER = /^(?:<.*>|\{.*\}|\$.*|%.*%|x{3,}|\*+|\.{3}|your[-_ ].*|process\.env.*|env\..*)$/i
@@ -127,12 +141,21 @@ function redactContent(content: string, c: Count): string {
   let s = content
   s = s.replaceAll(PEM_INLINE, () => mark(c))
   s = s.replaceAll(URL_CREDENTIALS, (_m, head: string, pass: string, at: string) => (pass === MARK ? _m : `${head}${mark(c)}${at}`))
+  s = s.replaceAll(URL_TOKEN_USER, (_m, head: string, user: string, at: string) => (user === MARK ? _m : `${head}${mark(c)}${at}`))
   s = s.replaceAll(HEADER, (whole, name: string, sep: string, value: string) => (/\$|\{\{|\[redacted\]/.test(value) ? whole : `${name}${sep}${mark(c)}`))
   for (const re of SHAPES) s = s.replaceAll(re, () => mark(c))
   for (const re of LABELLED) s = s.replaceAll(re, (_m, label: string) => `${label}${mark(c)}`)
   s = s.replaceAll(FLAG, (_m, head: string) => `${head}${mark(c)}`)
   s = s.replaceAll(MYSQL, (_m, cmd: string, mid: string) => `${cmd}${mid}${mark(c)}`)
   s = s.replaceAll(SSHPASS, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(SHORT_PASSWORD_FLAG, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(USER_PASS, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(OPENSSL_PASS, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(COOKIE_FLAG, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(PERCENT_PASSWORD, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(HTPASSWD, (_m, head: string) => `${head}${mark(c)}`)
+  s = s.replaceAll(NPM_AUTH, (whole, key: string, op: string, value: string) => (value.includes(MARK) || value.includes('${') ? whole : `${key}${op}${mark(c)}`))
+  s = s.replaceAll(CONFIG_SET, (_m, head: string) => `${head}${mark(c)}`)
   s = keyed(s, c)
   return longValues(s, c)
 }
