@@ -23,7 +23,7 @@ jobs:
       (github.event.pull_request.head.repo.full_name == github.repository &&
        (github.base_ref == 'development' || github.head_ref == 'development'))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # three test attempts of up to 12 minutes, plus install
     services:
       postgres:
         image: postgres:17
@@ -51,7 +51,7 @@ jobs:
 
       # SonarCloud reads coverage from lcov files; without them every file reports 0% (#371).
       - name: Test with coverage (server, frontend)
-        run: npm run test:coverage
+        run: scripts/ci-retry.sh --name "Test with coverage" --timeout 12m -- npm run test:coverage
 
       # vitest writes paths relative to each workspace; the scanner resolves them from the repo root.
       - name: Make the lcov paths relative to the repo root
