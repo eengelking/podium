@@ -402,8 +402,7 @@ export class Fleet {
 
   /** A session that has done nothing yet is kept off the wall and out of every feed (see `isUnused`). */
   private async unused(row: SessionRow | undefined): Promise<boolean> {
-    // With 0 as the agent count `isUnused` runs every other test; the agents are read only for a row that passes them.
-    return !!row && isUnused(row, 0) && (await this.db.getAgents(row.id)).length === 0;
+    return !!row && (await this.unusedAmong([row])).has(row.id);
   }
 
   // ---- ingest ---------------------------------------------------------------------------------

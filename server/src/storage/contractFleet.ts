@@ -166,6 +166,27 @@ export function fleetCases(o: Openers): void {
     expect(t.get('auto compactions')).toEqual(new Map([['c', 0], ['missing', 0], ['a', 1], ['b', 0]]));
   });
 
+  it('batched reads and writes past one statement\'s share of ids and rows return everything, in order (#906)', async () => {
+    const s = await o.open();
+    try {
+      const f = s.fleet;
+      const ids = Array.from({ length: 1100 }, (_, i) => `n${String(i).padStart(4, '0')}`);
+      for (const id of ids) await f.upsertSession(session({ id, name: id }));
+      await f.upsertAgents(Array.from({ length: 1100 }, (_, i) => agent('n0000', `g${String(i).padStart(4, '0')}`, { started_at: T0 + i })));
+      await f.upsertAgentTextsMany('n0000', Array.from({ length: 1100 }, (_, i) => ({ agentId: `g${String(i).padStart(4, '0')}`, prompt: `p${i}` })));
+      expect((await f.getSessions(ids)).map((r) => r.id)).toEqual(ids);
+      const agents = await f.getAgentsOf(ids);
+      expect(agents.size).toBe(1100);
+      expect(agents.get('n0000')!.map((a) => a.id)).toEqual((await f.getAgents('n0000')).map((a) => a.id));
+      expect(agents.get('n0000')).toHaveLength(1100);
+      expect(agents.get('n1099')).toEqual([]);
+      expect(await f.getAgentTexts('n0000', 'g1099')).toEqual({ prompt: 'p1099', answer: null });
+      expect((await f.countAutoCompactionsOf(ids)).size).toBe(1100);
+    } finally {
+      await s.close();
+    }
+  }, 60_000);
+
   it('matches the reference for the fleet-wide rates and for what retention deletes', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const f = s.fleet;
