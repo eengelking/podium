@@ -36,7 +36,7 @@ describe.skipIf(!TEST_PG)('postgres peer lookup', () => {
   it('looks reporters up by key and by owner whatever the case, mod reporters only', async () => {
     const look = pgPeerLookup(db, START);
     expect(look.startedAt).toBe(START);
-    expect(await look.get('studio')).toEqual({ key: 'studio', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0' });
+    expect(await look.get('studio')).toEqual({ key: 'studio', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0', reporterName: 'podium-reporter' });
     expect(await look.get('bare')).toMatchObject({ machine: 'bare', adminSecret: true, peers: null });
     expect(await look.get('nope')).toBeNull();
     expect(await look.get('hooks')).toBeNull();
