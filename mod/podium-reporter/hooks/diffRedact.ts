@@ -69,11 +69,11 @@ const USER_PASS = /(\b(?:curl|wget|http|https|xh|aria2c|lftp|ftp)\b[^\n]*?\s(?:-
 // `-pass pass:secret`, `-passin pass:secret`, `env:VAR` is a reference and stays.
 const OPENSSL_PASS = /(\bpass:)(?!env:|file:|fd:|stdin)([^\s'"]+)/g
 // `curl -b name=value` / `--cookie`: the cookie is a login. A file name (`-b cookies.txt`) has no `=` and stays.
-const COOKIE_FLAG = /(\b(?:curl|wget|http)\b[^\n]*?\s(?:-b|--cookie)(?:=|\s+))("[^"]*=[^"]*"|'[^']*=[^']*'|[^\s"'=-][^\s=]*=\S*)/g
+const COOKIE_FLAG = /(\b(?:curl|wget|http)\b[^\n]*?\s(?:-b|--cookie)(?:=|\s+))("[^"=]*=[^"]*"|'[^'=]*=[^']*'|[^\s"'=-][^\s=]*=\S*)/g
 // `smbclient -U user%password`.
 const PERCENT_PASSWORD = /(\s-U\s*[^\s%]+%)(\S+)/g
 // `htpasswd -b file user password`.
-const HTPASSWD = /(\bhtpasswd\b[^\n]*?\s-\w*b\w*\s+\S+\s+\S+\s+)([^\s-]\S*)/g
+const HTPASSWD = /(\bhtpasswd\b[^\n]*?\s-[ac-zA-Z0-9_]*b\w*\s+\S+\s+\S+\s+)([^\s-]\S*)/g
 // `.npmrc`: `//registry/:_authToken=...`, `_auth=`, `_password=`, also as `npm config set <key> <value>`.
 const NPM_AUTH = /(\b_auth(?:Token)?|\b_password)(=|[ \t]+)([^\s"']+)/g
 // `aws configure set aws_secret_access_key <value>`, `git config ... <key> <value>` where the key says it is a secret.
