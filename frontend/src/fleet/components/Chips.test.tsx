@@ -36,11 +36,15 @@ describe("EffortMeter", () => {
     expect(eff.querySelectorAll("b.on")).toHaveLength(0);
   });
 
-  it("treats a level it does not know as not reported", () => {
-    const { container } = render(<EffortMeter effort="turbo" />);
+  it("shows an effort that is not one of the five as what was sent, on hollow bars (#936)", () => {
+    const { container } = render(<EffortMeter effort="minimal" />);
     const eff = container.querySelector(".eff")!;
-    expect(eff).toHaveClass("eff-none");
-    expect(eff).toHaveAttribute("title", "Effort not reported");
+    expect(screen.getByRole("img", { name: "Effort: minimal" })).toBe(eff);
+    expect(eff).toHaveAttribute("title", "Effort: minimal");
+    expect(eff).toHaveClass("eff-other");
+    expect(eff).not.toHaveClass("eff-none");
+    expect(eff.querySelectorAll("b")).toHaveLength(5);
+    expect(eff.querySelectorAll("b.on")).toHaveLength(0);
     expect(eff.textContent).toBe("");
   });
 });

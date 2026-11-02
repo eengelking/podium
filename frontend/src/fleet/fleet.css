@@ -158,6 +158,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .eff b { width: 4px; height: 10px; border-radius: 1px; background: var(--axis); }
 .podium .eff b.on { background: var(--c); }
 .podium .eff-none { opacity: 0.5; }
+.podium .eff-other b { background: transparent; border: 1px solid var(--muted); box-sizing: border-box; }
 .podium dd .eff { margin-right: 8px; }
 .podium .eff-low { --c: var(--eff-low); }
 .podium .eff-medium { --c: var(--eff-medium); }

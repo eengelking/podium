@@ -75,6 +75,9 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **An effort that is not one of Claude Code's five levels shows as what was sent (#936, from #850).** A report v2 can send any text as `effort`, such as `minimal`. The meter draws it as five hollow bars with "Effort: minimal" as its tooltip and accessible name, instead of "Effort not reported", which now means only `null`. The agent tree's effort column puts no effort first, then `low` to `max`, then any other text after `max` in the order of that text, where it used to sort with no effort. SPEC 8.1 Effort meter now says so; an e2e case covers it.
+  Standards: a new variant of the effort meter, `eff-other` (five hollow bars outlined in `--muted`), for an effort outside the five levels; approved by the maintainer when they accepted `mockup/podium-effort-other.html` on 2026-11-02.
+
 - **The connection helper starts when the plugin is reached through a symlink (#918).** On a machine where `/home` is a link to `/var/home` (Fedora Atomic, Bazzite), the helper compared the resolved path of its own file with the path it was started from, decided it was not the entry script and exited with code 0 and no output, so `/podium` showed `Connection: offline, retrying` for good. Both sides are now real paths. A helper that exits before it is ready with nothing printed now says so in `/podium` and names the path it was started from, in place of the bare "stopped" text.
 
 - **The TLS renewer's "retries on its own timer" test no longer fails when the machine is busy (#904).** The test waited up to 5,000 ms for the renewal retry, which is also vitest's default limit for the whole test, so on a loaded machine the test timed out before the wait could. The test now has a 30 s limit and waits up to 25 s, as the earlier timeout fixes (#680, #681) did. It takes about 0.25 s on a quiet machine. Only that test changed; no production code did.

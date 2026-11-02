@@ -172,6 +172,18 @@ describe("sortAgents", () => {
   });
 });
 
+describe("sortAgents by effort puts a level that is not one of the five after max (#936)", () => {
+  const mk = (id: string, effort: string | null) => makeAgent({ id, effort });
+  const A = [mk("a", "ultra"), mk("b", "max"), mk("c", null), mk("d", "minimal"), mk("e", "low"), mk("f", "high")];
+  const ids = (dir: 1 | -1) => sortAgents(A, "effort", dir, 0).map((a) => a.id).join("");
+  it("ranks no effort, then the five levels, then others by their text", () => {
+    expect(ids(1)).toBe("cefbda");
+  });
+  it("reverses exactly when descending", () => {
+    expect(ids(-1)).toBe("adbfec");
+  });
+});
+
 describe("splitDetached (sessions nobody is attached to leave the wall after their delay)", () => {
   const NOW = 1_000_000;
   const list = [

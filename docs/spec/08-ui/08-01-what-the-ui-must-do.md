@@ -1113,8 +1113,12 @@ is lit for `low` up to five for `max`, so the count carries the level and color 
 - Lit bars are colored by level: low orange, medium green, high blue, xhigh purple, and max one rainbow color
   per bar.
 - The level is the meter's tooltip and accessible name ("Effort: medium").
-- When effort was not reported, or is not one of the five levels, the bars are dimmed and the tooltip says
-  "Effort not reported".
+- When effort was not reported (`null`), the bars are dimmed and the tooltip says "Effort not reported".
+- When effort is text that is not one of the five levels (a report v2 can send any, such as `minimal`), the meter is
+  five hollow bars, outlined and unfilled, and the tooltip and accessible name say what was sent ("Effort: minimal")
+  (#936, `mockup/podium-effort-other.html`). The count of lit bars carries a level, so none are lit.
+- The effort column of the agent tree orders no effort first, then `low` to `max`, then any other text after `max`,
+  ordered by that text; descending is the reverse.
 
 ## Orchestrator page (click a card or rail item; #165, `mockup/podium-orchestrator.html`)
 

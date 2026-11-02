@@ -81,7 +81,7 @@ Cypress.Commands.add('putSettings', (body) => {
 Cypress.Commands.add('setFlags', (flags) => cy.putSettings({ features: flags }));
 
 /** Reports a seeded session again as a reporter would: `over` merges into its session, `agents` maps an agent id to changed fields, `steps` maps a plan step id to its new state. */
-Cypress.Commands.add('reportAgain', (key, over, agents, steps) => cy.task('fleet:report', { key, over, agents, steps }, { log: false }));
+Cypress.Commands.add('reportAgain', (key, over, agents, steps, v2) => cy.task('fleet:report', { key, over, agents, steps, v2 }, { log: false }));
 
 /**
  * Runs axe-core on the page with the WCAG 2.0 to 2.2 A and AA rules, color-contrast and target-size included, and fails with a readable list.
