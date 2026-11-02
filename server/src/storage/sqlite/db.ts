@@ -339,8 +339,8 @@ CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
-/** Opens (and migrates) a database. `:memory:` for tests; a file path gets WAL and its folder made. */
-export function openDb(file: string): DatabaseSync {
+/** Opens (and migrates) a database. `:memory:` for tests; a file path gets WAL and its folder made. `upTo` stops after that migration, so a test can build an older database. */
+export function openDb(file: string, upTo = Infinity): DatabaseSync {
   if (file !== ':memory:') mkdirSync(path.dirname(file), { recursive: true });
   const db = new sqlite.DatabaseSync(file);
   if (file !== ':memory:') db.exec('PRAGMA journal_mode = WAL');
@@ -351,7 +351,7 @@ export function openDb(file: string): DatabaseSync {
     (db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version),
   );
   for (const m of MIGRATIONS) {
-    if (applied.has(m.version)) continue;
+    if (applied.has(m.version) || m.version > upTo) continue;
     db.exec('BEGIN');
     try {
       db.exec(m.sql);
