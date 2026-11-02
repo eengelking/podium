@@ -4,7 +4,7 @@
 // the UI and the reporters share; this file re-exports them so the server's imports stay as they were.
 
 import { parseBuild } from './parseBuild.js';
-import { PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+import { CAPABILITY_KEYS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
@@ -346,6 +346,8 @@ export interface HistoryRow {
 // ---------------------------------------------------------------------------------------------
 
 export const LIMITS = {
+  /** Commands a v2 report may declare (#850). */
+  commands: 64,
   name: 80,
   text: 240,
   excerpt: 400,
@@ -489,7 +491,25 @@ function arr(v: unknown, path: string, max: number): unknown[] {
   return v;
 }
 
-const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const EFFORTS: readonly KnownEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const AGENT_KINDS = ['subagent', 'fork', 'teammate'] as const;
+const PLAN_SOURCES = ['TaskCreate', 'TodoWrite', 'podium_plan'] as const;
+
+/** A closed list for a v1 report, a free non-empty string (clamped) for a v2 one (#850); null stays null. */
+function listOrFree<T extends string>(version: ReportVersion, v: unknown, path: string, allowed: readonly T[]): string | null {
+  if (version === 1) return oneOfOrNull(v, path, allowed);
+  if (v === null || v === undefined) return null;
+  const out = str(v, path, LIMITS.short);
+  if (out === '') throw new Invalid(path, 'must not be empty');
+  return out;
+}
+
+/** Same, for a value that cannot be null. */
+function listOrFreeReq<T extends string>(version: ReportVersion, v: unknown, path: string, allowed: readonly T[]): string {
+  const out = listOrFree(version, v, path, allowed);
+  if (out === null) throw new Invalid(path, version === 1 ? `expected one of ${allowed.join(', ')}` : 'expected a string');
+  return out;
+}
 const AGENT_STATUSES: readonly AgentStatus[] = ['queued', 'running', 'done', 'failed', 'aborted'];
 const EVENT_KINDS: readonly EventKind[] = ['start', 'end', 'spawn', 'skill', 'done', 'fail', 'blow', 'compact', 'plan', 'wait', 'note'];
 const FAILURE_CLASSES: readonly FailureClass[] = [
@@ -559,7 +579,7 @@ function git(v: unknown, path: string): GitInfo | null {
   };
 }
 
-function plan(v: unknown, path: string): Plan | null {
+function plan(v: unknown, path: string, version: ReportVersion): Plan | null {
   if (v === null || v === undefined) return null;
   const o = obj(v, path);
   const steps = arr(o.steps, `${path}.steps`, LIMITS.planSteps).map((s, i) => {
@@ -576,7 +596,7 @@ function plan(v: unknown, path: string): Plan | null {
   });
   return {
     title: strOrNull(o.title, `${path}.title`, LIMITS.text),
-    source: oneOf(o.source, `${path}.source`, ['TaskCreate', 'TodoWrite', 'podium_plan'] as const),
+    source: listOrFreeReq(version, o.source, `${path}.source`, PLAN_SOURCES),
     steps,
   };
 }
@@ -605,7 +625,7 @@ function failure(v: unknown, path: string): Failure | null {
   };
 }
 
-function agent(v: unknown, path: string): AgentReport {
+function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
   const o = obj(v, path);
   let steps: AgentReport['steps'] = null;
   if (o.steps !== null && o.steps !== undefined) {
@@ -616,12 +636,13 @@ function agent(v: unknown, path: string): AgentReport {
   return {
     id: str(o.id, `${path}.id`, LIMITS.id),
     parentId: strOrNull(o.parentId, `${path}.parentId`, LIMITS.id),
-    kind: oneOf(o.kind, `${path}.kind`, ['subagent', 'fork', 'teammate'] as const),
+    kind: listOrFreeReq(version, o.kind, `${path}.kind`, AGENT_KINDS),
     type: str(o.type, `${path}.type`, LIMITS.short),
     name: strOrNull(o.name, `${path}.name`, LIMITS.name),
     description: str(o.description, `${path}.description`, LIMITS.text),
     model: strOrNull(o.model, `${path}.model`, LIMITS.short),
-    effort: oneOfOrNull(o.effort, `${path}.effort`, EFFORTS),
+    ...modelFields(o, path, version),
+    effort: listOrFree(version, o.effort, `${path}.effort`, EFFORTS),
     effortSource: oneOf(o.effortSource, `${path}.effortSource`, ['requested', 'observed', 'inherited', 'unknown'] as const),
     status: oneOf(o.status, `${path}.status`, AGENT_STATUSES),
     startedAt: num(o.startedAt, `${path}.startedAt`),
@@ -710,15 +731,58 @@ function filesReport(v: unknown, path: string): FilesReport | null {
   };
 }
 
-/** The harness and cost source of a session report (#851), each left out when the report does not say. */
-function harnessFields(o: Record<string, unknown>, path: string): { harness?: string; costSource?: CostSource } {
+/**
+ * The harness and cost source of a session report (#851), each left out when the report does not say. In a v2 report the
+ * harness block is the one source of the id, so a session `harness` that names another one is an error (#850).
+ */
+function harnessFields(o: Record<string, unknown>, path: string, harnessId: string | null): { harness?: string; costSource?: CostSource } {
   const harness = o.harness === undefined || o.harness === null ? null : str(o.harness, `${path}.harness`, LIMITS.short);
   if (harness === '') throw new Invalid(`${path}.harness`, 'must not be empty');
+  if (harnessId !== null && harness !== null && harness !== harnessId) throw new Invalid(`${path}.harness`, 'must match $.harness.id');
   const costSource = oneOfOrNull(o.costSource, `${path}.costSource`, ['harness', 'estimate'] as const);
-  return { ...(harness === null ? {} : { harness }), ...(costSource === null ? {} : { costSource }) };
+  const id = harnessId ?? harness;
+  return { ...(id === null ? {} : { harness: id }), ...(costSource === null ? {} : { costSource }) };
 }
 
-function session(v: unknown, path: string): SessionReport {
+/** The `harness` block of a v2 report (#850). */
+function harnessBlock(v: unknown, path: string): HarnessInfo {
+  const o = obj(v, path);
+  // Checked as sent: `str` clamps, and a clamped id would let two long ids collide.
+  const id = typeof o.id === 'string' ? o.id : str(o.id, `${path}.id`, 0);
+  if (!/^[A-Za-z0-9_-]{1,32}$/.test(id)) throw new Invalid(`${path}.id`, 'expected 1 to 32 letters, digits, - or _');
+  const name = str(o.name, `${path}.name`, LIMITS.name).trim();
+  if (!name) throw new Invalid(`${path}.name`, 'must not be empty');
+  return { id, name, version: str(o.version, `${path}.version`, LIMITS.short), surface: strOrNull(o.surface, `${path}.surface`, LIMITS.short) };
+}
+
+/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter supports, and its commands. Unknown keys are dropped. */
+function capabilitiesBlock(v: unknown, path: string): Capabilities {
+  const o = obj(v, path);
+  const out: Capabilities = { commands: [] };
+  for (const key of CAPABILITY_KEYS) {
+    if (o[key] !== undefined) out[key] = bool(o[key], `${path}.${key}`);
+  }
+  if (o.commands !== undefined) {
+    const seen = arr(o.commands, `${path}.commands`, LIMITS.commands).map((c, i) => {
+      const cmd = str(c, `${path}.commands[${i}]`, LIMITS.short).trim();
+      if (!cmd) throw new Invalid(`${path}.commands[${i}]`, 'must not be empty');
+      return cmd;
+    });
+    out.commands = [...new Set(seen)];
+  }
+  return out;
+}
+
+/** A model's provider and label (v2 only, #850); a field that is omitted stays omitted, null stays null. v1 never carries them. */
+function modelFields(o: Record<string, unknown>, path: string, version: ReportVersion): { modelProvider?: string | null; modelLabel?: string | null } {
+  if (version === 1) return {};
+  const out: { modelProvider?: string | null; modelLabel?: string | null } = {};
+  if (o.modelProvider !== undefined) out.modelProvider = strOrNull(o.modelProvider, `${path}.modelProvider`, LIMITS.short);
+  if (o.modelLabel !== undefined) out.modelLabel = strOrNull(o.modelLabel, `${path}.modelLabel`, LIMITS.short);
+  return out;
+}
+
+function session(v: unknown, path: string, version: ReportVersion, harnessId: string | null): SessionReport {
   const o = obj(v, path);
   const id = str(o.id, `${path}.id`, LIMITS.id);
   if (!id) throw new Invalid(`${path}.id`, 'must not be empty');
@@ -737,14 +801,15 @@ function session(v: unknown, path: string): SessionReport {
     repoName: strOrNull(o.repoName, `${path}.repoName`, LIMITS.short),
     git: git(o.git, `${path}.git`),
     model: strOrNull(o.model, `${path}.model`, LIMITS.short),
-    effort: oneOfOrNull(o.effort, `${path}.effort`, EFFORTS),
+    ...modelFields(o, path, version),
+    effort: listOrFree(version, o.effort, `${path}.effort`, EFFORTS),
     context: context(o.context, `${path}.context`),
     costUsd: (() => {
       const c = numOrNull(o.costUsd, `${path}.costUsd`);
       return c === null ? null : Math.max(0, c);
     })(),
     tokens: tokens(o.tokens, `${path}.tokens`),
-    ...harnessFields(o, path),
+    ...harnessFields(o, path, harnessId),
     ...usageByModel(o.usageByModel, `${path}.usageByModel`),
     rateLimits: arr(o.rateLimits, `${path}.rateLimits`, LIMITS.rateLimits).map((r, i) => {
       const p = `${path}.rateLimits[${i}]`;
@@ -756,7 +821,7 @@ function session(v: unknown, path: string): SessionReport {
       };
     }),
     blowouts: int(o.blowouts, `${path}.blowouts`),
-    plan: plan(o.plan, `${path}.plan`),
+    plan: plan(o.plan, `${path}.plan`, version),
     loop: loop(o.loop, `${path}.loop`),
     files: filesReport(o.files, `${path}.files`),
     attached: o.attached === undefined || o.attached === null ? null : bool(o.attached, `${path}.attached`),
@@ -1003,10 +1068,14 @@ export function validateReport(body: unknown): ValidateResult {
   try {
     const o = obj(body, '$');
     if (o.v === undefined) throw new Invalid('$.v', 'missing protocol version');
-    if (o.v !== 1) throw new Invalid('$.v', 'unsupported protocol version');
+    if (o.v !== 1 && o.v !== 2) throw new Invalid('$.v', 'unsupported protocol version');
+    const version: ReportVersion = o.v;
+    // v2 names its harness and what it can send; v1 has no block, so it means Claude Code unless the session says otherwise (#851).
+    const harness = version === 2 ? harnessBlock(o.harness, '$.harness') : null;
+    const capabilities = version === 2 ? capabilitiesBlock(o.capabilities, '$.capabilities') : null;
     const r = obj(o.reporter, '$.reporter');
     const report: Report = {
-      v: 1,
+      v: version,
       sentAt: num(o.sentAt, '$.sentAt'),
       reporter: {
         name: oneOf(r.name, '$.reporter.name', ['podium-reporter'] as const),
@@ -1014,10 +1083,12 @@ export function validateReport(body: unknown): ValidateResult {
         engineVersion: strOrNull(r.engineVersion, '$.reporter.engineVersion', LIMITS.short),
         hostSurface: strOrNull(r.hostSurface, '$.reporter.hostSurface', LIMITS.short),
       },
-      session: session(o.session, '$.session'),
-      agents: arr(o.agents, '$.agents', LIMITS.agents).map((a, i) => agent(a, `$.agents[${i}]`)),
+      session: session(o.session, '$.session', version, harness?.id ?? null),
+      agents: arr(o.agents, '$.agents', LIMITS.agents).map((a, i) => agent(a, `$.agents[${i}]`, version)),
       events: arr(o.events, '$.events', LIMITS.events).map((e, i) => event(e, `$.events[${i}]`)),
     };
+    if (harness) report.harness = harness;
+    if (capabilities) report.capabilities = capabilities;
     const build = parseBuild(r.build);
     if (build !== null) report.reporter.build = build;
     const userName = strOrNull(o.userName, '$.userName', LIMITS.name);

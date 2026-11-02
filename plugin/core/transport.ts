@@ -17,6 +17,19 @@ const MAX_DIFF_REQUESTS = 4;
 /** Messages and commands one reply can hand over (#206). */
 const MAX_DELIVERIES = 20;
 
+/** Why a refusal is one the user can act on (#850): a v2 report an older server cannot read (its 400 names `$.v`), or a session id kept by another harness. */
+function rejectReasonOf(status: number, text: string, version: number): 'version' | 'harness' | null {
+  let path: unknown;
+  try {
+    path = (JSON.parse(text) as { path?: unknown } | null)?.path;
+  } catch {
+    return null;
+  }
+  if (status === 400 && path === '$.v' && version === 2) return 'version';
+  if (status === 409 && path === '$.harness.id') return 'harness';
+  return null;
+}
+
 /** A delivery as the server sends it: only its shape is checked here; what it may do is the mod's to decide (SPEC 5.3). */
 export function isDelivery(v: unknown): v is Delivery {
   const d = v as Partial<Delivery> | null;
@@ -151,6 +164,8 @@ export class Transport {
   refused = false;
   /** True while the server's last answer was a 409: this session already belongs to another owner (#209). */
   ownerRefused = false;
+  /** Why the server refused the last report, when its reply says it is a v2 report the server cannot read or a session of another harness (#850). */
+  rejectReason: 'version' | 'harness' | null = null;
   private loggedOwner = false;
   private rejectStreak = 0;
 
@@ -207,6 +222,8 @@ export class Transport {
     const events = this.queue.slice(0, EVENTS_PER_REPORT);
     try {
       const report = build(events);
+      // A refusal only stands until the next attempt: a 401, an outage or a success must not leave an old reason showing.
+      this.rejectReason = null;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.cfg.token) headers['X-Podium-Token'] = this.cfg.token;
       const res = await this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) });
@@ -240,6 +257,7 @@ export class Transport {
         this.nextAttemptAt = 0;
         this.lastSentAt = now;
         this.lastError = null;
+        this.rejectReason = null;
         this.sent++;
         this.refused = false;
         this.loggedRefusal = false;
@@ -257,9 +275,18 @@ export class Transport {
         this.nextAttemptAt = now + Transport.backoff(this.rejectStreak);
         this.lastSentAt = now;
         this.lastError = `server rejected a report (${res.status})`;
+        this.rejectReason = rejectReasonOf(res.status, res.text, report.v);
         // The server read the credential and answered about the report, so an earlier 401 no longer stands.
         this.refused = false;
         this.loggedRefusal = false;
+        if (this.rejectReason === 'harness') {
+          this.ownerRefused = false;
+          if (!this.loggedReject) {
+            this.loggedReject = true;
+            this.log(`podium-reporter: ${this.rejectNotice()}`);
+          }
+          return 'rejected';
+        }
         if (res.status === 409) {
           this.ownerRefused = true;
           if (!this.loggedOwner) {
@@ -271,7 +298,7 @@ export class Transport {
         this.ownerRefused = false;
         if (!this.loggedReject) {
           this.loggedReject = true;
-          this.log(`podium-reporter: server rejected a report (${res.status}): ${res.text.slice(0, 200)}`);
+          this.log(`podium-reporter: ${this.rejectNotice() ?? `server rejected a report (${res.status}): ${res.text.slice(0, 200)}`}`);
         }
         return 'rejected';
       }
@@ -341,6 +368,8 @@ export class Transport {
     if (problem) return `${name} ○ ${problem}`;
     if (this.refused) return `${name} ○ token refused`;
     if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;
+    if (this.rejectReason === 'version') return `${name} ○ server too old for this reporter`;
+    if (this.rejectReason === 'harness') return `${name} ○ refused: session belongs to another harness`;
     if (this.online === false) return `${name} ○ offline`;
     if (this.online === null) return `${name} ○ connecting`;
     const live = `${name} ● ${this.liveSessions ?? 1} live`;
@@ -360,6 +389,13 @@ export class Transport {
   /** What to tell the user when the server refused the token or name; null when it did not. */
   refusalNotice(): string | null {
     return this.refused ? 'The server refused this reporter. Check that the Podium token belongs to the user name in the podium-reporter settings (claude plugin configure podium-reporter), or ask the server owner for a new token.' : null;
+  }
+
+  /** What to tell the user when the server refused a v2 report it cannot read, or one for a session of another harness (#850); null otherwise. */
+  rejectNotice(): string | null {
+    if (this.rejectReason === 'version') return 'The server only reads report version 1 and refused this report. Update Podium to a release that reads version 2, or ask the server owner to.';
+    if (this.rejectReason === 'harness') return 'The server refused this report: this session id already belongs to another harness. Start a new session.';
+    return null;
   }
 
   /** What to tell the user when the server says this session already belongs to another owner (#209); null when it did not. */

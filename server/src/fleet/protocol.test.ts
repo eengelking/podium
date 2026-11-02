@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateReport, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
+import { validateReport, harnessOf, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
 import { bareFixture, loadFixture } from './testing.js';
 import { checkReporter } from './compat.js';
 
@@ -37,8 +37,99 @@ describe('protocol', () => {
     expect(validateReport(f)).toMatchObject({ ok: false, path: '$.v' });
   });
 
-  it('rejects v: 2', () => {
-    expect(validateReport({ ...loadFixture(), v: 2 })).toMatchObject({ ok: false, path: '$.v' });
+  it('rejects a version it does not know', () => {
+    expect(validateReport({ ...loadFixture(), v: 3 })).toMatchObject({ ok: false, path: '$.v' });
+    expect(validateReport({ ...loadFixture(), v: '2' })).toMatchObject({ ok: false, path: '$.v' });
+  });
+
+  describe('v2: a harness block and capabilities (#850)', () => {
+    const v2 = () => {
+      const f = loadFixture() as Record<string, any>;
+      f.v = 2;
+      f.harness = { id: 'opencode', name: 'OpenCode', version: '1.2.3', surface: 'tui' };
+      f.capabilities = { effort: true, plan: false, commands: ['/clear', '/compact'] };
+      f.session.effort = 'minimal';
+      f.session.modelProvider = 'anthropic';
+      f.session.modelLabel = 'Claude Sonnet';
+      f.session.costSource = 'harness';
+      return f;
+    };
+
+    it('accepts a report from opencode and reads it as v2', () => {
+      const r = validateReport(v2());
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.v).toBe(2);
+      expect(r.report.harness).toEqual({ id: 'opencode', name: 'OpenCode', version: '1.2.3', surface: 'tui' });
+      expect(r.report.capabilities).toEqual({ effort: true, plan: false, commands: ['/clear', '/compact'] });
+      expect(r.report.session.harness).toBe('opencode');
+      expect(r.report.session.effort).toBe('minimal');
+      expect(r.report.session.modelProvider).toBe('anthropic');
+      expect(r.report.session.modelLabel).toBe('Claude Sonnet');
+    });
+
+    it('reads a v1 report as Claude Code with the closed lists kept', () => {
+      const r = validateReport(loadFixture());
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.v).toBe(1);
+      expect(r.report.harness).toBeUndefined();
+      expect(harnessOf(r.report)).toBe('claude-code');
+      const f = loadFixture() as Record<string, any>;
+      f.session.effort = 'minimal';
+      expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.effort' });
+    });
+
+    it('takes free strings for an agent kind and a plan source', () => {
+      const f = v2();
+      f.agents[0].kind = 'task';
+      f.session.plan = { source: 'opencode_todo', steps: [] , updatedAt: 1 };
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(`${r.path}: ${r.error}`);
+      expect(r.report.agents[0].kind).toBe('task');
+    });
+
+    it('keeps each command once', () => {
+      const f = v2();
+      f.capabilities.commands = ['/clear', ' /clear', '/compact'];
+      const r = validateReport(f);
+      if (!r.ok) throw new Error(r.error);
+      expect(r.report.capabilities?.commands).toEqual(['/clear', '/compact']);
+    });
+
+    it('treats an omitted capability as not supported and keeps null as null', () => {
+      const f = v2();
+      f.capabilities = {};
+      f.session.effort = null;
+      const r = validateReport(f);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.report.capabilities).toEqual({ commands: [] });
+      expect(r.report.session.effort).toBeNull();
+    });
+
+    it.each([
+      ['a missing harness', (f: any) => delete f.harness, '$.harness'],
+      ['a harness that is not an object', (f: any) => (f.harness = 'opencode'), '$.harness'],
+      ['an empty harness id', (f: any) => (f.harness.id = ''), '$.harness.id'],
+      ['an id with characters outside letters, digits, - and _', (f: any) => (f.harness.id = 'open code'), '$.harness.id'],
+      ['a harness id over 32 characters', (f: any) => (f.harness.id = 'a'.repeat(40)), '$.harness.id'],
+      ['an empty harness name', (f: any) => (f.harness.name = ''), '$.harness.name'],
+      ['a harness version that is not a string', (f: any) => (f.harness.version = 3), '$.harness.version'],
+      ['a missing capabilities block', (f: any) => delete f.capabilities, '$.capabilities'],
+      ['a capability that is not a boolean', (f: any) => (f.capabilities.effort = 'yes'), '$.capabilities.effort'],
+      ['commands that are not an array', (f: any) => (f.capabilities.commands = '/clear'), '$.capabilities.commands'],
+      ['a command that is not a string', (f: any) => (f.capabilities.commands = [1]), '$.capabilities.commands[0]'],
+      ['too many commands', (f: any) => (f.capabilities.commands = Array.from({ length: 65 }, (_, i) => `/c${i}`)), '$.capabilities.commands'],
+      ['an empty effort string', (f: any) => (f.session.effort = ''), '$.session.effort'],
+      ['a model provider that is not a string', (f: any) => (f.session.modelProvider = 1), '$.session.modelProvider'],
+      ['a cost source that is neither value', (f: any) => (f.session.costSource = 'guess'), '$.session.costSource'],
+      ['a session harness that disagrees with the block', (f: any) => (f.session.harness = 'claude-code'), '$.session.harness'],
+    ])('rejects %s', (_name, edit, path) => {
+      const f = v2();
+      edit(f);
+      expect(validateReport(f)).toMatchObject({ ok: false, path });
+    });
   });
 
   it('rejects a non-array agents', () => {

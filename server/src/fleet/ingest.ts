@@ -186,8 +186,12 @@ function numOrNull(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null;
 }
 
+/** The harness a report names: its block or its session's field; null for a v1 report that says nothing, which leaves a stored harness as it is (#851). */
+const namedHarness = (r: Report): string | null => r.harness?.id ?? r.session.harness ?? null;
 /** A session already belongs to someone else: the token's owner may not take it over. */
 export class OwnerConflict extends Error {}
+/** The session id is already stored under another harness (#850): one id never changes harness. */
+export class HarnessConflict extends Error {}
 
 /**
  * Stores one validated report. `serverTime` (never the reporter's clock) sets last_seen_at.
@@ -199,6 +203,7 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     const sid = report.session.id;
     const prev = await f.getSession(sid);
     if (owner !== null && prev?.owner && prev.owner !== owner) throw new OwnerConflict('session belongs to another owner');
+    if (prev && namedHarness(report) !== null && prev.harness !== namedHarness(report)) throw new HarnessConflict('session belongs to another harness');
     const row = sessionRow(report, prev, serverTime, owner);
     await f.upsertSession(row);
     const ended = report.session.status === 'done';

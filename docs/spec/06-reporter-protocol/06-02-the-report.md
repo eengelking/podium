@@ -223,6 +223,35 @@ interface ActivityEvent {
 }
 ```
 
+## Report v2: a harness block and capabilities (#850)
+
+A report with `v: 2` is the v1 shape plus two blocks, so a harness other than Claude Code can report. It goes to the same endpoint and gets the same reply. The server reads both versions, and a v1 report means Claude Code. Any other `v` is a 400 at `$.v`.
+
+```ts
+interface ReportV2 extends Omit<Report, 'v'> {
+  v: 2;
+  // both blocks are required in v2; a report without one is a 400 at its path
+  harness: { id: string; name: string; version: string; surface: string | null };  // id: 1 to 32 letters, digits, - or _ (the key the server uses)
+  capabilities: {                       // each key is a boolean; a key left out is not supported
+    effort?: boolean; plan?: boolean; agents?: boolean; cost?: boolean; context?: boolean; git?: boolean; respond?: boolean;
+    commands?: string[];                // the slash commands Podium may send, at most 64, none empty; left out means none
+  };
+}
+```
+
+What changes inside the v1 fields when `v` is 2:
+
+- `session.effort` and `agents[].effort` are any non-empty string or `null`; `plan.source` and `agents[].kind` are any non-empty string. v1 keeps its closed lists.
+- `session.model` and `agents[].model` stay strings. New and optional on both: `modelProvider` (such as `anthropic`) and `modelLabel` (the name the harness shows).
+- `session.costSource` says whether `costUsd` is the harness's own figure (`harness`) or an estimate (6.5). `session.harness`, if sent, must equal `harness.id`.
+
+**Omitted and null.** The two mean different things, in v2 and wherever a field is optional. A field or capability that is **omitted** is not supported by that reporter. `null` means it is supported and has no value now (an effort not chosen, a cost not yet known). A reader never turns one into the other. This does not change v1, whose optional fields keep the rule at the top of this page.
+
+**Refusals.**
+
+- A v2 report to a server that only knows v1 gets that server's `400` at `$.v`. The reporter turns it into a notice that the server only reads version 1 and needs an update, instead of showing the bare 400.
+- A session id is kept by the harness that first reported it. A report that names another harness (the block, or `session.harness`) for that id is `409` at `$.harness.id`. A v1 report that names none leaves the stored harness as it is (#851).
+
 <!-- nav:start -->
 ---
 
