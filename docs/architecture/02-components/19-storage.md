@@ -40,6 +40,7 @@ Contents:
 | `lock.ts` | `AsyncLock`, the queue each adapter puts in front of a connection |
 | `peerText.ts` | The pure helpers both messaging stores share: control-character cleaning, round trips used, the notice cap |
 | `contract.ts` | The checks a store must pass, run against each adapter: the same results as the synchronous stores, the type of every field of the main rows, how names compare, and the order lists come back in |
+| `contractSame.ts`, `contractSettings.ts`, `contractFleet.ts`, `contractPeers.ts`, `contractActivity.ts`, `contractReports.ts` | The rest of the contract (#890): one case for every other store, each running a scenario over the adapter and over a second SQLite storage and comparing every value it records (results, thrown messages, list order with ties). Generated ids and the size of the database file are compared by type only |
 | `reportQueries.ts` | The fleet-wide reporting queries behind Admin > Reporting |
 
 Nothing in those files imports `storage/sqlite/` or `node:sqlite`, except `index.ts`; neither adapter imports the other (`neutral.test.ts` checks that too: what they share lives in these files); `neutral.test.ts` fails if one does, and if any file outside the adapter that is not a test reaches for `sqliteHandle` or
@@ -185,7 +186,9 @@ contract.
 - **Maintenance.** There is no `VACUUM` or checkpoint. Autovacuum owns the space, so the Activity history's compaction does
   nothing and frees 0 bytes.
 - **Order.** A query that could tie ends on `seq` or `id`. SQLite's migration 25 adds the `seq` columns the two `rowid`
-  orderings need, so both adapters answer the same.
+  orderings need, so both adapters answer the same. A list that a caller can see states its order in both adapters, and neither leaves it to the table's storage order (#890):
+  open peer requests end on `seq`, an insertion number (SQLite migration 26, PostgreSQL step 2) that a generated `id` cannot give, `clearedInto` on `id` after the start time,
+  and the spend queries, the reporter keys, the reporter versions seen, the rollup days and each rollup table's rows end on a key.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
 
 The PostgreSQL tests are skipped unless `PODIUM_TEST_PG` names a server ([CONTRIBUTING](../../../CONTRIBUTING.md)), and CI runs them

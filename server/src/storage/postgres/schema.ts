@@ -153,6 +153,16 @@ CREATE INDEX person_certificates_seq ON person_certificates(person_id, seq);
 INSERT INTO groups (name, name_lower, created_at) VALUES ('Administrators', 'administrators', (extract(epoch FROM now()) * 1000)::bigint);
 `),
   },
+  {
+    version: 2,
+    // An explicit insertion order for open requests (#890), as peer messages have: two made in the same millisecond used to be told apart
+    // by their random id. A row that already exists takes its place from its time and then its id, the only order PostgreSQL can still give it.
+    sql: typed(`
+ALTER TABLE peer_requests ADD COLUMN seq INT;
+UPDATE peer_requests r SET seq = o.n FROM (SELECT id, row_number() OVER (ORDER BY created_at, id) AS n FROM peer_requests) o WHERE o.id = r.id;
+CREATE INDEX peer_requests_seq ON peer_requests(created_at, seq);
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

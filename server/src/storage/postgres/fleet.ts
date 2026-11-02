@@ -90,7 +90,8 @@ export class PgFleetStore implements FleetStoreApi {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
        FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
-       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
+       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
+       ORDER BY s.id`,
       { since, sec: Math.floor(since / 1000) },
     );
     const out: SessionSpend[] = [];
@@ -196,7 +197,7 @@ export class PgFleetStore implements FleetStoreApi {
   }
 
   async distinctReporterVersions(): Promise<string[]> {
-    return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL')).map((r) => r.v);
+    return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v')).map((r) => r.v);
   }
 
   // ---- agents ---------------------------------------------------------------------------------

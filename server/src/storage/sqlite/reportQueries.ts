@@ -4,12 +4,20 @@ import type { ReportQueries, RollupRaw, RollupTable, StoredSession } from '../re
 
 const TABLES: RollupTable[] = ['usage_daily', 'sessions_daily', 'failures_daily', 'fleet_daily'];
 
+/** The columns after `day` that make a rollup row unique, so rows of one day come back in one order everywhere. */
+const ROW_KEY: Record<RollupTable, string> = {
+  usage_daily: ', owner, model, project',
+  sessions_daily: ', outcome, model, effort, plan',
+  failures_daily: ', owner, class, tool',
+  fleet_daily: '',
+};
+
 /** The SQL the reports and rollups ran from reports.ts and rollups.ts, moved here unchanged. */
 export class SqliteReportQueries implements ReportQueries {
   constructor(private readonly db: DatabaseSync) {}
 
   rollupRows(table: RollupTable, from: string, to: string): RollupRaw[] {
-    return this.db.prepare(`SELECT * FROM ${table} WHERE day >= ? AND day <= ? ORDER BY day`).all(from, to) as unknown as RollupRaw[];
+    return this.db.prepare(`SELECT * FROM ${table} WHERE day >= ? AND day <= ? ORDER BY day${ROW_KEY[table]}`).all(from, to) as unknown as RollupRaw[];
   }
 
   rollupOldestDay(table: RollupTable): string | null {
@@ -25,11 +33,11 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   ownerGroupNames(): { n: string; g: string }[] {
-    return this.db.prepare('SELECT p.name AS n, COALESCE(g.name, \'\') AS g FROM people p LEFT JOIN groups g ON g.id = p.group_id').all() as unknown as { n: string; g: string }[];
+    return this.db.prepare('SELECT p.name AS n, COALESCE(g.name, \'\') AS g FROM people p LEFT JOIN groups g ON g.id = p.group_id ORDER BY p.id').all() as unknown as { n: string; g: string }[];
   }
 
   knownPeople(): { name: string; grp: string | null; last: number | null }[] {
-    return this.db.prepare('SELECT p.name AS name, g.name AS grp, p.last_report_at AS last FROM people p LEFT JOIN groups g ON g.id = p.group_id').all() as unknown as { name: string; grp: string | null; last: number | null }[];
+    return this.db.prepare('SELECT p.name AS name, g.name AS grp, p.last_report_at AS last FROM people p LEFT JOIN groups g ON g.id = p.group_id ORDER BY p.id').all() as unknown as { name: string; grp: string | null; last: number | null }[];
   }
 
   countReporters(): number {
@@ -56,19 +64,19 @@ export class SqliteReportQueries implements ReportQueries {
   }
 
   agentCountsSince(fromMs: number): { id: string; n: number }[] {
-    return this.db.prepare(`SELECT session_id AS id, COUNT(*) AS n FROM agents WHERE session_id IN (${CHOSEN}) GROUP BY session_id`).all(fromMs) as unknown as { id: string; n: number }[];
+    return this.db.prepare(`SELECT session_id AS id, COUNT(*) AS n FROM agents WHERE session_id IN (${CHOSEN}) GROUP BY session_id ORDER BY session_id`).all(fromMs) as unknown as { id: string; n: number }[];
   }
 
   reporterKeysSince(fromMs: number): { id: string; k: string }[] {
-    return this.db.prepare(`SELECT session_id AS id, MIN(reporter_key) AS k FROM reporter_sessions WHERE session_id IN (${CHOSEN}) GROUP BY session_id`).all(fromMs) as unknown as { id: string; k: string }[];
+    return this.db.prepare(`SELECT session_id AS id, MIN(reporter_key) AS k FROM reporter_sessions WHERE session_id IN (${CHOSEN}) GROUP BY session_id ORDER BY session_id`).all(fromMs) as unknown as { id: string; k: string }[];
   }
 
   failureRowsSince(fromMs: number): { id: string; f: string }[] {
-    return this.db.prepare(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${CHOSEN})`).all(fromMs) as unknown as { id: string; f: string }[];
+    return this.db.prepare(`SELECT session_id AS id, failure_json AS f FROM agents WHERE failure_json IS NOT NULL AND session_id IN (${CHOSEN}) ORDER BY session_id, id`).all(fromMs) as unknown as { id: string; f: string }[];
   }
 
   sampleSpans(): { a: number; b: number }[] {
-    return this.db.prepare('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id').all() as unknown as { a: number; b: number }[];
+    return this.db.prepare('SELECT MIN(t) AS a, MAX(t) AS b FROM samples GROUP BY session_id ORDER BY session_id').all() as unknown as { a: number; b: number }[];
   }
 
   oldestSessionSeen(): number | null {
@@ -78,7 +86,8 @@ export class SqliteReportQueries implements ReportQueries {
   rollupDaysBefore(day: string): string[] {
     const written = new Set<string>();
     for (const table of TABLES) for (const r of this.db.prepare(`SELECT DISTINCT day FROM ${table} WHERE day < ?`).all(day) as unknown as { day: string }[]) written.add(r.day);
-    return [...written];
+    // by code unit, not by locale: the days are ISO dates and every adapter answers in the same order
+    return [...written].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   deleteRollupsFrom(day: string): void {

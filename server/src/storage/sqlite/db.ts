@@ -327,6 +327,15 @@ ALTER TABLE person_certificates ADD COLUMN seq INTEGER;
 UPDATE person_certificates SET seq = rowid;
 CREATE INDEX IF NOT EXISTS person_certificates_seq ON person_certificates(person_id, seq);`,
   },
+  {
+    version: 26,
+    // Open requests are listed oldest first, and two made in the same millisecond used to be told apart by their random id (#890). They
+    // take an insertion number like peer messages do (migration 25): existing rows keep the order their rowid gave them, a new row the next number.
+    sql: `
+ALTER TABLE peer_requests ADD COLUMN seq INTEGER;
+UPDATE peer_requests SET seq = rowid;
+CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 
@@ -428,7 +437,7 @@ export class FleetDb {
 
   /** The session that continued `id` after a /clear, if any (the newest when there are several). */
   clearedInto(id: string): string | null {
-    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC LIMIT 1').get(id) as { id: string } | undefined;
+    const r = this.stmt('SELECT id FROM sessions WHERE cleared_from = ? ORDER BY started_at DESC, id DESC LIMIT 1').get(id) as { id: string } | undefined;
     return r?.id ?? null;
   }
 
@@ -456,7 +465,8 @@ export class FleetDb {
            (SELECT m.cost_usd FROM samples m WHERE m.session_id = s.id AND m.cost_usd IS NOT NULL ORDER BY m.t ASC LIMIT 1)
          ) AS base
        FROM sessions s LEFT JOIN people p ON p.name = s.owner LEFT JOIN groups g ON g.id = p.group_id
-       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
+       WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since
+       ORDER BY s.id`,
     ).all({ since, sec: Math.floor(since / 1000) }) as unknown as (CostRow & {
       id: string;
       name: string;
@@ -567,7 +577,7 @@ export class FleetDb {
 
   distinctReporterVersions(): string[] {
     return (
-      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL').all() as {
+      this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v').all() as {
         v: string;
       }[]
     ).map((r) => r.v);

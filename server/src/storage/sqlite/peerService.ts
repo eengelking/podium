@@ -7,7 +7,6 @@ import { PeerMessages } from './peerMessages.js';
 import { PeerSettings } from './peerSettings.js';
 import { isIdle, type Actor, type EffectiveRight, type MachineName, type OwnerDefaults, type RightRow, type SeenReporterRef, type ReporterRef, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type PeerReporterLookup, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerDelivery, type PeerLevel, type PeerRequest, type Report } from '../../fleet/protocol.js';
-import type { PeerLimits } from '../settings.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 
 export { isIdle } from '../../fleet/peerTypes.js';
@@ -112,10 +111,6 @@ export class PeerService {
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
   setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): ReturnType<PeerRights['setDefaults']> {
     return this.rights.setDefaults(owner, patch, this.settings.limits(), actor);
-  }
-
-  serverLimits(): PeerLimits {
-    return this.settings.limits();
   }
 
   /**

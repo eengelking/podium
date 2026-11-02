@@ -361,7 +361,7 @@ export class SessionRecordings {
 
   /** The Admin turned the flag off: every running recording stops and keeps what it has. Returns the sessions stopped. */
   stopAll(by: string): string[] {
-    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording'").all() as { id: string }[]).map((x) => x.id);
+    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' ORDER BY session_id").all() as { id: string }[]).map((x) => x.id);
     const now = this.opts.now();
     this.tx(() => {
       for (const id of ids) {
@@ -467,7 +467,7 @@ export class SessionRecordings {
           this.setLimit(sessionId, which);
           hit.push({ sessionId, which, bytes: size });
           if (which === 'budget') {
-            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ?").all(sessionId) as { id: string }[]) {
+            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ? ORDER BY session_id").all(sessionId) as { id: string }[]) {
               this.setLimit(other.id, 'budget');
               hit.push({ sessionId: other.id, which: 'budget', bytes: 0 });
             }
@@ -673,6 +673,7 @@ export class SessionRecordings {
 
   private async deleteEntriesOf(sessionId: string): Promise<void> {
     for (;;) {
+      // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
       const done = await this.step(() => this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)').run(sessionId, this.chunk).changes);
       if (Number(done) < this.chunk) return;
       await yieldNow();
@@ -707,6 +708,7 @@ export class SessionRecordings {
       let bytes = 0;
       for (;;) {
         const rows = await this.step(() => this.tx(() => {
+          // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
           const gone = this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b').all(cutoff, this.chunk) as { sid: string; b: number }[];
           const per = new Map<string, { n: number; b: number }>();
           for (const g of gone) {

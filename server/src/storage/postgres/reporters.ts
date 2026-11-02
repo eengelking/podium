@@ -40,7 +40,7 @@ interface DbReporter {
 
 /** The project of the newest session a reporter reported: what an unnamed reporter is called. */
 const PROJECT_SQL = `SELECT COALESCE(s.repo_name, s.name) FROM reporter_sessions x JOIN sessions s ON s.id = x.session_id
-  WHERE x.reporter_key = r.key ORDER BY s.last_seen_at DESC LIMIT 1`;
+  WHERE x.reporter_key = r.key ORDER BY s.last_seen_at DESC, s.id DESC LIMIT 1`;
 const NAME_SQL = `COALESCE(r.machine_name, CASE r.kind WHEN 'hooks' THEN 'Hooks only' ELSE COALESCE((${PROJECT_SQL}), r.source_address, 'Unnamed reporter') END)`;
 const SESSIONS_SQL = 'SELECT COUNT(*) FROM reporter_sessions x WHERE x.reporter_key = r.key';
 const LIVE_SQL = `SELECT COUNT(*) FROM reporter_sessions x JOIN sessions s ON s.id = x.session_id
@@ -274,7 +274,7 @@ export class PgReporterStore implements ReporterStoreApi {
 
   async keys(opts: { q?: string; state?: string; admin?: boolean }, now: number): Promise<string[]> {
     const { sub, params, filter } = this.view(opts, now);
-    return (await this.db.all<{ key: string }>(`SELECT q.key FROM (${sub}) q${filter}`, params)).map((r) => r.key);
+    return (await this.db.all<{ key: string }>(`SELECT q.key FROM (${sub}) q${filter} ORDER BY q.key`, params)).map((r) => r.key);
   }
 
   async get(key: string, now: number, opts: { page?: number; pageSize?: number } = {}): Promise<ReporterDetail | undefined> {
