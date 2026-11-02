@@ -8,7 +8,7 @@ group: Reference
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
-the first section lists the thirty-two parts on that page's system map, the second lists the reporter's hooks and
+the first section lists the thirty-three parts on that page's system map, the second lists the reporter's hooks and
 timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
 [Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
@@ -31,7 +31,7 @@ Contents:
 | Reporter | Inside each Claude Code process, on the machine that runs the session |
 | Network | Between the two: a listener or a proxy that carries reports and browsers |
 | Server | The Podium server process |
-| Storage | A file the server keeps on disk |
+| Storage | The database behind the server: the two SQLite files, or a PostgreSQL database |
 | Console | The React page in your browser |
 
 Sessions call out to the server; the server never calls in to a session. Anything the server wants a session
@@ -82,9 +82,10 @@ to do travels back in the reply to a report.
 |---|---|---|
 | Storage | Storage interface | The contract the app calls, and the only storage it knows: the async `Storage` interfaces written out in `server/src/storage/types.ts`, with the neutral row types, flag and notice tables and setting limits beside them (`rows.ts`, `features.ts`, `settings.ts`), and `openStorage` in `storage/index.ts`. The server reads `PODIUM_DB` once through `storageSpec` (an unknown kind throws at startup); `openStorage`, which is async, picks an adapter by kind from a registry (`DEFAULT_STORAGE_KIND` is `sqlite`; `postgres` is the other kind, and `postgresql://` is an alias for it; each kind declares its own default target, which `postgres` does not have, and a `label()` for the log and the health check: `host:port/dbname`, never a user or password) and loads it on demand. `/health` shows that label as `dbPath` and the kind as `dbKind`. It names no database, and no app code opens one. The interface is fixed; the adapter behind it can be replaced. |
 | Storage | SQLite adapter (the default) | One of two adapters, in `server/src/storage/sqlite/`. It implements the `Storage` interfaces and owns the SQL, the 28 numbered migrations, one lock per connection, and both database files. Options only it honors stay inside it (`vacuumPages` on `SqliteActivityHistoryOpts`). Migration 25 adds a `seq` column to `peer_messages` and `person_certificates`, an explicit insertion order that replaces SQLite's `rowid` on a tie. Migration 27 adds `reporter_name` to `reporters`, and a reporter's key carries it for any reporter but `podium-reporter`, so one machine can hold a row per reporter. Migration 28 adds `harness` and `cost_source` to `sessions`: the harness a session runs under (existing rows become `claude-code`) and `harness` when its cost is the harness's own figure, which ingest keeps as it came and never reprices. |
-| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Each schema has one baseline step and later changes are new steps. |
+| Storage | PostgreSQL adapter | The other adapter, in `server/src/storage/postgres/`, chosen when `PODIUM_DB` is a `postgres://` (or `postgresql://`) address. It implements the same `Storage` interfaces over the `pg` driver, which only this folder imports, and passes the same contract suite. It keeps two schemas in one database, each on its own pool: `podium` (10 connections) and `podium_activity` (4 connections). Transactions run one at a time through `PgDb.tx`. A session advisory lock taken at startup keeps a second server off the database. Version 1 of each schema is a baseline and a later change is a new step: `podium` has three so far, `podium_activity` none. |
 | Storage | `podium.sqlite` | The SQLite adapter's main file, reached only through the adapter: WAL mode, with the live fleet, people and certificates, reporters, messaging, daily rollups, settings and the Admin log. |
 | Storage | `activity.sqlite` | The SQLite adapter's second file, for opt-in activity history and session recordings, on its own connection and its own lock. Nothing is written to it unless an Admin turns one of them on. |
+| Storage | PostgreSQL database | The PostgreSQL adapter's database, used instead of the two SQLite files: one database with two schemas, `podium` (fleet, people, reporters, messaging, settings; a pool of 10 connections) and `podium_activity` (Activity history and recordings; a pool of 4). A session advisory lock keeps a second server off it. |
 
 ### Console
 
@@ -259,6 +260,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Storage | `openDb` | Opens the main file, sets WAL and applies the migrations. In `server/src/storage/sqlite/db.ts`. |
 | Storage | `openActivityDb` | Opens the activity file, sets incremental vacuum and WAL, applies its steps. In `server/src/storage/sqlite/activityDb.ts`. |
 | Storage | `activityDbPath` | The activity file's path, beside the main one. In `server/src/storage/sqlite/activityDb.ts`. |
+| Storage | `migrate` | Applies the steps not yet in schema_migrations. In `server/src/storage/postgres/schema.ts`. |
 
 ### Console
 
