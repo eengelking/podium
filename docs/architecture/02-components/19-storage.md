@@ -84,7 +84,7 @@ Reads that run for every live session are batched (#906). `getSessions`, `getAge
 `samplesSinceOf`, `groupsOfOwners` and the Activity store's `recordings.viewMany` answer for many ids in one statement each, with a key
 for every id asked and each list in the order its one-session method gives; `upsertAgents` and `upsertAgentTextsMany` write a report's
 agents in one statement each. PostgreSQL does it with an `IN (...)` list or a multi-row `INSERT` cut into pieces under the driver's limit
-on bound values. SQLite loops over the one-at-a-time method, since a statement costs it microseconds. A path that would otherwise grow
+on bound values. SQLite runs the same `IN (...)` reads, and the order-parity check (`scripts/storage-order-parity.mjs`) holds both to the same `ORDER BY`. A path that would otherwise grow
 its statement count with the wall (a report, a snapshot) uses these, and `docs/PERFORMANCE.md` has the counts.
 
 `storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything

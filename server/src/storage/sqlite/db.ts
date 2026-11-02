@@ -383,10 +383,32 @@ export function openDb(file: string, upTo = Infinity): DatabaseSync {
 type Params = Record<string, string | number | null>;
 
 /** Typed, prepared queries over one database. */
+/** A list of ids is cut into pieces well under SQLite's limit on bound values. */
+function pieces<T>(list: readonly T[], size = 500): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** `?, ?, ?` for `n` values. */
+const marks = (n: number): string => Array.from({ length: n }, () => '?').join(', ');
+
+/** A key for every id asked, in the order asked, each with its own list. */
+function grouped<T extends { session_id: string }>(ids: readonly string[], rows: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>(ids.map((id) => [id, []]));
+  for (const r of rows) out.get(r.session_id)?.push(r);
+  return out;
+}
+
 export class FleetDb {
   private readonly stmts = new Map<string, StatementSync>();
 
   constructor(readonly db: DatabaseSync) {}
+
+  /** A read whose text changes with the number of ids, so it is prepared for the one call and not kept in the statement cache. */
+  private many(sql: string, values: (string | number)[]): Record<string, unknown>[] {
+    return this.db.prepare(sql).all(...values) as Record<string, unknown>[];
+  }
 
   private stmt(sql: string): StatementSync {
     let s = this.stmts.get(sql);
@@ -428,14 +450,14 @@ export class FleetDb {
     return this.stmt('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
 
-  /** `getSession` for many ids, in the order given (#906). In-process SQLite pays nothing for a statement, so this is a loop. */
+  /** `getSession` for many ids, in the order given (#906), in one statement per 500. */
   getSessions(ids: string[]): SessionRow[] {
-    const out: SessionRow[] = [];
-    for (const id of ids) {
-      const row = this.getSession(id);
-      if (row) out.push(row);
+    const found = new Map<string, SessionRow>();
+    for (const part of pieces([...new Set(ids)])) {
+      // order-insensitive: the rows are put in a map and returned in the order of the ids asked.
+      for (const r of this.many(`SELECT * FROM sessions WHERE id IN (${marks(part.length)})`, part) as unknown as SessionRow[]) found.set(r.id, r);
     }
-    return out;
+    return ids.flatMap((id) => found.get(id) ?? []);
   }
 
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
@@ -603,7 +625,13 @@ export class FleetDb {
 
   /** `groupOfOwner` for many owners (#906). */
   groupsOfOwners(owners: (string | null)[]): Map<string | null, string | null> {
-    return new Map(owners.map((o) => [o, this.groupOfOwner(o)]));
+    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
+    for (const part of pieces([...new Set(owners.filter((o): o is string => o !== null))])) {
+      // order-insensitive: the rows are put in a map by the owner's name.
+      const rows = this.many(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part) as unknown as { name: string; grp: string }[];
+      for (const r of rows) out.set(r.name, r.grp);
+    }
+    return out;
   }
 
   distinctReporterVersions(): string[] {
@@ -642,7 +670,18 @@ export class FleetDb {
 
   /** `getAgents` for many sessions (#906). */
   getAgentsOf(sessionIds: string[]): Map<string, AgentRow[]> {
-    return new Map(sessionIds.map((id) => [id, this.getAgents(id)]));
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(
+        ...(this.many(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          part,
+        ) as unknown as AgentRow[]),
+      );
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** Keeps the full texts a report carried; a text the report leaves out is left as it was. */
@@ -724,12 +763,22 @@ export class FleetDb {
 
   /** `getBlowouts` for many sessions (#906). */
   getBlowoutsOf(sessionIds: string[]): Map<string, BlowoutRow[]> {
-    return new Map(sessionIds.map((id) => [id, this.getBlowouts(id)]));
+    const rows: BlowoutRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(...(this.many(`SELECT * FROM blowouts WHERE session_id IN (${marks(part.length)}) ORDER BY t, id`, part) as unknown as BlowoutRow[]));
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** `countAutoCompactions` for many sessions (#906). */
   countAutoCompactionsOf(sessionIds: string[]): Map<string, number> {
-    return new Map(sessionIds.map((id) => [id, this.countAutoCompactions(id)]));
+    const out = new Map<string, number>(sessionIds.map((id) => [id, 0]));
+    for (const part of pieces([...new Set(sessionIds)])) {
+      // order-insensitive: the rows are counted.
+      const rows = this.many(`SELECT session_id, data_json FROM events WHERE session_id IN (${marks(part.length)}) AND kind = 'compact'`, part) as unknown as { session_id: string; data_json: string | null }[];
+      for (const r of rows) if (FleetDb.isAutoCompact(r.data_json)) out.set(r.session_id, (out.get(r.session_id) ?? 0) + 1);
+    }
+    return out;
   }
 
   countBlowouts(sessionId?: string): number {
@@ -810,7 +859,11 @@ export class FleetDb {
 
   /** `samplesSince` for many sessions (#906). */
   samplesSinceOf(sessionIds: string[], fromT: number): Map<string, SampleRow[]> {
-    return new Map(sessionIds.map((id) => [id, this.samplesSince(id, fromT)]));
+    const rows: SampleRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)])) {
+      rows.push(...(this.many(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT]) as unknown as SampleRow[]));
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** Σ tokens_delta per second across all sessions, for seconds >= fromT. */

@@ -155,7 +155,7 @@ of the SQL text. On the same machine:
 
 None of these removes a live stream field or reads it less often. Each reads or writes the same data in fewer round trips, and each is a
 new method on the store interface in `server/src/storage/types.ts`, in both adapters, with a case in `server/src/storage/contract.ts`.
-SQLite implements each as a loop over the one-at-a-time method, since a statement costs it microseconds; the result and its order match.
+SQLite runs the same `IN (...)` read (cut into pieces of 500), so the result and its order match; a statement costs it microseconds, so the gain there is small.
 
 1. **`visibleCount()` (24 of 67 statements per report).** It reads the live sessions' rows with `getSessions` and the agents of those that
    pass every other test of `isUnused` with `getAgentsOf`: two statements however many sessions are live. The count is the same.
@@ -170,15 +170,14 @@ Same scenario as the table above, taken again on 2026-11-01 (three runs each, lo
 
 | Database | Round trip added | Report p50 (ms) | Queries per report | Snapshot p50 (ms) | Queries per snapshot |
 |---|---|---|---|---|---|
-| SQLite | none | 0.75 to 1.13 (was 0.71 to 0.79) | not counted | 3.2 to 4.3 (was 3.8 to 4.0) | not counted |
+| SQLite | none | 0.72 to 0.83 (was 0.71 to 0.79) | not counted | 3.2 to 3.4 (was 3.8 to 4.0) | not counted |
 | PostgreSQL, same machine | none | 6.0 to 7.2 (was 18.3 to 19.4) | 19 (was 67) | 8.6 to 9.1 (was 58 to 62) | 15 to 19 (was 205) |
 | PostgreSQL, network hop | 1 ms | 74 to 81 (was 229 to 233) | 32 to 33 (was 111) | 60 to 72 (was 658 to 685) | 19 to 25 (was 287 to 291) |
 
 Against the yardstick (a report under 100 ms and a snapshot under 250 ms on a hop of 1 ms or less, confirmed by the maintainer on #906), both
 now meet it at 1 ms. The report's p50 at 1 ms is still 74 ms because of its floor: the transaction's `BEGIN` and `COMMIT`, the session
 read and write, the events, the sample and the settings read. The count at 1 ms is above the 19 on one machine because a slow report lets
-the per-session throttle expire and more work runs between reports (see above). SQLite's report and snapshot medians are within the spread of the earlier
-runs (two of three runs of each are at or under the old figures; one run of each was slower, with the machine busy), so it is not slower. Nothing the stream carries is cached.
+the per-session throttle expire and more work runs between reports (see above). SQLite's report median is within the spread of the earlier runs and its snapshot is faster, so it is not slower. Nothing the stream carries is cached.
 
 To take the numbers again: `npm run build -w server`, then `node scripts/podium-perf-storage.mjs --help`. For example,
 `--db "$PODIUM_TEST_PG" --rtt 1 --reports 600 --serial 200 --states 20 --runs 3`. Omit `--db` for SQLite.

@@ -275,6 +275,7 @@ export class PgSessionRecordings {
     const loops = new Map(items.map((i) => [i.sessionId, i.loops]));
     for (let at = 0; at < items.length; at += 1000) {
       const ids = items.slice(at, at + 1000).map((i) => i.sessionId);
+      // order-insensitive: the rows are put in a map by the session's id.
       for (const r of (await this.db.all<RecDbRow>(`${ROW_SQL} WHERE session_id IN (${ids.map(() => '?').join(', ')})`, ids)).map(rowOf)) out.set(r.sessionId, this.viewOfRow(r, loops.get(r.sessionId) ?? []));
     }
     return out;

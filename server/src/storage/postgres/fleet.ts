@@ -63,6 +63,7 @@ export class PgFleetStore implements FleetStoreApi {
   async getSessions(ids: string[]): Promise<SessionRow[]> {
     const found = new Map<string, SessionRow>();
     for (const part of pieces([...new Set(ids)], IDS_PER_STATEMENT)) {
+      // order-insensitive: the rows are put in a map and returned in the order of the ids asked.
       for (const r of await this.db.all<SessionRow>(`SELECT * FROM sessions WHERE id IN (${marks(part.length)})`, part)) found.set(r.id, r);
     }
     return ids.flatMap((id) => found.get(id) ?? []);
@@ -231,6 +232,7 @@ export class PgFleetStore implements FleetStoreApi {
     const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
     const names = [...new Set(owners.filter((o): o is string => o !== null))];
     for (const part of pieces(names, IDS_PER_STATEMENT)) {
+      // order-insensitive: the rows are put in a map by the owner's name.
       const rows = await this.db.all<{ name: string; grp: string }>(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part);
       for (const r of rows) out.set(r.name, r.grp);
     }
@@ -391,6 +393,7 @@ export class PgFleetStore implements FleetStoreApi {
   async countAutoCompactionsOf(sessionIds: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>(sessionIds.map((id) => [id, 0]));
     for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      // order-insensitive: the rows are counted.
       const rows = await this.db.all<{ session_id: string; data_json: string | null }>(`SELECT session_id, data_json FROM events WHERE session_id IN (${marks(part.length)}) AND kind = 'compact'`, part);
       for (const r of rows) if (isAutoCompact(r.data_json)) out.set(r.session_id, (out.get(r.session_id) ?? 0) + 1);
     }
