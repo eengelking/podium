@@ -2,7 +2,7 @@ import { describe, test, expect } from 'claude-code/testing'
 import { buildId, modBuild, withBuild } from './build.ts'
 import type { Runner } from './git.ts'
 
-const ROOT = '/dev/podium/mod/podium-reporter'
+const ROOT = '/dev/podium/plugin/claudecode'
 
 function runner(map: Record<string, { exitCode?: number; stdout?: string }>): Runner {
   return async (argv) => {

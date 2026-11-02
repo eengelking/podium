@@ -17,27 +17,31 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Determine whether this PR changes the mod
+      # A harness is plugin/<harness>/. The code every harness shares is plugin/core/, which ships inside each one, so a change
+      # there changes every harness. A harness with no version file yet (no plugin.json) is skipped, and a harness added later
+      # needs a line in the "Require a version bump" step below.
+      - name: Determine whether this PR changes a plugin
         id: changed
         run: |
           # Three dots: only this PR's own changes, not whatever landed on main since the branch point.
           git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
-          if grep -E '^mod/podium-reporter/' /tmp/changed_files.txt | grep -Evq '\.test\.ts$'; then
-            echo "mod_changed=true" >> "$GITHUB_OUTPUT"
+          changed() { grep -E "$1" /tmp/changed_files.txt | grep -Evq '\.test\.ts$'; }
+          if changed '^plugin/(claudecode|core)/'; then
+            echo "claudecode_changed=true" >> "$GITHUB_OUTPUT"
           else
-            echo "mod_changed=false" >> "$GITHUB_OUTPUT"
+            echo "claudecode_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Require a plugin.json version bump when the mod changed
-        if: steps.changed.outputs.mod_changed == 'true'
+      - name: Require a plugin.json version bump when the Claude Code plugin changed
+        if: steps.changed.outputs.claudecode_changed == 'true'
         run: |
-          path=mod/podium-reporter/.claude-plugin/plugin.json
+          path=plugin/claudecode/.claude-plugin/plugin.json
           base=$(git merge-base "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
           base_version=$(git show "$base:$path" | jq -r '.version')
           head_version=$(git show "${{ github.event.pull_request.head.sha }}:$path" | jq -r '.version')
           echo "base version: $base_version"
           echo "head version: $head_version"
           if [ "$base_version" = "$head_version" ]; then
-            echo "::error::This PR changes the mod but $path's version ($base_version) was not bumped. Installed copies only update when it changes. See CONTRIBUTING.md."
+            echo "::error::This PR changes the plugin but $path's version ($base_version) was not bumped. Installed copies only update when it changes. See CONTRIBUTING.md."
             exit 1
           fi

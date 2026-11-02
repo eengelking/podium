@@ -38,6 +38,19 @@ describe("package versions", () => {
     expect(JSON.parse(read("package.json")).version).toBe(mod);
   });
 
+  // Every harness under plugin/ that carries a version file (a Claude Code plugin.json, or a package.json) is versioned with the
+  // product. A harness with no version file yet (opencode) has nothing to compare; one that gains it is picked up here.
+  it("every harness's version file shares the product version", () => {
+    const root = JSON.parse(read("package.json")).version as string;
+    const files = fs
+      .readdirSync(path.join(ROOT, "plugin"), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name !== "core")
+      .flatMap((d) => [`plugin/${d.name}/.claude-plugin/plugin.json`, `plugin/${d.name}/package.json`])
+      .filter((p) => fs.existsSync(path.join(ROOT, p)));
+    expect(files).toContain("plugin/claudecode/.claude-plugin/plugin.json");
+    expect(files.filter((p) => JSON.parse(read(p)).version !== root)).toEqual([]);
+  });
+
   it("package-lock.json follows the manifests", () => {
     const lock = JSON.parse(read("package-lock.json"));
     const root = JSON.parse(read("package.json")).version as string;

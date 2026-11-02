@@ -251,7 +251,7 @@ export class Transport {
       if (res.status === 400 || res.status === 409 || res.status === 413) {
         this.ack(events, events.length);
         this.rejected++;
-        // Back off like a failure: a snapshot the server keeps refusing (a mod/server version mismatch, say)
+        // Back off like a failure: a snapshot the server keeps refusing (a plugin/server version mismatch, say)
         // would otherwise be rebuilt and re-posted on every flush tick while state is dirty.
         this.rejectStreak++;
         this.nextAttemptAt = now + Transport.backoff(this.rejectStreak);
