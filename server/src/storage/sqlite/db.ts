@@ -361,6 +361,7 @@ export function openDb(file: string, upTo = Infinity): DatabaseSync {
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)');
   const applied = new Set(
+    // order-insensitive: the versions are collected into a set.
     (db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((r) => r.version),
   );
   for (const m of MIGRATIONS) {
@@ -545,6 +546,7 @@ export class FleetDb {
    * with no figure add nothing, and a session with no agents is not in the map.
    */
   agentCostsSince(since: number, cost: CostOf): Map<string, number> {
+    // order-insensitive: the costs are summed per session into a map.
     const rows = this.stmt(
       `SELECT a.session_id AS id, a.cost_usd_est AS cost_usd, a.usage_json AS usage_json FROM agents a JOIN sessions s ON s.id = a.session_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
@@ -704,6 +706,7 @@ export class FleetDb {
    * is not JSON or has no string `auto` trigger is not counted.
    */
   countAutoCompactions(sessionId: string): number {
+    // order-insensitive: the rows are counted.
     const rows = this.stmt(`SELECT data_json FROM events WHERE session_id = ? AND kind = 'compact'`).all(sessionId) as { data_json: string | null }[];
     let n = 0;
     for (const r of rows) if (FleetDb.isAutoCompact(r.data_json)) n++;
@@ -815,6 +818,7 @@ export class FleetDb {
       const samples = Number(this.stmt('DELETE FROM samples WHERE t < ?').run(Math.floor((now - p.samplesMs) / 1000)).changes);
       const events = Number(this.stmt('DELETE FROM events WHERE t < ?').run(now - p.eventsMs).changes);
       const cutoff = now - p.sessionsMs;
+      // order-insensitive: every row listed is deleted, in whatever order.
       const old = this.stmt(
         'SELECT id FROM sessions WHERE (ended_at IS NOT NULL AND ended_at < ?) OR (dropped_at IS NOT NULL AND dropped_at < ?)',
       ).all(cutoff, cutoff) as { id: string }[];

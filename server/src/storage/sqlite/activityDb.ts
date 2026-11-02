@@ -32,6 +32,7 @@ export function recomputeAggregates(db: DatabaseSync): void {
   // The v2 migration runs before v5 adds the `command` column; a file that old has no commands to count.
   const command = (db.prepare("SELECT 1 AS x FROM pragma_table_info('entries') WHERE name = 'command'").get() as { x: number } | undefined) !== undefined;
   db.exec('UPDATE stored_sessions SET entries = 0, bytes = 0, oldest_t = NULL');
+  // order-insensitive: the totals are written back by session id.
   const rows = db.prepare(`SELECT session_id AS sid, COUNT(*) AS n, SUM(${entryBytesSql('', command)}) AS b, MIN(t) AS oldest FROM entries GROUP BY session_id`).all() as { sid: string; n: number; b: number; oldest: number }[];
   const put = db.prepare('UPDATE stored_sessions SET entries = ?, bytes = ?, oldest_t = ? WHERE session_id = ?');
   for (const r of rows) put.run(r.n, r.b, r.oldest, r.sid);
