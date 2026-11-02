@@ -14,7 +14,7 @@ export const END = '<!-- atlas-functions:end -->';
 
 // Parts in the order the tables list them, most important first (the same order as "The parts" in docs/atlas/ATLAS.md).
 export const LOCATIONS = [
-  ['Reporter', ['hooks', 'tx', 'cc', 'tools', 'helper', 'collect', 'rec', 'alt']],
+  ['Reporter', ['harness', 'hooks', 'tx', 'cc', 'tools', 'helper', 'collect', 'rec', 'alt']],
   ['Network', ['p4317', 'p4318', 'proxy']],
   ['Server', ['ingest', 'fleet', 'sweeper', 'sse', 'routes', 'guards', 'admin', 'peers', 'ca', 'brokers', 'logs']],
   ['Storage', ['db', 'adapter', 'pdb', 'adb', 'pgdb']],
