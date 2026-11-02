@@ -178,7 +178,7 @@ describe('openDb', () => {
     }
     old.exec('DELETE FROM schema_migrations WHERE version = 25');
     old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('Ada', 'ada', 'aabbccddeeff', '${'0'.repeat(64)}', 1000)`);
-    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in. The number follows the id, as PostgreSQL's does.
+    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
     for (const id of ['c', 'a', 'b']) {
       old.exec(`INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at)
         VALUES ('${id}', 'ed', 'l', 'k1', 'k2', 's1', 's2', 'n1', 'm1', 'n2', 'm2', 't-${id}', 5000, 'ready', 5000)`);
