@@ -36,13 +36,19 @@ To try the mod in a real session, build it and load the built folder from your c
 the source in `plugin/`, because that folder is what gets installed (DECISIONS 56):
 
 ```sh
-npm run plugin:build
-claude --plugin-dir /path/to/podium/dist/claudecode
+npm run plugin:dev:claudecode
 ```
 
-Run `npm run plugin:build` again after you change the source; the build is fast. It has no watch mode, and `claude --plugin-dir` does not
-rebuild it, so a change in `plugin/` shows only after a rebuild and a `/reload-plugins`. Its output is git-ignored.
-`npm run plugin:build` stamps the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. The script run on its own stamps nothing, which is how CI and the release archive are built; the publish and zip scripts refuse a folder that carries a stamp.
+That builds `dist/claudecode/` and starts `claude --plugin-dir` on it. `npm run plugin:dev:claudecode -- --watch` also rebuilds into the same
+folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it ignores tests, `.DS_Store` and `dist/`, and a failed rebuild
+keeps the last good one); run `/reload-plugins` in the session after each rebuild. Arguments for `claude` go after a second `--`:
+`npm run plugin:dev:claudecode -- --watch -- --model sonnet`. `PODIUM_CLAUDE_BIN` names the `claude` to run if it is not on `PATH`.
+`npm run plugin:dev:cleanup` deletes `dist/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
+`dist/claudecode/`). It removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no plugin yet, so
+`npm run plugin:dev:opencode` exits with an error until #855. `scripts/plugin-dev.mjs` is the script behind these.
+
+`npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
+Its output is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. The script run on its own stamps nothing, which is how CI and the release archive are built; the publish and zip scripts refuse a folder that carries a stamp.
 
 ## Checks to run
 

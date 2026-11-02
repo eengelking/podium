@@ -47,12 +47,12 @@ gets HTTP 401, logs it once, and tries again about once a minute. `/podium` and 
 To work on the mod itself, build it and load the built folder from a checkout for one session instead:
 
 ```sh
-npm run plugin:build
-claude --plugin-dir /path/to/podium/dist/claudecode
+npm run plugin:dev:claudecode
 ```
 
-The source is not loadable on its own, because it imports the shared code from outside its folder. Run `npm run plugin:build`
-again after a change.
+That builds `dist/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild on every change (then `/reload-plugins`).
+The source is not loadable on its own, because it imports the shared code from outside its folder. `npm run plugin:build` builds
+without starting `claude`, and `npm run plugin:dev:cleanup` removes the build folders.
 
 To update an installed mod, run this in a shell and then `/reload-plugins` in the session (see "Updating
 the mod" in [docs/user-guide/](user-guide/README.md)):

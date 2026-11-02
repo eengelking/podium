@@ -17,8 +17,10 @@ loaded `dist/claudecode` and a change you made in `plugin/` is not in the sessio
 folder. `scripts/plugin-build.mjs` copies `core` in and writes a self-contained `dist/<harness>/`, which is the folder that is
 installed and zipped (DECISIONS 56). `claude --plugin-dir` does not rebuild it.
 
-**Do:** Run `npm run plugin:build`, then `claude --plugin-dir /path/to/podium/dist/claudecode`, and run the build again (and
-`/reload-plugins`) after each edit. `npm run test:mod` builds with the tests into `.build-test/` first, so it needs no separate step. If
+**Do:** Run `npm run plugin:dev:claudecode`. It builds `dist/claudecode` and starts `claude` with that folder loaded; the source folder
+still cannot be loaded. Add `-- --watch` to rebuild after each edit, then run `/reload-plugins`. By hand it is `npm run plugin:build`
+followed by `claude --plugin-dir /path/to/podium/dist/claudecode`, and the build runs again after each edit. `npm run plugin:dev:cleanup`
+removes the output. `npm run test:mod` builds with the tests into `.build-test/` first, so it needs no separate step. If
 the build says the folder is not self-contained, it names the import that leaves it. Both output folders are git-ignored.
 
 <!-- nav:start -->
