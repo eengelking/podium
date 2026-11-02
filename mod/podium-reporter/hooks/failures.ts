@@ -1,5 +1,6 @@
 // Failure classification, excerpts and redaction (SPEC 6.4). Pure: no `$` here.
 import type { Failure, FailureClass } from './protocol.ts';
+import { redactBounded } from './diffRedact.ts';
 
 export const LIMITS = {
   call: 300,
@@ -25,11 +26,21 @@ const SECRET_PATTERNS: RegExp[] = [
 // `password=hunter2`, `token: abc`, `"api_key": "abc"`: keep the key, redact the value.
 const KEY_VALUE = /((?:password|passwd|token|secret|apikey|api_key)["']?\s*[=:]\s*["']?)([^\s"'&,;]+)/gi;
 
-/** Replaces anything that looks like a secret with `[redacted]`. */
+/**
+ * Replaces anything that looks like a secret with `[redacted]`. Every free text the reporter sends (a command, a call's
+ * output, a prompt, an answer, a question, a description) goes through here, and so through the same `redactBounded` the
+ * Command block, a recording and a diff use, so no two views of one text can differ (#895). The patterns below it are the
+ * older ones, kept as a second pass. An identifier (an id, a tool, a skill or a model name) is not free text: see `cap`.
+ */
 export function redact(text: string): string {
-  let out = text;
+  let out = redactBounded(text).text;
   for (const re of SECRET_PATTERNS) out = out.replace(re, '[redacted]');
   return out.replace(KEY_VALUE, (_m, key: string) => `${key}[redacted]`);
+}
+
+/** Cuts to `max` characters without redacting: for an identifier the engine made (an id, a tool, a skill, a model, a type), which is not free text. */
+export function cap(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max) : text;
 }
 
 /** Redacts, then cuts to `max` characters. */

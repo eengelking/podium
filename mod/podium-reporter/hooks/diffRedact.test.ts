@@ -170,3 +170,106 @@ describe('redactText (a message to another orchestrator, #414)', () => {
     expect(redactText('Please run the systemd unit tests.\n')).toEqual({ text: 'Please run the systemd unit tests.\n', redactions: 0 })
   })
 })
+
+const COMMAND_SECRETS: [string, string][] = [
+  [`curl -u 'admin:hunter22' https://x`, 'hunter22'],
+  ['curl --user="admin:hunter22" https://x', 'hunter22'],
+  ['curl -u admin:hunter22 https://x', 'hunter22'],
+  ['curl --user admin:hunter22 https://x', 'hunter22'],
+  ['curl -H "Authorization: Bearer abcdefghijklmnop1234" x', 'abcdefghijklmnop1234'],
+  ['curl -H "Authorization: Token hunter22abc" x', 'hunter22abc'],
+  ['curl -H "X-Api-Key: hunter22abc" x', 'hunter22abc'],
+  ['git clone https://hunter22abcdef@github.com/a/b', 'hunter22abcdef'],
+  ['git clone https://oauth2:hunter22abc@gitlab.com/a/b', 'hunter22abc'],
+  ['mongodb+srv://user:hunter22@cluster0.x.net/db', 'hunter22'],
+  ['redis-cli -a hunter22 ping', 'hunter22'],
+  ['redis://:hunter22@host:6379', 'hunter22'],
+  ['redis-cli --pass hunter22', 'hunter22'],
+  ['docker login -u me -p hunter22', 'hunter22'],
+  ['mysql -uroot -phunter22 db', 'hunter22'],
+  ['mysql --password=hunter22', 'hunter22'],
+  ['openssl enc -pass pass:hunter22', 'hunter22'],
+  ['openssl rsa -passin pass:hunter22', 'hunter22'],
+  ['gpg --passphrase hunter22 -d f', 'hunter22'],
+  ['export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', 'wJalrXUtnFEMI'],
+  ['export DATABASE_URL=postgres://u:hunter22@h/db', 'hunter22'],
+  ['PGPASSWORD=hunter22 psql', 'hunter22'],
+  ['MYSQL_PWD=hunter22 mysql', 'hunter22'],
+  ['htpasswd -b f user hunter22', 'hunter22'],
+  ['wget --http-password=hunter22 x', 'hunter22'],
+  ['wget --password hunter22 x', 'hunter22'],
+  ['az login -p hunter22', 'hunter22'],
+  ['kubectl --token=hunter22abcdef get', 'hunter22abcdef'],
+  ['kubectl create secret generic s --from-literal=pw=hunter22', 'hunter22'],
+  ['npm config set //registry.npmjs.org/:_authToken hunter22abcdef', 'hunter22abcdef'],
+  ['//registry.npmjs.org/:_authToken=hunter22abcdef', 'hunter22abcdef'],
+  ['curl "https://x/api?api_key=hunter22abc&x=1"', 'hunter22abc'],
+  ['curl "https://x/api?access_token=hunter22abc"', 'hunter22abc'],
+  ['curl "https://x/?sig=hunter22abcdefghijklmnop"', 'hunter22abcdefghijklmnop'],
+  ['curl -d "client_secret=hunter22abc" x', 'hunter22abc'],
+  ['curl -d \'{"password":"hunter22"}\' x', 'hunter22'],
+  ['jq .secret <<< \'{"secret":"hunter22"}\'', 'hunter22'],
+  ['sshpass -p hunter22 ssh h', 'hunter22'],
+  ['ssh://user:hunter22@host', 'hunter22'],
+  ['ftp://user:hunter22@host', 'hunter22'],
+  ['amqp://user:hunter22@host', 'hunter22'],
+  ['https://user:p@ss@host/', 'ss@host'],
+  ['Server=h;Database=d;User Id=u;Password=hunter22;', 'hunter22'],
+  ['DefaultEndpointsProtocol=https;AccountKey=abcd1234abcd1234abcd1234==', 'abcd1234abcd1234abcd1234'],
+  ['stripe sk_test_abcdefghijklmnopqrstuv', 'abcdefghijklmnopqrstuv'],
+  ['SLACK_WEBHOOK=https://hooks.slack.com/services/T000/B000/XXXXabcdefghijklmnop', 'XXXXabcdefghijklmnop'],
+  ['https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz', 'abcdefghijklmnopqrstuvwxyz'],
+  ['-----BEGIN RSA PRIVATE KEY-----MIIEabc-----END RSA PRIVATE KEY-----', 'MIIEabc'],
+  ['curl -H "Cookie: session=hunter22abc" x', 'hunter22abc'],
+  ['curl -b "sid=hunter22abcdef" x', 'hunter22abcdef'],
+  ['--client-secret hunter22abc', 'hunter22abc'],
+  ['export OPENAI_API_KEY="sk-abcdefghijklmnopqrstuvwxyz"', 'abcdefghijklmnopqrstuvwxyz'],
+  ['export MY_TOKEN=hunter22', 'hunter22'],
+  ['ANTHROPIC_AUTH_TOKEN=hunter22abc claude', 'hunter22abc'],
+  ['aws configure set aws_secret_access_key hunter22abcdef', 'hunter22abcdef'],
+  ['echo aHVudGVyMjJhYmNkZWZnaGlqa2xtbm9w | base64 -d', 'aHVudGVyMjJhYmNkZWZnaGlqa2xtbm9w'],
+  ['sqlcmd -S h -U sa -P hunter22', 'hunter22'],
+  ['psql "host=h user=u password=hunter22 dbname=d"', 'hunter22'],
+  ['mongo --username u --password hunter22', 'hunter22'],
+  ['mongosh -p hunter22', 'hunter22'],
+  ['smbclient -U user%hunter22 //h/s', 'hunter22'],
+  ['http://u:hunter22@proxy:8080', 'hunter22'],
+  ['HTTPS_PROXY=http://hunter22@proxy', 'hunter22'],
+]
+
+// Each row is a command a person runs and the secret in it. The Activity feed's row, its Command block, a failure's call and
+// output, a prompt and a permission message all redact through this one function, so one table covers them all (#895).
+describe('redactText: secrets in the commands people run (#895)', () => {
+  for (const [command, secret] of COMMAND_SECRETS) {
+    test(command, () => {
+      const r = redactText(command)
+      expect(r.text.includes(secret)).toBe(false)
+      expect(r.redactions).toBeGreaterThan(0)
+    })
+  }
+})
+
+describe('redactText: commands that must not change (#895)', () => {
+  const same = [
+    'git clone git@github.com:a/b.git',
+    'git clone ssh://git@github.com/a/b.git',
+    'git clone https://github.com/a/b.git',
+    'docker run -p 8080:80 nginx',
+    'docker ps -a',
+    'docker login -u me --password-stdin',
+    'psql -p 5432 -h localhost',
+    'curl -u "$USER:$PASS" https://x',
+    'curl -u admin:$PASS https://x',
+    'curl -u "admin:$PASS" https://x',
+    'echo _auth\nhunter22',
+    'curl -b cookies.txt https://x',
+    'openssl enc -pass env:SECRET_VAR',
+    'npm config set registry https://registry.npmjs.org/',
+    'aws configure set region us-east-1',
+    'redis-cli -h localhost ping',
+    'ls -la /work/podium/mod/podium-reporter/hooks',
+    'https://example.com:8080/path?x=1',
+  ]
+  for (const command of same) test(command, () => expect(redactText(command).text).toBe(command))
+})
+

@@ -1038,6 +1038,16 @@ describe('podium-reporter end to end', () => {
       expect(sent(w)).not.toContain(SECRET)
     })
 
+    test('a password in a connection URL is out of the row summary, the command and everything sent (#895)', { options: { activityFeed: true } }, async ($, on) => {
+      const w = await started($, on, ['a-sub'], null)
+      await $.tool.call(inAgent({ tool: 'Bash', command: 'PODIUM_TEST_PG=postgres://postgres:s3cr3tpw@localhost:5432/db echo hi' }))
+      await w.clock.advance(1000)
+      const [e] = subFeed(w)
+      expect(e!.text).toBe('Bash PODIUM_TEST_PG=postgres://postgres:[redacted]@localhost:5432/db echo hi')
+      expect(e!.command).toBe('PODIUM_TEST_PG=postgres://postgres:[redacted]@localhost:5432/db echo hi')
+      expect(sent(w)).not.toContain('s3cr3tpw')
+    })
+
     test('a command over 20,000 characters is cut with the marker and commandCut', { options: { activityFeed: true } }, async ($, on) => {
       const w = await started($, on, ['a-sub'], null)
       await $.tool.call(inAgent({ tool: 'Bash', command: 'a'.repeat(25_000) }))

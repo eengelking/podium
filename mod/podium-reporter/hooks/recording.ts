@@ -4,7 +4,9 @@
 // per-loop numbering of entries, a bounded queue of redacted entries and the batching of them. Nothing is captured, stored or
 // queued while capture is off. register.ts feeds it from the hooks and sends its batches from the flush timer.
 import { clockTime } from './respond.ts';
-import { redactText, withheldPath, type Redacted } from './diffRedact.ts';
+import { redactBounded, redactText, withheldPath, type Redacted } from './diffRedact.ts';
+
+export { redactBounded };
 import { BACKOFF_MS } from './transport.ts';
 import { RECORDING_LIMITS, type RecordingBatch, type RecordingEntry, type RecordingGrant, type RecordingKind } from './protocol.ts';
 
@@ -74,41 +76,6 @@ export function utf8Bytes(s: string): number {
 /** Capture needs the grant to say recording, all three yes answers, and the owner's option here. */
 function allowed(g: RecordingGrant, optionOn: boolean): boolean {
   return optionOn && g.state === 'recording' && g.consent.admin && g.consent.chosen && g.consent.owner;
-}
-
-/** Longest stretch redacted in one piece. The redactor's cost grows with the square of a line, so a minified file or a base64 blob is read in pieces. */
-const REDACT_PIECE = 1000;
-
-/**
- * `redactText` for a text of any size. A line longer than REDACT_PIECE is redacted in pieces (cut at a space when it has one)
- * and put back together, so a 100,000 character line costs milliseconds, not seconds. A secret that straddles a cut is not
- * seen, like one split across two entries (SPEC 6.4, what redaction does not cover).
- */
-export function redactBounded(text: string, redact: (t: string) => Redacted = redactText): Redacted {
-  if (text.length <= REDACT_PIECE) return redact(text);
-  const counts: number[] = [];
-  const pieces: string[] = [];
-  for (const line of text.split('\n')) {
-    let n = 0;
-    let at = 0;
-    do {
-      let end = Math.min(at + REDACT_PIECE, line.length);
-      const space = end < line.length ? line.lastIndexOf(' ', end) : -1;
-      if (space > at) end = space + 1;
-      pieces.push(line.slice(at, end));
-      n++;
-      at = end;
-    } while (at < line.length);
-    counts.push(n);
-  }
-  const r = redact(pieces.join('\n'));
-  const out = r.text.split('\n');
-  // The put-back below counts lines. If the redactor ever adds or removes one, keep what it returned (every piece redacted, the
-  // cuts left as line breaks) rather than shift content into the wrong line.
-  if (out.length !== pieces.length) return r;
-  let i = 0;
-  const lines = counts.map((n) => out.slice(i, (i += n)).join(''));
-  return { text: lines.join('\n'), redactions: r.redactions };
 }
 
 /** The path a file tool's input names, and the key it sits under. */

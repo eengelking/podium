@@ -8,6 +8,7 @@ import {
   evidence,
   excerpt,
   fullText,
+  cap,
   clip,
   type EndReason,
   type FailureCandidate,
@@ -429,7 +430,7 @@ export function setBackground(s: SessionState, i: BackgroundInput, now: number):
     if (type === 'monitor' && ARTIFACT_WATCHER.test((t.description ?? '').trim())) continue;
     // The first word that is not an NAME=value assignment, so an inline secret (API_KEY=...) is never kept.
     const word = (t.command ?? '').trim().split(/\s+/).find((w) => w !== '' && !w.includes('='))?.split('/').pop() ?? '';
-    tasks.push({ type, description: clip((t.description ?? '').replace(/\s+/g, ' ').trim() || word || type, BACKGROUND_DESC), status: clip(status, 40) });
+    tasks.push({ type, description: clip((t.description ?? '').replace(/\s+/g, ' ').trim() || word || type, BACKGROUND_DESC), status: cap(status, 40) });
   }
   const times: number[] = [];
   let unreadable = false;
@@ -758,7 +759,7 @@ export function reconcile(s: SessionState, list: readonly ListedAgent[], now: nu
 export function toolStarted(s: SessionState, agentId: string | undefined, tool: string, now: number | null = null): SessionState {
   const loop = loopOf(s, agentId);
   if (!loop) return s;
-  let next = putLoop(s, agentId, { ...loop, lastTool: clip(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
+  let next = putLoop(s, agentId, { ...loop, lastTool: cap(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
   if (next.waitReason === 'permission' && !agentId) next = withStatus({ ...next, waitReason: null, waitNote: null });
   return next;
 }
@@ -775,13 +776,13 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
   let s = s0;
   const loop = loopOf(s, i.agentId);
   if (loop) {
-    const tool = clip(i.tool, 120);
+    const tool = cap(i.tool, 120);
     const next: LoopStats = { ...loop, toolCalls: loop.toolCalls + 1, lastTool: tool, lastActiveAt: now };
     if (Object.hasOwn(loop.toolCounts, tool) || Object.keys(loop.toolCounts).length < MAX_TOOL_NAMES) {
       next.toolCounts = { ...loop.toolCounts, [tool]: (Object.hasOwn(loop.toolCounts, tool) ? loop.toolCounts[tool]! : 0) + 1 };
     }
     if (i.tool === 'Read' && typeof i.input.file_path === 'string') {
-      const f = clip(i.input.file_path, 200);
+      const f = cap(i.input.file_path, 200);
       next.reads = { ...loop.reads, [f]: (loop.reads[f] ?? 0) + 1 };
     }
     const cand = candidateFrom(i.tool, i.input, i.result, now);
@@ -821,7 +822,7 @@ function withPlan(s: SessionState, plan: PlanState, now: number): SessionState {
 export function skillLoaded(s: SessionState, agentId: string | undefined, skill: string, now: number): SessionState {
   const loop = loopOf(s, agentId);
   if (!loop || loop.skills.includes(skill)) return s;
-  const next = putLoop(s, agentId, { ...loop, skills: [...loop.skills, clip(skill, 120)].slice(-50) });
+  const next = putLoop(s, agentId, { ...loop, skills: [...loop.skills, cap(skill, 120)].slice(-50) });
   const where = agentId ? (s.agents[agentId]?.kind === 'fork' ? 'fork' : s.agents[agentId]?.type ?? 'agent') : 'orchestrator';
   return addEvent(next, 'skill', agentId ?? null, `${skill} loaded into ${where}`, now, { skill });
 }
@@ -942,7 +943,7 @@ export function measure(s: SessionState, i: MeasureInput): SessionState {
       }
     : s.context;
   const rateLimits = Array.isArray(i.rateLimits)
-    ? i.rateLimits.slice(0, 10).map((r) => ({ kind: clip(String(r.kind), 120), percentUsed: Number(r.percentUsed) || 0, resetsAt: r.resetsAt ?? null }))
+    ? i.rateLimits.slice(0, 10).map((r) => ({ kind: cap(String(r.kind), 120), percentUsed: Number(r.percentUsed) || 0, resetsAt: r.resetsAt ?? null }))
     : s.rateLimits;
   const costUsd = i.cost && typeof i.cost.usd === 'number' ? i.cost.usd : s.costUsd;
   const startedAt = typeof i.startedAt === 'number' && i.startedAt > 0 ? i.startedAt : s.startedAt;
@@ -957,7 +958,7 @@ export function sessionEnd(s: SessionState, reason: string, resumeId: string | n
   for (const [id, a] of Object.entries(s.agents)) {
     agents[id] = a.status === 'running' || a.status === 'queued' ? { ...a, status: 'aborted', endedAt: now } : a;
   }
-  const next = withStatus({ ...s, agents, ended: true, endReason: clip(reason, 120), resumeId });
+  const next = withStatus({ ...s, agents, ended: true, endReason: cap(reason, 120), resumeId });
   return addEvent(next, 'end', null, `session.end · ${reason}`, now, { reason });
 }
 
