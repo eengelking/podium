@@ -568,6 +568,7 @@ export class PgActivityHistory {
       let entries = 0;
       let bytes = 0;
       const losing = new Set<string>();
+      // order-insensitive: the rows are summed into totals.
       const rows = await this.step(() => this.db.all<{ sessionId: string; entries: number; bytes: number; oldestAt: number; lastT: number }>('SELECT session_id AS "sessionId", entries, bytes, oldest_t AS "oldestAt", last_t AS "lastT" FROM stored_sessions WHERE entries > 0'));
       if (settings.policy === 'after') {
         const cutoff = whole(this.opts.now() - activityPeriodMs(settings));
@@ -623,6 +624,7 @@ export class PgActivityHistory {
       };
       if (s.policy === 'after') add(await this.removeWhere('t < ?', [whole(now - activityPeriodMs(s))], touched));
       if (s.policy === 'end') {
+        // order-insensitive: every id listed is processed, in whatever order.
         const ids = await this.step(async () => (await this.db.all<{ id: string }>('SELECT session_id AS id FROM stored_sessions')).map((r) => r.id).filter((id) => !this.opts.isLive(id)));
         for (const id of ids) {
           add(await this.removeWhere('session_id = ?', [id], touched));
@@ -656,7 +658,7 @@ export class PgActivityHistory {
       const chunk = await this.step(() =>
         this.db.tx(async () => {
           const started = performance.now();
-          // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
+          // order-insensitive: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
           const rows = await this.db.all<VictimRow>(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`, [...params, size]);
           if (!rows.length) return null;
           await this.dropRows(rows, touched);
@@ -802,6 +804,7 @@ export class PgActivityHistory {
           await yieldNow();
         }
       };
+      // order-insensitive: every id listed is processed, in whatever order.
       if ('all' in body) await each(await this.step(async () => (await this.db.all<{ id: string }>('SELECT session_id AS id FROM stored_sessions')).map((r) => r.id)));
       else if ('ids' in body) await each(body.ids);
       else {
@@ -829,6 +832,7 @@ export class PgActivityHistory {
    * between keeps them.
    */
   async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    // order-insensitive: the ids are compared with the live ones as a set.
     const stored = await this.step(async () => (await this.db.all<{ id: string }>('SELECT session_id AS id FROM stored_sessions')).map((r) => r.id));
     const ids: string[] = [];
     for (const id of stored) if (!(await exists(id))) ids.push(id);

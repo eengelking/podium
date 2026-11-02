@@ -96,6 +96,7 @@ export class PersonCertStore {
    * by `cutoff`. Used to say how many reporters still depend on the old CA (#588).
    */
   reportersByIssuer(cutoff: number): { total: number; byIssuer: Record<string, number> } {
+    // order-insensitive: the rows are counted per issuer into an object.
     const rows = this.stmt(
       `SELECT c.issuer_fingerprint AS issuer FROM person_certificates c
        WHERE c.seq = (SELECT MAX(p.seq) FROM person_certificates p WHERE p.person_id = c.person_id AND p.revoked_at IS NULL AND p.not_after > ?)`,

@@ -276,6 +276,7 @@ export class ReporterStore {
     const { sub, params, filter, base } = this.view(opts, now);
 
     const counts: ReporterList['counts'] = { all: 0, reporting: 0, idle: 0, silent: 0, restart: 0 };
+    // order-insensitive: the rows are counted per state into an object.
     for (const c of this.stmt(`SELECT ${STATE_SQL} AS state, COUNT(*) AS n FROM reporters r GROUP BY state`).all(base) as unknown as { state: ReporterState; n: number }[]) {
       counts[c.state] = c.n;
       counts.all += c.n;
@@ -414,6 +415,7 @@ export class ReporterStore {
     if (p.length < 1 || p.length > MAX_PATTERN) throw new Error(`pattern must be 1 to ${MAX_PATTERN} characters`);
     this.stmt('INSERT OR IGNORE INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?)').run(kind, p, now);
     const rule = ReporterStore.ruleOf(this.stmt('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?').get(kind, p) as never);
+    // order-insensitive: every row is tested against the rule, in whatever order.
     const all = this.stmt('SELECT key, machine_id, source_address, reporter_version FROM reporters').all() as unknown as { key: string; machine_id: string | null; source_address: string | null; reporter_version: string }[];
     this.removeMany(
       all

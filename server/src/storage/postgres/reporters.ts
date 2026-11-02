@@ -262,6 +262,7 @@ export class PgReporterStore implements ReporterStoreApi {
     const { sub, params, filter, base } = this.view(opts, now);
 
     const counts: ReporterList['counts'] = { all: 0, reporting: 0, idle: 0, silent: 0, restart: 0 };
+    // order-insensitive: the rows are counted per state into an object.
     for (const c of await this.db.all<{ state: ReporterState; n: number }>(`SELECT ${STATE_SQL} AS state, COUNT(*) AS n FROM reporters r GROUP BY state`, base)) {
       counts[c.state] = c.n;
       counts.all += c.n;
@@ -357,6 +358,7 @@ export class PgReporterStore implements ReporterStoreApi {
     return this.db.tx(async () => {
       await this.db.run('INSERT INTO reporter_ignores (kind, pattern, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [kind, p, now]);
       const rule = ruleOf((await this.db.get<{ id: number; kind: string; pattern: string; created_at: number }>('SELECT id, kind, pattern, created_at FROM reporter_ignores WHERE kind = ? AND pattern = ?', [kind, p]))!);
+      // order-insensitive: every row is tested against the rule, in whatever order.
       const all = await this.db.all<{ key: string; machine_id: string | null; source_address: string | null; reporter_version: string }>('SELECT key, machine_id, source_address, reporter_version FROM reporters');
       await this.removeMany(
         all
