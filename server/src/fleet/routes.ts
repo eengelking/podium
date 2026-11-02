@@ -6,7 +6,7 @@ import { serverBuild } from './build.js';
 import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
-import { OwnerConflict } from './ingest.js';
+import { HarnessConflict, OwnerConflict } from './ingest.js';
 import { ADMIN_OWNER, nameKey, sourceAddress, keyOf, type PersonRow, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from '../storage/rows.js';
 import type { PeopleStoreApi, PersonCertsApi, ReporterStoreApi } from '../storage/types.js';
 import { parsePersonToken, safeEqualStr, tokenMatches } from './tokens.js';
@@ -280,6 +280,17 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       });
       res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
+      if (err instanceof HarnessConflict) {
+        logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
+          session_id: result.report.session.id,
+          owner: ownerOf(id),
+          status: 409,
+          reason: 'that session belongs to another harness',
+          source: machineOf(req),
+        });
+        res.status(409).json({ ok: false, error: 'that session belongs to another harness', path: '$.harness.id' });
+        return;
+      }
       if (err instanceof OwnerConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to someone else`, {
           session_id: result.report.session.id,

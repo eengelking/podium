@@ -110,7 +110,7 @@ describe('no secret and no typed text in a log line or a shipped batch', () => {
 describe('the events', () => {
   it('report.rejected carries the reason and the path, at warn', async () => {
     const s = await stack();
-    await request(s.app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...fixtureReport(), v: 2 });
+    await request(s.app).post('/api/fleet/report').set('X-Podium-Token', SECRET).send({ ...fixtureReport(), v: 3 });
     const rec = s.records().find((r) => r.event === 'report.rejected')!;
     expect(rec).toMatchObject({ level: 'warn', reason: 'unsupported protocol version', path: '$.v', status: 400 });
   });

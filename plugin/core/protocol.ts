@@ -4,7 +4,27 @@
 // (server/src/plugin.test.ts) walks its imports to keep it so. The validator that enforces these limits is server-only
 // and lives in server/src/fleet/protocol.ts, which re-exports this file.
 
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/*
+ * Report versions (#850). v1 is Claude Code only: closed lists for effort, plan source and agent kind. v2 adds a
+ * `harness` block and a `capabilities` declaration and takes those three as free strings, so another harness can report.
+ * The server reads both; a v1 report means Claude Code.
+ *
+ * Absence, written down once: a field or capability that is OMITTED is not supported by that reporter or harness. `null`
+ * means it is supported but has no value right now (an effort not chosen, a cost not yet known). Nothing else is
+ * guessed from an omission, and a reader never turns one into the other.
+ */
+export const REPORT_VERSIONS = [1, 2] as const;
+export type ReportVersion = (typeof REPORT_VERSIONS)[number];
+/** The harness a v1 report comes from, since v1 has no block to say so. */
+export const CLAUDE_CODE_HARNESS = 'claude-code';
+/** The id of the harness a report comes from: its block, else the session's own field (#851), else Claude Code. */
+export function harnessOf(r: { harness?: { id: string }; session: { harness?: string } }): string {
+  return r.harness?.id ?? r.session.harness ?? CLAUDE_CODE_HARNESS;
+}
+
+/** The efforts Claude Code has. A v2 report may send any string, so a field is typed `string`; this is the list v1 enforces. */
+export type KnownEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type Effort = string;
 /** Who worked out a session's cost: the harness reported it, or the reporter estimated it from the tokens (#851). */
 export type CostSource = 'harness' | 'estimate';
 
@@ -104,7 +124,8 @@ export interface PlanStep {
 
 export interface Plan {
   title: string | null;
-  source: 'TaskCreate' | 'TodoWrite' | 'podium_plan';
+  /** Claude Code sends `TaskCreate`, `TodoWrite` or `podium_plan`; a v2 report may send any string. */
+  source: string;
   steps: PlanStep[];
 }
 
@@ -203,14 +224,44 @@ export interface ActivityEntry {
   failed?: boolean;
 }
 
+/** Who sent a v2 report (#850). `id` is a short slug (letters, digits, `-`, `_`) the server keys on; the rest is for people. */
+export interface HarnessInfo {
+  id: string;
+  name: string;
+  version: string;
+  /** Where it runs, such as `tui` or `desktop`. Free text. */
+  surface: string | null;
+}
+
+/** What a harness's reporter can send (#850). A key left out is not supported; see the note at the top of this file. */
+export interface Capabilities {
+  effort?: boolean;
+  plan?: boolean;
+  agents?: boolean;
+  cost?: boolean;
+  context?: boolean;
+  git?: boolean;
+  respond?: boolean;
+  /** The slash commands Podium may send to the session (for example `/clear`). Empty when none. */
+  commands: string[];
+}
+
+/** The capability keys a v2 report may declare, besides `commands`. */
+export const CAPABILITY_KEYS = ['effort', 'plan', 'agents', 'cost', 'context', 'git', 'respond'] as const;
+
 export interface AgentReport {
   id: string;
   parentId: string | null;
-  kind: 'subagent' | 'fork' | 'teammate';
+  /** Claude Code sends `subagent`, `fork` or `teammate`; a v2 report may send any string. */
+  kind: string;
   type: string;
   name: string | null;
   description: string;
   model: string | null;
+  /** The company or service behind the model, such as `anthropic` (v2). Omitted when the harness does not say. */
+  modelProvider?: string | null;
+  /** The model's name as the harness shows it (v2). Omitted when the harness does not say. */
+  modelLabel?: string | null;
   effort: Effort | null;
   effortSource: 'requested' | 'observed' | 'inherited' | 'unknown';
   status: AgentStatus;
@@ -280,6 +331,10 @@ export interface SessionReport {
   repoName: string | null;
   git: GitInfo | null;
   model: string | null;
+  /** The company or service behind the model, such as `anthropic` (v2). Omitted when the harness does not say. */
+  modelProvider?: string | null;
+  /** The model's name as the harness shows it (v2). Omitted when the harness does not say. */
+  modelLabel?: string | null;
   effort: Effort | null;
   context: ContextFill;
   costUsd: number | null;
@@ -324,8 +379,12 @@ export interface SessionReport {
 }
 
 export interface Report {
-  v: 1;
+  v: ReportVersion;
   sentAt: number;
+  /** Who sent it (v2 only). A v1 report has none and means Claude Code, unless its session names a harness (#851): use `harnessOf`. */
+  harness?: HarnessInfo;
+  /** What the reporter can send (v2). Absent from a v1 report, which means everything Claude Code has. */
+  capabilities?: Capabilities;
   /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
   reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
   session: SessionReport;

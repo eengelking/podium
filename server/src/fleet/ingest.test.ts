@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { repriced } from './derive.js';
-import { ingestReport } from './ingest.js';
+import { HarnessConflict, ingestReport } from './ingest.js';
 import { Pricing } from './pricing.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
@@ -20,6 +20,26 @@ function withTokens(r: Report, input: number): Report {
 }
 
 describe('ingestReport', () => {
+  it('refuses a report for a session id another harness already owns (#850)', async () => {
+    await ingestReport(storage, fixtureReport(), T0);
+    const r = fixtureReport();
+    r.v = 2;
+    r.harness = { id: 'opencode', name: 'OpenCode', version: '1', surface: 'tui' };
+    r.session.harness = 'opencode';
+    await expect(ingestReport(storage, r, T0 + 1)).rejects.toBeInstanceOf(HarnessConflict);
+    expect((await f.getSession(r.session.id))?.harness).toBe('claude-code');
+  });
+
+  it('takes a later report from the same harness (#850)', async () => {
+    const r = fixtureReport();
+    r.v = 2;
+    r.harness = { id: 'opencode', name: 'OpenCode', version: '1', surface: 'tui' };
+    r.session.harness = 'opencode';
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, r, T0 + 1);
+    expect((await f.getSession(r.session.id))?.harness).toBe('opencode');
+  });
+
   it('creates the session, its agents, events and blowout rows', async () => {
     const res = await ingestReport(storage, fixtureReport(), T0);
     expect(res.created).toBe(true);

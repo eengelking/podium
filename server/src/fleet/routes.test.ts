@@ -36,6 +36,20 @@ describe('POST /api/fleet/report', () => {
     expect(typeof res.body.serverTime).toBe('number');
   });
 
+  it('takes a v2 report from opencode, and answers 409 when the session id belongs to another harness (#850)', async () => {
+    const { app } = await setup();
+    const v2 = (id: string): Report => ({ ...fixtureReport(), v: 2, harness: { id, name: id, version: '1', surface: 'tui' }, capabilities: { commands: [] } });
+    const first = await request(app).post('/api/fleet/report').send(v2('opencode'));
+    expect(first.status).toBe(200);
+    const clash = await request(app).post('/api/fleet/report').send(v2('pi'));
+    expect(clash.status).toBe(409);
+    expect(clash.body).toMatchObject({ ok: false, path: '$.harness.id' });
+    const v1 = fixtureReport();
+    v1.session.harness = 'claude-code';
+    expect((await request(app).post('/api/fleet/report').send(v1)).status).toBe(409);
+    expect((await request(app).post('/api/fleet/report').send(fixtureReport())).status).toBe(200);
+  });
+
   it('tells an older, a matching and a newer reporter where it stands, and accepts all three', async () => {
     const { app } = await setup();
     const send = async (version: string) => {
@@ -57,7 +71,7 @@ describe('POST /api/fleet/report', () => {
 
   it('400 with error and path for an invalid report, logging the path but not the body', async () => {
     const { app, logs } = await setup();
-    const res = await request(app).post('/api/fleet/report').send({ ...fixtureReport(), v: 2, secret: 'sk-ant-should-not-be-logged' });
+    const res = await request(app).post('/api/fleet/report').send({ ...fixtureReport(), v: 3, secret: 'sk-ant-should-not-be-logged' });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ ok: false, error: 'unsupported protocol version', path: '$.v' });
     expect(logs).toHaveLength(1);

@@ -272,6 +272,44 @@ describe('transport', () => {
     expect(t.failures).toBe(0)
   })
 
+  test('a v2 report an older server cannot read is refused with a clear notice, not a bare 400 (#850)', async () => {
+    const v2 = (events: ActivityEvent[]): Report => ({ ...build(events), v: 2 })
+    const f = fake([{ status: 400, ok: false, text: '{"ok":false,"error":"unsupported protocol version","path":"$.v"}' }])
+    const logs: string[] = []
+    const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' }, (l) => logs.push(l))
+    t.enqueue([ev(1)])
+    expect(await t.send(v2, 0)).toBe('rejected')
+    expect(t.rejectNotice()).toMatch(/only reads report version 1.*update Podium/i)
+    expect(logs.join('\n')).toMatch(/only reads report version 1/i)
+    expect(t.statusText()).toContain('server too old')
+  })
+
+  test('a version refusal does not outlive the attempt after it (#850)', async () => {
+    const f = fake([{ status: 400, ok: false, text: '{"ok":false,"path":"$.v"}' }, { status: 401, ok: false, text: '' }])
+    const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })
+    await t.send((e) => ({ ...build(e), v: 2 }), 0)
+    expect(t.rejectNotice()).not.toBeNull()
+    await t.send(build, 100_000)
+    expect(t.rejectNotice()).toBeNull()
+  })
+
+  test('a 400 at $.v for a v1 report gets no version notice, and a reply that is not JSON gets none either (#850)', async () => {
+    const f = fake([{ status: 400, ok: false, text: '{"ok":false,"path":"$.v"}' }, { status: 400, ok: false, text: 'nope' }])
+    const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })
+    await t.send(build, 0)
+    expect(t.rejectNotice()).toBeNull()
+    await t.send((e) => ({ ...build(e), v: 2 }), 100_000)
+    expect(t.rejectNotice()).toBeNull()
+  })
+
+  test('a 409 at $.harness.id says the session belongs to another harness, not to someone else (#850)', async () => {
+    const f = fake([{ status: 409, ok: false, text: '{"ok":false,"error":"that session belongs to another harness","path":"$.harness.id"}' }])
+    const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })
+    expect(await t.send(build, 0)).toBe('rejected')
+    expect(t.rejectNotice()).toMatch(/another harness/i)
+    expect(t.ownerNotice()).toBeNull()
+  })
+
   test('a rejected report backs off like a failure, so a persistently rejected snapshot is not re-posted every tick', async () => {
     const bad: HttpResult = { status: 400, ok: false, text: '{"ok":false}' }
     const f = fake([bad, bad, bad, ok()])
