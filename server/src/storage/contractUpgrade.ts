@@ -21,9 +21,21 @@ export interface LegacyRequest {
   outcome: string | null;
 }
 
-/** What an adapter provides: a Storage over a database built at the schema before the request insertion number, holding `rows` inserted in the order given. */
+/** A reporter as an older database stores it, before a row named the reporter that sent it (#849). */
+export interface LegacyReporter {
+  key: string;
+  kind: 'mod' | 'hooks';
+  machineId: string | null;
+  machineName: string | null;
+  owner: string | null;
+  version: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+}
+
+/** What an adapter provides: a Storage over a database built at the schema before the request insertion number and the reporter name, holding `rows` and `reporters` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -45,6 +57,31 @@ const FIXTURE: LegacyRequest[] = [
 ];
 
 export function upgradeCases(o: UpgradeOpeners): void {
+  it('keeps every reporter, its key and its values as a Claude Code reporter when a database made before reporters had a name is upgraded (#849)', async () => {
+    const legacy: LegacyReporter[] = [
+      { key: 'ma', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'ed', version: '1.2.0', firstSeenAt: T0, lastSeenAt: T0 + 10 },
+      { key: 'ma#eve', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'eve', version: '1.3.0', firstSeenAt: T0 + 1, lastSeenAt: T0 + 20 },
+      { key: 'hooks:10.0.0.9', kind: 'hooks', machineId: null, machineName: null, owner: null, version: 'hooks', firstSeenAt: T0 + 2, lastSeenAt: T0 + 30 },
+    ];
+    const s = await o.openUpgraded([], legacy);
+    try {
+      const { rows } = await s.reporters.list({ sort: 'last', dir: 1 }, T0 + 40);
+      expect(rows.map((r) => [r.key, r.reporterName, r.version, r.firstSeenAt, r.lastSeenAt, r.who])).toEqual([
+        ['ma', 'podium-reporter', '1.2.0', T0, T0 + 10, 'ed'],
+        ['ma#eve', 'podium-reporter', '1.3.0', T0 + 1, T0 + 20, 'eve'],
+        ['hooks:10.0.0.9', 'podium-reporter', 'hooks', T0 + 2, T0 + 30, 'Unassigned'],
+      ]);
+      // A report from the same machine by the same reporter lands on the row it already had; another reporter gets a row of its own.
+      const same = await s.reporters.record({ kind: 'mod', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '1.4.0', engineVersion: null, sessionId: 'x1' }, T0 + 50);
+      expect(same).toBe('ma');
+      const other = await s.reporters.record({ kind: 'mod', reporterName: 'opencode-reporter', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '2.0.0', engineVersion: null, sessionId: 'x2' }, T0 + 51);
+      expect(other).toBe('ma@opencode-reporter');
+      expect((await s.reporters.list({}, T0 + 60)).rows).toHaveLength(4);
+    } finally {
+      await s.close();
+    }
+  });
+
   it('keeps every peer request, its values and its order when a database made before their insertion number is upgraded', async () => {
     const s = await o.openUpgraded(FIXTURE);
     try {

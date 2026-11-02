@@ -97,9 +97,14 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 /** The credential the server records for a report made with the admin secret. */
 export const ADMIN_SECRET = 'admin secret';
 
+/** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
+export const DEFAULT_REPORTER_NAME = 'podium-reporter';
+
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
   kind: 'mod' | 'hooks';
+  /** Which reporter sent it (`reporter.name` of the report). Absent means `DEFAULT_REPORTER_NAME`. A machine running two reporters is two rows (#849). */
+  reporterName?: string;
   machineId: string | null;
   machineName: string | null;
   source: string | null;
@@ -126,6 +131,8 @@ export interface ReporterRow {
   /** True when it reports with the admin secret instead of a token made for a person (issue #166). Always warned about. */
   adminSecret: boolean;
   version: string;
+  /** Which reporter this row is: `podium-reporter` for the Claude Code one (#849). */
+  reporterName: string;
   compat: ReporterCompat;
   firstSeenAt: number;
   lastSeenAt: number;
@@ -476,9 +483,17 @@ export interface PurgeRecordingsResult {
 export type StoredState = Exclude<RecordingState, 'off'>;
 
 /** The key a reporter is known by. */
-export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source'>): string {
-  if (s.machineId) return s.machineId;
-  return `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'reporterName'>): string {
+  const base = s.machineId ? s.machineId : `${s.kind === 'hooks' ? 'hooks' : 'addr'}:${s.source ?? 'unknown'}`;
+  return base + nameSuffix(s.reporterName);
+}
+
+/**
+ * What a reporter's name adds to its key (#849): nothing for the Claude Code reporter, so every key and ignore rule made before
+ * the name was stored stays valid, and `@<name>` for any other, so two reporters on one machine are two rows.
+ */
+export function nameSuffix(reporterName: string | undefined | null): string {
+  return !reporterName || reporterName === DEFAULT_REPORTER_NAME ? '' : `@${reporterName}`;
 }
 
 export * from './features.js';

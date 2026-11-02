@@ -37,8 +37,8 @@ describe.skipIf(!TEST_PG)('postgres upgrade contract', () => {
     for (const td of dropped) await td.drop();
   });
   upgradeCases({
-    openUpgraded: async (rows) => {
-      const { storage, td } = await openUpgradedPostgres(rows);
+    openUpgraded: async (rows, reporters) => {
+      const { storage, td } = await openUpgradedPostgres(rows, reporters);
       dropped.push(td);
       return storage;
     },

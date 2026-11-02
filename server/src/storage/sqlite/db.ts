@@ -336,6 +336,12 @@ ALTER TABLE peer_requests ADD COLUMN seq INTEGER;
 UPDATE peer_requests SET seq = rowid;
 CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`,
   },
+  {
+    version: 27,
+    // A machine can run more than one reporter (#849). A reporter row names the reporter that sent it; the key carries the name for any reporter but the
+    // Claude Code one, so every row and ignore rule made before this keeps its key and becomes a `podium-reporter` row.
+    sql: `ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-reporter';`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

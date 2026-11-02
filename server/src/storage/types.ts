@@ -139,7 +139,7 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 /** Reporters, ignore rules and the forget setting. `peerLookup()` stays synchronous: it reads nothing until a method is called. */
 export interface ReporterStoreApi {
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId'> & { owner?: string | null }): Promise<string[]>;
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]>;
   /** Notes one accepted report: creates the reporter or updates it, and links the session. Resolves with the reporter's key. */
   record(s: ReporterSeen, now: number): Promise<string>;
   /** Reporters as orchestrator messaging needs them (#347). Answers at once; each read through it is async. */

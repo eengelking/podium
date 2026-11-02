@@ -101,7 +101,7 @@ const PERSON_SHAPE: Shape<PersonRow> = { id: 'int', name: 'text', keyId: 'text',
 const PERSON_LIST_SHAPE: Shape<PersonListRow> = { id: 'int', name: 'text', groupId: 'int?', createdAt: 'int', rotatedAt: 'int?', revokedAt: 'int?', lastReportAt: 'int?', credential: 'text', groupName: 'text?', machines: 'texts' };
 const GROUP_LIST_SHAPE: Shape<GroupListRow> = { id: 'int', name: 'text', createdAt: 'int', members: 'texts', builtIn: 'bool' };
 const REPORTER_SHAPE: Shape<ReporterRow> = {
-  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', credential: 'text?', adminSecret: 'bool', version: 'text', compat: 'text',
+  key: 'text', state: 'text', name: 'text', named: 'bool', who: 'text', credential: 'text?', adminSecret: 'bool', version: 'text', reporterName: 'text', compat: 'text',
   firstSeenAt: 'int', lastSeenAt: 'int', sessions: 'int', live: 'int', os: 'text?', peers: 'bool?',
 };
 const MESSAGE_SHAPE: Shape<MessageRow> = {
@@ -355,6 +355,28 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
       const by = await store.personCerts.reportersByIssuer(T0 - 5);
       expect(by).toEqual({ total: 1, byIssuer: { 'ca-a': 1 } });
       await store.close();
+    });
+
+    it('keeps two reporters on one machine as two rows, each with its own kind and version (#849)', async () => {
+      const store = await open();
+      const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.4.0' }), T0);
+      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '2.0.0', kind: 'hooks', reporterName: 'opencode-reporter' }), T0 + 5);
+      expect(other).not.toBe(claude);
+      // The Claude Code reporter keeps the key it always had; the other is filed apart, with a name of its own.
+      expect(claude).toBe('m-two');
+      const { rows } = await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 10);
+      expect(rows.map((r) => [r.key, r.reporterName, r.version, r.sessions])).toEqual([
+        [claude, 'podium-reporter', '1.4.0', 1],
+        [other, 'opencode-reporter', '2.0.0', 1],
+      ]);
+      // A later report from each updates its own row only.
+      await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.5.0' }), T0 + 20);
+      const after = (await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 30)).rows;
+      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter', '1.5.0'], ['opencode-reporter', '2.0.0']]);
+      // Only the Claude Code reporter is a mod reporter that can be messaged.
+      const lookup = store.reporters.peerLookup();
+      expect(await lookup.get(other)).toBeNull();
+      expect(await lookup.get(claude)).toMatchObject({ key: claude, version: '1.5.0' });
     });
 
     it('returns the messages of a conversation in the order they were sent, ties included', async () => {
