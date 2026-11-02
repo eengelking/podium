@@ -9,9 +9,11 @@ order: 8
 # 6.8 Version compatibility
 
 The mod and the server are released separately, so their versions can drift in either direction. The server
-keeps one range, `REPORTER_SUPPORT` in `server/src/fleet/compat.ts`: the oldest and newest reporter (mod)
-versions it reads correctly. It changes when the report format or the mod's behavior needs it, not on every
-release.
+keeps one range for each reporter, by `reporter.name`, in `REPORTER_SUPPORT` in `server/src/fleet/compat.ts`: the
+oldest and newest versions of that reporter it reads correctly. Podium has one product version, but a reporter
+starts at its own first release, so a reporter is judged only against its own range and never against another
+reporter's. A range changes when the report format or that reporter's behavior needs it, not on every release.
+A reporter with no range on the server (a name the server does not know yet) is `unknown` and gets no warning.
 
 Only `major.minor` is compared, so a mod-only patch fix never warns. `checkReporter` returns:
 
@@ -27,15 +29,18 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
 ## What the mod and the dashboard show
 
 - The reply to a report carries `serverVersion`, `reporterSupport` and `reporterCompat` for that report's
-  version.
+  version, against the range of the reporter that sent it (`reporterSupport` is `null` when the server has none for
+  that name).
   - A mod that reads them shows `· update mod` or `· upgrade server` on its status line, a line in `/podium`,
     and a toast once.
   - A reporter inside the range but a major.minor below `reporterSupport.max` shows `· update available`
     instead (a patch difference is not flagged). This needs no new server field.
   - A mod that predates this ignores the fields. A mod talking to a server that predates this sees no
     `reporterCompat` and shows nothing.
-- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterBuild`
-  (see Builds below) and `compat` (always `unknown` for hooks). `StateBody.server` carries
+- `SessionView` carries `reporterVersion` (null for a hooks-only session, which has no mod), `reporterName` (the
+  reporter that serves the session's harness, which the warning names), `reporterBuild` (see Builds below) and
+  `compat` (always `unknown` for hooks). The reporter rows in Admin and My reporters carry `reporterName` too, and
+  their `compat` is the reporter's own. `StateBody.server` carries
   `{ version, build, reporterSupport }`, and the UI shows the server version, and its build for a dev build, in
   the left rail footer.
 - **Builds (#400).** A release is a clean checkout of exactly a `vMAJOR.MINOR.PATCH` tag. Every other build is a
@@ -84,7 +89,7 @@ and the `sessionRecording` option ([5.9](../05-mod-api/05-09-mod-configuration-u
   lists a loop to record. The console says "an older podium-reporter" in the picker's note.
 - An older server sends no `recording`, which a newer mod reads as `off`, so it captures nothing.
 - Which release carries it is decided in its `release-prep/<version>` PR, which then moves `plugin.json`, `VERSION`
-  and, on a new minor, `max` in `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
+  and, on a new minor, `max` in the `podium-reporter` entry of `REPORTER_SUPPORT`. A feature PR for #353 changes none of them.
 
 ## The release check (#499, `mockup/podium-update-notice.html`, `mockup/podium-update-check-admin.html`)
 
@@ -161,7 +166,7 @@ with a valid certificate. The console is on the HTTP port.
 ## Compatibility and the certificate reporter (#577)
 
 The reporter that reads a config file and starts the helper is a new minor version of the mod, so it ships with
-a release like any other mod change, and `REPORTER_SUPPORT.max` moves to that release's `MAJOR.MINOR.0` in the
+a release like any other mod change, and `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` moves to that release's `MAJOR.MINOR.0` in the
 same release-prep PR. A mod without it keeps working against a server with TLS on while the Admin allows
 reporters over HTTP, and a mod with it keeps working against a server with TLS off by using no config file.
 The renewal response carries no new `reporterSupport` field.

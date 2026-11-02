@@ -39,13 +39,14 @@ describe('admin: reporters, versions, the admin secret and restarts', () => {
 
   it('explains an outdated reporter in its details, and that it cannot message until it is updated', () => {
     cy.get('button[aria-label="Open details for old-box"]').click();
-    cy.contains('Compatibility').parent().should('contain.text', 'Older than this server supports. Update the mod.');
+    cy.contains('Compatibility').parent().should('contain.text', 'Older than this server supports for podium-reporter. Update podium-reporter.');
     cy.contains("old-box's reporter can't message");
     cy.contains('It is too old to message.');
   });
 
   it('ignores every reporter on a version from a reporter\'s details page, which makes a rule that can be removed', () => {
     cy.get('button[aria-label="Open details for future-box"]').click();
+    cy.contains('Compatibility').parent().should('contain.text', 'Newer than this server knows for podium-reporter. Update Podium.');
     cy.contains('button', 'Ignore…').click();
     cy.get('[role=group][aria-label="Ignore future-box"]').should('contain.text', 'Its reports are turned away');
     cy.get('[role=group][aria-label="Ignore future-box"]').contains('label.opt', 'Every reporter on version').find('input').check();

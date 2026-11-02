@@ -13,7 +13,7 @@ const T0 = 1_800_000_000_000;
 const ID = /^dlv_[0-9a-f]{24}$/;
 
 function reporter(key: string, machine: string, extra: Partial<ReporterRef> = {}): ReporterRef {
-  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', ...extra };
+  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
 }
 
 const REPORTERS: ReporterRef[] = [

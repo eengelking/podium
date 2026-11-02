@@ -22,6 +22,7 @@ const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): Pe
   os: "macOS 26.1",
   peers: true,
   version: "1.2.0",
+  reporterName: "podium-reporter",
   state: "reporting",
   lastSeenAt: T0 - 40_000,
   compat: "ok",

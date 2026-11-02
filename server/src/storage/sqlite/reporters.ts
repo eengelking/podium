@@ -39,7 +39,7 @@ interface DbReporter {
   project: string | null;
 }
 
-type DbPeerRef = Pick<DbReporter, 'key' | 'machine_name' | 'owner' | 'credential' | 'os' | 'peers' | 'reporter_version'>;
+type DbPeerRef = Pick<DbReporter, 'key' | 'machine_name' | 'owner' | 'credential' | 'os' | 'peers' | 'reporter_version' | 'reporter_name'>;
 
 /** The state, in SQL, from the last report, the time the server started and now. */
 const STATE_SQL = `CASE WHEN r.last_seen_at < :started THEN 'restart'
@@ -188,14 +188,15 @@ export class ReporterStore {
       os: r.os,
       peers: r.peers === null ? null : r.peers === 1,
       version: r.reporter_version,
+      reporterName: r.reporter_name,
     });
-    const cols = 'key, machine_name, owner, credential, os, peers, reporter_version';
+    const cols = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
     const mine = `lower(owner) = lower(:owner) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`;
     return {
       startedAt: this.startedAt,
       ofOwnerSeen: (owner, now) =>
         (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ owner, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
-          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version) }),
+          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, r.reporter_name) }),
         ),
       get: (key) => {
         // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.
@@ -236,7 +237,7 @@ export class ReporterStore {
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,
       reporterName: r.reporter_name,
-      compat: checkReporter(r.reporter_version),
+      compat: checkReporter(r.reporter_version, r.reporter_name),
       firstSeenAt: r.first_seen_at,
       lastSeenAt: r.last_seen_at,
       sessions: r.sessions,

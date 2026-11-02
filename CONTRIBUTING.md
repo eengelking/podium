@@ -319,8 +319,8 @@ PR carries the release, and CI (the "Mod version bump check" workflow in `.githu
 fails it if the mod changed and the number did not. The maintainer tags the release after it merges. `.claude/PROJECT.md`,
 "Releases", says how the bump level is chosen, and the `podium-release` skill (`.claude/skills/podium-release/`) has the full list of files.
 
-If the bump is a new minor version, also move `max` in `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
-that version. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
+If the bump is a new minor version, also move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` (`server/src/fleet/compat.ts`) to
+that version. Each reporter has its own entry, so another reporter's range moves only with that reporter's releases. Otherwise the server tells every up-to-date mod it is newer than the server supports. Raise
 `min` only when the server stops reading older reports correctly. SPEC 6.8 has the rule.
 
 ### The report format

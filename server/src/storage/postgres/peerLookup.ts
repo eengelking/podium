@@ -19,6 +19,7 @@ interface DbPeerRef {
   os: string | null;
   peers: number | null;
   reporter_version: string;
+  reporter_name: string;
 }
 
 const ref = (r: DbPeerRef): ReporterRef => ({
@@ -29,9 +30,10 @@ const ref = (r: DbPeerRef): ReporterRef => ({
   os: r.os,
   peers: r.peers === null ? null : r.peers === 1,
   version: r.reporter_version,
+  reporterName: r.reporter_name,
 });
 
-const COLS = 'key, machine_name, owner, credential, os, peers, reporter_version';
+const COLS = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
 const MINE = `podium_lower(owner) = podium_lower(:owner) AND kind = 'mod' ORDER BY podium_lower(COALESCE(machine_name, key)), key`;
 
 /** `startedAt` is when the server started: a reporter last heard before it is "Not since restart". */
@@ -43,7 +45,7 @@ export function pgPeerLookup(db: PgDb, startedAt: number = Date.now()): AsyncPee
         `SELECT ${COLS}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${MINE}`,
         { owner, now, started: startedAt },
       );
-      return rows.map((r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version) }));
+      return rows.map((r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, r.reporter_name) }));
     },
     get: async (key) => {
       const r = await db.get<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE key = ? AND kind = 'mod'`, [key]);

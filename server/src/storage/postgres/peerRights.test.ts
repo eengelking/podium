@@ -35,7 +35,7 @@ describe.skipIf(!TEST_PG)('postgres peer rights', () => {
 
   /** Adds one reporter; the machine name is its key. */
   const add = (key: string, over: Partial<ReporterRef> = {}) => {
-    reps.set(key, { key, machine: key, owner: 'Dana', adminSecret: false, os: null, peers: true, version: '1.2.0', ...over });
+    reps.set(key, { key, machine: key, owner: 'Dana', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...over });
   };
 
   beforeEach(async () => {

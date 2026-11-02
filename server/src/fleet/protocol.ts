@@ -87,7 +87,7 @@ export interface BlowoutLogEntry {
 /** `outdated`: below the supported range, update the mod. `newer`: above it, upgrade the server. `unknown`: unreadable, no warning. */
 export type ReporterCompat = 'ok' | 'outdated' | 'newer' | 'unknown';
 
-/** The reporter versions a server reads correctly (major.minor compared; patch ignored). */
+/** The versions of one reporter a server reads correctly (major.minor compared; patch ignored). The server holds one range per reporter name (#852). */
 export interface ReporterSupport {
   min: string;
   max: string;
@@ -102,7 +102,9 @@ export interface SessionView {
   reporterVersion: string | null;
   /** The commit hash of a dev build of the mod (#400); null for a release, a hooks-only session and a mod that does not send one. */
   reporterBuild: string | null;
-  /** How that version sits against the range this server supports. Always `unknown` for hooks. */
+  /** The reporter that sent it (`podium-reporter` for Claude Code), which the version warning names (#852). */
+  reporterName: string;
+  /** How that version sits against that reporter's own range on this server. Always `unknown` for hooks. */
   compat: ReporterCompat;
   project: string;
   /** The session's working directory, home shortened to `~`. */

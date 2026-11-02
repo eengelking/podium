@@ -3,7 +3,7 @@ import { Router, type NextFunction, type Request, type RequestHandler, type Resp
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import { serverBuild } from './build.js';
-import { checkReporter, REPORTER_SUPPORT, serverVersion } from './compat.js';
+import { checkReporter, serverVersion, supportFor } from './compat.js';
 import { MAIN_LOOP, validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
 import { HarnessConflict, OwnerConflict } from './ingest.js';
@@ -278,7 +278,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: REPORTER_SUPPORT, reporterCompat: checkReporter(result.report.reporter.version), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
