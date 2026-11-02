@@ -168,6 +168,7 @@ jobs:
 
           git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
           # The reporter as an archive for Claude Desktop (#835), named for the version development carries and the day.
+          node scripts/plugin-build.mjs claudecode
           zip="$(node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}")"
           test -f "$zip"
 

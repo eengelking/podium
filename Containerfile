@@ -13,6 +13,9 @@ COPY frontend frontend
 # The UI's standards generator (frontend/src/fleet/standards) imports scripts/standards-inventory, and the frontend build
 # type-checks it. scripts is only read here; nothing from it reaches the final image.
 COPY scripts scripts
+# The server build compiles the code shared with the plugins (server/tsconfig.json has rootDir ..), so plugin/core is needed. Only
+# plugin/core: .dockerignore leaves out plugin/claudecode and plugin/opencode, and nothing from plugin/ reaches the final image.
+COPY plugin plugin
 RUN npm run build -w frontend && npm run build -w server
 
 FROM docker.io/library/node:26-slim

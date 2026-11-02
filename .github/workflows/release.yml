@@ -68,6 +68,7 @@ jobs:
       - name: Build the archive
         run: |
           set -euo pipefail
+          node scripts/plugin-build.mjs claudecode
           node scripts/podium-reporter-zip.mjs --out dist --expect-version "${TAG#v}"
           ls -l dist
 
