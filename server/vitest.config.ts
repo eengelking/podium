@@ -9,6 +9,8 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "../scripts/**/*.test.ts", "../mod/podium-reporter/hooks/{diffRedact,fileDiff,git,transport}.test.ts"],
     setupFiles: ["src/testSetup.ts"],
+    // Says the PostgreSQL tests were skipped, or fails the run when PODIUM_TEST_PG names a server that does not answer (#891).
+    globalSetup: ["src/storage/postgres/globalSetup.ts"],
     // Only `npm run test:coverage` turns this on. The lcov file is what SonarCloud reads (sonar-project.properties).
     coverage: {
       provider: "v8",
