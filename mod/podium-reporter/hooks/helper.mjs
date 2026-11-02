@@ -856,7 +856,17 @@ function main(configPath, socketPath, serverUrl) {
   // unref'd timers do not keep the process alive; the listening server (or the mailbox poll) does.
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+/** True when this file is the script node was started with. Both sides are real paths: import.meta.url is already resolved, argv[1] is not (#918). */
+function isEntry() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(path.resolve(process.argv[1]));
+  } catch {
+    return false; // argv[1] is not a file (a REPL, a test runner's worker): this is not the entry script
+  }
+}
+
+if (isEntry()) {
   const [configPath, socketPath, serverUrl] = process.argv.slice(2);
   if (!configPath || !socketPath || !serverUrl) fail('USAGE', 'usage: node helper.mjs <config path> <socket path> <server url>');
   else main(configPath, socketPath, serverUrl);

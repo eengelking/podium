@@ -285,8 +285,9 @@ function configStatus(reason: string | undefined): string {
   const short = reason && reason.length > STATUS_REASON_MAX ? `${reason.slice(0, STATUS_REASON_MAX - 1)}…` : reason
   return short ? `config unreadable: ${short}` : 'config unreadable'
 }
-export function problemFromStartup(line: string, path: string): Problem {
+export function problemFromStartup(line: string, path: string, helper?: string): Problem {
   const w = startupWords(line);
+  if (!w && !line.trim() && helper) return { code: 'HELPER_EXITED', status: 'helper stopped', text: `The Podium connection helper exited before it was ready and printed nothing (started from ${helper}). It restarts on the next session.` };
   const code = w?.[0] ?? 'HELPER_EXITED';
   if (code === 'CONFIG_PERMISSIONS') return { code, status: 'config too open', text: `The reporter config file ${path} can be read by other people, and it holds your private key. Run: chmod 600 ${path}` };
   if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: configStatus(w?.[1]), text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
@@ -468,7 +469,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
         }
         running = false;
         iterator = null;
-        if (!stopped) problem = problemFromStartup(said, found.path);
+        if (!stopped) problem = problemFromStartup(said, found.path, helper);
         for (const [id, p] of pending) {
           pending.delete(id);
           p.reject(new Error(problem?.text ?? 'the Podium connection helper stopped'));

@@ -82,7 +82,7 @@ interface Running {
 }
 
 /** Starts the helper; resolves once it prints `ready` (or exits, which the caller reads from `out`). */
-async function runHelper(configText: string, server: string, env: Record<string, string> = {}, mode = 0o600, sameConfig?: string): Promise<Running> {
+async function runHelper(configText: string, server: string, env: Record<string, string> = {}, mode = 0o600, sameConfig?: string, script = HELPER): Promise<Running> {
   const root = tmp();
   const config = sameConfig ?? path.join(root, 'reporter-config-Dana-1.pem');
   if (!sameConfig) {
@@ -90,7 +90,7 @@ async function runHelper(configText: string, server: string, env: Record<string,
     fs.chmodSync(config, mode);
   }
   const socket = path.join(fs.mkdtempSync(path.join(root, 'run-')), 's.sock');
-  const proc = spawn(process.execPath, [HELPER, config, socket, server], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(process.execPath, [script, config, socket, server], { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   proc.stdout.on('data', (c) => (out += c));
   proc.stderr.on('data', (c) => (out += c));
@@ -145,6 +145,16 @@ describe('helper.mjs: the connection', () => {
     expect(a.headers['x-extra']).toBe('kept');
     expect(JSON.parse(a.body)).toEqual({ path: '/api/fleet/sessions/s1/peers?x=1', method: 'GET' });
     expect(seen).toEqual([new X509Certificate(p.person.cert).fingerprint256]);
+  });
+
+  it('starts when the plugin is reached through a symlinked folder, as under /home -> /var/home (#918)', async () => {
+    const p = await pki();
+    const url = await upstream(p, (_req, res) => res.end('{}'));
+    const link = path.join(tmp(), 'hooks-link');
+    fs.symlinkSync(path.dirname(HELPER), link, 'dir');
+    const h = await runHelper(configFor(p, url), url, {}, 0o600, undefined, path.join(link, 'helper.mjs'));
+    expect(h.out()).toContain('ready');
+    expect((await viaHelper(h, 'GET', '/api/fleet/sessions/s1/peers')).status).toBe(200);
   });
 
   it('passes a request body through and an error status unchanged', async () => {

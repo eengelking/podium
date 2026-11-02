@@ -734,6 +734,7 @@ describe('S8786: no regex that backtracks on a long input', () => {
     expect(problemFromStartup('error X boom', '/p').text).toBe('The Podium connection helper stopped: boom. It restarts on the next session.')
     expect(problemFromStartup('error X', '/p').text).toContain('stopped: X.')
     expect(problemFromStartup('what', '/p').code).toBe('HELPER_EXITED')
+    expect(problemFromStartup('', '/p', '/h/helper.mjs').text).toContain('printed nothing (started from /h/helper.mjs)')
     expect(problemFromStartup('error ', '/p').code).toBe('HELPER_EXITED')
     const t = performance.now()
     problemFromStartup(`error ${'a'.repeat(100000)}${' '.repeat(100000)}!`, '/p')
