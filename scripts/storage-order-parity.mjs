@@ -127,7 +127,7 @@ function listQueries(file) {
         helpers.add(method);
         return;
       }
-      if (arg && (ts.isCallExpression(target) || /\bdb\b|\bthis\.db$/.test(target.getText()))) {
+      if (arg && (ts.isCallExpression(target) || /\bdb\b/.test(target.getText()))) {
         const text = sqlText(arg, fn, sf);
         if (text === null || /^\s*(select|with)\b/i.test(text)) out.push({ method: method ?? "(module)", line: lineOf(node.getStart()) + 1, text, marked: marked(node) });
       }
@@ -186,7 +186,7 @@ export function orderOf(sql) {
         .replace(/\b\w+\./g, "")
         .replace(/\basc\b/g, "")
         .replace(/\s+/g, " ")
-        .replace(/\s*,\s*/g, ", ")
+        .replace(/ ?, ?/g, ", ")
         .trim(),
     )
     .join(" | ");
@@ -196,7 +196,7 @@ export function orderOf(sql) {
 export function collect(root) {
   const all = [];
   for (const { name, dir } of adapterFolders(root)) {
-    for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts") && !SKIP_FILE.test(x)).sort()) {
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts") && !SKIP_FILE.test(x)).sort((a, b) => a.localeCompare(b))) {
       const stem = basename(f, ".ts");
       for (const q of listQueries(join(dir, f))) {
         const fileKey = name === "sqlite" ? (FILE_ALIASES[stem] ?? stem) : stem;
@@ -230,7 +230,7 @@ export function problems(queries, adapters) {
       }
     }
     // An ORDER BY with a ${...} in it is built at run time: it counts as stated, and its columns cannot be compared here.
-    const ordered = adapters.map((a) => ({ a, set: [...new Set(group.filter((q) => q.adapter === a && !q.marked && q.order && !q.order.includes("…")).map((q) => q.order))].sort() })).filter((x) => x.set.length);
+    const ordered = adapters.map((a) => ({ a, set: [...new Set(group.filter((q) => q.adapter === a && !q.marked && q.order && !q.order.includes("…")).map((q) => q.order))].sort((a, b) => a.localeCompare(b)) })).filter((x) => x.set.length);
     for (let i = 1; i < ordered.length; i++) {
       if (ordered[0].set.join(" ; ") !== ordered[i].set.join(" ; ")) {
         const q = group.find((x) => x.adapter === ordered[i].a && x.order);
