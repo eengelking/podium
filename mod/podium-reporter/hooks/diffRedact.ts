@@ -62,10 +62,10 @@ const KEYED = new RegExp(`([A-Za-z0-9_.-]*?)(${KEYWORD})([A-Za-z0-9_.-]*)([?!]?[
 const FLAG = /(--(?:password|passwd|pass|passphrase|passin|passout|(?:http|ftp|proxy)-password|token|secret|api-?key|auth(?:-token)?|access-key|secret-access-key|session-token|client-secret)(?:=|\s+))([^\s$<-]\S*)/gi
 const MYSQL = /\b(mysql|mysqldump|mariadb)\b([^\n]*?\s-p)([^\s]+)/g
 const SSHPASS = /(\bsshpass\b[^\n]*?\s-p\s*)(\S+)/g
-// A short flag that takes a password, of the tools that have one: `docker login -p`, `az login -p`, `mongosh -p`, `redis-cli -a`, `sqlcmd -P`. Per tool, because `docker run -p 8080:80` and `docker ps -a` are not passwords.
+// A short flag that takes a password, per tool (docker login, az login, mongosh, redis-cli, sqlcmd, bcp), because `docker run -p 8080:80` and `docker ps -a` are not passwords.
 const SHORT_PASSWORD_FLAG = /(\b(?:(?:docker|podman|nerdctl)\s+login|az\s+login|mongosh?)\b[^\n]*?\s-p\s*|\bredis-cli\b[^\n]*?\s-a\s+|\b(?:sqlcmd|bcp)\b[^\n]*?\s-P\s*)([^\s$<-]\S*)/g
 // `curl -u user:password`, `--user user:password`, `--proxy-user`: the part after the colon.
-const USER_PASS = /(\b(?:curl|wget|http|https|xh|aria2c|lftp|ftp)\b[^\n]*?\s(?:-u|--user|--proxy-user|--http-user)(?:=|\s*)[^\s:'"]+:)([^\s'"]+)/g
+const USER_PASS = /(\b(?:curl|wget|http|https|xh|aria2c|lftp|ftp)\b[^\n]*?\s(?:-u|--user|--proxy-user|--http-user)(?:=|\s*)['"]?[^\s:'"$]+:)(?!\$)([^\s'"]+)/g
 // `-pass pass:secret`, `-passin pass:secret`, `env:VAR` is a reference and stays.
 const OPENSSL_PASS = /(\bpass:)(?!env:|file:|fd:|stdin)([^\s'"]+)/g
 // `curl -b name=value` / `--cookie`: the cookie is a login. A file name (`-b cookies.txt`) has no `=` and stays.
@@ -75,7 +75,7 @@ const PERCENT_PASSWORD = /(\s-U\s*[^\s%]+%)(\S+)/g
 // `htpasswd -b file user password`.
 const HTPASSWD = /(\bhtpasswd\b[^\n]*?\s-\w*b\w*\s+\S+\s+\S+\s+)([^\s-]\S*)/g
 // `.npmrc`: `//registry/:_authToken=...`, `_auth=`, `_password=`, also as `npm config set <key> <value>`.
-const NPM_AUTH = /(\b_auth(?:Token)?|\b_password)(=|\s+)([^\s"']+)/g
+const NPM_AUTH = /(\b_auth(?:Token)?|\b_password)(=|[ \t]+)([^\s"']+)/g
 // `aws configure set aws_secret_access_key <value>`, `git config ... <key> <value>` where the key says it is a secret.
 const CONFIG_SET = /(\b(?:configure|config)\s+set\s+\S*(?:secret|token|password|passwd|key)\S*\s+)(\S+)/gi
 

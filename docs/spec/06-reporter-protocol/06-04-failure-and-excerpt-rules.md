@@ -33,8 +33,13 @@ Module: `failures.ts` (pure).
 
 ## Redaction and excerpts
 
-- **Redaction.** Before anything leaves the machine, truncate to the limits above and replace anything that
-  looks like a secret with `[redacted]`. The reporter unit-tests this. What counts as a secret:
+- **Redaction.** Before anything leaves the machine, redact, then truncate to the limits above, so a secret at a cut
+  is never left as a stub. Every free text the reporter sends (a failure's call, output and explanation, an excerpt, a
+  prompt or answer, an activity row's summary, an ask's question, plan and tool input, a permission message, a
+  description) is redacted with the whole rule set of the file diff ([File diff](#file-diff-opt-in-on-request-319)),
+  the one the Command block and a recording use, so two views of one text cannot differ (#895). An identifier the
+  engine made (an id, a tool, skill or model name, a path) is not free text and is not redacted. The shapes below are
+  a second pass that stays. The reporter unit-tests this. What counts as a secret:
   - `sk-ant-[A-Za-z0-9_-]{10,}`
   - `ghp_[A-Za-z0-9]{20,}`
   - `AKIA[0-9A-Z]{16}`
@@ -455,12 +460,17 @@ file in the list while the owner has the session's page open.
   - the shapes in the redaction rule above;
   - provider tokens: `sk-…` keys, GitHub (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), GitLab
     `glpat-`, AWS access key ids (`AKIA`, `ASIA`) and a 40-character secret after `aws_secret`, Google
-    `AIza…`, Slack `xox[abprs]-…`, Stripe `sk_live_`, `rk_live_` and `whsec_`, npm `npm_…`, SendGrid `SG.…`,
+    `AIza…`, Slack `xox[abprs]-…`, Stripe `sk_live_`, `sk_test_`, `rk_live_`, `rk_test_` and `whsec_`, npm `npm_…`, SendGrid `SG.…`,
     Twilio `SK…`, Azure storage `AccountKey=…`, and Anthropic and OpenAI keys;
   - JSON Web Tokens (three base64url parts, the first two starting `eyJ`);
   - a private key block (`-----BEGIN … PRIVATE KEY-----` to the matching `END`), every line of its body, with
     the line count kept;
-  - a password or token in a URL (`scheme://user:secret@host`) and in a connection string;
+  - a password or token in a URL (`scheme://user:secret@host`, a password with `@`, an empty user, and a token alone as
+    the user of an `http(s)` URL) and in a connection string;
+  - a password in a command line the rules know: `curl -u user:secret` (and `--user`), `docker login -p`,
+    `az login -p`, `mongosh -p`, `redis-cli -a`, `sqlcmd -P`, `--passphrase`, `openssl ... pass:secret`,
+    `htpasswd -b`, `smbclient -U user%secret`, `curl -b name=value`, an `.npmrc` `_authToken`, and
+    `aws configure set` of a secret;
   - an `Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Cookie` or `X-Api-Key` header value, and a
     `Basic …` or `Bearer …` credential;
   - the value of a key whose name says it is a secret (`password`, `passwd`, `pwd`, `secret`, `token`,

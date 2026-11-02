@@ -172,6 +172,8 @@ describe('redactText (a message to another orchestrator, #414)', () => {
 })
 
 const COMMAND_SECRETS: [string, string][] = [
+  [`curl -u 'admin:hunter22' https://x`, 'hunter22'],
+  ['curl --user="admin:hunter22" https://x', 'hunter22'],
   ['curl -u admin:hunter22 https://x', 'hunter22'],
   ['curl --user admin:hunter22 https://x', 'hunter22'],
   ['curl -H "Authorization: Bearer abcdefghijklmnop1234" x', 'abcdefghijklmnop1234'],
@@ -257,6 +259,9 @@ describe('redactText: commands that must not change (#895)', () => {
     'docker login -u me --password-stdin',
     'psql -p 5432 -h localhost',
     'curl -u "$USER:$PASS" https://x',
+    'curl -u admin:$PASS https://x',
+    'curl -u "admin:$PASS" https://x',
+    'echo _auth\nhunter22',
     'curl -b cookies.txt https://x',
     'openssl enc -pass env:SECRET_VAR',
     'npm config set registry https://registry.npmjs.org/',
