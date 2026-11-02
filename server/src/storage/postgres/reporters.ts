@@ -1,8 +1,8 @@
-// Every podium-reporter the server has heard from, on PostgreSQL (#822): the SQLite `ReporterStore` over `PgDb`. One row per machine, keyed on the
+// Every podium-reporter the server has heard from, on PostgreSQL (#822): the SQLite `ReporterStore` over `PgDb`. One row per machine and reporter (#849), keyed on the
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { keyOf, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { keyOf, nameSuffix, DEFAULT_REPORTER_NAME, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -21,6 +21,7 @@ const SORTS: readonly ReporterSort[] = ['state', 'name', 'who', 'token', 'ver', 
 interface DbReporter {
   key: string;
   kind: 'mod' | 'hooks';
+  reporter_name: string;
   machine_id: string | null;
   machine_name: string | null;
   source_address: string | null;
@@ -98,10 +99,10 @@ export class PgReporterStore implements ReporterStoreApi {
    * the first one keeps the machine id as its key (rows and ignore rules made before this stay valid) and each
    * other account gets `<machine id>#<owner>`. A reporter with no machine id is keyed by `keyOf` alone.
    */
-  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner'>): Promise<string> {
+  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): Promise<string> {
     const own = keyOf(s);
     if (!s.machineId) return own;
-    const apart = `${s.machineId}#${s.owner ?? ''}`;
+    const apart = `${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`;
     const has = (key: string) => this.db.get<{ owner: string | null }>('SELECT owner FROM reporters WHERE key = ?', [key]);
     if (await has(apart)) return apart;
     const bare = await has(own);
@@ -113,25 +114,27 @@ export class PgReporterStore implements ReporterStoreApi {
    * belongs to one reporter, so a report from a new source address that carries a known session is the same reporter
    * on a new address (a container that restarted), not a new one (issue #166). The oldest row wins.
    */
-  private async knownKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'sessionId'>): Promise<string | undefined> {
+  private async knownKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'sessionId' | 'reporterName'>): Promise<string | undefined> {
     if (s.machineId) return undefined;
     const prefix = s.kind === 'hooks' ? 'hooks:' : 'addr:';
     const hit = await this.db.get<{ key: string }>(
       `SELECT r.key FROM reporter_sessions x JOIN reporters r ON r.key = x.reporter_key
-       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.key LIKE ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
-      [s.sessionId, s.kind, `${prefix}%`],
+       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name = ? AND r.key LIKE ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
+      [s.sessionId, s.kind, s.reporterName ?? DEFAULT_REPORTER_NAME, `${prefix}%`],
     );
     return hit?.key;
   }
 
-  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId'> & { owner?: string | null }): Promise<string[]> {
+  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]> {
     const own = keyOf(s);
     const known = await this.knownKey(s);
     const account = await this.accountKey({ ...s, owner: s.owner ?? null });
     // The machine id comes first, so a rule on it covers every account on the machine (#221).
     // The per-account form is always included, so a rule on `<machine id>#<owner>` still turns that account away when its row is keyed on the bare machine id.
-    const apart = s.machineId ? [`${s.machineId}#${s.owner ?? ''}`] : [];
-    return [...new Set([own, account, ...apart, ...(known ? [known] : [])])];
+    const apart = s.machineId ? [`${s.machineId}#${s.owner ?? ''}${nameSuffix(s.reporterName)}`] : [];
+    // A rule on the bare machine id also covers a reporter other than the Claude Code one on that machine (#849).
+    const machine = s.machineId ? [s.machineId] : [];
+    return [...new Set([own, account, ...machine, ...apart, ...(known ? [known] : [])])];
   }
 
   record(s: ReporterSeen, now: number): Promise<string> {
@@ -143,8 +146,8 @@ export class PgReporterStore implements ReporterStoreApi {
       if (known && known !== own) await this.merge(own, known);
       const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
       await this.db.run(
-        `INSERT INTO reporters (key, kind, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, machine_name = excluded.machine_name, source_address = excluded.source_address,
            owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
            engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
@@ -152,6 +155,7 @@ export class PgReporterStore implements ReporterStoreApi {
         [
           key,
           s.kind,
+          s.reporterName ?? DEFAULT_REPORTER_NAME,
           s.machineId,
           s.machineName?.slice(0, 64) ?? null,
           s.source?.slice(0, 120) ?? null,
@@ -215,6 +219,7 @@ export class PgReporterStore implements ReporterStoreApi {
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,
+      reporterName: r.reporter_name,
       compat: checkReporter(r.reporter_version),
       firstSeenAt: r.first_seen_at,
       lastSeenAt: r.last_seen_at,

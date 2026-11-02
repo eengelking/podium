@@ -162,6 +162,7 @@ read a conversation afterwards ([7.7](07-07-hardening.md#orchestrator-messaging-
 ```sql
 ALTER TABLE reporters ADD COLUMN os TEXT;                                 -- Report.machine.os as last reported; a report without one keeps it
 ALTER TABLE reporters ADD COLUMN peers INTEGER;                           -- the `peers` option as last reported (1 or 0); NULL from an older reporter
+ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-reporter';  -- #849, migration 27: which reporter sent the row; the key is the machine id (or address) plus `@<name>` for any reporter but `podium-reporter`, so a machine running two reporters has two rows and every earlier key stays valid
 CREATE TABLE peer_rights (from_key TEXT, to_key TEXT, owner TEXT, level TEXT, paused INTEGER, set_at INTEGER, PRIMARY KEY (from_key, to_key));
   -- one direction between two of one owner's reporters (the same reporter twice included); level none | see | ask | send.
   -- A `none` row exists only to hold a pause, or a removal under Trust my own reporters

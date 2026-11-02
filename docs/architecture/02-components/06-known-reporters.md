@@ -15,7 +15,9 @@ and #221.
 - `ReporterStore` owns migration 11 (`reporters` and `reporter_sessions`) and is built once in `index.ts`, then
   handed to both routers.
 - `routes.ts` calls `record()` after a report or hook is stored. The key is the machine id (or the source address
-  when the report has none), plus `#<owner>` for a second account on the same machine (`accountKey`), and the
+  when the report has none), plus `#<owner>` for a second account on the same machine (`accountKey`), plus `@<reporter name>` for any reporter
+  but `podium-reporter` (#849, migration 27: two reporters on one machine are two rows, and every earlier key stays the
+  same), and the
   credential is recorded as a key id, never a token.
 - `routes.ts` calls `rejected()` at each refusal. It keeps the last 200 in memory only.
 

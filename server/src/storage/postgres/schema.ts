@@ -163,6 +163,12 @@ UPDATE peer_requests r SET seq = o.n FROM (SELECT id, row_number() OVER (ORDER B
 CREATE INDEX peer_requests_seq ON peer_requests(created_at, seq);
 `),
   },
+  {
+    version: 3,
+    // A machine can run more than one reporter (#849): a reporter row names the reporter that sent it, and the key carries the name for any reporter
+    // but the Claude Code one. Rows from before this keep their key and become `podium-reporter` rows.
+    sql: typed(`ALTER TABLE reporters ADD COLUMN reporter_name TXT NOT NULL DEFAULT 'podium-reporter';`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

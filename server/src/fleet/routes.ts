@@ -93,7 +93,7 @@ async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: Repo
 }
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
-async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null }): Promise<{ key: string; otherKeys: string[] }> {
+async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
   const own = keyOf(s);
   try {
     const keys = (await opts.reporters?.keysFor(s)) ?? [own];
@@ -233,7 +233,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (
       result.report.reporter.hostSurface !== SIMULATOR_SURFACE &&
       (await refuseIgnored(opts, logger, fleet, req, res, {
-        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
+        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
         source: machineOf(req),
         version: result.report.reporter.version,
       }))
@@ -251,6 +251,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
           logger,
           {
             kind: asHooks ? 'hooks' : 'mod',
+            reporterName: r.reporter.name,
             machineId: r.machine?.id ?? null,
             machineName: r.machine?.name ?? null,
             source: machineOf(req),

@@ -477,7 +477,7 @@ export class Fleet {
   /** `reporter.connected` the first time a reporter is heard, and again when it comes back after going quiet. */
   private noteReporter(report: Report, owner: string | null): void {
     const kind = report.reporter.hostSurface === 'settings-hooks' ? 'hooks' : 'mod';
-    const key = `${owner ?? ''}\u0000${report.machine?.id ?? ''}\u0000${kind}`;
+    const key = `${owner ?? ''}\u0000${report.machine?.id ?? ''}\u0000${kind}\u0000${report.reporter.name}`;
     const now = this.now();
     const last = this.reporters.get(key);
     this.reporters.delete(key); // re-insert so the oldest entry is the one forgotten at the cap
