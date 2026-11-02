@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium effort meter: a level that is not one of the five</title>
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<!-- Mockup for issue #936. Colors are tokens from tokens.css (linked, with no root-level token block of its own). The theme button sets data-theme on <html> the way useTheme does. -->
+<style>
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui, system-ui, sans-serif); padding: 32px 16px 72px; }
+.page { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: 26px; line-height: 1.15; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+p { margin: 0; max-width: 68ch; color: var(--ink2); }
+code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12.5px; }
+button.theme { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+th, td { text-align: left; padding: 9px 12px; border-top: 1px solid var(--grid); vertical-align: middle; }
+th { font-weight: 600; color: var(--ink2); font-size: 12px; border-top: 0; }
+td.say { color: var(--ink2); font-size: 12.5px; }
+
+/* The meter, as in fleet.css, plus one new state: eff-other */
+.eff { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.eff b { width: 4px; height: 10px; border-radius: 1px; background: var(--axis); box-sizing: border-box; }
+.eff b.on { background: var(--c); }
+.eff-none { opacity: 0.5; }
+.eff-low { --c: var(--eff-low); } .eff-medium { --c: var(--eff-medium); } .eff-high { --c: var(--eff-high); } .eff-xhigh { --c: var(--eff-xhigh); }
+.eff-max b:nth-child(1).on { background: var(--eff-r1); } .eff-max b:nth-child(2).on { background: var(--eff-r2); }
+.eff-max b:nth-child(3).on { background: var(--eff-r3); } .eff-max b:nth-child(4).on { background: var(--eff-r4); } .eff-max b:nth-child(5).on { background: var(--eff-r5); }
+/* New: five hollow bars. Shape, not color, tells it from "not reported" (filled, dimmed) and from the five levels (filled). */
+.eff-other b { background: transparent; border: 1px solid var(--muted); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; width: 100%; max-width: 360px; box-sizing: border-box; }
+.card .top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 10px; background: var(--raised); font-size: 12px; }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink2); }
+.tip { margin-top: 8px; display: inline-block; font-size: 12px; background: var(--raised); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; color: var(--ink); }
+.narrow { width: 400px; max-width: 100%; }
+</style>
+</head>
+<body>
+<div class="page">
+  <section>
+    <h1>An effort that is not one of Claude Code's five levels</h1>
+    <p>A v2 report can send any text as <code>effort</code>, such as <code>minimal</code>. Today that reads "Effort not reported". It would read "Effort: minimal", drawn as five hollow bars. <code>null</code> stays the dimmed filled bars and "Effort not reported", and the five levels look as they do now.</p>
+    <p style="margin-top:10px"><button class="theme" type="button" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'">Switch light / dark</button></p>
+  </section>
+
+  <section>
+    <h2>The meter in each state</h2>
+    <table>
+      <thead><tr><th>Sent</th><th>Meter</th><th>Tooltip and accessible name</th></tr></thead>
+      <tbody>
+        <tr><td><code>low</code></td><td><span class="eff eff-low" role="img" aria-label="Effort: low" title="Effort: low"><b class="on"></b><b></b><b></b><b></b><b></b></span></td><td class="say">Effort: low (unchanged)</td></tr>
+        <tr><td><code>medium</code></td><td><span class="eff eff-medium" role="img" aria-label="Effort: medium" title="Effort: medium"><b class="on"></b><b class="on"></b><b></b><b></b><b></b></span></td><td class="say">Effort: medium (unchanged)</td></tr>
+        <tr><td><code>high</code></td><td><span class="eff eff-high" role="img" aria-label="Effort: high" title="Effort: high"><b class="on"></b><b class="on"></b><b class="on"></b><b></b><b></b></span></td><td class="say">Effort: high (unchanged)</td></tr>
+        <tr><td><code>xhigh</code></td><td><span class="eff eff-xhigh" role="img" aria-label="Effort: xhigh" title="Effort: xhigh"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b></b></span></td><td class="say">Effort: xhigh (unchanged)</td></tr>
+        <tr><td><code>max</code></td><td><span class="eff eff-max" role="img" aria-label="Effort: max" title="Effort: max"><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b><b class="on"></b></span></td><td class="say">Effort: max (unchanged)</td></tr>
+        <tr><td><code>null</code></td><td><span class="eff eff-none" role="img" aria-label="Effort not reported" title="Effort not reported"><b></b><b></b><b></b><b></b><b></b></span></td><td class="say">Effort not reported (unchanged)</td></tr>
+        <tr><td><code>minimal</code> <strong>(new)</strong></td><td><span class="eff eff-other" role="img" aria-label="Effort: minimal" title="Effort: minimal"><b></b><b></b><b></b><b></b><b></b></span></td><td class="say">Effort: minimal</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>On a card, at a narrow width</h2>
+    <div class="narrow">
+      <div class="card"><div class="top"><span class="chip"><i></i>Sonnet 5.5</span><span class="eff eff-other" role="img" aria-label="Effort: minimal" title="Effort: minimal"><b></b><b></b><b></b><b></b><b></b></span></div><span class="tip">Effort: minimal</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Sorting the effort column</h2>
+    <p>Ascending: no effort, then <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, <code>max</code>, then any other text after <code>max</code>, ordered by that text (<code>minimal</code> before <code>ultra</code>). Descending is the exact reverse. Today an unknown value sorts with no effort.</p>
+  </section>
+
+  <section>
+    <h2>Standards</h2>
+    <p>Tokens only: <code>--muted</code> for the outline, <code>--axis</code> and <code>--eff-*</code> as now. It adds one variant to the effort meter (<code>eff-other</code>), so it is a standards change that needs the maintainer's approval before a <code>Standards:</code> line is written.</p>
+  </section>
+</div>
+</body>
+</html>
