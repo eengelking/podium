@@ -317,8 +317,9 @@ export class PgPeerRights implements PeerRightsStoreApi {
   private async insertRequest(r: Omit<PeerRequestRow, 'id' | 'createdAt' | 'closedAt' | 'outcome'>): Promise<PeerRequestRow> {
     const row: PeerRequestRow = { ...r, id: `prq_${randomBytes(12).toString('hex')}`, createdAt: this.now(), closedAt: null, outcome: null };
     await this.db.run(
-      `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
+      `INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_requests))`,
       [row.id, row.owner, row.kind, row.fromKey, row.toKey, row.level, row.reason, row.by, row.fromSession, row.messageId, row.createdAt],
     );
     return row;
@@ -402,8 +403,8 @@ export class PgPeerRights implements PeerRightsStoreApi {
     const key = nameKey(owner);
     const rows =
       about === undefined
-        ? await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, from_key, to_key, kind, id')
-        : await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, from_key, to_key, kind, id', [about, about]);
+        ? await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL ORDER BY created_at, seq')
+        : await this.db.all<DbRequest>('SELECT * FROM peer_requests WHERE closed_at IS NULL AND (from_key = ? OR to_key = ?) ORDER BY created_at, seq', [about, about]);
     return rows.filter((r) => nameKey(r.owner) === key).map(toRequest);
   }
 

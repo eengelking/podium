@@ -327,6 +327,15 @@ ALTER TABLE person_certificates ADD COLUMN seq INTEGER;
 UPDATE person_certificates SET seq = rowid;
 CREATE INDEX IF NOT EXISTS person_certificates_seq ON person_certificates(person_id, seq);`,
   },
+  {
+    version: 26,
+    // Open requests are listed oldest first, and two made in the same millisecond used to be told apart by their random id (#890). They
+    // take an insertion number like peer messages do (migration 25): existing rows keep the order their rowid gave them, a new row the next number.
+    sql: `
+ALTER TABLE peer_requests ADD COLUMN seq INTEGER;
+UPDATE peer_requests SET seq = rowid;
+CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

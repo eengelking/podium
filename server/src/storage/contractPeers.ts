@@ -102,6 +102,25 @@ export function peerCases(o: Openers): void {
     expect(((t.get('open') as { reason?: string }[]) ?? []).length).toBeGreaterThan(0);
   });
 
+  it('lists open requests made in the same millisecond in the order they were made, whatever their pair, kind, reason or id', async () => {
+    const t = await sameOnBoth(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, c } = await setUp(s, clock);
+      const r = peers.rights;
+      // five requests at one moment, in an order that neither the reporters' keys, the reasons nor the generated ids would give
+      const asks: [string, string, 'see' | 'send', string][] = [[c, a, 'see', 'zulu'], [a, b, 'send', 'mike'], [a, b, 'see', 'alpha'], [b, c, 'see', 'yankee'], [a, c, 'see', 'bravo']];
+      for (const [from, to, right, reason] of asks) await rec(`request ${reason}`, r.requestAccess({ owner: 'ed', fromKey: from, toKey: to, right, reason, by: 'x', fromSession: 'sa' }));
+      await rec('open', r.openRequests('ed'));
+      await rec('open about a', r.openRequests('ed', a));
+      clock.now += 1;
+      await rec('request later', r.requestAccess({ owner: 'ed', fromKey: b, toKey: a, right: 'see', reason: 'later', by: 'x', fromSession: 'sb' }));
+      await rec('open (with a later one)', r.openRequests('ed'));
+    });
+    const reasons = (t.get('open') as { reason: string }[]).map((x) => x.reason);
+    expect(reasons).toEqual(['zulu', 'mike', 'alpha', 'yankee', 'bravo']);
+    expect((t.get('open (with a later one)') as { reason: string }[]).map((x) => x.reason).at(-1)).toBe('later');
+  });
+
   it('matches the reference for sending, listing, results and the order of a conversation, through approval and decline', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const clock = { now: T0 };

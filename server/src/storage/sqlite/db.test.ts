@@ -27,7 +27,7 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(tables).toEqual(expect.arrayContaining(['admin_log', 'agent_texts', 'agents', 'blowouts', 'events', 'groups', 'people', 'person_machines', 'peer_messages', 'peer_owner_settings', 'peer_requests', 'peer_rights', 'reporter_ignores', 'reporter_sessions', 'reporters', 'samples', 'schema_migrations', 'sessions', 'settings']));
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }]);
     db.close();
   });
 
@@ -97,7 +97,7 @@ describe('openDb', () => {
     old.exec('ALTER TABLE sessions DROP COLUMN cleared_from');
     old.exec('ALTER TABLE sessions DROP COLUMN reporter_build');
     old.exec('ALTER TABLE sessions DROP COLUMN plan_kept_json');
-    for (const t of ['peer_messages', 'person_certificates']) {
+    for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
@@ -105,7 +105,7 @@ describe('openDb', () => {
     old.exec('DELETE FROM schema_migrations WHERE version >= 2');
     old.close();
     const db = openDb(file);
-    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }]);
     expect(db.prepare("SELECT tool_calls, tool_counts_json FROM agents WHERE id = 'a'").get()).toEqual({ tool_calls: 7, tool_counts_json: null });
     expect(db.prepare("SELECT name, loop_json, files_json, attached, detached_at, owner, machine_json, cleared_from FROM sessions WHERE id = 's1'").get()).toEqual({ name: 'demo', loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, cleared_from: null });
     db.close();
@@ -139,7 +139,7 @@ describe('openDb', () => {
     const rotated = people.rotate(made.person.id);
     expect(rotated?.token).not.toBe(made.token);
     expect(people.findByKeyId('aabbccddeeff')?.name).toBe('Ada');
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 25 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 26 });
     db.close();
   });
 
@@ -195,6 +195,29 @@ describe('openDb', () => {
     db.close();
   });
 
+  it('gives existing peer requests their old insertion order as seq when it migrates to 26 (#890)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
+    tmpDirs.push(dir);
+    const file = path.join(dir, 'fleet.db');
+    // A database made before migration 26: peer_requests has no seq column.
+    const old = openDb(file);
+    old.exec('DROP INDEX peer_requests_seq');
+    old.exec('ALTER TABLE peer_requests DROP COLUMN seq');
+    old.exec('DELETE FROM schema_migrations WHERE version = 26');
+    // Three requests made in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
+    for (const id of ['prq_c', 'prq_a', 'prq_b']) {
+      old.exec(`INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at)
+        VALUES ('${id}', 'ed', 'access', 'k1', 'k2', 'see', 'why-${id}', 'n1', 's1', NULL, 5000)`);
+    }
+    old.close();
+
+    const db = openDb(file);
+    expect(db.prepare('SELECT id FROM peer_requests ORDER BY created_at, seq').all()).toEqual([{ id: 'prq_c' }, { id: 'prq_a' }, { id: 'prq_b' }]);
+    expect(db.prepare('SELECT seq FROM peer_requests ORDER BY seq').all()).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 26').all()).toEqual([{ version: 26 }]);
+    db.close();
+  });
+
   it('is idempotent on an existing file and turns WAL on', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
     tmpDirs.push(dir);
@@ -204,7 +227,7 @@ describe('openDb', () => {
     a.close();
     const db = openDb(file);
     expect(db.prepare('PRAGMA journal_mode').get()).toEqual({ journal_mode: 'wal' });
-    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 25 });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get()).toEqual({ n: 26 });
     expect(db.prepare('SELECT name FROM sessions').all()).toEqual([{ name: 'demo' }]);
     expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     db.close();

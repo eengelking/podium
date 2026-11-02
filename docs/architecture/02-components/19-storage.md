@@ -187,7 +187,7 @@ contract.
   nothing and frees 0 bytes.
 - **Order.** A query that could tie ends on `seq` or `id`. SQLite's migration 25 adds the `seq` columns the two `rowid`
   orderings need, so both adapters answer the same. A list that a caller can see states its order in both adapters, and neither leaves it to the table's storage order (#890):
-  open peer requests end on the pair of reporters and the kind before the generated `id`, `clearedInto` on `id` after the start time,
+  open peer requests end on `seq`, an insertion number (SQLite migration 26, PostgreSQL step 2) that a generated `id` cannot give, `clearedInto` on `id` after the start time,
   and the spend queries, the reporter keys, the reporter versions seen, the rollup days and each rollup table's rows end on a key.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
 
