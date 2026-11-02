@@ -16,6 +16,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Added
 
+- **`npm run plugin:build:release` builds the mod with no dev stamp (#932).** It runs `scripts/plugin-build.mjs` exactly as CI does, so its output passes `scripts/podium-reporter-zip.mjs` and `scripts/plugin-publish.mjs` with no extra step. `plugin:build` and `plugin:dev` keep the stamp. The release check in `podium-release`, CONTRIBUTING.md and the zip and publish scripts' refusal messages name it.
+
 - **`npm run plugin:dev:claudecode` builds the mod and starts Claude Code with it loaded (#927).** `scripts/plugin-dev.mjs` runs the dev-stamped build and then `claude --plugin-dir dist/claudecode`; `-- --watch` rebuilds when `plugin/` changes, and `npm run plugin:dev:cleanup` deletes the git-ignored build folders. `plugin:dev:opencode` exits with an error until #855.
 
 - **A check that every list query is ordered the same way in every storage adapter (#910).** `scripts/storage-order-parity.mjs` reads the queries in each adapter folder, pairs each store method with its counterpart, and fails on a list that one adapter orders and another does not, on different `ORDER BY` columns once the dialect is set aside, on a list with no `ORDER BY`, and on a method that lists in only one adapter. A list whose order does not matter carries `// order-insensitive: <why>` next to its query; the 32 that had none now do. It needs no database server and runs in `npm test`, and the adapter parity check in `podium-pr-workflow` runs it.
