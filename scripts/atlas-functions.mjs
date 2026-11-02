@@ -27,11 +27,11 @@ const NAMED = /^(class )?([A-Za-z_]\w*)(\(\))?: (.+)$/;
 
 /** The source references (file, line, text) the page keeps for each part, by part id. The list is read as text; nothing in the page is run. */
 export function readRefs(html) {
-  const consts = /const pM="([^"]*)",pS="([^"]*)",pSF="([^"]*)",pF="([^"]*)";/.exec(html);
+  const consts = /const pM="([^"]*)",(?:pC="([^"]*)",)?pS="([^"]*)",pSF="([^"]*)",pF="([^"]*)";/.exec(html);
   const start = html.indexOf('const REFS={');
   const end = html.indexOf('\n};', start);
   if (!consts || start < 0 || end < 0) throw new Error(`${HTML}: could not find the REFS list`);
-  const prefix = { pM: consts[1], pS: consts[2], pSF: consts[3], pF: consts[4] };
+  const prefix = { pM: consts[1], pC: consts[2], pS: consts[3], pSF: consts[4], pF: consts[5] };
   const refs = {};
   // One part to a line: ` id:[[path, line, "text"], ...],`, a path being a quoted string, or a prefix constant plus one.
   for (const line of html.slice(start, end).split('\n')) {

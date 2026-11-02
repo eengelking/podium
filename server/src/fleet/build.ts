@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { serverDir } from "../serverRoot.js";
 import { parseBuild } from "./parseBuild.js";
 
 /** The build from PODIUM_BUILD (a container build passes it), else build.json in `dir` (a standalone build writes it). */
@@ -18,6 +18,6 @@ let cached: string | null | undefined;
 /** The server's own build, from the environment or server/build.json (the same relative path from src/ and dist/). */
 export function serverBuild(): string | null {
   if (cached !== undefined) return cached;
-  cached = readBuild(process.env, path.join(path.dirname(fileURLToPath(import.meta.url)), "..", ".."));
+  cached = readBuild(process.env, serverDir(import.meta.url));
   return cached;
 }

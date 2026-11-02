@@ -5,7 +5,7 @@ import { reporterBelow, SkillChips, ToolChips } from "./AgentDetail";
 import { backgroundOf, BlowBadge, CompBadge, Cost, ContextBar, EffortMeter, GitLine, ModelChip, StatusChip } from "./Chips";
 import { IconBack } from "./Icons";
 import { ActivityFeed } from "./ActivityFeed";
-import { MAIN_LOOP } from "../../../../server/src/fleet/protocol";
+import { MAIN_LOOP } from "../../../../plugin/core/protocol";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
 
 /** The side panel for the orchestrator's own row. Steps, tools and skills come from the report's main loop block, when the reporter sends one. */

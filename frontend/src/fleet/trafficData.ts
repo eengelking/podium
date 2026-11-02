@@ -5,7 +5,7 @@
 // tested without drawing. (Not traffic.ts: on a case-insensitive disk it would be the same file as Traffic.tsx.)
 import { call } from "./respondApi";
 import { ADMIN } from "./people";
-import { PEER_DROP_WORDS } from "../../../server/src/fleet/protocol";
+import { PEER_DROP_WORDS } from "../../../plugin/core/protocol";
 
 /** One end of a conversation: an orchestrator, and the reporter (machine) it runs on. */
 export interface TrafficEnd {

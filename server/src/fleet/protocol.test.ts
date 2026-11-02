@@ -1,27 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { validateReport, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
-import { bareFixture, loadFixture, REPO_ROOT as repo } from './testing.js';
+import { bareFixture, loadFixture } from './testing.js';
 import { checkReporter } from './compat.js';
 
-const here = path.join(repo, 'server', 'src', 'fleet');
-
-function protocolBlock(file: string): string {
-  const text = readFileSync(file, 'utf8');
-  const start = text.indexOf('// <protocol:begin>');
-  const end = text.indexOf('// <protocol:end>');
-  if (start < 0 || end < 0) throw new Error(`protocol markers missing in ${file}`);
-  return text.slice(start, end).replace(/\s+/g, ' ').trim();
-}
-
 describe('protocol', () => {
-  it('server and mod declare identical Report types', () => {
-    const server = protocolBlock(path.join(here, 'protocol.ts'));
-    const mod = protocolBlock(path.join(repo, 'mod', 'podium-reporter', 'hooks', 'protocol.ts'));
-    expect(mod).toBe(server);
-  });
-
   it('accepts the shared fixture', () => {
     const r = validateReport(loadFixture());
     expect(r.ok).toBe(true);

@@ -15,21 +15,36 @@ const importsOf = (file: string): string[] =>
 const isNode = (spec: string) => spec.startsWith("node:") || NODE.has(spec.split("/")[0]);
 const resolve = (from: string, spec: string) => path.resolve(path.dirname(from), spec.replace(/\.js$/, ".ts"));
 
+const CORE = path.join(dir, "..", "..", "..", "plugin", "core", "protocol.ts");
+
+/** Every Node-only import reachable from `entry` through relative imports, and how many files were walked. */
+function reachNode(entry: string): { seen: number; nodeOnly: string[] } {
+  const seen = new Set<string>();
+  const nodeOnly: string[] = [];
+  const walk = (file: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const spec of importsOf(file)) {
+      if (spec.startsWith(".")) walk(resolve(file, spec));
+      else if (isNode(spec)) nodeOnly.push(`${path.basename(file)} imports ${spec}`);
+    }
+  };
+  walk(entry);
+  return { seen: seen.size, nodeOnly };
+}
+
 describe("protocol.ts import graph", () => {
   it("reaches no Node-only module", () => {
-    const seen = new Set<string>();
-    const nodeOnly: string[] = [];
-    const walk = (file: string) => {
-      if (seen.has(file)) return;
-      seen.add(file);
-      for (const spec of importsOf(file)) {
-        if (spec.startsWith(".")) walk(resolve(file, spec));
-        else if (isNode(spec)) nodeOnly.push(`${path.basename(file)} imports ${spec}`);
-      }
-    };
-    walk(path.join(dir, "protocol.ts"));
-    expect(seen.size).toBeGreaterThan(1);
-    expect(nodeOnly).toEqual([]);
+    const r = reachNode(path.join(dir, "protocol.ts"));
+    expect(r.seen).toBeGreaterThan(1);
+    expect(r.nodeOnly).toEqual([]);
+  });
+
+  // plugin/core/protocol.ts is the one copy of the report types (#927): the UI imports it directly.
+  it("plugin/core/protocol.ts reaches no Node-only module", () => {
+    const r = reachNode(CORE);
+    expect(r.seen).toBeGreaterThanOrEqual(1);
+    expect(r.nodeOnly).toEqual([]);
   });
 
   it("recognises node: and bare built-ins", () => {

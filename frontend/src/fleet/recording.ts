@@ -1,6 +1,6 @@
 // What the console says about a session recording (#353, mockup/podium-recording.html), worked out from one SessionView, the
 // Admin's flag and who is signed in. Pure: the components draw what these say.
-import { MAIN_LOOP } from "../../../server/src/fleet/protocol";
+import { MAIN_LOOP } from "../../../plugin/core/protocol";
 import { fleetHash, replayHash } from "../route";
 import { isMine } from "./respond";
 import type { AgentView, RecordingGrant, RecordingLoopInfo, RecordingView, RespondMe, SessionView } from "./types";

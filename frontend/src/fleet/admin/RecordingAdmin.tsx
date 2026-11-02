@@ -2,7 +2,7 @@
 // budget, the limit for one session) and the table of every recording that is running or kept, where an Admin can stop or delete
 // any of them after a confirmation. Recordings are also listed by Stored activity with its Source filter set to Recordings.
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { RECORDING_RANGES } from "../../../../server/src/fleet/protocol";
+import { RECORDING_RANGES } from "../../../../plugin/core/protocol";
 import { replayHash } from "../../route";
 import { fmtWhen } from "../recording";
 import type { RecordingAdminRow, RecordingSettings } from "../types";

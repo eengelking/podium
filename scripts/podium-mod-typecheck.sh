@@ -3,7 +3,7 @@
 #
 # The engine lays its declarations into <mod>/.claude-plugin/types/ only when an interactive session
 # watches the mod folder. This script does the same by hand: it copies a claude-code.d.ts into that
-# (git-ignored) folder and runs tsc with mod/podium-reporter/tsconfig.json.
+# (git-ignored) folder and runs tsc with plugin/claudecode/tsconfig.json.
 set -euo pipefail
 
 usage() {
@@ -12,7 +12,7 @@ Usage: scripts/podium-mod-typecheck.sh [path/to/claude-code.d.ts]
 
 Without an argument it looks for the newest plugin-authoring types under
 $TMPDIR / /private/tmp (written when the plugin-authoring skill loads), or uses
-types the engine already laid in mod/podium-reporter/.claude-plugin/types/.
+types the engine already laid in plugin/claudecode/.claude-plugin/types/.
 
   -h, --help   Show this help
 USAGE
@@ -21,7 +21,7 @@ USAGE
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MOD="$ROOT/mod/podium-reporter"
+MOD="$ROOT/plugin/claudecode"
 DEST="$MOD/.claude-plugin/types/claude-code"
 SRC="${1:-}"
 

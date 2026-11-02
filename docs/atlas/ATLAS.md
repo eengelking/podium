@@ -100,7 +100,7 @@ to do travels back in the reply to a report.
 
 ## The reporter's hooks and timers
 
-These are the handlers in `mod/podium-reporter/hooks/register.ts` that make up the first four rows of
+These are the handlers in `plugin/claudecode/hooks/register.ts` that make up the first four rows of
 [The parts](#the-parts). Each runs after Claude Code has done its own work, and an error in one is logged and never
 passed on, so a bug in Podium cannot fail a tool call.
 
@@ -146,34 +146,34 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Reporter | `newSession` | Creates the in-memory model of a session. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `taskCreate` | Plan from TaskCreate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `taskUpdate` | Plan from TaskUpdate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `mod/podium-reporter/hooks/failures.ts`. |
-| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `mod/podium-reporter/hooks/report.ts`. |
-| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `planRace` | The same race for a plan's approval or feedback. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `planApproval` | The hook result that approves a plan. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `peerPrompt` | The frame around a peer message. In `mod/podium-reporter/hooks/peers.ts`. |
-| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `readGit` | Branch, ahead/behind. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `readChanges` | Changed files with +/- counts. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `machineIdPath` | Where the random machine id is kept. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `osFromSwVers` | Reads the macOS version. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `mod/podium-reporter/hooks/recording.ts`. |
-| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `mod/podium-reporter/hooks/diffRedact.ts`. |
-| Reporter | `setWatched` | Records which loops someone is watching. In `mod/podium-reporter/hooks/state.ts`. |
+| Reporter | `newSession` | Creates the in-memory model of a session. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `taskCreate` | Plan from TaskCreate. In `plugin/core/plan.ts`. |
+| Reporter | `taskUpdate` | Plan from TaskUpdate. In `plugin/core/plan.ts`. |
+| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `plugin/core/failures.ts`. |
+| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `plugin/core/transport.ts`. |
+| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `plugin/core/transport.ts`. |
+| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `plugin/claudecode/hooks/report.ts`. |
+| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `planRace` | The same race for a plan's approval or feedback. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `planApproval` | The hook result that approves a plan. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `peerPrompt` | The frame around a peer message. In `plugin/core/peers.ts`. |
+| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `plugin/claudecode/hooks/helper.mjs`. |
+| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `plugin/claudecode/hooks/helper.mjs`. |
+| Reporter | `readGit` | Branch, ahead/behind. In `plugin/core/git.ts`. |
+| Reporter | `readChanges` | Changed files with +/- counts. In `plugin/core/git.ts`. |
+| Reporter | `machineIdPath` | Where the random machine id is kept. In `plugin/core/machine.ts`. |
+| Reporter | `osFromSwVers` | Reads the macOS version. In `plugin/core/machine.ts`. |
+| Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `plugin/claudecode/hooks/recording.ts`. |
+| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `plugin/core/diffRedact.ts`. |
+| Reporter | `setWatched` | Records which loops someone is watching. In `plugin/claudecode/hooks/state.ts`. |
 | Reporter | `ingestHook` | Takes a settings-hook report, giving a reduced view. In `server/src/fleet/fleet.ts`. |
 
 ### Network

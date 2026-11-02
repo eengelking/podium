@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds podium-reporter-<version>.zip from mod/podium-reporter/ (#835). Claude Desktop's plugin dialog takes only an archive, so
+// Builds podium-reporter-<version>.zip from plugin/claudecode/ (#835). Claude Desktop's plugin dialog takes only an archive, so
 // every release carries one. CI (release.yml, nightly.yml) and a person run this same script. It writes the zip itself with
 // node:zlib, so a runner needs no zip tool, and the same tree gives the same bytes.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -8,12 +8,12 @@ import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MOD = join(ROOT, "mod", "podium-reporter");
+const MOD = join(ROOT, "plugin", "claudecode");
 
 const USAGE = `Usage: node scripts/podium-reporter-zip.mjs [--out <dir>] [--suffix <text>] [--expect-version <x.y.z>]
 
-Zips mod/podium-reporter/ into <dir>/podium-reporter-<version>[<suffix>].zip and prints the path.
-  <version>        the version in mod/podium-reporter/.claude-plugin/plugin.json
+Zips plugin/claudecode/ into <dir>/podium-reporter-<version>[<suffix>].zip and prints the path.
+  <version>        the version in plugin/claudecode/.claude-plugin/plugin.json
   --out <dir>      where to write the zip (default: the current directory)
   --suffix <text>  appended to the name before .zip, e.g. -nightly-2026-10-30
   --expect-version fail unless <version> equals this (a tag's number, without the v)

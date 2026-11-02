@@ -66,7 +66,7 @@ USAGE
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MOD="$ROOT/mod/podium-reporter"
+MOD="$ROOT/plugin/claudecode"
 MARKER=".podium-peers-e2e"
 TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
 

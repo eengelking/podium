@@ -1,10 +1,9 @@
 import { config as loadEnv } from "dotenv";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { repoRoot } from "./serverRoot.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.join(__dirname, "..", "..");
+const REPO_ROOT = repoRoot(import.meta.url);
 // quiet: dotenv 17 and later print an "injected env" line at startup, which the logger's text output pins (#11).
 loadEnv({ path: path.join(REPO_ROOT, ".env"), quiet: true });
 

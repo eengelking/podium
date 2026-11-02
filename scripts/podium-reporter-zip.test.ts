@@ -30,7 +30,7 @@ function readZip(buf: Buffer): Map<string, Buffer> {
 }
 
 describe("podium-reporter-zip", () => {
-  const version = JSON.parse(readFileSync(join(ROOT, "mod/podium-reporter/.claude-plugin/plugin.json"), "utf8")).version;
+  const version = JSON.parse(readFileSync(join(ROOT, "plugin/claudecode/.claude-plugin/plugin.json"), "utf8")).version;
 
   it("is named for the version in plugin.json", () => {
     expect(buildReporterZip().name).toBe(`podium-reporter-${version}.zip`);
@@ -50,8 +50,8 @@ describe("podium-reporter-zip", () => {
     const zip = buildReporterZip();
     const entries = readZip(zip.bytes);
     expect([...entries.keys()]).toEqual(zip.files);
-    expect(zip.files).toEqual(listFiles(join(ROOT, "mod/podium-reporter")));
-    expect(entries.get(".claude-plugin/plugin.json")?.equals(readFileSync(join(ROOT, "mod/podium-reporter/.claude-plugin/plugin.json")))).toBe(true);
+    expect(zip.files).toEqual(listFiles(join(ROOT, "plugin/claudecode")));
+    expect(entries.get(".claude-plugin/plugin.json")?.equals(readFileSync(join(ROOT, "plugin/claudecode/.claude-plugin/plugin.json")))).toBe(true);
   });
 
   it("builds the same bytes twice", () => {

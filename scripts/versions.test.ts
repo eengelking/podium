@@ -10,8 +10,8 @@ describe("mod version", () => {
   // The mod reports VERSION to the server; plugin.json is what installed copies update on. A bump that
   // misses one makes reports claim the wrong version (CONTRIBUTING.md, "The mod version bump").
   it("register.ts VERSION matches plugin.json", () => {
-    const manifest = JSON.parse(read("mod/podium-reporter/.claude-plugin/plugin.json")).version as string;
-    const m = /export const VERSION = '([^']+)'/.exec(read("mod/podium-reporter/hooks/register.ts"));
+    const manifest = JSON.parse(read("plugin/claudecode/.claude-plugin/plugin.json")).version as string;
+    const m = /export const VERSION = '([^']+)'/.exec(read("plugin/claudecode/hooks/register.ts"));
     expect(m?.[1]).toBe(manifest);
   });
 });
@@ -20,7 +20,7 @@ describe("supported reporter range", () => {
   // Without this, a mod minor bump that forgets REPORTER_SUPPORT.max makes every up-to-date mod show
   // "upgrade server" (SPEC 6.8, DECISIONS 18).
   it("includes the mod version in this repo", () => {
-    const manifest = JSON.parse(read("mod/podium-reporter/.claude-plugin/plugin.json")).version as string;
+    const manifest = JSON.parse(read("plugin/claudecode/.claude-plugin/plugin.json")).version as string;
     expect(checkReporter(manifest)).toBe("ok");
   });
 });
@@ -34,7 +34,7 @@ describe("package versions", () => {
   // Podium and the mod are versioned as one product (.claude/PROJECT.md, "Releases"; the files are listed in the podium-release skill): a release, or any PR that
   // changes the mod, sets every one of them to the same number.
   it("the mod and the packages share one version", () => {
-    const mod = JSON.parse(read("mod/podium-reporter/.claude-plugin/plugin.json")).version as string;
+    const mod = JSON.parse(read("plugin/claudecode/.claude-plugin/plugin.json")).version as string;
     expect(JSON.parse(read("package.json")).version).toBe(mod);
   });
 
