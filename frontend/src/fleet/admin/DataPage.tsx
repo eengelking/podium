@@ -160,9 +160,12 @@ function HistoryForm({ api, state, onSaved, onLocked, onGo }: { api: AdminApi; s
   const [busy, setBusy] = useState(false);
   const first = useRef<HTMLButtonElement>(null);
   const saved = JSON.stringify(state.settings);
-  useEffect(() => {
+  // Reset during render when the saved settings change, so a mount does not overwrite an edit.
+  const [shownFor, setShownFor] = useState(saved);
+  if (shownFor !== saved) {
+    setShownFor(saved);
     setDraft(toDraft(JSON.parse(saved) as ActivityHistorySettings));
-  }, [saved]);
+  }
   useEffect(() => {
     if (ask) first.current?.focus();
   }, [ask]);

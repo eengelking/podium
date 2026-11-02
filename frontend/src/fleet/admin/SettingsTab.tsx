@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AdminError, type AdminApi } from "./adminApi";
 import { Panel, Section, SwitchRow } from "./Page";
 import { failText, useList } from "./useList";
@@ -156,7 +156,12 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
 function ForgetDays(props: { days: number; disabled: boolean; onSave: (days: number) => void }) {
   const [text, setText] = useState(String(props.days));
   const [msg, setMsg] = useState("");
-  useEffect(() => setText(String(props.days)), [props.days]);
+  // Reset during render when the saved value changes, so a mount does not overwrite an edit.
+  const [shownFor, setShownFor] = useState(props.days);
+  if (shownFor !== props.days) {
+    setShownFor(props.days);
+    setText(String(props.days));
+  }
   const commit = () => {
     const n = Number(text);
     if (text.trim() === "" || !Number.isInteger(n) || n < 1 || n > 3650) return setMsg("Enter a whole number of days from 1 to 3650.");

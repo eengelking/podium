@@ -17,8 +17,10 @@ slow machine and on the CI runner.
 **Why:** React 19's scheduler yields to the browser after every commit, so a component's `useEffect` callbacks run in a
 later task than the commit that drew it. React 18 ran most of them in the same task. A `findBy` or `waitFor` can return as
 soon as the page changes, and a test that then edits a form does it while the form's mount effects are still waiting. A
-form that copies its saved settings into a draft in an effect (`PeerLimitRow`, `HistoryForm`, `DaysRow` and others) then
-writes the saved value back over the edit. A count that a list pushes up through an effect is just as likely to be read
+form that copies its saved settings into a draft in an effect then writes the saved value back over the edit. The five
+forms that did (`PeerLimitRow`, `HistoryForm`, `DaysRow`, `ForgetDays`, `RecordingLimits`) now reset the draft during
+render when the saved value changes (#861), so they no longer lose an edit; a new form must do the same. The wait stays
+for the other mount effects. A count that a list pushes up through an effect is just as likely to be read
 before it arrives. Whether the effect or the test's next step goes first depends on a 1 ms clock, so it comes and goes (#290).
 
 **Do:** The fix is already in place. Keep it working:
