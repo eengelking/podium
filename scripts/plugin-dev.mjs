@@ -99,15 +99,16 @@ export function createRebuilder({ build, log, logError, delay = DEBOUNCE_MS, set
   let again = false;
   let stopped = false;
 
+  // One build, then one more when a change arrived during it (`fire` sets `again`) unless `stop` was called meanwhile. It repeats by
+  // calling itself rather than looping, because both flags change from other functions while the build is awaited.
   async function runBuild() {
-    do {
-      again = false;
-      try {
-        log(`rebuilt dist at ${await build()}; run /reload-plugins in the session`);
-      } catch (e) {
-        logError(`rebuild failed, keeping the last good build: ${e.message}`);
-      }
-    } while (again && !stopped);
+    again = false;
+    try {
+      log(`rebuilt dist at ${await build()}; run /reload-plugins in the session`);
+    } catch (e) {
+      logError(`rebuild failed, keeping the last good build: ${e.message}`);
+    }
+    if (again && !stopped) await runBuild();
   }
 
   function fire() {
