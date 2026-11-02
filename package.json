@@ -27,7 +27,7 @@
     "test:coverage": "npm run test:coverage -w server && npm run test:coverage -w frontend",
     "standards:sync": "STANDARDS_WRITE=1 npm test -w frontend -- standards",
     "standards:parity": "STANDARDS_PARITY=1 npm test -w frontend -- standards",
-    "plugin:build": "node scripts/plugin-build.mjs",
+    "plugin:build": "node scripts/plugin-build.mjs --dev-stamp",
     "test:mod": "node scripts/plugin-build.mjs claudecode --with-tests --out .build-test && claude plugin test .build-test/claudecode",
     "typecheck:mod": "bash scripts/podium-mod-typecheck.sh",
     "podiumctl": "node bin/podiumctl",

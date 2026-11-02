@@ -211,6 +211,12 @@ describe("plugin-publish", () => {
     expect(git(repo, "worktree", "list").split("\n")).toHaveLength(1);
   });
 
+  it("refuses a build that carries a dev stamp, so a developer's build never reaches plugin-dist", () => {
+    writeFileSync(join(dist, "claudecode", ".claude-plugin", "dev-build.json"), '{"commit":"a1b2c3d4","tag":"","dirty":false}');
+    expect(() => publish(opts())).toThrow(/dev-build\.json is a dev stamp/);
+    expect(git(bare, "branch", "--list", TARGET)).toBe("");
+  });
+
   it("ignores .DS_Store and refuses a symlink in the build", () => {
     writeFileSync(join(dist, "claudecode", ".DS_Store"), "x");
     publish(opts());

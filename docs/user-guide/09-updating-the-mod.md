@@ -45,7 +45,7 @@ A build of any other commit, such as one from the `development` branch, adds a r
 from `podiumctl build`, which records the commit, so a server built another way (`npm run build`, or an image built
 with plain `podman build` or `docker build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
 this repository: its status line reads `podium v1.1.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
-page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release. A mod you run from `dist/claudecode/` after `npm run plugin:build` shows the version alone too, because the built folder is not tracked by git.
+page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release. A mod you run from `dist/claudecode/` after `npm run plugin:build` still shows the commit, because that build writes it into the folder; a folder built any other way shows the version alone.
 
 <!-- nav:start -->
 ---

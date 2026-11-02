@@ -88,6 +88,9 @@ export function buildReporterZip(srcDir, suffix = "", harness = "claudecode") {
   }
   const problems = checkTree(dir);
   if (problems.length) throw new Error(`${dir} is not a complete plugin folder:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+  if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
+    throw new Error(`${dir} carries .claude-plugin/dev-build.json, a dev stamp that must not be zipped. Rebuild without --dev-stamp: node scripts/plugin-build.mjs ${harness}`);
+  }
   const version = JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8")).version;
   const names = listFiles(dir);
   const bytes = zipBytes(names.map((n) => [n, readFileSync(join(dir, n))]));

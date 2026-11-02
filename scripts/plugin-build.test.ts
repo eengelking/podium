@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildHarness, checkTree, defaultHarnesses, included, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
+import { buildHarness, checkTree, defaultHarnesses, devStamp, included, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "plugin-build.mjs");
@@ -71,6 +71,74 @@ describe("plugin-build: the built folder", () => {
 
   it("plans the same file list as it builds", () => {
     expect([...planTree("claudecode").keys()]).toEqual(built.files);
+  });
+});
+
+describe("plugin-build: the dev stamp (#927)", () => {
+  const STAMP = ".claude-plugin/dev-build.json";
+  const fakeGit = (map: Record<string, { code?: number; out?: string }>) => (args: string[]) => {
+    const r = map[args[0]];
+    return { code: r?.code ?? (r ? 0 : 128), out: r?.out ?? "" };
+  };
+
+  it("is the commit, the tag and whether the tree has edits, ignoring the output folders", () => {
+    const seen: string[][] = [];
+    const git = (args: string[]) => {
+      seen.push(args);
+      return fakeGit({ "rev-parse": { out: "a1b2c3d4\n" }, describe: { code: 128 }, status: { out: " M x.ts\n" } })(args);
+    };
+    expect(devStamp(ROOT, git)).toEqual({ commit: "a1b2c3d4", tag: "", dirty: true });
+    expect(seen.find((a) => a[0] === "status")).toEqual(["status", "--porcelain", "--", ".", ":(exclude)dist", ":(exclude).build-test", ":(exclude)dist-zips"]);
+    expect(devStamp(ROOT, fakeGit({ "rev-parse": { out: "a1b2c3d4\n" }, describe: { out: "v1.1.0\n" }, status: { out: "" } }))).toEqual({ commit: "a1b2c3d4", tag: "v1.1.0", dirty: false });
+  });
+
+  it("is null when git cannot name a commit or read the status, or throws", () => {
+    expect(devStamp(ROOT, fakeGit({}))).toBeNull();
+    expect(devStamp(ROOT, fakeGit({ "rev-parse": { out: "\n" } }))).toBeNull();
+    expect(devStamp(ROOT, fakeGit({ "rev-parse": { out: "a1b2c3d4" }, status: { code: 128 } }))).toBeNull();
+    expect(devStamp(ROOT, () => { throw new Error("no git"); })).toBeNull();
+  });
+
+  it("is read from the real checkout when none is injected", () => {
+    const real = devStamp(ROOT);
+    if (real) expect(real.commit).toMatch(/^[0-9a-f]{8}$/);
+    expect(devStamp(tmp())).toBeNull(); // a folder outside any repository
+  });
+
+  it("is written with --dev-stamp, as JSON with no imports, and the folder is still self-contained", () => {
+    const out = tmp();
+    const r = run(["claudecode", "--dev-stamp", "--out", out]);
+    expect(r.code).toBe(0);
+    const dir = join(out, "claudecode");
+    const real = devStamp(ROOT);
+    if (real) {
+      expect(JSON.parse(readFileSync(join(dir, STAMP), "utf8"))).toEqual(real);
+      expect(checkTree(dir)).toEqual([]);
+    } else expect(existsSync(join(dir, STAMP))).toBe(false);
+  });
+
+  it("is written by buildHarness when asked, to the byte the stamp says", () => {
+    const planned = planTree("claudecode", { stamp: { commit: "a1b2c3d4", tag: "", dirty: false } });
+    expect(planned.get(STAMP)?.toString()).toBe('{"commit":"a1b2c3d4","tag":"","dirty":false}\n');
+    expect([...planned.keys()]).toEqual([...planned.keys()].sort());
+  });
+
+  it("is left out without the flag, and two such builds are identical", () => {
+    const a = buildHarness("claudecode", { outDir: tmp() });
+    const b = buildHarness("claudecode", { outDir: tmp() });
+    expect(a.files).not.toContain(STAMP);
+    expect(snapshot(a.dir)).toEqual(snapshot(b.dir));
+    const viaCli = tmp();
+    expect(run(["claudecode", "--out", viaCli]).code).toBe(0);
+    expect(existsSync(join(viaCli, "claudecode", STAMP))).toBe(false);
+  });
+
+  it("builds without a stamp when the source is not a git checkout", () => {
+    const root = tmp();
+    cpSync(join(ROOT, "plugin"), join(root, "plugin"), { recursive: true, filter: (src) => !src.includes("node_modules") });
+    const built = buildHarness("claudecode", { root, outDir: tmp(), stamp: true });
+    expect(built.files).not.toContain(STAMP);
+    expect(checkTree(built.dir)).toEqual([]);
   });
 });
 

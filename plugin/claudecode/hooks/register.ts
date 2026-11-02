@@ -632,7 +632,11 @@ async function findBuild($: Engine): Promise<string | null> {
   return modBuild(async (argv) => {
     const res = await $.process.run(argv, { timeoutMs: 5000 });
     return { exitCode: res.exitCode, stdout: res.stdout };
-  }, root);
+  }, root, async (path) => {
+    if (!(await $.fs.exists(path).catch(() => false))) return null;
+    const t = await $.fs.read(path);
+    return typeof t === 'string' ? t : null;
+  });
 }
 
 /** Take the title the desktop app shows for the session (#595). A failed read keeps the last title; a rename shows from the next read. */

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the folder a harness's plugin is installed and zipped from (#927): dist/<harness>/.
 //
-//   node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--check]
+//   node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--dev-stamp] [--check]
 //
 // Why a build at all: a plugin installed from a marketplace (git-subdir) is only its own folder, and an import that leaves that
 // folder is refused. The source keeps each harness in plugin/<harness>/ and the code every harness shares in plugin/core/, with
@@ -15,10 +15,14 @@
 //     plugin/claudecode/**            the harness's own source
 //     plugin/core/**                  the shared source
 //
+// --dev-stamp (npm run plugin:build, never CI) also writes .claude-plugin/dev-build.json: the commit, tag and dirtiness of the checkout
+// the build came from, so a reporter run from the built folder still shows `dev: <hash>` (#400). Without it nothing is stamped.
+//
 // The build then checks that the folder is self-contained (checkTree) and refuses to finish when it is not. The same bytes come
 // from the same source tree: files are written in name order with a fixed mode and no timestamp. Only node builtins are used.
 // podium-reporter-zip.mjs zips what this builds, and `npm run test:mod` builds with --with-tests to .build-test/ for
 // `claude plugin test`.
+import { spawnSync } from "node:child_process";
 import {
   existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
@@ -27,13 +31,15 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const USAGE = `Usage: node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--check]
+const USAGE = `Usage: node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--dev-stamp] [--check]
 
 Builds dist/<harness>/ for each harness named: the folder a plugin is installed and zipped from.
   <harness>      claudecode or opencode. With none named, every harness that has a .claude-plugin/plugin.json
                  (opencode has none yet, so it is skipped unless named; naming it then fails).
   --out <dir>    where to build (default: dist/ in the repo). The harness's folder is <dir>/<harness>/ and is replaced.
   --with-tests   keep the *.test.ts files, so \`claude plugin test <dir>/<harness>\` can run them (npm run test:mod).
+  --dev-stamp    when the repo is a git checkout, write .claude-plugin/dev-build.json (commit, tag, dirty) so the mod shows
+                 \`dev: <commit>\`. For a developer's own build only: plugin-publish and the zip script refuse a tree that has it.
   --check        build nothing; only run the self-containment check on the existing <out>/<harness>/ folders.
   -h, --help     this text.
 Left out: *.test.ts (unless --with-tests), .DS_Store, node_modules, tsconfig.json and the types the typecheck script lays in
@@ -68,8 +74,29 @@ export function walk(dir, rel = "") {
   return out;
 }
 
+/** Runs git in `root`; the exit code and stdout, or a failure code when git cannot start. */
+function gitIn(root, args) {
+  const r = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  return { code: r.status ?? 128, out: r.stdout ?? "" };
+}
+
+/** The stamp of the checkout at `root`: { commit, tag, dirty }, or null when git cannot say. Output folders do not count as edits. */
+export function devStamp(root = ROOT, git = (args) => gitIn(root, args)) {
+  try {
+    const head = git(["rev-parse", "--short=8", "HEAD"]);
+    const commit = head.out.trim();
+    if (head.code !== 0 || !commit) return null;
+    const tag = git(["describe", "--exact-match", "--tags", "HEAD"]);
+    const status = git(["status", "--porcelain", "--", ".", ":(exclude)dist", ":(exclude).build-test", ":(exclude)dist-zips"]);
+    if (status.code !== 0) return null;
+    return { commit, tag: tag.code === 0 ? tag.out.trim() : "", dirty: status.out.trim() !== "" };
+  } catch {
+    return null;
+  }
+}
+
 /** The files of `harness`'s built tree: a Map from path inside the tree to bytes, sorted by path. */
-export function planTree(harness, { root = ROOT, withTests = false } = {}) {
+export function planTree(harness, { root = ROOT, withTests = false, stamp = /** @type {{ commit: string, tag: string, dirty: boolean } | null} */ (null) } = {}) {
   if (!HARNESSES.includes(harness)) throw new Error(`Unknown harness "${harness}". Known: ${HARNESSES.join(", ")}.`);
   const src = join(root, "plugin", harness);
   if (!existsSync(join(src, ".claude-plugin", "plugin.json"))) {
@@ -109,6 +136,8 @@ export function planTree(harness, { root = ROOT, withTests = false } = {}) {
   }
 
   if (existsSync(join(root, "plugin", "core"))) nested("plugin/core", join(root, "plugin", "core"));
+
+  if (stamp) put(".claude-plugin/dev-build.json", `${JSON.stringify(stamp)}\n`);
 
   return new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
@@ -190,8 +219,8 @@ export function checkTree(dir) {
 }
 
 /** Builds `harness` into `<outDir>/<harness>/` (replacing it), checks it, and returns the folder and its files. Throws on a problem. */
-export function buildHarness(harness, { root = ROOT, outDir = join(root, "dist"), withTests = false } = {}) {
-  const files = planTree(harness, { root, withTests });
+export function buildHarness(harness, { root = ROOT, outDir = join(root, "dist"), withTests = false, stamp = false } = {}) {
+  const files = planTree(harness, { root, withTests, stamp: stamp ? devStamp(root) : null });
   const dir = resolve(outDir, harness);
   rmSync(dir, { recursive: true, force: true });
   for (const [name, data] of files) {
@@ -218,6 +247,7 @@ export function run(args, root = ROOT) {
   let outDir = join(root, "dist");
   let withTests = false;
   let checkOnly = false;
+  let stamp = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--out") {
@@ -225,6 +255,7 @@ export function run(args, root = ROOT) {
       if (v === undefined || v.startsWith("--")) return { code: 1, err: `--out needs a value.\n\n${USAGE}` };
       outDir = resolve(v);
     } else if (a === "--with-tests") withTests = true;
+    else if (a === "--dev-stamp") stamp = true;
     else if (a === "--check") checkOnly = true;
     else if (HARNESSES.includes(a)) named.push(a);
     else return { code: 1, err: `Unknown argument "${a}".\n\n${USAGE}` };
@@ -239,7 +270,7 @@ export function run(args, root = ROOT) {
         if (problems.length) return { code: 1, err: `The ${h} folder is not self-contained:\n${problems.map((p) => `  - ${p}`).join("\n")}` };
         out.push(`${h}: self-contained (${relative(process.cwd(), resolve(outDir, h)) || "."})`);
       } else {
-        const r = buildHarness(h, { root, outDir, withTests });
+        const r = buildHarness(h, { root, outDir, withTests, stamp });
         out.push(`${h}: ${r.files.length} files in ${r.dir.split(sep).join("/")}`);
       }
     }

@@ -42,7 +42,7 @@ claude --plugin-dir /path/to/podium/dist/claudecode
 
 Run `npm run plugin:build` again after you change the source; the build is fast. It has no watch mode, and `claude --plugin-dir` does not
 rebuild it, so a change in `plugin/` shows only after a rebuild and a `/reload-plugins`. Its output is git-ignored.
-A mod run from `dist/claudecode/` reports no dev build (`Dev: <commit>`), because the built folder is not tracked by git.
+`npm run plugin:build` stamps the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. The script run on its own stamps nothing, which is how CI and the release archive are built; the publish and zip scripts refuse a folder that carries a stamp.
 
 ## Checks to run
 

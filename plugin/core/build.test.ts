@@ -58,6 +58,34 @@ describe('modBuild (#400)', () => {
   })
 })
 
+describe('modBuild from a built folder (#927)', () => {
+  const untracked = {}
+  const stamp = (o: object) => async (path: string) => (path === `${ROOT}/.claude-plugin/dev-build.json` ? JSON.stringify(o) : null)
+
+  test('reads the stamp the build left when the folder is not tracked', async () => {
+    expect(await modBuild(runner(untracked), ROOT, stamp({ commit: 'a1b2c3d4', tag: '', dirty: false }))).toBe('a1b2c3d4')
+  })
+
+  test('marks a stamp taken from a checkout with edits', async () => {
+    expect(await modBuild(runner(untracked), ROOT, stamp({ commit: 'a1b2c3d4', tag: '', dirty: true }))).toBe('a1b2c3d4-dirty')
+  })
+
+  test('is none for a stamp at a clean release tag', async () => {
+    expect(await modBuild(runner(untracked), ROOT, stamp({ commit: 'a1b2c3d4', tag: 'v1.1.0', dirty: false }))).toBeNull()
+  })
+
+  test('is none for a corrupt, incomplete or missing stamp, or a reader that throws', async () => {
+    expect(await modBuild(runner(untracked), ROOT, async () => '{not json')).toBeNull()
+    expect(await modBuild(runner(untracked), ROOT, stamp({ tag: '' }))).toBeNull()
+    expect(await modBuild(runner(untracked), ROOT, async () => null)).toBeNull()
+    expect(await modBuild(runner(untracked), ROOT, async () => { throw new Error('denied') })).toBeNull()
+  })
+
+  test('lets the tracked checkout win over a stamp', async () => {
+    expect(await modBuild(runner(checkout), ROOT, stamp({ commit: 'ffffffff', tag: '', dirty: false }))).toBe('a1b2c3d4')
+  })
+})
+
 describe('withBuild (#400)', () => {
   test('puts a dev build after the version, set off by a pipe, and leaves a release as it was', () => {
     expect(withBuild('podium v1.1.0', 'a1b2c3d4')).toBe('podium v1.1.0 | dev: a1b2c3d4')

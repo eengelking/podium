@@ -66,6 +66,13 @@ describe("podium-reporter-zip", () => {
     for (const f of zip.files) expect(entries.get(f)?.equals(readFileSync(join(src, f))), f).toBe(true);
   });
 
+  it("refuses a folder that carries a dev stamp", () => {
+    const stamped = buildHarness("claudecode", { outDir: mkdtempSync(join(tmpdir(), "reporter-zip-stamp-")), stamp: true });
+    const file = join(stamped.dir, ".claude-plugin", "dev-build.json");
+    if (!stamped.files.includes(".claude-plugin/dev-build.json")) writeFileSync(file, '{"commit":"a1b2c3d4","tag":"","dirty":false}');
+    expect(() => buildReporterZip(stamped.dir)).toThrow(/dev stamp that must not be zipped/);
+  });
+
   it("builds the same bytes twice", () => {
     expect(buildReporterZip(src).bytes.equals(buildReporterZip(src).bytes)).toBe(true);
   });
