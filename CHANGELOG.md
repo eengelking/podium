@@ -22,6 +22,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The GitHub runner image is tracked in the repo (#871).** `runner/Containerfile` and its `runner/entrypoint.sh` build the image that runs this project's GitHub Actions runners. They live in their own folder so nobody mistakes them for the root `Containerfile`, which still builds the Podium image and is the only one `podiumctl`, the e2e scripts and the workflows use. No behavior of Podium changes.
 
+- **The PostgreSQL tests can no longer be skipped without saying so (#891).** `npm test` without `PODIUM_TEST_PG` now prints that the PostgreSQL suite was skipped and names `scripts/test-pg.sh`, which starts a throwaway PostgreSQL container, runs the server suite against it and removes it. When `PODIUM_TEST_PG` is set and no server answers, the run fails with the server's host and database (never the password) instead of failing test by test. The CI job `Test with PostgreSQL` (`test-postgres`) is meant to be a required check on `development` and `main`; the maintainer adds it to the ruleset.
+
 ### Changed
 
 - **SQLite gets migration 25, and a few queries end on an explicit tiebreak (#822).** `peer_messages` and `person_certificates` gain a `seq` column (existing rows take their `rowid`, a new row takes the next number) that the two orderings leaning on `rowid` now use, and the queries that sorted only by time end on `id` (`liveCandidates` and `endedBetween` by `started_at, id`, blowouts by `t, id`), because PostgreSQL has no `rowid` and no stable order on a tie. On SQLite the answers are the same as before, and the shared contract asserts these orders for both adapters. A database from the previous release migrates at the next start.

@@ -191,7 +191,7 @@ contract.
   and the spend queries, the reporter keys, the reporter versions seen, the rollup days and each rollup table's rows end on a key.
 - **No password in the open.** The label in the log and in `/health` is `host:port/dbname`.
 
-The PostgreSQL tests are skipped unless `PODIUM_TEST_PG` names a server ([CONTRIBUTING](../../../CONTRIBUTING.md)), and CI runs them
+The PostgreSQL tests are skipped unless `PODIUM_TEST_PG` names a server ([CONTRIBUTING](../../../CONTRIBUTING.md)); a run without it prints the skip, and a run with it and no server fails (`server/src/storage/postgres/gate.ts`). CI runs them
 in the `test-postgres` job.
 
 ## What is not shared between processes
