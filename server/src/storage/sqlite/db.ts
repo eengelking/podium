@@ -342,6 +342,13 @@ CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`
     // Claude Code one, so every row and ignore rule made before this keeps its key and becomes a `podium-reporter` row.
     sql: `ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-reporter';`,
   },
+  {
+    version: 28,
+    // The harness that runs a session (#851) and who worked out its cost. Every session stored before this ran under Claude Code, and the cost
+    // it has is Podium's own estimate (NULL cost_source), so the default marks existing rows as Claude Code.
+    sql: `ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';
+ALTER TABLE sessions ADD COLUMN cost_source TEXT;`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
+import { repriced } from './derive.js';
 import { ingestReport } from './ingest.js';
+import { Pricing } from './pricing.js';
 import type { Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 
@@ -232,6 +234,76 @@ describe('ingestReport', () => {
     const res = await ingestReport(storage, r, T0);
     expect((await f.getSession(r.session.id))?.last_seen_at).toBe(T0);
     expect(res.clockSkewMs).toBe(42 - T0);
+  });
+});
+
+describe('ingestReport with a cost the harness reported (#851)', () => {
+  const harnessReport = (session: Partial<Report['session']> = {}): Report => {
+    const r = fixtureReport();
+    return {
+      ...r,
+      agents: [],
+      session: {
+        ...r.session,
+        model: 'llama3.1:8b',
+        harness: 'opencode',
+        costSource: 'harness',
+        costUsd: 0.42,
+        tokens: { input: 1000, output: 500, cacheRead: 0, cacheWrite: 0 },
+        ...session,
+      },
+    };
+  };
+
+  it('keeps the harness cost of a model Podium has no price for, and the harness it came from', async () => {
+    const r = harnessReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: 0.42, harness: 'opencode', cost_source: 'harness' });
+  });
+
+  it('keeps an agent\'s cost when the session\'s cost is the harness\'s', async () => {
+    const base = harnessReport();
+    const r: Report = { ...base, agents: fixtureReport().agents.map((a) => ({ ...a, model: 'llama3.1:8b', costUsdEst: 0.1 })) };
+    await ingestReport(storage, r, T0);
+    expect((await f.getAgents(r.session.id)).every((a) => a.cost_usd_est === 0.1)).toBe(true);
+  });
+
+  it('keeps a reported cost of 0 as 0, labeled as the harness\'s figure', async () => {
+    const r = harnessReport({ costUsd: 0 });
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: 0, cost_source: 'harness' });
+  });
+
+  it('does not reprice a mixed session from its usage: the harness figure is the whole cost', async () => {
+    const usage = [
+      { model: 'claude-opus-4-5', tier: 'std' as const, tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
+      { model: 'llama3.1:8b', tier: 'std' as const, tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
+    ];
+    const r = harnessReport({ costUsd: 1.1, usageByModel: usage });
+    await ingestReport(storage, r, T0);
+    const row = (await f.getSession(r.session.id))!;
+    expect(row.usage_json).toBeNull();
+    expect(repriced(new Pricing({}), row.usage_json, row.cost_usd)).toBe(1.1);
+  });
+
+  it('leaves a Claude Code report as it was: the Claude Code harness and Podium\'s own estimate', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: r.session.costUsd, harness: 'claude-code', cost_source: null });
+  });
+
+  it('still drops the estimate of a non-Claude model when the reporter does not say the harness reported it', async () => {
+    const r = harnessReport({ costSource: 'estimate' });
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ cost_usd: null, cost_source: null, harness: 'opencode' });
+  });
+
+  it('keeps the harness a later report leaves out', async () => {
+    const r = harnessReport();
+    await ingestReport(storage, r, T0);
+    const later: Report = { ...r, session: { ...r.session, harness: undefined, costSource: undefined, costUsd: 0.5 } };
+    await ingestReport(storage, later, T0 + 1000);
+    expect((await f.getSession(r.session.id))!.harness).toBe('opencode');
   });
 });
 

@@ -9,6 +9,8 @@ import { parseBuild } from './parseBuild.js';
 
 // <protocol:begin>
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/** Who worked out a session's cost: the harness reported it, or the reporter estimated it from the tokens (#851). */
+export type CostSource = 'harness' | 'estimate';
 
 export type AgentStatus = 'queued' | 'running' | 'done' | 'failed' | 'aborted';
 
@@ -285,6 +287,10 @@ export interface SessionReport {
   effort: Effort | null;
   context: ContextFill;
   costUsd: number | null;
+  /** The harness that runs the session (#851); absent means Claude Code. */
+  harness?: string;
+  /** Who worked out `costUsd`: `harness` when the harness reported it (Podium keeps it as it is, even for a model it has no price for), `estimate` (the default) when the reporter priced it. */
+  costSource?: CostSource;
   tokens: TokenCounts;
   /** Tokens per model and tier for the whole session, agents included. Absent when the reporter is too old to send it. */
   usageByModel?: ModelUsage[];
@@ -972,6 +978,10 @@ export interface SessionView {
   respond: RespondInfo | null;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
   asks: AskSummary[];
+  /** The harness that runs the session; `claude-code` for a session from before it was stored (#851). */
+  harness: string;
+  /** Who worked out `costUsd`: `harness` when the harness reported it, which the console labels as the harness's figure; `estimate` when Podium priced it. */
+  costSource: CostSource;
   /** The session this one continues after a /clear. */
   clearedFrom: string | null;
   /** The session's recording, for the notice everyone sees (#353): absent or null when nothing is chosen or kept. Carries no text. */
@@ -1508,6 +1518,14 @@ function filesReport(v: unknown, path: string): FilesReport | null {
   };
 }
 
+/** The harness and cost source of a session report (#851), each left out when the report does not say. */
+function harnessFields(o: Record<string, unknown>, path: string): { harness?: string; costSource?: CostSource } {
+  const harness = o.harness === undefined || o.harness === null ? null : str(o.harness, `${path}.harness`, LIMITS.short);
+  if (harness === '') throw new Invalid(`${path}.harness`, 'must not be empty');
+  const costSource = oneOfOrNull(o.costSource, `${path}.costSource`, ['harness', 'estimate'] as const);
+  return { ...(harness === null ? {} : { harness }), ...(costSource === null ? {} : { costSource }) };
+}
+
 function session(v: unknown, path: string): SessionReport {
   const o = obj(v, path);
   const id = str(o.id, `${path}.id`, LIMITS.id);
@@ -1534,6 +1552,7 @@ function session(v: unknown, path: string): SessionReport {
       return c === null ? null : Math.max(0, c);
     })(),
     tokens: tokens(o.tokens, `${path}.tokens`),
+    ...harnessFields(o, path),
     ...usageByModel(o.usageByModel, `${path}.usageByModel`),
     rateLimits: arr(o.rateLimits, `${path}.rateLimits`, LIMITS.rateLimits).map((r, i) => {
       const p = `${path}.rateLimits[${i}]`;

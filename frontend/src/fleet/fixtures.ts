@@ -93,6 +93,8 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     respond: null,
     asks: [],
     clearedFrom: null,
+    harness: "claude-code",
+    costSource: "estimate",
     context: { tokens: 410_000, window: 1_000_000, percent: 41 },
     costUsd: 12.84,
     tokensTotal: 2_500_000,

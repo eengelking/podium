@@ -235,6 +235,10 @@ export interface SessionRow {
   machine_json: string | null;
   /** The session this one continues after a /clear (Report.session.clearedFrom, #206); NULL otherwise. */
   cleared_from: string | null;
+  /** The harness that runs the session (#851): `claude-code`, `opencode` and so on. Rows from before it was stored read `claude-code`. */
+  harness: string;
+  /** `harness` when the cost is the harness's own figure, which Podium never reprices; NULL when Podium priced it from the tokens. */
+  cost_source: string | null;
 }
 
 export interface AgentRow {

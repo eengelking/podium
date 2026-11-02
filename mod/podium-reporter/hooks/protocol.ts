@@ -4,6 +4,8 @@
 
 // <protocol:begin>
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/** Who worked out a session's cost: the harness reported it, or the reporter estimated it from the tokens (#851). */
+export type CostSource = 'harness' | 'estimate';
 
 export type AgentStatus = 'queued' | 'running' | 'done' | 'failed' | 'aborted';
 
@@ -280,6 +282,10 @@ export interface SessionReport {
   effort: Effort | null;
   context: ContextFill;
   costUsd: number | null;
+  /** The harness that runs the session (#851); absent means Claude Code. */
+  harness?: string;
+  /** Who worked out `costUsd`: `harness` when the harness reported it (Podium keeps it as it is, even for a model it has no price for), `estimate` (the default) when the reporter priced it. */
+  costSource?: CostSource;
   tokens: TokenCounts;
   /** Tokens per model and tier for the whole session, agents included. Absent when the reporter is too old to send it. */
   usageByModel?: ModelUsage[];

@@ -50,6 +50,14 @@ skill and record the sources in `docs/architecture/`.
     known; see Known issues in `docs/architecture/`);
   - the UI shows "n/a" with the reason;
   - the fleet's "est. cost today" leaves those sessions out and says how many (`kpis.unpricedSessions`).
+- A session whose report says `costSource: 'harness'` is the exception (#851). Its harness worked out the cost, so the
+  server keeps `costUsd` as it came, for any model and including `0`, and shows it labeled as the harness's figure:
+  - Podium's price table applies only to models it knows, so the figure is never repriced and `usageByModel` is not kept
+    for the session or its agents. A mixed session keeps the harness's whole figure rather than the priced share.
+  - A `0` is kept as `0`. It can be a subscription plan or a model nobody priced, and the report cannot tell which, so
+    the console must not call it free.
+  - A report that leaves `costSource` out keeps what the session's last report said, and a Claude Code report is
+    unchanged.
 
 ## Admin prices and where they are applied (#117)
 

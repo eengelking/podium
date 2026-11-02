@@ -130,6 +130,22 @@ describe('sessionView', () => {
     expect(sessionView({ ...input, compactions: 3 }, 1_791_648_001_000, CFG).compactions).toBe(3);
   });
 
+  it('shows an OpenCode session on a model Podium does not know: the harness\'s cost labeled as such, family other, context as reported (#851)', async () => {
+    const r = fixtureReport();
+    const report: Report = {
+      ...r,
+      agents: [],
+      session: { ...r.session, model: 'qwen3-coder:30b', harness: 'opencode', costSource: 'harness', costUsd: 0.37, context: { tokens: 1200, window: null, percent: null } },
+    };
+    const v = await viewOf(report, 1_791_648_001_000);
+    expect(v).toMatchObject({ harness: 'opencode', costSource: 'harness', costUsd: 0.37, modelFamily: 'other', context: { tokens: 1200, window: null, percent: null } });
+  });
+
+  it('shows a Claude Code session with Podium\'s own estimate (#851)', async () => {
+    const v = await viewOf(fixtureReport(), 1_791_648_001_000);
+    expect(v).toMatchObject({ harness: 'claude-code', costSource: 'estimate' });
+  });
+
   it('derives the fixture', async () => {
     const v = await viewOf(fixtureReport(), 1_791_648_001_000);
     expect(v.project).toBe('~/billing-service');
