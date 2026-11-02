@@ -86,7 +86,8 @@ export class SqliteReportQueries implements ReportQueries {
   rollupDaysBefore(day: string): string[] {
     const written = new Set<string>();
     for (const table of TABLES) for (const r of this.db.prepare(`SELECT DISTINCT day FROM ${table} WHERE day < ?`).all(day) as unknown as { day: string }[]) written.add(r.day);
-    return [...written].sort();
+    // by code unit, not by locale: the days are ISO dates and every adapter answers in the same order
+    return [...written].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
   deleteRollupsFrom(day: string): void {

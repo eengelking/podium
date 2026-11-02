@@ -7,6 +7,7 @@ import { FEATURES } from './features.js';
 import type { Storage } from './types.js';
 
 const T0 = 1_800_000_000_000;
+const byCode = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export function settingsCases(o: Openers): void {
   it('matches the reference for feature flags: unknown ids, defaults, and what the console is sent', async () => {
@@ -23,7 +24,7 @@ export function settingsCases(o: Openers): void {
       await rec('view (after)', f.view());
     });
     expect(t.get('set unknown')).toBe(false);
-    expect(Object.keys(t.get('view (fresh)') as object).sort()).toEqual(FEATURES.map((d) => d.id).sort());
+    expect(Object.keys(t.get('view (fresh)') as object).sort(byCode)).toEqual(FEATURES.map((d) => d.id).sort(byCode));
   });
 
   it('matches the reference for the wall settings, and a setter says whether it changed the value', async () => {
