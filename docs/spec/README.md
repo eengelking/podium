@@ -5,7 +5,7 @@ group: "Reference"
 entries: "list"
 ---
 
-# SPEC: Podium, a live fleet console for Claude Code orchestrators
+# SPEC: Podium, a live fleet console for agent harnesses
 
 | | |
 |---|---|
@@ -14,7 +14,8 @@ entries: "list"
 | Visual reference | `mockup/podium.html` (authoritative for look, layout, copy and behavior of the UI) |
 | API reference for the mod | The `plugin-authoring` skill and its bundled `types/claude-code.d.ts` (see [section 5.1](05-mod-api/05-01-where-the-truth-is.md) for how to find it) |
 
-Podium shows every Claude Code session running on one machine in one browser tab. Each session is an
+Podium shows every agent session running on one machine in one browser tab. Claude Code and OpenCode are the supported
+harnesses (DECISIONS 54), and this spec describes Claude Code first because it was built first. Each session is an
 **orchestrator**: a main agent that can launch **subagents** (blank slate) and **forks** (a copy of the
 orchestrator that keeps its context). For each orchestrator, Podium shows:
 
@@ -28,7 +29,7 @@ Orchestrators appear when a session starts and disappear when it ends, with no r
 
 Podium is built from three parts:
 
-- a **reporter mod** that runs inside every Claude Code session and sends snapshots;
+- a **reporter** that runs inside every session of a harness and sends snapshots (the Claude Code reporter is a mod);
 - a **server** that stores and serves them;
 - a **browser UI** that renders them live.
 
@@ -43,7 +44,7 @@ This is the source of truth for intended behavior. `docs/architecture/` records 
 |---|---|
 | What Podium is for, and what it will not do | [Section 1](01-goals-and-non-goals.md) |
 | How the pieces fit and run | Sections [2](02-tech-stack.md) to [4](04-architecture.md) |
-| How the reporter mod talks to Claude Code | [Section 5](05-mod-api/README.md) |
+| How the Claude Code reporter mod talks to Claude Code | [Section 5](05-mod-api/README.md) |
 | The data that crosses the wire | [Section 6](06-reporter-protocol/README.md) |
 | The server: routes, storage, timers, security | [Section 7](07-server/README.md) |
 | The browser UI | [Section 8](08-ui/README.md) |

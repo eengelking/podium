@@ -10,7 +10,11 @@ order: 1
 
 ## Goals
 
-1. Show all live Claude Code sessions on this machine, updating within about 2 seconds of a change, with no
+Podium is harness-neutral. A **harness** is the program that runs an agent session, and Claude Code and OpenCode are the
+supported harnesses (DECISIONS 54). Where this spec says "Claude Code" it names the first harness and the first reporter;
+what Podium shows and does is the same for any harness, within what the harness reports.
+
+1. Show all live sessions of every supported harness on this machine, updating within about 2 seconds of a change, with no
    page refresh. A new session appears by itself. An ended session leaves by itself.
 2. Per orchestrator: name, working directory, git branch, whether it is a worktree, ahead/behind/modified
    counts, model, effort, status, context fill, estimated cost, token count, elapsed time, resume command and fork command.
@@ -32,15 +36,17 @@ order: 1
     that was already reported.
 12. A simulator script that feeds the server realistic reports so the UI can be developed and demoed with no
     Claude sessions running.
-13. Answer a session that waits on its person from the browser (#206, `mockup/podium-respond.html`): an
-    AskUserQuestion form, a plan to approve, a tool's permission prompt, or a turn that ended. The terminal
+13. Answer a session that waits on its person from the browser (#206, `mockup/podium-respond.html`): a
+    question form, a plan to approve, a tool's permission prompt, or a turn that ended (named here as Claude Code
+    names them; another harness offers its own equivalent of each). The terminal
     keeps working the whole time, and whichever answers first wins. Off unless the Admin and the session's
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
 
 ## Non-goals (do NOT build these)
 
 **Control surface.** There is no general control surface (DECISIONS 28 replaced "Podium only observes").
-Podium can answer a session that waits on its person, and only in the ways Claude Code's own dialogs offer:
+Podium can answer a session that waits on its person, and only in the ways the harness's own dialogs offer
+(DECISIONS 54). For Claude Code those are:
 
 - answer an AskUserQuestion (an option, a typed answer, or a message in place of an answer);
 - approve a plan in one of three modes, or send it back with feedback;
@@ -119,7 +125,7 @@ available ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session
 **Other exclusions.**
 
 - No usage dashboard. The earlier one was removed (issue #30); it is not replaced.
-- No terminal UI or pane inside Claude Code in this spec. A minimal `/podium` command and a status-line entry
+- No terminal UI or pane inside a harness in this spec. A minimal `/podium` command and a status-line entry
   are in scope; a full pane is deferred ([section 11](11-out-of-scope-and-deferred.md)).
 - No accounts, passwords, per-person read permissions or roles beyond one: administrator. Authentication is a
   token per person plus an admin secret that opens the Admin section (signed in with the name `Admin`). A

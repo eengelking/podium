@@ -10,7 +10,8 @@ order: 3
 
 | Term | Meaning |
 |---|---|
-| Session | One running Claude Code process conversation, identified by its session id (`$.session.id()`). A `/clear` ends a session and starts another in the same process. |
+| Harness | The program that runs an agent session. Claude Code and OpenCode are the supported harnesses (DECISIONS 54). |
+| Session | One running harness conversation (for Claude Code, one process conversation), identified by its session id (`$.session.id()`). A `/clear` ends a session and starts another in the same process. |
 | Orchestrator | The main loop of a session. Podium's top-level row. Same thing as a session. |
 | Agent | A loop the orchestrator started: a subagent, a fork, or a teammate. Has an `agentId`. |
 | Subagent | An agent that starts from a blank slate (only its prompt). Model and effort can be set at spawn. |
@@ -19,7 +20,7 @@ order: 3
 | Plan | The orchestrator's task list (`TaskCreate`/`TaskUpdate` tools, or `TodoWrite`), shown as steps. Without those tool calls there is no plan; plan mode is not a source (6.3). |
 | Blowout | A loop's context window filled up and was compacted automatically (at 80% full or more, or when the fill is unknown), or the API reported the window exceeded. The count per loop is the signal for lost context. |
 | Compaction | Summarizing older conversation to free context. Manual (`/compact`) is not a blowout. Automatic is, unless the context was below 80% full: Claude Code also compacts early, probably after a quiet stretch, and that is only a `compact` event, and the card shows it as the Comp pill. |
-| Reporter | The mod. Runs in the Claude Code process and posts reports. |
+| Reporter | The part that runs inside a harness and posts reports. For Claude Code it is the mod. |
 | Report | One JSON snapshot of a session plus any new activity events, POSTed to the server. |
 | Stale | A session the server has not heard from for 15 seconds and that never reported ending. |
 | Effort | The reasoning-effort level: `low`, `medium`, `high`, `xhigh`, `max`. |

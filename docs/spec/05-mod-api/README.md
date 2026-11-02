@@ -10,6 +10,10 @@ order: 5
 
 # 5. The Claude Code mod API: everything the reporter needs
 
+This section describes the Claude Code reporter, the first harness's. Each harness has its own reporter and its own
+API to read; Podium's server and console do not depend on this section (DECISIONS 54, 55). A second harness's reporter is
+specified when it is built (#855) and does not change what is written here.
+
 This section is the working reference. Two labels mark how far to trust a statement:
 
 - **Verified**: read from the engine's type declarations on the build this spec was written against (engine
