@@ -88,6 +88,7 @@ export class PgReportQueries implements Async<ReportQueries> {
 
   async rollupDaysBefore(day: string): Promise<string[]> {
     const written = new Set<string>();
+    // order-insensitive: the days are collected into a set.
     for (const table of TABLES) for (const r of await this.db.all<{ day: string }>(`SELECT DISTINCT day FROM ${table} WHERE day < ?`, [day])) written.add(r.day);
     // by code unit, not by locale: the days are ISO dates and every adapter answers in the same order
     return [...written].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));

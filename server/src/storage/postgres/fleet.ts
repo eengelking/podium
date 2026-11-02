@@ -181,6 +181,7 @@ export class PgFleetStore implements FleetStoreApi {
    * with no figure add nothing, and a session with no agents is not in the map.
    */
   async agentCostsSince(since: number, cost: CostOf): Promise<Map<string, number>> {
+    // order-insensitive: the costs are summed per session into a map.
     const rows = await this.db.all<CostRow & { id: string }>(
       `SELECT a.session_id AS id, a.cost_usd_est AS cost_usd, a.usage_json AS usage_json FROM agents a JOIN sessions s ON s.id = a.session_id
        WHERE s.started_at >= :since OR s.ended_at IS NULL OR s.ended_at >= :since`,
@@ -406,6 +407,7 @@ export class PgFleetStore implements FleetStoreApi {
    * Counted in code over the compact events, so the query uses no database's JSON functions (#808).
    */
   async countAutoCompactions(sessionId: string): Promise<number> {
+    // order-insensitive: the rows are counted.
     const rows = await this.db.all<{ data_json: string | null }>(`SELECT data_json FROM events WHERE session_id = ? AND kind = 'compact'`, [sessionId]);
     let n = 0;
     for (const r of rows) if (isAutoCompact(r.data_json)) n++;
@@ -509,6 +511,7 @@ export class PgFleetStore implements FleetStoreApi {
       const samples = await this.db.run('DELETE FROM samples WHERE t < ?', [Math.floor((now - p.samplesMs) / 1000)]);
       const events = await this.db.run('DELETE FROM events WHERE t < ?', [now - p.eventsMs]);
       const cutoff = now - p.sessionsMs;
+      // order-insensitive: every row listed is deleted, in whatever order.
       const old = await this.db.all<{ id: string }>('SELECT id FROM sessions WHERE (ended_at IS NOT NULL AND ended_at < ?) OR (dropped_at IS NOT NULL AND dropped_at < ?)', [cutoff, cutoff]);
       for (const { id } of old) await this.removeSession(id);
       const adminLog = await this.db.run('DELETE FROM admin_log WHERE t < ? AND id NOT IN (SELECT id FROM admin_log ORDER BY id DESC LIMIT ?)', [now - p.adminLogMs, ADMIN_LOG_KEEP]);

@@ -456,6 +456,7 @@ export class PeerRights implements PeerRightsApi {
       "UPDATE peer_requests SET closed_at = ?, outcome = 'dropped' WHERE kind = 'message' AND closed_at IS NULL AND message_id NOT IN (SELECT id FROM peer_messages)",
     ).run(this.now());
     let n = Number(this.stmt('DELETE FROM peer_requests WHERE closed_at IS NOT NULL AND closed_at < ?').run(cutoff).changes);
+    // order-insensitive: every key listed is checked, in whatever order.
     const keys = this.stmt(
       'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
     ).all() as unknown as { k: string }[];

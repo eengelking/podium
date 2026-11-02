@@ -62,6 +62,7 @@ export const pgPersonCerts = (db: PgDb): PersonCertsApi => {
       return (await find(c.info.fingerprintSha256))!;
     },
     async reportersByIssuer(cutoff) {
+      // order-insensitive: the rows are counted per issuer into an object.
       const rows = await db.all<{ issuer: string }>(
         `SELECT c.issuer_fingerprint AS issuer FROM person_certificates c
          WHERE c.seq = (SELECT MAX(p.seq) FROM person_certificates p WHERE p.person_id = c.person_id AND p.revoked_at IS NULL AND p.not_after > ?)`,

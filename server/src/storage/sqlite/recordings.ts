@@ -692,6 +692,7 @@ export class SessionRecordings {
 
   /** Removes the recordings of sessions the main database no longer holds (their own retention ran out). Returns the entries removed. */
   async dropMissingSessions(exists: (sessionId: string) => boolean | Promise<boolean>): Promise<number> {
+    // order-insensitive: the ids are compared with the live ones as a set.
     const stored = await this.step(() => (this.st('SELECT session_id AS id FROM rec_sessions').all() as { id: string }[]).map((r) => r.id));
     const missing: string[] = [];
     for (const id of stored) if (!(await exists(id))) missing.push(id);
@@ -736,6 +737,7 @@ export class SessionRecordings {
       const dropped = await this.step(() => {
         for (const sid of touched) this.st('UPDATE rec_sessions SET oldest_t = (SELECT MIN(t) FROM rec_entries WHERE session_id = ?) WHERE session_id = ?').run(sid, sid);
         let n = 0;
+        // order-insensitive: every id listed is processed, in whatever order.
         for (const r of this.st('SELECT session_id AS id FROM rec_sessions WHERE entries <= 0 AND COALESCE(started_at, 0) < ?').all(cutoff) as { id: string }[]) {
           const row = this.row(r.id);
           if (row && row.state === 'recording' && this.enabled() && this.opts.isLive(r.id)) continue;

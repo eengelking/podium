@@ -451,6 +451,7 @@ export class PgPeerRights implements PeerRightsStoreApi {
         [this.now()],
       );
       let n = await this.db.run('DELETE FROM peer_requests WHERE closed_at IS NOT NULL AND closed_at < ?', [cutoff]);
+      // order-insensitive: every key listed is checked, in whatever order.
       const keys = await this.db.all<{ k: string }>(
         'SELECT from_key AS k FROM peer_requests UNION SELECT to_key FROM peer_requests UNION SELECT from_key FROM peer_rights UNION SELECT to_key FROM peer_rights',
       );
