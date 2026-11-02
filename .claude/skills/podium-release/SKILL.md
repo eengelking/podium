@@ -39,6 +39,8 @@ All in the same commit, never as a follow-up after the tag. A hotfix changes the
 
 Then grep the repo for the old version string and look at every hit before assuming the table is complete. Known hits that are sample data and do not change: `docs/fixtures/report.sample.json`, the fixtures in `server/src/fleet/*.test.ts`, `docs/gotchas/`, `plugin/claudecode/hooks/scripted.ts`, the simulator's `0.1.0-sim`, and the manifest example in `docs/spec/`.
 
+`plugin/core/` ships inside every harness, so a change only in `plugin/core/` (not in a `*.test.ts`) changes the reporter: `mod-version-check.yml` requires a `plugin.json` bump for it, and the bump level follows what `[Unreleased]` says. A new harness under `plugin/` adds a row to the table above, a version-compare step in `mod-version-check.yml` (its comment says where) and a line in `scripts/versions.test.ts`'s harness list if it keeps its version somewhere other than `.claude-plugin/plugin.json` or `package.json`.
+
 A hotfix that changes the UI also updates `docs/standards/` in the same PR (`podium-standards-update`).
 
 ## The release check
@@ -47,6 +49,8 @@ Run `github-release`'s `resources/release-check.md` (a fresh, non-fork Haiku sub
 
 - the atlas still matches the code: `docs/atlas/podium-atlas.html` carries the release version, every source file it names exists, every handler registered with `on(` in `plugin/claudecode/hooks/register.ts` has a row in `docs/atlas/ATLAS.md` and every hook row there is still registered, and a number the atlas states (a default timing, a limit, a port, a count of pages or migrations) still equals the code, checked for each part an `[Unreleased]` entry touches;
 - the archive matches the version: `node scripts/plugin-build.mjs claudecode` (not `npm run plugin:build`, whose dev stamp the zip script refuses), then `node scripts/podium-reporter-zip.mjs --out <tmpdir> --expect-version X.Y.Z` succeeds and names `podium-reporter-X.Y.Z.zip` (so the tag to come will match the archive `release.yml` builds);
+- every built harness carries the product version: after `node scripts/plugin-build.mjs`, each `dist/<harness>/.claude-plugin/plugin.json` `version` equals the root `package.json` `version` (`scripts/plugin-publish.mjs` refuses a mismatch when it publishes, so catch it here, before the release PR) and no built folder holds `.claude-plugin/dev-build.json`;
+- `plugin-dist` is consistent with the release: `git fetch origin plugin-dist` and `git show origin/plugin-dist:dist/claudecode/.claude-plugin/plugin.json` give the previous release's version, or this one when the branch was seeded from the release-candidate branch (#927), and never a version above the one being released;
 - the docs site builds for every version (`node site/scripts/build.mjs`), and no link is broken;
 - the end-to-end suite passed on the tip of `development` (`npm run e2e`, run locally), and `node scripts/e2e-map.mjs` reports the coverage map true;
 - `npm run standards:parity` passes, and the standards were brought in line when `[Unreleased]` has `Standards:` lines (`git diff --stat docs/standards` is not empty then).
