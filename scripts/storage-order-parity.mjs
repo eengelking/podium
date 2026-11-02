@@ -156,6 +156,10 @@ export function orderOf(sql) {
   const found = [];
   const word = /\border\s+by\b/gi;
   for (let m; (m = word.exec(sql)); ) {
+    // Only the ORDER BY of the whole query orders its result: not one in OVER (...) or in a subquery.
+    let open = 0;
+    for (const c of sql.slice(0, m.index)) open += c === "(" ? 1 : c === ")" ? -1 : 0;
+    if (open > 0) continue;
     // The clause runs to LIMIT, OFFSET, UNION or FOR UPDATE, or to the parenthesis that closes the subquery it is in.
     let depth = 0;
     let end = sql.length;

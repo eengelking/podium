@@ -31,6 +31,8 @@ describe("orderOf", () => {
     expect(orderOf("SELECT * FROM t ORDER BY lower(n) NULLS LAST, id")).toBe("lower(n), id");
     expect(orderOf("SELECT * FROM t WHERE a = :a ORDER BY b COLLATE NOCASE DESC")).toBe("b desc");
     expect(orderOf("SELECT * FROM t WHERE a = ?")).toBe("");
+    expect(orderOf("SELECT row_number() OVER (ORDER BY ts) AS n FROM t")).toBe("");
+    expect(orderOf("SELECT row_number() OVER (ORDER BY ts) AS n FROM t ORDER BY id")).toBe("id");
   });
 });
 
