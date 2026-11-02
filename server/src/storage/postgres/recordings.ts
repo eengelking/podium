@@ -265,7 +265,23 @@ export class PgSessionRecordings {
   async view(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): Promise<RecordingView | null> {
     if (!this.opts.authOn) return null;
     const r = await this.row(sessionId);
-    if (!r) return null;
+    return r ? this.viewOfRow(r, all) : null;
+  }
+
+  /** `view` for many sessions with one read of the recording rows (#906): a key for every session asked, null where there is nothing to show. */
+  async viewMany(items: { sessionId: string; loops: { loop: string; name: string }[] }[]): Promise<Map<string, RecordingView | null>> {
+    const out = new Map<string, RecordingView | null>(items.map((i) => [i.sessionId, null]));
+    if (!this.opts.authOn || items.length === 0) return out;
+    const loops = new Map(items.map((i) => [i.sessionId, i.loops]));
+    for (let at = 0; at < items.length; at += 1000) {
+      const ids = items.slice(at, at + 1000).map((i) => i.sessionId);
+      // order-insensitive: the rows are put in a map by the session's id.
+      for (const r of (await this.db.all<RecDbRow>(`${ROW_SQL} WHERE session_id IN (${ids.map(() => '?').join(', ')})`, ids)).map(rowOf)) out.set(r.sessionId, this.viewOfRow(r, loops.get(r.sessionId) ?? []));
+    }
+    return out;
+  }
+
+  private viewOfRow(r: RecRow, all: { loop: string; name: string }[]): RecordingView {
     const chosen = new Set(r.loops);
     const loops: RecordingLoopInfo[] = all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) }));
     return {
@@ -278,7 +294,7 @@ export class PgSessionRecordings {
       keptUntil: this.keptUntil(r),
       bytes: r.bytes,
       loops,
-      ownerAllows: this.optionOn(sessionId),
+      ownerAllows: this.optionOn(r.sessionId),
     };
   }
 

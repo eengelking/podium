@@ -101,10 +101,10 @@ The reporter, from `scripts/podium-perf-mod.mjs` (400 tool calls per count):
 
 ## Storage latency: SQLite and PostgreSQL
 
-The server reads the database in many small steps: a report is about 67 statements on PostgreSQL and a snapshot about 205. In-process
+The server reads the database in many small steps: a report was about 67 statements on PostgreSQL and a snapshot about 205 (about 19 and about 15 to 19 after #906, below). In-process
 SQLite makes each one cost microseconds. On PostgreSQL each one is a network round trip, so the cost of a path is close to its number of
 statements times the round-trip time. This section records that cost (#822), and which reads to batch. The measurements are for the
-`postgres` adapter as it stands; no product code was changed to take them.
+`postgres` adapter before #906; no product code was changed to take them. The table after the batching is under "Which reads were batched".
 
 How it was taken: `scripts/podium-perf-storage.mjs`, on the maintainer's Mac (Node 24, macOS arm64), 2026-10-31, simulator seed 822, 20
 sessions with 10 agents each, and one stream client open, as a console would be. A report is posted to a throwaway server (a free port, a
@@ -151,21 +151,33 @@ of the SQL text. On the same machine:
 | Snapshot | blowouts, compact events, samples, the owner's group, and the loop row, once per session | 21.5 each | 52% |
 | Snapshot | the rest (totals, history, dropped sessions, BEGIN and COMMIT) | about 8 | 4% |
 
-### Which reads to batch
+### Which reads were batched (#906)
 
-None of these removes a live stream field or reads it less often. Each reads the same data in fewer round trips, and each is a new method on
-the store interface in `server/src/storage/types.ts`, as every query must be.
+None of these removes a live stream field or reads it less often. Each reads or writes the same data in fewer round trips, and each is a
+new method on the store interface in `server/src/storage/types.ts`, in both adapters, with a case in `server/src/storage/contract.ts`.
+SQLite runs the same `IN (...)` read (cut into pieces of 500), so the result and its order match; a statement costs it microseconds, so the gain there is small.
 
-1. **`visibleCount()` (about 24 of 67 statements per report).** The server already holds the live set in memory. Count from it, or read the
-   live ids in one `WHERE id = ANY($1)`. This is the largest single saving and it is on the hot path of every report.
-2. **The agent upserts (about 27 of 67).** Write the agents of a report with one multi-row statement (`INSERT ... SELECT ... FROM unnest(...)
-   ON CONFLICT`) and the same for `agent_texts`, or skip the agents whose row has not changed since the last report.
-3. **The snapshot (about 190 of 205).** Read the sessions, agents, blowouts, compact events, samples, groups and loop rows of all live
-   sessions with one `WHERE session_id = ANY($1)` each, then group them in code. That is about 12 statements instead of 205.
+1. **`visibleCount()` (24 of 67 statements per report).** It reads the live sessions' rows with `getSessions` and the agents of those that
+   pass every other test of `isUnused` with `getAgentsOf`: two statements however many sessions are live. The count is the same.
+2. **The agent upserts (27 of 67).** `upsertAgents` and `upsertAgentTextsMany` write all the agents of a report, and their texts, with one
+   multi-row `INSERT ... ON CONFLICT` each (cut into pieces of 500 rows).
+3. **The snapshot (about 190 of 205).** `liveViews()` reads the sessions, agents, blowouts, compact events, samples, owner groups and
+   recording rows of all live sessions with one `IN (...)` read each (`getSessions`, `getAgentsOf`, `getBlowoutsOf`,
+   `countAutoCompactionsOf`, `samplesSinceOf`, `groupsOfOwners`, `recordings.viewMany`) and groups them in code. `events()` reads the
+   sessions its events belong to the same way.
 
-These are estimates from the counts, not measurements: if the three land, a report drops from about 67 to about 15 statements and a
-snapshot from about 205 to about 15, which at 1 ms would be roughly 50 ms and 60 ms. Take the numbers again with the script after each one.
-Caching is not needed for the report path once the reads are batched; do not cache anything the stream carries.
+Same scenario as the table above, taken again on 2026-11-01 (three runs each, lowest to highest):
+
+| Database | Round trip added | Report p50 (ms) | Queries per report | Snapshot p50 (ms) | Queries per snapshot |
+|---|---|---|---|---|---|
+| SQLite | none | 0.72 to 0.83 (was 0.71 to 0.79) | not counted | 3.2 to 3.4 (was 3.8 to 4.0) | not counted |
+| PostgreSQL, same machine | none | 6.0 to 7.2 (was 18.3 to 19.4) | 19 (was 67) | 8.6 to 9.1 (was 58 to 62) | 15 to 19 (was 205) |
+| PostgreSQL, network hop | 1 ms | 74 to 81 (was 229 to 233) | 32 to 33 (was 111) | 60 to 72 (was 658 to 685) | 19 to 25 (was 287 to 291) |
+
+Against the yardstick (a report under 100 ms and a snapshot under 250 ms on a hop of 1 ms or less, confirmed by the maintainer on #906), both
+now meet it at 1 ms. The report's p50 at 1 ms is still 74 ms because of its floor: the transaction's `BEGIN` and `COMMIT`, the session
+read and write, the events, the sample and the settings read. The count at 1 ms is above the 19 on one machine because a slow report lets
+the per-session throttle expire and more work runs between reports (see above). SQLite's report median is within the spread of the earlier runs and its snapshot is faster, so it is not slower. Nothing the stream carries is cached.
 
 To take the numbers again: `npm run build -w server`, then `node scripts/podium-perf-storage.mjs --help`. For example,
 `--db "$PODIUM_TEST_PG" --rtt 1 --reports 600 --serial 200 --states 20 --runs 3`. Omit `--db` for SQLite.

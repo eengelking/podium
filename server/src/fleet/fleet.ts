@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type CostOf, type RetentionPolicy, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -10,7 +10,7 @@ import { REPORTER_SUPPORT, serverVersion } from './compat.js';
 import { ingestReport, type IngestResult } from './ingest.js';
 import { hookSessionId, hookToReport } from './hookIngest.js';
 import { validateReport } from './protocol.js';
-import type { ActivityView, HistoryRow, Kpis, RemovedReason, Report, ReporterSupport, SessionStatusView, SessionView, StateBody, WallSettingsView } from './protocol.js';
+import type { ActivityView, HistoryRow, Kpis, RemovedReason, RecordingView, Report, ReporterSupport, SessionStatusView, SessionView, StateBody, WallSettingsView } from './protocol.js';
 import { formatSse, SseHub, type SseEventName, type SseSink } from './sse.js';
 import { Serializer } from './serial.js';
 import { LiveActivityHistorySettings, LiveFeatureFlags, LiveModelPrices, LiveRecordingSettings, LiveWallSettings } from './liveSettings.js';
@@ -109,6 +109,22 @@ export function metaOfRow(row: SessionRow | undefined): SessionMeta | undefined 
 
 /** When a session ended: dropped, else ended, else last seen. */
 const endedAtOf = (row: SessionRow): number => row.dropped_at ?? row.ended_at ?? row.last_seen_at;
+
+/** What `liveViews` read for many sessions at once, so `viewOf` does not read it again for each. */
+interface Prefetched {
+  now: number;
+  agents: AgentRow[];
+  blowouts: BlowoutRow[];
+  compactions: number;
+  samples: SampleRow[];
+  ownerGroup: string | null;
+  recording: RecordingView | null;
+}
+
+/** The loops of a session: its orchestrator and each agent, named as the Activity layer shows them. */
+function loopsOfAgents(agents: readonly AgentRow[]): { loop: string; name: string }[] {
+  return [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...agents.map((a) => ({ loop: a.id, name: a.name ?? a.type }))];
+}
 
 export class Fleet {
   readonly hub = new SseHub();
@@ -212,7 +228,7 @@ export class Fleet {
         flagOn: () => this.features.featureOn(SESSION_RECORDING),
         authOn,
         isLive: (sid) => this.live.has(sid),
-        loopsOf: async (sid) => [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...(await this.db.getAgents(sid)).map((a) => ({ loop: a.id, name: a.name ?? a.type }))],
+        loopsOf: async (sid) => loopsOfAgents(await this.db.getAgents(sid)),
         secrets: () => (history.secret ? [history.secret] : []),
       },
     });
@@ -371,15 +387,22 @@ export class Fleet {
 
   /** How many live sessions are on the wall: what the reporter's status line and /health report. */
   async visibleCount(): Promise<number> {
-    let n = 0;
-    for (const id of [...this.live.keys()]) if (!(await this.unused(await this.db.getSession(id)))) n++;
-    return n;
+    // Two reads however many sessions are live (#906): their rows, then the agents of the rows that pass every other test of `isUnused`.
+    const ids = [...this.live.keys()];
+    // A live id with no row counts as on the wall, as it did when each was read alone.
+    return ids.length - (await this.unusedAmong(await this.db.getSessions(ids))).size;
+  }
+
+  /** The ids among `rows` of sessions that have done nothing yet (see `isUnused`): two reads however many rows there are. */
+  private async unusedAmong(rows: readonly SessionRow[]): Promise<Set<string>> {
+    const maybe = rows.filter((row) => isUnused(row, 0));
+    const agents = maybe.length ? await this.db.getAgentsOf(maybe.map((row) => row.id)) : new Map<string, AgentRow[]>();
+    return new Set(maybe.filter((row) => (agents.get(row.id) ?? []).length === 0).map((row) => row.id));
   }
 
   /** A session that has done nothing yet is kept off the wall and out of every feed (see `isUnused`). */
   private async unused(row: SessionRow | undefined): Promise<boolean> {
-    // With 0 as the agent count `isUnused` runs every other test; the agents are read only for a row that passes them.
-    return !!row && isUnused(row, 0) && (await this.db.getAgents(row.id)).length === 0;
+    return !!row && (await this.unusedAmong([row])).has(row.id);
   }
 
   // ---- ingest ---------------------------------------------------------------------------------
@@ -544,13 +567,14 @@ export class Fleet {
     });
   }
 
-  private async viewOf(row: SessionRow): Promise<SessionView> {
-    const now = this.now();
-    const agents = await this.db.getAgents(row.id);
-    const blowouts = await this.db.getBlowouts(row.id);
-    const compactions = await this.db.countAutoCompactions(row.id);
-    const samples = await this.db.samplesSince(row.id, Math.floor(now / 1000) - 61);
-    const ownerGroup = await this.db.groupOfOwner(row.owner);
+  /** `pre` holds what `liveViews` already read for many sessions in one step each; without it the session's own reads run here. */
+  private async viewOf(row: SessionRow, pre?: Prefetched): Promise<SessionView> {
+    const now = pre?.now ?? this.now();
+    const agents = pre?.agents ?? (await this.db.getAgents(row.id));
+    const blowouts = pre?.blowouts ?? (await this.db.getBlowouts(row.id));
+    const compactions = pre?.compactions ?? (await this.db.countAutoCompactions(row.id));
+    const samples = pre?.samples ?? (await this.db.samplesSince(row.id, Math.floor(now / 1000) - 61));
+    const ownerGroup = pre ? pre.ownerGroup : await this.db.groupOfOwner(row.owner);
     const entry = this.live.get(row.id);
     return sessionView(
       {
@@ -570,7 +594,7 @@ export class Fleet {
         fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),
         asks: this.respond.summaries(row.id),
-        recording: await this.recordings.view(row.id),
+        recording: pre ? pre.recording : await this.recordings.view(row.id),
       },
       now,
       this.derive,
@@ -591,11 +615,31 @@ export class Fleet {
 
   liveViews(): Promise<SessionView[]> {
     // The sessions are read in one transaction, so the wall is one moment's state, as it was when the reads were synchronous.
+    // One read of each kind for all the live sessions (#906), grouped here, so the number of statements does not grow with the wall.
     return this.storage.tx(async () => {
+      const rows = await this.db.getSessions([...this.live.keys()]);
+      const agentsOf = await this.db.getAgentsOf(rows.map((r) => r.id));
+      const shown = rows.filter((r) => !isUnused(r, (agentsOf.get(r.id) ?? []).length));
+      const ids = shown.map((r) => r.id);
+      const now = this.now();
+      const blowouts = await this.db.getBlowoutsOf(ids);
+      const compactions = await this.db.countAutoCompactionsOf(ids);
+      const samples = await this.db.samplesSinceOf(ids, Math.floor(now / 1000) - 61);
+      const groups = await this.db.groupsOfOwners(shown.map((r) => r.owner));
+      const recordings = await this.recordings.viewMany(ids.map((sessionId) => ({ sessionId, loops: loopsOfAgents(agentsOf.get(sessionId) ?? []) })));
       const out: SessionView[] = [];
-      for (const id of [...this.live.keys()]) {
-        const row = await this.db.getSession(id);
-        if (row && !(await this.unused(row))) out.push(await this.viewOf(row));
+      for (const row of shown) {
+        out.push(
+          await this.viewOf(row, {
+            now,
+            agents: agentsOf.get(row.id) ?? [],
+            blowouts: blowouts.get(row.id) ?? [],
+            compactions: compactions.get(row.id) ?? 0,
+            samples: samples.get(row.id) ?? [],
+            ownerGroup: groups.get(row.owner) ?? null,
+            recording: recordings.get(row.id) ?? null,
+          }),
+        );
       }
       return out;
     });
@@ -636,12 +680,11 @@ export class Fleet {
 
   async events(opts: { sessionId?: string | null; before?: number | null; limit: number }): Promise<ActivityView[]> {
     const rows = await this.db.listEvents(opts);
-    const sessions = new Map<string, SessionRow | undefined>();
+    // The sessions the events belong to are read together (#906), and the agents only of those that pass every other test of `isUnused`.
+    const sessions = new Map((await this.db.getSessions([...new Set(rows.map((e) => e.session_id))])).map((r) => [r.id, r]));
+    const unused = await this.unusedAmong([...sessions.values()]);
     const out: ActivityView[] = [];
-    for (const e of rows) {
-      if (!sessions.has(e.session_id)) sessions.set(e.session_id, await this.db.getSession(e.session_id));
-      if (!(await this.unused(sessions.get(e.session_id)))) out.push(activityView(e, sessions.get(e.session_id)));
-    }
+    for (const e of rows) if (!unused.has(e.session_id)) out.push(activityView(e, sessions.get(e.session_id)));
     return out;
   }
 

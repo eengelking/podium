@@ -145,6 +145,11 @@ export function activityCases(o: Openers): void {
       await rec('capturing', r.capturing('r1'));
       await rec('accepts until', r.acceptsUntil('r1'));
       await rec('state', r.stateFor('r1'));
+      const loops = [{ loop: MAIN_LOOP, name: 'Orchestrator' }, { loop: 'agent-1', name: 'agent-1' }];
+      const many = await rec('view of many (#906)', r.viewMany([{ sessionId: 'r1', loops }, { sessionId: 'r2', loops }]));
+      expect(many.get('r1')).toEqual(await r.view('r1'));
+      expect(many.get('r2')).toBeNull();
+      await rec('view of none (#906)', r.viewMany([]));
       await rec('view', r.view('r1'));
       await rec('loop info', r.loopInfo('r1'));
       await rec('accept', r.accept('r1', batch(1), META('one')));

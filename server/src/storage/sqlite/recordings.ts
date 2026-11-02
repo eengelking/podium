@@ -278,6 +278,36 @@ export class SessionRecordings {
     };
   }
 
+  /** `view` for many sessions (#906). In-process SQLite pays nothing for a read, so this is a loop. */
+  viewMany(items: { sessionId: string; loops: { loop: string; name: string }[] }[]): Map<string, RecordingView | null> {
+    const out = new Map<string, RecordingView | null>(items.map((i) => [i.sessionId, null]));
+    if (!this.opts.authOn || items.length === 0) return out;
+    const loops = new Map(items.map((i) => [i.sessionId, i.loops]));
+    for (let at = 0; at < items.length; at += 500) {
+      const ids = items.slice(at, at + 500).map((i) => i.sessionId);
+      // order-insensitive: the rows are put in a map by the session's id.
+      const rows = this.db.prepare(`${ROW_SQL} WHERE session_id IN (${ids.map(() => '?').join(', ')})`).all(...ids).map(rowOf);
+      for (const r of rows) out.set(r.sessionId, this.viewOfRow(r, loops.get(r.sessionId) ?? []));
+    }
+    return out;
+  }
+
+  private viewOfRow(r: RecRow, all: { loop: string; name: string }[]): RecordingView {
+    const chosen = new Set(r.loops);
+    return {
+      state: this.stateOf(r),
+      limit: r.state === 'limit' ? r.limitKind : null,
+      startedBy: r.startedBy,
+      startedAt: r.startedAt,
+      stoppedBy: r.stoppedBy,
+      stoppedAt: r.stoppedAt,
+      keptUntil: this.keptUntil(r),
+      bytes: r.bytes,
+      loops: all.map((l) => ({ loop: l.loop, name: l.name, recorded: chosen.has(l.loop) })),
+      ownerAllows: this.optionOn(r.sessionId),
+    };
+  }
+
   /** Every loop of a session with whether it is recorded, for the replay's loop filter. */
   loopInfo(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): RecordingLoopInfo[] {
     const chosen = new Set(this.row(sessionId)?.loops ?? []);
