@@ -15,12 +15,13 @@
 // The checkout's index, working tree, `main` and `development` are never touched. The temp worktree is removed on success and failure.
 import { execFileSync, spawnSync } from "node:child_process";
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkTree, HARNESSES } from "./plugin-build.mjs";
+import { gitBin } from "./git-bin.mjs";
+import { checkTree, HARNESSES, readIfPresent } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_TARGET = "plugin-dist";
@@ -44,7 +45,7 @@ Exit 0 with "nothing to publish" when the built tree equals the branch's tree. N
 
 /** Runs git in `cwd`; returns trimmed stdout and throws with git's message on failure. */
 function git(cwd, args, { input } = {}) {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", input, maxBuffer: 256 * 1024 * 1024 });
+  const r = spawnSync(gitBin(), args, { cwd, encoding: "utf8", input, maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed (${r.status}): ${(r.stderr || r.stdout || "").trim()}`);
   }
@@ -80,10 +81,11 @@ export function checkBuilt(dist, version) {
   for (const h of built) {
     const dir = join(dist, h);
     const manifest = join(dir, ".claude-plugin", "plugin.json");
-    if (!existsSync(manifest)) {
+    const manifestText = readIfPresent(manifest);
+    if (!manifestText) {
       problems.push(`${h}: no .claude-plugin/plugin.json`);
     } else {
-      const v = JSON.parse(readFileSync(manifest, "utf8")).version;
+      const v = JSON.parse(manifestText.toString("utf8")).version;
       if (v !== version) problems.push(`${h}: plugin.json version ${v} is not the product version ${version}`);
     }
     if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
@@ -101,7 +103,7 @@ function copyDist(dist, dest) {
     for (const e of readdirSync(src, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
       if (e.name === ".DS_Store") continue;
       const p = join(src, e.name);
-      if (lstatSync(p).isSymbolicLink()) throw new Error(`${p} is a symlink; the build creates none.`);
+      if (e.isSymbolicLink()) throw new Error(`${p} is a symlink; the build creates none.`);
       if (e.name.includes("\\")) throw new Error(`${p} has a backslash in its name.`);
       if (e.isDirectory()) walk(p, join(to, e.name));
       else writeFileSync(join(to, e.name), readFileSync(p));
@@ -181,7 +183,7 @@ export function publish(opts) {
       }
       const files = g(["ls-files"]).split("\n").filter(Boolean);
       const message = `Publish the plugin build for ${version} from ${sourceSha.slice(0, 12)}\n\nSource commit: ${sourceSha}\nSource ref: ${opts.sourceRef ?? "(none)"}\nVersion: ${version}\n`;
-      execFileSync("git", ["-C", wt, "-c", `core.hooksPath=${hooks}`, "-c", "commit.gpgsign=false", "commit", "--quiet", "--file", "-"], {
+      execFileSync(gitBin(), ["-C", wt, "-c", `core.hooksPath=${hooks}`, "-c", "commit.gpgsign=false", "commit", "--quiet", "--file", "-"], {
         input: message, env: { ...process.env, ...ident },
       });
       const sha = g(["rev-parse", "HEAD"]);
@@ -191,7 +193,7 @@ export function publish(opts) {
         return { status: "dry-run", sha, version, files };
       }
       opts.beforePush?.(attempt);
-      const push = spawnSync("git", ["-C", wt, "-c", `core.hooksPath=${hooks}`, "push", remote, `${sha}:refs/heads/${target}`], { encoding: "utf8" });
+      const push = spawnSync(gitBin(), ["-C", wt, "-c", `core.hooksPath=${hooks}`, "push", remote, `${sha}:refs/heads/${target}`], { encoding: "utf8" });
       if (push.status === 0) {
         log(`Pushed ${sha} to ${remote} ${target}`);
         return { status: "published", sha, version, files };
@@ -202,11 +204,11 @@ export function publish(opts) {
     }
   } finally {
     if (added) {
-      spawnSync("git", ["worktree", "remove", "--force", wt], { cwd: root });
+      spawnSync(gitBin(), ["worktree", "remove", "--force", wt], { cwd: root });
     }
     rmSync(tmp, { recursive: true, force: true });
-    spawnSync("git", ["worktree", "prune"], { cwd: root });
-    spawnSync("git", ["branch", "-D", branch], { cwd: root, stdio: "ignore" });
+    spawnSync(gitBin(), ["worktree", "prune"], { cwd: root });
+    spawnSync(gitBin(), ["branch", "-D", branch], { cwd: root, stdio: "ignore" });
   }
 }
 

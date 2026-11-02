@@ -21,18 +21,23 @@ exists there.
 - **Where it is published.** `.github/workflows/plugin-dist.yml` runs on a push to `main` and on `workflow_dispatch`. It runs
   `npm test` and `npm run build`, builds every harness with `scripts/plugin-build.mjs`, and runs `scripts/plugin-publish.mjs`,
   which commits the built `dist/` as a new commit on top of the `plugin-dist` branch. It never force-pushes and never touches
-  `main` or `development`. A tree equal to the branch's publishes nothing, so a rerun is safe. A failing step publishes nothing
+  `main` or `development`. A tree equal to the branch's publishes nothing, so a rerun is safe. The job checks out with
+  `persist-credentials: false`, so no token sits in `.git/config` while the tests run, and only the publish step gets the token,
+  handed to git through `GIT_CONFIG_*` environment variables for that step alone (never in a URL or a config file). A failing step publishes nothing
   and the marketplace keeps serving the last good commit. `main` moves only on a release, so a merge to `main` is a release.
-  A manual run publishes only from `main` or a `release-candidate/*` branch.
+  The script refuses a source ref other than `main` or `release-candidate/*`, and refuses `main`, `development` and `master` as the
+  target. A manual run may name another target branch, which is how it is tested without touching `plugin-dist`. The dev stamp
+  (56) is never written here, and the script refuses a tree that has one.
 - **How the marketplace points at it.** The entry in `eengelking-marketplace` is `git-subdir` with `ref: plugin-dist` and `path:
   dist/claudecode`, and no `sha`. The product and the reporter are versioned together and `plugin.json` pins the version, so
   a release reaches an installed copy as a new commit on `plugin-dist` with a bumped version, with no edit to the marketplace.
   The marketplace change is #928, and what an installed copy does on update is checked there.
-- **The release zip.** `release.yml` builds `podium-reporter-<version>.zip` from the same build and `scripts/plugin-dist-compare.mjs`
-  fails the release when its file list or bytes differ from `dist/claudecode/` on `plugin-dist`. The tag can be pushed before
-  the publish run finishes, so the script waits for a `plugin-dist` commit that names the tag's source commit. After a grace
-  period it compares with the branch tip instead, when that tip's `plugin.json` version equals the tag's, because the
-  cutover below makes the release's own run publish nothing.
+- **The release zip.** `release.yml` builds `podium-reporter-<version>.zip` into `dist-zips/` (git-ignored, and never `dist/`, which
+  holds the build trees) from the same build, and `scripts/plugin-dist-compare.mjs` fails the release when its file list or bytes
+  differ from `dist/claudecode/` on `plugin-dist`. The tag can be pushed before the publish run finishes, so the script waits for
+  a `plugin-dist` commit whose message names the tag's source commit, for up to 900 seconds by default (`release.yml` passes the
+  same). After a grace period of 300 seconds it compares with the branch tip instead, when that tip's `plugin.json` version
+  equals the tag's, because the cutover below makes the release's own run publish nothing (the seed already holds that tree).
 - **No nightly branch.** A nightly stays a GitHub prerelease with its zip. It builds through the same script and publishes no
   branch.
 - **The cutover order.** `mod/podium-reporter` leaves `main` at the first release that contains #927, and an entry with no
@@ -44,8 +49,9 @@ exists there.
 **Why.** A dedicated branch of build output keeps built files out of `main` and `development`, and a plain `ref` is the smallest
 marketplace change that never has to be edited again. Pinning by `sha` would need an edit for every release.
 
-**Cost.** The Actions token can push to one branch, which has to allow the bot and refuse a force-push. A release has a step that
-is easy to forget: check that the seed and the release agree. Entry 12's rule that a plugin fix needs a version bump to reach
+**Cost.** The workflow asks for `contents: write` on that job only, but nothing in the code lets the bot push to `plugin-dist`
+or stops a force-push to it. That is a repository setting (the branch's protection) that the maintainer has to configure, and the
+publish fails until it is. A release has a step that is easy to forget: check that the seed and the release agree. Entry 12's rule that a plugin fix needs a version bump to reach
 users still holds.
 
 <!-- nav:start -->

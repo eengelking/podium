@@ -281,6 +281,23 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
 `podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
+### The plugin build and plugin-dist
+
+The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, a
+placeholder until #855 (DECISIONS 56). They are installed from a built folder, not from the source.
+
+- `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options).
+  `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and
+  `--dev-stamp` writes the commit into the folder (`npm run plugin:build` adds it; CI and the release never do).
+- `dist/`, `.build-test/` (where `npm run test:mod` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
+- `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`.
+- `.github/workflows/plugin-dist.yml` runs on a merge to `main`, which is a release. After the tests and the build it runs
+  `scripts/plugin-publish.mjs`, which adds the built folders as a new commit on the `plugin-dist` branch (never a force-push, nothing
+  when the tree is unchanged). `eengelking-marketplace` installs from that branch (DECISIONS 58, #928). `release.yml` then runs
+  `scripts/plugin-dist-compare.mjs`, which fails the release if the zip differs from what the branch holds.
+- To test a publish, run the workflow by hand from Actions with a throwaway `target` branch name, never `plugin-dist` itself. The
+  branch has to allow the Actions bot to push and refuse a force-push; that is a repository setting, not something the code sets.
+
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under

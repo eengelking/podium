@@ -23,6 +23,7 @@
 // podium-reporter-zip.mjs zips what this builds, and `npm run test:mod` builds with --with-tests to .build-test/ for
 // `claude plugin test`.
 import { spawnSync } from "node:child_process";
+import { gitBin } from "./git-bin.mjs";
 import {
   existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync,
 } from "node:fs";
@@ -74,9 +75,19 @@ export function walk(dir, rel = "") {
   return out;
 }
 
+/** The bytes of a file, or null when it does not exist (one read, so nothing can change between a check and the use). */
+export function readIfPresent(path) {
+  try {
+    return readFileSync(path);
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    throw e;
+  }
+}
+
 /** Runs git in `root`; the exit code and stdout, or a failure code when git cannot start. */
 function gitIn(root, args) {
-  const r = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  const r = spawnSync(gitBin(), ["-C", root, ...args], { encoding: "utf8" });
   return { code: r.status ?? 128, out: r.stdout ?? "" };
 }
 
@@ -122,12 +133,14 @@ export function planTree(harness, { root = ROOT, withTests = false, stamp = /** 
 
   // hooks/helper.mjs is run by path from the plugin's root, so it sits at the root's hooks/. It imports nothing of the tree.
   const helper = join(src, "hooks", "helper.mjs");
-  if (existsSync(helper)) put("hooks/helper.mjs", readFileSync(helper));
+  const helperBytes = readIfPresent(helper);
+  if (helperBytes) put("hooks/helper.mjs", helperBytes);
 
   // hooks/hooks.json: the source's modules, repointed from the source's hooks/ to the same files under plugin/<harness>/hooks/.
   const hooksJson = join(src, "hooks", "hooks.json");
-  if (existsSync(hooksJson)) {
-    const source = JSON.parse(readFileSync(hooksJson, "utf8"));
+  const hooksText = readIfPresent(hooksJson);
+  if (hooksText) {
+    const source = JSON.parse(hooksText.toString("utf8"));
     const modules = (source.modules ?? []).map((m) => {
       const inTree = posix.join("plugin", harness, "hooks", m);
       return posix.relative("hooks", inTree);

@@ -11,7 +11,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
+import { gitBin } from "./git-bin.mjs";
 import { walk } from "./plugin-build.mjs";
+
+const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 
 const USAGE = `Usage: node scripts/plugin-dist-compare.mjs --zip <file> (--dir <folder> | --sha <source-sha>) [options]
@@ -54,11 +57,11 @@ export function readZipEntries(buf) {
 /** The differences between two maps of name to bytes, as lines. Empty when they are equal. */
 export function diffFiles(zip, other, otherLabel) {
   const problems = [];
-  for (const name of [...zip.keys()].sort()) {
+  for (const name of [...zip.keys()].sort(byName)) {
     if (!other.has(name)) problems.push(`only in the zip: ${name}`);
     else if (!zip.get(name).equals(other.get(name))) problems.push(`different bytes: ${name}`);
   }
-  for (const name of [...other.keys()].sort()) if (!zip.has(name)) problems.push(`only in ${otherLabel}: ${name}`);
+  for (const name of [...other.keys()].sort(byName)) if (!zip.has(name)) problems.push(`only in ${otherLabel}: ${name}`);
   return problems;
 }
 
@@ -67,14 +70,14 @@ export function readDir(dir) {
   return new Map(walk(dir).map((n) => [n, readFileSync(join(dir, n))]));
 }
 
-const git = (cwd, args) => execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }).trim();
+const git = (cwd, args) => execFileSync(gitBin(), args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }).trim();
 
 /** The files under `prefix` in `commit` as a map of path (relative to prefix) to bytes. */
 export function readCommitDir(cwd, commit, prefix) {
   const names = git(cwd, ["ls-tree", "-r", "--name-only", "-z", commit, `${prefix}/`]).split("\0").filter(Boolean);
   const out = new Map();
   for (const n of names) {
-    const r = spawnSync("git", ["show", `${commit}:${n}`], { cwd, maxBuffer: 256 * 1024 * 1024 });
+    const r = spawnSync(gitBin(), ["show", `${commit}:${n}`], { cwd, maxBuffer: 256 * 1024 * 1024 });
     if (r.status !== 0) throw new Error(`git show ${commit}:${n} failed`);
     out.set(n.slice(prefix.length + 1), r.stdout);
   }
@@ -94,7 +97,7 @@ export async function findCommit({ cwd, remote, branch, sha, harness, version, w
     const waited = (Date.now() - started) / 1000;
     if (version && waited >= grace) {
       const tip = git(cwd, ["rev-parse", ref]);
-      const r = spawnSync("git", ["show", `${tip}:dist/${harness}/.claude-plugin/plugin.json`], { cwd, encoding: "utf8" });
+      const r = spawnSync(gitBin(), ["show", `${tip}:dist/${harness}/.claude-plugin/plugin.json`], { cwd, encoding: "utf8" });
       if (r.status === 0 && JSON.parse(r.stdout).version === version) {
         return { commit: tip, how: `is the branch tip at version ${version}; no commit names ${sha}, which happens when a rerun finds an unchanged tree` };
       }

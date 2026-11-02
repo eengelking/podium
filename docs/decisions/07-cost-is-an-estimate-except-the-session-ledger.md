@@ -13,7 +13,7 @@ order: 7
 *Superseded in part by 23 (#117): the server now prices the tokens, with `server/src/fleet/pricing.ts`.*
 
 **Decision.** An orchestrator's own cost is the session's ledger. Agent cost is token counts times a price
-table (`mod/podium-reporter/hooks/models.ts`), and the UI always labels it an estimate.
+table (`plugin/claudecode/hooks/models.ts`), and the UI always labels it an estimate.
 
 **Why.** The engine only gives a ledger for the session, not per agent. Presenting an estimate as a bill
 would be wrong.

@@ -81,6 +81,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A name set with the shared secret, or with no token, shows no person](name-without-a-person-token-shows-no-person.md): The people view follows the token, not the name; give each person a token in Admin and put it in their reporter with their name.
 - [A group change shows a few seconds late](group-change-shows-a-few-seconds-late.md): Groups are read when a session's view is built, so the wall changes with the next report; wait a few seconds.
 - [systemctl --user start podium.service does nothing after podiumctl stop (container mode)](systemctl-start-does-nothing-after-podiumctl-stop.md): The container unit stays active after podiumctl stop; use podiumctl start, or stop the unit and then start it.
+- [A script or a path expects the server's compiled files directly in server/dist](server-compiled-files-are-not-directly-in-server-dist.md): Since #927 the compiled server is in server/dist/server/src/; start it with server/dist/index.js and find folders with serverDir, not a count of dots.
 
 **What the console shows**
 
@@ -128,4 +129,5 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md): Node on Windows has no Unix sockets, so the EACCES is an invalid pipe name, not a permission; the mod reaches the Windows helper through a request folder.
 - [A frontend test fails now and then, with an edit put back or an element not found, and passes on the next run](frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md): React 19 runs a component's mount effects after the commit; keep the idle wait in setupTests.ts so findBy and waitFor settle before a test edits.
 - [npx tsc prints Version 6 although the project is on TypeScript 7](npx-tsc-says-version-6-but-the-project-is-on-typescript-7.md): Two packages provide a tsc command and npm links the TypeScript 6 one, so the scripts call TypeScript 7 by its path.
+- [The reporter will not load from plugin/claudecode, or a change does not show](plugin-source-folder-cannot-be-loaded-on-its-own.md): The source imports plugin/core from outside its folder; build dist/claudecode with npm run plugin:build and load that, and rebuild after an edit.
 <!-- entries:end -->

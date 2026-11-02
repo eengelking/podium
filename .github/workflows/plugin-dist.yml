@@ -8,7 +8,8 @@ name: Plugin dist
 # and the marketplace keeps serving the last good commit. All the publish rules live in that script and its tests, not here:
 # it refuses a source ref other than `main` or `release-candidate/*`, checks the built version against the product version,
 # commits on top of the branch (never a force-push), and publishes nothing when the tree is unchanged, so a rerun is safe.
-# A `workflow_dispatch` workflow runs only from the default branch, so this file takes effect when it reaches `main`.
+# GitHub lists a `workflow_dispatch` workflow in the Actions tab only once its file is on the default branch, so this file takes effect
+# when it reaches `main`. After that, a manual run can pick another ref to run from (see below).
 # To rerun it: Actions tab, "Plugin dist", "Run workflow", choose `main` (or a `release-candidate/*` branch to seed or test).
 # The optional `target` input names a test branch to publish to instead of `plugin-dist`.
 # Never from a pull request or a fork: only `push` to `main` and a manual run, and neither takes a fork's code.

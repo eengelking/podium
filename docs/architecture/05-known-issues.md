@@ -45,7 +45,8 @@ fixed.
     `null` for it, and the dashboard shows the model's own name in an "other" chip, cost "n/a", and "not
     counting 1 unpriced session" under Est. cost today.
 9. **The production build also compiles the server's test files into `server/dist`** (as the existing
-   app already did). Harmless; not changed.
+   app already did). Harmless; not changed. Since #927 the compiled files are under `server/dist/server/src/`
+   (see the gotcha "A script or a path expects the server's compiled files directly in server/dist").
 10. **A change of effort shows after the next model request.** The mod reads the effort the session sends
     on each `turn.step`; the API has no event for the setting changing. A level picked with `/effort`
     appears in Podium after the session's next prompt, not when it is picked. A probe of `$.config.list()`
