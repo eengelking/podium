@@ -330,10 +330,11 @@ CREATE INDEX IF NOT EXISTS person_certificates_seq ON person_certificates(person
   {
     version: 26,
     // Open requests are listed oldest first, and two made in the same millisecond used to be told apart by their random id (#890). They
-    // take an insertion number like peer messages do (migration 25): existing rows keep the order their rowid gave them, a new row the next number.
+    // take an insertion number like peer messages do (migration 25). Existing rows are numbered by time and then id, as PostgreSQL step 2 does, because PostgreSQL
+    // cannot recover the insertion order of rows made before the column and both adapters must list the same data the same way (#916). A new row gets the next number.
     sql: `
 ALTER TABLE peer_requests ADD COLUMN seq INTEGER;
-UPDATE peer_requests SET seq = rowid;
+UPDATE peer_requests SET seq = o.n FROM (SELECT id, row_number() OVER (ORDER BY created_at, id) AS n FROM peer_requests) o WHERE o.id = peer_requests.id;
 CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`,
   },
   {

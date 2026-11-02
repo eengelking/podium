@@ -1,5 +1,5 @@
 // Migration step 2 of the main schema (#890): open peer requests get an insertion number. A database made before it keeps every request, in
-// the order PostgreSQL can still give: by time, then by id.
+// the order PostgreSQL can still give: by time, then by id. SQLite migration 26 numbers the same way (#916).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
