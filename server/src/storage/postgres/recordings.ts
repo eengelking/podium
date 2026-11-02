@@ -374,7 +374,7 @@ export class PgSessionRecordings {
 
   /** The Admin turned the flag off: every running recording stops and keeps what it has. Returns the sessions stopped. */
   async stopAll(by: string): Promise<string[]> {
-    const ids = (await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording'")).map((x) => x.id);
+    const ids = (await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' ORDER BY session_id")).map((x) => x.id);
     const now = this.opts.now();
     await this.db.tx(async () => {
       for (const id of ids) {
@@ -485,7 +485,7 @@ export class PgSessionRecordings {
           await this.setLimit(sessionId, which);
           hit.push({ sessionId, which, bytes: size });
           if (which === 'budget') {
-            for (const other of await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ?", [sessionId])) {
+            for (const other of await this.db.all<{ id: string }>("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ? ORDER BY session_id", [sessionId])) {
               await this.setLimit(other.id, 'budget');
               hit.push({ sessionId: other.id, which: 'budget', bytes: 0 });
             }

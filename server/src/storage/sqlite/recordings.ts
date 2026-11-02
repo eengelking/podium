@@ -361,7 +361,7 @@ export class SessionRecordings {
 
   /** The Admin turned the flag off: every running recording stops and keeps what it has. Returns the sessions stopped. */
   stopAll(by: string): string[] {
-    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording'").all() as { id: string }[]).map((x) => x.id);
+    const ids = (this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' ORDER BY session_id").all() as { id: string }[]).map((x) => x.id);
     const now = this.opts.now();
     this.tx(() => {
       for (const id of ids) {
@@ -467,7 +467,7 @@ export class SessionRecordings {
           this.setLimit(sessionId, which);
           hit.push({ sessionId, which, bytes: size });
           if (which === 'budget') {
-            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ?").all(sessionId) as { id: string }[]) {
+            for (const other of this.st("SELECT session_id AS id FROM rec_sessions WHERE state = 'recording' AND session_id != ? ORDER BY session_id").all(sessionId) as { id: string }[]) {
               this.setLimit(other.id, 'budget');
               hit.push({ sessionId: other.id, which: 'budget', bytes: 0 });
             }
