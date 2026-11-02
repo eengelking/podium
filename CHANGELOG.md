@@ -41,6 +41,10 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The storage contract compares both databases on every store, and six list orders now say what they are (#890).** `runStorageContract` had 11 cases covering people, sessions, reporters, certificates, conversations and recordings. It now has a case for every method on `Storage` and on the report queries (settings, feature flags, wall and TLS settings, model prices, fleet spend and retention, the People tab's deletes, ignore rules, rights and requests, messages, the Activity history, recordings, rollups and the Admin log), each running one scenario over the adapter and over a second SQLite storage and comparing every recorded value. The cases found orders the code left to the table, which differed between the two databases or between two runs, and each now ends on a key in both adapters: open peer requests (they ended on a random id, so requests made in the same millisecond came back in any order), `clearedInto` (a tie now takes the highest id on SQLite as it did on PostgreSQL), the per-session spend list, the reporter keys of a filtered view, the reporter versions a server has seen, and the days a rollup holds. Nothing else about the answers changes. No schema change, so no other adapter is affected.
 
+### Fixed
+
+- **The TLS renewer's "retries on its own timer" test no longer fails when the machine is busy (#904).** The test waited up to 5,000 ms for the renewal retry, which is also vitest's default limit for the whole test, so on a loaded machine the test timed out before the wait could. The test now has a 30 s limit and waits up to 25 s, as the earlier timeout fixes (#680, #681) did. It takes about 0.25 s on a quiet machine. Only that test changed; no production code did.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added
