@@ -74,7 +74,13 @@ export function RecordingLimits({ api, state, onSaved, onLocked }: { api: AdminA
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => setF(initial()), [settings.keepHours, settings.budgetMb, settings.sessionMb]);
+  // Reset during render when a saved limit changes, so a mount does not overwrite an edit.
+  const savedKey = `${settings.keepHours}|${settings.budgetMb}|${settings.sessionMb}`;
+  const [shownFor, setShownFor] = useState(savedKey);
+  if (shownFor !== savedKey) {
+    setShownFor(savedKey);
+    setF(initial());
+  }
   const set = (patch: Partial<typeof f>) => {
     setDone("");
     setF((cur) => ({ ...cur, ...patch }));

@@ -179,9 +179,14 @@ function PeerLimitRow(props: {
   // What the server last refused, and why, so leaving the box after Enter does not send the same value again.
   const refused = useRef<{ text: string; err: string } | null>(null);
   // A newly saved value (this box's or another browser's) replaces what is typed.
-  useEffect(() => {
+  const [shownFor, setShownFor] = useState({ saved, stored });
+  if (shownFor.saved !== saved || shownFor.stored !== stored) {
+    setShownFor({ saved, stored });
     setText(show(saved));
     setErr("");
+  }
+  // Refs are not state, so they are cleared after the render that saw the new value, not during it.
+  useEffect(() => {
     sent.current = null;
     refused.current = null;
   }, [saved, stored]);

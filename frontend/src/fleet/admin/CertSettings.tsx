@@ -1,6 +1,6 @@
 // Admin > Server > Certificates, Renewal and lifetimes (#586): number rows that save when the field is left and show a
 // rejected value in place, and the header countdown switch. A change is written to the Admin log by the server.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Panel, Section, SwitchRow } from "./Page";
 import type { CertsView } from "./certFormat";
 
@@ -12,7 +12,12 @@ function DaysRow(props: { id: string; name: string; hint: string; value: number;
   const { id, value } = props;
   const [text, setText] = useState(String(value));
   const [err, setErr] = useState("");
-  useEffect(() => setText(String(value)), [value]);
+  // Reset during render when the saved value changes, so a mount does not overwrite an edit.
+  const [shownFor, setShownFor] = useState(value);
+  if (shownFor !== value) {
+    setShownFor(value);
+    setText(String(value));
+  }
   const commit = async () => {
     const n = Number(text);
     if (text.trim() === "" || !Number.isInteger(n)) return setErr(`Enter a whole number of days from ${props.min} to ${props.max}.`);
