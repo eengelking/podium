@@ -89,7 +89,7 @@ export function checkBuilt(dist, version) {
       if (v !== version) problems.push(`${h}: plugin.json version ${v} is not the product version ${version}`);
     }
     if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
-      problems.push(`${h}: .claude-plugin/dev-build.json is a dev stamp; rebuild without --dev-stamp (npm run plugin:build adds it, the script alone does not)`);
+      problems.push(`${h}: .claude-plugin/dev-build.json is a dev stamp; rebuild without --dev-stamp: npm run plugin:build:release (npm run plugin:build adds the stamp)`);
     }
     for (const p of checkTree(dir)) problems.push(`${h}: ${p}`);
   }

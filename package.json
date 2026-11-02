@@ -28,6 +28,7 @@
     "standards:sync": "STANDARDS_WRITE=1 npm test -w frontend -- standards",
     "standards:parity": "STANDARDS_PARITY=1 npm test -w frontend -- standards",
     "plugin:build": "node scripts/plugin-build.mjs --dev-stamp",
+    "plugin:build:release": "node scripts/plugin-build.mjs",
     "plugin:dev": "node scripts/plugin-dev.mjs",
     "plugin:dev:claudecode": "node scripts/plugin-dev.mjs claudecode",
     "plugin:dev:opencode": "node scripts/plugin-dev.mjs opencode",
