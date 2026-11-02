@@ -31,11 +31,11 @@ async function connectOnce(url: string): Promise<void> {
 
 /** Prints the skip notice when `PODIUM_TEST_PG` is not set; throws when it is set and the server does not answer. */
 export async function pgGate(
-  env: Record<string, string | undefined> = { PODIUM_TEST_PG: TEST_PG },
+  env?: Record<string, string | undefined>,
   connect: (url: string) => Promise<void> = connectOnce,
   print: (line: string) => void = (l) => console.warn(l),
 ): Promise<void> {
-  const { PODIUM_TEST_PG: url } = env; // destructured: podiumctl's settings test lists what the server reads, and this is for tests only
+  const { PODIUM_TEST_PG: url } = env ?? { PODIUM_TEST_PG: TEST_PG }; // destructured: podiumctl's settings test lists what the server reads, and this is for tests only
   if (!url) { print(PG_SKIP_NOTICE); return; }
   try {
     await connect(url);

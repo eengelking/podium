@@ -3,7 +3,7 @@
 #   scripts/test-pg.sh [vitest args...]     e.g. scripts/test-pg.sh src/storage/postgres/people.test.ts
 # Needs podman (or docker, set CONTAINER_ENGINE=docker). The server is a placeholder-password container on a free local port.
 set -euo pipefail
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then sed -n "2,4p" "$0" | sed 's/^# \{0,1\}//'; exit 0; fi
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then sed -n "2,4p" "$0" | sed 's/^# \{0,1\}//'; exit 0; fi
 engine="${CONTAINER_ENGINE:-podman}"
 name="podium-test-pg-$$"
 cd "$(dirname "$0")/../server"
