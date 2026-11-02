@@ -9,3 +9,4 @@ data/
 plugin/claudecode/.claude-plugin/types/
 .claude/worktrees/
 server/build.json
+dist-zips/

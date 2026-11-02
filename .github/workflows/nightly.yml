@@ -3,7 +3,8 @@ name: Nightly
 # A daily snapshot of `development` for testers (#528). It publishes the tag `nightly-YYYY-MM-DD` and a GitHub prerelease that
 # carries a source tarball of the tested commit and the reporter's zip (#835), then removes every earlier nightly, so one exists at a time. There is no registry.
 # A `schedule:` trigger only runs from the workflow file on the default branch, so this file takes effect when it reaches `main`;
-# it checks out `development` by name. Run it by hand from the Actions tab with `workflow_dispatch`.
+# it checks out `development` by name. The reporter's zip is built by the same scripts as a release's, and a nightly publishes no
+# `plugin-dist` branch (#927): only a merge to `main` does (plugin-dist.yml). Run it by hand from the Actions tab with `workflow_dispatch`.
 
 on:
   schedule:
