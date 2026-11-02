@@ -84,12 +84,12 @@ export function zipBytes(files) {
 export function buildReporterZip(srcDir, suffix = "", harness = "claudecode") {
   const dir = srcDir ?? join(ROOT, "dist", harness);
   if (!existsSync(join(dir, ".claude-plugin", "plugin.json"))) {
-    throw new Error(`${dir} has no .claude-plugin/plugin.json. Build the plugin first: node scripts/plugin-build.mjs ${harness}`);
+    throw new Error(`${dir} has no .claude-plugin/plugin.json. Build the plugin first: npm run plugin:build:release`);
   }
   const problems = checkTree(dir);
   if (problems.length) throw new Error(`${dir} is not a complete plugin folder:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
-    throw new Error(`${dir} carries .claude-plugin/dev-build.json, a dev stamp that must not be zipped. Rebuild without --dev-stamp: node scripts/plugin-build.mjs ${harness}`);
+    throw new Error(`${dir} carries .claude-plugin/dev-build.json, a dev stamp that must not be zipped. Rebuild without --dev-stamp: npm run plugin:build:release`);
   }
   const version = JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8")).version;
   const names = listFiles(dir);

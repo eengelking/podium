@@ -267,3 +267,25 @@ describe("plugin-build: the command line", () => {
     expect(r.status).toBe(1);
   });
 });
+
+describe("plugin-build: npm run plugin:build:release (#932)", () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+
+  it("is the plain script, with no --dev-stamp, while plugin:build keeps the stamp", () => {
+    expect(pkg.scripts["plugin:build:release"]).toBe("node scripts/plugin-build.mjs");
+    expect(pkg.scripts["plugin:build"]).toContain("--dev-stamp");
+  });
+
+  it("builds a folder with no dev-build.json that equals a direct plugin-build.mjs run", () => {
+    const viaNpm = tmp();
+    const direct = tmp();
+    const a = spawnSync("npm", ["run", "--silent", "plugin:build:release", "--", "--out", viaNpm], { cwd: ROOT, encoding: "utf8" });
+    expect(a.status, a.stderr).toBe(0);
+    const b = spawnSync("node", [SCRIPT, "--out", direct], { cwd: ROOT, encoding: "utf8" });
+    expect(b.status, b.stderr).toBe(0);
+    for (const h of defaultHarnesses()) {
+      expect(existsSync(join(viaNpm, h, ".claude-plugin", "dev-build.json")), h).toBe(false);
+      expect(snapshot(join(viaNpm, h))).toEqual(snapshot(join(direct, h)));
+    }
+  });
+});

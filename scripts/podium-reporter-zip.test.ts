@@ -90,8 +90,8 @@ describe("podium-reporter-zip", () => {
     const empty = mkdtempSync(join(tmpdir(), "reporter-zip-"));
     const r = run(["--out", empty], empty);
     expect(r.code).toBe(1);
-    expect(r.err).toContain("Build the plugin first: node scripts/plugin-build.mjs claudecode");
-    expect(run(["--harness", "opencode", "--out", empty], empty).err).toContain("node scripts/plugin-build.mjs opencode");
+    expect(r.err).toContain("Build the plugin first: npm run plugin:build:release");
+    expect(run(["--harness", "opencode", "--out", empty], empty).err).toContain("npm run plugin:build:release");
     expect(run(["--harness", "nope"]).err).toContain('Unknown harness "nope"');
   });
 
