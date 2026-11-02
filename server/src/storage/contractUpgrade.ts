@@ -54,11 +54,11 @@ const req = (id: string, createdAt: number, over: Partial<LegacyRequest> = {}): 
   id, owner: 'ed', kind: 'access', fromKey: 'k1', toKey: 'k2', level: 'see', reason: `why-${id}`, by: 'alpha', fromSession: 's1', createdAt, closedAt: null, outcome: null, ...over,
 });
 
-// Inserted out of time order. `prq_a` and `prq_c` share a time and are inserted in id order, the one tie that an adapter
-// numbering by insertion order and one numbering by id both settle the same way.
+// Inserted out of time order. `prq_a` and `prq_c` share a time and are inserted out of id order (`prq_c` first). Rows made before
+// the insertion number have no true insertion order in every adapter, so each numbers such a tie by id (#916).
 const FIXTURE: LegacyRequest[] = [
-  req('prq_a', T0 + 5000),
   req('prq_c', T0 + 5000),
+  req('prq_a', T0 + 5000),
   req('prq_b', T0 + 4000, { fromSession: null }),
   req('prq_z', T0 + 1000, { owner: 'eve' }),
   req('prq_done', T0 + 3000, { closedAt: T0 + 9000, outcome: 'declined' }),
