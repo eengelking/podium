@@ -35,11 +35,11 @@ All in the same commit, never as a follow-up after the tag. A hotfix changes the
 | `plugin/claudecode/.claude-plugin/plugin.json` (and the version file of any other harness that has one; `plugin/opencode/` has none yet) | `version`, the same release number |
 | `plugin/claudecode/hooks/register.ts` | `VERSION`, equal to `plugin.json` |
 | `docs/atlas/podium-atlas.html` | The version in the rail ("Reads from the repo at vX.Y.Z") and in the footer ("at version X.Y.Z"); the line counts under "How much is tested", the chart and its table, and the "Counted from the repository on" date, when the release changed much code (`podium-atlas-update`) |
-| `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in `REPORTER_SUPPORT` to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date mod it is newer than the server supports (SPEC 6.8) |
+| `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date mod it is newer than the server supports (SPEC 6.8) |
 
 Then grep the repo for the old version string and look at every hit before assuming the table is complete. Known hits that are sample data and do not change: `docs/fixtures/report.sample.json`, the fixtures in `server/src/fleet/*.test.ts`, `docs/gotchas/`, `plugin/claudecode/hooks/scripted.ts`, the simulator's `0.1.0-sim`, and the manifest example in `docs/spec/`.
 
-`plugin/core/` ships inside every harness, so a change only in `plugin/core/` (not in a `*.test.ts`) changes the reporter: `mod-version-check.yml` requires a `plugin.json` bump for it, and the bump level follows what `[Unreleased]` says. A new harness under `plugin/` adds a row to the table above, a version-compare step in `mod-version-check.yml` (its comment says where) and a line in `scripts/versions.test.ts`'s harness list if it keeps its version somewhere other than `.claude-plugin/plugin.json` or `package.json`.
+`plugin/core/` ships inside every harness, so a change only in `plugin/core/` (not in a `*.test.ts`) changes the reporter: `mod-version-check.yml` requires a `plugin.json` bump for it, and the bump level follows what `[Unreleased]` says. A new harness under `plugin/` adds a row to the table above, a `REPORTER_SUPPORT` entry of its own in `compat.ts` (#852; no entry means no version warning), and a line in `scripts/versions.test.ts`'s harness list if it keeps its version somewhere other than `.claude-plugin/plugin.json` or `package.json`.
 
 A hotfix that changes the UI also updates `docs/standards/` in the same PR (`podium-standards-update`).
 

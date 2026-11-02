@@ -19,8 +19,9 @@ order: 18
   newer than the server, the `update-check` flag is off, or the notice was closed for that release
   (`wall_update_dismissed`, set by `POST /api/fleet/update-notice/close`). The notice is built in `Wall.tsx` and is
   not an entry in `NOTICES`, because closing it hides one release, not the notice (SPEC 6.8).
-- **Compatibility.** `compat.ts` holds `REPORTER_SUPPORT`, the reporter versions this server reads. Only
-  `major.minor` is compared. A mod outside the range gets a version note on its card and a toast in the mod
+- **Compatibility.** `compat.ts` holds `REPORTER_SUPPORT`, the reporter versions this server reads, one range per
+  `reporter.name` (#852), so a reporter outside its own range gets the warning and another on the machine does not;
+  a name with no entry is not checked. Only `major.minor` is compared. A mod outside its range gets a version note on its card and a toast in the mod
   (DECISIONS 18). `build.ts` names the server's own build (`PODIUM_BUILD`, else `server/build.json`) for the footers
   and the report reply; the mod finds its own with `plugin/core/build.ts` and sends it as `reporter.build` (SPEC 6.8, Builds).
 - **The stream.** `sse.ts` sends `snapshot` (on every connect), `session`, `activity`, `removed`, `tick` (every

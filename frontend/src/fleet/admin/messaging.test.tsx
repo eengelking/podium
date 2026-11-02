@@ -269,7 +269,7 @@ describe("a reporter's Messaging section (#416)", () => {
 
   it("says when messaging is off on the machine, or its reporter is too old, and offers no choices", async () => {
     const s = server();
-    s.reporters.push({ key: "win01", state: "reporting", name: "win-lab", named: true, who: "Dana", credential: "pdm_0000000000aa", adminSecret: false, version: "0.16.0", compat: "ok", firstSeenAt: 1, lastSeenAt: 40_000, sessions: 1, live: 0 });
+    s.reporters.push({ key: "win01", state: "reporting", name: "win-lab", named: true, who: "Dana", credential: "pdm_0000000000aa", adminSecret: false, version: "0.16.0", reporterName: "podium-reporter", compat: "ok", firstSeenAt: 1, lastSeenAt: 40_000, sessions: 1, live: 0 });
     await openReporter("win-lab");
     expect(await within(await screen.findByRole("region", { name: "Messaging" })).findByText("Messaging is off on win-lab")).toBeInTheDocument();
     // Both routes, as My reporters says them (#837).

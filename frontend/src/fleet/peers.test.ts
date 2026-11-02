@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { asksBack, canSend, idPart, LEVEL_LABEL, messagingOff, rightsModel, rightWords, systemKind, withRight, type PeersRead, type PeerReporter } from "./peers";
 
-const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", state: "reporting", lastSeenAt: 1, compat: "ok", live: [], ...over });
+const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({ key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", reporterName: "podium-reporter", state: "reporting", lastSeenAt: 1, compat: "ok", live: [], ...over });
 
 function read(over: Partial<PeersRead> = {}): PeersRead {
   return {

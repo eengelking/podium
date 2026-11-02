@@ -54,6 +54,8 @@ export interface ReporterRef {
   /** The `peers` option as last reported; null from a reporter too old to send it. */
   peers: boolean | null;
   version: string;
+  /** Which reporter it is (`reporter.name`), so a version warning names it (#852). */
+  reporterName: string;
 }
 
 /** A reporter's machine name by key, or the key itself when it is unknown. A trail handler gets one that answers at once. */

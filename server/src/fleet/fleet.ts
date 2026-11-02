@@ -6,7 +6,7 @@ import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
 import { serverBuild } from './build.js';
-import { REPORTER_SUPPORT, serverVersion } from './compat.js';
+import { DEFAULT_REPORTER, serverVersion, supportFor } from './compat.js';
 import { ingestReport, type IngestResult } from './ingest.js';
 import { hookSessionId, hookToReport } from './hookIngest.js';
 import { validateReport } from './protocol.js';
@@ -513,8 +513,9 @@ export class Fleet {
       machine: report.machine?.name ?? null,
       machine_id: report.machine?.id ?? null,
       reporter: kind,
+      reporter_name: report.reporter.name,
       reporter_version: report.reporter.version,
-      reporter_compat: checkReporter(report.reporter.version),
+      reporter_compat: checkReporter(report.reporter.version, report.reporter.name),
       returning: last !== undefined,
     });
   }
@@ -767,7 +768,7 @@ export class Fleet {
       kpis,
       clearedToday,
       events,
-      server: { version: serverVersion(), build: serverBuild(), reporterSupport: REPORTER_SUPPORT },
+      server: { version: serverVersion(), build: serverBuild(), reporterSupport: supportFor(DEFAULT_REPORTER)! },
       wall: this.wallView(),
       // `activity-history` is derived, not an Admin flag: the console reads it to offer the sign-in that stored history needs.
       features: { ...this.features.view(), 'activity-history': this.activityHistory.enabled() },
@@ -802,7 +803,7 @@ export class Fleet {
       reporterVersionsSeen: await this.db.distinctReporterVersions(),
       serverVersion: serverVersion(),
       serverBuild: serverBuild(),
-      reporterSupport: REPORTER_SUPPORT,
+      reporterSupport: supportFor(DEFAULT_REPORTER)!,
       sseClients: this.hub.size,
       maxClockSkewMs: skew,
     };

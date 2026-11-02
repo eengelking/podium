@@ -103,6 +103,7 @@ const rep = (key: string, machine: string, os: string | null, peers: boolean | n
   os,
   peers,
   version: "1.2.0",
+  reporterName: "podium-reporter",
   state: "reporting",
   lastSeenAt: T0,
   compat: "ok",

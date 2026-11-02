@@ -17,7 +17,7 @@ one `Report`. The server decides who sent a report from the token ([7.7](../07-s
 
   ```
   { "ok": true, "serverTime": <epoch ms>, "ackedEvents": <n>, "sessionId": "…", "liveSessions": <n>,
-    "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" },
+    "serverVersion": "…", "reporterSupport": { "min": "…", "max": "…" } | null,
     "reporterCompat": "ok" | "outdated" | "newer" | "unknown",
     "watch": ["<agentId>" | "@orchestrator", …], "watchOutput": ["<agentId>" | "@orchestrator", …], "respond": boolean, "deliveries": Delivery[],
     "diffs": DiffRequest[], "peers": boolean, "peerDeliveries": PeerDelivery[], "peerRequests": PeerRequest[],

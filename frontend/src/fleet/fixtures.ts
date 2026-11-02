@@ -62,6 +62,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     reporter: "mod",
     reporterVersion: "0.4.0",
     reporterBuild: null,
+    reporterName: "podium-reporter",
     compat: "ok",
     project: "~/dev/billing-service",
     cwd: "~/dev/billing-service/.claude/worktrees/invoice-v2",

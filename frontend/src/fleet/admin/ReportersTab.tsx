@@ -33,12 +33,13 @@ const STATES: { id: ReporterState; name: string; def: string }[] = [
 ];
 const stateOf = (id: ReporterState) => STATES.find((s) => s.id === id)!;
 
-const COMPAT: Record<ReporterRow["compat"], string> = {
-  ok: "Supported",
-  outdated: "Older than this server supports. Update the mod.",
-  newer: "Newer than this server knows. Update Podium.",
-  unknown: "There is no version to check.",
-};
+/** What a reporter's compatibility means; it names the reporter, because each has its own range on the server (#852). */
+export function compatText(compat: ReporterRow["compat"], reporterName: string): string {
+  if (compat === "ok") return "Supported";
+  if (compat === "outdated") return `Older than this server supports for ${reporterName}. Update ${reporterName}.`;
+  if (compat === "newer") return `Newer than this server knows for ${reporterName}. Update Podium.`;
+  return "There is no version to check.";
+}
 
 /** "3 h ago", counted from the server's clock so a wrong clock in the browser cannot skew it. */
 export function ago(serverTime: number, t: number): string {
@@ -112,10 +113,10 @@ export function StateBadge({ r, serverTime, serverStartedAt }: { r: Pick<Reporte
 }
 
 /** A reporter's version and how it fits this server; My reporters shows it the same way (#415). */
-export function Version({ r }: { r: Pick<ReporterRow, "version" | "compat"> }) {
+export function Version({ r }: { r: Pick<ReporterRow, "version" | "compat" | "reporterName"> }) {
   const flag = r.compat === "outdated" || r.compat === "newer";
   return (
-    <span className={`compat ${r.compat}`} title={COMPAT[r.compat]}>
+    <span className={`compat ${r.compat}`} title={compatText(r.compat, r.reporterName)}>
       {flag && <span aria-hidden="true">⚠ </span>}
       <span className="mono">{r.version}</span>
       {flag ? ` ${r.compat}` : r.compat === "unknown" ? " no mod" : ""}
@@ -621,7 +622,7 @@ function Detail(props: { api: AdminApi; id: string; onBack: () => void; onLocked
           <h3 id="rep-h1">Reporter</h3>
           {kv([
             ["Version", <span key="v" className="mono">{d.version}</span>],
-            ["Compatibility", <span key="c" className={`compat ${d.compat}`}>{COMPAT[d.compat]}</span>],
+            ["Compatibility", <span key="c" className={`compat ${d.compat}`}>{compatText(d.compat, d.reporterName)}</span>],
             ...messaging.rows,
             ["Claude Code", <span key="e" className="mono">{d.engineVersion ?? "not reported"}</span>],
             ["First seen", <>{day(d.firstSeenAt)} <span className="hint">({ago(d.serverTime, d.firstSeenAt)})</span></>],

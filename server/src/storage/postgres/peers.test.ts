@@ -54,7 +54,7 @@ describe.skipIf(!TEST_PG)('postgres peer store', () => {
     await db.exec('TRUNCATE peer_messages, peer_requests, peer_rights, peer_owner_settings, settings, admin_log, sessions CASCADE');
     let now = T0;
     const fake = fakeReporters(T0);
-    for (const k of ['a', 'b']) fake.reps.set(k, { key: k, machine: `box-${k}`, owner: 'ed', adminSecret: false, os: 'macOS', peers: true, version: '1.4.0' });
+    for (const k of ['a', 'b']) fake.reps.set(k, { key: k, machine: `box-${k}`, owner: 'ed', adminSecret: false, os: 'macOS', peers: true, version: '1.4.0', reporterName: 'podium-reporter' });
     const peers = peerStoreOver(db, fake.lookup, { now: () => now, flagOn: () => true, startedAt: T0 });
     const trails: MessageTrail[] = [];
     peers.onMessage = (t) => void trails.push(t);

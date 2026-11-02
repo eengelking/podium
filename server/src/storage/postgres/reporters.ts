@@ -220,7 +220,7 @@ export class PgReporterStore implements ReporterStoreApi {
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,
       reporterName: r.reporter_name,
-      compat: checkReporter(r.reporter_version),
+      compat: checkReporter(r.reporter_version, r.reporter_name),
       firstSeenAt: r.first_seen_at,
       lastSeenAt: r.last_seen_at,
       sessions: r.sessions,

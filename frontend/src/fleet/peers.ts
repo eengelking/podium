@@ -17,6 +17,8 @@ export interface PeerReporter {
   /** The reporter's `peers` option as last reported; null from a reporter too old to send it. */
   peers: boolean | null;
   version: string;
+  /** Which reporter it is (`reporter.name`), so the version warning names it (#852). */
+  reporterName: string;
   /** Its state as Admin > Reporters shows it (#415), worked out by the server from its last report. */
   state: ReporterState;
   lastSeenAt: number;
