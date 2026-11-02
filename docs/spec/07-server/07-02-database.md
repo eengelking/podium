@@ -148,6 +148,13 @@ ALTER TABLE sessions ADD COLUMN cleared_from TEXT;                        -- Rep
 CREATE INDEX sessions_cleared_from ON sessions(cleared_from);             -- finds clearedInto for History
 ```
 
+Migration 28 (#851; PostgreSQL main step 4) records the harness a session runs under and who worked out its cost (6.5):
+
+```sql
+ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';  -- Report.session.harness; every earlier row is a Claude Code session
+ALTER TABLE sessions ADD COLUMN cost_source TEXT;                              -- 'harness' when cost_usd is the harness's own figure; NULL when Podium priced it
+```
+
 Migration 17 (#277) drops `people.token_last4`, the last four characters of a person's token, which nothing has read since #218:
 
 ```sql

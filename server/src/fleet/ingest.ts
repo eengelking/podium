@@ -6,8 +6,10 @@ import { family } from './derive.js';
 
 // An older reporter prices a non-Claude model as Sonnet; Podium has no price for it, so drop the figure. A non-Claude model has no ledger price, and a loop that has not reported a model yet has no spend worth showing
 // as $0.00: both stay unknown (null) here. The Admin's prices apply on read, from the usage (issue #117).
-const priced = (model: string | null, usd: number | null): number | null =>
-  model ? (family(model) === 'other' ? null : usd) : usd || null;
+// A cost the harness reported is kept as it came, for any model and including 0, which can be a subscription plan rather than free (#851): Podium's
+// price table applies only to the models it knows.
+const priced = (model: string | null, usd: number | null, harnessCost = false): number | null =>
+  harnessCost ? usd : model ? (family(model) === 'other' ? null : usd) : usd || null;
 
 export interface IngestResult {
   sessionId: string;
@@ -81,9 +83,15 @@ function stampDoneOrder(plan: Plan | null, prevJson: string | null | undefined):
   return { ...plan, steps };
 }
 
+/** Whether the session's cost is the harness's own figure: what this report says, else what the last one said. */
+function harnessCost(s: Report['session'], prev: SessionRow | undefined): boolean {
+  return s.costSource ? s.costSource === 'harness' : prev?.cost_source === 'harness';
+}
+
 function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number, owner: string | null): SessionRow {
   const s = r.session;
   const done = s.status === 'done';
+  const fromHarness = harnessCost(s, prev);
   return {
     id: s.id,
     name: s.name,
@@ -105,7 +113,7 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     context_tokens: s.context.tokens,
     context_window: s.context.window,
     context_percent: s.context.percent,
-    cost_usd: priced(s.model, s.costUsd),
+    cost_usd: priced(s.model, s.costUsd, fromHarness),
     tok_in: s.tokens.input,
     tok_out: s.tokens.output,
     tok_cr: s.tokens.cacheRead,
@@ -121,7 +129,8 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     loop_json: json(s.loop),
     files_json: json(s.files),
     background_json: json(s.background ?? null),
-    usage_json: json(s.usageByModel ?? null),
+    // The harness's figure is the whole cost, so no usage is kept to reprice it from (a mixed session would lose the share of a model Podium has no price for).
+    usage_json: fromHarness ? null : json(s.usageByModel ?? null),
     attached: s.attached == null ? null : s.attached ? 1 : 0,
     // The clock starts at the first report with nobody attached and keeps running while that stays true.
     detached_at: s.attached === false ? (prev?.attached === 0 && prev.detached_at !== null ? prev.detached_at : serverTime) : null,
@@ -130,10 +139,13 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     machine_json: r.machine ? JSON.stringify(r.machine) : prev?.machine_json ?? null,
     // Set once: a later report that leaves it out (an older reporter, a hook) keeps the link.
     cleared_from: s.clearedFrom ?? prev?.cleared_from ?? null,
+    // Set by the first report that names them; a later one that leaves them out (a hook) keeps them.
+    harness: s.harness ?? prev?.harness ?? 'claude-code',
+    cost_source: fromHarness ? 'harness' : null,
   };
 }
 
-function agentRow(sessionId: string, a: AgentReport): AgentRow {
+function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean): AgentRow {
   return {
     session_id: sessionId,
     id: a.id,
@@ -155,12 +167,12 @@ function agentRow(sessionId: string, a: AgentReport): AgentRow {
     tok_out: a.tokens.output,
     tok_cr: a.tokens.cacheRead,
     tok_cw: a.tokens.cacheWrite,
-    cost_usd_est: priced(a.model, a.costUsdEst),
+    cost_usd_est: priced(a.model, a.costUsdEst, fromHarness),
     skills_json: JSON.stringify(a.skills),
     last_tool: a.lastTool,
     tool_calls: a.toolCalls,
     tool_counts_json: a.toolCounts ? JSON.stringify(a.toolCounts) : null,
-    usage_json: json(a.usageByModel ?? null),
+    usage_json: fromHarness ? null : json(a.usageByModel ?? null),
     blowouts: a.blowouts,
     steps_done: a.steps ? a.steps.done : null,
     steps_total: a.steps ? a.steps.total : null,
@@ -194,7 +206,7 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
 
     // 2. Agents: upsert what was reported; never delete one that is missing (a reload may lose it).
     for (const a of report.agents) {
-      await f.upsertAgent(agentRow(sid, a));
+      await f.upsertAgent(agentRow(sid, a, row.cost_source === 'harness'));
       if (a.promptText || a.answerText) {
         await f.upsertAgentTexts(sid, a.id, {
           ...(a.promptText ? { prompt: a.promptText } : {}),

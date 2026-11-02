@@ -24,7 +24,7 @@ export function session(over: Partial<SessionRow> & { id: string }): SessionRow 
     repo_name: 'demo', git_json: null, model: 'claude-opus-5-5', effort: 'high', context_tokens: null, context_window: null,
     context_percent: 40, cost_usd: 1, tok_in: 100, tok_out: 50, tok_cr: 10, tok_cw: 5, rate_limits_json: null,
     blowouts: 0, plan_json: null, reporter_version: '1.2.2', engine_version: '2.1.301', loop_json: null, files_json: null,
-    attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null,
+    attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null,
     ...over,
   };
 }

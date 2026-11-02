@@ -157,6 +157,29 @@ describe('protocol', () => {
     expect('extra' in r.report).toBe(false);
   });
 
+  it('reads the harness and where the cost came from, and leaves both out when a report does not say (#851)', () => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    const bare = validateReport(f);
+    expect(bare.ok && bare.report.session.harness).toBeFalsy();
+    expect(bare.ok && bare.report.session.costSource).toBeFalsy();
+    f.session.harness = 'opencode';
+    f.session.costSource = 'harness';
+    const r = validateReport(f);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.report.session.harness).toBe('opencode');
+    expect(r.report.session.costSource).toBe('harness');
+  });
+
+  it('rejects a cost source that is neither the harness nor an estimate, and an empty harness (#851)', () => {
+    const f = loadFixture() as { session: Record<string, unknown> };
+    f.session.costSource = 'guess';
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.costSource' });
+    f.session.costSource = 'estimate';
+    f.session.harness = '';
+    expect(validateReport(f)).toMatchObject({ ok: false, path: '$.session.harness' });
+  });
+
   it('keeps a reporter build that is a commit hash and drops anything else (#400)', () => {
     const at = (build: unknown) => {
       const f = loadFixture() as { reporter: Record<string, unknown> };

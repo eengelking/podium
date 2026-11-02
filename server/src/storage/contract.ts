@@ -41,6 +41,7 @@ export function session(over: Partial<SessionRow> = {}): SessionRow {
     cost_usd: 1.5, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4, rate_limits_json: null, blowouts: 0, plan_json: null,
     reporter_version: null, engine_version: null, loop_json: null, files_json: null, background_json: null,
     usage_json: null, attached: null, detached_at: null, owner: 'ed', machine_json: null, cleared_from: null,
+    harness: 'claude-code', cost_source: null,
     ...over,
   };
 }
@@ -84,7 +85,7 @@ const SESSION_SHAPE: Shape<SessionRow> = {
   cost_usd: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', rate_limits_json: 'text?', blowouts: 'int',
   plan_json: 'text?', plan_kept_json: 'text?', reporter_version: 'text?', reporter_build: 'text?', engine_version: 'text?',
   loop_json: 'text?', files_json: 'text?', background_json: 'text?', usage_json: 'text?', attached: 'int?', detached_at: 'int?',
-  owner: 'text?', machine_json: 'text?', cleared_from: 'text?',
+  owner: 'text?', machine_json: 'text?', cleared_from: 'text?', harness: 'text', cost_source: 'text?',
 };
 const AGENT_SHAPE: Shape<AgentRow> = {
   session_id: 'text', id: 'text', parent_id: 'text?', kind: 'text', type: 'text', name: 'text?', description: 'text', model: 'text?',
@@ -176,15 +177,18 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
       // a row with every nullable field empty, and one with every field filled
       await f.upsertSession(session({ id: 'bare' }));
       expectShape('session (empty)', (await f.getSession('bare'))!, SESSION_SHAPE);
+      expect(await f.getSession('bare')).toMatchObject({ harness: 'claude-code', cost_source: null });
       expect((await f.getSession('bare'))!.ended_at).toBeNull();
       const full = session({
         id: 'full', status: 'done', wait_reason: 'w', wait_note: 'n', end_reason: 'completed', resume_id: 'r', ended_at: T0 + 5, dropped_at: T0 + 6,
         project_root: '/p', repo_name: 'repo', git_json: '{}', model: 'm', effort: 'high', context_tokens: 10, context_window: 200, context_percent: 5.5,
         cost_usd: 0.25, rate_limits_json: '{}', blowouts: 2, plan_json: '{}', reporter_version: '1.0.0', engine_version: '2.0.0', loop_json: '{}',
         files_json: '{}', background_json: '{}', usage_json: '[]', attached: 1, detached_at: T0 + 7, machine_json: '{}', cleared_from: 'bare', started_at: T0, last_seen_at: T0 + 4,
+        harness: 'opencode', cost_source: 'harness',
       });
       await f.upsertSession(full);
       expectShape('session (full)', (await f.getSession('full'))!, SESSION_SHAPE);
+      expect(await f.getSession('full')).toMatchObject({ harness: 'opencode', cost_source: 'harness' });
       expectShape('session (live candidates)', (await f.liveCandidates(0))[0]!, SESSION_SHAPE);
 
       const agent = (id: string, over: Partial<AgentRow> = {}): AgentRow => ({

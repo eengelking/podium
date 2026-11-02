@@ -294,6 +294,8 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),
     clearedFrom: row.cleared_from ?? null,
+    harness: row.harness,
+    costSource: row.cost_source === 'harness' ? 'harness' : 'estimate',
     agents,
     series: buildSeries(input.samples, input.blowouts, now),
   };

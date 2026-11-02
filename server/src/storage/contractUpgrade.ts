@@ -33,9 +33,18 @@ export interface LegacyReporter {
   lastSeenAt: number;
 }
 
-/** What an adapter provides: a Storage over a database built at the schema before the request insertion number and the reporter name, holding `rows` and `reporters` inserted in the order given. */
+/** A session as an older database stores it, before a session named its harness (#851). */
+export interface LegacySession {
+  id: string;
+  name: string;
+  model: string | null;
+  costUsd: number | null;
+  startedAt: number;
+}
+
+/** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
 export interface UpgradeOpeners {
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[]): Promise<Storage>;
 }
 
 const T0 = 1_800_000_000_000;
@@ -57,6 +66,21 @@ const FIXTURE: LegacyRequest[] = [
 ];
 
 export function upgradeCases(o: UpgradeOpeners): void {
+  it('keeps every session and its cost as a Claude Code session with Podium\'s own estimate when a database made before sessions had a harness is upgraded (#851)', async () => {
+    const legacy: LegacySession[] = [
+      { id: 'old1', name: 'first', model: 'claude-opus-4-5', costUsd: 1.5, startedAt: T0 },
+      { id: 'old2', name: 'second', model: null, costUsd: null, startedAt: T0 + 1 },
+    ];
+    const s = await o.openUpgraded([], [], legacy);
+    try {
+      const a = (await s.fleet.getSession('old1'))!;
+      expect(a).toMatchObject({ name: 'first', model: 'claude-opus-4-5', cost_usd: 1.5, started_at: T0, harness: 'claude-code', cost_source: null });
+      expect(await s.fleet.getSession('old2')).toMatchObject({ cost_usd: null, harness: 'claude-code', cost_source: null });
+    } finally {
+      await s.close();
+    }
+  });
+
   it('keeps every reporter, its key and its values as a Claude Code reporter when a database made before reporters had a name is upgraded (#849)', async () => {
     const legacy: LegacyReporter[] = [
       { key: 'ma', kind: 'mod', machineId: 'ma', machineName: 'box-a', owner: 'ed', version: '1.2.0', firstSeenAt: T0, lastSeenAt: T0 + 10 },

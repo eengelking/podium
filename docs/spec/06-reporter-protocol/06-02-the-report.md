@@ -33,6 +33,8 @@ interface Report {
     effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null;
     context: { tokens: number | null; window: number | null; percent: number | null };
     costUsd: number | null;             // the engine ledger's session cost; the server prices usageByModel instead when it is present (6.5)
+    harness?: string;                   // the harness that runs the session; absent means 'claude-code' (#851)
+    costSource?: 'harness' | 'estimate'; // 'harness': costUsd is the harness's own figure and is kept as it is (6.5); default 'estimate'
     tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };  // main loop only, cumulative
     usageByModel?: { model: string; tier: 'std' | 'long'; tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number } }[];  // the whole session, agents included (#117); absent from a reporter older than 0.12.0
     rateLimits: { kind: string; percentUsed: number; resetsAt: string | null }[];

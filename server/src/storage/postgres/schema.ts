@@ -169,6 +169,15 @@ CREATE INDEX peer_requests_seq ON peer_requests(created_at, seq);
     // but the Claude Code one. Rows from before this keep their key and become `podium-reporter` rows.
     sql: typed(`ALTER TABLE reporters ADD COLUMN reporter_name TXT NOT NULL DEFAULT 'podium-reporter';`),
   },
+  {
+    version: 4,
+    // The harness that runs a session (#851) and who worked out its cost. Every session stored before this ran under Claude Code, and the cost
+    // it has is Podium's own estimate (NULL cost_source), so the default marks existing rows as Claude Code.
+    sql: typed(`
+ALTER TABLE sessions ADD COLUMN harness TXT NOT NULL DEFAULT 'claude-code';
+ALTER TABLE sessions ADD COLUMN cost_source TXT;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

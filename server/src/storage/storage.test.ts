@@ -16,8 +16,8 @@ describe('sqlite upgrade contract', () => {
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
   });
   upgradeCases({
-    openUpgraded: async (rows, reporters) => {
-      const { storage, dir } = openUpgradedSqlite(rows, reporters);
+    openUpgraded: async (rows, reporters, sessions) => {
+      const { storage, dir } = openUpgradedSqlite(rows, reporters, sessions);
       dirs.push(dir);
       return storage;
     },
