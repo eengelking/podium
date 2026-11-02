@@ -267,7 +267,7 @@ describe('redactText: commands that must not change (#895)', () => {
     'npm config set registry https://registry.npmjs.org/',
     'aws configure set region us-east-1',
     'redis-cli -h localhost ping',
-    'ls -la /Users/someone/dev/podium/mod/podium-reporter/hooks',
+    'ls -la /work/podium/mod/podium-reporter/hooks',
     'https://example.com:8080/path?x=1',
   ]
   for (const command of same) test(command, () => expect(redactText(command).text).toBe(command))
