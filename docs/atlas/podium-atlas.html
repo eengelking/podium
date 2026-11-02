@@ -84,7 +84,7 @@ ul.tight{margin:0;padding-left:18px;color:var(--ink2);font-size:14.5px}ul.tight 
 /* system map */
 .maplayout{display:grid;gap:18px}
 .mapwrap{overflow-x:auto;border-radius:16px}
-.mapbox{min-width:1020px;padding:6px 6px 0}
+.mapbox{min-width:1120px;padding:6px 6px 0}
 svg.map{display:block;width:100%;height:auto}
 .legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
 .legend .tab{display:inline-flex;align-items:center;gap:7px}
@@ -295,7 +295,7 @@ footer.end{margin-top:90px;padding-top:24px;border-top:1px solid var(--line);col
         <p>Click any box to see what it is and why it exists. Pick a flow to watch one real operation cross the system step by step. Dashed lines are replies; the pink path is the step you are on.</p>
       </div>
       <div class="legend" id="legend"></div>
-      <div class="panel mapwrap"><div class="mapbox"><svg class="map" id="mapsvg" viewBox="0 0 1320 770" role="group" aria-label="Podium system map. Use the component inspector below for text descriptions."></svg></div></div>
+      <div class="panel mapwrap"><div class="mapbox"><svg class="map" id="mapsvg" viewBox="0 0 1410 770" role="group" aria-label="Podium system map. Use the component inspector below for text descriptions."></svg></div></div>
       <div class="under mt">
         <div class="panel pad" id="flowpanel">
           <div class="flowtabs" id="flowtabs" role="tablist" aria-label="Flows"></div>
@@ -530,7 +530,7 @@ function glyph(kind,cx,cy,r,color){
 function layerChip(k){const L=LAYERS[k];const s=sv("svg",{viewBox:"0 0 16 16"});s.append(glyph(L.g,8,8,5,L.c));return el("span",{class:"lay"},[s,L.name])}
 
 /* ---------- nodes ---------- */
-const COLX={r:20,n:254,a:448,b:652,s:866,c:1090}, COLW={r:200,n:160,a:180,b:180,s:190,c:206};
+const COLX={r:20,n:260,a:486,b:714,s:954,c:1184}, COLW={r:206,n:192,a:204,b:206,s:196,c:206};
 const Y=i=>44+88*i;
 const N=[
  {id:"cc",l:"reporter",col:"r",row:0,name:"Claude Code session",role:"The process being watched",file:"mod/podium-reporter/",
@@ -541,7 +541,7 @@ const N=[
   what:"Callbacks on tool calls, turn steps and session end that update an in-memory model through pure functions.",
   why:"Hooks run on Claude Code's critical path. If they waited on a network call, every tool call in every session would get slower. So apart from a prompt a person is answering, a peer tool call (up to 8 s) and the final report at session end (up to 1 s), they do not wait.",
   how:["Reducers take the old model and an event and return a new model, so they are tested without Claude Code.","The plan comes from TaskCreate, TaskUpdate or TodoWrite; failures keep the tool, a one-line summary, exit code and last 12 lines.","The place a hook stays open for a person is when the session is waiting on a person and responding is on: the hook holds until an answer arrives from the terminal or from Podium. That hook makes its own calls to announce the ask and long-poll for an answer, so the timer is not the only caller there."]},
- {id:"tx",l:"reporter",col:"r",row:2,name:"Transport and timer",role:"Posts a snapshot, reads the reply",file:"transport.ts · report.ts",
+ {id:"tx",l:"reporter",col:"r",row:2,name:"Transport and timer",role:"Posts a snapshot, reads reply",file:"transport.ts · report.ts",
   what:"A clock timer that reads session id, usage and the agent list, then posts a full snapshot plus unacknowledged events to the server.",
   why:"Complete snapshots are idempotent: a dropped request costs nothing because the next one repairs it. The reply doubles as a control channel, so the server never needs to dial into a laptop.",
   how:["By default posts every 1 s when something changed, with a 5 s heartbeat (both are reporter options) and backoff while the server is offline.","The reply carries <code>watch</code> (which loops to capture), deliveries (messages and commands), the recording grant and open requests. Answers return on a request the mod holds open for that ask.","Commands and output share 200,000 characters a report (summaries have their own 60,000), and the whole report is trimmed toward 480,000 bytes; other text is cut by characters, so a report can exceed that, and the server refuses a body over 512 KB with a 413."]},
@@ -612,7 +612,7 @@ const N=[
   what:"Creates a certificate authority and issues the serving certificate and each person's client certificate, using <code>openssl</code>.",
   why:"Mutual TLS without making you run a PKI. The server makes, renews and revokes its own certificates, and rotates its CA.",
   how:["Files in <code>/data/tls</code>: <code>ca.crt</code>, <code>ca.key</code>, <code>serving.crt</code>, <code>serving.key</code>, <code>previous/</code>. The CA lasts 10 years.","A person's key exists on disk for seconds in a temp folder. Podium stores the certificate, never the key.","By default the serving certificate renews at 30 days left (an Admin setting), with no restart. CA rotation uses a cross certificate so old reporters keep working through an overlap."]},
- {id:"brokers",l:"server",col:"b",row:1,name:"Live brokers",role:"Sensitive, short-lived, in memory",file:"respond.ts · activity.ts · fileDiffs.ts",
+ {id:"brokers",l:"server",col:"b",row:1,name:"Live brokers",role:"Sensitive live data, in memory",file:"respond.ts · activity.ts · fileDiffs.ts",
   what:"<code>RespondStore</code> (open asks, one answer at a time per ask, up to 20 waiting messages per session), <code>ActivityStore</code> (leases plus a ring of the last 20 entries per loop) and <code>DiffBroker</code> (holds a diff request for 15 s).",
   why:"Open questions, plans awaiting approval, tool arguments and the live activity feed are the most sensitive live data Podium sees. Held in memory, a restart forgets them and no table holds them, unless an Admin keeps Activity history or turns on Session recording for that session. The one exception is a failed call's short summary (its command or file path, up to 300 characters, and the tail of its output), which is kept in its agent's failure record.",
   how:["No table and no migration for the live feed.","Served to any reader of the console, like the other reads, including the \"answered: …\" entry for an answer sent from Podium. Asks and recordings are owner or Admin only."]},
@@ -640,7 +640,7 @@ const N=[
   what:"One PostgreSQL database holding the same data as the two SQLite files, in two schemas: <code>podium</code> (fleet, people, reporters, messaging, settings) and <code>podium_activity</code> (Activity history and recordings). Used instead of the two files when <code>PODIUM_DB</code> is a <code>postgres://</code> address.",
   why:"A fleet shared by several people, or an operator who already runs PostgreSQL, can keep Podium's data there. It is reached only through the PostgreSQL adapter, so the app does not change.",
   how:["Created and migrated by <code>migrate</code> in <code>storage/postgres/schema.ts</code>: it makes the schema if missing, then applies each step above the stored version, one transaction each.","The <code>podium</code> schema is on a pool of 10 connections and <code>podium_activity</code> on a pool of 4. Nothing spans both.","One server per database: a session advisory lock taken at startup keeps a second Podium off it.","Every text column is <code>COLLATE \"C\"</code>, so keys compare as bytes, as on SQLite."]},
- {id:"logs",l:"server",col:"b",row:7,name:"Logging and outside calls",role:"Structured events, opt-in shipping",file:"logging/ · updateCheck.ts",
+ {id:"logs",l:"server",col:"b",row:7,name:"Logging and outside calls",role:"Log events, opt-in shipping",file:"logging/ · updateCheck.ts",
   what:"Named, structured log events with redaction, optional shipping to VictoriaLogs, and a once-a-day check for a newer release.",
   why:"Operators need to know why a reporter was refused, without secrets in the logs.",
   how:["Redaction drops fields named token, secret, prompt, body and more, and scrubs secret shapes from every string.","Shipping runs only when <code>PODIUM_LOG_SHIP_URL</code> is set: gzipped NDJSON batches, buffered 2,000 lines by default, retried with backoff.","The release check asks GitHub once a day and can be turned off."]},
@@ -731,7 +731,7 @@ const defs=sv("defs",{},[
  sv("marker",{id:"ah-dim",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"},[sv("path",{d:"M0 1L9 5L0 9Z",class:"mk-dim"})]),
  sv("marker",{id:"ah-hot",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"8",markerHeight:"8",orient:"auto-start-reverse"},[sv("path",{d:"M0 1L9 5L0 9Z",class:"mk-hot"})])]);
 svg.append(defs);
-const lanes=[[8,224,"On the developer's machine"],[242,184,"Network edge"],[436,408,"Podium server"],[854,214,"Storage"],[1078,234,"Browser"]];
+const lanes=[[8,230,"On the developer's machine"],[248,216,"Network edge"],[474,458,"Podium server"],[942,220,"Storage"],[1172,230,"Browser"]];
 lanes.forEach(([x,w,t])=>{svg.append(sv("rect",{x,y:8,width:w,height:752,rx:16,class:"lane"}));svg.append(sv("text",{x:x+16,y:30,class:"lanelabel",text:t}))});
 const gE=sv("g",{}),gL=sv("g",{}),gN=sv("g",{});svg.append(gE,gN,gL);
 const side=(n,s)=>s==="r"?[n.x+n.w,n.y+n.h/2,1,0]:s==="l"?[n.x,n.y+n.h/2,-1,0]:s==="t"?[n.x+n.w/2,n.y,0,-1]:[n.x+n.w/2,n.y+n.h,0,1];
