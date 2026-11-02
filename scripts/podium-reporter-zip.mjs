@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
-import { checkTree, HARNESSES, walk } from "./plugin-build.mjs";
+import { checkTree, HARNESSES, included, walk } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The archive's name stem for each harness. */
@@ -27,7 +27,7 @@ The archive has .claude-plugin/plugin.json and hooks/hooks.json at its root.`;
 
 /** Every file under `dir` as a path relative to it with forward slashes, in a fixed order. */
 export function listFiles(dir) {
-  return walk(dir);
+  return walk(dir).filter((rel) => included(rel, true)); // a .DS_Store Finder added after the build stays out
 }
 
 /** The zip file for `files` (name to bytes), with a fixed timestamp so a rebuild is identical. */

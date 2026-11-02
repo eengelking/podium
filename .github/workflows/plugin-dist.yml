@@ -43,8 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The job's token is what the publish step pushes with, so the credentials stay in the checkout's config.
-          persist-credentials: true
+          # No credentials stay in .git/config while npm ci and npm test run; only the publish step gets the token (below).
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -64,8 +64,16 @@ jobs:
         run: node scripts/plugin-build.mjs
 
       - name: Publish to the plugin-dist branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # git reads this header for github.com from the environment of this step only, so the token is in no config file and in
+          # no URL (the script prints its remote).
+          auth="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth}"
           node scripts/plugin-publish.mjs \
             --source-sha "$GITHUB_SHA" \
             --source-ref "$GITHUB_REF_NAME" \
