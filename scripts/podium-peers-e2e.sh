@@ -66,7 +66,8 @@ USAGE
 }
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MOD="$ROOT/mod/podium-reporter"
+# A plugin loads only from a self-contained folder (an import that leaves it is refused), so run the built one (#927).
+MOD="$ROOT/dist/claudecode"
 MARKER=".podium-peers-e2e"
 TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
 
@@ -257,6 +258,7 @@ JSON
     name="$(session_name "$i")"
     dir="$DIR/proj-$name"
     names="$names $name"
+    node "$ROOT/scripts/plugin-build.mjs" claudecode --dev-stamp >/dev/null || die "plugin build failed"
     step "start Claude Code ($MODEL) as $name in $dir, with --plugin-dir $MOD"
     (( DRY )) && continue
     mkdir -p "$dir"

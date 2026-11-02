@@ -1,38 +1,33 @@
 #!/usr/bin/env node
-// Builds podium-reporter-<version>.zip from mod/podium-reporter/ (#835). Claude Desktop's plugin dialog takes only an archive, so
-// every release carries one. CI (release.yml, nightly.yml) and a person run this same script. It writes the zip itself with
-// node:zlib, so a runner needs no zip tool, and the same tree gives the same bytes.
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+// Zips a built plugin folder, dist/<harness>/, into podium-reporter-<version>.zip (#835, #927). Claude Desktop's plugin dialog
+// takes only an archive, so every release carries one. CI (release.yml, nightly.yml) and a person run this same script after
+// `node scripts/plugin-build.mjs`. It writes the zip itself with node:zlib, so a runner needs no zip tool, and the same tree
+// gives the same bytes. It zips exactly the files the build wrote (the build already left out tests and .DS_Store).
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
+import { checkTree, HARNESSES, included, walk } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const MOD = join(ROOT, "mod", "podium-reporter");
+/** The archive's name stem for each harness. */
+const NAMES = { claudecode: "podium-reporter", opencode: "podium-opencode" };
 
-const USAGE = `Usage: node scripts/podium-reporter-zip.mjs [--out <dir>] [--suffix <text>] [--expect-version <x.y.z>]
+const USAGE = `Usage: node scripts/podium-reporter-zip.mjs [--harness <claudecode|opencode>] [--out <dir>] [--suffix <text>] [--expect-version <x.y.z>] [--src <dir>]
 
-Zips mod/podium-reporter/ into <dir>/podium-reporter-<version>[<suffix>].zip and prints the path.
-  <version>        the version in mod/podium-reporter/.claude-plugin/plugin.json
-  --out <dir>      where to write the zip (default: the current directory)
+Zips the built folder dist/<harness>/ into <dir>/<name>-<version>[<suffix>].zip and prints the path. Run
+\`node scripts/plugin-build.mjs\` first; this script fails when the folder is missing or not self-contained.
+  --harness        which plugin (default claudecode). Names: claudecode is podium-reporter, opencode is podium-opencode.
+  <version>        the version in the built folder's .claude-plugin/plugin.json
+  --out <dir>      where to write the zip (default: the current directory; never inside the built folder)
   --suffix <text>  appended to the name before .zip, e.g. -nightly-2026-10-30
   --expect-version fail unless <version> equals this (a tag's number, without the v)
-The archive has .claude-plugin/plugin.json and hooks/hooks.json at its root, and leaves out *.test.ts and .DS_Store.`;
+  --src <dir>      zip this folder instead of dist/<harness>/ (for tests)
+The archive has .claude-plugin/plugin.json and hooks/hooks.json at its root.`;
 
-/** Whether a file of the mod goes into the archive. */
-export function included(rel) {
-  return !rel.endsWith(".test.ts") && rel.split("/").at(-1) !== ".DS_Store";
-}
-
-/** Every file under `dir`, as paths relative to it with forward slashes, in a fixed order. */
-export function listFiles(dir, rel = "") {
-  const out = [];
-  for (const e of readdirSync(join(dir, rel), { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-    const r = rel ? `${rel}/${e.name}` : e.name;
-    if (e.isDirectory()) out.push(...listFiles(dir, r));
-    else if (included(r)) out.push(r);
-  }
-  return out;
+/** Every file under `dir` as a path relative to it with forward slashes, in a fixed order. */
+export function listFiles(dir) {
+  return walk(dir).filter((rel) => included(rel, true)); // a .DS_Store Finder added after the build stays out
 }
 
 /** The zip file for `files` (name to bytes), with a fixed timestamp so a rebuild is identical. */
@@ -85,12 +80,21 @@ export function zipBytes(files) {
   return Buffer.concat([...parts, dir, end]);
 }
 
-/** The archive of the mod in `modDir`: its name, version, file list and bytes. */
-export function buildReporterZip(modDir = MOD, suffix = "") {
-  const version = JSON.parse(readFileSync(join(modDir, ".claude-plugin", "plugin.json"), "utf8")).version;
-  const names = listFiles(modDir);
-  const bytes = zipBytes(names.map((n) => [n, readFileSync(join(modDir, n))]));
-  return { name: `podium-reporter-${version}${suffix}.zip`, version, files: names, bytes };
+/** The archive of the built folder `srcDir`: its name, version, file list and bytes. */
+export function buildReporterZip(srcDir, suffix = "", harness = "claudecode") {
+  const dir = srcDir ?? join(ROOT, "dist", harness);
+  if (!existsSync(join(dir, ".claude-plugin", "plugin.json"))) {
+    throw new Error(`${dir} has no .claude-plugin/plugin.json. Build the plugin first: node scripts/plugin-build.mjs ${harness}`);
+  }
+  const problems = checkTree(dir);
+  if (problems.length) throw new Error(`${dir} is not a complete plugin folder:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
+  if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
+    throw new Error(`${dir} carries .claude-plugin/dev-build.json, a dev stamp that must not be zipped. Rebuild without --dev-stamp: node scripts/plugin-build.mjs ${harness}`);
+  }
+  const version = JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8")).version;
+  const names = listFiles(dir);
+  const bytes = zipBytes(names.map((n) => [n, readFileSync(join(dir, n))]));
+  return { name: `${NAMES[harness]}-${version}${suffix}.zip`, version, files: names, bytes };
 }
 
 function option(args, flag) {
@@ -102,18 +106,32 @@ function option(args, flag) {
 }
 
 /** Runs the command line `args`; returns the exit code and what to print to stdout and stderr. */
-export function run(args, modDir = MOD) {
+export function run(args, root = ROOT) {
   if (args.includes("--help") || args.includes("-h")) return { code: 0, out: USAGE };
   const suffix = option(args, "--suffix");
   const expect = option(args, "--expect-version");
   const outDir = option(args, "--out");
-  const bad = suffix.error ?? expect.error ?? outDir.error;
+  const harness = option(args, "--harness");
+  const src = option(args, "--src");
+  const bad = suffix.error ?? expect.error ?? outDir.error ?? harness.error ?? src.error;
   if (bad) return { code: 1, err: bad };
-  const zip = buildReporterZip(modDir, suffix.value ?? "");
+  const h = harness.value ?? "claudecode";
+  if (!HARNESSES.includes(h)) return { code: 1, err: `Unknown harness "${h}". Known: ${HARNESSES.join(", ")}.` };
+  const srcDir = resolve(src.value ?? join(root, "dist", h));
+  let zip;
+  try {
+    zip = buildReporterZip(srcDir, suffix.value ?? "", h);
+  } catch (e) {
+    return { code: 1, err: e.message };
+  }
   if (expect.value !== undefined && expect.value !== zip.version) {
-    return { code: 1, err: `The mod is version ${zip.version}, not ${expect.value}. Not building.` };
+    return { code: 1, err: `The plugin is version ${zip.version}, not ${expect.value}. Not building.` };
   }
   const dir = resolve(outDir.value ?? ".");
+  const rel = relative(srcDir, dir);
+  if (rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"))) {
+    return { code: 1, err: `The output folder ${dir} is inside the built folder ${srcDir}; the zip would ship itself. Pick another --out.` };
+  }
   mkdirSync(dir, { recursive: true });
   const file = join(dir, zip.name);
   writeFileSync(file, zip.bytes);

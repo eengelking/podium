@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { serverDir } from "../serverRoot.js";
 import type { ReporterCompat, ReporterSupport } from "./protocol.js";
 
 /**
@@ -39,10 +39,10 @@ let cached: string | null = null;
 /** The server's own version, from server/package.json (the same relative path from src/ and dist/). */
 export function serverVersion(): string {
   if (cached) return cached;
-  const here = path.dirname(fileURLToPath(import.meta.url));
+  const here = serverDir(import.meta.url);
   let version = "unknown";
   try {
-    const pkg = JSON.parse(readFileSync(path.join(here, "..", "..", "package.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(path.join(here, "package.json"), "utf8"));
     if (typeof pkg.version === "string") version = pkg.version;
   } catch {
     // keep "unknown"

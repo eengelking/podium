@@ -1,6 +1,6 @@
 ---
 name: podium-pr-workflow
-description: What is specific to Podium around a pull request - the pre-PR checks (mod tests, sonar analyze, UI, atlas, docs) the Podium additions to the PR trace check, and the adapter parity check. Load this alongside github-pr-merge before opening any PR, after every push to an open PR, when a PR check or the SonarCloud gate fails, and when you change a PR's title or body. Use it for any change under mod/ (the mod tests do not run in CI), for the `sonar analyze` run, and for the Haiku trace-check subagent's Podium patterns.
+description: What is specific to Podium around a pull request - the pre-PR checks (mod tests, sonar analyze, UI, atlas, docs) the Podium additions to the PR trace check, and the adapter parity check. Load this alongside github-pr-merge before opening any PR, after every push to an open PR, when a PR check or the SonarCloud gate fails, and when you change a PR's title or body. Use it for any change under plugin/ (the mod tests do not run in CI), for the `sonar analyze` run, and for the Haiku trace-check subagent's Podium patterns.
 ---
 
 # Opening a PR in Podium
@@ -9,7 +9,7 @@ description: What is specific to Podium around a pull request - the pre-PR check
 
 ## Before the PR
 
-1. **Mod changes.** A change under `mod/` runs `npm run test:mod` and `npm run typecheck:mod`. Neither runs in CI (they need Claude Code installed), so nothing else catches a mod regression until the release gate does. Report the result in the PR body.
+1. **Mod changes.** A change under `plugin/` (the Claude Code reporter in `plugin/claudecode/`, or the shared `plugin/core/`) runs `npm run test:mod` and `npm run typecheck:mod`. `test:mod` builds the plugin with its tests into `.build-test/` first and then runs `claude plugin test` on that built folder. The tests in `plugin/core/` also run under `npm test`. Neither runs in CI (they need Claude Code installed), so nothing else catches a mod regression until the release gate does. Report the result in the PR body.
    - When `test:mod` shows failures, compare against a clean `development` (or the last release tag) before calling them yours or not yours, and say which.
    - A failure that is not new still goes to the maintainer: file an issue rather than carry it silently into a release (the release gate allows no known failure).
    - If `typecheck:mod` cannot find `claude-code.d.ts`, say so in the PR; do not report it as passing.

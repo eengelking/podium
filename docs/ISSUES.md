@@ -20,7 +20,7 @@ filed with the `github-issue-filing` skill, and removed here.
 ### Recording redaction is piece-wise, so a secret across a cut can be missed (#353)
 
 The file diff's redactor costs time with the square of a line's length. `redactBounded` in
-`mod/podium-reporter/hooks/recording.ts` therefore redacts a line longer than 1,000 characters in pieces (cut at a space
+`plugin/claudecode/hooks/recording.ts` therefore redacts a line longer than 1,000 characters in pieces (cut at a space
 when it has one). A secret that straddles a cut is not seen. Matters because a recording keeps whole tool results, and
 minified files or base64 are long lines. A linear-time redactor, or overlapping pieces, would close it. See
 `docs/REPLAY.md`, "What redaction does not cover".
@@ -57,7 +57,7 @@ with empty text. If a model delivers text, SPEC 6.4 ("Thinking") needs a decisio
 
 ### `npm run typecheck:mod` fails against Claude Code 2.1.305's types (not #353)
 
-Three errors at `mod/podium-reporter/hooks/register.ts` (the tool names `podium_peers`, `podium_send` and
+Three errors at `plugin/claudecode/hooks/register.ts` (the tool names `podium_peers`, `podium_send` and
 `podium_request_access` are not in the generated union). It fails the same way on `development`, so it is not from any
 recent change; CI does not run it. The check that matters for a release (`typecheck:mod`) is red until the names are typed.
 

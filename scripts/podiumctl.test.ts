@@ -4,8 +4,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as modContexts from "../mod/podium-reporter/hooks/contexts.ts";
-import { parseConfigHeaders } from "../mod/podium-reporter/hooks/reporterConfig.ts";
+import * as modContexts from "../plugin/claudecode/hooks/contexts.ts";
+import { parseConfigHeaders } from "../plugin/claudecode/hooks/reporterConfig.ts";
 import {
   bootUnitStale, buildId, changeContexts, configHeaders, dbLabel, isNetworkDb, parseContexts, serializeContexts, containerRunArgs, ENGINES, gitBuild, launchdPlist, maskConfig, OWN_KEYS, parseArgs, parseEnvFile, PASSTHROUGH, resolveConfig, serializeEnv, serverEnv, sqliteFile, standaloneDataDir, stableNodePath, systemdUnit, tlsStorageWarning,
 // @ts-expect-error bin/podiumctl has no extension, so tsc cannot find it; vitest loads it as ESM

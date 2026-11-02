@@ -1,7 +1,7 @@
 // What the console shows for responding to a waiting session (#206, mockup/podium-respond.html), worked out from one
 // SessionView, the Admin's flags and who is signed in. Pure: the components draw what these say.
 import { cardKind } from "./components/Chips";
-import { LEVEL_KINDS } from "../../../server/src/fleet/protocol";
+import { LEVEL_KINDS } from "../../../plugin/core/protocol";
 import type { AskDetail, AskKind, AskSummary, Delivery, QuestionAnswer, RespondKind, RespondMe, SessionView } from "./types";
 
 /** The ask the band and the modal are about: the newest open one, the main loop's first. */

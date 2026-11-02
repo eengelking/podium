@@ -240,7 +240,7 @@ export function Wall(props: {
         <div className="none">
           <b>No Claude Code sessions are reporting.</b>
           <br />
-          Start one with the reporter mod: <code>claude --plugin-dir mod/podium-reporter</code>, or run the simulator:{" "}
+          Build the reporter mod with <code>npm run plugin:build</code>, then start one: <code>claude --plugin-dir dist/claudecode</code>. Or run the simulator:{" "}
           <code>npm run podium:sim</code>.
         </div>
       )}

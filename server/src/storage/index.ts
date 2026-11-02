@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { repoRoot } from '../serverRoot.js';
 import type { Storage } from './types.js';
 
 export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
@@ -23,7 +23,7 @@ export interface StorageKind {
 /** The kind PODIUM_DB means when it names none: a plain path or `:memory:`, or nothing at all. */
 export const DEFAULT_STORAGE_KIND = 'sqlite';
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const REPO_ROOT = repoRoot(import.meta.url);
 
 /** The one place that knows which implementations exist: a new database is a registration here. */
 const registry = new Map<string, StorageKind>([

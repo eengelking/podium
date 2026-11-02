@@ -35,4 +35,4 @@ silence a reporter. This differs from a bad `PODIUM_REPORTER_CONFIG`, which send
 on purpose, and a context is a convenience over the folder. The cost is that a session can report to a server other than the one
 the person meant, with the problem shown beside it.
 
-*Cost.* A context pins a file name, so a reissued config (a new name) needs `remove` and `add` again. `podiumctl` keeps `contexts.json` in `~/.podium` whatever `PODIUMCTL_HOME` is, because the reporter reads only that. Two copies of the file format (`mod/podium-reporter/hooks/contexts.ts` and `bin/podiumctl`), kept equal by a test.
+*Cost.* A context pins a file name, so a reissued config (a new name) needs `remove` and `add` again. `podiumctl` keeps `contexts.json` in `~/.podium` whatever `PODIUMCTL_HOME` is, because the reporter reads only that. Two copies of the file format (`plugin/claudecode/hooks/contexts.ts` and `bin/podiumctl`), kept equal by a test.

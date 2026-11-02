@@ -81,6 +81,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [A name set with the shared secret, or with no token, shows no person](name-without-a-person-token-shows-no-person.md): The people view follows the token, not the name; give each person a token in Admin and put it in their reporter with their name.
 - [A group change shows a few seconds late](group-change-shows-a-few-seconds-late.md): Groups are read when a session's view is built, so the wall changes with the next report; wait a few seconds.
 - [systemctl --user start podium.service does nothing after podiumctl stop (container mode)](systemctl-start-does-nothing-after-podiumctl-stop.md): The container unit stays active after podiumctl stop; use podiumctl start, or stop the unit and then start it.
+- [A script or a path expects the server's compiled files directly in server/dist](server-compiled-files-are-not-directly-in-server-dist.md): Since #927 the compiled server is in server/dist/server/src/; start it with server/dist/index.js and find folders with serverDir, not a count of dots.
 
 **What the console shows**
 
@@ -121,11 +122,12 @@ The feature is in [REPLAY.md](../REPLAY.md).
 - [The frontend build says Property 'toBeInTheDocument' does not exist on type 'Assertion'](frontend-build-tobeinthedocument-type-error.md): vitest 5 and jest-dom declare Assertion with different type parameters; frontend/src/jest-dom.d.ts redeclares the matchers.
 - [Finished nested agents are missing from $.agent.list()](finished-nested-agents-missing-from-agent-list.md): The engine's list drops finished agents once their parent finishes; do not rely on $.agent.list() for history.
 - [A turn.step hook that reads the stream loses the step's result](turn-step-hook-loses-the-step-result.md): A for await loop throws away the stream's return value; read the result from await stream.result after the loop.
-- [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md): Installed copies update only when the plugin.json version changes, and that bump happens in the release-prep PR.
+- [A mod fix did not reach anyone](mod-fix-did-not-reach-anyone.md): Installed copies update only when the plugin.json version changes and a release publishes the built plugin; the bump happens in the release-prep PR.
 - [A new color theme shows up in the dropdown but the page stays on Podium's colors](new-color-theme-has-no-effect.md): A theme lives in themes.ts, tokens.css and the inline script in index.html; update all three.
 - [npm run test:mod fails with 'Permission to use AskUserQuestion has been denied'](test-mod-fails-where-the-engine-denies-an-ask.md): A fake tool.check that answers ask is denied by Claude Code 2.1.310's test engine; the mod's tests answer allow and set ask only where a test needs it.
 - [A store call without await compiles and answers wrongly](a-store-call-without-await-compiles-and-answers-wrongly.md): Every storage call returns a promise; a missing await passes the type checker. Await it, and keep Storage.tx free of other waits.
 - [Listening on a .sock path fails with EACCES on Windows, whatever the folder](listening-on-a-sock-path-fails-with-eacces-on-windows.md): Node on Windows has no Unix sockets, so the EACCES is an invalid pipe name, not a permission; the mod reaches the Windows helper through a request folder.
 - [A frontend test fails now and then, with an edit put back or an element not found, and passes on the next run](frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md): React 19 runs a component's mount effects after the commit; keep the idle wait in setupTests.ts so findBy and waitFor settle before a test edits.
 - [npx tsc prints Version 6 although the project is on TypeScript 7](npx-tsc-says-version-6-but-the-project-is-on-typescript-7.md): Two packages provide a tsc command and npm links the TypeScript 6 one, so the scripts call TypeScript 7 by its path.
+- [The reporter will not load from plugin/claudecode, or a change does not show](plugin-source-folder-cannot-be-loaded-on-its-own.md): The source imports plugin/core from outside its folder; run npm run plugin:dev:claudecode, which builds dist/claudecode and loads it, and rebuild after an edit.
 <!-- entries:end -->

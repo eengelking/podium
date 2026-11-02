@@ -27,7 +27,7 @@ To update it:
    the status line goes away after the next report.
 
 If the command says it is already at the latest version but the card is still marked, the marketplace has not published
-a newer mod yet. Refreshing the listing alone does not update the installed plugin, which is why the one-liner runs both.
+a newer mod yet (a release reaches it as a new commit on the `plugin-dist` branch). Refreshing the listing alone does not update the installed plugin, which is why the one-liner runs both.
 
 **Auto-update.** Marketplaces other than Anthropic's do not update plugins by themselves. To have Claude Code do it:
 
@@ -45,7 +45,7 @@ A build of any other commit, such as one from the `development` branch, adds a r
 from `podiumctl build`, which records the commit, so a server built another way (`npm run build`, or an image built
 with plain `podman build` or `docker build`) shows the version alone. The reporter mod does the same when you run it from a checkout of
 this repository: its status line reads `podium v1.1.0 | dev: a1b2c3d4 ● 2 live`, and the Reporter cell on a session's
-page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release.
+page reads `1.1.0 · Dev: a1b2c3d4`. A mod installed from the marketplace is always a release. A mod you run from `dist/claudecode/` after `npm run plugin:build` still shows the commit, because that build writes it into the folder; a folder built any other way shows the version alone.
 
 <!-- nav:start -->
 ---

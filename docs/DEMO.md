@@ -62,10 +62,10 @@ viewer sees both at once.
 
 4. In the second terminal, start Claude Code with the mod installed. Install it once from the
    marketplace (`/plugin marketplace add eengelking/skills`, then
-   `/plugin install podium-reporter@eengelking-marketplace`), or load it from a checkout for this session:
+   `/plugin install podium-reporter@eengelking-marketplace`), or build it and load the built folder from a checkout for this session:
 
    ```sh
-   claude --plugin-dir /path/to/podium/mod/podium-reporter
+   npm run plugin:dev:claudecode
    ```
 
    Both ways are in [REPORTER.md](REPORTER.md#install-the-mod).
@@ -104,7 +104,7 @@ following, and keep your own commentary short.
    message, so they run at the same time. Give each agent the exact description shown, and use the
    cheapest model with low effort for each.
    - description "Map the server routes": list the HTTP routes under server/src/fleet and what each does.
-   - description "Map the reporter hooks": list the hooks in mod/podium-reporter/hooks and what each
+   - description "Map the reporter hooks": list the hooks in plugin/claudecode/hooks and what each
      one reports.
    - description "Map the frontend views": list the views and main components under
      frontend/src/fleet.

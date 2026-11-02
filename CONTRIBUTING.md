@@ -6,7 +6,7 @@ propose a change, and how it gets merged.
 ## What belongs in this repo
 
 Podium shows every Claude Code session on one machine in one browser tab. This repo holds the whole thing:
-the reporter mod (`mod/podium-reporter/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
+the reporter mod (`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and
@@ -32,11 +32,23 @@ npm run dev          # server on http://127.0.0.1:4317, Vite UI on http://localh
 npm run podium:sim -- --sessions 5 --chaos    # fake sessions, in a second terminal
 ```
 
-To try the mod in a real session, load it from your checkout:
+To try the mod in a real session, build it and load the built folder from your checkout. Claude Code runs against `dist/claudecode/`, not
+the source in `plugin/`, because that folder is what gets installed (DECISIONS 56):
 
 ```sh
-claude --plugin-dir /path/to/podium/mod/podium-reporter
+npm run plugin:dev:claudecode
 ```
+
+That builds `dist/claudecode/` and starts `claude --plugin-dir` on it. `npm run plugin:dev:claudecode -- --watch` also rebuilds into the same
+folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it ignores tests, `.DS_Store` and `dist/`, and a failed rebuild
+keeps the last good one); run `/reload-plugins` in the session after each rebuild. Arguments for `claude` go after a second `--`:
+`npm run plugin:dev:claudecode -- --watch -- --model sonnet`. `PODIUM_CLAUDE_BIN` names the `claude` to run if it is not on `PATH`.
+`npm run plugin:dev:cleanup` deletes `dist/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
+`dist/claudecode/`). It removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no plugin yet, so
+`npm run plugin:dev:opencode` exits with an error until #855. `scripts/plugin-dev.mjs` is the script behind these.
+
+`npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
+Its output is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. The script run on its own stamps nothing, which is how CI and the release archive are built; the publish and zip scripts refuse a folder that carries a stamp.
 
 ## Checks to run
 
@@ -44,7 +56,9 @@ claude --plugin-dir /path/to/podium/mod/podium-reporter
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
-npm run test:mod       # the mod's tests (needs Claude Code)
+npm run plugin:build    # build dist/claudecode/ (the folder that is installed and zipped); fails if it is not self-contained
+npm run plugin:dev:claudecode  # build it and start Claude Code with it loaded (`-- --watch` rebuilds on change); `plugin:dev:cleanup` deletes the build folders
+npm run test:mod       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
@@ -91,16 +105,17 @@ big new state gets a case there. It cannot judge contrast or target size, which 
 `KNOWN` list with the issue that tracks it, and comes out when it is fixed.
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
-have no Claude Code, so run those yourself when you touch the mod.
+have no Claude Code, so run those yourself when you touch the mod (`plugin/claudecode/` or `plugin/core/`).
+The shared code's own tests in `plugin/core/` need no Claude Code and run under `npm test`.
 
 Two scanners also run on PRs, and after a merge to `development` or `main`: SonarCloud (`.github/workflows/sonar.yml`, quality gate and coverage on new code) and CodeQL
 (`.github/workflows/codeql.yml`, the `security-extended` queries; results are under Security > Code scanning). Neither runs on
 your machine. Fix what they flag in your PR.
 
 SonarCloud cannot see the mod's own tests, because they run only inside Claude Code, so a line added to
-`mod/podium-reporter/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
+`plugin/claudecode/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
 nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
-and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `mod/podium-reporter/hooks/*.ts` for this.
+and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `plugin/claudecode/hooks/*.ts` for this, and it measures `plugin/core/` too.
 
 ### The nightly
 
@@ -273,12 +288,30 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
 `podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
+### The plugin build and plugin-dist
+
+The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, a
+placeholder until #855 (DECISIONS 56). They are installed from a built folder, not from the source.
+
+- `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options).
+  `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and
+  `--dev-stamp` writes the commit into the folder (`npm run plugin:build` and `npm run plugin:dev` add it; CI and the release never do).
+- `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three folders below, and only when git reports them ignored.
+- `dist/`, `.build-test/` (where `npm run test:mod` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
+- `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`.
+- `.github/workflows/plugin-dist.yml` runs on a merge to `main`, which is a release. After the tests and the build it runs
+  `scripts/plugin-publish.mjs`, which adds the built folders as a new commit on the `plugin-dist` branch (never a force-push, nothing
+  when the tree is unchanged). `eengelking-marketplace` installs from that branch (DECISIONS 58, #928). `release.yml` then runs
+  `scripts/plugin-dist-compare.mjs`, which fails the release if the zip differs from what the branch holds.
+- To test a publish, run the workflow by hand from Actions with a throwaway `target` branch name, never `plugin-dist` itself. The
+  branch has to allow the Actions bot to push and refuse a force-push; that is a repository setting, not something the code sets.
+
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
-`mod/podium-reporter/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
+`plugin/claudecode/` or `plugin/core/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
-`development` then sets one number in `plugin.json`, `VERSION` in `mod/podium-reporter/hooks/register.ts`, the three
+`development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
 `package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
@@ -291,9 +324,9 @@ that version. Otherwise the server tells every up-to-date mod it is newer than t
 
 ### The report format
 
-The mod and the server share one set of report types, copied between `<protocol:begin>` and
-`<protocol:end>` markers in `server/src/fleet/protocol.ts` and `mod/podium-reporter/hooks/protocol.ts`. A
-test compares them. Change both together.
+The server, the UI and every reporter share one set of report types, in `plugin/core/protocol.ts` (DECISIONS 57). There is no
+copy to keep in line. Keep that file free of Node imports, because the UI imports it, and put code that needs Node in another file of
+`plugin/core/`. `plugin/core/` never imports a harness folder and one harness never imports the other; `server/src/plugin.test.ts` fails when one does.
 
 ### Voice
 

@@ -3,7 +3,8 @@ name: Release asset
 # Attaches podium-reporter-<version>.zip to the GitHub Release of a vX.Y.Z tag (#835). Claude Desktop installs a plugin only from an
 # archive, so every release carries one. The tag is pushed first and the release is made right after (podium-release skill), so the
 # job waits for the release to exist. The zip is built by scripts/podium-reporter-zip.mjs, the script a person runs too, and the job
-# fails if the mod's version is not the tag's. Run it by hand from the Actions tab with `workflow_dispatch` to redo an upload.
+# fails if the mod's version is not the tag's, or if the zip differs from what the `plugin-dist` branch holds for that commit
+# (plugin-dist.yml publishes it on the merge to `main` and may still be running, so the job waits). Run it by hand from the Actions tab with `workflow_dispatch` to redo an upload.
 
 on:
   push:
@@ -68,8 +69,22 @@ jobs:
       - name: Build the archive
         run: |
           set -euo pipefail
-          node scripts/podium-reporter-zip.mjs --out dist --expect-version "${TAG#v}"
-          ls -l dist
+          node scripts/plugin-build.mjs claudecode
+          # The zips go to dist-zips/, never dist/, which holds the build trees that plugin-dist publishes.
+          node scripts/podium-reporter-zip.mjs --out dist-zips --expect-version "${TAG#v}"
+          # The OpenCode archive (podium-opencode-<version>.zip, `--harness opencode`) is not built here while opencode has no
+          # plugin.json; #857 adds it and attaches it.
+          ls -l dist-zips
+
+      - name: Check the zip against the plugin-dist branch
+        # plugin-dist.yml publishes the same build on the merge to `main` and may still be running. The script waits, up to
+        # 15 minutes, for the plugin-dist commit that names this tag's source commit, then compares the file list and the bytes.
+        run: |
+          set -euo pipefail
+          sha="$(git rev-list -n 1 "refs/tags/${TAG}")"
+          node scripts/plugin-dist-compare.mjs \
+            --zip dist-zips/podium-reporter-"${TAG#v}".zip \
+            --sha "$sha" --version "${TAG#v}" --wait 900 --interval 30
 
       - name: Attach it to the release
         run: |
@@ -77,7 +92,7 @@ jobs:
           # The release is made by hand just after the tag is pushed; give it up to 30 minutes.
           for _ in $(seq 1 60); do
             if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" dist/podium-reporter-*.zip --clobber
+              gh release upload "$TAG" dist-zips/podium-reporter-*.zip --clobber
               gh release view "$TAG" --json assets --jq '.assets[].name'
               exit 0
             fi

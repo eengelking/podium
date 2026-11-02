@@ -80,6 +80,33 @@ which show under Admin when they send the admin secret with `--token`.
 To serve the built UI and the API without a container, `npm run build` and then `npm run start -w server`
 (http://127.0.0.1:4317). To run it as a managed service, see [Running the server](docs/SERVER.md).
 
+## Install the mod
+
+The server shows sessions, and the mod, `podium-reporter`, is what sends them. Install it on every machine where you run
+Claude Code. In Claude Code:
+
+```
+/plugin marketplace add eengelking/skills
+/plugin install podium-reporter@eengelking-marketplace
+/plugin configure podium-reporter@eengelking-marketplace
+```
+
+The last command asks for the server address (`http://127.0.0.1:4317` by default, which is where `npm run dev` and
+`podiumctl start` listen), and a token and your name if the server uses them. Then run `/reload-plugins`, or start a new
+session. The status line under the prompt reads `podium v<version>` and shows how many sessions are live, and the session
+appears in the console within a couple of seconds.
+
+- **Claude desktop app on Windows 11:** it has no `/plugin marketplace`. Download `podium-reporter-<version>.zip` from the
+  [releases page](https://github.com/eengelking/podium/releases) and upload it in Settings > Plugins. The steps, and the
+  Node.js it needs, are in [Install in the Claude desktop app](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11).
+- **From a checkout of this repository:** the mod is built before Claude Code can load it. Run `npm run plugin:dev:claudecode`,
+  which builds `dist/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild when you change the source in
+  `plugin/` (then run `/reload-plugins`), and run `npm run plugin:dev:cleanup` to delete the build folders afterwards.
+- **Update or remove it:** see [Updating the mod](docs/user-guide/09-updating-the-mod.md) and
+  [Remove it](docs/user-guide/11-remove-it.md).
+
+All the options, and exactly what leaves a session, are in [The reporter mod](docs/REPORTER.md).
+
 ## Documentation
 
 [podium.engelking.dev](https://podium.engelking.dev) is the official homepage and documentation site for Podium, with a menu, search and a version picker. The files below are the same ones, and they read fine on GitHub too.

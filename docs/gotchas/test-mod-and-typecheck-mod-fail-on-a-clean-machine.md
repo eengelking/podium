@@ -15,6 +15,7 @@ order: 44
 **Why:** Both need Claude Code installed, and CI cannot run them.
 
 **Do:** Install Claude Code and run them locally when you change the mod.
+`npm run test:mod` builds the plugin with its tests into `.build-test/` and runs `claude plugin test` on that, not on `plugin/claudecode` (see "The reporter will not load from plugin/claudecode").
 
 <!-- nav:start -->
 ---

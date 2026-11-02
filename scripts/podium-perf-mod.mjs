@@ -33,7 +33,7 @@ const AGENTS = arg('--agents', '0,20,200').split(',').map(Number);
 const CALLS = Number(arg('--calls', '400'));
 if (AGENTS.some((n) => !Number.isInteger(n) || n < 0) || !Number.isInteger(CALLS) || CALLS < 1) throw new Error('--agents and --calls must be whole numbers');
 
-const mod = (f) => import(pathToFileURL(path.join(ROOT, 'mod/podium-reporter/hooks', f)).href);
+const mod = (f) => import(pathToFileURL(path.join(ROOT, 'plugin/claudecode/hooks', f)).href);
 const { newSession, agentSpawned, toolResult, step, drainEvents, turnStart } = await mod('state.ts');
 const { buildReport } = await mod('report.ts');
 

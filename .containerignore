@@ -8,6 +8,8 @@ data
 .claude
 docs
 mockup
-mod
+plugin/claudecode
+plugin/opencode
+.build-test
 *.sqlite*
 *.tsbuildinfo

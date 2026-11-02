@@ -67,7 +67,7 @@ describe("rail and wall", () => {
   it("shows an instruction, not a blank panel, when nothing reports", () => {
     render(<FleetView state={stateFrom({ sessions: [], events: [] })} />);
     expect(screen.getByText(/No Claude Code sessions are reporting/)).toBeInTheDocument();
-    expect(screen.getByText("claude --plugin-dir mod/podium-reporter")).toBeInTheDocument();
+    expect(screen.getByText("claude --plugin-dir dist/claudecode")).toBeInTheDocument();
   });
 });
 

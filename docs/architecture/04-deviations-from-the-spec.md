@@ -33,8 +33,8 @@ behavior a reader of the spec would expect:
   ack, `HistoryRow` for `/history`, and a `showStatus` mod option (20, 31, 33).
 - Extra files: `server/src/fleet/fleet.ts`, `testing.ts`, `server/vitest.config.ts`, `frontend/src/fleet/`
   helpers (`logic.ts`, `chart.ts`, `storage.ts`, `useNow.ts`, `fixtures.ts`, `testState.ts`),
-  `mod/podium-reporter/hooks/scripted.ts`, `mod/podium-reporter/hooks/peerChecks.ts`,
-  `mod/podium-reporter/tsconfig.json`, and the scripts
+  `plugin/claudecode/hooks/scripted.ts`, `plugin/claudecode/hooks/peerChecks.ts`,
+  `plugin/claudecode/tsconfig.json`, and the scripts
   `podium-mod-typecheck.sh`, `podium-soak.sh`, `mod-report.test.ts` (7).
 
 <!-- nav:start -->

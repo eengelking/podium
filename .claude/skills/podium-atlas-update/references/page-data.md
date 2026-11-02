@@ -6,7 +6,7 @@ Everything the page shows comes from data in its one `<script>` block, or from t
 |---|---|---|
 | `CH` | The nine chapters in the left rail | `[id, title]`. A new chapter needs a `<section class="ch" id=...>` too. |
 | `LAYERS` | The five layers: reporter, network, server, store, console | Name, color token, glyph. Rarely changes. |
-| `N` | The 32 parts on the system map | `{id, l (layer), col, row, name, role, file, what, why, how[]}`. `what` says what it is, `why` why it exists, `how` has the facts a reader acts on (limits, defaults). A new part also needs a position (`col`, `row`) and edges in `E`. |
+| `N` | The 34 parts on the system map | `{id, l (layer), col, row, name, role, file, what, why, how[]}`. `what` says what it is, `why` why it exists, `how` has the facts a reader acts on (limits, defaults). A new part also needs a position (`col`, `row`) and edges in `E`. |
 | `E` | Edges between parts on the map | `[from id, to id, label]`, ids from `N`. A flow step lights an edge by the same two ids. |
 | `F` | The six flows | `{id, name, blurb, steps[]}`. Each step: `{t (title), b (body), n (node ids it lights), e (edge ids), call?}`. Steps are in order; the dots and the stepper follow the array. |
 | `REFS` | Source references per part | `id: [[path, line, text], ...]`. `text` as `name: what it does` (or `class Name: ...`) feeds ATLAS.md's Key functions tables. Path prefixes `pM`, `pS`, `pSF`, `pF` expand to the mod hooks folder, `server/src/`, `server/src/fleet/` and `frontend/src/fleet/`. |
@@ -30,7 +30,7 @@ Outside the script:
 | Section | Written by | Mirrors |
 |---|---|---|
 | The parts | hand | `N` (name, role, what), most important first inside each Location |
-| The reporter's hooks and timers | hand | the `on('...')` handlers in `mod/podium-reporter/hooks/register.ts` plus its timers; a test requires a row for every registered hook |
+| The reporter's hooks and timers | hand | the `on('...')` handlers in `plugin/claudecode/hooks/register.ts` plus its timers; a test requires a row for every registered hook |
 | Key functions | `node scripts/atlas-functions.mjs` | `REFS` entries written as `name: what` |
 | The flows | hand | `F` |
 | Four ways to run it | hand | `MODES` |

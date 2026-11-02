@@ -7,8 +7,8 @@
 // does the HTTP.
 import os from 'node:os';
 import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type AgentReport, ChangedFile, Effort, Failure, FilesReport, LoopReport, MachineInfo, Plan, Report } from '../server/src/fleet/protocol.ts';
-import { trimTrailingSlashes } from '../mod/podium-reporter/hooks/machine.ts';
-import { costOf, shortName, windowOf, type Family } from '../mod/podium-reporter/hooks/models.ts';
+import { trimTrailingSlashes } from '../plugin/core/machine.ts';
+import { costOf, shortName, windowOf, type Family } from '../plugin/claudecode/hooks/models.ts';
 
 const HELP = `podium-sim: POST simulated Claude Code session reports to a Podium server.
 

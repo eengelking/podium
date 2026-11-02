@@ -1,0 +1,384 @@
+// Getting reports to the server (SPEC 6.1, 6.7): an event queue capped at 500, one POST at a time,
+// acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
+// anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
+import { withBuild } from './build.ts';
+import { trimTrailingSlashes } from './machine.ts';
+import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
+
+export const QUEUE_MAX = 500;
+export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
+export const EVENTS_PER_REPORT = 100;
+/** How long to wait after the server refuses the token or name: it will not change until the settings do. */
+export const REFUSED_RETRY_MS = 60_000;
+/** More watched loops than a report can carry agents is not a list the mod takes whole. */
+const MAX_WATCHED = 201;
+/** File diffs one reply can ask for (#319). */
+const MAX_DIFF_REQUESTS = 4;
+/** Messages and commands one reply can hand over (#206). */
+const MAX_DELIVERIES = 20;
+
+/** A delivery as the server sends it: only its shape is checked here; what it may do is the mod's to decide (SPEC 5.3). */
+export function isDelivery(v: unknown): v is Delivery {
+  const d = v as Partial<Delivery> | null;
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && typeof d.kind === 'string' && typeof d.by === 'string' && typeof d.at === 'number';
+}
+
+/** A message or notice for this orchestrator as the server sends it (#347): only its shape is checked here; whether it is taken is the mod's to decide (SPEC 5.3). */
+export function isPeerDelivery(v: unknown): v is PeerDelivery {
+  const d = v as Partial<PeerDelivery> | null;
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && (d.kind === 'message' || d.kind === 'notice') && typeof d.at === 'number' && typeof d.text === 'string';
+}
+
+/** One of the owner's open requests as the server sends it (#347): only its shape is checked here. */
+export function isPeerRequest(v: unknown): v is PeerRequest {
+  const r = v as Partial<PeerRequest> | null;
+  const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
+  return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
+}
+
+/** A grant as the server sends it: only its shape is checked here. */
+export function isRecordingGrant(v: unknown): v is RecordingGrant {
+  const g = v as Partial<RecordingGrant> | null;
+  if (!g || typeof g !== 'object') return false;
+  const c = g.consent as Partial<RecordingGrant['consent']> | null | undefined;
+  return (
+    (RECORDING_STATES as readonly unknown[]).includes(g.state) &&
+    !!c &&
+    typeof c === 'object' &&
+    typeof c.admin === 'boolean' &&
+    typeof c.chosen === 'boolean' &&
+    typeof c.owner === 'boolean' &&
+    Array.isArray(g.loops) &&
+    g.loops.every((l) => typeof l === 'string')
+  );
+}
+
+/** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
+export function isDiffRequest(v: unknown): v is DiffRequest {
+  const d = v as Partial<DiffRequest> | null;
+  return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && typeof d.path === 'string' && d.path.length > 0;
+}
+
+/** Whether a server URL is plain `http:` to a host that is not this machine, so the token it sends is not encrypted in transit (#306). */
+export function plainHttpRemote(serverUrl: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(serverUrl);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:') return false;
+  const h = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  return !(h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h));
+}
+
+export interface HttpResult {
+  status: number;
+  ok: boolean;
+  text: string;
+  /** Present when the reply came through the connection helper (#672); a plain fetch sets none. */
+  headers?: Record<string, string>;
+}
+export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<HttpResult>;
+
+export interface TransportConfig {
+  serverUrl: string;
+  token: string;
+  heartbeatMs: number;
+  /** This reporter's own version; passed in so the transport never imports it. */
+  version: string;
+  /** The commit of a dev build of this reporter (#400); absent or null for a release. */
+  build?: string | null;
+}
+
+/** The oldest and newest reporter the server reads correctly (SPEC 6.8). */
+export interface ReporterSupport {
+  min: string;
+  max: string;
+}
+
+/** Major and minor of a version as numbers; null when it is not one. */
+function minorOf(v: string): [number, number] | null {
+  const m = /^(\d+)\.(\d+)(?:\.|$)/.exec(v);
+  return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
+export type SendOutcome = 'ok' | 'rejected' | 'refused' | 'failed' | 'busy';
+
+export class Transport {
+  queue: ActivityEvent[] = [];
+  /** null until the first attempt. */
+  online: boolean | null = null;
+  sent = 0;
+  failed = 0;
+  rejected = 0;
+  dropped = 0;
+  failures = 0;
+  lastError: string | null = null;
+  lastSentAt = 0;
+  nextAttemptAt = 0;
+  liveSessions: number | null = null;
+  /** Where the server places this reporter's version; null until a reply says (an older server never does). */
+  compat: 'ok' | 'outdated' | 'newer' | null = null;
+  serverVersion: string | null = null;
+  /** The commit of a dev build of the server (#400); null for a release, and from a server that predates it. */
+  serverBuild: string | null = null;
+  /** What the server reads correctly; null until a reply says (an older server never does). */
+  support: ReporterSupport | null = null;
+  /** The loops the last accepted report's reply says someone is watching (#118); empty from a server that predates it. */
+  watch: string[] = [];
+  /** The loops of `watch` a viewer has the feed open on (#431); empty from a server that predates it, which asks for no output. */
+  watchOutput: string[] = [];
+  /** Whether the last accepted report's reply said the server takes answers for this session (#206); false from an older server. */
+  respond = false;
+  /** Messages and commands from Podium the last reply handed over (#206). */
+  deliveries: Delivery[] = [];
+  /** The file diffs the session's owner is waiting for, from the last reply (#319); empty from a server that predates it. */
+  diffs: DiffRequest[] = [];
+  /** Whether the last accepted report's reply said this orchestrator takes part in messaging (#347); false from an older server. */
+  peers = false;
+  /** Messages and notices for this orchestrator from the last reply (#347); empty while `peers` is false. */
+  peerDeliveries: PeerDelivery[] = [];
+  /** The owner's open requests about this reporter, from the last reply (#347); empty while `peers` is false. */
+  peerRequests: PeerRequest[] = [];
+  /** Session recording's state from the last accepted report's reply (#353); null from a server that predates it, which a mod reads as off. */
+  recording: RecordingGrant | null = null;
+  inFlight = false;
+  private current: Promise<SendOutcome> | null = null;
+  private loggedReject = false;
+  private loggedRefusal = false;
+  /** True while the server's last answer was a 401. */
+  refused = false;
+  /** True while the server's last answer was a 409: this session already belongs to another owner (#209). */
+  ownerRefused = false;
+  private loggedOwner = false;
+  private rejectStreak = 0;
+
+  constructor(
+    private readonly fetch: FetchLike,
+    readonly cfg: TransportConfig,
+    private readonly log: (line: string) => void = () => {},
+  ) {}
+
+  get url(): string {
+    return `${trimTrailingSlashes(this.cfg.serverUrl)}/api/fleet/report`;
+  }
+
+  /** Queues events; past 500 the oldest are dropped. */
+  enqueue(events: readonly ActivityEvent[]): void {
+    if (!events.length) return;
+    this.queue.push(...events);
+    if (this.queue.length > QUEUE_MAX) {
+      this.dropped += this.queue.length - QUEUE_MAX;
+      this.queue.splice(0, this.queue.length - QUEUE_MAX);
+    }
+  }
+
+  /** Whether a report should go now: something changed, or the heartbeat is due, and no backoff holds. */
+  due(now: number, dirty: boolean): boolean {
+    if (this.inFlight || now < this.nextAttemptAt) return false;
+    return dirty || this.queue.length > 0 || this.lastSentAt === 0 || now - this.lastSentAt >= this.cfg.heartbeatMs;
+  }
+
+  /** The delay before retry number `failures` (1-based). */
+  static backoff(failures: number): number {
+    return BACKOFF_MS[Math.min(Math.max(failures, 1), BACKOFF_MS.length) - 1]!;
+  }
+
+  /**
+   * Posts one report built from the oldest queued events (at most 100). 200 acks them; 400 or 413 drops
+   * that report and its events (it would never be accepted) and backs off before the next attempt;
+   * anything else keeps them and backs off.
+   */
+  send(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+    if (this.inFlight) return Promise.resolve('busy');
+    this.inFlight = true;
+    const p = this.post(build, now);
+    this.current = p;
+    return p;
+  }
+
+  /** Resolves when no POST is in flight (at once when none is). */
+  async idle(): Promise<void> {
+    if (this.current) await this.current.catch(() => undefined);
+  }
+
+  private async post(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+    const events = this.queue.slice(0, EVENTS_PER_REPORT);
+    try {
+      const report = build(events);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.cfg.token) headers['X-Podium-Token'] = this.cfg.token;
+      const res = await this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) });
+      if (res.ok) {
+        let acked = events.length;
+        try {
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; recording?: unknown };
+          if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
+          if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
+          this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
+          this.serverVersion = typeof body.serverVersion === 'string' ? body.serverVersion : null;
+          this.serverBuild = typeof body.serverBuild === 'string' ? body.serverBuild : null;
+          const sup = body.reporterSupport as Partial<ReporterSupport> | null | undefined;
+          this.support = sup && typeof sup.min === 'string' && typeof sup.max === 'string' ? { min: sup.min, max: sup.max } : null;
+          this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
+          this.watchOutput = Array.isArray(body.watchOutput) ? body.watchOutput.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
+          this.respond = body.respond === true;
+          this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
+          this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, MAX_DIFF_REQUESTS) : [];
+          this.peers = body.peers === true;
+          this.peerDeliveries = this.peers && Array.isArray(body.peerDeliveries) ? body.peerDeliveries.filter(isPeerDelivery).slice(0, PEER_LIMITS.deliveries) : [];
+          this.peerRequests = this.peers && Array.isArray(body.peerRequests) ? body.peerRequests.filter(isPeerRequest).slice(0, PEER_LIMITS.requests) : [];
+          this.recording = isRecordingGrant(body.recording) ? body.recording : null;
+        } catch {
+          // a 200 without a JSON body still acks what was sent
+        }
+        this.ack(events, acked);
+        this.online = true;
+        this.failures = 0;
+        this.rejectStreak = 0;
+        this.nextAttemptAt = 0;
+        this.lastSentAt = now;
+        this.lastError = null;
+        this.sent++;
+        this.refused = false;
+        this.loggedRefusal = false;
+        this.ownerRefused = false;
+        this.loggedOwner = false;
+        return 'ok';
+      }
+      // 409: the session id already belongs to another owner (server-side); it is as permanent as a 400, so it is not an outage.
+      if (res.status === 400 || res.status === 409 || res.status === 413) {
+        this.ack(events, events.length);
+        this.rejected++;
+        // Back off like a failure: a snapshot the server keeps refusing (a plugin/server version mismatch, say)
+        // would otherwise be rebuilt and re-posted on every flush tick while state is dirty.
+        this.rejectStreak++;
+        this.nextAttemptAt = now + Transport.backoff(this.rejectStreak);
+        this.lastSentAt = now;
+        this.lastError = `server rejected a report (${res.status})`;
+        // The server read the credential and answered about the report, so an earlier 401 no longer stands.
+        this.refused = false;
+        this.loggedRefusal = false;
+        if (res.status === 409) {
+          this.ownerRefused = true;
+          if (!this.loggedOwner) {
+            this.loggedOwner = true;
+            this.log(`podium-reporter: ${this.ownerNotice()}`);
+          }
+          return 'rejected';
+        }
+        this.ownerRefused = false;
+        if (!this.loggedReject) {
+          this.loggedReject = true;
+          this.log(`podium-reporter: server rejected a report (${res.status}): ${res.text.slice(0, 200)}`);
+        }
+        return 'rejected';
+      }
+      if (res.status === 403 && res.headers?.['x-podium-helper-error'] === 'ROUTE_NOT_ALLOWED') {
+        // The connection helper, not the server, refused: it does not carry this route, so asking again changes nothing until the mod and the helper agree.
+        // A server's own 403 (a feature that is off) has no such header and falls through to the outage path (#672).
+        // The events stay queued: they go out once the mod and the helper agree.
+        this.nextAttemptAt = now + REFUSED_RETRY_MS;
+        this.lastSentAt = now;
+        this.lastError = 'the connection helper does not carry this route (403)';
+        if (!this.loggedReject) {
+          this.loggedReject = true;
+          this.log('podium-reporter: the connection helper refused a report (403 ROUTE_NOT_ALLOWED): update podium-reporter, then restart the session');
+        }
+        return 'refused';
+      }
+      if (res.status === 401) {
+        // The token is wrong, revoked, or does not belong to the configured name. Keep the events, wait a long
+        // while (nothing changes until the settings do), and say so once. The token is never put in a message.
+        this.refused = true;
+        this.ownerRefused = false;
+        this.online = false;
+        this.nextAttemptAt = now + REFUSED_RETRY_MS;
+        this.lastSentAt = now;
+        this.lastError = 'server refused the token or name (401)';
+        if (!this.loggedRefusal) {
+          this.loggedRefusal = true;
+          this.log('podium-reporter: the server refused this reporter (401): check the Podium token and user name settings');
+        }
+        return 'refused';
+      }
+      throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      this.failures++;
+      this.failed++;
+      this.online = false;
+      this.lastError = (err as Error)?.message ?? 'network error';
+      this.nextAttemptAt = now + Transport.backoff(this.failures);
+      return 'failed';
+    } finally {
+      this.inFlight = false;
+      this.current = null;
+    }
+  }
+
+  /** Removes the first `n` of `sent` from the queue (events queued meanwhile stay). */
+  private ack(sent: readonly ActivityEvent[], n: number): void {
+    const ids = new Set(sent.slice(0, n).map((e) => e.id));
+    this.queue = this.queue.filter((e) => !ids.has(e.id));
+  }
+
+  /**
+   * True when the server supports a newer major.minor than this reporter but still reads it (so it is not
+   * `outdated`). Patch releases are not flagged: `max` moves with the report format, not with every release.
+   */
+  get behind(): boolean {
+    if (!this.support || this.compat === 'outdated' || this.compat === 'newer') return false;
+    const mine = minorOf(this.cfg.version);
+    const max = minorOf(this.support.max);
+    if (!mine || !max) return false;
+    return mine[0] < max[0] || (mine[0] === max[0] && mine[1] < max[1]);
+  }
+
+  /** `problem` is what the TLS link says is wrong (#584), shown ahead of the connection state. */
+  statusText(problem?: string | null, context?: string | null): string {
+    const name = `${plainHttpRemote(this.cfg.serverUrl) ? '⚠ ' : ''}${withBuild(`podium v${this.cfg.version}`, this.cfg.build)}${context ? ` [${context}]` : ''}`;
+    if (problem) return `${name} ○ ${problem}`;
+    if (this.refused) return `${name} ○ token refused`;
+    if (this.ownerRefused) return `${name} ○ refused: session belongs to someone else`;
+    if (this.online === false) return `${name} ○ offline`;
+    if (this.online === null) return `${name} ○ connecting`;
+    const live = `${name} ● ${this.liveSessions ?? 1} live`;
+    if (this.compat === 'outdated') return `${live} · update mod`;
+    if (this.compat === 'newer') return `${live} · upgrade server`;
+    if (this.behind) return `${live} · update available`;
+    return live;
+  }
+
+  /** What to tell the user when the server is plain http beyond this machine (#306); null when it is not. Names no address and no token. */
+  plainHttpNotice(): string | null {
+    return plainHttpRemote(this.cfg.serverUrl)
+      ? 'The Podium server is reached over plain HTTP beyond this machine, so the token and everything reported are not encrypted in transit. Use an https:// server URL (a TLS proxy in front of Podium) in the podium-reporter settings.'
+      : null;
+  }
+
+  /** What to tell the user when the server refused the token or name; null when it did not. */
+  refusalNotice(): string | null {
+    return this.refused ? 'The server refused this reporter. Check that the Podium token belongs to the user name in the podium-reporter settings (claude plugin configure podium-reporter), or ask the server owner for a new token.' : null;
+  }
+
+  /** What to tell the user when the server says this session already belongs to another owner (#209); null when it did not. */
+  ownerNotice(): string | null {
+    return this.ownerRefused ? 'The server refused this report: this session belongs to someone else. Start a new session to report as yourself.' : null;
+  }
+
+  /** What to tell the user when the server says this reporter and it do not match; null when they do (or it cannot tell). */
+  versionNotice(): string | null {
+    const server = this.serverVersion ? ` (server ${this.serverVersion})` : '';
+    if (this.compat === 'outdated') return `This reporter is older than the Podium server supports${server}: update the podium-reporter mod (claude plugin update podium-reporter@eengelking-marketplace, then /reload-plugins).`;
+    if (this.compat === 'newer') return `This reporter is newer than the Podium server supports${server}: upgrade the Podium server.`;
+    return null;
+  }
+
+  /** The mild hint behind `· update available`; for `/podium` only, never a toast. Null when not behind. */
+  updateNotice(): string | null {
+    if (!this.behind || !this.support) return null;
+    const server = this.serverVersion ? ` (server ${this.serverVersion})` : '';
+    return `A newer podium-reporter is supported by the server${server}: it reads reporters up to ${this.support.max}, this one is ${this.cfg.version}. Update with claude plugin update podium-reporter@eengelking-marketplace, then /reload-plugins.`;
+  }
+}

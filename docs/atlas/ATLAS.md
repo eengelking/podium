@@ -8,7 +8,7 @@ group: Reference
 
 A short reference to every part of Podium, for someone who wants the map before the detail. It is the text
 companion to the interactive page [`docs/atlas/podium-atlas.html`](podium-atlas.html) (open it in a browser):
-the first section lists the thirty-three parts on that page's system map, the second lists the reporter's hooks and
+the first section lists the thirty-four parts on that page's system map, the second lists the reporter's hooks and
 timers one by one, then the key functions, the flows between them, the four ways to run it and where data lives. The detail behind each row is in [Architecture](../architecture/README.md), [Server](../SERVER.md) and
 [Reporter](../REPORTER.md); intended behavior is in [Spec](../spec/README.md).
 
@@ -28,7 +28,7 @@ Contents:
 
 | Location | Where it runs |
 |---|---|
-| Reporter | Inside each Claude Code process, on the machine that runs the session |
+| Reporter | Inside each coding-harness process, on the machine that runs the session |
 | Network | Between the two: a listener or a proxy that carries reports and browsers |
 | Server | The Podium server process |
 | Storage | The database behind the server: the two SQLite files, or a PostgreSQL database |
@@ -43,13 +43,14 @@ to do travels back in the reply to a report.
 
 | Location | Item | Description |
 |---|---|---|
-| Reporter | Hooks and reducers | Callbacks on tool calls, turns and session start and end. They fold events into an in-memory model and wait on nothing but a person's answer, a peer tool call and the final report. |
-| Reporter | Transport and timer | A timer that posts a full snapshot and any unsent events to the server, and reads the reply. Backs off while the server is offline. |
-| Reporter | Claude Code session | The process being watched: an orchestrator plus the agents it launches. Podium never wraps or replaces it. |
-| Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. |
-| Reporter | TLS helper | A script the mod starts once per session. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. The mod picks its config file by `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT`, then the current context in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem`. |
-| Reporter | Collectors | Small readers for what hooks do not carry: git branch and changed files, machine id, build, models. |
-| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. |
+| Reporter | Hooks and reducers | The harness's callbacks on tool calls, turns and session start and end, folded into an in-memory model. They wait on nothing but a person's answer, a peer tool call and the final report. The plan and failure reducers are in `plugin/core/`; the session model and the hook wiring are in the Claude Code adapter today. |
+| Reporter | Transport and timer | A timer that posts a full snapshot and any unsent events to the server, and reads the reply. Backs off while the server is offline. `Transport` is in `plugin/core/`; the timer and the report builder are in the Claude Code adapter today. |
+| Reporter | Coding harness session | The process being watched: one session of a coding harness (Claude Code today) on a developer's machine, an orchestrator plus the agents it launches. Podium never wraps or replaces it. OpenCode is next (#855). |
+| Reporter | Harness adapter | The harness-specific half of a reporter. Today it is `plugin/claudecode/`: the hook wiring, the model and price table, the engine API use, `/podium` and the in-session tools; `plugin/opencode/` is reserved (#855). Everything shared is in `plugin/core/`, which an adapter imports and which never imports an adapter. `scripts/plugin-build.mjs` builds `dist/<harness>/` for each harness with a manifest (only `claudecode` today), and a push to `main` publishes `dist/` to the `plugin-dist` branch (`.github/workflows/plugin-dist.yml`, never a force-push, nothing when the tree is unchanged). The publish script refuses a source ref other than `main` or `release-candidate/*`, a built version that differs from `package.json`, and a folder carrying a dev stamp; a manual run of the workflow is the same publish. `release.yml` fails a release whose zip differs from it, waiting up to 15 minutes for the commit that names the tag. The marketplace entry is Claude Code's. |
+| Reporter | In-session tools | How Podium reaches back into a session: answers to questions, plans and permission prompts, messages from your other orchestrators, and `/podium`. The peer message frame is in `plugin/core/`; the rest is in the Claude Code adapter. |
+| Reporter | TLS helper | A script the mod starts once per session, which today lives in the Claude Code adapter. It holds the client certificate, makes the mutual-TLS connection and forwards only reporter routes. The mod picks its config file by `PODIUM_REPORTER_CONFIG`, then `PODIUM_REPORTER_CONTEXT`, then the current context in `~/.podium/contexts.json`, then the newest `reporter-config-*.pem`. |
+| Reporter | Collectors | Small readers for what hooks do not carry: git branch and changed files, machine id and build (in `plugin/core/`), and models (in the Claude Code adapter). |
+| Reporter | Activity, diff, recorder | Three opt-in readers that capture more than the wall needs: recent tool calls, a file diff (on request, or loaded ahead while the owner has the console page open), and a whole-session recording. Each is redacted and size-capped. Diff redaction is in `plugin/core/`; the readers are in the Claude Code adapter today. |
 | Reporter | Simulator, settings hooks | Other ways to report: a simulator that fakes a busy fleet, and Claude Code's settings hooks for sessions started without the mod. |
 
 ### Network
@@ -100,9 +101,10 @@ to do travels back in the reply to a report.
 
 ## The reporter's hooks and timers
 
-These are the handlers in `mod/podium-reporter/hooks/register.ts` that make up the first four rows of
-[The parts](#the-parts). Each runs after Claude Code has done its own work, and an error in one is logged and never
-passed on, so a bug in Podium cannot fail a tool call.
+These are the handlers the Claude Code adapter registers in `plugin/claudecode/hooks/register.ts`, so every name below is a
+Claude Code hook (`classic.*` is Claude Code's own hook set, the others come from its mod API). A reporter for another
+harness registers its own hooks in its own adapter. Each runs after Claude Code has done its own work, and an error in one
+is logged and never passed on, so a bug in Podium cannot fail a tool call.
 
 ### Reporter
 
@@ -146,34 +148,36 @@ code. A function's line number is on the page, not here, because it moves.
 
 | Location | Item | Description |
 |---|---|---|
-| Reporter | `newSession` | Creates the in-memory model of a session. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `mod/podium-reporter/hooks/state.ts`. |
-| Reporter | `taskCreate` | Plan from TaskCreate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `taskUpdate` | Plan from TaskUpdate. In `mod/podium-reporter/hooks/plan.ts`. |
-| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `mod/podium-reporter/hooks/failures.ts`. |
-| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `mod/podium-reporter/hooks/transport.ts`. |
-| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `mod/podium-reporter/hooks/report.ts`. |
-| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `planRace` | The same race for a plan's approval or feedback. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `planApproval` | The hook result that approves a plan. In `mod/podium-reporter/hooks/respond.ts`. |
-| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `peerPrompt` | The frame around a peer message. In `mod/podium-reporter/hooks/peers.ts`. |
-| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `mod/podium-reporter/hooks/helper.mjs`. |
-| Reporter | `readGit` | Branch, ahead/behind. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `readChanges` | Changed files with +/- counts. In `mod/podium-reporter/hooks/git.ts`. |
-| Reporter | `machineIdPath` | Where the random machine id is kept. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `osFromSwVers` | Reads the macOS version. In `mod/podium-reporter/hooks/machine.ts`. |
-| Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `mod/podium-reporter/hooks/recording.ts`. |
-| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `mod/podium-reporter/hooks/register.ts`. |
-| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `mod/podium-reporter/hooks/diffRedact.ts`. |
-| Reporter | `setWatched` | Records which loops someone is watching. In `mod/podium-reporter/hooks/state.ts`. |
+| Reporter | `register` | The adapter's entry point, wires every hook. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `registerPeerTools` | Podium_peers, podium_send and podium_request_access. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `newSession` | Creates the in-memory model of a session. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `addEvent` | Adds an event to the model's queue for the next report. In `plugin/claudecode/hooks/state.ts`. |
+| Reporter | `taskCreate` | Plan from TaskCreate. In `plugin/core/plan.ts`. |
+| Reporter | `taskUpdate` | Plan from TaskUpdate. In `plugin/core/plan.ts`. |
+| Reporter | `redact` | Replaces secret-shaped text with [redacted]. In `plugin/core/failures.ts`. |
+| Reporter | `class Transport` | Posts a report, backs off, reads the reply. In `plugin/core/transport.ts`. |
+| Reporter | `due()` | Whether a report goes now (changed, or heartbeat due, and no backoff). In `plugin/core/transport.ts`. |
+| Reporter | `flush` | The timer's entry point; posts a report if one is due. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `flushOnce` | Builds and posts one report, then reads the reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `buildReport` | Builds the report: a full snapshot plus unsent events. In `plugin/claudecode/hooks/report.ts`. |
+| Reporter | `questionRace` | A question's answer from Podium races the terminal's dialog. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `planRace` | The same race for a plan's approval or feedback. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `permissionAsk` | A tool's permission prompt, answered from Podium. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `handleDeliveries` | Acts on the answers and messages in a reply. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `toolDecision` | Turns an answer from Podium into a hook result. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `planApproval` | The hook result that approves a plan. In `plugin/claudecode/hooks/respond.ts`. |
+| Reporter | `sendPeerCalls` | Sends a messaging tool's queued calls, run by the timer. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `peerPrompt` | The frame around a peer message. In `plugin/core/peers.ts`. |
+| Reporter | `dueSoon` | Whether the certificate is close enough to expiry to renew. In `plugin/claudecode/hooks/helper.mjs`. |
+| Reporter | `serveMailbox` | On Windows, answers request files in a folder. In `plugin/claudecode/hooks/helper.mjs`. |
+| Reporter | `readGit` | Branch, ahead/behind. In `plugin/core/git.ts`. |
+| Reporter | `readChanges` | Changed files with +/- counts. In `plugin/core/git.ts`. |
+| Reporter | `machineIdPath` | Where the random machine id is kept. In `plugin/core/machine.ts`. |
+| Reporter | `osFromSwVers` | Reads the macOS version. In `plugin/core/machine.ts`. |
+| Reporter | `class Recorder` | Numbers, redacts and batches a session recording. In `plugin/claudecode/hooks/recording.ts`. |
+| Reporter | `handleDiffs` | Reads one file's diff when its owner asks or the console loads it ahead. In `plugin/claudecode/hooks/register.ts`. |
+| Reporter | `redactDiff` | Replaces secret-shaped text in a diff. In `plugin/core/diffRedact.ts`. |
+| Reporter | `setWatched` | Records which loops someone is watching. In `plugin/claudecode/hooks/state.ts`. |
 | Reporter | `ingestHook` | Takes a settings-hook report, giving a reduced view. In `server/src/fleet/fleet.ts`. |
 
 ### Network

@@ -2,9 +2,9 @@
 // scripted session must pass the server's validator unchanged and ingest into a sensible view.
 // (The mod's tests run in the hooks sandbox, which cannot reach the server code.)
 import { describe, it, expect } from 'vitest';
-import { scriptedReport, scriptedState, T0 } from '../mod/podium-reporter/hooks/scripted.ts';
-import { buildReport } from '../mod/podium-reporter/hooks/report.ts';
-import { planAsk, questionAsk, respondInfo, toolAsk } from '../mod/podium-reporter/hooks/respond.ts';
+import { scriptedReport, scriptedState, T0 } from '../plugin/claudecode/hooks/scripted.ts';
+import { buildReport } from '../plugin/claudecode/hooks/report.ts';
+import { planAsk, questionAsk, respondInfo, toolAsk } from '../plugin/claudecode/hooks/respond.ts';
 import { validateReport } from '../server/src/fleet/protocol.ts';
 import { openSqliteStorage } from '../server/src/storage/sqlite/index.ts';
 import { DEFAULT_CONFIG, Fleet } from '../server/src/fleet/fleet.ts';

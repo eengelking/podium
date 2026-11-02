@@ -805,7 +805,7 @@ function cmdRm(cfg, flags) {
 }
 
 // ---------- contexts (#606) ----------
-// A context names one reporter config file, kept in contexts.json beside config.env. The reporter (mod/podium-reporter/hooks/contexts.ts)
+// A context names one reporter config file, kept in contexts.json beside config.env. The reporter (plugin/claudecode/hooks/contexts.ts)
 // reads the same file; scripts/podiumctl.test.ts checks that the two agree on the format.
 
 export const CONTEXTS_FILE = 'contexts.json';

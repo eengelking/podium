@@ -1,10 +1,12 @@
 node_modules/
 dist/
+.build-test/
 coverage/
 .env
 *.tsbuildinfo
 data/
 *.sqlite*
-mod/podium-reporter/.claude-plugin/types/
+plugin/claudecode/.claude-plugin/types/
 .claude/worktrees/
 server/build.json
+dist-zips/

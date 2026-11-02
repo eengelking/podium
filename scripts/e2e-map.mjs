@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 export const MAP = "docs/e2e/COVERAGE.md";
 const SPEC_DIR = "e2e/cypress/e2e";
-const ROOTS = ["frontend/", "server/", "mod/", "scripts/", "docs/", "site/", ".github/", ".claude/", "e2e/", "bin/"];
+const ROOTS = ["frontend/", "server/", "plugin/", "scripts/", "docs/", "site/", ".github/", ".claude/", "e2e/", "bin/"];
 const METHOD = /^(GET|POST|PUT|PATCH|DELETE) (\/\S+)$/;
 
 /** The code spans of a Markdown text, leaving out fenced blocks. */

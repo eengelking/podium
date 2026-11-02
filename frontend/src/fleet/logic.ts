@@ -1,5 +1,5 @@
 // Pure presentation logic: sorting, filtering, plan progress, agent counts and the agent tree.
-import { MAIN_LOOP } from "../../../server/src/fleet/protocol";
+import { MAIN_LOOP } from "../../../plugin/core/protocol";
 import type { AgentView, Effort, ModelFamily, Plan, PlanStep, PlanStepView, PlanView, SessionView } from "./types";
 
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];

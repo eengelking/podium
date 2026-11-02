@@ -10,7 +10,7 @@ order: 2
 
 # 2. A Claude Code mod reports from inside the session
 
-**Decision.** The reporter is a Claude Code mod (`mod/podium-reporter/`), not a log parser or an external
+**Decision.** The reporter is a Claude Code mod (`plugin/claudecode/`, `mod/podium-reporter/` before 56), not a log parser or an external
 process.
 
 **Why.** It is the only mechanism that sees agent spawns, per-step usage, compaction, tool results and plans

@@ -76,7 +76,7 @@ const KEEP = args.includes('--keep-data');
 const MAIN = '@orchestrator';
 const MB = 1024 * 1024;
 
-const { Recorder } = await import(pathToFileURL(path.join(ROOT, 'mod/podium-reporter/hooks/recording.ts')).href);
+const { Recorder } = await import(pathToFileURL(path.join(ROOT, 'plugin/claudecode/hooks/recording.ts')).href);
 const VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 const sqlite = process.getBuiltinModule('node:sqlite');
 

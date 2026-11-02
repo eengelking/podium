@@ -1,8 +1,8 @@
 // The reporter's place logic (#382) is pure, so it is tested here: the mod's own tests run only inside Claude Code,
 // where neither the server's coverage run nor SonarCloud can see them.
 import { describe, it, expect } from 'vitest';
-import { follow, holds, nextCwd, placeOf, type PlaceEngine, type SessionPlace } from '../mod/podium-reporter/hooks/place.ts';
-import type { Runner } from '../mod/podium-reporter/hooks/git.ts';
+import { follow, holds, nextCwd, placeOf, type PlaceEngine, type SessionPlace } from '../plugin/claudecode/hooks/place.ts';
+import type { Runner } from '../plugin/core/git.ts';
 
 const SPARE = '/Users/dev/.claude/spares/spare-eB3Cs1';
 const PROJECT = '/Users/dev/web/podium';

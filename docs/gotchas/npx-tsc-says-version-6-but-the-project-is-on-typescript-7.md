@@ -27,5 +27,5 @@ ever removed, a bare `tsc` is TypeScript 7 again and this page can go.
 <!-- nav:start -->
 ---
 
-Previous: [A frontend test fails now and then, with an edit put back or an element not found, and passes on the next run](frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md) · Up: [Gotchas](README.md)
+Previous: [A frontend test fails now and then, with an edit put back or an element not found, and passes on the next run](frontend-test-fails-now-and-then-an-edit-is-lost-or-an-element-is-missing.md) · Up: [Gotchas](README.md) · Next: [A script or a path expects the server's compiled files directly in server/dist](server-compiled-files-are-not-directly-in-server-dist.md)
 <!-- nav:end -->

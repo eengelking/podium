@@ -56,7 +56,7 @@ describe("docs/atlas/ATLAS.md", () => {
 
   it("has a row for every hook the reporter registers", () => {
     const doc = read("docs/atlas/ATLAS.md");
-    const hooks = [...read("mod/podium-reporter/hooks/register.ts").matchAll(/^ {2}on\('([\w.]+)'/gm)].map((m) => m[1]);
+    const hooks = [...read("plugin/claudecode/hooks/register.ts").matchAll(/^ {2}on\('([\w.]+)'/gm)].map((m) => m[1]);
     expect(hooks.length).toBeGreaterThan(15);
     // A row: its Item cell holds the hook's name in backticks (a mention elsewhere in the text does not count).
     const row = (h: string) => new RegExp(`^\\| \\w+ \\| [^|]*\`${h.replaceAll(".", "\\.")}\``, "m");

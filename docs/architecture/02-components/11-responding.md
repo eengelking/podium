@@ -8,7 +8,7 @@ order: 11
 # Responding
 
 Files: `server/src/fleet/respond.ts`, `respondRoutes.ts`, `lockout.ts`, `frontend/src/fleet/useRespond.tsx`,
-`components/Respond.tsx`, `mod/podium-reporter/hooks/respond.ts`. Issue #206; SPEC 5.3, 7.1, 7.2 and 7.7. The
+`components/Respond.tsx`, `plugin/claudecode/hooks/respond.ts`. Issue #206; SPEC 5.3, 7.1, 7.2 and 7.7. The
 reasoning is in DECISIONS 28 to 30.
 
 **Server**

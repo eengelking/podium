@@ -52,7 +52,7 @@ jobs:
             exit 0
           fi
           git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
-          if grep -Eq '^(frontend/|server/|mod/|e2e/|scripts/e2e|Containerfile|package(-lock)?\.json|\.github/workflows/e2e\.yml)' "$RUNNER_TEMP/changed.txt"; then
+          if grep -Eq '^(frontend/|server/|plugin/|e2e/|scripts/e2e|Containerfile|package(-lock)?\.json|\.github/workflows/e2e\.yml)' "$RUNNER_TEMP/changed.txt"; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
