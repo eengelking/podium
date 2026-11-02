@@ -11,8 +11,9 @@ cleanup() { "$engine" rm -f "$name" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 "$engine" run -d --name "$name" -e POSTGRES_PASSWORD=change-me -p 127.0.0.1::5432 docker.io/library/postgres:17 >/dev/null
 port="$("$engine" port "$name" 5432/tcp | head -n1 | sed 's/.*://')"
+# -h 127.0.0.1: the image first runs a temporary socket-only server, which would pass a socket check and then restart.
 for _ in $(seq 1 60); do
-  "$engine" exec "$name" pg_isready -U postgres >/dev/null 2>&1 && break
+  "$engine" exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && break
   sleep 1
 done
 export PODIUM_TEST_PG="postgres://postgres:change-me@127.0.0.1:${port}/postgres"
