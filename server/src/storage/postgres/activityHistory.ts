@@ -656,6 +656,7 @@ export class PgActivityHistory {
       const chunk = await this.step(() =>
         this.db.tx(async () => {
           const started = performance.now();
+          // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
           const rows = await this.db.all<VictimRow>(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`, [...params, size]);
           if (!rows.length) return null;
           await this.dropRows(rows, touched);

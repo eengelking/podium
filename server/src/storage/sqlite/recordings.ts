@@ -673,6 +673,7 @@ export class SessionRecordings {
 
   private async deleteEntriesOf(sessionId: string): Promise<void> {
     for (;;) {
+      // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
       const done = await this.step(() => this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)').run(sessionId, this.chunk).changes);
       if (Number(done) < this.chunk) return;
       await yieldNow();
@@ -707,6 +708,7 @@ export class SessionRecordings {
       let bytes = 0;
       for (;;) {
         const rows = await this.step(() => this.tx(() => {
+          // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
           const gone = this.st('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b').all(cutoff, this.chunk) as { sid: string; b: number }[];
           const per = new Map<string, { n: number; b: number }>();
           for (const g of gone) {

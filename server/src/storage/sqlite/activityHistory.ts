@@ -707,6 +707,7 @@ export class ActivityHistory {
       // The chunk is chosen and removed in one step, so what was chosen is what goes however the steps of others fall.
       const chunk = await this.step(() => {
         const started = performance.now();
+        // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
         const rows = this.st(`SELECT id, session_id AS sid, loop, ${entryBytesSql()} AS b FROM entries WHERE ${where} LIMIT ?`).all(...params, size) as unknown as VictimRow[];
         if (!rows.length) return null;
         this.dropRows(rows, touched);

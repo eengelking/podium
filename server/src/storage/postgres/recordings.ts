@@ -692,6 +692,7 @@ export class PgSessionRecordings {
 
   private async deleteEntriesOf(sessionId: string): Promise<void> {
     for (;;) {
+      // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
       const done = await this.step(() => this.db.run('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE session_id = ? LIMIT ?)', [sessionId, this.chunk]));
       if (done < this.chunk) return;
       await yieldNow();
@@ -728,6 +729,7 @@ export class PgSessionRecordings {
       for (;;) {
         const rows = await this.step(() =>
           this.db.tx(async () => {
+            // Order does not matter: the loop runs until no row matches, so every matching row goes whichever chunk it falls in.
             const gone = await this.db.all<{ sid: string; b: number }>('DELETE FROM rec_entries WHERE n IN (SELECT n FROM rec_entries WHERE t < ? LIMIT ?) RETURNING session_id AS sid, b', [cutoff, this.chunk]);
             const per = new Map<string, { n: number; b: number }>();
             for (const g of gone) {
