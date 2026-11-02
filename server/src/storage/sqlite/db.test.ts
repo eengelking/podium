@@ -178,7 +178,7 @@ describe('openDb', () => {
     }
     old.exec('DELETE FROM schema_migrations WHERE version = 25');
     old.exec(`INSERT INTO people (name, name_lower, key_id, token_hash, created_at) VALUES ('Ada', 'ada', 'aabbccddeeff', '${'0'.repeat(64)}', 1000)`);
-    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
+    // Three messages sent in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in. The number follows the id, as PostgreSQL's does.
     for (const id of ['c', 'a', 'b']) {
       old.exec(`INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at)
         VALUES ('${id}', 'ed', 'l', 'k1', 'k2', 's1', 's2', 'n1', 'm1', 'n2', 'm2', 't-${id}', 5000, 'ready', 5000)`);
@@ -197,7 +197,7 @@ describe('openDb', () => {
     db.close();
   });
 
-  it('gives existing peer requests their old insertion order as seq when it migrates to 26 (#890)', () => {
+  it('numbers existing peer requests by time and then id as seq when it migrates to 26 (#890, #916)', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'podium-db-'));
     tmpDirs.push(dir);
     const file = path.join(dir, 'fleet.db');
@@ -206,7 +206,7 @@ describe('openDb', () => {
     old.exec('DROP INDEX peer_requests_seq');
     old.exec('ALTER TABLE peer_requests DROP COLUMN seq');
     old.exec('DELETE FROM schema_migrations WHERE version = 26');
-    // Three requests made in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in.
+    // Three requests made in the same millisecond, stored in the order c, a, b: ids that sort differently from the order they came in. The number follows the id, as PostgreSQL's does.
     for (const id of ['prq_c', 'prq_a', 'prq_b']) {
       old.exec(`INSERT INTO peer_requests (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at)
         VALUES ('${id}', 'ed', 'access', 'k1', 'k2', 'see', 'why-${id}', 'n1', 's1', NULL, 5000)`);
@@ -214,7 +214,7 @@ describe('openDb', () => {
     old.close();
 
     const db = openDb(file);
-    expect(db.prepare('SELECT id FROM peer_requests ORDER BY created_at, seq').all()).toEqual([{ id: 'prq_c' }, { id: 'prq_a' }, { id: 'prq_b' }]);
+    expect(db.prepare('SELECT id FROM peer_requests ORDER BY created_at, seq').all()).toEqual([{ id: 'prq_a' }, { id: 'prq_b' }, { id: 'prq_c' }]);
     expect(db.prepare('SELECT seq FROM peer_requests ORDER BY seq').all()).toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }]);
     expect(db.prepare('SELECT version FROM schema_migrations WHERE version = 26').all()).toEqual([{ version: 26 }]);
     db.close();
