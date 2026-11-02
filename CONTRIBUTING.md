@@ -57,6 +57,7 @@ npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
 npm run plugin:build    # build dist/claudecode/ (the folder that is installed and zipped); fails if it is not self-contained
+npm run plugin:dev:claudecode  # build it and start Claude Code with it loaded (`-- --watch` rebuilds on change); `plugin:dev:cleanup` deletes the build folders
 npm run test:mod       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
@@ -294,7 +295,8 @@ placeholder until #855 (DECISIONS 56). They are installed from a built folder, n
 
 - `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options).
   `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and
-  `--dev-stamp` writes the commit into the folder (`npm run plugin:build` adds it; CI and the release never do).
+  `--dev-stamp` writes the commit into the folder (`npm run plugin:build` and `npm run plugin:dev` add it; CI and the release never do).
+- `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three folders below, and only when git reports them ignored.
 - `dist/`, `.build-test/` (where `npm run test:mod` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
 - `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`.
 - `.github/workflows/plugin-dist.yml` runs on a merge to `main`, which is a release. After the tests and the build it runs

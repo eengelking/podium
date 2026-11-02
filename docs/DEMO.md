@@ -65,8 +65,7 @@ viewer sees both at once.
    `/plugin install podium-reporter@eengelking-marketplace`), or build it and load the built folder from a checkout for this session:
 
    ```sh
-   npm run plugin:build
-   claude --plugin-dir /path/to/podium/dist/claudecode
+   npm run plugin:dev:claudecode
    ```
 
    Both ways are in [REPORTER.md](REPORTER.md#install-the-mod).

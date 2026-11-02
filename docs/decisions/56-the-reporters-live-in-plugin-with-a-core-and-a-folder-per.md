@@ -35,7 +35,7 @@ that leaves it is refused, so shared code outside the folder cannot ship. Entry 
   nothing, and CI never stamps. `scripts/plugin-publish.mjs` and `scripts/podium-reporter-zip.mjs` refuse a folder that has the
   stamp, so a developer's build cannot be published or zipped by mistake.
 - **Running Claude Code from a checkout.** Claude Code is run against the built folder, `claude --plugin-dir dist/claudecode`
-  after `npm run plugin:build`, not against the source.
+  after `npm run plugin:build`, not against the source. `npm run plugin:dev:claudecode` does both steps (#927).
 
 **Why.** A built folder is the only shape that satisfies the marketplace's containment rule while sharing one copy of the
 code. Naming the folder for what it is (a plugin for a harness) fits OpenCode as well as Claude Code, where `mod/` named one
