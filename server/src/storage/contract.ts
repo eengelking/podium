@@ -373,7 +373,7 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
       await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.5.0' }), T0 + 20);
       const after = (await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 30)).rows;
       expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter', '1.5.0'], ['opencode-reporter', '2.0.0']]);
-      // Only the Claude Code reporter is a mod reporter that can be messaged.
+      // The hooks-kind row is not a mod reporter, so it cannot be messaged; the lookup filters on kind, and the reporter name is not part of it yet.
       const lookup = store.reporters.peerLookup();
       expect(await lookup.get(other)).toBeNull();
       expect(await lookup.get(claude)).toMatchObject({ key: claude, version: '1.5.0' });
