@@ -80,6 +80,13 @@ Inside the adapter, `portableSql.test.ts` fails when a non-test file in `storage
 `json_object`, `json_group_array` or the `->>` / `->` operators in a SQL string (#808), since other SQL databases spell those
 differently. A compact event's trigger is read in code (`countAutoCompactions`), and the Activity history's bulk delete binds its ids in batches of 200.
 
+Reads that run for every live session are batched (#906). `getSessions`, `getAgentsOf`, `getBlowoutsOf`, `countAutoCompactionsOf`,
+`samplesSinceOf`, `groupsOfOwners` and the Activity store's `recordings.viewMany` answer for many ids in one statement each, with a key
+for every id asked and each list in the order its one-session method gives; `upsertAgents` and `upsertAgentTextsMany` write a report's
+agents in one statement each. PostgreSQL does it with an `IN (...)` list or a multi-row `INSERT` cut into pieces under the driver's limit
+on bound values. SQLite loops over the one-at-a-time method, since a statement costs it microseconds. A path that would otherwise grow
+its statement count with the wall (a report, a snapshot) uses these, and `docs/PERFORMANCE.md` has the counts.
+
 `storageSpec` splits the value into its kind and target, and the server starts through it. A bad kind fails before anything
 else reads the path. The target only names the database: it labels it in the log and in the health check.
 
