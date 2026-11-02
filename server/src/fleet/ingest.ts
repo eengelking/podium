@@ -141,7 +141,7 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     cleared_from: s.clearedFrom ?? prev?.cleared_from ?? null,
     // Set by the first report that names them; a later one that leaves them out (a hook) keeps them.
     harness: s.harness ?? prev?.harness ?? 'claude-code',
-    cost_source: fromHarness ? 'harness' : s.costSource ? null : prev?.cost_source ?? null,
+    cost_source: fromHarness ? 'harness' : null,
   };
 }
 
