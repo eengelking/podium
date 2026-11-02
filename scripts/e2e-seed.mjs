@@ -141,9 +141,15 @@ const must = (r, what) => {
 
 const ZERO_TOKENS = { input: 300_000, output: 30_000, cacheRead: 0, cacheWrite: 0 };
 
+// Every report gets its own start time. The reports are built within the same millisecond, and "Newest" sorts by start time, so
+// two of them tied and the wall fell back to the names, where "Tester" comes before "arm64-check" (#898). Built in order, a later
+// report starts later and shows first under Newest.
+let lastStartedAt = 0;
+
 /** One session report, as the reporter mod sends it. `over` replaces fields of `session`. */
 export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
   const now = Date.now();
+  const startedAt = (lastStartedAt = Math.max(now - 3_000_000, lastStartedAt + 1));
   return {
     v: 1,
     sentAt: now,
@@ -152,7 +158,7 @@ export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
     machine,
     session: {
       id, name, status: 'running', waitReason: null, waitNote: null, endReason: null, resumeId: null,
-      startedAt: now - 3_000_000, cwd: `/Users/dev/${name}`, projectRoot: `/Users/dev/${name}`, repoName: `acme/${name}`,
+      startedAt, cwd: `/Users/dev/${name}`, projectRoot: `/Users/dev/${name}`, repoName: `acme/${name}`,
       git: { branch: 'development', detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 0 },
       model: 'claude-opus-5-5', effort: 'high', context: { tokens: 120_000, window: 1_000_000, percent: 12 }, costUsd: 1.55,
       tokens: ZERO_TOKENS, rateLimits: [], blowouts: 0, plan: null,

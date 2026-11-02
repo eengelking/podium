@@ -43,6 +43,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 - **The TLS renewer's "retries on its own timer" test no longer fails when the machine is busy (#904).** The test waited up to 5,000 ms for the renewal retry, which is also vitest's default limit for the whole test, so on a loaded machine the test timed out before the wait could. The test now has a 30 s limit and waits up to 25 s, as the earlier timeout fixes (#680, #681) did. It takes about 0.25 s on a quiet machine. Only that test changed; no production code did.
 
+- **The e2e seed gives every session its own start time, so the wall's "Newest" order no longer flips (#898).** The seed built its reports within one millisecond and gave each the same start time. "Newest" sorts by start time and breaks a tie by name, where "Tester" comes before "arm64-check" (capital letters sort first), so the toolbar spec failed about one run in ten when the reports landed in the same millisecond. Each report now starts at least a millisecond after the one before. Only the seed script changed, with a unit test; the wall's sort did not, and the product does not change.
+
 ## [1.4.0] - 2026-10-30
 
 ### Added
