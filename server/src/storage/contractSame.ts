@@ -17,8 +17,8 @@ export interface Openers {
   referenceStorage: () => Storage | Promise<Storage>;
 }
 
-/** A generated id such as `prq_9c2ca2b6…` or `msg_…`: random by design, so it differs between two storages and is not compared. */
-const GENERATED = /^[a-z]{2,6}_[0-9a-f]{16,}$/;
+/** A generated id (`prq_` or `dlv_` and 24 hex digits): random by design, so it differs between two storages and is not compared. */
+const GENERATED = /^(prq|dlv)_[0-9a-f]{24}$/;
 
 /** What a database reports about its own file (`fileBytes`, `freed`): a number in every database and a different one in each, so only its type is compared. */
 const PHYSICAL = new Set(['fileBytes', 'freed']);
