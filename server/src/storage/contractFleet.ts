@@ -201,17 +201,17 @@ export function reporterCases(o: Openers): void {
   it('matches the reference for the keys a sender is known by, the filtered key list, removing, and the refused-report list', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const r = s.reporters;
-      await rec('keys (new)', r.keysFor({ kind: 'mod', machineId: 'mk', source: '1.1.1.1', sessionId: 'sk', owner: 'ed' }));
+      await rec('keys (new)', r.keysFor({ kind: 'mod', machineId: 'mk', source: '203.0.113.1', sessionId: 'sk', owner: 'ed' }));
       const k1 = await rec('record', r.record(seen('mk', 'kay'), T0));
       await r.record(seen('m2', 'bee', { owner: 'bob' }), T0 + 1);
-      await r.record(seen('m3', 'cee', { kind: 'hooks', machineId: null, source: '2.2.2.2', sessionId: 's3' }), T0 + 2);
-      await rec('keys (known session)', r.keysFor({ kind: 'mod', machineId: null, source: '9.9.9.9', sessionId: 's-mk', owner: 'ed' }));
+      await r.record(seen('m3', 'cee', { kind: 'hooks', machineId: null, source: '203.0.113.22', sessionId: 's3' }), T0 + 2);
+      await rec('keys (known session)', r.keysFor({ kind: 'mod', machineId: null, source: '203.0.113.99', sessionId: 's-mk', owner: 'ed' }));
       await rec('keys', r.keys({}, T0 + 3));
       await rec('keys (query)', r.keys({ q: 'bee' }, T0 + 3));
       await rec('keys (state)', r.keys({ state: 'reporting' }, T0 + 3));
       await rec('get', r.get(k1, T0 + 3));
       await rec('get unknown', r.get('nope', T0 + 3));
-      await rec('rejected', r.rejected('7.7.7.7', 'bad token', T0 + 4));
+      await rec('rejected', r.rejected('203.0.113.77', 'bad token', T0 + 4));
       await rec('rejected (no source)', r.rejected(null, 'bad token', T0 + 5));
       await rec('remove', r.remove(k1));
       await rec('remove again', r.remove(k1));
@@ -227,15 +227,15 @@ export function reporterCases(o: Openers): void {
     const t = await sameOnBoth(o, async (s, rec) => {
       const r = s.reporters;
       await r.record(seen('i1', 'one', { version: '0.0.1' }), T0);
-      await r.record(seen('i2', 'two', { version: '0.0.2', source: '5.5.5.5' }), T0);
+      await r.record(seen('i2', 'two', { version: '0.0.2', source: '203.0.113.55' }), T0);
       await rec('rules (none)', r.listIgnores());
       await rec('add version rule', r.addIgnore('version', '0.0.1', T0 + 1));
       await rec('add it again (kept once)', r.addIgnore('version', '0.0.1', T0 + 2));
-      await rec('add address rule', r.addIgnore('address', '5.5.5.5', T0 + 3));
+      await rec('add address rule', r.addIgnore('address', '203.0.113.55', T0 + 3));
       await rec('add bad rule', r.addIgnore('key', '   ', T0 + 4));
       await rec('rules', r.listIgnores());
       await rec('ignored by version', r.ignoredBy({ key: 'x', source: null, version: '0.0.1' }));
-      await rec('ignored by address', r.ignoredBy({ key: 'x', source: '5.5.5.5', version: '9' }));
+      await rec('ignored by address', r.ignoredBy({ key: 'x', source: '203.0.113.55', version: '9' }));
       await rec('ignored by other key', r.ignoredBy({ key: 'x', otherKeys: ['i2'], source: null, version: '9' }));
       await rec('not ignored', r.ignoredBy({ key: 'x', source: null, version: '9' }));
       await rec('list after rules hid them', r.keys({}, T0 + 5));

@@ -72,7 +72,7 @@ export function reportCases(o: Openers): void {
       const crew = await s.people.createGroup('Crew', T0);
       const { person } = await s.people.createPerson('ann', crew.id, T0);
       await s.people.createPerson('bob', null, T0);
-      await s.people.touch(person.id, '1.1.1.1', T0 + 50);
+      await s.people.touch(person.id, '203.0.113.1', T0 + 50);
       await s.people.createPerson('Ann-two', null, T0);
       await s.people.createGroup('Empty', T0);
       // sessions seen at the same moment, so the order of ties is part of the answer
@@ -83,9 +83,9 @@ export function reportCases(o: Openers): void {
       await f.upsertSample({ session_id: 's1', t: 10, tokens_total: 1, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's1', t: 90, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
       await f.upsertSample({ session_id: 's2', t: 20, tokens_total: 2, tokens_delta: 1, peak_context: 1, running_agents: 0, cost_usd: null });
-      await s.reporters.record({ kind: 'mod', machineId: 'rk1', machineName: 'box', source: '1.1.1.1', owner: 'ann', credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, T0);
-      await s.reporters.record({ kind: 'mod', machineId: 'rk2', machineName: 'box2', source: '1.1.1.2', owner: 'ann', credential: 'person', version: '0.2.0', engineVersion: null, sessionId: 's1' }, T0);
-      await s.reporters.record({ kind: 'mod', machineId: 'rk3', machineName: 'box3', source: '1.1.1.3', owner: 'bob', credential: 'person', version: '0.2.0', engineVersion: null, sessionId: 's2' }, T0);
+      await s.reporters.record({ kind: 'mod', machineId: 'rk1', machineName: 'box', source: '203.0.113.1', owner: 'ann', credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, T0);
+      await s.reporters.record({ kind: 'mod', machineId: 'rk2', machineName: 'box2', source: '203.0.113.2', owner: 'ann', credential: 'person', version: '0.2.0', engineVersion: null, sessionId: 's1' }, T0);
+      await s.reporters.record({ kind: 'mod', machineId: 'rk3', machineName: 'box3', source: '203.0.113.3', owner: 'bob', credential: 'person', version: '0.2.0', engineVersion: null, sessionId: 's2' }, T0);
       await f.insertEvent({ id: 'ev1', session_id: 's1', agent_id: null, t: T0, kind: 'failure', text: 'bad', data_json: JSON.stringify({ cls: 'timeout', tool: 'Bash' }) });
       await rec('oldest', f.oldestSessionSeen());
       await rec('sessions since', f.sessionsSince(T0));
