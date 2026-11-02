@@ -846,10 +846,10 @@ const F=[
 ];
 
 /* ---------- state + paint ---------- */
-let sel=null,hoverId=null,flowIx=0,stepIx=0,timer=null;
+let sel=null,hoverId=null,flowIx=-1,stepIx=0,timer=null;
 function neigh(id){const s=new Set([id]);E.forEach(e=>{if(e.a===id)s.add(e.b);if(e.b===id)s.add(e.a)});return s}
 function paint(){
- const step=F[flowIx].steps[stepIx];
+ const step=flowIx<0?{n:[],e:[]}:F[flowIx].steps[stepIx];
  const hotN=new Set(step.n),hotE=new Set(step.e);
  const focus=hoverId||sel;const nb=focus?neigh(focus):null;
  Object.keys(layerBtns).forEach(k=>layerBtns[k].setAttribute("aria-pressed",String(!layerOff.has(k))));
@@ -908,9 +908,15 @@ function renderInspector(){
 }
 function select(id){sel=id;renderInspector();paint()}
 function renderFlow(){
- const f=F[flowIx],s=f.steps[stepIx];
  [...$("#flowtabs").children].forEach((b,i)=>b.setAttribute("aria-selected",String(i===flowIx)));
  const body=$("#stepbody");body.innerHTML="";
+ if(flowIx<0){
+  body.append(el("p",{class:"kicker"},["No flow is drawn. Pick one above to watch a real operation cross the map, one step at a time; pick it again to clear it."]));
+  $("#dots").innerHTML="";$("#prev").disabled=true;$("#next").disabled=true;$("#play").disabled=true;$("#next").textContent="Next step";
+  paint();return;
+ }
+ const f=F[flowIx],s=f.steps[stepIx];
+ $("#next").disabled=false;$("#play").disabled=false;
  body.append(el("div",{class:"kicker"},[f.blurb+"  ·  step "+(stepIx+1)+" of "+f.steps.length]));
  body.append(el("h3",{style:"margin:8px 0 10px"},[s.t]));
  body.append(el("p",{html:s.b}));
@@ -924,7 +930,7 @@ function renderFlow(){
  paint();
 }
 const ft=$("#flowtabs");
-F.forEach((f,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":String(i===0)},[f.name]);b.addEventListener("click",()=>{stopPlay();flowIx=i;stepIx=0;renderFlow()});ft.append(b)});
+F.forEach((f,i)=>{const b=el("button",{class:"tab",role:"tab",type:"button","aria-selected":"false"},[f.name]);b.addEventListener("click",()=>{stopPlay();flowIx=flowIx===i?-1:i;stepIx=0;renderFlow()});ft.append(b)});
 function advance(){const f=F[flowIx];stepIx=stepIx>=f.steps.length-1?0:stepIx+1;renderFlow()}
 $("#next").addEventListener("click",()=>{stopPlay();advance()});
 $("#prev").addEventListener("click",()=>{stopPlay();if(stepIx>0){stepIx--;renderFlow()}});
