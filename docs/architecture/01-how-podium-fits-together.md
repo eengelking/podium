@@ -21,7 +21,7 @@ This page shows how the reporter mod, the server and the UI connect, for a contr
 
 ## The mod
 
-`mod/podium-reporter/` runs in each Claude Code process.
+`plugin/claudecode/` runs in each Claude Code process, installed from the built folder `dist/claudecode/` (DECISIONS 56). The code every reporter shares is in `plugin/core/`.
 
 - Hooks only update an in-memory model through pure reducers (`state.ts`, `plan.ts`, `failures.ts`). They never
   wait on the network.

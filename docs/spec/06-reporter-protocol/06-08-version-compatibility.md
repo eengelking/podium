@@ -43,8 +43,8 @@ A mismatch is a warning, never an error. The server still accepts and shows ever
   when the tree had local edits. A release has no build: the field is `null` and only the version shows. The
   server's build comes from `PODIUM_BUILD`, which `podiumctl build` passes into the image, or from
   `server/build.json`, which a standalone `podiumctl build` writes; with neither (a build made without git) it is
-  `null`. The mod finds its own only when it runs from a checkout of this repository, where `mod/podium-reporter`
-  is tracked by git: an installed copy has no repository, so it is a release. It sends `reporter.build` only for
+  `null`. The mod finds its own only when it runs from a checkout of this repository:
+  an installed copy is a release. It sends `reporter.build` only for
   a dev build; the server keeps only a value that is a commit hash and stores it on the session as
   `reporter_build`. The server's reply to a report carries `serverBuild` (null for a release). An older mod sends
   no build and is a release, and an older server sends no `serverBuild`, so the mod shows the version alone.

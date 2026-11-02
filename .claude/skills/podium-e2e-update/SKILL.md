@@ -1,6 +1,6 @@
 ---
 name: podium-e2e-update
-description: Keep the Podium end-to-end suite (e2e/, Cypress in a container, docs/e2e/COVERAGE.md) true to the console. Load this whenever a change adds, changes or removes a feature - anything in frontend/, server/ or mod/ that changes what a page shows or does, a route, a setting, an Admin flag or a reporter option, a label, a control, a state or a default - before the PR is opened, and when the e2e run fails or a spec is to be added, changed or removed. It explains how the suite is built and run, how to find the specs a change touches, the rules that keep it deterministic, and how to verify it. It never installs anything on the host.
+description: Keep the Podium end-to-end suite (e2e/, Cypress in a container, docs/e2e/COVERAGE.md) true to the console. Load this whenever a change adds, changes or removes a feature - anything in frontend/, server/ or plugin/ that changes what a page shows or does, a route, a setting, an Admin flag or a reporter option, a label, a control, a state or a default - before the PR is opened, and when the e2e run fails or a spec is to be added, changed or removed. It explains how the suite is built and run, how to find the specs a change touches, the rules that keep it deterministic, and how to verify it. It never installs anything on the host.
 ---
 
 # Updating the Podium end-to-end suite

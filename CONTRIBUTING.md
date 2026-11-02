@@ -6,7 +6,7 @@ propose a change, and how it gets merged.
 ## What belongs in this repo
 
 Podium shows every Claude Code session on one machine in one browser tab. This repo holds the whole thing:
-the reporter mod (`mod/podium-reporter/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
+the reporter mod (`plugin/claudecode/`, with the code every reporter shares in `plugin/core/`), the server (`server/`), the UI (`frontend/`), `podiumctl` and the
 container image.
 
 A change fits if it makes Podium better at watching sessions. Some things are out on purpose, and
@@ -32,11 +32,17 @@ npm run dev          # server on http://127.0.0.1:4317, Vite UI on http://localh
 npm run podium:sim -- --sessions 5 --chaos    # fake sessions, in a second terminal
 ```
 
-To try the mod in a real session, load it from your checkout:
+To try the mod in a real session, build it and load the built folder from your checkout. Claude Code runs against `dist/claudecode/`, not
+the source in `plugin/`, because that folder is what gets installed (DECISIONS 56):
 
 ```sh
-claude --plugin-dir /path/to/podium/mod/podium-reporter
+npm run plugin:build
+claude --plugin-dir /path/to/podium/dist/claudecode
 ```
+
+Run `npm run plugin:build` again after you change the source; the build is fast. It has no watch mode, and `claude --plugin-dir` does not
+rebuild it, so a change in `plugin/` shows only after a rebuild and a `/reload-plugins`. Its output is git-ignored.
+A mod run from `dist/claudecode/` reports no dev build (`Dev: <commit>`), because the built folder is not tracked by git.
 
 ## Checks to run
 
@@ -44,7 +50,8 @@ claude --plugin-dir /path/to/podium/mod/podium-reporter
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
-npm run test:mod       # the mod's tests (needs Claude Code)
+npm run plugin:build    # build dist/claudecode/ (the folder that is installed and zipped); fails if it is not self-contained
+npm run test:mod       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
 npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
@@ -91,16 +98,17 @@ big new state gets a case there. It cannot judge contrast or target size, which 
 `KNOWN` list with the issue that tracks it, and comes out when it is fixed.
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
-have no Claude Code, so run those yourself when you touch the mod.
+have no Claude Code, so run those yourself when you touch the mod (`plugin/claudecode/` or `plugin/core/`).
+The shared code's own tests in `plugin/core/` need no Claude Code and run under `npm test`.
 
 Two scanners also run on PRs, and after a merge to `development` or `main`: SonarCloud (`.github/workflows/sonar.yml`, quality gate and coverage on new code) and CodeQL
 (`.github/workflows/codeql.yml`, the `security-extended` queries; results are under Security > Code scanning). Neither runs on
 your machine. Fix what they flag in your PR.
 
 SonarCloud cannot see the mod's own tests, because they run only inside Claude Code, so a line added to
-`mod/podium-reporter/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
+`plugin/claudecode/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
 nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
-and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `mod/podium-reporter/hooks/*.ts` for this.
+and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `plugin/claudecode/hooks/*.ts` for this, and it measures `plugin/core/` too.
 
 ### The nightly
 
@@ -276,9 +284,9 @@ The build fails on a broken link between pages. A new page inside a split topic'
 ### The mod version bump
 
 Do not bump the version in a feature or fix PR, including one that changes the mod (anything under
-`mod/podium-reporter/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
+`plugin/claudecode/` or `plugin/core/` other than its tests). Add a line under `[Unreleased]` in `CHANGELOG.md` and leave the
 version files alone. The maintainer decides when `development` is ready to release. A release-prep PR into
-`development` then sets one number in `plugin.json`, `VERSION` in `mod/podium-reporter/hooks/register.ts`, the three
+`development` then sets one number in `plugin/claudecode/.claude-plugin/plugin.json` (and in the version file of any other harness that has one), `VERSION` in `plugin/claudecode/hooks/register.ts`, the three
 `package.json` files and the lockfile (`npm install --package-lock-only`), and renames `[Unreleased]`; a test checks
 that they all match. Installed copies of the mod only update when that number changes. A `development` to `main`
 PR carries the release, and CI (the "Mod version bump check" workflow in `.github/workflows/mod-version-check.yml`)
@@ -291,9 +299,9 @@ that version. Otherwise the server tells every up-to-date mod it is newer than t
 
 ### The report format
 
-The mod and the server share one set of report types, copied between `<protocol:begin>` and
-`<protocol:end>` markers in `server/src/fleet/protocol.ts` and `mod/podium-reporter/hooks/protocol.ts`. A
-test compares them. Change both together.
+The server, the UI and every reporter share one set of report types, in `plugin/core/protocol.ts` (DECISIONS 57). There is no
+copy to keep in line. Keep that file free of Node imports, because the UI imports it, and put code that needs Node in another file of
+`plugin/core/`. `plugin/core/` never imports a harness folder and one harness never imports the other; `server/src/plugin.test.ts` fails when one does.
 
 ### Voice
 

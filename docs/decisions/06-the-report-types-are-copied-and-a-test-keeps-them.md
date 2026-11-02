@@ -4,11 +4,14 @@ description: "The Report types are copied byte for byte into the mod and a test 
 group: "Project internals"
 number: 6
 date: "2026-10-11"
-status: "accepted"
+status: "superseded"
+superseded_by: 57
 order: 6
 ---
 
 # 6. The report types are copied, and a test keeps them equal
+
+**Superseded by 57 (#927).** The types live once in `plugin/core/protocol.ts` and the copy and its test are gone. The text below records what was true then.
 
 **Decision.** The Report types live in `server/src/fleet/protocol.ts` and, byte for byte between markers, in
 `mod/podium-reporter/hooks/protocol.ts`. `server/src/fleet/protocol.test.ts` compares the two.

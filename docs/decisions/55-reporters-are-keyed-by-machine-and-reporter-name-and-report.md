@@ -10,6 +10,8 @@ order: 55
 
 # 55. Reporters are keyed by machine and reporter name, the report gains a v2, and mod/ becomes reporters/ (#854)
 
+*The rename plan below is superseded by 56 (#927): `mod/` became `plugin/` (with `plugin/claudecode/`), not `reporters/`. The reporter key and the report v2 stand.*
+
 **Context.** The reporter table is keyed by machine id alone, so two reporters on one machine (Claude Code and OpenCode) would
 overwrite one row. The report validator accepts only `reporter.name: 'podium-reporter'`, and its fields (effort, plan source,
 models, prices, context windows, resume commands) are Claude Code's. The reporter lives in `mod/`, a name for Claude Code's

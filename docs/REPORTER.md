@@ -24,7 +24,8 @@ Contents:
 
 ## Install the mod
 
-The reporter is a Claude Code mod in `mod/podium-reporter/`. Install it from the eengelking
+The reporter is a Claude Code mod. Its source is `plugin/claudecode/` (with shared code in `plugin/core/`), and what you install is
+the built plugin that each release publishes to the `plugin-dist` branch (`dist/claudecode/`, DECISIONS 58) and zips for Claude Desktop. Install it from the eengelking
 marketplace, in Claude Code:
 
 ```
@@ -43,11 +44,15 @@ If the server uses a token (`podiumctl start` generates one), enter it with
 If the server needs a token and you send none, or send one that does not belong to your name, the reporter
 gets HTTP 401, logs it once, and tries again about once a minute. `/podium` and the status line say so.
 
-To work on the mod itself, load it from a checkout for one session instead:
+To work on the mod itself, build it and load the built folder from a checkout for one session instead:
 
 ```sh
-claude --plugin-dir /path/to/podium/mod/podium-reporter
+npm run plugin:build
+claude --plugin-dir /path/to/podium/dist/claudecode
 ```
+
+The source is not loadable on its own, because it imports the shared code from outside its folder. Run `npm run plugin:build`
+again after a change.
 
 To update an installed mod, run this in a shell and then `/reload-plugins` in the session (see "Updating
 the mod" in [docs/user-guide/](user-guide/README.md)):

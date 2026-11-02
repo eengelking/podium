@@ -249,7 +249,7 @@ not a tool's result, not the settings or the environment. Cost, tokens and the p
 
 **Limits of one entry.** A text is redacted, then cut at 100,000 characters with a visible
 `[cut off at 100,000 characters]` marker and `cut: true`. The type and limits are `RecordingEntry` and
-`RECORDING_LIMITS` in `server/src/fleet/protocol.ts`, copied into the mod.
+`RECORDING_LIMITS` in `plugin/core/protocol.ts`.
 
 **Redaction (best effort).** Before anything leaves the machine, the mod redacts every string it records, tool
 inputs and results included, with the whole rule set of the file diff ([6.4](#file-diff-opt-in-on-request-319): the

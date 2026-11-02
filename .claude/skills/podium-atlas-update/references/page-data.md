@@ -30,7 +30,7 @@ Outside the script:
 | Section | Written by | Mirrors |
 |---|---|---|
 | The parts | hand | `N` (name, role, what), most important first inside each Location |
-| The reporter's hooks and timers | hand | the `on('...')` handlers in `mod/podium-reporter/hooks/register.ts` plus its timers; a test requires a row for every registered hook |
+| The reporter's hooks and timers | hand | the `on('...')` handlers in `plugin/claudecode/hooks/register.ts` plus its timers; a test requires a row for every registered hook |
 | Key functions | `node scripts/atlas-functions.mjs` | `REFS` entries written as `name: what` |
 | The flows | hand | `F` |
 | Four ways to run it | hand | `MODES` |
