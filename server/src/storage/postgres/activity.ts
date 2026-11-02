@@ -104,6 +104,7 @@ export class PgActivityConnection {
         const loops = await loopsOf(sessionId);
         return step(() => r.view(sessionId, loops));
       },
+      viewMany: (items) => step(() => r.viewMany(items)),
       loopInfo: async (sessionId) => {
         const loops = await loopsOf(sessionId);
         return step(() => r.loopInfo(sessionId, loops));

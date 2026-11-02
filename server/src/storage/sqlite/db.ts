@@ -426,6 +426,16 @@ export class FleetDb {
     return this.stmt('SELECT * FROM sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
 
+  /** `getSession` for many ids, in the order given (#906). In-process SQLite pays nothing for a statement, so this is a loop. */
+  getSessions(ids: string[]): SessionRow[] {
+    const out: SessionRow[] = [];
+    for (const id of ids) {
+      const row = this.getSession(id);
+      if (row) out.push(row);
+    }
+    return out;
+  }
+
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
   liveCandidates(endedAfter: number): SessionRow[] {
     return this.stmt(
@@ -588,6 +598,11 @@ export class FleetDb {
     return r?.grp ?? null;
   }
 
+  /** `groupOfOwner` for many owners (#906). */
+  groupsOfOwners(owners: (string | null)[]): Map<string | null, string | null> {
+    return new Map(owners.map((o) => [o, this.groupOfOwner(o)]));
+  }
+
   distinctReporterVersions(): string[] {
     return (
       this.stmt('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v').all() as {
@@ -609,12 +624,22 @@ export class FleetDb {
     this.stmt(sql).run(row as unknown as Params);
   }
 
+  /** `upsertAgent` for every row (#906). */
+  upsertAgents(rows: AgentRow[]): void {
+    for (const row of rows) this.upsertAgent(row);
+  }
+
   getAgents(sessionId: string): AgentRow[] {
     return this.stmt(
       'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
         'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
         'WHERE a.session_id = ? ORDER BY a.started_at, a.id',
     ).all(sessionId) as unknown as AgentRow[];
+  }
+
+  /** `getAgents` for many sessions (#906). */
+  getAgentsOf(sessionIds: string[]): Map<string, AgentRow[]> {
+    return new Map(sessionIds.map((id) => [id, this.getAgents(id)]));
   }
 
   /** Keeps the full texts a report carried; a text the report leaves out is left as it was. */
@@ -624,6 +649,11 @@ export class FleetDb {
         'ON CONFLICT(session_id, agent_id) DO UPDATE SET ' +
         'prompt_text = COALESCE(excluded.prompt_text, prompt_text), answer_text = COALESCE(excluded.answer_text, answer_text)',
     ).run(sessionId, agentId, t.prompt ?? null, t.answer ?? null);
+  }
+
+  /** `upsertAgentTexts` for many agents of one session (#906). */
+  upsertAgentTextsMany(sessionId: string, texts: { agentId: string; prompt?: string; answer?: string }[]): void {
+    for (const t of texts) this.upsertAgentTexts(sessionId, t.agentId, t);
   }
 
   getAgentTexts(sessionId: string, agentId: string): { prompt: string | null; answer: string | null } | null {
@@ -687,6 +717,16 @@ export class FleetDb {
 
   getBlowouts(sessionId: string): BlowoutRow[] {
     return this.stmt('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t, id').all(sessionId) as unknown as BlowoutRow[];
+  }
+
+  /** `getBlowouts` for many sessions (#906). */
+  getBlowoutsOf(sessionIds: string[]): Map<string, BlowoutRow[]> {
+    return new Map(sessionIds.map((id) => [id, this.getBlowouts(id)]));
+  }
+
+  /** `countAutoCompactions` for many sessions (#906). */
+  countAutoCompactionsOf(sessionIds: string[]): Map<string, number> {
+    return new Map(sessionIds.map((id) => [id, this.countAutoCompactions(id)]));
   }
 
   countBlowouts(sessionId?: string): number {
@@ -762,6 +802,11 @@ export class FleetDb {
       sessionId,
       fromT,
     ) as unknown as SampleRow[];
+  }
+
+  /** `samplesSince` for many sessions (#906). */
+  samplesSinceOf(sessionIds: string[], fromT: number): Map<string, SampleRow[]> {
+    return new Map(sessionIds.map((id) => [id, this.samplesSince(id, fromT)]));
   }
 
   /** Σ tokens_delta per second across all sessions, for seconds >= fromT. */

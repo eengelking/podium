@@ -278,6 +278,11 @@ export class SessionRecordings {
     };
   }
 
+  /** `view` for many sessions (#906). In-process SQLite pays nothing for a read, so this is a loop. */
+  viewMany(items: { sessionId: string; loops: { loop: string; name: string }[] }[]): Map<string, RecordingView | null> {
+    return new Map(items.map((i) => [i.sessionId, this.view(i.sessionId, i.loops)]));
+  }
+
   /** Every loop of a session with whether it is recorded, for the replay's loop filter. */
   loopInfo(sessionId: string, all: { loop: string; name: string }[] = this.opts.loopsOf(sessionId)): RecordingLoopInfo[] {
     const chosen = new Set(this.row(sessionId)?.loops ?? []);

@@ -112,6 +112,60 @@ export function fleetCases(o: Openers): void {
     expect((t.get('sample (upsert replaces)') as SampleRow).tokens_total).toBe(3);
   });
 
+  it('reads many sessions at once, and writes many agents at once, as the one-at-a-time methods do (#906)', async () => {
+    const t = await sameOnBoth(o, async (s, rec) => {
+      const f = s.fleet;
+      const { person } = await s.people.createPerson('Ann', null, T0);
+      const crew = await s.people.createGroup('Crew', T0);
+      await s.people.setGroup(person.id, crew.id);
+      await s.people.createPerson('solo', null, T0);
+      await f.upsertSession(session({ id: 'b', owner: 'Ann', started_at: T0 + 2 }));
+      await f.upsertSession(session({ id: 'a', owner: 'solo', started_at: T0 + 1 }));
+      await f.upsertSession(session({ id: 'c', owner: null }));
+      // one statement for each of three agents, one of them with texts and one that is rewritten
+      await f.upsertAgents([agent('a', 'a2', { started_at: T0 + 5 }), agent('a', 'a1', { started_at: T0 + 5 }), agent('b', 'b1')]);
+      await f.upsertAgents([agent('a', 'a1', { status: 'done', ended_at: T0 + 9 })]);
+      await f.upsertAgents([]);
+      await f.upsertAgentTextsMany('a', [{ agentId: 'a1', prompt: 'p1' }, { agentId: 'a2', answer: 'x2' }]);
+      await f.upsertAgentTextsMany('a', [{ agentId: 'a1', answer: 'x1' }]);
+      await f.upsertAgentTextsMany('a', []);
+      await rec('texts a1 (kept prompt)', f.getAgentTexts('a', 'a1'));
+      await rec('texts a2', f.getAgentTexts('a', 'a2'));
+      await f.insertBlowout({ session_id: 'b', agent_id: null, t: T0 + 3, kind: 'compact', tokens_before: 9, tokens_after: 1 });
+      await f.insertBlowout({ session_id: 'b', agent_id: null, t: T0 + 1, kind: 'clear', tokens_before: null, tokens_after: null });
+      await f.insertEvent({ id: 'e1', session_id: 'a', agent_id: null, t: T0, kind: 'compact', text: 't', data_json: '{"trigger":"auto"}' });
+      await f.insertEvent({ id: 'e2', session_id: 'a', agent_id: null, t: T0 + 1, kind: 'compact', text: 't', data_json: '{"trigger":"manual"}' });
+      for (const [id, secs] of [['b', [100, 90, 95]], ['a', [100]]] as const) for (const t of secs) await f.upsertSample(sample(id, t));
+      const ids = ['c', 'missing', 'a', 'b'];
+      const batched = await rec('sessions', f.getSessions(ids));
+      const agents = await rec('agents', f.getAgentsOf(ids));
+      const blowouts = await rec('blowouts', f.getBlowoutsOf(ids));
+      const compactions = await rec('auto compactions', f.countAutoCompactionsOf(ids));
+      const samples = await rec('samples', f.samplesSinceOf(ids, 95));
+      const owners: (string | null)[] = ['solo', null, 'Ann', 'ghost'];
+      const groups = await rec('groups', f.groupsOfOwners(owners));
+      await rec('nothing asked', [await f.getSessions([]), await f.getAgentsOf([]), await f.samplesSinceOf([], 0), await f.groupsOfOwners([])]);
+      // the batch answers what the one-at-a-time methods answer, in the order the ids were given
+      const rows: unknown[] = [];
+      for (const id of ids) {
+        const r = await f.getSession(id);
+        if (r) rows.push(r);
+      }
+      expect(batched).toEqual(rows);
+      for (const id of ids) {
+        expect(agents.get(id)).toEqual(await f.getAgents(id));
+        expect(blowouts.get(id)).toEqual(await f.getBlowouts(id));
+        expect(compactions.get(id)).toBe(await f.countAutoCompactions(id));
+        expect(samples.get(id)).toEqual(await f.samplesSince(id, 95));
+      }
+      expect([...agents.keys()]).toEqual(ids);
+      for (const owner of owners) expect(groups.get(owner)).toBe(await f.groupOfOwner(owner));
+    });
+    expect((t.get('sessions') as { id: string }[]).map((r) => r.id)).toEqual(['c', 'a', 'b']);
+    expect(t.get('texts a1 (kept prompt)')).toEqual({ prompt: 'p1', answer: 'x1' });
+    expect(t.get('auto compactions')).toEqual(new Map([['c', 0], ['missing', 0], ['a', 1], ['b', 0]]));
+  });
+
   it('matches the reference for the fleet-wide rates and for what retention deletes', async () => {
     const t = await sameOnBoth(o, async (s, rec) => {
       const f = s.fleet;

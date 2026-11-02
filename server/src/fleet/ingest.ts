@@ -205,15 +205,15 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     const revived = !!prev && !ended && (prev.ended_at !== null || prev.dropped_at !== null);
 
     // 2. Agents: upsert what was reported; never delete one that is missing (a reload may lose it).
-    for (const a of report.agents) {
-      await f.upsertAgent(agentRow(sid, a, row.cost_source === 'harness'));
-      if (a.promptText || a.answerText) {
-        await f.upsertAgentTexts(sid, a.id, {
-          ...(a.promptText ? { prompt: a.promptText } : {}),
-          ...(a.answerText ? { answer: a.answerText } : {}),
-        });
-      }
-    }
+    // One statement for the agents and one for their texts, whatever the number (#906).
+    const harness = row.cost_source === 'harness';
+    await f.upsertAgents(report.agents.map((a) => agentRow(sid, a, harness)));
+    await f.upsertAgentTextsMany(
+      sid,
+      report.agents
+        .filter((a) => a.promptText || a.answerText)
+        .map((a) => ({ agentId: a.id, ...(a.promptText ? { prompt: a.promptText } : {}), ...(a.answerText ? { answer: a.answerText } : {}) })),
+    );
     if (ended) await f.abortOpenAgents(sid, serverTime);
 
     // 3. Events, idempotent by id. A blow event that is new adds a blowouts row.

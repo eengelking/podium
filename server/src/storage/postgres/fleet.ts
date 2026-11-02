@@ -3,7 +3,7 @@
 // reads and then writes is one transaction, which is what the SQLite lock gave it.
 import { type SessionRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, ADMIN_LOG_KEEP } from '../rows.js';
 import type { FleetStore, FleetStoreApi } from '../types.js';
-import type { PgDb, Params } from './conn.js';
+import type { PgDb, Param, Params } from './conn.js';
 import { PgReportQueries } from './reportQueries.js';
 
 const storedCost: CostOf = (r) => r.cost_usd;
@@ -17,6 +17,26 @@ function isAutoCompact(dataJson: string | null): boolean {
   } catch {
     return false;
   }
+}
+
+/** Most values one statement binds is 65,535; a list of ids or a run of rows is cut into pieces well under that. */
+const IDS_PER_STATEMENT = 1000;
+const ROWS_PER_STATEMENT = 500;
+
+function pieces<T>(list: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** `?, ?, ?` for `n` values. */
+const marks = (n: number): string => Array.from({ length: n }, () => '?').join(', ');
+
+/** A key for every id asked, in the order asked, each with its own list: the shape every `...Of` read answers. */
+function grouped<T extends { session_id: string }>(ids: readonly string[], rows: readonly T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>(ids.map((id) => [id, []]));
+  for (const r of rows) out.get(r.session_id)?.push(r);
+  return out;
 }
 
 /** The tables a session owns rows in, in the order a delete takes them. */
@@ -37,6 +57,15 @@ export class PgFleetStore implements FleetStoreApi {
 
   getSession(id: string): Promise<SessionRow | undefined> {
     return this.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', [id]);
+  }
+
+  /** `getSession` for many ids in one statement per thousand, in the order given (#906). */
+  async getSessions(ids: string[]): Promise<SessionRow[]> {
+    const found = new Map<string, SessionRow>();
+    for (const part of pieces([...new Set(ids)], IDS_PER_STATEMENT)) {
+      for (const r of await this.db.all<SessionRow>(`SELECT * FROM sessions WHERE id IN (${marks(part.length)})`, part)) found.set(r.id, r);
+    }
+    return ids.flatMap((id) => found.get(id) ?? []);
   }
 
   /** Sessions that may be in the live set: not dropped, and either not ended or ended after `endedAfter`. */
@@ -196,6 +225,17 @@ export class PgFleetStore implements FleetStoreApi {
     return r?.grp ?? null;
   }
 
+  /** `groupOfOwner` for many owners in one statement (#906). */
+  async groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>> {
+    const out = new Map<string | null, string | null>(owners.map((o) => [o, null]));
+    const names = [...new Set(owners.filter((o): o is string => o !== null))];
+    for (const part of pieces(names, IDS_PER_STATEMENT)) {
+      const rows = await this.db.all<{ name: string; grp: string }>(`SELECT p.name AS name, g.name AS grp FROM people p JOIN groups g ON g.id = p.group_id WHERE p.name IN (${marks(part.length)})`, part);
+      for (const r of rows) out.set(r.name, r.grp);
+    }
+    return out;
+  }
+
   async distinctReporterVersions(): Promise<string[]> {
     return (await this.db.all<{ v: string }>('SELECT DISTINCT reporter_version AS v FROM sessions WHERE reporter_version IS NOT NULL ORDER BY v')).map((r) => r.v);
   }
@@ -213,6 +253,24 @@ export class PgFleetStore implements FleetStoreApi {
     await this.db.run(sql, row as unknown as Params);
   }
 
+  /** `upsertAgent` for every row in one statement per 500 rows (#906). A later row for the same agent wins, as it would one at a time. */
+  async upsertAgents(rows: AgentRow[]): Promise<void> {
+    const last = new Map<string, AgentRow>();
+    for (const r of rows) last.set(`${r.session_id}\u0000${r.id}`, r);
+    const cols = Object.keys(rows[0] ?? {}) as (keyof AgentRow)[];
+    for (const part of pieces([...last.values()], ROWS_PER_STATEMENT)) {
+      const values = part.flatMap((r) => cols.map((c) => r[c] as Param));
+      await this.db.run(
+        `INSERT INTO agents (${cols.join(', ')}) VALUES ${part.map(() => `(${marks(cols.length)})`).join(', ')} ` +
+          `ON CONFLICT(session_id, id) DO UPDATE SET ${cols
+            .filter((c) => c !== 'id' && c !== 'session_id')
+            .map((c) => `${c} = excluded.${c}`)
+            .join(', ')}`,
+        values,
+      );
+    }
+  }
+
   getAgents(sessionId: string): Promise<AgentRow[]> {
     return this.db.all<AgentRow>(
       'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
@@ -220,6 +278,22 @@ export class PgFleetStore implements FleetStoreApi {
         'WHERE a.session_id = ? ORDER BY a.started_at, a.id',
       [sessionId],
     );
+  }
+
+  /** `getAgents` for many sessions in one statement per thousand (#906). */
+  async getAgentsOf(sessionIds: string[]): Promise<Map<string, AgentRow[]>> {
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      rows.push(
+        ...(await this.db.all<AgentRow>(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          part,
+        )),
+      );
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** Keeps the full texts a report carried; a text the report leaves out is left as it was. */
@@ -230,6 +304,24 @@ export class PgFleetStore implements FleetStoreApi {
         'prompt_text = COALESCE(excluded.prompt_text, agent_texts.prompt_text), answer_text = COALESCE(excluded.answer_text, agent_texts.answer_text)',
       [sessionId, agentId, t.prompt ?? null, t.answer ?? null],
     );
+  }
+
+  /** `upsertAgentTexts` for many agents of one session in one statement per 500 (#906). */
+  async upsertAgentTextsMany(sessionId: string, texts: { agentId: string; prompt?: string; answer?: string }[]): Promise<void> {
+    // The same agent named twice is merged first (a later text wins), because one statement may not change a row twice.
+    const by = new Map<string, { prompt: string | null; answer: string | null }>();
+    for (const t of texts) {
+      const e = by.get(t.agentId) ?? { prompt: null, answer: null };
+      by.set(t.agentId, { prompt: t.prompt ?? e.prompt, answer: t.answer ?? e.answer });
+    }
+    for (const part of pieces([...by], ROWS_PER_STATEMENT)) {
+      await this.db.run(
+        `INSERT INTO agent_texts (session_id, agent_id, prompt_text, answer_text) VALUES ${part.map(() => '(?, ?, ?, ?)').join(', ')} ` +
+          'ON CONFLICT(session_id, agent_id) DO UPDATE SET ' +
+          'prompt_text = COALESCE(excluded.prompt_text, agent_texts.prompt_text), answer_text = COALESCE(excluded.answer_text, agent_texts.answer_text)',
+        part.flatMap(([agentId, t]) => [sessionId, agentId, t.prompt, t.answer]),
+      );
+    }
   }
 
   async getAgentTexts(sessionId: string, agentId: string): Promise<{ prompt: string | null; answer: string | null } | null> {
@@ -285,6 +377,25 @@ export class PgFleetStore implements FleetStoreApi {
     return this.db.all<BlowoutRow>('SELECT * FROM blowouts WHERE session_id = ? ORDER BY t, id', [sessionId]);
   }
 
+  /** `getBlowouts` for many sessions in one statement per thousand (#906). */
+  async getBlowoutsOf(sessionIds: string[]): Promise<Map<string, BlowoutRow[]>> {
+    const rows: BlowoutRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      rows.push(...(await this.db.all<BlowoutRow>(`SELECT * FROM blowouts WHERE session_id IN (${marks(part.length)}) ORDER BY t, id`, part)));
+    }
+    return grouped(sessionIds, rows);
+  }
+
+  /** `countAutoCompactions` for many sessions in one statement per thousand (#906). */
+  async countAutoCompactionsOf(sessionIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>(sessionIds.map((id) => [id, 0]));
+    for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      const rows = await this.db.all<{ session_id: string; data_json: string | null }>(`SELECT session_id, data_json FROM events WHERE session_id IN (${marks(part.length)}) AND kind = 'compact'`, part);
+      for (const r of rows) if (isAutoCompact(r.data_json)) out.set(r.session_id, (out.get(r.session_id) ?? 0) + 1);
+    }
+    return out;
+  }
+
   async countBlowouts(sessionId?: string): Promise<number> {
     const r = sessionId ? await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM blowouts WHERE session_id = ?', [sessionId]) : await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM blowouts');
     return Number(r!.n);
@@ -337,6 +448,15 @@ export class PgFleetStore implements FleetStoreApi {
 
   samplesSince(sessionId: string, fromT: number): Promise<SampleRow[]> {
     return this.db.all<SampleRow>('SELECT * FROM samples WHERE session_id = ? AND t >= ? ORDER BY t', [sessionId, fromT]);
+  }
+
+  /** `samplesSince` for many sessions in one statement per thousand (#906). */
+  async samplesSinceOf(sessionIds: string[], fromT: number): Promise<Map<string, SampleRow[]>> {
+    const rows: SampleRow[] = [];
+    for (const part of pieces([...new Set(sessionIds)], IDS_PER_STATEMENT)) {
+      rows.push(...(await this.db.all<SampleRow>(`SELECT * FROM samples WHERE session_id IN (${marks(part.length)}) AND t >= ? ORDER BY t`, [...part, fromT])));
+    }
+    return grouped(sessionIds, rows);
   }
 
   /** Σ tokens_delta per second across all sessions, for seconds >= fromT. */
