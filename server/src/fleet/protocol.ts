@@ -768,7 +768,7 @@ function harnessBlock(v: unknown, path: string): HarnessInfo {
   return { id, name, version: str(o.version, `${path}.version`, LIMITS.short), surface: strOrNull(o.surface, `${path}.surface`, LIMITS.short) };
 }
 
-/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter supports, and its commands. Unknown keys are dropped. */
+/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter declares (a key left out is not declared), and its commands. Unknown keys are dropped. */
 function capabilitiesBlock(v: unknown, path: string): Capabilities {
   const o = obj(v, path);
   const out: Capabilities = { commands: [] };

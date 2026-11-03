@@ -23,6 +23,8 @@ interface SessionView {
   costUsd: number | null; tokensTotal: number;
   harness: string;                      // 'claude-code' for a session stored before harnesses were recorded (#851)
   costSource: 'harness' | 'estimate';   // 'harness': costUsd is the harness's own figure, shown labeled as such (6.5)
+  capabilities: Capabilities | null;    // what the harness declared it can report (6.2); null when nothing was declared (v1, or a session stored before #940). A key it left out is absent
+  modelLabel: string | null; modelProvider: string | null;  // the model's name as the harness shows it, and the company behind it (#940); the chip reads the label, with `model` as its title
   blowouts: { orchestrator: number; agents: number; total: number; level: 0 | 1 | 2; loopsHit: number; loopsTotal: number;
               log: { t: number; agentId: string | null; kind: string; tokensBefore: number | null; tokensAfter: number | null }[] };
   compactions: number;                  // times Claude Code compacted the session on its own, any loop: its stored `compact` events with data.trigger "auto" (#805). 0 from a reporter older than the one that sends them.
