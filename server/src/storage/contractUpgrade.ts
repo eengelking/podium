@@ -76,6 +76,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const a = (await s.fleet.getSession('old1'))!;
       expect(a).toMatchObject({ name: 'first', model: 'claude-opus-4-5', cost_usd: 1.5, started_at: T0, harness: 'claude-code', cost_source: null });
       expect(await s.fleet.getSession('old2')).toMatchObject({ cost_usd: null, harness: 'claude-code', cost_source: null });
+      // Nothing was declared before the columns existed (#940), so both read as not declared.
+      for (const id of ['old1', 'old2']) expect(await s.fleet.getSession(id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
     } finally {
       await s.close();
     }

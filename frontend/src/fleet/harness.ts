@@ -2,6 +2,8 @@
 // it is about how the console draws a session, not about what a reporter sends. A harness with no entry is drawn with its id and a
 // plain square, and every field is shown, since nothing says it cannot report one.
 
+import type { Capabilities } from "../../../plugin/core/protocol";
+
 export type HarnessShape = "square" | "diamond";
 
 export interface HarnessDisplay {
@@ -33,6 +35,17 @@ export function harnessOf(harness: string | null | undefined): HarnessDisplay {
   const id = harness || DEFAULT_HARNESS;
   if (Object.hasOwn(KNOWN, id)) return { id, ...KNOWN[id]! };
   return { id, name: id, shape: "square", shell: null, recommendedMark: false, context: true, effort: true };
+}
+
+/**
+ * How to draw a session: what its harness declared (#940) wins over the table above, field by field, and the table answers only for a field the
+ * session does not declare. A session with nothing declared (Claude Code's, a v1 report, one stored before this) is drawn from the table alone.
+ */
+export function harnessOfSession(s: { harness?: string | null; capabilities?: Capabilities | null }): HarnessDisplay {
+  const base = harnessOf(s.harness);
+  const declared = s.capabilities;
+  if (!declared) return base;
+  return { ...base, context: declared.context ?? base.context, effort: declared.effort ?? base.effort };
 }
 
 /** The name of the harness's shell tool; null when Podium does not know it. */

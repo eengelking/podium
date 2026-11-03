@@ -12,7 +12,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     started_at: 1000, last_seen_at: 2000, ended_at: null, dropped_at: null, cwd: '/tmp/demo', project_root: null,
     repo_name: null, git_json: null, model: 'opus', effort: 'high', context_tokens: null, context_window: null,
     context_percent: null, cost_usd: 1.5, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, rate_limits_json: null,
-    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null,
+    blowouts: 0, plan_json: null, reporter_version: '0.1.0', engine_version: null, loop_json: null, files_json: null, attached: null, detached_at: null, owner: null, machine_json: null, background_json: null, usage_json: null, cleared_from: null, harness: 'claude-code', cost_source: null, capabilities_json: null, model_label: null, model_provider: null,
     ...over,
   };
 }
@@ -27,7 +27,7 @@ describe('openDb', () => {
     const db = openDb(':memory:');
     const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(tables).toEqual(expect.arrayContaining(['admin_log', 'agent_texts', 'agents', 'blowouts', 'events', 'groups', 'people', 'person_machines', 'peer_messages', 'peer_owner_settings', 'peer_requests', 'peer_rights', 'reporter_ignores', 'reporter_sessions', 'reporters', 'samples', 'schema_migrations', 'sessions', 'settings']));
-    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }]);
+    expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: 1 }, { version: 2 }, { version: 3 }, { version: 4 }, { version: 5 }, { version: 6 }, { version: 7 }, { version: 8 }, { version: 9 }, { version: 10 }, { version: 11 }, { version: 12 }, { version: 13 }, { version: 14 }, { version: 15 }, { version: 16 }, { version: 17 }, { version: 18 }, { version: 19 }, { version: 20 }, { version: 21 }, { version: 22 }, { version: 23 }, { version: 24 }, { version: 25 }, { version: 26 }, { version: 27 }, { version: 28 }, { version: 29 }]);
     db.close();
   });
 
@@ -99,6 +99,9 @@ describe('openDb', () => {
     old.exec('ALTER TABLE sessions DROP COLUMN plan_kept_json');
     old.exec('ALTER TABLE sessions DROP COLUMN harness');
     old.exec('ALTER TABLE sessions DROP COLUMN cost_source');
+    old.exec('ALTER TABLE sessions DROP COLUMN capabilities_json');
+    old.exec('ALTER TABLE sessions DROP COLUMN model_label');
+    old.exec('ALTER TABLE sessions DROP COLUMN model_provider');
     for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);

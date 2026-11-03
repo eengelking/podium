@@ -142,6 +142,10 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     // Set by the first report that names them; a later one that leaves them out (a hook) keeps them.
     harness: s.harness ?? prev?.harness ?? 'claude-code',
     cost_source: fromHarness ? 'harness' : null,
+    // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
+    capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
+    model_label: s.modelLabel === undefined ? prev?.model_label ?? null : s.modelLabel,
+    model_provider: s.modelProvider === undefined ? prev?.model_provider ?? null : s.modelProvider,
   };
 }
 

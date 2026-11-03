@@ -90,7 +90,7 @@ export function AgentTree(props: {
             </span>
           </div>
           <div className="cell">
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </div>
           <div className="cell">
             <EffortMeter effort={s.effort} />

@@ -155,6 +155,13 @@ describe('sessionView', () => {
     expect(v).toMatchObject({ harness: 'opencode', costSource: 'harness', costUsd: 0.37, modelFamily: 'other', context: { tokens: 1200, window: null, percent: null } });
   });
 
+  it('carries what the harness declared, and null when nothing was (#940)', async () => {
+    const r = fixtureReport();
+    const declared = await viewOf({ ...r, capabilities: { context: false, commands: ['/clear'] }, session: { ...r.session, modelLabel: 'GPT-5.1', modelProvider: 'openai' } }, 1_791_648_001_000);
+    expect(declared).toMatchObject({ capabilities: { context: false, commands: ['/clear'] }, modelLabel: 'GPT-5.1', modelProvider: 'openai' });
+    expect(await viewOf(fixtureReport(), 1_791_648_001_000)).toMatchObject({ capabilities: null, modelLabel: null, modelProvider: null });
+  });
+
   it('shows a Claude Code session with Podium\'s own estimate (#851)', async () => {
     const v = await viewOf(fixtureReport(), 1_791_648_001_000);
     expect(v).toMatchObject({ harness: 'claude-code', costSource: 'estimate' });

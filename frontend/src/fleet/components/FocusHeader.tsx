@@ -1,12 +1,12 @@
 import { currentStep, inferredStep, planComplete } from "../logic";
 import type { SessionView } from "../types";
-import { harnessOf } from "../harness";
+import { harnessOfSession } from "../harness";
 import { GitLine, HarnessBadge, StateIcon, type StateKind } from "./Chips";
 import { MiniCharts } from "./MiniCharts";
 
 /** Layer one of the summary surface: who it is, what it is doing, where. The state shape beside the name is the status band's shape. */
 export function FocusHeader({ s, kind, now, showHarness }: { s: SessionView; kind: StateKind; now: number; showHarness?: boolean }) {
-  const harness = harnessOf(s.harness);
+  const harness = harnessOfSession(s);
   const step = currentStep(s.plan);
   const next = step ? null : inferredStep(s.plan);
   return (

@@ -239,6 +239,12 @@ export interface SessionRow {
   harness: string;
   /** `harness` when the cost is the harness's own figure, which Podium never reprices; NULL when Podium priced it from the tokens. */
   cost_source: string | null;
+  /** What the harness declared it can report (#940): a JSON `Capabilities` (a key it did not declare is absent). NULL when no report has declared any, as for every v1 session and every session stored before this. */
+  capabilities_json: string | null;
+  /** The model's name as the harness shows it (#940); NULL when no report has given one. */
+  model_label: string | null;
+  /** The company or service behind the model (#940); NULL when no report has given one. */
+  model_provider: string | null;
 }
 
 export interface AgentRow {
