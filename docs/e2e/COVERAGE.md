@@ -166,7 +166,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | Timer-driven sign-in states (#791, DECISIONS 50), each on a server restarted with `PODIUM_TEST_TIMINGS=1` and a short time: the Admin idle lock (the lock screen returns with no action); the sign-in to respond ending when idle (the page checks once a minute, so about 70 s); the lockout (five wrong tries, the message in Admin's unlock and in the console's sign-in, the lift after the lock time) | SPEC 7.7 Test-only timings | `e2e/cypress/e2e/admin/idle-lock.cy.js`, `e2e/cypress/e2e/admin/lockout.cy.js`, `e2e/cypress/e2e/respond/sign-in-idle.cy.js` |
 | People: create, token shown once, search, group, the actions menu by mouse and by key, rotate, revoke, delete, bulk select; Groups | SPEC 8.1 People, Groups | `e2e/cypress/e2e/admin/people-groups.cy.js` |
 | Reporters: filters, search, sort, details, ignore rules, removal | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters.cy.js` |
-| Reporters: outdated and newer versions and the top bar's counts, the admin-secret band and Show only these, the details of both, with the Compatibility text naming the reporter (#852), ignoring a version, Select all, "Not since restart" | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-states.cy.js` |
+| Reporters: outdated and newer versions and the top bar's counts, the admin-secret band and Show only these, the details of both, with the Compatibility text naming the reporter (#852), the Claude Code / OpenCode picker on the admin-secret steps (#857), ignoring a version, Select all, "Not since restart" | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-states.cy.js` |
 | Settings: the flags (each off, kept, on), warning bars, messaging limits, recording limits and their refusals, wall notices, the wall, forget old reporters; the recordings table with Stop | SPEC 8.1 Feature flags | `e2e/cypress/e2e/admin/settings.cy.js` |
 | Model prices: edit, cancel, Reset to built-in, add and Remove a model, a duplicate, an invalid price with `aria-invalid` and its message; a price change reprices a session's card ($0.42 to $16.20) and Spend today | SPEC 8.1 Model prices | `e2e/cypress/e2e/admin/model-prices.cy.js` |
 | Reporters: Idle, after two minutes without a report, with no reload. This is the one real-time wait in the suite, about 2.5 minutes of every run, a retrying assertion on the server's own threshold, not a fixed sleep | SPEC 8.1 Reporters page | `e2e/cypress/e2e/admin/reporters-idle.cy.js` |
@@ -184,7 +184,7 @@ checked this way is under "What no end-to-end spec can reach" and says why.
 | `activity-output` on, off, and on with `activityOutput` off | `e2e/cypress/e2e/flags/activity-flags.cy.js` |
 | `respond` on and off, and a reporter that cannot answer | `e2e/cypress/e2e/respond/respond.cy.js` |
 | `file-diff` on, off, and on with `fileDiff` off | `e2e/cypress/e2e/orchestrator/file-diff.cy.js` |
-| `peer-messaging` on, off, and on with a machine's `peers` off, with both routes to turn it on named | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
+| `peer-messaging` on, off, and on with a machine's `peers` off, with both Claude Code routes to turn it on named in the hover note on "Off on the machine" (#857) | `e2e/cypress/e2e/flags/messaging-flag.cy.js` |
 | `session-recording` on, off, and on with the reporter's option off | `e2e/cypress/e2e/recording/recording.cy.js` |
 | `update-check`: the switch only; the notice it produces is a stated gap below | `e2e/cypress/e2e/admin/settings.cy.js` |
 

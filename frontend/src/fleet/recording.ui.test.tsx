@@ -205,6 +205,15 @@ describe("the picker", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("says how an OpenCode owner turns recording on (#857)", async () => {
+    const api = fakeApi({ recordingStart: vi.fn(async (_id: string, loops: string[]) => ({ ok: true as const, grant: grantOf(loops, { consent: { admin: true, chosen: true, owner: false } }) })) });
+    const { dialog } = await open({ harness: "opencode" }, { api });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start recording" }));
+    await flush();
+    expect(dialog.textContent).toMatch(/adding PODIUM_SESSION_RECORDING=true to ~\/\.podium\/config\.env and running opencode service restart/);
+    expect(dialog.textContent).not.toMatch(/\/plugin configure/);
+  });
+
   it("says up front, before Start, that the owner has not allowed it, when the server says so", async () => {
     const recordingConsent = vi.fn(async () => ({ ok: true as const, grant: grantOf([], { state: "off", consent: { admin: true, chosen: false, owner: false } }) }));
     const api = fakeApi({ recordingConsent });

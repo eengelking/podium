@@ -45,8 +45,18 @@ describe("podium-reporter-zip", () => {
     expect(buildReporterZip(src, "-nightly-2026-10-30").name).toBe(`podium-reporter-${version}-nightly-2026-10-30.zip`);
   });
 
-  it("names an opencode archive podium-opencode-<version>", () => {
-    expect(buildReporterZip(src, "", "opencode").name).toBe(`podium-opencode-${version}.zip`);
+  it("zips opencode as a package: package.json and plugin/ at the root, no Claude manifest, named podium-opencode-<version> (#857)", () => {
+    const ocSrc = buildHarness("opencode", { outDir: dist }).dir;
+    const zip = buildReporterZip(ocSrc, "-nightly-2026-11-03", "opencode");
+    expect(zip.name).toBe(`podium-opencode-${version}-nightly-2026-11-03.zip`);
+    expect(zip.version).toBe(version);
+    expect(zip.files).toEqual(expect.arrayContaining(["package.json", "plugin/opencode/index.ts", "plugin/core/protocol.ts"]));
+    expect(zip.files.some((f: string) => f.startsWith(".claude-plugin/") || f.endsWith(".test.ts"))).toBe(false);
+    expect(run(["--harness", "opencode", "--src", ocSrc, "--out", mkdtempSync(join(tmpdir(), "oc-zip-out-")), "--expect-version", version]).out).toContain(`podium-opencode-${version}.zip`);
+  });
+
+  it("refuses a claudecode folder for the opencode harness", () => {
+    expect(() => buildReporterZip(src, "", "opencode")).toThrow("has no package.json");
   });
 
   it("has plugin.json and hooks.json at its root and no tests or .DS_Store", () => {

@@ -15,6 +15,7 @@ Contents:
 
 - [Install the mod](#install-the-mod)
 - [Install in the Claude desktop app on Windows 11](#install-in-the-claude-desktop-app-on-windows-11)
+- [Install the OpenCode reporter](#install-the-opencode-reporter)
 - [In the session](#in-the-session)
 - [Options](#options)
 - [Over TLS](#over-tls)
@@ -86,6 +87,53 @@ should see `Connection: online`, and `Messaging: on` if `peers` is set.
 What does not work on Windows: the tmux web terminal. The server does not run on Windows (see [SERVER.md](SERVER.md)).
 Reports from the app reach the server over the folder link described in [Over TLS](#over-tls), not a socket. Cloud and WSL sessions
 do not load plugins.
+
+## Install the OpenCode reporter
+
+The OpenCode reporter (`plugin/opencode/`, with shared code in `plugin/core/`) watches OpenCode 2.x sessions and reports them to Podium. It is
+watch only. What you install is the built folder `dist/opencode/`, which a release publishes to the `plugin-dist` branch and zips as
+`podium-opencode-<version>.zip` (the nightly prerelease has `podium-opencode-<version>-nightly-<date>.zip`). OpenCode supplies the plugin API at runtime, so
+nothing else is bundled. Pick one way to install it.
+
+**From the archive.** Download the zip from the GitHub Release and unzip it into a `podium` folder in OpenCode's plugin folder:
+
+```sh
+mkdir -p ~/.config/opencode/plugins/podium
+unzip podium-opencode-<version>.zip -d ~/.config/opencode/plugins/podium
+```
+
+OpenCode loads each folder in its config directory's `plugins/` (`$OPENCODE_CONFIG_DIR` when that is set, otherwise `~/.config/opencode/`).
+The folder must hold `package.json` at its top, not one more folder down.
+
+**From Git.** One line, and OpenCode can update it later. Quote the specifier, because `#` starts a comment in a shell:
+
+```sh
+opencode plugin add "git+https://github.com/eengelking/podium.git#plugin-dist::path:dist/opencode"
+```
+
+`#plugin-dist` follows the latest release. To stay on one version, use a release tag, `#v1.5.0::path:dist/opencode`, or a range,
+`#semver:^1.5.0::path:dist/opencode`. The part after `::path:` is required, because the package is in a folder of the branch and not at its top.
+`opencode plugin check` shows an update and `opencode plugin update` installs it.
+
+**Then restart OpenCode's service,** so it loads the plugin:
+
+```sh
+opencode service restart
+```
+
+The reporter runs in all three ways OpenCode runs. In the background service (the default) it lives as long as the service. With the service
+disabled (`opencode service set disabled true`) and with `opencode --standalone` (a private server), OpenCode starts the plugin with each
+command, so the reporter lives only as long as that command: a session reports `done` when the command ends.
+
+Settings come from the environment and `~/.podium/config.env`, the same file the Claude Code reporter reads, never from `opencode.json`.
+Set the server and token there:
+
+```sh
+PODIUM_SERVER=http://127.0.0.1:4317
+PODIUM_TOKEN=<token>
+```
+
+See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), and `plugin/opencode/README.md` for what it reports.
 
 ## In the session
 

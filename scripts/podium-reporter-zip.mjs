@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync } from "node:zlib";
-import { checkTree, HARNESSES, included, walk } from "./plugin-build.mjs";
+import { checkTree, HARNESSES, included, manifestPath, manifestVersion, walk } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The archive's name stem for each harness. */
@@ -18,12 +18,12 @@ const USAGE = `Usage: node scripts/podium-reporter-zip.mjs [--harness <claudecod
 Zips the built folder dist/<harness>/ into <dir>/<name>-<version>[<suffix>].zip and prints the path. Run
 \`node scripts/plugin-build.mjs\` first; this script fails when the folder is missing or not self-contained.
   --harness        which plugin (default claudecode). Names: claudecode is podium-reporter, opencode is podium-opencode.
-  <version>        the version in the built folder's .claude-plugin/plugin.json
+  <version>        the version in the built folder's manifest: .claude-plugin/plugin.json (claudecode) or package.json (opencode)
   --out <dir>      where to write the zip (default: the current directory; never inside the built folder)
   --suffix <text>  appended to the name before .zip, e.g. -nightly-2026-10-30
   --expect-version fail unless <version> equals this (a tag's number, without the v)
   --src <dir>      zip this folder instead of dist/<harness>/ (for tests)
-The archive has .claude-plugin/plugin.json and hooks/hooks.json at its root.`;
+The claudecode archive has .claude-plugin/plugin.json and hooks/hooks.json at its root; the opencode one has package.json and plugin/ (unzip it into ~/.config/opencode/plugins/podium/).`;
 
 /** Every file under `dir` as a path relative to it with forward slashes, in a fixed order. */
 export function listFiles(dir) {
@@ -83,15 +83,15 @@ export function zipBytes(files) {
 /** The archive of the built folder `srcDir`: its name, version, file list and bytes. */
 export function buildReporterZip(srcDir, suffix = "", harness = "claudecode") {
   const dir = srcDir ?? join(ROOT, "dist", harness);
-  if (!existsSync(join(dir, ".claude-plugin", "plugin.json"))) {
-    throw new Error(`${dir} has no .claude-plugin/plugin.json. Build the plugin first: npm run plugin:build:release`);
+  if (!existsSync(join(dir, ...manifestPath(harness).split("/")))) {
+    throw new Error(`${dir} has no ${manifestPath(harness)}. Build the plugin first: npm run plugin:build:release`);
   }
   const problems = checkTree(dir);
   if (problems.length) throw new Error(`${dir} is not a complete plugin folder:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
   if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
     throw new Error(`${dir} carries .claude-plugin/dev-build.json, a dev stamp that must not be zipped. Rebuild without --dev-stamp: npm run plugin:build:release`);
   }
-  const version = JSON.parse(readFileSync(join(dir, ".claude-plugin", "plugin.json"), "utf8")).version;
+  const version = manifestVersion(dir, harness);
   const names = listFiles(dir);
   const bytes = zipBytes(names.map((n) => [n, readFileSync(join(dir, n))]));
   return { name: `${NAMES[harness]}-${version}${suffix}.zip`, version, files: names, bytes };
