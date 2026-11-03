@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
 import { gitBin } from "./git-bin.mjs";
-import { walk } from "./plugin-build.mjs";
+import { manifestPath, walk } from "./plugin-build.mjs";
 
 const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
@@ -97,7 +97,7 @@ export async function findCommit({ cwd, remote, branch, sha, harness, version, w
     const waited = (Date.now() - started) / 1000;
     if (version && waited >= grace) {
       const tip = git(cwd, ["rev-parse", ref]);
-      const r = spawnSync(gitBin(), ["show", `${tip}:dist/${harness}/.claude-plugin/plugin.json`], { cwd, encoding: "utf8" });
+      const r = spawnSync(gitBin(), ["show", `${tip}:dist/${harness}/${manifestPath(harness)}`], { cwd, encoding: "utf8" });
       if (r.status === 0 && JSON.parse(r.stdout).version === version) {
         return { commit: tip, how: `is the branch tip at version ${version}; no commit names ${sha}, which happens when a rerun finds an unchanged tree` };
       }

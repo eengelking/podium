@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildHarness, checkTree, defaultHarnesses, devStamp, included, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
+import { buildHarness, checkTree, defaultHarnesses, devStamp, included, manifestPath, manifestVersion, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "plugin-build.mjs");
@@ -213,13 +213,20 @@ describe("plugin-build: the command line", () => {
     for (const flag of ["--help", "-h"]) expect(execFileSync("node", [SCRIPT, flag], { encoding: "utf8" })).toContain("Usage:");
   });
 
-  it("builds claudecode into --out, and builds opencode only when it is named (it is not distributed until #857)", () => {
+  it("builds every harness into --out when none is named, each by its own manifest (#857)", () => {
     const out = tmp();
-    expect(defaultHarnesses()).toEqual(["claudecode"]);
+    expect(defaultHarnesses()).toEqual(["claudecode", "opencode"]);
+    expect(manifestPath("claudecode")).toBe(".claude-plugin/plugin.json");
+    expect(manifestPath("opencode")).toBe("package.json");
     const r = run(["--out", out]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("claudecode:");
-    expect(r.out).not.toContain("opencode");
+    expect(r.out).toContain("opencode:");
+    expect(manifestVersion(join(out, "opencode"), "opencode")).toBe(manifestVersion(join(out, "claudecode"), "claudecode"));
+    expect(manifestVersion(join(out, "opencode"), "claudecode")).toBeNull();
+    writeFileSync(join(out, "opencode", "package.json"), "{ not json");
+    expect(manifestVersion(join(out, "opencode"), "opencode")).toBeNull();
+    run(["opencode", "--out", out]);
     expect(run(["--check", "--out", out])).toMatchObject({ code: 0 });
     expect(run(["claudecode", "--out", out, "--with-tests"]).code).toBe(0);
     expect(walk(join(out, "claudecode"))).toContain("plugin/core/git.test.ts");

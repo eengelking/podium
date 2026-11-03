@@ -88,11 +88,28 @@ function harnessCost(s: Report['session'], prev: SessionRow | undefined): boolea
   return s.costSource ? s.costSource === 'harness' : prev?.cost_source === 'harness';
 }
 
+/**
+ * The model label and provider to store (#940, #945, #952), one rule for a session and for an agent.
+ * A row with no model has nothing for a label to describe, so a null `model` stores neither, whatever the report sends or the row held.
+ * Otherwise a value the report sends is stored (`null` clears it), and one it leaves out is kept while the report names the stored model; a different model drops it, because it described the old one.
+ */
+function modelNames(
+  model: string | null,
+  sent: { label: string | null | undefined; provider: string | null | undefined },
+  prev: { model: string | null; model_label: string | null; model_provider: string | null } | undefined,
+): { model_label: string | null; model_provider: string | null } {
+  if (model == null) return { model_label: null, model_provider: null };
+  const kept = model === prev?.model;
+  return {
+    model_label: sent.label === undefined ? (kept ? prev?.model_label ?? null : null) : sent.label,
+    model_provider: sent.provider === undefined ? (kept ? prev?.model_provider ?? null : null) : sent.provider,
+  };
+}
+
 function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number, owner: string | null): SessionRow {
   const s = r.session;
   const done = s.status === 'done';
   const fromHarness = harnessCost(s, prev);
-  const sameModel = s.model == null || s.model === prev?.model;
   return {
     id: s.id,
     name: s.name,
@@ -144,16 +161,13 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     harness: s.harness ?? prev?.harness ?? 'claude-code',
     cost_source: fromHarness ? 'harness' : null,
     // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
-    // A label or provider belongs to one model, so a report that names a different model without sending them drops the old ones.
+    // A label or provider belongs to one model (see modelNames).
     capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
-    model_label: s.modelLabel === undefined ? (sameModel ? prev?.model_label ?? null : null) : s.modelLabel,
-    model_provider: s.modelProvider === undefined ? (sameModel ? prev?.model_provider ?? null : null) : s.modelProvider,
+    ...modelNames(s.model, { label: s.modelLabel, provider: s.modelProvider }, prev),
   };
 }
 
 function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean, prev: AgentRow | undefined): AgentRow {
-  // As for a session (#940): a report that sends no label or provider keeps the stored ones, unless it names a different model; one sent as null clears it.
-  const sameModel = a.model == null || a.model === prev?.model;
   return {
     session_id: sessionId,
     id: a.id,
@@ -187,8 +201,7 @@ function agentRow(sessionId: string, a: AgentReport, fromHarness: boolean, prev:
     prompt_excerpt: a.promptExcerpt,
     answer_excerpt: a.answerExcerpt,
     failure_json: json(a.failure),
-    model_label: a.modelLabel === undefined ? (sameModel ? prev?.model_label ?? null : null) : a.modelLabel,
-    model_provider: a.modelProvider === undefined ? (sameModel ? prev?.model_provider ?? null : null) : a.modelProvider,
+    ...modelNames(a.model, { label: a.modelLabel, provider: a.modelProvider }, prev),
   };
 }
 
@@ -222,7 +235,8 @@ export function ingestReport(storage: Storage, report: Report, serverTime: numbe
     // 2. Agents: upsert what was reported; never delete one that is missing (a reload may lose it).
     // One statement for the agents and one for their texts, whatever the number (#906).
     const harness = row.cost_source === 'harness';
-    const stored = new Map((await f.getAgents(sid)).map((a) => [a.id, a]));
+    // Only the agents this report names, and none when it names none: the stored model, label and provider are all the upsert needs (#952).
+    const stored = new Map((report.agents.length ? await f.getAgentsByIds(sid, report.agents.map((a) => a.id)) : []).map((a) => [a.id, a]));
     await f.upsertAgents(report.agents.map((a) => agentRow(sid, a, harness, stored.get(a.id))));
     await f.upsertAgentTextsMany(
       sid,

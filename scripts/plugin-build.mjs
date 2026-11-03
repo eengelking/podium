@@ -8,8 +8,9 @@
 // imports such as `../../core/git.ts`. The build lays the source tree out under the plugin's folder with no import rewritten:
 //
 // OpenCode (#855) has no Claude plugin manifest or hooks. Its folder is a package: package.json (version, and `main` pointing at the
-// plugin entry), plugin/opencode/** and plugin/core/**. It is built when named, and --check and the zip and publish scripts treat
-// it the same way; with no harness named only claudecode is built, so nothing publishes opencode before it is distributed (#857).
+// plugin entry), plugin/opencode/** and plugin/core/**. It is built with the others when none is named (#857), and --check and the
+// zip and publish scripts treat it the same way. The Git specifier that installs it from the plugin-dist branch names the folder:
+// `#plugin-dist::path:dist/opencode`.
 //
 //   dist/claudecode/
 //     .claude-plugin/plugin.json      the manifest
@@ -38,8 +39,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const USAGE = `Usage: node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--dev-stamp] [--check]
 
 Builds dist/<harness>/ for each harness named: the folder a plugin is installed and zipped from.
-  <harness>      claudecode or opencode. With none named, every harness that has a .claude-plugin/plugin.json
-                 (so claudecode only: opencode is built when named, until it is distributed in #857).
+  <harness>      claudecode or opencode. With none named, every harness that has its manifest:
+                 .claude-plugin/plugin.json (claudecode) or package.json (opencode).
   --out <dir>    where to build (default: dist/ in the repo). The harness's folder is <dir>/<harness>/ and is replaced.
   --with-tests   keep the *.test.ts files, so the harness's own test runner can run them (npm run test:mod:claudecode, test:mod:opencode).
   --dev-stamp    when the repo is a git checkout, write .claude-plugin/dev-build.json (commit, tag, dirty) so the mod shows
@@ -52,6 +53,23 @@ plugin.json (opencode: package.json), and a hooks/hooks.json whose modules do no
 
 /** The harnesses and where their source lives. Shared code is plugin/core, copied into every harness's tree. */
 export const HARNESSES = ["claudecode", "opencode"];
+
+/** The file that names a harness's version and marks its folder as a plugin: relative to plugin/<harness>/ and to dist/<harness>/. */
+export function manifestPath(harness) {
+  return harness === "opencode" ? "package.json" : ".claude-plugin/plugin.json";
+}
+
+/** The version in the manifest of the built or source folder `dir`, or null when the manifest is missing or has none. */
+export function manifestVersion(dir, harness) {
+  const text = readIfPresent(join(dir, ...manifestPath(harness).split("/")));
+  if (!text) return null;
+  try {
+    const v = JSON.parse(text.toString("utf8")).version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 const CODE = /\.(?:ts|mts|cts|js|mjs|cjs)$/;
 const SKIPPED_DIRS = new Set(["node_modules"]);
@@ -116,7 +134,7 @@ export function devStamp(root = ROOT, git = (args) => gitIn(root, args)) {
 export function planTree(harness, { root = ROOT, withTests = false, stamp = /** @type {{ commit: string, tag: string, dirty: boolean } | null} */ (null) } = {}) {
   if (!HARNESSES.includes(harness)) throw new Error(`Unknown harness "${harness}". Known: ${HARNESSES.join(", ")}.`);
   const src = join(root, "plugin", harness);
-  const manifest = harness === "opencode" ? "package.json" : ".claude-plugin/plugin.json";
+  const manifest = manifestPath(harness);
   if (!existsSync(join(src, ...manifest.split("/")))) {
     throw new Error(`plugin/${harness} has no ${manifest}, so there is nothing to build for ${harness}.`);
   }
@@ -292,9 +310,9 @@ export function buildHarness(harness, { root = ROOT, outDir = join(root, "dist")
   return { dir, files: [...files.keys()] };
 }
 
-/** Harnesses to build when none is named: those with a plugin.json. */
+/** Harnesses to build when none is named: those with their manifest (plugin.json, or package.json for opencode). */
 export function defaultHarnesses(root = ROOT) {
-  return HARNESSES.filter((h) => existsSync(join(root, "plugin", h, ".claude-plugin", "plugin.json")));
+  return HARNESSES.filter((h) => existsSync(join(root, "plugin", h, ...manifestPath(h).split("/"))));
 }
 
 /** Runs the command line `args`; returns the exit code and what to print to stdout and stderr. */
@@ -318,7 +336,7 @@ export function run(args, root = ROOT) {
     else return { code: 1, err: `Unknown argument "${a}".\n\n${USAGE}` };
   }
   const harnesses = named.length ? named : defaultHarnesses(root);
-  if (harnesses.length === 0) return { code: 1, err: "No harness has a .claude-plugin/plugin.json; nothing to build." };
+  if (harnesses.length === 0) return { code: 1, err: "No harness has its manifest (.claude-plugin/plugin.json, or package.json for opencode); nothing to build." };
   const out = [];
   try {
     for (const h of harnesses) {

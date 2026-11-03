@@ -7,7 +7,7 @@
 //
 // What it does, in order, and nothing is touched until the checks pass:
 //   1. refuses a source ref other than `main` or `release-candidate/*`;
-//   2. checks that each built harness's plugin.json version equals the product version (root package.json);
+//   2. checks that each built harness's manifest (plugin.json, or package.json for opencode) version equals the product version (root package.json);
 //   3. runs the self-containment check (checkTree from plugin-build.mjs) on each built tree;
 //   4. fetches the target branch (an orphan branch with no history is started when the remote has none), checks it out as a second
 //      worktree in a temp folder, replaces the worktree's dist/ with the built dist/, and compares trees;
@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gitBin } from "./git-bin.mjs";
-import { checkTree, HARNESSES, readIfPresent } from "./plugin-build.mjs";
+import { checkTree, HARNESSES, manifestPath, manifestVersion } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const DEFAULT_TARGET = "plugin-dist";
@@ -80,14 +80,10 @@ export function checkBuilt(dist, version) {
   if (built.length === 0) problems.push(`${dist} holds no built harness folder; run node scripts/plugin-build.mjs first.`);
   for (const h of built) {
     const dir = join(dist, h);
-    const manifest = join(dir, ".claude-plugin", "plugin.json");
-    const manifestText = readIfPresent(manifest);
-    if (!manifestText) {
-      problems.push(`${h}: no .claude-plugin/plugin.json`);
-    } else {
-      const v = JSON.parse(manifestText.toString("utf8")).version;
-      if (v !== version) problems.push(`${h}: plugin.json version ${v} is not the product version ${version}`);
-    }
+    const manifest = manifestPath(h);
+    const v = manifestVersion(dir, h);
+    if (v === null) problems.push(`${h}: no ${manifest}, or it has no version`);
+    else if (v !== version) problems.push(`${h}: ${manifest} version ${v} is not the product version ${version}`);
     if (existsSync(join(dir, ".claude-plugin", "dev-build.json"))) {
       problems.push(`${h}: .claude-plugin/dev-build.json is a dev stamp; rebuild without --dev-stamp: npm run plugin:build:release (npm run plugin:build adds the stamp)`);
     }

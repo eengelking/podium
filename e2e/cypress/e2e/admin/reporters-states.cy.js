@@ -34,6 +34,18 @@ describe('admin: reporters, versions, the admin secret and restarts', () => {
     cy.contains('To fix it:');
     cy.contains('In Admin > People, make a person for whoever runs this reporter');
     cy.contains('The admin secret cannot take part');
+  });
+
+  it('switches the steps to fix it between Claude Code and OpenCode with the harness picker', () => {
+    cy.get('button[aria-label="Open details for secret-box"]').click();
+    cy.contains('To fix it:');
+    cy.get('[role=group][aria-label^="Harness"]').as('pick');
+    cy.get('@pick').contains('button', 'OpenCode').click().should('have.attr', 'aria-pressed', 'true');
+    cy.contains('li', 'PODIUM_TOKEN').should('contain.text', '~/.podium/config.env');
+    cy.contains('li', 'opencode service restart');
+    cy.get('@pick').contains('button', 'Claude Code').click().should('have.attr', 'aria-pressed', 'true');
+    cy.contains('li', '/plugin configure podium-reporter@eengelking-marketplace');
+    cy.contains('li', 'PODIUM_TOKEN').should('not.exist');
     cy.contains('Compatibility').parent().should('contain.text', 'Supported');
   });
 

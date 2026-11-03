@@ -140,6 +140,14 @@ describe("Activity feed", () => {
     expect(fetchActivity).not.toHaveBeenCalled();
   });
 
+  it("says how to turn the option on in OpenCode for an OpenCode session (#857)", async () => {
+    show({ session: { activityFeed: false, harness: "opencode" } });
+    await flush();
+    const how = document.querySelector(".ghost")!;
+    expect(how).toHaveTextContent("add PODIUM_ACTIVITY_FEED=true to ~/.podium/config.env, then run opencode service restart.");
+    expect(how).not.toHaveTextContent("/plugin configure");
+  });
+
   it("tells a reporter older than 0.13.0 to update, and fetches nothing", async () => {
     const { fetchActivity } = show({ session: { reporterVersion: "0.12.0", activityFeed: null } });
     await flush();
