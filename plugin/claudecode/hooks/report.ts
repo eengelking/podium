@@ -10,7 +10,7 @@ import { utf8Bytes } from './recording.ts';
 import { RECORDING_LIMITS } from '../../core/protocol.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
 
-export const REPORTER_NAME = 'podium-reporter';
+export const REPORTER_NAME = 'podium-reporter-claudecode';
 export const MAX_EVENTS_PER_REPORT = 100;
 export const MAX_AGENTS_PER_REPORT = 200;
 /** Full prompt and answer characters in one report; the server accepts a 512 kB body. The rest goes in later reports. */

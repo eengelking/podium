@@ -3,6 +3,7 @@
 // reporter that stops moves from "Reporting" to "Silent" without a reload. "Silent" means nothing has arrived for a while; the
 // server cannot tell a reporter that is turned off from one that cannot reach it.
 import { useEffect, useState } from "react";
+import { updateHint } from "../reporterUpdate";
 import { AdminError, query, type AdminApi, type IgnoreRule, type RemoveBody, type ReporterDetail, type ReporterList, type ReporterRow, type ReporterSort, type ReporterState } from "./adminApi";
 import { Tip } from "../components/Tip";
 import { Pager } from "./Pager";
@@ -37,7 +38,7 @@ const stateOf = (id: ReporterState) => STATES.find((s) => s.id === id)!;
 /** What a reporter's compatibility means; it names the reporter, because each has its own range on the server (#852). */
 export function compatText(compat: ReporterRow["compat"], reporterName: string): string {
   if (compat === "ok") return "Supported";
-  if (compat === "outdated") return `Older than this server supports for ${reporterName}. Update ${reporterName}.`;
+  if (compat === "outdated") return `Older than this server supports for ${reporterName}. ${updateHint(reporterName)}`;
   if (compat === "newer") return `Newer than this server knows for ${reporterName}. Update Podium.`;
   return "There is no version to check.";
 }

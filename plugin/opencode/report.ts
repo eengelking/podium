@@ -92,7 +92,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     sentAt: meta.now,
     harness: { id: HARNESS_ID, name: 'OpenCode', version: meta.engineVersion ?? 'unknown', surface: meta.hostSurface },
     capabilities: capabilities(meta.respond?.info ?? null),
-    reporter: { name: 'podium-reporter', version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
+    reporter: { name: 'podium-reporter-opencode', version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {
       id: root.id,

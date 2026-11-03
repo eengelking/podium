@@ -46,19 +46,38 @@ export function machineIdPath(configDir: string | undefined, home: string | unde
 /** The file name of the id shared by every reporter, in the person's `~/.podium/` folder (#856). */
 export const SHARED_MACHINE_ID_FILE = 'machine-id';
 
+/** `~/.podium`. Null when the home directory is not an absolute path. */
+export function sharedPodiumDir(home: string | undefined): string | null {
+  const h = trimTrailingSlashes((home ?? '').trim());
+  return /^(\/|[A-Za-z]:[\\/])/.test(h) ? `${h}/.podium` : null;
+}
+
 /** `~/.podium/machine-id`. Null when the home directory is not an absolute path. */
 export function sharedMachineIdPath(home: string | undefined): string | null {
-  const h = trimTrailingSlashes((home ?? '').trim());
-  return /^(\/|[A-Za-z]:[\\/])/.test(h) ? `${h}/.podium/${SHARED_MACHINE_ID_FILE}` : null;
+  const dir = sharedPodiumDir(home);
+  return dir ? `${dir}/${SHARED_MACHINE_ID_FILE}` : null;
+}
+
+/** The file name the machine's pinned name is shared under, in `~/.podium/` (#967). */
+export const SHARED_MACHINE_NAME_FILE = 'machine-name';
+
+/**
+ * The id the Claude Code reporter uses, from what each place holds: the id it already made (its `podium-machine-id` file, then
+ * its store) first, so an existing install never changes id, and only then the shared `~/.podium/machine-id`, which another
+ * reporter may have made first (#967). Null when none is an id, and the caller makes one. The winner is written to the shared file.
+ */
+export function chooseMachineId(c: { shared?: string | null; legacyFile?: string | null; kept?: unknown }): string | null {
+  for (const v of [c.legacyFile, c.kept, c.shared]) if (isMachineId(v)) return v;
+  return null;
 }
 
 /**
- * The id a machine uses, from what each place holds: the shared `~/.podium/machine-id` first, then the id a Claude install
- * already made (its `podium-machine-id` file, then its store), so an existing install keeps its row. Null when none is an id,
- * and the caller makes one.
+ * The id a reporter that has no store of its own uses (OpenCode): the shared file, read on each load, else the id a Claude Code
+ * install keeps in its file. It cannot see the id Claude Code keeps in its store, so when that differs it follows once the Claude
+ * Code reporter next writes the shared file (#967).
  */
-export function chooseMachineId(c: { shared?: string | null; legacyFile?: string | null; kept?: unknown }): string | null {
-  for (const v of [c.shared, c.legacyFile, c.kept]) if (isMachineId(v)) return v;
+export function chooseSharedMachineId(c: { shared?: string | null; legacyFile?: string | null }): string | null {
+  for (const v of [c.shared, c.legacyFile]) if (isMachineId(v)) return v;
   return null;
 }
 

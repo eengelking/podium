@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { chooseMachineId, sharedMachineIdPath, cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, machineNamePath, parseMachineNameFile, localHostNameOf } from './machine.ts'
+import { chooseMachineId, chooseSharedMachineId, sharedMachineIdPath, cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, machineNamePath, parseMachineNameFile, localHostNameOf } from './machine.ts'
 
 describe('machine', () => {
   test('trailing slashes are dropped from a URL, in linear time (#362)', () => {
@@ -141,10 +141,15 @@ describe('the machine id both reporters share (#856)', () => {
     expect(sharedMachineIdPath('rel')).toBeNull()
     expect(sharedMachineIdPath(undefined)).toBeNull()
   })
-  test('the shared id wins, then an existing Claude id, then the store', () => {
-    expect(chooseMachineId({ shared: 'aaaaaaaaaaaa', legacyFile: 'bbbbbbbbbbbb', kept: 'cccccccccccc' })).toBe('aaaaaaaaaaaa')
-    expect(chooseMachineId({ shared: null, legacyFile: 'bbbbbbbbbbbb', kept: 'cccccccccccc' })).toBe('bbbbbbbbbbbb')
-    expect(chooseMachineId({ kept: 'cccccccccccc' })).toBe('cccccccccccc')
+  test('Claude Code keeps its own id: the Claude file, then its store, then the shared one (#967)', () => {
+    expect(chooseMachineId({ shared: 'aaaaaaaaaaaa', legacyFile: 'bbbbbbbbbbbb', kept: 'cccccccccccc' })).toBe('bbbbbbbbbbbb')
+    expect(chooseMachineId({ shared: 'aaaaaaaaaaaa', legacyFile: null, kept: 'cccccccccccc' })).toBe('cccccccccccc')
+    expect(chooseMachineId({ shared: 'aaaaaaaaaaaa' })).toBe('aaaaaaaaaaaa')
     expect(chooseMachineId({ shared: '<b>x</b>', legacyFile: 7 as never })).toBeNull()
+  })
+  test('a reporter with no store reads the shared id, else the Claude file (#967)', () => {
+    expect(chooseSharedMachineId({ shared: 'aaaaaaaaaaaa', legacyFile: 'bbbbbbbbbbbb' })).toBe('aaaaaaaaaaaa')
+    expect(chooseSharedMachineId({ shared: null, legacyFile: 'bbbbbbbbbbbb' })).toBe('bbbbbbbbbbbb')
+    expect(chooseSharedMachineId({})).toBeNull()
   })
 })

@@ -13,6 +13,7 @@ import { SessionId } from "./SessionId";
 import { IconPin } from "./Icons";
 import { bandWords } from "../recording";
 import { harnessOfSession } from "../harness";
+import { updateSentence } from "../reporterUpdate";
 
 export const HOOKS_NOTE = "Reported by Claude Code settings hooks, not the reporter mod: context, cost, tokens, the plan and which agent launched which are unavailable, so every agent shows under the orchestrator.";
 
@@ -21,7 +22,7 @@ export function versionNote(s: Pick<SessionView, "compat" | "reporterVersion" | 
   const v = s.reporterVersion ?? "unknown";
   const name = s.reporterName;
   if (s.compat === "outdated") {
-    const how = name === "podium-reporter" ? "Update the podium-reporter mod: run claude plugin update podium-reporter@eengelking-marketplace, then /reload-plugins in that session." : `Update ${name}.`;
+    const how = updateSentence(name);
     return { chip: `reporter ${v} · update`, label: `${v} · update`, text: `This session's reporter (${name} ${v}) is older than the server supports for ${name}. ${how} Reports are still accepted, but newer fields may be missing.` };
   }
   if (s.compat === "newer") return { chip: `reporter ${v} · upgrade server`, label: `${v} · upgrade server`, text: `This session's reporter (${name} ${v}) is newer than the server supports for ${name}. Upgrade the Podium server. Reports are still accepted, but some fields may be ignored.` };

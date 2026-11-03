@@ -162,3 +162,50 @@ describe('the transport a reporter used (#589)', () => {
     expect(transport.count(Date.now()).overHttp).toBe(2);
   });
 });
+
+describe('two harnesses on one machine (#967)', () => {
+  const machine = { name: 'studio-m2', id: '9f3a1c7d2e40' };
+  const claude = (name: string, id = 'sess-cc') => report({ machine, reporter: { ...fixtureReport().reporter, name } }, id);
+  const opencode = () =>
+    report({
+      v: 2,
+      machine,
+      reporter: { ...fixtureReport().reporter, name: 'podium-reporter-opencode', version: '1.4.0' },
+      harness: { id: 'opencode', name: 'OpenCode', version: '2.2.5', surface: 'tui' },
+      capabilities: { commands: [] },
+    }, 'sess-oc');
+
+  it('files a Claude Code report and an OpenCode report from one machine as two rows with their own names', async () => {
+    const { app, reporters } = await setup();
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(claude('podium-reporter'))).status).toBe(200);
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(opencode())).status).toBe(200);
+    const rows = await list(reporters);
+    expect(rows.map((r) => [r.key, r.reporterName]).sort()).toEqual([
+      ['9f3a1c7d2e40', 'podium-reporter-claudecode'],
+      ['9f3a1c7d2e40@podium-reporter-opencode', 'podium-reporter-opencode'],
+    ]);
+    expect(rows.find((r) => r.reporterName === 'podium-reporter-opencode')!.compat).toBe('ok');
+  });
+
+  it('keeps one row and one key when a reporter moves from the legacy name to the new one', async () => {
+    const { app, reporters } = await setup();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(claude('podium-reporter'));
+    const before = await list(reporters);
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(claude('podium-reporter-claudecode'))).status).toBe(200);
+    const after = await list(reporters);
+    expect(after).toHaveLength(1);
+    expect(after[0].key).toBe(before[0].key);
+    expect(after[0].reporterName).toBe('podium-reporter-claudecode');
+  });
+
+  it('accepts only the legacy name in a v1 report, and a name no one knows is a 400 in v2', async () => {
+    const { app } = await setup();
+    const v1 = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(claude('podium-reporter-opencode'));
+    expect(v1.status).toBe(400);
+    expect(v1.body.path).toBe('$.reporter.name');
+    const v2 = { ...opencode(), reporter: { ...fixtureReport().reporter, name: 'something-else' } };
+    const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(v2);
+    expect(res.status).toBe(400);
+    expect(res.body.path).toBe('$.reporter.name');
+  });
+});

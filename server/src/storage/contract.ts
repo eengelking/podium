@@ -371,34 +371,34 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
     it('judges a reporter in the peer lookup by its own name, not by another reporter\'s range (#852)', async () => {
       const store = await open();
       const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '9.0.0' }), T0);
-      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '9.0.0', reporterName: 'opencode-reporter' }), T0 + 5);
+      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '9.0.0', reporterName: 'podium-reporter-opencode' }), T0 + 5);
       const lookup = store.reporters.peerLookup();
       const seen = await lookup.ofOwnerSeen('Ed', T0 + 10);
       const by = Object.fromEntries(seen.map((r) => [r.key, [r.reporterName, r.compat]]));
-      expect(by[claude]).toEqual(['podium-reporter', 'newer']);
-      expect(by[other]).toEqual(['opencode-reporter', 'unknown']);
-      expect(await lookup.get(other)).toMatchObject({ reporterName: 'opencode-reporter' });
+      expect(by[claude]).toEqual(['podium-reporter-claudecode', 'newer']);
+      expect(by[other]).toEqual(['podium-reporter-opencode', 'newer']);
+      expect(await lookup.get(other)).toMatchObject({ reporterName: 'podium-reporter-opencode' });
       await store.close();
     });
 
     it('keeps two reporters on one machine as two rows, each with its own kind and version (#849)', async () => {
       const store = await open();
       const claude = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.4.0' }), T0);
-      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '2.0.0', kind: 'hooks', reporterName: 'opencode-reporter' }), T0 + 5);
+      const other = await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'so', version: '2.0.0', kind: 'hooks', reporterName: 'podium-reporter-opencode' }), T0 + 5);
       expect(other).not.toBe(claude);
       // The Claude Code reporter keeps the key it always had; the other is filed apart, with a name of its own.
       expect(claude).toBe('m-two');
       const { rows } = await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 10);
       expect(rows.map((r) => [r.key, r.reporterName, r.version, r.sessions])).toEqual([
-        [claude, 'podium-reporter', '1.4.0', 1],
-        [other, 'opencode-reporter', '2.0.0', 1],
+        [claude, 'podium-reporter-claudecode', '1.4.0', 1],
+        [other, 'podium-reporter-opencode', '2.0.0', 1],
       ]);
       // A later report from each updates its own row only.
       await store.reporters.record(mkSeen('m-two', 'box', { sessionId: 'sc', version: '1.5.0' }), T0 + 20);
       const after = (await store.reporters.list({ sort: 'ver', dir: 1 }, T0 + 30)).rows;
-      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter', '1.5.0'], ['opencode-reporter', '2.0.0']]);
-      // Each is judged against its own range (#852): the Claude Code reporter at 1.5.0 is above its range, and the other has none on this server yet, so it gets no warning.
-      expect(after.map((r) => [r.reporterName, r.compat])).toEqual([['podium-reporter', 'newer'], ['opencode-reporter', 'unknown']]);
+      expect(after.map((r) => [r.reporterName, r.version])).toEqual([['podium-reporter-claudecode', '1.5.0'], ['podium-reporter-opencode', '2.0.0']]);
+      // Each is judged against its own range (#852): the Claude Code reporter at 1.5.0 is above its range, and the OpenCode one has its own range, which 2.0.0 is also above.
+      expect(after.map((r) => [r.reporterName, r.compat])).toEqual([['podium-reporter-claudecode', 'newer'], ['podium-reporter-opencode', 'newer']]);
       // The hooks-kind row is not a mod reporter, so it cannot be messaged; the lookup filters on kind, and the reporter name is not part of it yet.
       const lookup = store.reporters.peerLookup();
       expect(await lookup.get(other)).toBeNull();

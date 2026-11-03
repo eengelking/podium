@@ -882,8 +882,26 @@ describe('podium-reporter end to end', () => {
 
   const PODIUM_SHARED = '/Users/dev/.podium/machine-id'
 
-  test('the ~/.podium/machine-id file wins over the Claude file, so both reporters on a machine agree (#856)', { options: { userName: 'Dana' } }, async ($, on) => {
+  test('the Claude file wins over ~/.podium/machine-id, so an existing install never changes id, and the winner is shared (#967)', { options: { userName: 'Dana' } }, async ($, on) => {
     const w = world(on, { machineId: 'aaaaaaaaaaaa' }, { [PODIUM_SHARED]: 'dddddddddddd\n', [SHARED]: 'cccccccccccc\n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.id).toBe('cccccccccccc')
+    expect(w.files.text[PODIUM_SHARED]).toBe('cccccccccccc\n')
+  })
+
+  test('the id in this load\'s store wins over ~/.podium/machine-id when there is no Claude file, and replaces it (#967)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, { machineId: 'aaaaaaaaaaaa' }, { [PODIUM_SHARED]: 'dddddddddddd\n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.id).toBe('aaaaaaaaaaaa')
+    expect(w.files.text[PODIUM_SHARED]!.trim()).toBe('aaaaaaaaaaaa')
+  })
+
+  test('with no Claude file and no id in the store, an id another reporter shared is adopted (#967)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, undefined, { [PODIUM_SHARED]: 'dddddddddddd\n' })
     mock.env(on, { HOME: '/Users/dev' })
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)

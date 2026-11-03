@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { serverDir } from "../serverRoot.js";
 import type { ReporterCompat, ReporterSupport } from "./protocol.js";
+import { CLAUDE_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from "./reporterNames.js";
 
 /** The reporter every report came from before reporters had names, and the one an absent name means. */
-export const DEFAULT_REPORTER = "podium-reporter";
+export const DEFAULT_REPORTER = CLAUDE_REPORTER_NAME;
 
 /**
  * The versions of each reporter this server reads correctly, by `reporter.name` (#852). A range changes only when the
@@ -14,14 +15,15 @@ export const DEFAULT_REPORTER = "podium-reporter";
  */
 export const REPORTER_SUPPORT: Readonly<Record<string, ReporterSupport>> = {
   [DEFAULT_REPORTER]: { min: "0.2.0", max: "1.4.0" },
+  [OPENCODE_REPORTER_NAME]: { min: "1.4.0", max: "1.4.0" },
 };
 
 /** The name of the reporter that serves each harness (a session stores its harness, not its reporter). */
-const REPORTER_OF_HARNESS: Readonly<Record<string, string>> = { "claude-code": DEFAULT_REPORTER };
+const REPORTER_OF_HARNESS: Readonly<Record<string, string>> = { "claude-code": DEFAULT_REPORTER, opencode: OPENCODE_REPORTER_NAME };
 
 /** The range for one reporter, or null when this server has none for that name. */
 export function supportFor(reporterName: string | null | undefined): ReporterSupport | null {
-  const name = reporterName || DEFAULT_REPORTER;
+  const name = canonicalReporterName(reporterName);
   return Object.hasOwn(REPORTER_SUPPORT, name) ? REPORTER_SUPPORT[name] : null;
 }
 

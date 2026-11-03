@@ -22,7 +22,7 @@ describe('scripted session -> Report', () => {
     expect(keys(r.agents.find((a) => a.failure)!.failure!)).toEqual(FAILURE_KEYS)
     for (const st of r.session.plan!.steps) expect(keys(st)).toEqual(STEP_KEYS)
     expect(r.v).toBe(1)
-    expect(r.reporter.name).toBe('podium-reporter')
+    expect(r.reporter.name).toBe('podium-reporter-claudecode')
   })
 
   test('session figures', () => {

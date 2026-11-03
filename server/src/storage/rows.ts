@@ -4,6 +4,9 @@ import type { ReporterCompat, PeerLevel, PeerDelivery, PeerRequest, RecordingSet
 import type { OwnerDefaults, RightRow, SeenReporterRef, OwnerRequestView, EffectiveRight, ReporterRef } from '../fleet/peerTypes.js';
 import type { ActivityHistorySettings } from '../fleet/activityHistoryTypes.js';
 import type { PeerLimits } from './settings.js';
+import { CLAUDE_REPORTER_NAME, canonicalReporterName } from '../fleet/reporterNames.js';
+
+export { canonicalReporterName, storedReporterNames } from '../fleet/reporterNames.js';
 
 export type PeopleErrorCode = 'duplicate' | 'invalid' | 'not_found';
 
@@ -98,7 +101,7 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 export const ADMIN_SECRET = 'admin secret';
 
 /** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
-export const DEFAULT_REPORTER_NAME = 'podium-reporter';
+export const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
 
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
@@ -506,7 +509,8 @@ export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'r
  * the name was stored stays valid, and `@<name>` for any other, so two reporters on one machine are two rows.
  */
 export function nameSuffix(reporterName: string | undefined | null): string {
-  return !reporterName || reporterName === DEFAULT_REPORTER_NAME ? '' : `@${reporterName}`;
+  const name = canonicalReporterName(reporterName);
+  return name === CLAUDE_REPORTER_NAME ? '' : `@${name}`;
 }
 
 export * from './features.js';

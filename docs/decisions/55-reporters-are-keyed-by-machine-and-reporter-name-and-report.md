@@ -29,6 +29,14 @@ mechanism. This records choices the maintainer made for #847.
   moving to `reporters/claude-code/`. Until then the folder, the archive name and the marketplace source stay as they are, and
   this decision does not move any file.
 
+**Update (#967).** The reporter's name says its harness. The Claude Code reporter sends `podium-reporter-claudecode` and the
+OpenCode reporter `podium-reporter-opencode`; `podium-reporter` stays the product, plugin and MCP tool name. The server reads
+the legacy `podium-reporter` as the Claude Code reporter, so an installed reporter that has not updated keeps its row,
+key, peers rights and history, with no migration and no change to a stored key. A v1 report may carry either Claude name and a v2
+report any of the three. The machine id of an existing Claude Code install is never replaced: its own file, then its store,
+then the shared `~/.podium/machine-id`, and the winner is written to the shared file. An OpenCode id may change once, when
+it had taken an id the Claude Code reporter did not use. Machine name and OS are read by one implementation in `plugin/core`.
+
 **Why.** A key that includes the reporter name is the smallest change that keeps two harnesses apart. A `v: 2` with a reading
 server leaves every installed reporter working. Renaming with the second reporter avoids a rename with nothing to explain it.
 

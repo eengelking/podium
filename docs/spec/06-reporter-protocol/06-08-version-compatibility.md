@@ -15,12 +15,23 @@ starts at its own first release, so a reporter is judged only against its own ra
 reporter's. A range changes when the report format or that reporter's behavior needs it, not on every release.
 A reporter with no range on the server (a name the server does not know yet) is `unknown` and gets no warning.
 
+**Reporter names (#967).** `podium-reporter` is the product, the plugin and the MCP tools. A reporter's wire name,
+`reporter.name`, says which harness it is: `podium-reporter-claudecode` for the Claude Code reporter and
+`podium-reporter-opencode` for the OpenCode reporter. A v1 report may carry `podium-reporter` (an installed Claude Code
+reporter that has not updated) or `podium-reporter-claudecode`, and the server reads both as the Claude Code reporter:
+they land on one row with one key, and its `reporterName` is `podium-reporter-claudecode`. A v2 report may carry any of the
+three names. Any other name is a 400 on `$.reporter.name`, and so is the OpenCode name in a v1 report. The OpenCode reporter
+has a range of its own in `REPORTER_SUPPORT`, and `REPORTER_OF_HARNESS` points the `opencode` harness at it, so a session's
+warning and the reporter's row agree. The warning names the reporter to update: the Claude Code reporter
+(`claude plugin update podium-reporter@eengelking-marketplace`) or the OpenCode reporter (`opencode plugin update`, then
+`opencode service restart`).
+
 Only `major.minor` is compared, so a mod-only patch fix never warns. `checkReporter` returns:
 
 | Result | Meaning | What to do |
 |---|---|---|
 | `ok` | Inside the range. | Nothing. |
-| `outdated` | Below `min`. | Update the mod: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. |
+| `outdated` | Below `min`. | Update the reporter. Claude Code: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. OpenCode: `opencode plugin update`, then `opencode service restart`. |
 | `newer` | Above `max`. | Upgrade the server. |
 | `unknown` | The version is not `X.Y.Z` (the simulator's `0.1.0-sim`, for one). | Nothing. No warning is shown. |
 

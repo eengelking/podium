@@ -38,11 +38,19 @@ describe('the shared machine id (#856)', () => {
     expect(sharedMachineId(h2, cfg)).toBe('bbbbbbbbbbbb');
   });
 
-  it('reports no machine without a user name', () => {
+  it('reports no machine without a user name', async () => {
     const h = home();
-    expect(readMachine(null, h)).toBeNull();
-    expect(readMachine('  ', h)).toBeNull();
-    expect(readMachine('Dana', h)).toMatchObject({ id: sharedMachineId(h, undefined) });
+    expect(await readMachine(null, h)).toBeNull();
+    expect(await readMachine('  ', h)).toBeNull();
+    expect(await readMachine('Dana', h, undefined)).toMatchObject({ id: sharedMachineId(h, undefined) });
+  });
+
+  it('names the machine as the Claude Code reporter does: the pin it already made, shared on first read (#967)', async () => {
+    const h = home();
+    mkdirSync(join(h, '.claude'));
+    writeFileSync(join(h, '.claude/podium-machine-name'), 'Studio-M2\n');
+    expect(await readMachine('Dana', h, undefined)).toMatchObject({ name: 'Studio-M2' });
+    expect(readFileSync(join(h, '.podium/machine-name'), 'utf8').trim()).toBe('Studio-M2');
   });
 });
 

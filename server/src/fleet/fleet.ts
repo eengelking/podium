@@ -7,6 +7,7 @@ import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
 import { serverBuild } from './build.js';
 import { DEFAULT_REPORTER, serverVersion, supportFor } from './compat.js';
+import { canonicalReporterName } from './reporterNames.js';
 import { ingestReport, type IngestResult } from './ingest.js';
 import { hookSessionId, hookToReport } from './hookIngest.js';
 import { validateReport } from './protocol.js';
@@ -513,7 +514,7 @@ export class Fleet {
       machine: report.machine?.name ?? null,
       machine_id: report.machine?.id ?? null,
       reporter: kind,
-      reporter_name: report.reporter.name,
+      reporter_name: canonicalReporterName(report.reporter.name),
       reporter_version: report.reporter.version,
       reporter_compat: checkReporter(report.reporter.version, report.reporter.name),
       returning: last !== undefined,
