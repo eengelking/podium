@@ -31,6 +31,8 @@ export interface LegacyReporter {
   version: string;
   firstSeenAt: number;
   lastSeenAt: number;
+  /** Sessions this reporter already carries a link to. */
+  sessionIds?: string[];
 }
 
 /** A session as an older database stores it, before a session named its harness (#851). */
@@ -103,6 +105,22 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const other = await s.reporters.record({ kind: 'mod', reporterName: 'opencode-reporter', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '2.0.0', engineVersion: null, sessionId: 'x2' }, T0 + 51);
       expect(other).toBe('ma@opencode-reporter');
       expect((await s.reporters.list({}, T0 + 60)).rows).toHaveLength(4);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it('finds the row that already holds a session by its key prefix in the same way whatever the case, on every adapter (#943)', async () => {
+    // The oldest row of each pair has the prefix in another case (and `hooksX…` is not the prefix at all). A byte comparison skips them; a case-folding LIKE would pick the first.
+    const row = (key: string, kind: 'mod' | 'hooks', at: number): LegacyReporter => ({ key, kind, machineId: null, machineName: null, owner: null, version: '1.0.0', firstSeenAt: at, lastSeenAt: at, sessionIds: ['sx'] });
+    const s = await o.openUpgraded([], [
+      row('hooksX10.0.0.5', 'hooks', T0 - 1), row('HOOKS:10.0.0.9', 'hooks', T0), row('hooks:10.0.0.9', 'hooks', T0 + 1),
+      row('Addr:10.0.0.8', 'mod', T0 + 2), row('addr:10.0.0.8', 'mod', T0 + 3),
+    ]);
+    try {
+      const keys = (kind: 'mod' | 'hooks') => s.reporters.keysFor({ kind, machineId: null, source: '10.0.0.77', sessionId: 'sx', owner: null });
+      expect(await keys('hooks')).toEqual(['hooks:10.0.0.77', 'hooks:10.0.0.9']);
+      expect(await keys('mod')).toEqual(['addr:10.0.0.77', 'addr:10.0.0.8']);
     } finally {
       await s.close();
     }

@@ -116,11 +116,12 @@ export class PgReporterStore implements ReporterStoreApi {
    */
   private async knownKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'sessionId' | 'reporterName'>): Promise<string | undefined> {
     if (s.machineId) return undefined;
+    // A byte comparison, not LIKE: SQLite's LIKE folds ASCII case and PostgreSQL's does not (#943).
     const prefix = s.kind === 'hooks' ? 'hooks:' : 'addr:';
     const hit = await this.db.get<{ key: string }>(
       `SELECT r.key FROM reporter_sessions x JOIN reporters r ON r.key = x.reporter_key
-       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name = ? AND r.key LIKE ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
-      [s.sessionId, s.kind, s.reporterName ?? DEFAULT_REPORTER_NAME, `${prefix}%`],
+       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name = ? AND substr(r.key, 1, ?) = ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
+      [s.sessionId, s.kind, s.reporterName ?? DEFAULT_REPORTER_NAME, prefix.length, prefix],
     );
     return hit?.key;
   }
