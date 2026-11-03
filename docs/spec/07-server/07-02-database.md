@@ -163,6 +163,13 @@ ALTER TABLE sessions ADD COLUMN model_label TEXT;        -- Report.session.model
 ALTER TABLE sessions ADD COLUMN model_provider TEXT;     -- Report.session.modelProvider
 ```
 
+Migration 30 (#945; PostgreSQL main step 6) gives an agent the same two fields. NULL means no report gave one, which is every agent stored before this. A report that sends neither keeps what the agent has, unless it names a different `model` (6.2):
+
+```sql
+ALTER TABLE agents ADD COLUMN model_label TEXT;     -- Report.agents[].modelLabel
+ALTER TABLE agents ADD COLUMN model_provider TEXT;  -- Report.agents[].modelProvider
+```
+
 Migration 17 (#277) drops `people.token_last4`, the last four characters of a person's token, which nothing has read since #218:
 
 ```sql

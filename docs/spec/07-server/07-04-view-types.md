@@ -46,7 +46,7 @@ interface SessionView {
   }[];
   clearedFrom: string | null;           // the session this one continues after a /clear (5.8)
   recording?: RecordingView | null;     // #353: { state: 'recording' | 'stopped' | 'limit', limit, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes, loops: { loop, name, recorded }[], ownerAllows }; everything the wall and the page show about a recording and no text; null or absent when nothing is chosen or kept
-  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst
+  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst + modelLabel and modelProvider (string | null, #945; the row and the panel read the label, with `model` as its title)
   series: { tokensPerSec: number[]; peakContext: number[]; running: number[]; blowoutSecondsAgo: number[] };  // 60 points, oldest first; peakContext in 0..1; missing seconds zero-filled
 }
 ```

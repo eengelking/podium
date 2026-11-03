@@ -1130,7 +1130,7 @@ the orchestrator panel still draw their Context bar and effort meter whatever is
 draw the field unless the console's own table for that harness says it cannot report it (`frontend/src/fleet/harness.ts`), which is
 the only thing a session with nothing declared (Claude Code, v1, stored before #940) is drawn from. No code names a harness
 to decide this. The model chip reads `modelLabel` when there is one and the family name when there is not, with the model id as its
-title, on the card, the rail, the orchestrator page, the agent tree's orchestrator row and the History row.
+title, on the card, the rail, the orchestrator page, the agent tree's orchestrator row and the History row. An agent's chip does the same with the agent's own `modelLabel` (#945), on its tree row and in its panel.
 
 ## Orchestrator page (click a card or rail item; #165, `mockup/podium-orchestrator.html`)
 
