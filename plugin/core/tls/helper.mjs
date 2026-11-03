@@ -5,55 +5,17 @@
 //   node helper.mjs <config path> <socket path> <server url>
 //
 // It prints `ready` on stdout once it listens, and `error <CODE> <why>` before exiting 1 when it cannot start.
-import { X509Certificate, generateKeyPairSync } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import { duplexPair } from 'node:stream';
-import https from 'node:https';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rewriteConfig, writeAtomic } from './atomic.mjs';
-import { StartError, agentFor, readConfig } from './config.mjs';
-import { DAY_MS, RENEW_RETRY_MS, classifyError, retryDelayMs } from './errors.mjs';
-import { withLock } from './lock.mjs';
-import { acceptRotation } from './rotation.mjs';
+import { HOP_HEADERS, createTlsClient } from './client.mjs';
+import { StartError } from './config.mjs';
+import { classifyError } from './errors.mjs';
 import { reporterTarget } from './routes.mjs';
 
 const PARENT_POLL_MS = 1000;
-const UPSTREAM_TIMEOUT_MS = 30_000;
-/** Request headers that describe the hop to the helper, not the request itself. */
-const HOP_HEADERS = new Set(['host', 'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer']);
-
-/** Renew when this much of the certificate is left (SPEC 6: 30 days of a 90-day certificate). The env var is for tests. */
-const RENEW_BEFORE_OVERRIDDEN = Number(process.env.PODIUM_RENEW_BEFORE_SECONDS) > 0;
-const RENEW_BEFORE_MS = RENEW_BEFORE_OVERRIDDEN ? Number(process.env.PODIUM_RENEW_BEFORE_SECONDS) * 1000 : 30 * DAY_MS;
-const RENEW_CHECK_MS = Number(process.env.PODIUM_RENEW_CHECK_SECONDS) > 0 ? Number(process.env.PODIUM_RENEW_CHECK_SECONDS) * 1000 : 10 * 60_000;
-
-/** POSTs JSON to the server over the agent, which holds the person's certificate. Resolves to `{ status, json }`. */
-function postJson(agent, target, pathname, body, timeoutMs) {
-  return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
-    const req = https.request(
-      { agent, host: target.hostname.replace(/^\[|\]$/g, ''), port: target.port || 443, method: 'POST', path: pathname, headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }, servername: /^[\d.]+$|:/.test(target.hostname) ? undefined : target.hostname, rejectUnauthorized: true, timeout: timeoutMs },
-      (res) => {
-        let text = '';
-        res.setEncoding('utf8');
-        res.on('data', (c) => (text += c));
-        res.on('error', reject);
-        res.on('end', () => {
-          try {
-            resolve({ status: res.statusCode ?? 0, json: text ? JSON.parse(text) : {}, retryAfter: res.headers['retry-after'] });
-          } catch {
-            resolve({ status: res.statusCode ?? 0, json: {}, retryAfter: res.headers['retry-after'] });
-          }
-        });
-      },
-    );
-    req.on('timeout', () => req.destroy(Object.assign(new Error('upstream timed out'), { code: 'ETIMEDOUT' })));
-    req.on('error', reject);
-    req.end(data);
-  });
-}
 
 function fail(code, message) {
   process.stdout.write(`error ${code} ${message}\n`);
@@ -223,151 +185,23 @@ function main(configPath, socketPath, serverUrl) {
   // An inherited NODE_TLS_REJECT_UNAUTHORIZED=0 turned verification off in the spike; nothing here reads it, and it is gone.
   delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
   delete process.env.NODE_OPTIONS;
-  let target;
+  let client;
   try {
-    target = new URL(serverUrl);
-  } catch {
-    return fail('INSECURE_URL', `${serverUrl} is not a URL`);
-  }
-  if (target.protocol !== 'https:') return fail('INSECURE_URL', `${serverUrl} is not https; the helper never sends a credential over http`);
-  let cfg;
-  try {
-    cfg = readConfig(configPath);
+    client = createTlsClient({ configPath, serverUrl, log: (line) => process.stderr.write(`${line}\n`) });
   } catch (err) {
     return fail(err.code ?? 'CONFIG_INVALID', err.message);
   }
-  let agent = agentFor(cfg);
 
-  /** Before a request opens a new upstream connection: a rewrite of the same file is taken only for the same person. */
-  const refresh = () => {
-    let st;
-    try {
-      st = fs.statSync(configPath);
-    } catch {
-      return;
-    }
-    if (st.mtimeMs === cfg.mtimeMs) return;
-    try {
-      const next = readConfig(configPath);
-      if (next.user !== cfg.user) {
-        // Another person's file is not ours; remember it was looked at so it is not read again on every request.
-        cfg = { ...cfg, mtimeMs: st.mtimeMs };
-        return;
-      }
-      cfg = next;
-      refused = null;
-      retryAt = 0;
-      // Requests already on the old agent finish on it (they outlast neither the upstream timeout nor this delay).
-      const old = agent;
-      setTimeout(() => old.destroy(), UPSTREAM_TIMEOUT_MS + 5000).unref();
-      agent = agentFor(cfg);
-    } catch {
-      // keep the last good copy
-      cfg = { ...cfg, mtimeMs: st.mtimeMs };
-    }
-  };
-
-  // ---- renewing this person's certificate (#585) -------------------------------------------------------------------
-  /** Why the server refused to renew, or null. Kept until the file is replaced, so a refused renewal is not asked again on every request. */
-  let refused = null;
-  let retryAt = 0;
-  let renewing = null;
-
-  const useConfig = (next, st) => {
-    cfg = { ...next, mtimeMs: st.mtimeMs };
-    const old = agent;
-    setTimeout(() => old.destroy(), UPSTREAM_TIMEOUT_MS + 5000).unref();
-    agent = agentFor(cfg);
-  };
-  // Never ask earlier than half the certificate's life: a short-lived certificate (the Admin can set 30 days) would otherwise be due the moment it is issued, and renew on every check.
-  const dueSoon = () => cfg.notAfter - Date.now() <= (RENEW_BEFORE_OVERRIDDEN ? RENEW_BEFORE_MS : Math.min(RENEW_BEFORE_MS, (cfg.notAfter - cfg.notBefore) / 2));
-  const expired = () => cfg.notAfter <= Date.now();
-
-  /** One renewal, under the lock. Returns once the file holds a usable certificate or the attempt failed. */
-  const renewOnce = async () => {
-    const got = await withLock(`${configPath}.lock`, async () => {
-      // Another session may have renewed while this one waited for the lock: take its certificate instead of making a third.
-      try {
-        const disk = readConfig(configPath);
-        if (disk.user === cfg.user && disk.cert !== cfg.cert) {
-          useConfig(disk, fs.statSync(configPath));
-          if (!dueSoon()) return;
-        }
-      } catch {
-        // the file we hold is the last good one
-      }
-      const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-      const spki = publicKey.export({ type: 'spki', format: 'pem' }).toString();
-      const answer = await postJson(agent, target, '/api/reporter/renew', { publicKey: spki }, UPSTREAM_TIMEOUT_MS);
-      if (answer.status === 401 && answer.json?.code) {
-        refused = { code: 'CERT_RENEWAL_REFUSED', message: String(answer.json.error ?? answer.json.code) };
-        return;
-      }
-      if (answer.status === 429) {
-        // Renewed less than an hour ago (by another session, most likely). Not a refusal: wait as long as the server says.
-        retryAt = Date.now() + retryDelayMs(answer.retryAfter);
-        return;
-      }
-      if (answer.status !== 200 || typeof answer.json?.cert !== 'string') throw new Error(`the server answered ${answer.status}`);
-      // Never write what does not check out: the certificate must be for our key and signed by a CA this file already holds,
-      // or, during a planned rotation (#588), by the new CA the response vouches for.
-      const x = new X509Certificate(answer.json.cert);
-      if (!x.publicKey.equals(publicKey) || x.ca) throw new Error('the renewed certificate is not for the new key');
-      const added = answer.json.rotation === undefined ? null : acceptRotation(answer.json.rotation, cfg.ca);
-      const holders = added ? [...cfg.ca, added.pem] : cfg.ca;
-      if (!holders.some((c) => x.verify(new X509Certificate(c).publicKey))) throw new Error('the renewed certificate is not signed by the CA in the file');
-      const text = rewriteConfig(fs.readFileSync(configPath, 'utf8'), {
-        ca: added && !added.held ? [...cfg.ca, added.pem] : cfg.ca,
-        cert: answer.json.cert,
-        key: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-        notAfter: new Date(x.validTo).toISOString(),
-        fingerprint: x.fingerprint256,
-        now: Date.now(),
-      });
-      writeAtomic(configPath, text);
-      useConfig(readConfig(configPath), fs.statSync(configPath));
-    });
-    if (got === null) throw new Error('another session held the renewal lock too long');
-  };
-
-  /** Starts a renewal if the certificate is due and none is under way; resolves when it ends. Never rejects. */
-  const maybeRenew = () => {
-    if (renewing) return renewing;
-    // An expired certificate is never renewed (#665): the server's reporter port drops it at the handshake, so there is nobody to ask.
-    if (refused || expired() || Date.now() < retryAt || !dueSoon()) return Promise.resolve();
-    renewing = renewOnce()
-      .catch((err) => {
-        retryAt = Date.now() + RENEW_RETRY_MS;
-        process.stderr.write(`renewal failed: ${err?.message ?? err}\n`);
-      })
-      .finally(() => {
-        renewing = null;
-      });
-    return renewing;
-  };
-
-  const server = http.createServer(async (req, res) => {
-    const route = reporterTarget(req.method, req.url);
-    if (!route) {
+  const server = http.createServer((req, res) => {
+    const g = client.guard(req.method, req.url);
+    if (g.refusal) {
       req.resume();
-      res.writeHead(403, { 'content-type': 'application/json', 'x-podium-helper-error': 'ROUTE_NOT_ALLOWED' });
-      res.end(JSON.stringify({ error: 'ROUTE_NOT_ALLOWED', message: 'The Podium connection helper forwards the reporter calls only.' }));
+      res.writeHead(g.refusal.status, { 'content-type': 'application/json', 'x-podium-helper-error': g.refusal.code });
+      res.end(JSON.stringify({ error: g.refusal.code, message: g.refusal.message }));
       return;
     }
-    refresh();
-    // The date is compared with this machine's clock before connecting, so the person is told it expired and nothing goes upstream (#665).
-    if (expired()) {
-      const on = new Date(cfg.notAfter).toISOString().slice(0, 10);
-      res.writeHead(502, { 'content-type': 'application/json', 'x-podium-helper-error': 'CERT_EXPIRED' });
-      res.end(JSON.stringify({ error: 'CERT_EXPIRED', message: `Your Podium certificate expired on ${on}. Ask an Admin to generate a new reporter config.` }));
-      return;
-    }
-    if (dueSoon()) void maybeRenew();
-    const headers = {};
-    for (const [k, v] of Object.entries(req.headers)) if (!HOP_HEADERS.has(k) && v !== undefined) headers[k] = v;
-    const up = https.request(
-      { agent, host: target.hostname.replace(/^\[|\]$/g, ''), port: target.port || 443, method: route.method, path: route.path, headers, servername: /^[\d.]+$|:/.test(target.hostname) ? undefined : target.hostname, rejectUnauthorized: true, timeout: UPSTREAM_TIMEOUT_MS },
-      (upRes) => {
+    const up = client.open(g.route, req.headers, {
+      onResponse: (upRes) => {
         const out = {};
         for (const [k, v] of Object.entries(upRes.headers)) if (!HOP_HEADERS.has(k) && v !== undefined) out[k] = v;
         res.writeHead(upRes.statusCode ?? 502, out);
@@ -375,22 +209,11 @@ function main(configPath, socketPath, serverUrl) {
         upRes.on('aborted', () => res.destroy());
         upRes.pipe(res);
       },
-    );
-    // TLS 1.3 finishes the handshake on the client before the server has judged the client certificate, so a rejection
-    // can look like the connection closing on a fresh connection that got no answer. A restart looks the same, so it
-    // gets its own name and the mod words it as a maybe.
-    let handshook = false;
-    up.on('socket', (s) => {
-      if (up.reusedSocket) return;
-      s.once('secureConnect', () => (handshook = true));
-    });
-    up.on('timeout', () => up.destroy(Object.assign(new Error('upstream timed out'), { code: 'ETIMEDOUT' })));
-    up.on('error', (err) => {
-      if (res.headersSent) return res.destroy();
-      let code = classifyError(err);
-      if (code === 'ECONNRESET' && handshook && !up.reusedSocket) code = 'CLOSED_AFTER_HANDSHAKE';
-      res.writeHead(502, { 'content-type': 'application/json', 'x-podium-helper-error': code });
-      res.end(JSON.stringify({ error: code, message: String(err.message ?? err) }));
+      onError: ({ code, message }) => {
+        if (res.headersSent) return res.destroy();
+        res.writeHead(502, { 'content-type': 'application/json', 'x-podium-helper-error': code });
+        res.end(JSON.stringify({ error: code, message }));
+      },
     });
     req.on('aborted', () => up.destroy());
     req.pipe(up);
@@ -437,8 +260,7 @@ function main(configPath, socketPath, serverUrl) {
   }
 
   // A session that is idle still renews in time: look at the certificate now and then, and once at start.
-  setInterval(() => void maybeRenew(), RENEW_CHECK_MS).unref();
-  void maybeRenew();
+  client.start();
 
   // The child of a mod that was killed outright (SIGKILL) gets no signal: watch the parent instead.
   const parent = process.ppid;
