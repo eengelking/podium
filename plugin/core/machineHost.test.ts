@@ -27,10 +27,10 @@ describe('the shared machine name and OS (#967)', () => {
     expect(h.files[SHARED]).toBe('Claude\n')
   })
   test('with no pin, scutil LocalHostName then hostname, and the name is pinned in both places', async () => {
-    const h = io({}, { scutil: 'Eds-MBP\n', hostname: 'other\n' })
-    expect(await pinnedMachineName(h, '/Users/dev', CLAUDE)).toBe('Eds-MBP')
-    expect(h.files[SHARED]).toBe('Eds-MBP\n')
-    expect(h.files[CLAUDE]).toBe('Eds-MBP\n')
+    const h = io({}, { scutil: 'Studio-Mac\n', hostname: 'other\n' })
+    expect(await pinnedMachineName(h, '/Users/dev', CLAUDE)).toBe('Studio-Mac')
+    expect(h.files[SHARED]).toBe('Studio-Mac\n')
+    expect(h.files[CLAUDE]).toBe('Studio-Mac\n')
     expect(await pinnedMachineName(io({}, { hostname: 'box.local\n' }), '/Users/dev', null)).toBe('box')
   })
   test('null when nothing names the machine', async () => {
