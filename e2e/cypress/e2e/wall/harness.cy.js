@@ -117,4 +117,62 @@ describe('harness badge and neutral labels', () => {
     cy.get('#row-e2e-a-map').click();
     cy.get('#podium-side-body').contains('dt', 'Model').next('dd').find('.chip').should('contain.text', 'Haiku').and('have.attr', 'title', 'claude-haiku-5-5');
   });
+
+  // The agent tree and the orchestrator panel follow what the session's harness declares (#944): a column it cannot report is absent, not zero.
+  // The session is a copy of invoice (which has agents) reported by Acme with context and effort both declared false.
+  const TR = 'e2e-s-acme-tree';
+  const bare = { harness: { id: 'acme', name: 'Acme', version: '1.0.0', surface: null }, capabilities: { context: false, effort: false } };
+  const noPageScroll = () => cy.document().then((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.be.at.most(doc.documentElement.clientWidth));
+  const noContextOrEffort = () => {
+    cy.get('.trow.hd').should('not.contain.text', 'Context').and('not.contain.text', 'Effort').and('contain.text', 'Tokens');
+    cy.get('#row-e2e-a-port').should('exist');
+    cy.get('.tw .trow').each(($r) => expect($r.attr('class')).to.match(/no-ctx/).and.to.match(/no-eff/));
+    cy.get('.tw .ctxc').should('not.exist');
+    cy.get('.tw .eff').should('not.exist');
+    noPageScroll();
+  };
+
+  it('leaves Context and Effort out of the agent tree and the orchestrator panel for a harness that declares neither', () => {
+    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme' }, undefined, undefined, bare);
+    cy.openConsole('#/');
+    cy.get(`button.card.sc[data-session="${TR}"]`).click();
+    cy.get('main#podium-main h1').should('contain.text', 'acme-tree');
+    noContextOrEffort();
+    cy.get('.trow.root').click();
+    cy.get('#podium-side-body').contains('dt', 'Model').should('exist');
+    cy.get('#podium-side-body').contains('dt', 'Tokens').should('exist');
+    cy.get('#podium-side-body').contains('dt', /^Effort$/).should('not.exist');
+    cy.get('#podium-side-body').contains('dt', /^Context$/).should('not.exist');
+    cy.get('#podium-side-body .eff').should('not.exist');
+  });
+
+  it('leaves a Claude Code session unchanged: both columns in the tree and both rows in the panel', () => {
+    cy.openConsole('#/');
+    cy.card('invoice').click();
+    cy.get('main#podium-main h1').should('contain.text', 'invoice-v2');
+    cy.get('.trow.hd').should('contain.text', 'Context').and('contain.text', 'Effort');
+    cy.get('.tw .trow:not(.hd)').each(($r) => expect($r.attr('class')).not.to.match(/no-ctx|no-eff/));
+    cy.get('.tw .trow.root .ctxc').should('exist');
+    cy.get('.tw .trow.root .eff').should('exist');
+    cy.get('#row-e2e-a-port .ctxc').should('exist');
+    cy.get('#row-e2e-a-port .eff').should('exist');
+    cy.get('.trow.root').click();
+    cy.get('#podium-side-body').contains('dt', /^Effort$/).should('exist');
+    cy.get('#podium-side-body').contains('dt', /^Context$/).should('exist');
+  });
+
+  it('keeps the tree without Context and Effort in History after the session ends', () => {
+    cy.reportAgain('invoice', { id: TR, name: 'acme-tree', harness: 'acme', status: 'done', endReason: 'prompt_input_exit', endedAt: Date.now() }, undefined, undefined, bare);
+    cy.visit('/#/history');
+    cy.get('#podium-day').invoke('val').should('match', /^\d{4}-\d{2}-\d{2}$/).then((day) => {
+      cy.visit(`/#/history?day=${day}&page=1&size=50&open=${TR}`);
+    });
+    cy.get('main h1').should('have.text', 'acme-tree');
+    noContextOrEffort();
+    // History's panel is not #podium-side-body, so the rows are looked up on the page.
+    cy.get('.trow.root').click();
+    cy.contains('dt', 'Tokens').should('exist');
+    cy.contains('dt', /^Effort$/).should('not.exist');
+    cy.contains('dt', /^Context$/).should('not.exist');
+  });
 });

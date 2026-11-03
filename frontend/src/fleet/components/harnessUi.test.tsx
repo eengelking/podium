@@ -5,6 +5,8 @@ import { FocusHeader } from "./FocusHeader";
 import { ModelChip, NO_PRICE_TITLE } from "./Chips";
 import { AgentRow } from "./AgentRow";
 import { AgentDetail } from "./AgentDetail";
+import { AgentTree } from "./AgentTree";
+import { OrchestratorDetail } from "./OrchestratorDetail";
 import { makeAgent, makeSession } from "../fixtures";
 
 afterEach(cleanup);
@@ -149,5 +151,76 @@ describe("an agent's model label (#945)", () => {
     cleanup();
     panel(claude);
     expect(screen.getAllByText("Sonnet 5.5").length).toBeGreaterThan(0);
+  });
+});
+
+describe("the agent tree and the orchestrator panel follow what a harness declares (#944)", () => {
+  const agents = [makeAgent({ id: "a1", effort: "high" }), makeAgent({ id: "a2", parentId: "a1", effort: "low" })];
+  const tree = (over: Parameters<typeof makeSession>[0] = {}) =>
+    render(<AgentTree s={makeSession({ agents, ...over })} waiting={new Map()} now={2_000_000} sort={{ key: null, dir: 1 }} onSort={() => {}} selectedAgent={null} flashAgent={null} onSelect={() => {}} />);
+  const headers = (c: HTMLElement) => [...c.querySelectorAll(".trow.hd button")].map((b) => b.textContent);
+  const panel = (over: Parameters<typeof makeSession>[0] = {}) => render(<OrchestratorDetail s={makeSession(over)} now={2_000_000} onBack={() => {}} />);
+  const labels = (c: HTMLElement) => [...c.querySelectorAll(".grid2 dt")].map((d) => d.textContent);
+
+  it("draws every column for a session that declared nothing, as before", () => {
+    const { container } = tree();
+    expect(headers(container)).toEqual(["Model", "Effort", "Context", "Tokens", "Cost", "Time", "Status"]);
+    expect(container.querySelectorAll(".trow:not(.hd) .eff")).toHaveLength(3);
+    expect(container.querySelectorAll(".trow:not(.hd) .ctxc")).toHaveLength(3);
+    expect(container.querySelector(".trow.no-ctx, .trow.no-eff")).toBeNull();
+  });
+
+  it("leaves out the Context column, in the header, the orchestrator row and every agent row, when context is declared false", () => {
+    const { container } = tree({ capabilities: { context: false, commands: [] } });
+    expect(headers(container)).toEqual(["Model", "Effort", "Tokens", "Cost", "Time", "Status"]);
+    expect(container.querySelector(".ctxc")).toBeNull();
+    expect(container.querySelector(".bar.ctx")).toBeNull();
+    expect(container.querySelectorAll(".trow:not(.hd) .eff")).toHaveLength(3);
+    for (const r of container.querySelectorAll(".trow")) expect(r).toHaveClass("no-ctx");
+  });
+
+  it("leaves out the effort meter column when effort is declared false, and both when both are", () => {
+    const { container } = tree({ capabilities: { effort: false, commands: [] } });
+    expect(headers(container)).toEqual(["Model", "Context", "Tokens", "Cost", "Time", "Status"]);
+    expect(container.querySelector(".eff")).toBeNull();
+    cleanup();
+    const both = tree({ capabilities: { context: false, effort: false, commands: [] } });
+    expect(headers(both.container)).toEqual(["Model", "Tokens", "Cost", "Time", "Status"]);
+    for (const r of both.container.querySelectorAll(".trow")) expect(r).toHaveClass("no-ctx", "no-eff");
+  });
+
+  it("follows the table for a harness that declares nothing, by session, never by naming one", () => {
+    const { container } = tree({ harness: "opencode" });
+    expect(headers(container)).toEqual(["Model", "Tokens", "Cost", "Time", "Status"]);
+    cleanup();
+    expect(headers(tree({ harness: "opencode", capabilities: { context: true, effort: true, commands: [] } }).container)).toContain("Context");
+  });
+
+  it("does not order the rows by a column this session does not show, and offers no Launch order for it", () => {
+    const two = [
+      makeAgent({ id: "hi", context: { tokens: 1, window: 1, percent: 80 } }),
+      makeAgent({ id: "lo", context: { tokens: 1, window: 1, percent: 20 } }),
+    ];
+    const order = (c: HTMLElement) => [...c.querySelectorAll("button.trow:not(.root)")].map((r) => r.getAttribute("data-agent"));
+    const withSort = (over: Parameters<typeof makeSession>[0]) =>
+      render(<AgentTree s={makeSession({ agents: two, ...over })} waiting={new Map()} now={2_000_000} sort={{ key: "ctx", dir: 1 }} onSort={() => {}} selectedAgent={null} flashAgent={null} onSelect={() => {}} />);
+    const shown = withSort({});
+    expect(order(shown.container)).toEqual(["lo", "hi"]);
+    expect(screen.getByRole("button", { name: "Launch order" })).toBeInTheDocument();
+    cleanup();
+    const hidden = withSort({ capabilities: { context: false, commands: [] } });
+    expect(order(hidden.container)).toEqual(["hi", "lo"]);
+    expect(screen.queryByRole("button", { name: "Launch order" })).toBeNull();
+  });
+
+  it("leaves the Effort and Context rows out of the orchestrator panel, label and value", () => {
+    expect(labels(panel().container)).toEqual(expect.arrayContaining(["Effort", "Context"]));
+    cleanup();
+    const { container } = panel({ capabilities: { context: false, effort: false, commands: [] } });
+    expect(labels(container)).not.toContain("Effort");
+    expect(labels(container)).not.toContain("Context");
+    expect(labels(container)).toEqual(expect.arrayContaining(["Role", "Model", "Tokens", "Est. cost", "Time"]));
+    expect(container.querySelector(".grid2 .eff, .grid2 .bar.ctx")).toBeNull();
+    expect(container.querySelectorAll(".grid2 dt")).toHaveLength(container.querySelectorAll(".grid2 dd").length);
   });
 });
