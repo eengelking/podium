@@ -67,7 +67,8 @@ function registerTasks(on, config) {
       if (!r) throw new Error(`no seeded session "${key}"`);
       const body = { ...r.body, sentAt: Date.now(), session: { ...r.body.session, ...over } };
       // `v2` sends it as a report v2, which accepts any text as `effort` (#936).
-      if (v2) Object.assign(body, { v: 2, harness: { id: 'claude-code', name: 'Claude Code', version: '0', surface: null }, capabilities: {} });
+      // `v2` may also be { harness: { id, name, version, surface }, capabilities } to report as another harness (#853).
+      if (v2) Object.assign(body, { v: 2, harness: { id: 'claude-code', name: 'Claude Code', version: '0', surface: null }, capabilities: {}, ...(typeof v2 === 'object' ? v2 : {}) });
       // `steps` maps a plan step id to its new state.
       if (steps && body.session.plan) body.session.plan = { ...body.session.plan, steps: body.session.plan.steps.map((st) => (steps[st.id] ? { ...st, state: steps[st.id] } : st)) };
       // `agents` maps an agent id to the fields to change on it.
