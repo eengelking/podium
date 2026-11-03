@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium harness badge, neutral labels and fields a harness does not report</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<!-- Mockup for issue #853. Colors are tokens from tokens.css and the cards are the app's own markup and classes from fleet.css (both linked, with no root-level token block of its own). The theme button sets data-theme on <html> the way useTheme does. Only the rules under "NEW" are proposed. -->
+<style>
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui, system-ui, sans-serif); padding: 32px 16px 72px; }
+.page { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
+h1 { font-size: 26px; line-height: 1.15; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+p { margin: 0 0 6px; max-width: 70ch; color: var(--ink2); }
+code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+button.theme { font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button.theme:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 2px; }
+.row { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.col { flex: 1 1 340px; min-width: 0; max-width: 420px; }
+.label { font-size: 12px; color: var(--ink2); margin: 0 0 6px; }
+.narrow { width: 400px; max-width: 100%; }
+table { border-collapse: collapse; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+th, td { text-align: left; padding: 8px 12px; border-top: 1px solid var(--grid); vertical-align: top; font-size: 13px; }
+th { font-weight: 600; color: var(--ink2); font-size: 12px; border-top: 0; }
+td.say { color: var(--ink2); }
+.cmd { display: block; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; background: var(--raised); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; overflow-x: auto; white-space: pre; }
+.id { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; color: var(--ink2); }
+.id b { color: var(--ink); font-weight: 600; }
+.pagehead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; max-width: 420px; }
+
+/* NEW: the harness badge. A chip (.chip) with a shape and the harness name. The shape differs per harness so it is not color-only. */
+.podium .chip.hx { color: var(--ink); background: var(--raised); }
+.podium .chip.hx svg { width: 9px; height: 9px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+/* NEW: a figure the harness reported itself carries its source as a small word, inside the cost cell's value line. */
+.podium .card.sc .z3 .c .v .src { display: block; font-family: var(--font-ui); font-size: 11px; font-weight: 400; color: var(--muted); }
+/* NEW: with no Context cell the footer is three cells wide. */
+.podium .card.sc .z3.three { grid-template-columns: 1.15fr 1fr 1fr; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="sq" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" rx="1.5"/></symbol>
+    <symbol id="dia" viewBox="0 0 10 10"><path d="M5 .8 9.2 5 5 9.2.8 5z"/></symbol>
+  </defs>
+</svg>
+<div class="page podium">
+  <section>
+    <h1>Which harness runs a session, and what it does not report</h1>
+    <p>Podium now stores the harness of each session (#851). This design shows it on the card and the pages, names the model without Claude-only wording, hides what a harness does not report, and makes the tool name, the short id and the resume command work for any harness. Claude Code sessions look and behave as before.</p>
+    <p style="margin-top:10px"><button class="theme" type="button" onclick="var r=document.documentElement;r.dataset.theme=r.dataset.theme==='light'?'dark':'light'">Switch light / dark</button></p>
+  </section>
+
+  <section>
+    <h2>1. The harness badge</h2>
+    <p>One chip, a shape and the harness name, in the card's model group before the model chip. It shows on a card and in the page header only when the wall holds sessions from more than one harness, so a Claude-Code-only wall is unchanged. A harness Podium has no entry for shows its id with the plain square.</p>
+    <div class="row">
+      <div class="col"><p class="label">Mixed wall: Claude Code</p><div id="c1"></div></div>
+      <div class="col"><p class="label">Mixed wall: OpenCode</p><div id="c2"></div></div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div class="col"><p class="label">Only Claude Code on the wall: no badge, as today</p><div id="c3"></div></div>
+      <div class="col"><p class="label">A harness with no entry yet</p><div id="c4"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. A neutral model label</h2>
+    <p>The chip shows the label the reporter sent (<code>modelLabel</code>) when there is one, else the family name as now for Claude models, else the raw model name. The title carries the full model id and its provider. "(not a Claude model)" goes away. A model Podium cannot price shows the harness's own figure when it reported one, marked "from OpenCode", and "n/a" with the reason only when it reported none. Voice: a cost Podium works out is an estimate and says so; one the harness reported does not need to.</p>
+    <table>
+      <thead><tr><th>Sent</th><th>Chip</th><th>Cost cell</th></tr></thead>
+      <tbody>
+        <tr><td><code>claude-sonnet-5-5</code>, no label</td><td><span class="chip" style="--c:var(--sonnet)"><i></i>Sonnet 5.5</span></td><td class="say">$1.42, Podium's estimate, as today</td></tr>
+        <tr><td><code>gpt-5.1</code>, label "GPT-5.1", cost 0.31 from the harness</td><td><span class="chip" style="--c:var(--other)"><i></i>GPT-5.1</span></td><td class="say">$0.31, "from OpenCode" under it</td></tr>
+        <tr><td><code>acme-7b</code>, no label, no cost</td><td><span class="chip" style="--c:var(--other)"><i></i>acme-7b</span></td><td class="say"><span title="Podium has no price for this model and the harness reported none">n/a</span>, with that reason as the title</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>3. Fields a harness does not report are hidden, not zero</h2>
+    <p>When the harness says it cannot send a field, the cell for it is absent, and the footer is three cells wide. A session that can send a field but has not yet shows what it shows today (<code>—</code>). The reason is said once, on the page (the orchestrator page's header), not on each card.</p>
+    <div class="row">
+      <div class="col"><p class="label">Today: a harness with no context window reads 0%</p><div id="c5"></div></div>
+      <div class="col"><p class="label">Proposed: the Context cell is absent</p><div id="c6"></div>
+        <div class="pagehead"><span class="chip hx"><svg aria-hidden="true"><use href="#dia"/></svg>OpenCode</span><span>ingest-pipeline</span><span style="color:var(--muted);font-size:12px">OpenCode does not report context size.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Tool names, short ids and the resume command</h2>
+    <p><strong>Tool names.</strong> The UI maps per harness, in <code>frontend/</code>, keyed by the harness id: the shell tool is <code>Bash</code> for Claude Code and <code>shell</code> for OpenCode, and both render as the same command row. The reporters keep sending the tool's own name. The "(Recommended)" tag is stripped only for Claude Code.</p>
+    <p><strong>Short ids.</strong> Today the first 8 characters, which leaves 4 informative ones on <code>ses_…</code>. Proposed: the first 8 characters after a known prefix, with the prefix kept, so two OpenCode sessions never collapse to <code>ses_a1b2</code>.</p>
+    <table>
+      <thead><tr><th>Harness</th><th>Full id</th><th>Short id today</th><th>Short id proposed</th></tr></thead>
+      <tbody>
+        <tr><td>Claude Code</td><td class="id">3f9c2a1e-77b4-4d0a-9c55-1be2f4c0a8d6</td><td class="id">3f9c2a1e</td><td class="id"><b>3f9c2a1e</b> (unchanged)</td></tr>
+        <tr><td>OpenCode</td><td class="id">ses_5a91c0e4d2b7f3a8</td><td class="id">ses_5a91</td><td class="id"><b>ses_5a91c0e4</b></td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:14px"><strong>Resume and Fork.</strong> These are the two copy cells in the second row of the facts bar on the orchestrator page. Clicking one copies the command (the cell says "Copied" for a moment); hovering shows what the command does. The command and the hover text come from a per-harness template, because Claude Code's hover text names things OpenCode does not have (<code>--mcp-config</code>, permissions you allowed). A cell never moves because another has nothing to say, so a harness with no fork command keeps the Fork cell in its place, with no button in it.</p>
+    <p class="label" style="margin-top:12px">Claude Code: as today</p>
+    <div class="osum"><div class="facts six" id="fb1"></div></div>
+    <p class="label" style="margin-top:14px">OpenCode: Resume copies the OpenCode command; Fork is a quiet cell, not a button</p>
+    <div class="osum"><div class="facts six" id="fb2"></div></div>
+    <table style="margin-top:14px">
+      <thead><tr><th>Cell</th><th>Claude Code</th><th>OpenCode</th></tr></thead>
+      <tbody>
+        <tr><td>Resume copies</td><td><code class="cmd">cd /Users/dev/billing-service &amp;&amp; claude --resume 3f9c2a1e-…</code></td><td><code class="cmd">opencode /Users/dev/ingest-pipeline --session ses_5a91c0e4d2b7f3a8</code></td></tr>
+        <tr><td>Fork copies</td><td><code class="cmd">cd /Users/dev/billing-service &amp;&amp; claude --resume 3f9c2a1e-… --fork-session</code></td><td class="say">Nothing. The cell reads "Not available", is not a button, and its hover text says OpenCode has no fork command Podium can give.</td></tr>
+        <tr><td>Hover text</td><td class="say">As today.</td><td class="say">Resume: "Continues this same session in a new terminal. It starts in this session's working directory." The Claude-only lines are left out.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>5. At 400 px, with a long name</h2>
+    <p>The name is cut with an ellipsis and has its full text as a title. The model group (badge, model chip, effort) keeps its width.</p>
+    <div class="narrow" id="c7"></div>
+  </section>
+
+  <section>
+    <h2>Standards</h2>
+    <p>Tokens only. The cards are the app's own (<code>card sc</code>, <code>z1</code> to <code>z3</code>, <code>.band</code>). It adds one component, the harness badge (<code>chip hx</code>), plus a source word under a reported cost and a three-cell footer, so it is a standards change that needs the maintainer's approval and a <code>Standards:</code> line under [Unreleased]. The badge is shape plus word, never color alone. No other variant changes.</p>
+  </section>
+</div>
+<script>
+// A card in the app's own markup (SessionCard.tsx), filled with sample data. Sample text only; nothing here is a request.
+var PLAY = '<svg class="si si-running" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5.5 3.8v8.4L12 8z"/></svg>';
+var COLOR = { sonnet: 'var(--sonnet)', other: 'var(--other)' };
+function card(o) {
+  var badge = o.badge ? '<span class="chip hx" title="Harness: ' + o.badge.name + '"><svg aria-hidden="true"><use href="#' + o.badge.shape + '"/></svg>' + o.badge.name + '</span>' : '';
+  var ctx = o.ctx === undefined ? '' :
+    '<div class="c ctx"><span class="k">Context</span><span class="v mono">' + o.ctx + '%</span><div class="bar ctx" role="img" aria-label="Context ' + o.ctx + '%"><i style="width:' + o.ctx + '%"></i></div></div>';
+  var plan = o.plan ? '<div class="plan"><div class="t"><span>' + o.plan + '</span><span class="mono">3/7</span></div><div class="bar"><i style="width:43%"></i></div></div>' : '<div class="noplan">No plan reported. Agents were launched ad hoc.</div>';
+  return '<div class="card-slot"><div class="card sc" style="cursor:default">' +
+    '<div class="z1"><div class="h"><span class="sd">' + PLAY + '</span>' +
+    '<span class="nm" title="' + o.name + '">' + o.name + '</span>' +
+    '<span class="mdl">' + badge + '<span class="chip" style="--c:' + o.color + '" title="' + o.title + '"><i></i>' + o.model + '</span></span></div>' +
+    '<div class="pathrow"><div class="path mono"><bdi>' + o.path + '</bdi></div></div></div>' +
+    '<div class="z2">' + plan + '</div>' +
+    '<div class="z3' + (ctx ? '' : ' three') + '">' +
+    '<div class="c"><span class="k">Cost</span><span class="v mono">' + o.cost + (o.src ? '<span class="src">' + o.src + '</span>' : '') + '</span></div>' +
+    '<div class="c"><span class="k">Tokens</span><span class="v mono">' + o.tokens + '</span></div>' +
+    '<div class="c"><span class="k">Time</span><span class="v mono">' + o.time + '</span></div>' + ctx + '</div>' +
+    '<div class="band running"><span class="bi">' + PLAY + '</span><span class="bl">Running</span></div></div></div>';
+}
+var CC = { name: 'billing-service', badge: { name: 'Claude Code', shape: 'sq' }, model: 'Sonnet 5.5', color: COLOR.sonnet, title: 'claude-sonnet-5-5', path: '/Users/dev/billing-service', plan: 'Invoice export', cost: '$1.42', tokens: '410k', time: '12m', ctx: 41 };
+var OC = { name: 'ingest-pipeline', badge: { name: 'OpenCode', shape: 'dia' }, model: 'GPT-5.1', color: COLOR.other, title: 'gpt-5.1 (OpenAI)', path: '/Users/dev/ingest-pipeline', plan: null, cost: '$0.31', src: 'from OpenCode', tokens: '96k', time: '4m', ctx: 28 };
+function put(id, o) { document.getElementById(id).innerHTML = card(o); }
+put('c1', CC);
+put('c2', OC);
+put('c3', Object.assign({}, CC, { badge: null }));
+put('c4', Object.assign({}, OC, { name: 'nightly-batch', badge: { name: 'acme-runner', shape: 'sq' }, model: 'acme-7b', title: 'acme-7b', cost: '$0.00', src: 'from acme-runner', ctx: undefined }));
+put('c5', Object.assign({}, OC, { badge: null, src: null, ctx: 0 }));
+put('c6', Object.assign({}, OC, { ctx: undefined }));
+put('c7', Object.assign({}, OC, { name: 'ingest-pipeline-with-a-very-long-name-for-the-nightly-run', ctx: undefined }));
+// Facts bar, row two (FactsBar.tsx): Machine and System, Reporter, Session, Resume, Fork, Recording. Copy cells are buttons; a cell with nothing to copy is plain text.
+var COPY = '<svg class="i" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
+function plain(k, v) { return '<div class="fact"><span class="k">' + k + '</span><span class="v">' + v + '</span></div>'; }
+function copyCell(k) { return '<div class="fact copy"><button type="button" class="cellbtn" aria-label="Copy ' + k.toLowerCase() + ' command"><span class="k">' + k + '</span> <span class="v soft"><span>Command</span>' + COPY + '</span></button></div>'; }
+function quiet(k, why) { return '<div class="fact" title="' + why + '"><span class="k">' + k + '</span><span class="v soft"><span>Not available</span></span></div>'; }
+document.getElementById('fb1').innerHTML = plain('Machine', 'dev-mac') + plain('Reporter', '0.15.0') + plain('Session', '3f9c2a1e') + copyCell('Resume') + copyCell('Fork') + plain('Recording', 'Off');
+document.getElementById('fb2').innerHTML = plain('Machine', 'dev-mac') + plain('Reporter', '0.15.0') + plain('Session', 'ses_5a91c0e4') + copyCell('Resume') + quiet('Fork', 'OpenCode has no fork command Podium can give.') + plain('Recording', 'Off');
+</script>
+</body>
+</html>

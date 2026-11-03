@@ -4,7 +4,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { makeSession } from "./fixtures";
 import { fmtDay } from "./format";
-import { canAnswer, cleanLabel, respondGate } from "./respond";
+import { canAnswer, cleanLabel, deliverySummary, respondGate } from "./respond";
 import { RespondProvider, useRespond } from "./useRespond";
 import { RespondButton, RespondModal } from "./components/Respond";
 import { TopBar } from "./components/TopBar";
@@ -608,5 +608,21 @@ describe("stored Activity in the Respond modal (#432)", () => {
     withHistory(false);
     await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: "", admin: false }));
     expect(screen.getByText("History is kept for this session. Sign in as Ed or an Admin to open it.")).toBeInTheDocument();
+  });
+});
+
+describe("the (Recommended) mark belongs to Claude Code (#853)", () => {
+  it("is stripped for Claude Code and for a session whose harness is not stated, and left alone for another harness", () => {
+    expect(cleanLabel("Fixed 50 (Recommended)")).toEqual({ label: "Fixed 50", recommended: true });
+    expect(cleanLabel("Fixed 50 (Recommended)", "claude-code")).toEqual({ label: "Fixed 50", recommended: true });
+    expect(cleanLabel("Fixed 50 (Recommended)", "opencode")).toEqual({ label: "Fixed 50 (Recommended)", recommended: false });
+  });
+});
+
+describe("the quoted answer keeps another harness's (Recommended) label (#853)", () => {
+  const d = { ask: { id: "q", kind: "question" as const, agentId: null, openedAt: 0, questions: [{ question: "Q?", header: "H", multiSelect: false, options: [{ label: "Fixed 50 (Recommended)", description: "d", preview: null }] }] } };
+  it("strips it for Claude Code and leaves it for OpenCode", () => {
+    expect(deliverySummary(d, { kind: "question", id: "x", at: 0, answers: [{ options: [0] }] } as never, "claude-code")).toBe("Fixed 50");
+    expect(deliverySummary(d, { kind: "question", id: "x", at: 0, answers: [{ options: [0] }] } as never, "opencode")).toBe("Fixed 50 (Recommended)");
   });
 });

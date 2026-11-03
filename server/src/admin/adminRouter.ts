@@ -18,7 +18,7 @@ import { Lockout } from '../fleet/lockout.js';
 import { messageView, rangeOf } from '../fleet/peerRoutes.js';
 import { createReportRouter } from '../fleet/reportRoutes.js';
 import type { ReportDeps } from '../fleet/reports.js';
-import { PEER_LEVELS, type PeerLevel } from '../fleet/protocol.js';
+import { PEER_LEVELS, shortId, type PeerLevel } from '../fleet/protocol.js';
 import type { Actor, Refusal } from '../fleet/peerTypes.js';
 import { ALLOW_HTTP_KEY, type ServingRenewer } from '../tlsRenew.js';
 import type { LiveTlsSettings } from '../tlsLive.js';
@@ -862,7 +862,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
 
   /** A recording removed by the Admin, written to the Admin log with the Admin as the one who did it and never any text. */
   const recordingDeleted = (req: Request, g: { sessionId: string; name: string; entries: number; bytes: number }) =>
-    audit(req, 'recording_deleted', `Deleted the recording of ${g.name} (${g.sessionId.slice(0, 8)}): ${countWords(g.entries, 'entry', 'entries')}, ${sizeText(g.bytes)}`, { session_id: g.sessionId, entries: g.entries, bytes: g.bytes });
+    audit(req, 'recording_deleted', `Deleted the recording of ${g.name} (${shortId(g.sessionId)}): ${countWords(g.entries, 'entry', 'entries')}, ${sizeText(g.bytes)}`, { session_id: g.sessionId, entries: g.entries, bytes: g.bytes });
   /** Who the mark of a recording the Admin stopped names: the administrator, or `Admin` for the admin secret. */
   const adminName = async (req: Request): Promise<string> => {
     const who = await actorOf(req);
@@ -1003,7 +1003,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = await rec.service.stop(sid, await adminName(req));
     if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (out.changed) {
-      await audit(req, 'recording_stopped', `Stopped the recording of ${sid.slice(0, 8)}`, { session_id: sid });
+      await audit(req, 'recording_stopped', `Stopped the recording of ${shortId(sid)}`, { session_id: sid });
       rec.changed(sid);
     }
     res.json({ ok: true, grant: out.grant });

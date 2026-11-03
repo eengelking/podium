@@ -75,7 +75,7 @@ Podium never:
   (DECISIONS 37);
 - lets a message between orchestrators answer an ask, run a command, or change a mode or a rule.
 
-The dashboard may also copy a resume command or a fork command to the clipboard and remove a heartbeat-lost card from the live
+The dashboard may also copy a resume command or a fork command, for a harness that has one (7.4), to the clipboard and remove a heartbeat-lost card from the live
 view early ([7.5](07-server/07-05-lifecycle-timers.md)). Neither sends anything to a session.
 
 **Hosting.**

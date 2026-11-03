@@ -1,6 +1,7 @@
 // What the console shows for responding to a waiting session (#206, mockup/podium-respond.html), worked out from one
 // SessionView, the Admin's flags and who is signed in. Pure: the components draw what these say.
 import { cardKind } from "./components/Chips";
+import { recommendedMark } from "./harness";
 import { LEVEL_KINDS } from "../../../plugin/core/protocol";
 import type { AskDetail, AskKind, AskSummary, Delivery, QuestionAnswer, RespondKind, RespondMe, SessionView } from "./types";
 
@@ -107,23 +108,23 @@ export function askLead(kind: AskKind | null): string {
 export const PLAN_LABELS = { auto: "Yes, and use auto mode", acceptEdits: "Yes, auto-accept edits", default: "Yes, manually approve edits" } as const;
 
 /** A question's answers as the panel quotes them: each answered question's options (", ") or text, joined with "; ". */
-export function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[]): string {
+export function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[], harness?: string | null): string {
   return (detail.ask.questions ?? [])
     .map((q, i) => {
       const a = answers[i];
       if (!a) return "";
       if ("text" in a) return a.text.trim();
-      return a.options.map((n) => cleanLabel(q.options[n]?.label ?? "").label).join(", ");
+      return a.options.map((n) => cleanLabel(q.options[n]?.label ?? "", harness).label).join(", ");
     })
     .filter(Boolean)
     .join("; ");
 }
 
 /** An answer as the panel quotes it in "Sending to …" and "Their answer was taken first". */
-export function deliverySummary(detail: Pick<AskDetail, "ask">, d: Delivery): string {
+export function deliverySummary(detail: Pick<AskDetail, "ask">, d: Delivery, harness?: string | null): string {
   switch (d.kind) {
     case "question":
-      return questionAnswers(detail, d.answers ?? []);
+      return questionAnswers(detail, d.answers ?? [], harness);
     case "plan-approve":
       return PLAN_LABELS[d.mode ?? "auto"];
     case "plan-feedback":
@@ -140,7 +141,9 @@ export function deliverySummary(detail: Pick<AskDetail, "ask">, d: Delivery): st
 const MARK = "(recommended)";
 
 /** Claude Code marks a recommended option by ending its label with "(Recommended)": shown as a tag instead. */
-export function cleanLabel(label: string): { label: string; recommended: boolean } {
+export function cleanLabel(label: string, harness?: string | null): { label: string; recommended: boolean } {
+  // Another harness does not use the mark, so a label that ends that way is its own text (#853).
+  if (!recommendedMark(harness)) return { label, recommended: false };
   // Not a regex, which is quadratic on a long run of spaces (#362). The text before the mark may not hold a line break.
   const t = label.trimEnd();
   if (t.length >= MARK.length && t.slice(-MARK.length).toLowerCase() === MARK) {

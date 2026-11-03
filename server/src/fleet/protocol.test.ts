@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { validateReport, harnessOf, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
+import { validateReport, shortId, harnessOf, validateAsk, acceptsFor, LIMITS, RESPOND_LIMITS, PEER_LIMITS } from './protocol.js';
 import { bareFixture, loadFixture } from './testing.js';
 import { checkReporter } from './compat.js';
 
 describe('protocol', () => {
+  it('shortens a session id to its first eight characters after any prefix, keeping the prefix (#853)', () => {
+    expect(shortId('3f9c2a1e-77b4-4d0a-9c55-1be2f4c0a8d6')).toBe('3f9c2a1e');
+    expect(shortId('ses_5a91c0e4d2b7f3a8')).toBe('ses_5a91c0e4');
+    expect(shortId('ses_5a91c0e4d2b7f3a8')).not.toBe(shortId('ses_5a91ffffd2b7f3a8'));
+    expect(shortId('abc')).toBe('abc');
+    expect(shortId('s1_')).toBe('s1_');
+    expect(shortId('toolongprefix_1234567890')).toBe('toolongp');
+  });
+
   it('accepts the shared fixture', () => {
     const r = validateReport(loadFixture());
     expect(r.ok).toBe(true);

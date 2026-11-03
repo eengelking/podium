@@ -193,7 +193,7 @@ describe('reads', () => {
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const res = await request(app).get(`/api/fleet/history?day=${day}`);
     expect(res.body.sessions).toHaveLength(1);
-    expect(res.body.sessions[0]).toMatchObject({ name: 'invoice-v2', endReason: 'clear', blowouts: 2, agents: 4 });
+    expect(res.body.sessions[0]).toMatchObject({ name: 'invoice-v2', endReason: 'clear', blowouts: 2, agents: 4, harness: 'claude-code', costSource: 'estimate' });
     expect((await request(app).get('/api/fleet/history?day=yesterday')).status).toBe(400);
     // a date that does not exist is a 400, not a silent roll over into the next month
     for (const bad of ['2026-02-31', '2026-13-01', '2026-00-10', '2026-04-31', '2025-02-29']) {

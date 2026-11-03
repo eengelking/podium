@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { HarnessContext } from "../harnessContext";
+import { DEFAULT_HARNESS, isShellTool } from "../harness";
+import { shortId } from "../../../../plugin/core/protocol";
 import { RespondError } from "../respondApi";
 import { replayLine, fmtWhen, leaveReplay, sizeWords } from "../recording";
 import { bashCommand, bashResult, buildItems, COLLAPSE_AT, firstLine, nextFailure, tailLines, type ReplayItem } from "../replayItems";
@@ -75,9 +78,10 @@ function Failed({ call, result }: { call: string; result: RecordingRow }) {
 
 function Row({ item, i, startedAt, who, cur, me, anchor }: { item: ReplayItem; i: number; startedAt: number; who: string; cur: boolean; me: string | null; anchor: RowAnchor }) {
   const { row } = item;
+  const harness = useContext(HarnessContext);
   const text = row.text;
   // A Bash call is the same row as in the Activity feed: its command and its output open together. Any other tool keeps its disclosures.
-  const command = item.kind === "tool" && row.name === "Bash" ? bashCommand(text) : null;
+  const command = item.kind === "tool" && isShellTool(harness, row.name) ? bashCommand(text) : null;
   if (command !== null) {
     const res = item.result ? bashResult(item.result) : null;
     const flat = command.replaceAll(/\s+/g, " ").trim();
@@ -232,7 +236,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
       live = false;
     };
   }, [id, session]);
-  const name = session?.name ?? fetchedName ?? id.slice(0, 8);
+  const name = session?.name ?? fetchedName ?? shortId(id);
 
   const fetchPage = api?.recordingPage;
   useEffect(() => {
@@ -468,10 +472,12 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
     );
   }
   return (
+    <HarnessContext.Provider value={session?.harness ?? DEFAULT_HARNESS}>
     <div className="replay">
       {back}
       {header}
       {main}
     </div>
+    </HarnessContext.Provider>
   );
 }

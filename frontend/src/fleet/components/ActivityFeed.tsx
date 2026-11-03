@@ -1,5 +1,7 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type JSX } from "react";
 import { fmtCount, fmtDay } from "../format";
+import { isShellTool } from "../harness";
+import { useHarness } from "../harnessContext";
 import { reporterBelow } from "../logic";
 import type { ActivityEntryView, SessionView } from "../types";
 import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
@@ -83,12 +85,13 @@ function Entry(props: { e: FeedEntry; startedAt: number; fresh: boolean; running
   const adminOutput = useContext(ActivityOutputFlag);
   const k = KIND[e.kind];
   const respond = useRespond();
+  const harness = useHarness();
   const me = respond?.me?.signedIn ? respond.me.name : null;
   const space = e.text.indexOf(" ");
   const name = e.kind === "tool" ? (space < 0 ? e.text : e.text.slice(0, space)) : "";
   const arg = e.kind === "tool" && space >= 0 ? e.text.slice(space + 1) : "";
   // Only a Bash row opens: the mod sends a whole command and output for no other tool (#431).
-  if (e.kind === "tool" && name === "Bash") {
+  if (e.kind === "tool" && isShellTool(harness.id, name)) {
     const stored = e.key !== undefined && e.key.startsWith("h") && e.live !== true;
     const running = props.running && !stored && e.output === undefined && !e.done;
     return (

@@ -1,5 +1,7 @@
 import { useId, type ReactNode } from "react";
 import { cleanLabel, countWord, PLAN_LABELS } from "../respond";
+import { useHarness } from "../harnessContext";
+import { isShellTool } from "../harness";
 import type { AskDetail, PlanMode, QuestionAnswer } from "../types";
 import { Markdown } from "./Markdown";
 
@@ -65,15 +67,16 @@ export function draftToAnswer(d: Draft): QuestionAnswer {
   return d.options.length ? { options: d.options } : null;
 }
 
-function answerText(detail: AskDetail, i: number, d: Draft): string {
+function answerText(detail: AskDetail, i: number, d: Draft, harness?: string): string {
   const a = draftToAnswer(d);
   if (!a) return "";
   if ("text" in a) return a.text;
-  return a.options.map((n) => cleanLabel(detail.ask.questions![i]!.options[n]?.label ?? "").label).join(", ");
+  return a.options.map((n) => cleanLabel(detail.ask.questions![i]!.options[n]?.label ?? "", harness).label).join(", ");
 }
 
 export function QuestionForm(props: { detail: AskDetail; tab: number; drafts: Draft[]; onTab: (n: number) => void; onDraft: (i: number, d: Draft) => void; onSubmit: () => void; busy: boolean }) {
   const { detail, tab, drafts } = props;
+  const harness = useHarness();
   const qs = detail.ask.questions ?? [];
   const n = qs.length;
   const onReview = tab === n;
@@ -85,7 +88,7 @@ export function QuestionForm(props: { detail: AskDetail; tab: number; drafts: Dr
         <p className="qh">Review your answers</p>
         <dl className="review">
           {qs.map((q, i) => {
-            const a = answerText(detail, i, drafts[i] ?? null);
+            const a = answerText(detail, i, drafts[i] ?? null, harness.id);
             return (
               <div key={i}>
                 <dt>{q.question}</dt>
@@ -118,7 +121,7 @@ export function QuestionForm(props: { detail: AskDetail; tab: number; drafts: Dr
         <div className={`qgrid${sel ? " pv" : ""}`}>
           <fieldset className="opts" aria-labelledby={`${id}-qh`}>
             {q.options.map((o, i) => {
-              const l = cleanLabel(o.label);
+              const l = cleanLabel(o.label, harness.id);
               return (
                 <label className="opt" key={i}>
                   <input type={q.multiSelect ? "checkbox" : "radio"} name={`${id}-q${tab}`} checked={chosen(i)} onChange={() => pick(i)} />
@@ -149,7 +152,7 @@ export function QuestionForm(props: { detail: AskDetail; tab: number; drafts: Dr
           </fieldset>
           {sel && (
             <div className="preview">
-              <div className="pl">Preview: {cleanLabel(sel.label).label}</div>
+              <div className="pl">Preview: {cleanLabel(sel.label, harness.id).label}</div>
               <pre>{sel.preview}</pre>
             </div>
           )}
@@ -162,7 +165,7 @@ export function QuestionForm(props: { detail: AskDetail; tab: number; drafts: Dr
       <div className="ab">
         <div className="tabs" role="tablist" aria-label="Questions">
           {qs.map((q, i) => (
-            <button key={i} type="button" role="tab" className={`tab${answerText(detail, i, drafts[i] ?? null) ? " done" : ""}`} aria-selected={tab === i} onClick={() => props.onTab(i)}>
+            <button key={i} type="button" role="tab" className={`tab${answerText(detail, i, drafts[i] ?? null, harness.id) ? " done" : ""}`} aria-selected={tab === i} onClick={() => props.onTab(i)}>
               <span className="box" />
               {q.header}
             </button>
@@ -259,7 +262,10 @@ export function PlanForm(props: { detail: AskDetail; backOnly: boolean; choice: 
 
 export function PermissionForm(props: { detail: AskDetail; allow: boolean; reason: string; onAllow: (allow: boolean) => void; onReason: (t: string) => void; onSubmit: (allow: boolean) => void; busy: boolean }) {
   const id = useId();
+  const harness = useHarness();
   const tool = props.detail.ask.tool;
+  const shell = isShellTool(harness.id, tool?.name);
+  const who = harness.id === "claude-code" ? "Claude" : "the model";
   const input = tool?.input ?? {};
   const command = typeof input.command === "string" ? input.command : null;
   const description = typeof input.description === "string" ? input.description : null;
@@ -269,7 +275,7 @@ export function PermissionForm(props: { detail: AskDetail; allow: boolean; reaso
   return (
     <>
       <div className="ab">
-        <p className="qh">{tool?.name === "Bash" ? "Bash wants to run a command" : `${tool?.name ?? "A tool"} wants your permission`}</p>
+        <p className="qh">{shell ? `${tool?.name} wants to run a command` : `${tool?.name ?? "A tool"} wants your permission`}</p>
         <div className="cmd">{command ?? JSON.stringify(input, null, 2)}</div>
         {description && <p className="cmdd">{description}</p>}
         {cut && <p className="signnote">This command is too long to show in full here, so it can only be allowed in the terminal. You can still deny it from here.</p>}
@@ -278,14 +284,14 @@ export function PermissionForm(props: { detail: AskDetail; allow: boolean; reaso
             <label className="opt">
               <input type="radio" name={`${id}-perm`} checked={allow} onChange={() => props.onAllow(true)} />
               <span className="ol">Allow once</span>
-              <span className="od">{tool?.name === "Bash" || !tool ? "Runs this command now. The next one asks again." : `Lets ${tool.name} run this once. The next one asks again.`}</span>
+              <span className="od">{shell || !tool ? "Runs this command now. The next one asks again." : `Lets ${tool.name} run this once. The next one asks again.`}</span>
             </label>
           )}
           <label className="opt">
             <input type="radio" name={`${id}-perm`} checked={!allow} onChange={() => props.onAllow(false)} />
             <span className="ol">Deny</span>
-            <span className="od">Claude is told no and keeps going.</span>
-            {!allow && <textarea rows={2} placeholder="Tell Claude why, or what to do instead (optional)" aria-label="Tell Claude why" value={props.reason} onChange={(e) => props.onReason(e.target.value)} />}
+            <span className="od">{harness.id === "claude-code" ? "Claude" : "The model"} is told no and keeps going.</span>
+            {!allow && <textarea rows={2} placeholder={`Tell ${who} why, or what to do instead (optional)`} aria-label={`Tell ${who} why`} value={props.reason} onChange={(e) => props.onReason(e.target.value)} />}
           </label>
         </fieldset>
       </div>

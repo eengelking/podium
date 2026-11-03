@@ -110,9 +110,10 @@ export interface SessionView {
   /** The session's working directory, home shortened to `~`. */
   cwd: string;
   repoName: string | null;
-  resumeCommand: string;
-  /** `resumeCommand` plus `--fork-session`: starts a copy of the conversation in a new session (#352). */
-  forkCommand: string;
+  /** The command that continues the session in a terminal, from the harness's template; null when the harness has none (#853). */
+  resumeCommand: string | null;
+  /** The command that starts a copy of the conversation in a new session (#352); null when the harness has none (#853). */
+  forkCommand: string | null;
   git: GitInfo | null;
   model: string | null;
   modelFamily: ModelFamily;
@@ -330,6 +331,9 @@ export interface HistoryRow {
   endedAt: number;
   durationSec: number;
   costUsd: number | null;
+  /** The harness that ran the session, and who worked out `costUsd` (#853), as in SessionView. */
+  harness: string;
+  costSource: CostSource;
   blowouts: number;
   agents: number;
   endReason: string | null;

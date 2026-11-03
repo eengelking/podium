@@ -1,6 +1,7 @@
 import { fmtTok, fmtUsd } from "../format";
 import { SORTS, STATUS_FILTERS, type SortKey, type StatusFilter } from "../logic";
 import type { Kpis, LifecycleConfig, SessionView, UpdateNotice } from "../types";
+import { mixedHarnesses } from "../harness";
 import { NO_PRICE_TITLE } from "./Chips";
 import { splitText, type Split } from "./Rail";
 import { SessionCard } from "./SessionCard";
@@ -166,12 +167,15 @@ export function Wall(props: {
   people?: WallPeople;
   /** The pinned cards (#496) and what the pin button does; the card goes to `slot` in its wall or band. */
   pins?: { list: readonly Pin[]; onToggle: (id: string, slot: number) => void };
+  /** Draw the harness badge: the console holds more than one harness, not only the cards filtered in (#853). Decided from `sessions` when left out. */
+  showHarness?: boolean;
   /** Title each card `machine | session` (Admin > Settings, #480). */
   machineTitle?: boolean;
 }) {
   const pv = props.people;
   // One set of columns for the whole wall, from the total shown, so every band lines up (#145).
   const wall = useWallColumns(props.sessions.length);
+  const mixed = props.showHarness ?? mixedHarnesses(props.sessions);
   const card = (s: SessionView, showName: boolean, slot: number) => (
     <SessionCard
       key={s.id}
@@ -181,6 +185,7 @@ export function Wall(props: {
       entering={props.entering(s.id)}
       leaving={!!props.leaving[s.id]}
       machineTitle={props.machineTitle}
+      showHarness={mixed}
       onOpen={() => props.onOpen(s.id)}
       onRemove={props.onRemove ? () => props.onRemove?.(s.id) : undefined}
       owner={pv ? { machine: pv.machines.get(s.id) ?? null, showName } : undefined}

@@ -65,7 +65,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
   2. `SessionView.status` is `stale` when `now − lastSeenAt > STALE_AFTER_MS` and the stored status is not `done`.
   3. `series` has exactly 60 points per array, zero-filled for seconds with no sample, `peakContext` in 0..1, and `blowoutSecondsAgo` containing the age in seconds of each blowout in the last 60 s.
   4. KPIs match hand-computed values for a three-session fixture, including est. cost today and tokens in the last 60 s.
-  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces. `forkCommand` is the same string with ` --fork-session` added, with the same quoting (#352).
+  5. `resumeCommand` uses `resumeId` when present, else the session id, and quotes a `cwd` containing spaces. `forkCommand` is the same string with ` --fork-session` added, with the same quoting (#352). For a harness with no such command (OpenCode has no fork command, a harness Podium has no template for has neither), the field is `null` (#853).
   6. `project` replaces the home directory prefix with `~`.
 
 ### T1.4 Sweeper and SSE

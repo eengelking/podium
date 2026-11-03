@@ -17,7 +17,7 @@ import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
 import type { Lockout } from './lockout.js';
 import { logWords, shortDeliveryId, type AnswerError, type DeliveryTrail, type DropWhy } from './respond.js';
-import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, MAIN_LOOP, RESPOND_LIMITS, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
+import { DELIVERY_RESULTS, FILE_DIFF_LIMITS, LIMITS, MAIN_LOOP, RESPOND_LIMITS, shortId, validateAsk, validateFileDiffReply, type AskCloseOutcome, type Delivery, type DeliveryResult, type DiffRequest, type RespondMe } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import type { BrowserHelpers } from './peerRoutes.js';
 import { ACTIVITY_HISTORY_PAGE, ACTIVITY_HISTORY_PAGE_MAX, type ActivityHistoryPage } from './activityHistoryTypes.js';
@@ -170,7 +170,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   const writeTrail = async (t: DeliveryTrail) => {
     const at = now();
     const row = await fleet.db.getSession(t.sessionId);
-    const where = `${logWords(t.delivery)} in ${row?.name ?? 'a session'} (${t.sessionId.slice(0, 8)}) [${shortDeliveryId(t.delivery)}]`;
+    const where = `${logWords(t.delivery)} in ${row?.name ?? 'a session'} (${shortId(t.sessionId)}) [${shortDeliveryId(t.delivery)}]`;
     if (t.kind === 'result') {
       await people?.log('respond_result', `${where}: ${RESULT_WORDS[t.result]}`, trailSource, at, actorOf(t.delivery.by));
       logger.info('respond.result', `podium: ${logWords(t.delivery).toLowerCase()} in session ${t.sessionId} came back ${t.result}`, { session_id: t.sessionId, kind: t.delivery.kind, result: t.result });
@@ -459,7 +459,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   /** Each answer, message and command the server takes: the admin log and the server log, never its text (7.7). */
   const audit = async (req: Request, v: Viewer, row: SessionRow, delivery: Delivery): Promise<void> => {
     const src = sourceOf(req);
-    await people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${row.id.slice(0, 8)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
+    await people?.log('respond_sent', `${logWords(delivery)} in ${row.name} (${shortId(row.id)}) [${shortDeliveryId(delivery)}]`, src, now(), v.actor);
     logger.info('respond.sent', `podium: ${logWords(delivery).toLowerCase()} in session ${row.id}`, { session_id: row.id, kind: delivery.kind, admin: v.admin, source: src });
   };
 
@@ -512,7 +512,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       return;
     }
     const kind = ahead ? 'loaded' : 'opened';
-    await people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    await people?.log(`file_diff_${kind}`, `${path} in ${row.name} (${shortId(row.id)})`, sourceOf(req), now(), v.actor);
     logger.info(`file_diff.${kind}`, `podium: a file diff was ${kind} in session ${row.id}`, { session_id: row.id, status: got.status, source: sourceOf(req) });
     res.json(got);
   }));
@@ -546,7 +546,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
       refuse(req, res, 403, 'file diff is off');
       return;
     }
-    await people?.log('file_diff_opened', `${path} in ${row.name} (${row.id.slice(0, 8)})`, sourceOf(req), now(), v.actor);
+    await people?.log('file_diff_opened', `${path} in ${row.name} (${shortId(row.id)})`, sourceOf(req), now(), v.actor);
     logger.info('file_diff.opened', `podium: a file diff was opened in session ${row.id}`, { session_id: row.id, status: 'loaded ahead', source: sourceOf(req) });
     res.status(204).end();
   }));
