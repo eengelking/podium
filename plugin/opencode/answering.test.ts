@@ -169,8 +169,9 @@ describe('host: answering inside OpenCode', () => {
 
   it('accepts a form that closed just as the wait ran out', async () => {
     let calls = 0;
-    const { host } = baseDeps({ tuiSeenAt: () => 999_999, tuiWaitMs: 100, isOpen: () => ++calls < 2 });
-    await host.formReply('s', 'frm_1', { q0: 'B' });
+    const { host, calls: made } = baseDeps({ tuiSeenAt: () => 999_999, tuiWaitMs: 100, isOpen: () => ++calls < 2 });
+    await expect(host.formReply('s', 'frm_1', { q0: 'B' })).resolves.toBeUndefined();
+    expect(made).toEqual(['emit frm_1 {"q0":"B"}']);
   });
 
   it('answers through the local service route with Basic auth, reading the file only now', async () => {
