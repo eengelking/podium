@@ -92,6 +92,7 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
   const s = r.session;
   const done = s.status === 'done';
   const fromHarness = harnessCost(s, prev);
+  const sameModel = s.model == null || s.model === prev?.model;
   return {
     id: s.id,
     name: s.name,
@@ -143,9 +144,10 @@ function sessionRow(r: Report, prev: SessionRow | undefined, serverTime: number,
     harness: s.harness ?? prev?.harness ?? 'claude-code',
     cost_source: fromHarness ? 'harness' : null,
     // What the harness declares (#940). A report that declares nothing (v1, a settings hook) keeps what was stored; a field sent as null clears it.
+    // A label or provider belongs to one model, so a report that names a different model without sending them drops the old ones.
     capabilities_json: r.capabilities ? JSON.stringify(r.capabilities) : prev?.capabilities_json ?? null,
-    model_label: s.modelLabel === undefined ? prev?.model_label ?? null : s.modelLabel,
-    model_provider: s.modelProvider === undefined ? prev?.model_provider ?? null : s.modelProvider,
+    model_label: s.modelLabel === undefined ? (sameModel ? prev?.model_label ?? null : null) : s.modelLabel,
+    model_provider: s.modelProvider === undefined ? (sameModel ? prev?.model_provider ?? null : null) : s.modelProvider,
   };
 }
 

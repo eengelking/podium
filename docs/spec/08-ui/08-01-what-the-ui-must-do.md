@@ -1124,8 +1124,9 @@ is lit for `low` up to five for `max`, so the count carries the level and color 
 
 A session's `capabilities` (7.4) decide which fields the console draws, one key at a time. A key that is `false` means the
 harness cannot report that field: the field is absent, not zero. Today `context` and `effort` are the keys the console acts on:
-`context: false` leaves out the Context cell on the card and the orchestrator page, and the orchestrator page says once that the
-harness does not report context size; `effort: false` leaves out the effort meter. `true`, and a key the session did not declare,
+`context: false` leaves out the Context cell on the card, and the orchestrator page says once that the
+harness does not report context size; `effort: false` leaves out the card's effort meter. The orchestrator row of the agent tree and
+the orchestrator panel still draw their Context bar and effort meter whatever is declared (follow-up, not part of #940). `true`, and a key the session did not declare,
 draw the field unless the console's own table for that harness says it cannot report it (`frontend/src/fleet/harness.ts`), which is
 the only thing a session with nothing declared (Claude Code, v1, stored before #940) is drawn from. No code names a harness
 to decide this. The model chip reads `modelLabel` when there is one and the family name when there is not, with the model id as its

@@ -361,6 +361,13 @@ describe('ingestReport with what a harness declares (#940)', () => {
     expect(row).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
   });
 
+  it('drops the label and provider of the old model when a report names another model without them', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({}, { model: 'gpt-5.2', modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: 'gpt-5.2', model_label: null, model_provider: null });
+  });
+
   it('clears a label or provider a report sends as null', async () => {
     const r = v2();
     await ingestReport(storage, r, T0);
