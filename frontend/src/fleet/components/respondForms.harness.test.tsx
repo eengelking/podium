@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { PermissionForm, QuestionForm } from "./RespondForms";
@@ -17,7 +18,7 @@ const question: AskDetail = {
 };
 const noop = () => {};
 
-const asHarness = (harness: string, ui: JSX.Element) => render(<HarnessContext.Provider value={harness}>{ui}</HarnessContext.Provider>);
+const asHarness = (harness: string, ui: ReactElement) => render(<HarnessContext.Provider value={harness}>{ui}</HarnessContext.Provider>);
 const perm = (name: string, allow = true) => <PermissionForm detail={permission(name)} allow={allow} reason="" onAllow={noop} onReason={noop} busy={false} onSubmit={noop} />;
 const ask = (harness: string) => asHarness(harness, <QuestionForm detail={question} tab={0} drafts={[null]} onTab={noop} onDraft={noop} onSubmit={noop} busy={false} />);
 
