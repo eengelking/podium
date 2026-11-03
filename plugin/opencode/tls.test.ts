@@ -630,6 +630,28 @@ describe('the plugin entry (#948)', () => {
     });
   });
 
+  it('stops the connection even when closing the reporter throws, and two loads that start together share one client', async () => {
+    const home = tmp();
+    putConfig(home, 'reporter-config-Dana-1700000200.pem', configText('Dana', 'https://127.0.0.1:1'));
+    const close = Reporter.prototype.close;
+    Reporter.prototype.close = async () => {
+      throw new Error('close failed');
+    };
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const [a, b] = await Promise.all([setup(fakeCtx({}, '/loc/throws')), setup(fakeCtx({}, '/loc/throws'))]);
+        expect(seen.made).toHaveLength(1);
+        await a();
+        expect(seen.stops).toBe(0);
+        await expect(b()).rejects.toThrow('close failed');
+        expect(seen.stops).toBe(1);
+      });
+    } finally {
+      Reporter.prototype.close = close;
+    }
+  });
+
   it('without a file nothing is made and nothing is started', async () => {
     const home = tmp();
     await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {

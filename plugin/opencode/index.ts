@@ -20,13 +20,19 @@ const KEY = Symbol.for('podium-reporter.opencode');
 interface Holder {
   reporter: Reporter;
   timer: ReturnType<typeof setInterval>;
-  /** How many loads of the plugin use it; the last one out closes it. */
-  users: number;
   /** The secure connection (#948), when a reporter config file was found. Started with the reporter and stopped with it. */
   link: TlsLink | null;
 }
-/** A promise per location: finding the reporter config file takes a moment, and two loads must wait for one reporter. */
-type Registry = Map<string, Promise<Holder>>;
+/**
+ * A promise per location: finding the reporter config file takes a moment, and two loads must wait for one reporter. `users` counts the
+ * loads that use it (the last one out closes it); it is counted when a load asks, not when the holder is ready, so a load that is still
+ * waiting is never closed under by another load's teardown.
+ */
+interface Entry {
+  holder: Promise<Holder>;
+  users: number;
+}
+type Registry = Map<string, Entry>;
 
 const registry = (): Registry => {
   const g = globalThis as unknown as Record<symbol, Registry | undefined>;
@@ -108,7 +114,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
   const timer = setInterval(() => void reporter.tick().catch(() => undefined), DEFAULTS.flushMs);
   timer.unref?.();
-  return { reporter, timer, users: 0, link };
+  return { reporter, timer, link };
 }
 
 const plugin: Plugin.Plugin = {
@@ -116,15 +122,25 @@ const plugin: Plugin.Plugin = {
   async setup(ctx) {
     const location = String((ctx.location as { directory?: string } | undefined)?.directory ?? 'default');
     const reg = registry();
-    let pending = reg.get(location);
-    if (!pending) {
-      pending = createHolder(ctx);
-      reg.set(location, pending);
+    let entry = reg.get(location);
+    if (!entry) {
+      const made = { holder: createHolder(ctx), users: 0 };
+      entry = made;
+      reg.set(location, made);
       // A holder that could not be made must not stay in the registry, or every load after it would fail the same way.
-      pending.catch(() => reg.delete(location));
+      made.holder.catch(() => {
+        if (reg.get(location) === made) reg.delete(location);
+      });
     }
-    const holder = await pending;
-    holder.users++;
+    const mine = entry;
+    mine.users++;
+    let holder: Holder;
+    try {
+      holder = await mine.holder;
+    } catch (err) {
+      mine.users--;
+      throw err;
+    }
     const { reporter } = holder;
     // A reload leaves permissions open that the bus will not announce again.
     void recoverPermissions(ctx, reporter).catch(() => undefined);
@@ -136,12 +152,14 @@ const plugin: Plugin.Plugin = {
       }
     })();
     return async () => {
-      const h = await reg.get(location)?.catch(() => undefined);
-      if (!h || --h.users > 0) return;
-      reg.delete(location);
-      clearInterval(h.timer);
-      await h.reporter.close();
-      h.link?.stop();
+      if (--mine.users > 0) return;
+      if (reg.get(location) === mine) reg.delete(location);
+      clearInterval(holder.timer);
+      try {
+        await holder.reporter.close();
+      } finally {
+        holder.link?.stop();
+      }
     };
   },
 };

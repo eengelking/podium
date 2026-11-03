@@ -83,7 +83,7 @@ export function createTlsClient({ configPath, serverUrl, log = () => {}, env = p
   let renewing = null;
   let timer = null;
 
-  /** Takes up `next` and retires the agent that held the old certificate. */
+  /** Makes an agent for the current `cfg` and retires the one that held the old certificate. */
   const swapAgent = () => {
     // Requests already on the old agent finish on it (they outlast neither the upstream timeout nor this delay).
     const old = agent;
