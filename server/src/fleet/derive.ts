@@ -81,7 +81,11 @@ const SESSION_COMMANDS: Readonly<Record<string, { resume: (cwd: string, id: stri
   },
 };
 
-const commandsOf = (harness: string): (typeof SESSION_COMMANDS)[string] | null => (Object.hasOwn(SESSION_COMMANDS, harness) ? SESSION_COMMANDS[harness]! : null);
+// An empty id is Claude Code's, as the console reads it.
+const commandsOf = (harness: string): (typeof SESSION_COMMANDS)[string] | null => {
+  const id = harness || 'claude-code';
+  return Object.hasOwn(SESSION_COMMANDS, id) ? SESSION_COMMANDS[id]! : null;
+};
 
 /** The command that continues the session in a terminal; null when this harness has none. A session from before the harness was stored is Claude Code's. */
 export function resumeCommand(cwd: string, resumeId: string | null, id: string, harness = 'claude-code'): string | null {

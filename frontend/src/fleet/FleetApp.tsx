@@ -585,6 +585,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                   />
                 ) : (
                   <Wall
+                    showHarness={mixedHarnesses(all)}
                     sessions={shown}
                     totalLive={all.length}
                     kpis={state.kpis}

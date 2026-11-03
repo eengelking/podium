@@ -89,6 +89,7 @@ describe('paths and commands', () => {
 
   it('gives no fork command for a harness that has none, and no command for one with no template (#853)', () => {
     expect(forkCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'opencode')).toBeNull();
+    expect(resumeCommand('/Users/dev/app', null, 'abc', '')).toBe('cd /Users/dev/app && claude --resume abc');
     expect(resumeCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
     expect(forkCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
     expect(forkCommand('/Users/dev/app', null, 'abc', 'claude-code')).toBe('cd /Users/dev/app && claude --resume abc --fork-session');

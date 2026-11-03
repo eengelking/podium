@@ -217,7 +217,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   } else if (!edge && ask && detail && detail.ask.id === ask.id && kase !== "hidden") {
     const what = ASK_WORD[detail.ask.kind];
     const d = detail.delivery;
-    const summary = d ? deliverySummary(detail, d) : "";
+    const summary = d ? deliverySummary(detail, d, s.harness) : "";
     if (kase === "form") {
       const body =
         detail.ask.kind === "question" ? (
