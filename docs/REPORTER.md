@@ -209,7 +209,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
   `/podium context`.
 - **With no contexts, nothing changes.**
 
-- **It needs `node`.** The reporter starts a small helper (`hooks/helper.mjs`) that makes the connection. It looks for
+- **It needs `node`.** The reporter starts a small helper (`plugin/core/tls/helper.mjs`) that makes the connection. It looks for
   `node` at `PODIUM_NODE`, on the PATH Claude Code started with, then in Homebrew, `/usr/local`, nvm and Volta. A
   Claude Code started from a desktop launcher often has none of these on its PATH, so set `PODIUM_NODE` to the full path.
   **On Windows 11, Node.js must be installed** (the LTS installer from nodejs.org is enough). Install it before you start

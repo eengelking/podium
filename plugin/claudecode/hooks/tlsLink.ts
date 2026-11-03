@@ -380,7 +380,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValue
   }
   const mailbox = windows ? socket.slice('mailbox:'.length) : null;
 
-  const helper = `${$.plugin.root}/hooks/helper.mjs`;
+  const helper = `${$.plugin.root}/plugin/core/tls/helper.mjs`;
   const serverUrl = trimTrailingSlashes(headers.server);
   const host = new URL(serverUrl).host;
 

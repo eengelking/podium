@@ -34,7 +34,7 @@ describe("plugin-build: the built folder", () => {
 
   it("has the manifest, the types, a generated hooks.json and the source tree under plugin/", () => {
     expect(built.dir).toBe(join(out, "claudecode"));
-    for (const f of [".claude-plugin/plugin.json", "types/index.d.ts", "hooks/hooks.json", "hooks/helper.mjs", "plugin/claudecode/hooks/register.ts", "plugin/core/git.ts"]) {
+    for (const f of [".claude-plugin/plugin.json", "types/index.d.ts", "hooks/hooks.json", "plugin/core/tls/helper.mjs", "plugin/claudecode/hooks/register.ts", "plugin/core/git.ts"]) {
       expect(built.files, f).toContain(f);
     }
     expect(JSON.parse(readFileSync(join(built.dir, "hooks", "hooks.json"), "utf8"))).toEqual({ modules: ["../plugin/claudecode/hooks/register.ts"] });

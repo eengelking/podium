@@ -19,7 +19,7 @@ import { createReporterRenewRouter } from './tlsReporterRenew.js';
 import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
 import { buildReporterConfig, issuePersonCert } from './tlsPeople.js';
 
-const HELPER = fileURLToPath(new URL('../../plugin/claudecode/hooks/helper.mjs', import.meta.url));
+const HELPER = fileURLToPath(new URL('../../plugin/core/tls/helper.mjs', import.meta.url));
 
 /** Reporter routes the helper forwards (#668), for the tests that only need some request to go through. */
 const PEERS = '/api/fleet/sessions/s1/peers';
