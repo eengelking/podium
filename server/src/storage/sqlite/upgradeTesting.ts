@@ -21,7 +21,11 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
   const insertReporter = old.prepare(
     `INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  for (const r of reporters) insertReporter.run(r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt);
+  const link = old.prepare('INSERT INTO reporter_sessions (reporter_key, session_id) VALUES (?, ?)');
+  for (const r of reporters) {
+    insertReporter.run(r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt);
+    for (const id of r.sessionIds ?? []) link.run(r.key, id);
+  }
   const insertSession = old.prepare(
     `INSERT INTO sessions (id, name, status, started_at, last_seen_at, cwd, model, cost_usd, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, 'done', ?, ?, '/w', ?, ?, 0, 0, 0, 0)`,
   );

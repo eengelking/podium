@@ -33,6 +33,7 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
         `INSERT INTO reporters (key, kind, machine_id, machine_name, owner, reporter_version, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [r.key, r.kind, r.machineId, r.machineName, r.owner, r.version, r.firstSeenAt, r.lastSeenAt],
       );
+      for (const id of r.sessionIds ?? []) await old.run('INSERT INTO reporter_sessions (reporter_key, session_id) VALUES (?, ?)', [r.key, id]);
     }
     for (const x of sessions) {
       await old.run(
