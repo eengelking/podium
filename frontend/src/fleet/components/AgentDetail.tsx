@@ -7,6 +7,7 @@ import { BlowBadge, Cost, ContextBar, cssVar, EffortMeter, FAMILY_COLOR, ModelCh
 import { FailureBox } from "./FailureBox";
 import { IconBack, IconFork, IconSub } from "./Icons";
 import { ReportDocs } from "./ReportDocs";
+import { HarnessContext } from "../harnessContext";
 import { ActivityFeed } from "./ActivityFeed";
 import { Tip } from "./Tip";
 
@@ -186,7 +187,7 @@ export function AgentDetail(props: { s: SessionView; a: AgentView; now: number; 
         {a.toolCounts !== null && <ToolChips key={a.id} counts={a.toolCounts} calls={a.toolCalls} lastTool={a.lastTool} />}
         <SkillChips skills={a.skills} />
         <ReportDocs s={s} a={a} />
-        <ActivityFeed key={`${s.id}:${a.id}:activity`} s={s} loop={a.id} title={`${a.description} · ${a.type}`} startedAt={a.startedAt} active={a.status === "running" || a.status === "queued"} now={now} adminOn={props.activityFeedOn} />
+        <HarnessContext.Provider value={s.harness}><ActivityFeed key={`${s.id}:${a.id}:activity`} s={s} loop={a.id} title={`${a.description} · ${a.type}`} startedAt={a.startedAt} active={a.status === "running" || a.status === "queued"} now={now} adminOn={props.activityFeedOn} /></HarnessContext.Provider>
         {kids.length > 0 && (
           <>
             <span className="lab">Launched by this agent</span>

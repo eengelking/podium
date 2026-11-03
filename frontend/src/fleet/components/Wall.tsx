@@ -1,6 +1,7 @@
 import { fmtTok, fmtUsd } from "../format";
 import { SORTS, STATUS_FILTERS, type SortKey, type StatusFilter } from "../logic";
 import type { Kpis, LifecycleConfig, SessionView, UpdateNotice } from "../types";
+import { mixedHarnesses } from "../harness";
 import { NO_PRICE_TITLE } from "./Chips";
 import { splitText, type Split } from "./Rail";
 import { SessionCard } from "./SessionCard";
@@ -172,6 +173,7 @@ export function Wall(props: {
   const pv = props.people;
   // One set of columns for the whole wall, from the total shown, so every band lines up (#145).
   const wall = useWallColumns(props.sessions.length);
+  const mixed = mixedHarnesses(props.sessions);
   const card = (s: SessionView, showName: boolean, slot: number) => (
     <SessionCard
       key={s.id}
@@ -181,6 +183,7 @@ export function Wall(props: {
       entering={props.entering(s.id)}
       leaving={!!props.leaving[s.id]}
       machineTitle={props.machineTitle}
+      showHarness={mixed}
       onOpen={() => props.onOpen(s.id)}
       onRemove={props.onRemove ? () => props.onRemove?.(s.id) : undefined}
       owner={pv ? { machine: pv.machines.get(s.id) ?? null, showName } : undefined}

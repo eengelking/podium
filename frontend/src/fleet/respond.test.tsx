@@ -610,3 +610,11 @@ describe("stored Activity in the Respond modal (#432)", () => {
     expect(screen.getByText("History is kept for this session. Sign in as Ed or an Admin to open it.")).toBeInTheDocument();
   });
 });
+
+describe("the (Recommended) mark belongs to Claude Code (#853)", () => {
+  it("is stripped for Claude Code and for a session whose harness is not stated, and left alone for another harness", () => {
+    expect(cleanLabel("Fixed 50 (Recommended)")).toEqual({ label: "Fixed 50", recommended: true });
+    expect(cleanLabel("Fixed 50 (Recommended)", "claude-code")).toEqual({ label: "Fixed 50", recommended: true });
+    expect(cleanLabel("Fixed 50 (Recommended)", "opencode")).toEqual({ label: "Fixed 50 (Recommended)", recommended: false });
+  });
+});

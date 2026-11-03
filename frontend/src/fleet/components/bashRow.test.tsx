@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FeedList } from "./ActivityFeed";
+import { HarnessContext } from "../harnessContext";
 import { ActivityOutputFlag, missingOutput, useRowAnchor } from "./BashRow";
 import type { FeedEntry, FeedState } from "../useActivityFeed";
 import { useRef } from "react";
@@ -471,5 +472,30 @@ describe("a Bash call with no output (#598)", () => {
     expect(tgl().querySelector(".state")!.textContent).toBe("running");
     r.again([entry(1, { done: true, failed: true, exitCode: 3 })]);
     expect(tgl().querySelector(".state .exit.bad")!.textContent).toBe("Exit 3, failed");
+  });
+});
+
+describe("the shell tool of each harness (#853)", () => {
+  const shell = (harness: string, text: string) =>
+    render(
+      <HarnessContext.Provider value={harness}>
+        <FeedList feed={feed([entry(1, { text, command: "npm test" })])} startedAt={T0} empty="none" machineOutput={true} />
+      </HarnessContext.Provider>,
+    );
+
+  it("opens OpenCode's shell tool like Bash, and does not take Bash for it", () => {
+    shell("opencode", "shell npm test");
+    expect(rowOf()).toHaveClass("can");
+    cleanup();
+    shell("opencode", "Bash npm test");
+    expect(rowOf()).not.toHaveClass("can");
+  });
+
+  it("keeps Claude Code's Bash row, and does not take a tool named shell for a command", () => {
+    shell("claude-code", "Bash npm test");
+    expect(rowOf()).toHaveClass("can");
+    cleanup();
+    shell("claude-code", "shell npm test");
+    expect(rowOf()).not.toHaveClass("can");
   });
 });

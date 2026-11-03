@@ -28,6 +28,18 @@ export type Effort = string;
 /** Who worked out a session's cost: the harness reported it, or the reporter estimated it from the tokens (#851). */
 export type CostSource = 'harness' | 'estimate';
 
+/** How many characters of a session id the console and the logs show: enough to tell sessions apart, and the id shown whole is what is copied. */
+export const SHORT_ID_LENGTH = 8;
+
+/**
+ * A session id shortened for display (#853): its first eight characters, counted after a short word prefix such as `ses_`, which is kept.
+ * A prefixed id (OpenCode's `ses_…`) would otherwise keep only four informative characters. A UUID has no prefix and is cut as before.
+ */
+export function shortId(id: string): string {
+  const prefix = /^[A-Za-z]{2,5}_(?=.)/.exec(id)?.[0] ?? '';
+  return prefix + id.slice(prefix.length, prefix.length + SHORT_ID_LENGTH);
+}
+
 export type AgentStatus = 'queued' | 'running' | 'done' | 'failed' | 'aborted';
 
 export type FailureClass =

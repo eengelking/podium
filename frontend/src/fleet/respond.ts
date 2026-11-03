@@ -1,6 +1,7 @@
 // What the console shows for responding to a waiting session (#206, mockup/podium-respond.html), worked out from one
 // SessionView, the Admin's flags and who is signed in. Pure: the components draw what these say.
 import { cardKind } from "./components/Chips";
+import { recommendedMark } from "./harness";
 import { LEVEL_KINDS } from "../../../plugin/core/protocol";
 import type { AskDetail, AskKind, AskSummary, Delivery, QuestionAnswer, RespondKind, RespondMe, SessionView } from "./types";
 
@@ -140,7 +141,9 @@ export function deliverySummary(detail: Pick<AskDetail, "ask">, d: Delivery): st
 const MARK = "(recommended)";
 
 /** Claude Code marks a recommended option by ending its label with "(Recommended)": shown as a tag instead. */
-export function cleanLabel(label: string): { label: string; recommended: boolean } {
+export function cleanLabel(label: string, harness?: string | null): { label: string; recommended: boolean } {
+  // Another harness does not use the mark, so a label that ends that way is its own text (#853).
+  if (!recommendedMark(harness)) return { label, recommended: false };
   // Not a regex, which is quadratic on a long run of spaces (#362). The text before the mark may not hold a line break.
   const t = label.trimEnd();
   if (t.length >= MARK.length && t.slice(-MARK.length).toLowerCase() === MARK) {

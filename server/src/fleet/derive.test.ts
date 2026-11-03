@@ -80,6 +80,19 @@ describe('paths and commands', () => {
     expect(forkCommand("/tmp/it's", null, 'abc')).toBe("cd '/tmp/it'\\''s' && claude --resume abc --fork-session");
     expect(forkCommand('/tmp/$(id) `x`; y', null, 'abc')).toBe("cd '/tmp/$(id) `x`; y' && claude --resume abc --fork-session");
   });
+
+  it('builds the resume command from the harness template (#853)', () => {
+    expect(resumeCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'claude-code')).toBe('cd /Users/dev/app && claude --resume ses_5a91c0e4d2b7f3a8');
+    expect(resumeCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'opencode')).toBe('opencode /Users/dev/app --session ses_5a91c0e4d2b7f3a8');
+    expect(resumeCommand('/Users/dev/my app', 'ses_x', 'ses_y', 'opencode')).toBe("opencode '/Users/dev/my app' --session ses_x");
+  });
+
+  it('gives no fork command for a harness that has none, and no command for one with no template (#853)', () => {
+    expect(forkCommand('/Users/dev/app', null, 'ses_5a91c0e4d2b7f3a8', 'opencode')).toBeNull();
+    expect(resumeCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
+    expect(forkCommand('/Users/dev/app', null, 'abc', 'acme-runner')).toBeNull();
+    expect(forkCommand('/Users/dev/app', null, 'abc', 'claude-code')).toBe('cd /Users/dev/app && claude --resume abc --fork-session');
+  });
 });
 
 describe('buildSeries', () => {

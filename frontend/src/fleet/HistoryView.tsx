@@ -2,6 +2,7 @@
 // page for one of them, built from its stored rows.
 import { useEffect, useRef, useState } from "react";
 import "./fleet.css";
+import { shortId } from "../../../plugin/core/protocol";
 import { fmtClock, fmtDur } from "./format";
 import type { AgentSortKey } from "./logic";
 import { defaultAgentDir, ORCHESTRATOR_ROW } from "./logic";
@@ -260,14 +261,14 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                               {r.clearedInto && (
                                 <div className="clr">
                                   <button type="button" className="lk" title="The session that went on after /clear" onClick={() => go({ open: r.clearedInto }, "push")}>
-                                    continued in {r.clearedInto.slice(0, 8)}
+                                    continued in {shortId(r.clearedInto)}
                                   </button>
                                 </div>
                               )}
                               {r.clearedFrom && (
                                 <div className="clr">
                                   <button type="button" className="lk" title="The session this one went on from after /clear" onClick={() => go({ open: r.clearedFrom }, "push")}>
-                                    after /clear of {r.clearedFrom.slice(0, 8)}
+                                    after /clear of {shortId(r.clearedFrom)}
                                   </button>
                                 </div>
                               )}

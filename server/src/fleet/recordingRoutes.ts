@@ -12,7 +12,7 @@ import { credentialOwns, viewerOwns } from './respondRoutes.js';
 import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
-import { MAIN_LOOP, RECORDING_LIMITS, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
+import { MAIN_LOOP, RECORDING_LIMITS, shortId, validateRecordingBatch, validateRecordingStart, type RecordingPage } from './protocol.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler } from './asyncHandler.js';
 
@@ -24,7 +24,7 @@ const sourceOf = (req: Request): string => sourceAddress(req.ip);
 /** Authentication on and the Admin's flag (#353). The reporter's `sessionRecording` option is checked per session. */
 export const recordingEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.recordings.enabled();
 
-const id8 = (id: string): string => id.slice(0, 8);
+const id8 = (id: string): string => shortId(id);
 
 /** The Admin log row and the server log line for one recording event, never any text of the recording. */
 export async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {

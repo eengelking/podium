@@ -63,10 +63,10 @@ describe("the model chip shows the version (#116)", () => {
 });
 
 describe("a model that is not a Claude model (#66)", () => {
-  it("labels the chip with the raw model name and says it is not a Claude model", () => {
+  it("labels the chip with the raw model name and nothing about Claude (#853)", () => {
     render(<ModelChip family="other" model="llama3.1:8b" />);
     const chip = screen.getByText("llama3.1:8b").closest(".chip")!;
-    expect(chip).toHaveAttribute("title", "llama3.1:8b (not a Claude model)");
+    expect(chip).toHaveAttribute("title", "llama3.1:8b");
   });
 
   it("reads n/a with the reason instead of a dollar figure when there is no price", () => {

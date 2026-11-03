@@ -2,6 +2,7 @@
 // the activity / agent panel. Data comes from useFleet; everything here is presentation state.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./fleet.css";
+import { mixedHarnesses } from "./harness";
 import { idleOnBackground } from "./waiting";
 import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type AgentSortKey, type SortKey, type StatusFilter } from "./logic";
 import { PAGE } from "./components/ActivityList";
@@ -580,6 +581,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     flashAgent={flash}
                     onAgent={selectAgent}
                     onRemove={onRemove}
+                    showHarness={mixedHarnesses(all)}
                   />
                 ) : (
                   <Wall

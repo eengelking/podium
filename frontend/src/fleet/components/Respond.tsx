@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { familyName, ORCHESTRATOR_ROW as MAIN_LOOP, reporterBelow } from "../logic";
 import { RespondError } from "../respondApi";
+import { HarnessContext } from "../harnessContext";
 import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, isMine, minSec, planBackOnly, respondGate, shownAsk } from "../respond";
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
@@ -364,6 +365,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   const empty = feedEmpty(feed, signedIn, emptyBase);
   const model = familyName(s.modelFamily, s.model);
   return (
+    <HarnessContext.Provider value={s.harness}>
     <Modal
       titleId="respondTitle"
       title="Activity"
@@ -396,6 +398,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
         {compose ?? <div className="mpad" />}
       </div>
     </Modal>
+    </HarnessContext.Provider>
   );
 }
 
