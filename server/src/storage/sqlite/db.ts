@@ -682,6 +682,22 @@ export class FleetDb {
     ).all(sessionId) as unknown as AgentRow[];
   }
 
+  /** The agents of one session with these ids (#952). */
+  getAgentsByIds(sessionId: string, agentIds: string[]): AgentRow[] {
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(agentIds)])) {
+      rows.push(
+        ...(this.many(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id = ? AND a.id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          [sessionId, ...part],
+        ) as unknown as AgentRow[]),
+      );
+    }
+    return rows;
+  }
+
   /** `getAgents` for many sessions (#906). */
   getAgentsOf(sessionIds: string[]): Map<string, AgentRow[]> {
     const rows: AgentRow[] = [];
