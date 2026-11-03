@@ -6,7 +6,7 @@
 import { decodeBase64Utf8, isWindowsPath, mailboxDirFor, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts';
 import { trimTrailingSlashes } from '../../core/machine.ts';
 import { envValue, findConfig, readEnv, type ConfigSource, type EnvValues, type FoundConfig } from '../../core/tls/findConfig.ts';
-import { configProblemFor, problemFor, type Problem } from '../../core/tls/problems.ts';
+import { configProblemFor, nameMismatchProblem, problemFor, type Problem } from '../../core/tls/problems.ts';
 import { podiumHome, trimTrailingSeparators, type ConfigHeaders } from '../../core/tls/reporterConfig.ts';
 import type { FetchLike, HttpResult } from '../../core/transport.ts';
 
@@ -169,7 +169,7 @@ export async function startLink($: LinkEngine, found: FoundConfig, env: LinkEnv,
   const { headers } = found;
   const log = o.log ?? (() => {});
   if (o.sessionName && o.sessionName !== headers.user) {
-    return brokenLink(found, { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${headers.user}", but this session reports as "${o.sessionName}"${o.nameSource ? `, and "${o.sessionName}" comes from ${o.nameSource}` : ''}. Use the file for "${o.sessionName}", or ${o.nameSource && o.nameIsSetting ? `leave that empty so the session takes the file's name` : 'change the name'}.` });
+    return brokenLink(found, nameMismatchProblem(headers.user, o.sessionName, o.nameSource, o.nameIsSetting));
   }
   // An expired certificate is not renewed (#665): the server's reporter port drops it at the handshake. The status line says so from the start.
   const expires = headers.expires ? Date.parse(headers.expires) : Number.NaN;
