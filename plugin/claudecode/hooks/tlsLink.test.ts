@@ -410,7 +410,7 @@ describe('starting the helper (#584)', () => {
     expect(link.problem()).toBeNull()
     const s = f.spawned[0]
     expect(s?.argv[0]).toBe('/p/node')
-    expect(s?.argv[1]).toBe('/plugin/hooks/helper.mjs')
+    expect(s?.argv[1]).toBe('/plugin/plugin/core/tls/helper.mjs')
     expect(s?.argv[2]).toBe('/home/d/.podium/reporter-config-Dana-Lee-1.pem')
     expect(s?.argv[3]).toMatch(/^\/home\/d\/\.podium\/run\/[0-9a-f]{8}\.sock$/)
     expect(s?.argv[4]).toBe('https://podium.lan:4318')

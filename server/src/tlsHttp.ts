@@ -7,7 +7,7 @@ import { REPORTING_MS } from './storage/rows.js';
 
 /**
  * The calls the mod makes, each behind the reporter's credential: reports, hooks, and the held requests for peers and answers.
- * `:id` stands for one path segment. The mod's helper (`plugin/claudecode/hooks/helper.mjs`) forwards only these and keeps a copy
+ * `:id` stands for one path segment. The mod's helper (`plugin/core/tls/helper.mjs`) forwards only these and keeps a copy
  * of the list; `reporterHelper.test.ts` fails if the two differ, the way `protocol.test.ts` does for the protocol block (#668).
  */
 export const REPORTER_ROUTE_TEMPLATES: ReadonlyArray<readonly [method: string, path: string]> = [
