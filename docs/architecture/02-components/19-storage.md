@@ -181,7 +181,7 @@ contract.
 - **Migrations.** Each schema has a `schema_migrations` table, and a step is applied in a transaction of its own. The baseline
   is one step equal to the end state of SQLite's 25 migrations. A later change adds a step with the next number.
   A migration that rewrites rows is covered by `contractUpgrade.ts` (#892): each adapter builds a database at the schema before it
-  (`sqlite/upgradeTesting.ts`, `postgres/upgradeTesting.ts`), loads the same rows, and the case reads them back through `Storage`.
+  (`sqlite/upgradeTesting.ts`, `postgres/upgradeTesting.ts`), loads the same rows, and the case reads them back through `Storage`. The seeders can also link a seeded reporter to sessions, which is how a case builds a key the stores never write themselves, such as one with its prefix in another case (#943).
 - **Text.** Every text column is `COLLATE "C"`, so bytes compare as they do in SQLite, whatever locale the database was made
   with. `podium_lower(x)` folds ASCII only, like SQLite's `lower()`, and the stores use it where the SQLite stores use `lower()`.
 - **Values.** `PgDb` converts `bigint` and `numeric` to numbers, and throws if a whole number would lose digits. Flags stay

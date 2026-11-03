@@ -89,6 +89,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The reporter key prefix test gives the same answer on SQLite and PostgreSQL (#943, from #847).** `knownKey`, which finds the row that already holds a session, tested the `addr:` or `hooks:` prefix with `LIKE`, which folds ASCII case on SQLite and not on PostgreSQL, so a key such as `HOOKS:10.0.0.9` was a match on one and not the other. Both adapters now compare the prefix by bytes (`substr(key, 1, length(prefix)) = prefix`). No stored row differed, because keys are written in lowercase. A `contractUpgrade.ts` case seeds keys with the prefix in another case and passes against both; the upgrade seeders can now link a seeded reporter to its sessions. Both adapters change, and the same contract case passes against each.
+
 - **An effort that is not one of Claude Code's five levels shows as what was sent (#936, from #850).** A report v2 can send any text as `effort`, such as `minimal`. The meter draws it as five hollow bars with "Effort: minimal" as its tooltip and accessible name, instead of "Effort not reported", which now means only `null`. The agent tree's effort column puts no effort first, then `low` to `max`, then any other text after `max` in the order of that text, where it used to sort with no effort. SPEC 8.1 Effort meter now says so; an e2e case covers it.
   Standards: a new variant of the effort meter, `eff-other` (five hollow bars outlined in `--muted`), for an effort outside the five levels; approved by the maintainer when they accepted `mockup/podium-effort-other.html` on 2026-11-02.
 
