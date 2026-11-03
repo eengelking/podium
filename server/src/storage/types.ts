@@ -60,6 +60,8 @@ export interface FleetStoreApi {
   distinctReporterVersions(): Promise<string[]>;
   upsertAgent(row: AgentRow): Promise<void>;
   getAgents(sessionId: string): Promise<AgentRow[]>;
+  /** The agents of one session with these ids (#952), ordered as `getAgents` orders them within one statement (a long list of ids is split); an id with no agent is left out. */
+  getAgentsByIds(sessionId: string, agentIds: string[]): Promise<AgentRow[]>;
   /** `getAgents` for many sessions at once (#906). */
   getAgentsOf(sessionIds: string[]): Promise<Map<string, AgentRow[]>>;
   /** `upsertAgent` for every row, in one statement per table (#906); the rows may belong to different sessions. */

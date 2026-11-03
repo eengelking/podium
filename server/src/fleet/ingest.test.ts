@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openSqliteStorage, type SqliteStorage } from '../storage/sqlite/index.js';
 import { repriced } from './derive.js';
 import { HarnessConflict, ingestReport } from './ingest.js';
@@ -379,6 +379,53 @@ describe('ingestReport with what a harness declares (#940)', () => {
     const r = fixtureReport();
     await ingestReport(storage, r, T0);
     expect(await f.getSession(r.session.id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
+  });
+});
+
+describe('ingestReport with a null model after a label was stored (#952)', () => {
+  it('clears the label and provider of a session whose report names no model and sends none', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, { ...r, session: { ...r.session, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' } }, T0);
+    await ingestReport(storage, { ...r, session: { ...r.session, model: null, modelLabel: undefined, modelProvider: undefined } }, T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+
+  it('clears the label and provider of an agent whose report names no model and sends none', async () => {
+    const r = fixtureReport();
+    const agent = { ...r.agents[0]!, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' };
+    await ingestReport(storage, { ...r, agents: [agent] }, T0);
+    await ingestReport(storage, { ...r, agents: [{ ...agent, model: null, modelLabel: undefined, modelProvider: undefined }] }, T0 + 1000);
+    const row = (await f.getAgents(r.session.id)).find((a) => a.id === agent.id)!;
+    expect(row).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+
+  it('stores no label or provider with a null model, even one the report sends', async () => {
+    const r = fixtureReport();
+    const agent = { ...r.agents[0]!, model: null, modelLabel: 'GPT-5.1', modelProvider: 'openai' };
+    await ingestReport(storage, { ...r, session: { ...r.session, model: null, modelLabel: 'GPT-5.1', modelProvider: 'openai' }, agents: [agent] }, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+    expect((await f.getAgents(r.session.id)).find((a) => a.id === agent.id)).toMatchObject({ model: null, model_label: null, model_provider: null });
+  });
+});
+
+describe('ingestReport reads the stored agents once before the upsert (#952)', () => {
+  it('asks for the agents the report names, in one read, and not for the whole session', async () => {
+    const r = fixtureReport();
+    const second = { ...r.agents[0]!, id: 'second-agent' };
+    await ingestReport(storage, { ...r, agents: [r.agents[0]!, second] }, T0);
+    const byIds = vi.spyOn(f, 'getAgentsByIds');
+    const all = vi.spyOn(f, 'getAgents');
+    await ingestReport(storage, { ...r, agents: [r.agents[0]!, second] }, T0 + 1000);
+    expect(byIds).toHaveBeenCalledTimes(1);
+    expect(byIds).toHaveBeenCalledWith(r.session.id, [r.agents[0]!.id, 'second-agent']);
+    expect(all).toHaveBeenCalledTimes(1); // the sample's read, after the upsert
+  });
+
+  it('reads nothing before the upsert for a report with no agents', async () => {
+    const r = fixtureReport();
+    const byIds = vi.spyOn(f, 'getAgentsByIds');
+    await ingestReport(storage, { ...r, agents: [] }, T0);
+    expect(byIds).not.toHaveBeenCalled();
   });
 });
 

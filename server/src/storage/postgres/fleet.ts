@@ -283,6 +283,22 @@ export class PgFleetStore implements FleetStoreApi {
     );
   }
 
+  /** The agents of one session with these ids (#952). */
+  async getAgentsByIds(sessionId: string, agentIds: string[]): Promise<AgentRow[]> {
+    const rows: AgentRow[] = [];
+    for (const part of pieces([...new Set(agentIds)], IDS_PER_STATEMENT)) {
+      rows.push(
+        ...(await this.db.all<AgentRow>(
+          'SELECT a.*, length(t.prompt_text) AS prompt_chars, length(t.answer_text) AS answer_chars FROM agents a ' +
+            'LEFT JOIN agent_texts t ON t.session_id = a.session_id AND t.agent_id = a.id ' +
+            `WHERE a.session_id = ? AND a.id IN (${marks(part.length)}) ORDER BY a.started_at, a.id`,
+          [sessionId, ...part],
+        )),
+      );
+    }
+    return rows;
+  }
+
   /** `getAgents` for many sessions in one statement per thousand (#906). */
   async getAgentsOf(sessionIds: string[]): Promise<Map<string, AgentRow[]>> {
     const rows: AgentRow[] = [];

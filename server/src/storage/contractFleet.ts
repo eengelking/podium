@@ -98,6 +98,9 @@ export function fleetCases(o: Openers): void {
       await rec('texts (kept prompt)', f.getAgentTexts('x', 'run'));
       await f.abortOpenAgents('x', T0 + 9);
       await rec('agents (aborted)', f.getAgents('x'));
+      await rec('agents by ids (one unknown, one repeated)', f.getAgentsByIds('x', ['fin', 'nope', 'run', 'fin']));
+      await rec('agents by ids (none asked)', f.getAgentsByIds('x', []));
+      await rec('agents by ids (another session)', f.getAgentsByIds('other', ['run']));
       await f.insertBlowout({ session_id: 'x', agent_id: null, t: T0, kind: 'compact', tokens_before: 9, tokens_after: 1 });
       await f.insertBlowout({ session_id: 'x', agent_id: null, t: T0 + 1, kind: 'auto-compact', tokens_before: 9, tokens_after: 1 });
       await f.insertBlowout({ session_id: 'x', agent_id: null, t: T0 + 2, kind: 'clear', tokens_before: null, tokens_after: null });
