@@ -61,6 +61,9 @@ export function included(rel, withTests = false) {
   const name = rel.split("/").at(-1);
   if (name === ".DS_Store") return false;
   if (!withTests && name.endsWith(".test.ts")) return false;
+  // A harness's test runner only lets a test import its own files and the harness API, not `node:` modules. A test that needs them
+  // (a real temp folder, a child process, `openssl`) is named *.node.test.ts and runs under `npm run test:core` and the server suite.
+  if (name.endsWith(".node.test.ts")) return false;
   return true;
 }
 
