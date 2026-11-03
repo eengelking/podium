@@ -10,7 +10,7 @@ import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerRep
 import { ADMIN } from "../people";
 import { ReadGate } from "../readGate";
 import { Blank } from "../components/Blank";
-import { DESKTOP_OPTIONS, OPTION_CMD } from "../pluginOptions";
+import { DESKTOP_OPTIONS, OPTION_CMD, turnOnText, type SetupHarness } from "../pluginOptions";
 
 export const PEER_FLAG = "peer-messaging";
 
@@ -62,7 +62,8 @@ export function WarnIcon() {
 }
 
 /** Why this reporter offers no choices, or null when it can take part. */
-function cannot(r: PeerRef): ReactNode {
+/** `harnesses` are the ones to explain: those the machine runs, or all of them when none is known (#857). */
+function cannot(r: PeerRef, harnesses: readonly SetupHarness[]): ReactNode {
   if (r.adminSecret) {
     return (
       <Blank title="The admin secret cannot take part">
@@ -81,7 +82,14 @@ function cannot(r: PeerRef): ReactNode {
   if (r.peers === false) {
     return (
       <Blank title={`Messaging is off on ${r.machine}`}>
-        Only that machine can turn it on. In Claude Code there, run <span className="mono">{OPTION_CMD}</span> and set <span className="mono">peers</span> to on. In the Claude desktop app there, open {DESKTOP_OPTIONS} and turn on <span className="mono">peers</span>. Until then there is nothing to set here.
+        Only that machine can turn it on.
+        {harnesses.includes("claude-code") && (
+          <>
+            {" "}
+            In Claude Code there, run <span className="mono">{OPTION_CMD}</span> and set <span className="mono">peers</span> to on. In the Claude desktop app there, open {DESKTOP_OPTIONS} and turn on <span className="mono">peers</span>.
+          </>
+        )}
+        {harnesses.includes("opencode") && ` ${turnOnText("opencode", "peers")}`} Until then there is nothing to set here.
       </Blank>
     );
   }
@@ -129,7 +137,7 @@ export interface ReporterMessaging {
 const NONE: ReporterMessaging = { pause: null, rows: [], section: null };
 
 /** Everything the reporter's detail shows of messaging. With the flag off, nothing. */
-export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocked: () => void, every = 10_000): ReporterMessaging {
+export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocked: () => void, every = 10_000, harnesses: readonly SetupHarness[] = ["claude-code", "opencode"]): ReporterMessaging {
   const settings = useList<{ features?: { id: string; on: boolean }[] }>(api, "/settings", onLocked);
   const on = settings.data?.features?.some((f) => f.id === PEER_FLAG && f.on) ?? false;
   const [data, setData] = useState<AdminPeers | null>(null);
@@ -186,7 +194,7 @@ export function useReporterMessaging(api: AdminApi, reporterKey: string, onLocke
   const owner = ref.owner ?? "the owner";
   // The read's effective levels are this reporter's pairs only (SPEC 7.1).
   const allPaused = data.effective.length > 0 && data.effective.every((e) => e.paused);
-  const why = cannot(ref);
+  const why = cannot(ref, harnesses);
   const machine = (key: string) => data.peers.find((p) => p.key === key)?.machine ?? key;
 
   const act = async (run: () => Promise<unknown>, failWords: string) => {

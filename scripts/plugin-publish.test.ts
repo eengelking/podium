@@ -104,6 +104,26 @@ describe("plugin-publish", () => {
     expect(remoteSha(bare)).toBe("");
   });
 
+  it("publishes dist/opencode/ beside dist/claudecode/, checking its package.json version (#857)", () => {
+    buildHarness("opencode", { outDir: dist });
+    const r = publish(opts());
+    expect(r.status).toBe("published");
+    const files = treeFiles(bare, TARGET);
+    expect(files).toContain("dist/opencode/package.json");
+    expect(files).toContain("dist/opencode/plugin/opencode/index.ts");
+    expect(files).toContain("dist/claudecode/.claude-plugin/plugin.json");
+    const f = join(dist, "opencode", "package.json");
+    writeFileSync(f, JSON.stringify({ ...JSON.parse(readFileSync(f, "utf8")), version: "0.0.1" }));
+    git(repo, "commit", "--allow-empty", "-q", "-m", "again");
+    expect(() => publish(opts({ sourceSha: git(repo, "rev-parse", "HEAD") }))).toThrow(/opencode: package.json version 0.0.1 is not the product version/);
+  });
+
+  it("refuses a dev-stamped opencode tree, as it refuses a claudecode one (#857)", () => {
+    buildHarness("opencode", { outDir: dist, stamp: true });
+    expect(() => publish(opts())).toThrow(/opencode: .*dev-build\.json is a dev stamp/);
+    expect(remoteSha(bare)).toBe("");
+  });
+
   it("refuses development and any other source ref, and accepts main and release-candidate/*", () => {
     expect(() => publish(opts({ sourceRef: "development" }))).toThrow(/may not publish/);
     expect(() => publish(opts({ sourceRef: "feat/x" }))).toThrow(/may not publish/);

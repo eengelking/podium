@@ -1,6 +1,6 @@
 name: Plugin dist
 
-# Publishes the built plugins (dist/claudecode/ and dist/opencode/ when it has a plugin.json) to the `plugin-dist` branch (#927).
+# Publishes the built plugins (dist/claudecode/ and dist/opencode/, #857) to the `plugin-dist` branch (#927).
 # The `eengelking-marketplace` entry for podium-reporter points at that branch, so a release reaches an installed copy as a new
 # commit there. `main` moves only on a release (CLAUDE.md, Branching Model), so a push to `main` is a release and this is what
 # publishes it. The job installs, runs `npm test` and `npm run build`, builds every harness with scripts/plugin-build.mjs (which runs

@@ -178,6 +178,9 @@
 .adminv .callout p, .adminv .callout ol { grid-column: 2; margin: 0; color: var(--ink2); max-width: 70ch; }
 .adminv .callout ol { padding-left: 18px; display: grid; gap: 2px; }
 .adminv .callout b { color: var(--ink); font-weight: 600; }
+/* Room above the harness picker and above the steps under it (#857, mockup/podium-reporter-harness-picker.html). */
+.adminv .callout .f.inline { margin-top: 10px; }
+.adminv .callout .f.inline + ol { margin-top: 8px; }
 .adminv .back { display: inline-flex; align-items: center; gap: 6px; color: var(--ink2); font-size: 12.5px; padding: 12px 16px 0; }
 .adminv .back:hover { color: var(--ink); }
 .adminv .dhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); }

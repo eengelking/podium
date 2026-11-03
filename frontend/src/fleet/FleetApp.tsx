@@ -554,7 +554,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {myReporters ? (
-              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} />
+              <MyReportersPage me={signedIn ?? null} peersOn={peersOn} peers={peers} api={peersApiProp ?? peersApi} now={now} notice={notice} sessions={all} />
             ) : (
               <main className="main" id="podium-main">
                 {/* An open orchestrator and a replay carry their own h1; the wall and the board get one a screen reader can find (#636). */}
