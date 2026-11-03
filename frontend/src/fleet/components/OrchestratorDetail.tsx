@@ -5,6 +5,7 @@ import { reporterBelow, SkillChips, ToolChips } from "./AgentDetail";
 import { backgroundOf, BlowBadge, CompBadge, Cost, ContextBar, EffortMeter, GitLine, ModelChip, StatusChip } from "./Chips";
 import { IconBack } from "./Icons";
 import { HarnessContext } from "../harnessContext";
+import { harnessOfSession } from "../harness";
 import { ActivityFeed } from "./ActivityFeed";
 import { MAIN_LOOP } from "../../../../plugin/core/protocol";
 import { HOOKS_NOTE, versionNote } from "./SessionCard";
@@ -12,6 +13,7 @@ import { HOOKS_NOTE, versionNote } from "./SessionCard";
 /** The side panel for the orchestrator's own row. Steps, tools and skills come from the report's main loop block, when the reporter sends one. */
 export function OrchestratorDetail(props: { s: SessionView; now: number; onBack: () => void; activityFeedOn?: boolean }) {
   const { s, now } = props;
+  const { context, effort } = harnessOfSession(s);
   return (
     <>
       <button type="button" className="back" onClick={props.onBack}>
@@ -32,17 +34,25 @@ export function OrchestratorDetail(props: { s: SessionView; now: number; onBack:
           <dd>
             <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </dd>
-          <dt>Effort</dt>
-          <dd>
-            <EffortMeter effort={s.effort} />
-          </dd>
-          <dt>Context</dt>
-          <dd className="mono" style={{ flexWrap: "nowrap" }}>
-            <ContextBar percent={s.context.percent} blowouts={s.blowouts.orchestrator} width={90} />
-            <span>{fmtPct(s.context.percent)}</span>
-            <BlowBadge n={s.blowouts.orchestrator} />
-            <CompBadge n={s.compactions} />
-          </dd>
+          {effort && (
+            <>
+              <dt>Effort</dt>
+              <dd>
+                <EffortMeter effort={s.effort} />
+              </dd>
+            </>
+          )}
+          {context && (
+            <>
+              <dt>Context</dt>
+              <dd className="mono" style={{ flexWrap: "nowrap" }}>
+                <ContextBar percent={s.context.percent} blowouts={s.blowouts.orchestrator} width={90} />
+                <span>{fmtPct(s.context.percent)}</span>
+                <BlowBadge n={s.blowouts.orchestrator} />
+                <CompBadge n={s.compactions} />
+              </dd>
+            </>
+          )}
           <dt title={TOKENS_HINT}>Tokens</dt>
           <dd className="mono" title={TOKENS_HINT}>{fmtTok(s.context.tokens)}</dd>
           <dt title={COST_HINT_ORCHESTRATOR}>Est. cost</dt>

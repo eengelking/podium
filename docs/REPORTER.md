@@ -474,11 +474,17 @@ not change the mode of a file you made.
 install OpenCode plugins you trust, and do not open an untrusted repo in OpenCode with a token on the machine.
 
 **`service.json`.** In service mode OpenCode writes the service's address, pid and password to `$XDG_STATE_HOME/opencode/service.json`. Anything that
-can read it can answer questions and permissions. The file's permissions are OpenCode's. The reporter does not read it; answering from Podium will need it,
-and that change carries its own review.
+can read it can answer questions and permissions. The file's permissions are OpenCode's. The reporter reads it only to answer a question form when no TUI part is attached (#858): at the moment an answer is sent, never at start, and it uses the
+password only for a request to this machine (`127.0.0.1`, `localhost` or `[::1]` over plain HTTP), so a file that names another address gets no request. A person who does not
+want that turns `PODIUM_RESPOND` off, and questions are then not offered at all.
 
 **Text that arrives as the user's.** OpenCode does not mark text sent with `session.prompt` or as `synthetic`: the model sees it as the user's own words.
+A message from the console (#858) starts with a line saying who sent it and that it came through Podium, so the model is not told it is the person at the terminal.
 When messaging is on, framing that says a message came from another orchestrator or a person is added by Podium in the text, as the Claude reporter does (#411).
+
+**The TUI part.** Answering a question needs a second part of the plugin that runs in the terminal UI (`plugin/opencode/tui.ts`). It talks only to the server part, over
+OpenCode's plugin RPC for the same project, and it reads nothing from Podium. It replies to a form only when the server part hands it an answer, which the server part does
+only for an answer Podium delivered with the Admin's flags and `PODIUM_RESPOND` on.
 
 **A repo that removes the reporter.** A project can list the plugin as removed (`"plugins":["-podium.reporter"]`). A session that was already reporting then
 stops, and the console shows it going stale like any other session whose reporter went quiet. The limit: a session that never loaded the reporter never reported, so

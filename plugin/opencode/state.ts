@@ -63,12 +63,47 @@ export interface Sess {
   failure: Failure | null;
 }
 
+/** One field of a question form: what OpenCode asks, and the values it takes back. */
+export interface FormField {
+  key: string;
+  title: string;
+  description: string;
+  /** OpenCode's field type; `array` takes several values. */
+  type: string;
+  options: { value: string; label: string; description: string }[];
+  /** Whether a typed answer is allowed besides the options. */
+  custom: boolean;
+}
+
 export interface Ask {
   id: string;
   kind: 'permission' | 'question';
   sessionId: string;
   openedAt: number;
   note: string;
+  /** A permission's action and the resources it names. */
+  action?: string;
+  resources?: string[];
+  /** A question's fields. The form's id is the ask's id. */
+  fields?: FormField[];
+}
+
+/** The fields of a form as the bus announces them; anything that is not a field with a key is dropped. */
+export function formFields(raw: unknown): FormField[] {
+  if (!Array.isArray(raw)) return [];
+  const text = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return raw.flatMap((f: any) =>
+    f && typeof f.key === 'string' && f.key
+      ? [{
+          key: f.key,
+          title: text(f.title),
+          description: text(f.description),
+          type: text(f.type) || 'string',
+          options: Array.isArray(f.options) ? f.options.flatMap((o: any) => (o && typeof o.value === 'string' ? [{ value: o.value, label: text(o.label) || o.value, description: text(o.description) }] : [])) : [],
+          custom: f.custom === true,
+        }]
+      : [],
+  );
 }
 
 /** A root session with its children: one record on the wall. */
@@ -324,7 +359,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'permission.asked': {
       const id = str(d.id);
-      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160) });
+      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources: Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [] });
       break;
     }
     case 'permission.replied':
@@ -332,7 +367,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'form.created': {
       const id = str(d.form?.id);
-      if (id) ask(root, { id, kind: 'question', sessionId: sid, openedAt: t, note: clip(str(d.form?.fields?.[0]?.title) ?? str(d.form?.title) ?? 'question', 160) });
+      if (id) ask(root, { id, kind: 'question', sessionId: sid, openedAt: t, note: clip(str(d.form?.fields?.[0]?.title) ?? str(d.form?.title) ?? 'question', 160), fields: formFields(d.form?.fields) });
       break;
     }
     case 'form.replied':

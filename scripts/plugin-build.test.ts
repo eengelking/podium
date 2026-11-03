@@ -241,7 +241,7 @@ describe("plugin-build: the command line", () => {
     for (const f of ["package.json", "plugin/opencode/index.ts", "plugin/opencode/reporter.ts", "plugin/opencode/reporter.test.ts", "plugin/core/transport.ts"]) expect(files, f).toContain(f);
     for (const f of ["plugin/opencode/tsconfig.json", "plugin/opencode/vitest.config.ts", "plugin/opencode/package.json", ".claude-plugin/plugin.json", "hooks/hooks.json"]) expect(files, f).not.toContain(f);
     const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-    expect(pkg).toMatchObject({ name: "podium-reporter-opencode", main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts" }, version: JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version });
+    expect(pkg).toMatchObject({ name: "podium-reporter-opencode", main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts", "./tui": "./plugin/opencode/tui.ts" }, version: JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version });
     expect(files.some((f: string) => f.endsWith(".test.ts") && f.startsWith("plugin/opencode/"))).toBe(true);
     expect(run(["opencode", "--check", "--out", out])).toMatchObject({ code: 0 });
     // Without --with-tests the tests stay out, and the same source gives the same bytes.
