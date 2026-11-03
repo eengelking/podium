@@ -162,6 +162,13 @@ describe('sessionView', () => {
     expect(await viewOf(fixtureReport(), 1_791_648_001_000)).toMatchObject({ capabilities: null, modelLabel: null, modelProvider: null });
   });
 
+  it('carries the label and provider an agent was reported with, and null when none was (#945)', async () => {
+    const r = fixtureReport();
+    const declared = await viewOf({ ...r, agents: r.agents.map((a) => ({ ...a, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' })) }, 1_791_648_001_000);
+    expect(declared.agents[0]).toMatchObject({ model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai' });
+    expect((await viewOf(fixtureReport(), 1_791_648_001_000)).agents[0]).toMatchObject({ modelLabel: null, modelProvider: null });
+  });
+
   it('shows a Claude Code session with Podium\'s own estimate (#851)', async () => {
     const v = await viewOf(fixtureReport(), 1_791_648_001_000);
     expect(v).toMatchObject({ harness: 'claude-code', costSource: 'estimate' });

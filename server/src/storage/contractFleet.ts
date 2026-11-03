@@ -18,7 +18,7 @@ const agent = (sessionId: string, id: string, over: Partial<AgentRow> = {}): Age
   session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
   status: 'running', started_at: T0, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
   cost_usd_est: 0.25, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
-  prompt_excerpt: null, answer_excerpt: null, failure_json: null, ...over,
+  prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
 });
 const seen = (id: string, name: string | null, over: Partial<ReporterSeen> = {}): ReporterSeen => ({
   kind: 'mod', machineId: id, machineName: name, source: `10.0.0.${id.length}`, owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null,

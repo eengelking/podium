@@ -280,6 +280,9 @@ export interface AgentRow {
   prompt_excerpt: string | null;
   answer_excerpt: string | null;
   failure_json: string | null;
+  /** The model's name as the harness shows it, and the company behind it (#945); null when no report gave one. */
+  model_label: string | null;
+  model_provider: string | null;
   /** Read side only (getAgents): the length of the stored full text, null when there is none. */
   prompt_chars?: number | null;
   answer_chars?: number | null;

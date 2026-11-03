@@ -3,7 +3,9 @@ import { render, cleanup, screen } from "@testing-library/react";
 import { SessionCard } from "./SessionCard";
 import { FocusHeader } from "./FocusHeader";
 import { ModelChip, NO_PRICE_TITLE } from "./Chips";
-import { makeSession } from "../fixtures";
+import { AgentRow } from "./AgentRow";
+import { AgentDetail } from "./AgentDetail";
+import { makeAgent, makeSession } from "../fixtures";
 
 afterEach(cleanup);
 
@@ -119,5 +121,33 @@ describe("what a session's harness declares (#940)", () => {
     cleanup();
     render(<ModelChip family="other" model="gpt-5.1-2026" label={null} />);
     expect(screen.getByText("gpt-5.1-2026")).toBeInTheDocument();
+  });
+});
+
+describe("an agent's model label (#945)", () => {
+  const gpt = makeAgent({ id: "g1", model: "gpt-5.1-2026", modelFamily: "other", modelLabel: "GPT-5.1", modelProvider: "openai" });
+  const row = (a = gpt) =>
+    render(<AgentRow a={a} guides={[]} selected={false} flash={false} onSelect={() => {}} now={2_000_000} />);
+  const panel = (a = gpt) =>
+    render(<AgentDetail s={makeSession({ agents: [a] })} a={a} now={2_000_000} onBack={() => {}} onAgent={() => {}} />);
+
+  it("reads the label on the tree row, with the model id as the title", () => {
+    const { container } = row();
+    const chip = container.querySelector(".chip")!;
+    expect(chip.textContent).toBe("GPT-5.1");
+    expect(chip).toHaveAttribute("title", "gpt-5.1-2026");
+  });
+
+  it("reads the label in the panel, with the model id as the title", () => {
+    panel();
+    expect(screen.getByText("GPT-5.1").closest(".chip")).toHaveAttribute("title", "gpt-5.1-2026");
+  });
+
+  it("keeps the family name for an agent with no label, so a Claude Code agent is unchanged", () => {
+    const claude = makeAgent({ id: "c1", model: "claude-sonnet-5-5", modelFamily: "sonnet", modelLabel: null });
+    expect(row(claude).container.querySelector(".chip")!.textContent).toBe("Sonnet 5.5");
+    cleanup();
+    panel(claude);
+    expect(screen.getAllByText("Sonnet 5.5").length).toBeGreaterThan(0);
   });
 });

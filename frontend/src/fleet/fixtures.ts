@@ -31,6 +31,8 @@ export function makeAgent(over: Partial<AgentView> = {}): AgentView {
     name: null,
     description: "Map call sites",
     model: "claude-sonnet-5-5",
+    modelLabel: null,
+    modelProvider: null,
     effort: "medium",
     effortSource: "requested",
     status: "running",

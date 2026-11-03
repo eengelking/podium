@@ -358,6 +358,12 @@ ALTER TABLE sessions ADD COLUMN cost_source TEXT;`,
 ALTER TABLE sessions ADD COLUMN model_label TEXT;
 ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
   },
+  {
+    version: 30,
+    // An agent's model label and provider (#945), as a session has since #940. NULL means no report gave one, which is every agent stored before this.
+    sql: `ALTER TABLE agents ADD COLUMN model_label TEXT;
+ALTER TABLE agents ADD COLUMN model_provider TEXT;`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

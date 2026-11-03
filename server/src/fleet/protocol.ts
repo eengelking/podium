@@ -71,6 +71,9 @@ export type SessionStatusView = 'running' | 'waiting' | 'stale' | 'done';
 
 export interface AgentView extends Omit<AgentReport, 'promptText' | 'answerText' | 'activity'> {
   modelFamily: ModelFamily;
+  /** The model's name as the harness shows it, and the company behind it (#945); null when no report gave one. The row and the panel read the label. */
+  modelLabel: string | null;
+  modelProvider: string | null;
   /** Length of the full prompt / answer the server holds, null when it has none (served by the text endpoint). */
   promptChars: number | null;
   answerChars: number | null;

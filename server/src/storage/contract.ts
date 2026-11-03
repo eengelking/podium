@@ -93,7 +93,7 @@ const AGENT_SHAPE: Shape<AgentRow> = {
   effort: 'text?', effort_source: 'text?', status: 'text', started_at: 'int', ended_at: 'int?', context_tokens: 'int?',
   context_window: 'int?', context_percent: 'real?', tok_in: 'int', tok_out: 'int', tok_cr: 'int', tok_cw: 'int', cost_usd_est: 'real?',
   skills_json: 'text?', last_tool: 'text?', tool_calls: 'int', tool_counts_json: 'text?', usage_json: 'text?', blowouts: 'int',
-  steps_done: 'int?', steps_total: 'int?', prompt_excerpt: 'text?', answer_excerpt: 'text?', failure_json: 'text?',
+  steps_done: 'int?', steps_total: 'int?', prompt_excerpt: 'text?', answer_excerpt: 'text?', failure_json: 'text?', model_label: 'text?', model_provider: 'text?',
   prompt_chars: 'int?', answer_chars: 'int?',
 };
 const EVENT_SHAPE: Shape<EventRow> = { id: 'text', session_id: 'text', agent_id: 'text?', t: 'int', kind: 'text', text: 'text', data_json: 'text?' };
@@ -198,11 +198,15 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
         session_id: 'bare', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
         status: 'running', started_at: T0, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
         cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
-        prompt_excerpt: null, answer_excerpt: null, failure_json: null, ...over,
+        prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null, ...over,
       });
       await f.upsertAgent(agent('a1'));
-      await f.upsertAgent(agent('a2', { parent_id: 'a1', name: 'n', model: 'm', effort: 'low', effort_source: 'report', status: 'done', ended_at: T0 + 9, context_tokens: 1, context_window: 2, context_percent: 0.5, cost_usd_est: 0.1, skills_json: '[]', last_tool: 'Read', tool_calls: 3, tool_counts_json: '{}', usage_json: '[]', steps_done: 1, steps_total: 2, prompt_excerpt: 'p', answer_excerpt: 'a', failure_json: '{}' }));
+      await f.upsertAgent(agent('a2', { parent_id: 'a1', name: 'n', model: 'm', effort: 'low', effort_source: 'report', status: 'done', ended_at: T0 + 9, context_tokens: 1, context_window: 2, context_percent: 0.5, cost_usd_est: 0.1, skills_json: '[]', last_tool: 'Read', tool_calls: 3, tool_counts_json: '{}', usage_json: '[]', steps_done: 1, steps_total: 2, prompt_excerpt: 'p', answer_excerpt: 'a', failure_json: '{}', model_label: 'GPT-5.1', model_provider: 'openai' }));
       for (const a of await f.getAgents('bare')) expectShape(`agent ${a.id}`, a, AGENT_SHAPE);
+      // An agent stores its label and provider (#945), null when none was given, and a later write replaces them.
+      expect(await f.getAgents('bare')).toMatchObject([{ id: 'a1', model_label: null, model_provider: null }, { id: 'a2', model_label: 'GPT-5.1', model_provider: 'openai' }]);
+      await f.upsertAgent(agent('a2', { model_label: 'GPT-5.2', model_provider: null }));
+      expect((await f.getAgents('bare')).find((a) => a.id === 'a2')).toMatchObject({ model_label: 'GPT-5.2', model_provider: null });
       await f.upsertAgentTexts('bare', 'a2', { prompt: 'full prompt', answer: 'full answer' });
       expect((await f.getAgents('bare')).find((a) => a.id === 'a2')!.prompt_chars).toBe('full prompt'.length);
 
@@ -303,7 +307,7 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
         session_id: 's1', id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: '', model: null, effort: null, effort_source: null, status: 'done',
         started_at: started, ended_at: null, context_tokens: null, context_window: null, context_percent: null, tok_in: 0, tok_out: 0, tok_cr: 0, tok_cw: 0, cost_usd_est: null,
         skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null, prompt_excerpt: null,
-        answer_excerpt: null, failure_json: null,
+        answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
       });
       for (const [id, at] of [['b', 20], ['a', 20], ['A', 20], ['z', 10], ['y', 30]] as const) await f.upsertAgent(agent(id, at));
       expect((await f.getAgents('s1')).map((a) => a.id)).toEqual(['z', 'A', 'a', 'b', 'y']);

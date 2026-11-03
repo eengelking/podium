@@ -103,4 +103,18 @@ describe('harness badge and neutral labels', () => {
     cy.contains('main', 'acme does not report context size.');
     cy.get('main').contains('.chip', 'GPT-5.1').should('have.attr', 'title', 'gpt-5.1');
   });
+
+  // An agent's own modelLabel (#945) reads on its tree row and in its panel, the model id as the chip's title; an agent without one shows its family name.
+  it('reads an agent\'s model label on its tree row and panel, and the family name when it has none', () => {
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { model: 'gpt-5.1', modelLabel: 'GPT-5.1' } }, undefined, true);
+    cy.openConsole('#/');
+    cy.card('invoice').click();
+    cy.get('main#podium-main h1').should('contain.text', 'invoice-v2');
+    cy.get('#row-e2e-a-port .chip').should('have.text', 'GPT-5.1').and('have.attr', 'title', 'gpt-5.1');
+    cy.get('#row-e2e-a-map .chip').should('contain.text', 'Haiku').and('have.attr', 'title', 'claude-haiku-5-5');
+    cy.get('#row-e2e-a-port').click();
+    cy.get('#podium-side-body').contains('dt', 'Model').next('dd').find('.chip').should('have.text', 'GPT-5.1').and('have.attr', 'title', 'gpt-5.1');
+    cy.get('#row-e2e-a-map').click();
+    cy.get('#podium-side-body').contains('dt', 'Model').next('dd').find('.chip').should('contain.text', 'Haiku').and('have.attr', 'title', 'claude-haiku-5-5');
+  });
 });

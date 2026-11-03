@@ -147,6 +147,8 @@ export function agentView(a: AgentRow, pricing?: Pricing): AgentView {
     answerChars: a.answer_chars ?? null,
     failure: parse<Failure | null>(a.failure_json, null),
     modelFamily: family(a.model),
+    modelLabel: a.model_label,
+    modelProvider: a.model_provider,
   };
 }
 

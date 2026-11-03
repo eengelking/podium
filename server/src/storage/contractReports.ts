@@ -61,7 +61,7 @@ export function reportCases(o: Openers): void {
       session_id: sessionId, id, parent_id: null, kind: 'sub', type: 'Explore', name: null, description: 'look', model: null, effort: null, effort_source: null,
       status: 'done', started_at: T0, ended_at: T0 + 1, context_tokens: null, context_window: null, context_percent: null, tok_in: 1, tok_out: 2, tok_cr: 3, tok_cw: 4,
       cost_usd_est: null, skills_json: null, last_tool: null, tool_calls: 0, tool_counts_json: null, usage_json: null, blowouts: 0, steps_done: null, steps_total: null,
-      prompt_excerpt: null, answer_excerpt: null, failure_json: null,
+      prompt_excerpt: null, answer_excerpt: null, failure_json: null, model_label: null, model_provider: null,
     });
     const t = await sameOnBoth(o, async (s, rec) => {
       const f = s.fleet;

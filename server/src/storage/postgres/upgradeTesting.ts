@@ -40,6 +40,9 @@ async function build(td: TestDatabase, rows: LegacyRequest[], reporters: LegacyR
         `INSERT INTO sessions (id, name, status, started_at, last_seen_at, cwd, model, cost_usd, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, 'done', ?, ?, '/w', ?, ?, 0, 0, 0, 0)`,
         [x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd],
       );
+      if (x.agent) {
+        await old.run(`INSERT INTO agents (session_id, id, kind, type, description, status, started_at) VALUES (?, ?, 'subagent', 'Explore', 'look', 'done', ?)`, [x.id, x.agent, x.startedAt]);
+      }
     }
   } finally {
     await old.close();
