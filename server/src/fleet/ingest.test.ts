@@ -382,6 +382,54 @@ describe('ingestReport with what a harness declares (#940)', () => {
   });
 });
 
+describe('ingestReport with an agent\'s model label and provider (#945)', () => {
+  const withAgent = (over: Record<string, unknown> = {}): Report => {
+    const r = fixtureReport();
+    return { ...r, agents: [{ ...r.agents[0]!, model: 'gpt-5.1', modelLabel: 'GPT-5.1', modelProvider: 'openai', ...over }] };
+  };
+  const stored = async (r: Report) => (await f.getAgents(r.session.id)).find((a) => a.id === r.agents[0]!.id)!;
+
+  it('stores the label and provider an agent was reported with', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    expect(await stored(r)).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('stores null for an agent whose report sent neither', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await stored(r)).toMatchObject({ model_label: null, model_provider: null });
+  });
+
+  it('updates them from a later report of the same agent', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: 'GPT-5.2', modelProvider: 'azure' }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model_label: 'GPT-5.2', model_provider: 'azure' });
+  });
+
+  it('keeps what was stored when a later report of the agent does not send them', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model: 'gpt-5.1', model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('drops the old label and provider when a report names a different model without them', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ model: 'gpt-5.2', modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model: 'gpt-5.2', model_label: null, model_provider: null });
+  });
+
+  it('clears a label or provider a report sends as null', async () => {
+    const r = withAgent();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, withAgent({ modelLabel: null, modelProvider: null }), T0 + 1000);
+    expect(await stored(r)).toMatchObject({ model_label: null, model_provider: null });
+  });
+});
+
 describe('ingestReport with a model that has no price (#66)', () => {
   it('drops a cost an older reporter priced as Sonnet, and keeps a Claude model\'s cost', async () => {
     const r = fixtureReport();

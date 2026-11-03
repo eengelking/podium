@@ -188,6 +188,14 @@ ALTER TABLE sessions ADD COLUMN model_label TXT;
 ALTER TABLE sessions ADD COLUMN model_provider TXT;
 `),
   },
+  {
+    version: 6,
+    // An agent's model label and provider (#945), as a session has since #940. NULL means no report gave one, which is every agent stored before this.
+    sql: typed(`
+ALTER TABLE agents ADD COLUMN model_label TXT;
+ALTER TABLE agents ADD COLUMN model_provider TXT;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

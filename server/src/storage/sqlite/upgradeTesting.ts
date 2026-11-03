@@ -25,7 +25,11 @@ export function openUpgradedSqlite(rows: LegacyRequest[], reporters: LegacyRepor
   const insertSession = old.prepare(
     `INSERT INTO sessions (id, name, status, started_at, last_seen_at, cwd, model, cost_usd, tok_in, tok_out, tok_cr, tok_cw) VALUES (?, ?, 'done', ?, ?, '/w', ?, ?, 0, 0, 0, 0)`,
   );
-  for (const x of sessions) insertSession.run(x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd);
+  const insertAgent = old.prepare(`INSERT INTO agents (session_id, id, kind, type, description, status, started_at) VALUES (?, ?, 'subagent', 'Explore', 'look', 'done', ?)`);
+  for (const x of sessions) {
+    insertSession.run(x.id, x.name, x.startedAt, x.startedAt, x.model, x.costUsd);
+    if (x.agent) insertAgent.run(x.id, x.agent, x.startedAt);
+  }
   old.close();
   return { storage: openSqliteStorage(file, 0), dir };
 }

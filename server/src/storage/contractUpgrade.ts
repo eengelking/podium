@@ -40,6 +40,8 @@ export interface LegacySession {
   model: string | null;
   costUsd: number | null;
   startedAt: number;
+  /** The id of an agent the session had, stored before an agent had a model label (#945). */
+  agent?: string;
 }
 
 /** What an adapter provides: a Storage over a database built at the schema before the request insertion number, the reporter name and the session harness, holding `rows`, `reporters` and `sessions` inserted in the order given. */
@@ -68,7 +70,7 @@ const FIXTURE: LegacyRequest[] = [
 export function upgradeCases(o: UpgradeOpeners): void {
   it('keeps every session and its cost as a Claude Code session with Podium\'s own estimate when a database made before sessions had a harness is upgraded (#851)', async () => {
     const legacy: LegacySession[] = [
-      { id: 'old1', name: 'first', model: 'claude-opus-4-5', costUsd: 1.5, startedAt: T0 },
+      { id: 'old1', name: 'first', model: 'claude-opus-4-5', costUsd: 1.5, startedAt: T0, agent: 'old-agent' },
       { id: 'old2', name: 'second', model: null, costUsd: null, startedAt: T0 + 1 },
     ];
     const s = await o.openUpgraded([], [], legacy);
@@ -78,6 +80,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect(await s.fleet.getSession('old2')).toMatchObject({ cost_usd: null, harness: 'claude-code', cost_source: null });
       // Nothing was declared before the columns existed (#940), so both read as not declared.
       for (const id of ['old1', 'old2']) expect(await s.fleet.getSession(id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
+      // Nor did an agent have a label or provider (#945), so one stored before reads as not declared, and a later write sets them.
+      expect(await s.fleet.getAgents('old1')).toMatchObject([{ id: 'old-agent', model_label: null, model_provider: null }]);
     } finally {
       await s.close();
     }

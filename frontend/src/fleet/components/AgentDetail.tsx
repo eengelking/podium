@@ -129,7 +129,7 @@ export function AgentDetail(props: { s: SessionView; a: AgentView; now: number; 
           )}
           <dt>Model</dt>
           <dd>
-            <ModelChip family={a.modelFamily} model={a.model} />
+            <ModelChip family={a.modelFamily} model={a.model} label={a.modelLabel} />
             {fork && inherited}
           </dd>
           <dt>Effort</dt>

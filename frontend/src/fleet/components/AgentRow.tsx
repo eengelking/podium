@@ -50,7 +50,7 @@ export const AgentRow = forwardRef<HTMLButtonElement, {
         </span>
       </div>
       <div className="cell">
-        <ModelChip family={a.modelFamily} model={a.model} />
+        <ModelChip family={a.modelFamily} model={a.model} label={a.modelLabel} />
       </div>
       <div className="cell">
         <EffortMeter effort={a.effort} />
