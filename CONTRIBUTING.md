@@ -59,8 +59,9 @@ npm run build          # UI and server build, scripts type-check
 npm run plugin:build    # build dist/claudecode/ (the folder that is installed and zipped); fails if it is not self-contained
 npm run plugin:build:release  # the same build with no dev stamp, for the zip script and the release check
 npm run plugin:dev:claudecode  # build it and start Claude Code with it loaded (`-- --watch` rebuilds on change); `plugin:dev:cleanup` deletes the build folders
-npm run test:mod       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
-npm run typecheck:mod  # the mod against Claude Code's plugin API declarations (needs Claude Code)
+npm run test:core                 # the tests in plugin/core/, with no harness CLI and no harness API types installed (CI runs it)
+npm run test:mod:claudecode       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
+npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
 npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
 E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs both)
@@ -106,8 +107,8 @@ big new state gets a case there. It cannot judge contrast or target size, which 
 `KNOWN` list with the issue that tracks it, and comes out when it is fixed.
 
 CI runs `npm test` and `npm run build` on every PR into `development` or `main`, on the project's self-hosted runners (`runs-on: [self-hosted, Linux, X64]`; a PR from a fork uses GitHub's `ubuntu-latest`); a job waits in the queue when none is free. It cannot run the two mod checks, because the runners
-have no Claude Code, so run those yourself when you touch the mod (`plugin/claudecode/` or `plugin/core/`).
-The shared code's own tests in `plugin/core/` need no Claude Code and run under `npm test`.
+have no Claude Code, so run those yourself when you touch a reporter (see "Testing a reporter" below).
+The shared code's own tests in `plugin/core/` need no Claude Code: CI runs them in their own job (`npm run test:core`) and under `npm test`.
 
 Two scanners also run on PRs, and after a merge to `development` or `main`: SonarCloud (`.github/workflows/sonar.yml`, quality gate and coverage on new code) and CodeQL
 (`.github/workflows/codeql.yml`, the `security-extended` queries; results are under Security > Code scanning). Neither runs on
@@ -117,6 +118,17 @@ SonarCloud cannot see the mod's own tests, because they run only inside Claude C
 `plugin/claudecode/hooks/register.ts` counts as uncovered. Put new mod logic in a plain module beside it that imports
 nothing from the engine (see `place.ts`, which takes what it needs from `$` as an argument), test it from `scripts/` with vitest,
 and keep `register.ts` to a few lines of glue. `server/vitest.config.ts` measures `plugin/claudecode/hooks/*.ts` for this, and it measures `plugin/core/` too.
+
+### Testing a reporter
+
+Each reporter is a folder under `plugin/`, and the shared code is `plugin/core/`. The checks follow the same convention for every harness (#934):
+
+- `npm run test:core` runs the tests in `plugin/core/` with no harness CLI and no harness API types installed. CI runs it on every PR.
+- A harness `<harness>` ships `npm run test:mod:<harness>` and `npm run typecheck:mod:<harness>`. The first builds `dist/<harness>/` with `--with-tests` (`node scripts/plugin-build.mjs <harness> --with-tests --out .build-test`) and runs that harness's own test runner on it. The second type-checks `plugin/<harness>/` against that harness's API types, using the `tsconfig.json` in `plugin/<harness>/`.
+- A harness whose runner or types need a CLI the CI runners lack says so in `ci.yml`, as Claude Code's do. Today only `claudecode` has the pair.
+- `scripts/harness-scripts.test.ts` (part of `npm test`) fails when a folder under `plugin/` other than `core` has no matching pair in `package.json`. `plugin/opencode/` is exempt until #855 adds its code, and #855 removes the exemption in `scripts/harness-scripts.mjs`.
+
+Which checks a change runs depends on where it sits. A change to `plugin/core/` runs `test:core` and every harness's pair, because a core change can break any harness. A change to `plugin/<harness>/` runs that harness's pair.
 
 ### The nightly
 
@@ -298,7 +310,7 @@ placeholder until #855 (DECISIONS 56). They are installed from a built folder, n
   `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and
   `--dev-stamp` writes the commit into the folder (`npm run plugin:build` and `npm run plugin:dev` add it; CI, the release and `npm run plugin:build:release` never do).
 - `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three folders below, and only when git reports them ignored.
-- `dist/`, `.build-test/` (where `npm run test:mod` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
+- `dist/`, `.build-test/` (where `npm run test:mod:claudecode` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
 - `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`.
 - `.github/workflows/plugin-dist.yml` runs on a merge to `main`, which is a release. After the tests and the build it runs
   `scripts/plugin-publish.mjs`, which adds the built folders as a new commit on the `plugin-dist` branch (never a force-push, nothing

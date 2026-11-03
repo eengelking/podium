@@ -30,7 +30,7 @@ diffs against the same base as the list (`resolveRef`, shared with `readChanges`
 2,000 lines or 200,000 bytes, then `redactDiff` replaces anything that looks like a secret. Cutting comes first, so
 the redaction count is for what is sent.
 
-**Tests.** The mod's tests need Claude Code (`npm run test:mod`), so CI cannot run them. The four that need no
+**Tests.** The mod's tests need Claude Code (`npm run test:mod:claudecode`), so CI cannot run them. The four that need no
 engine (`diffRedact`, `fileDiff`, `git`, `transport`) also run under the server's vitest, through an alias for
 `claude-code/testing` in `server/vitest.config.ts`, so SonarCloud's coverage gate sees the mod's pure modules.
 
