@@ -1202,6 +1202,12 @@ never moves because another has nothing to say.
 - **Resume** and **Fork** are quiet whole-cell controls with no button chrome. Each has its label (**Resume**,
   **Fork**) over "Command" and a copy icon, and behaves as Copy resume command and Copy fork command below.
   Their accessible names are "Copy resume command" and "Copy fork command".
+  - The command comes from the session's harness (7.4). Claude Code has both. OpenCode has Resume only. A harness
+    with no entry has neither. A cell whose command is `null` keeps its place and is not a button: its label over the
+    words "Not available", with a title that says why ("OpenCode has no fork command Podium can give." or "Podium has no
+    resume command for <harness>."), and no popup. A harness other than Claude Code gets the popup without the lines that
+    are Claude Code's own (`--mcp-config` and the other flags it does not restore, permissions allowed for the session, and
+    the transcript's 30 days).
   - Each has a popup that says what the command does, opened by hover and by keyboard focus, closed by Escape
     or when the pointer or focus leaves. It holds text only, and the cell points to it with
     `aria-describedby`. It opens above the cell, aligned to the cell's right edge, so it must not be clipped

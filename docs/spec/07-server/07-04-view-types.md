@@ -49,7 +49,15 @@ interface SessionView {
 }
 ```
 
-`resumeCommand` is `cd <cwd> && claude --resume <resumeId ?? id>`. `forkCommand` is the same command with ` --fork-session` added: `cd <cwd> && claude --resume <resumeId ?? id> --fork-session` (#352). Both quote a `cwd` or id that holds anything but safe shell characters, and both are built in `derive.ts`, so the page copies a string and never builds a command. No new report field is needed. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
+`resumeCommand` and `forkCommand` come from a template for the session's harness (#853), built in `derive.ts`, so the page copies a string and never builds a command. A session with no stored harness is Claude Code's. Both quote a `cwd` or id that holds anything but safe shell characters.
+
+| Harness | `resumeCommand` | `forkCommand` |
+|---|---|---|
+| `claude-code` | `cd <cwd> && claude --resume <resumeId ?? id>` | the same command with ` --fork-session` added: `cd <cwd> && claude --resume <resumeId ?? id> --fork-session` (#352) |
+| `opencode` | `opencode <cwd> --session <resumeId ?? id>` | `null`: OpenCode has no fork command Podium can give |
+| any other | `null` | `null` |
+
+A command that is `null` is not a string the page copies: the Resume or Fork cell says it is not available (8.1). No new report field is needed. `project` is `projectRoot ?? cwd` with the home directory shortened to `~`.
 
 <!-- nav:start -->
 ---
