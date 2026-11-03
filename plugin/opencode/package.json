@@ -3,6 +3,6 @@
   "version": "1.4.0",
   "private": true,
   "type": "module",
-  "description": "Reports OpenCode sessions to Podium (watch only).",
+  "description": "Reports OpenCode sessions to Podium (watches, and answers where allowed).",
   "main": "index.ts"
 }
