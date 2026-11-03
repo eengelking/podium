@@ -1,6 +1,6 @@
 // problems.ts: what an error code means to the person, word for word (#584, #650, #672, #948).
 import { describe, test, expect } from 'claude-code/testing'
-import { CLOCK_SKEW_MS, configProblemFor, problemFor } from './problems.ts'
+import { CLOCK_SKEW_MS, configProblemFor, nameMismatchProblem, problemFor } from './problems.ts'
 
 const NOW = Date.parse('2026-02-01T00:00:00Z')
 
@@ -84,5 +84,13 @@ describe('what a config file failure means to the person (#672, #948)', () => {
   test('any other code is not about the config file, and each reporter words it for its own connection', () => {
     expect(configProblemFor('HELPER_EXITED', undefined, '/p')).toBeNull()
     expect(configProblemFor('CERT_EXPIRED', 'x', '/p')).toBeNull()
+  })
+})
+
+describe('a file for another name (#948)', () => {
+  test('says whose file it is and what to change', () => {
+    expect(nameMismatchProblem('Dana', 'Boss')).toEqual({ code: 'NAME_MISMATCH', status: 'wrong config for this name', text: 'The reporter config file is for "Dana", but this session reports as "Boss". Use the file for "Boss", or change the name.' })
+    expect(nameMismatchProblem('Dana', 'Boss', 'PODIUM_USER', true).text).toBe('The reporter config file is for "Dana", but this session reports as "Boss", and "Boss" comes from PODIUM_USER. Use the file for "Boss", or leave that empty so the session takes the file\'s name.')
+    expect(nameMismatchProblem('Dana', 'Boss', 'the held identity', false).text).toContain('or change the name.')
   })
 })
