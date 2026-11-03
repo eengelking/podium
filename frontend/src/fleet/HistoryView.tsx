@@ -9,7 +9,7 @@ import { defaultAgentDir, ORCHESTRATOR_ROW } from "./logic";
 import { AgentDetail } from "./components/AgentDetail";
 import { OrchestratorDetail } from "./components/OrchestratorDetail";
 import type { AgentSort } from "./components/AgentTree";
-import { Cost, ModelChip } from "./components/Chips";
+import { Cost, CostSourceNote, ModelChip } from "./components/Chips";
 import { FocusView } from "./components/FocusView";
 import { StreamTopBar } from "./components/StreamTopBar";
 import type { UseFleetOptions } from "./useFleet";
@@ -225,7 +225,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                           <th>Model</th>
                           <th className="num">Ended</th>
                           <th className="num">Duration</th>
-                          <th className="num">Est. cost</th>
+                          <th className="num">{rows.state === "ok" && rows.data.rows.some((r) => r.costSource === "harness") ? "Cost" : "Est. cost"}</th>
                           <th className="num">Blowouts</th>
                           <th className="num">Agents</th>
                           <th>End reason</th>
@@ -252,7 +252,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                             </td>
                             <td className="num">{fmtClock(r.endedAt)}</td>
                             <td className="num">{fmtDur(r.durationSec)}</td>
-                            <td className="num"><Cost usd={r.costUsd} family={r.modelFamily} /></td>
+                            <td className="num"><Cost usd={r.costUsd} family={r.modelFamily} /><CostSourceNote s={r} /></td>
                             <td className="num">{r.blowouts || "–"}</td>
                             <td className="num">{r.agents}</td>
                             <td>

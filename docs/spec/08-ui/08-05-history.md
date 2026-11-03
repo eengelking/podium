@@ -48,7 +48,7 @@ for an opened session. The frame it shares with the other pages (top bar, info r
   | Model | The model chip. |
   | Ended | The time of day it ended, `HH:MM:SS` local. |
   | Duration | `M:SS` under an hour, `Hh MMm` under a day, then `Dd HHh`. |
-  | Est. cost | The estimated cost in dollars, or "n/a" for a model with no price. |
+  | Est. cost | The estimated cost in dollars, or "n/a" for a model with no price. When a row on the page has a cost its harness reported, the column reads "Cost" and that row says "from <harness>" under the figure (#853). |
   | Blowouts | The count, or "–" for none. |
   | Agents | The number of agents it launched. |
   | End reason | The reason it ended, or "–" when none was recorded, then the `/clear` lines, below. |

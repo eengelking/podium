@@ -331,6 +331,9 @@ export interface HistoryRow {
   endedAt: number;
   durationSec: number;
   costUsd: number | null;
+  /** The harness that ran the session, and who worked out `costUsd` (#853), as in SessionView. */
+  harness: string;
+  costSource: CostSource;
   blowouts: number;
   agents: number;
   endReason: string | null;

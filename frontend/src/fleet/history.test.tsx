@@ -13,7 +13,7 @@ afterEach(() => {
 
 const row: HistoryRow = {
   id: "s1", name: "api-refactor", project: "~/dev/billing", model: "claude-opus-5-5", modelFamily: "opus",
-  startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: null, clearedInto: null,
+  startedAt: 1_000_000, endedAt: 4_600_000, durationSec: 3600, costUsd: 12.84, harness: "claude-code", costSource: "estimate", blowouts: 2, agents: 3, endReason: "prompt_input_exit", clearedFrom: null, clearedInto: null,
 };
 
 function stubEventSource() {
@@ -213,5 +213,26 @@ describe("history page", () => {
       render(<HistoryView initialDay="2026-10-10" />);
       expect(await screen.findByText(/Cannot reach the Podium server/)).toBeInTheDocument();
     });
+  });
+});
+
+describe("history cost for a harness-reported cost (#853)", () => {
+  it("keeps the Est. cost header and no note for estimates", async () => {
+    server([row]);
+    const { container } = render(<HistoryView initialDay="2026-10-10" />);
+    await screen.findByRole("button", { name: "api-refactor" });
+    expect(container.querySelector("thead")!.textContent).toContain("Est. cost");
+    expect(container.querySelector("tbody .src")).toBeNull();
+  });
+
+  it("reads Cost and says where a harness's own figure came from", async () => {
+    server([row, { ...row, id: "s2", name: "ingest-pipeline", harness: "opencode", costSource: "harness", costUsd: 0.31 }]);
+    const { container } = render(<HistoryView initialDay="2026-10-10" />);
+    await screen.findByRole("button", { name: "ingest-pipeline" });
+    const head = [...container.querySelectorAll("thead th")].map((th) => th.textContent);
+    expect(head).toContain("Cost");
+    expect(head).not.toContain("Est. cost");
+    const notes = [...container.querySelectorAll("tbody .src")].map((n) => n.textContent);
+    expect(notes).toEqual(["from OpenCode"]);
   });
 });
