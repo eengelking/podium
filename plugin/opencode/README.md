@@ -1,7 +1,7 @@
 # plugin/opencode
 
-The OpenCode reporter (#855). It watches OpenCode 2.x sessions and reports them to Podium; it never answers a session (that is a
-separate issue). It is written in TypeScript against `@opencode/plugin`, which OpenCode supplies at runtime, and it imports the code
+The OpenCode reporter (#855). It watches OpenCode 2.x sessions and reports them to Podium, and (#858) answers a permission, a question, a message and `/compact` from
+Podium where the person turned that on. It is written in TypeScript against `@opencode/plugin`, which OpenCode supplies at runtime, and it imports the code
 every reporter shares from `../core/` (report types, transport, failures, redaction, plan, git). It never imports `../claudecode/`;
 `server/src/plugin.test.ts` fails if it does.
 
@@ -11,6 +11,10 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `state.ts` | Folds one bus event into a `Store`. A root session and the child sessions it launched are one `Root`: one record, one report; a child is an agent. |
 | `report.ts` | A `Root` as a v2 report: the `harness` block, the capabilities and `costSource: 'harness'`. |
 | `reporter.ts` | The runtime: one `Transport` per root, the flush `tick`, the idle sweep, the branch read and the bounded final flush. `handle` never waits for the network. |
+| `answering.ts` | Answering from Podium, driven by the flush tick: starts a wait for each open ask, acts on the messages and commands a reply hands over, and says what the session accepts. The announcing, waiting and reporting back are `../core/respond.ts`. |
+| `answer.ts` | Pure: the asks Podium is shown (redacted and cut), the reply OpenCode takes for a permission, the form answer for a question, and the label a message carries. |
+| `host.ts` | The calls into OpenCode: `permission.reply`, the session prompt and compact API, and the two ways to answer a question form. |
+| `bridge.ts`, `tui.ts` | The TUI part. The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
@@ -25,6 +29,18 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 - A session is `done` after it has been quiet for `idleSeconds` (default 60), at once on `session.deleted` or `session.archived`, and when the
   plugin is cleaned up (one final, time-bounded flush). It reopens under the same id when it sees activity again.
 
+## Answering
+
+Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environment or `~/.podium/config.env`, and the Admin's flags are on. Then:
+
+- **Permission:** allow once or reject, with `permission.reply`. Never "always".
+- **Question:** answered by field key. Through the TUI part when a TUI is attached (it says so every 30 seconds); otherwise through OpenCode's local
+  route with the address and password in `service.json`, read only when an answer is sent and only for an address on this machine; otherwise Podium
+  is not offered the question, because it could not be answered.
+- **Message and `/compact`:** `session.prompt` and `session.compact` with `delivery: queue`, Podium's delivery id as the idempotency `id`. A message's
+  text starts with a line saying it came through Podium, because OpenCode hands the model the text as the user's own.
+- **Not offered:** plan approval and `/clear` (OpenCode has no equivalent), and always-allow.
+
 ## Settings
 
 Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
@@ -33,7 +49,7 @@ options. What this trusts and why is in [the threat note](../../docs/REPORTER.md
 
 ## Build and test
 
-- `node scripts/plugin-build.mjs opencode` builds `dist/opencode/`: a `package.json` whose `main` is `plugin/opencode/index.ts`, plus the
+- `node scripts/plugin-build.mjs opencode` builds `dist/opencode/`: a `package.json` whose `main` is `plugin/opencode/index.ts` (and whose `./tui` export is the TUI part), plus the
   source of this folder and `plugin/core/`.
 - `npm run test:mod:opencode` builds with the tests and runs them with vitest on the built folder. `npm run typecheck:mod:opencode`
   checks this folder against `@opencode/plugin` (the version pinned in `scripts/podium-opencode-typecheck.sh`).

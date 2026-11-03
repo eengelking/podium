@@ -11,7 +11,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "paths": {
-      "@opencode/plugin": ["../../.build-test/opencode-types/node_modules/@opencode/plugin/dist/promise/index.d.ts"]
+      "@opencode/plugin": ["../../.build-test/opencode-types/node_modules/@opencode/plugin/dist/promise/index.d.ts"],
+      "@opencode/plugin/tui": ["../../.build-test/opencode-types/node_modules/@opencode/plugin/dist/tui/index.d.ts"]
     }
   },
   "include": [".", "../core"],

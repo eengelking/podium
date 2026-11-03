@@ -3,7 +3,7 @@
 import { clip, excerpt, LIMITS } from '../core/failures.ts';
 import { lastSegment } from '../core/git.ts';
 import { toPlan } from '../core/plan.ts';
-import type { ActivityEvent, AgentReport, AgentStatus, Capabilities, MachineInfo, Report } from '../core/protocol.ts';
+import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, MachineInfo, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
 
 export const HARNESS_ID = 'opencode';
@@ -20,10 +20,18 @@ export interface ReportMeta {
   build?: string | null;
   userName?: string | null;
   machine?: MachineInfo | null;
+  /** What the session takes from Podium and the asks open now; absent while answering is off (#858). */
+  respond?: { info: RespondInfo; asks: Ask[] } | null;
 }
 
-/** What this reporter sends. It watches only: no `respond`, and no commands. Effort and the context window are not on the bus. */
+/** What this reporter sends before it is allowed to answer: it watches only. Effort and the context window are not on the bus. */
 export const CAPABILITIES: Capabilities = { effort: false, plan: true, agents: true, cost: true, context: false, git: true, respond: false, commands: [] };
+
+/** The capabilities for what the session takes now: `respond` and `/compact` only when something can be answered (#858). OpenCode has no `/clear`. */
+export function capabilities(info: RespondInfo | null): Capabilities {
+  if (!info || !info.accepts.length) return { ...CAPABILITIES };
+  return { ...CAPABILITIES, respond: true, commands: info.accepts.includes('command') ? ['compact'] : [] };
+}
 
 function agentStatus(s: Sess): AgentStatus {
   if (s.end === 'running') return s.executing ? 'running' : 'queued';
@@ -83,7 +91,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     v: 2,
     sentAt: meta.now,
     harness: { id: HARNESS_ID, name: 'OpenCode', version: meta.engineVersion ?? 'unknown', surface: meta.hostSurface },
-    capabilities: { ...CAPABILITIES },
+    capabilities: capabilities(meta.respond?.info ?? null),
     reporter: { name: 'podium-reporter', version: meta.version, engineVersion: meta.engineVersion, hostSurface: meta.hostSurface, ...(meta.build ? { build: meta.build } : {}) },
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {
@@ -111,6 +119,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       loop: { skills: [], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
       files: null,
       attached: null,
+      ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),
     },
     agents: agents.map((s) => agentReport(s, root.id)),
     events: events.slice(0, MAX_EVENTS).map((e) => ({ ...e, text: clip(e.text, 240) })),

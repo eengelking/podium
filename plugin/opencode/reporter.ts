@@ -3,7 +3,9 @@
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
 import { readGit, type Runner } from '../core/git.ts';
 import type { MachineInfo } from '../core/protocol.ts';
+import { Responder } from '../core/respond.ts';
 import { Transport, type FetchLike } from '../core/transport.ts';
+import { Answering, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { apply, finish, newStore, sweep, type BusEvent, type Root, type Store } from './state.ts';
 
@@ -27,9 +29,20 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
+  answering?: { host: Host; consent: Consent; sleep?: (ms: number) => Promise<boolean>; answerMs?: number };
 }
 
-export const DEFAULTS = { idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
+/** Resolves with `p`, or rejects after `ms`; the timer is cleared either way so nothing is left running. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('timed out')), ms);
+  });
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
+}
+
+export const DEFAULTS = { answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
 export class Reporter {
   readonly store: Store = newStore();
@@ -42,11 +55,18 @@ export class Reporter {
   private readonly seen = new Set<string>();
   /** The OpenCode version, read from the first `session.created` (it carries `version`). */
   private engineVersion: string | null = null;
+  /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
+  private readonly answering: Answering | null;
+  private readonly responder: Responder | null;
 
   constructor(
     private readonly deps: ReporterDeps,
     readonly opts: ReporterOptions,
-  ) {}
+  ) {
+    const a = deps.answering;
+    this.responder = a ? new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) }) : null;
+    this.answering = a && this.responder ? new Answering(this.responder, a.host, a.consent) : null;
+  }
 
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
   handle(ev: BusEvent): void {
@@ -98,9 +118,15 @@ export class Reporter {
     return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, machine: o.machine };
   }
 
+  /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
+  private respondFor(root: Root, t: Transport): ReportMeta['respond'] {
+    const info = this.answering?.info();
+    return info ? { info, asks: this.answering!.asks(root, t) } : null;
+  }
+
   private send(root: Root, t: Transport, now: number): Promise<void> {
     root.dirty = false;
-    return t.send((events) => buildReport(root, events, this.meta(now)), now).then((outcome) => {
+    return t.send((events) => buildReport(root, events, { ...this.meta(now), respond: this.respondFor(root, t) }), now).then((outcome) => {
       // A report that did not get through must go again.
       if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected') root.dirty = true;
     });
@@ -144,6 +170,9 @@ export class Reporter {
       if (t.due(now, root.dirty)) sends.push(this.send(root, t, now));
     }
     await Promise.all(sends);
+    // After the reports, so each root's reply has been read: start waiting for answers and act on what was handed over.
+    // Bounded: a call into OpenCode that never returns must not hold up the next report or the other roots.
+    if (this.answering) await Promise.all([...this.store.roots.values()].map((root) => withTimeout(this.answering!.drive(root, this.transportOf(root)), this.deps.answering?.answerMs ?? DEFAULTS.answerMs).catch(() => undefined)));
   }
 
   /** Drops a done root that has stayed quiet for a long while, so a busy server process does not grow without end. */

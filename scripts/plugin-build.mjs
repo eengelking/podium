@@ -169,8 +169,8 @@ function planOpencode({ root, src, withTests, stamp, files, put }) {
     put(`plugin/opencode/${rel}`, readFileSync(join(src, rel)));
   }
   const pkg = JSON.parse(readFileSync(join(src, "package.json"), "utf8"));
-  // OpenCode finds a local plugin's entry through the package's name and `exports`; `main` is kept for tools that read it.
-  put("package.json", `${JSON.stringify({ ...pkg, main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts" } }, null, 2)}\n`);
+  // OpenCode finds a local plugin's entries through the package's name and `exports` (`.` is the server part, `./tui` the TUI part, #858); `main` is kept for tools that read it.
+  put("package.json", `${JSON.stringify({ ...pkg, main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts", "./tui": "./plugin/opencode/tui.ts" } }, null, 2)}\n`);
   const core = join(root, "plugin", "core");
   if (existsSync(core)) for (const rel of walk(core)) if (included(rel, withTests)) put(`plugin/core/${rel}`, readFileSync(join(core, rel)));
   if (stamp) put(".claude-plugin/dev-build.json", `${JSON.stringify(stamp)}\n`);

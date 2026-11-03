@@ -1,8 +1,12 @@
 // The OpenCode plugin entry (#855): glue between OpenCode's plugin API and the Reporter. Everything with logic lives in
 // the modules beside it, which need no OpenCode API and are tested on their own.
 import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
+import { BRIDGE, type AnswerEvent } from './bridge.ts';
+import { makeHost, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { optionsOf } from './options.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
@@ -42,6 +46,13 @@ async function recoverPermissions(ctx: Plugin.Context, reporter: Reporter): Prom
 /** Adds this machine to the options. Read once per location and cheap, so several locations in one process may each run it. */
 const withMachine = <T extends { userName: string | null; machine: unknown }>(o: T): T => ({ ...o, machine: readMachine(o.userName) });
 
+/** The calls answering makes into OpenCode, from the plugin context. */
+const apiOf = (ctx: Plugin.Context): Api => ({
+  permissionReply: (i) => ctx.permission.reply({ sessionID: i.sessionID, requestID: i.requestID, decision: i.reply }),
+  prompt: (i) => ctx.session.prompt({ sessionID: i.sessionID, id: i.id, text: i.text, delivery: 'queue' }),
+  compact: (i) => ctx.session.compact({ sessionID: i.sessionID, id: i.id, delivery: 'queue' }),
+});
+
 const plugin: Plugin.Plugin = {
   id: 'podium-reporter',
   async setup(ctx) {
@@ -52,10 +63,38 @@ const plugin: Plugin.Plugin = {
       const settings = readSettingsFile();
       // The token is in that file: say once per location when anyone but the owner can read it. The message holds no secret.
       if (settings.open) console.warn('podium-reporter: ~/.podium/config.env can be read by other users; run chmod 600 on it.');
+      const options = withMachine(optionsOf(ctx.options, null, process.env, settings.text));
+      const bridge = { seenAt: 0, emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>), reporter: undefined as Reporter | undefined };
+      // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
+      const answering = options.consent.respond
+        ? {
+            consent: { respond: options.consent.respond, activityFeed: options.consent.activityFeed },
+            host: makeHost({
+              api: apiOf(ctx),
+              emitAnswer: async (e) => bridge.emit?.(e),
+              // A TUI part counts as attached only once the RPC it answers through is registered, or its answer would go nowhere.
+              tuiSeenAt: () => (bridge.emit ? bridge.seenAt : 0),
+              isOpen: (id) => !!bridge.reporter && [...bridge.reporter.store.roots.values()].some((r) => r.asks.has(id)),
+              readService: () => { try { return readFileSync(servicePath(process.env, homedir()), 'utf8'); } catch { return null; } },
+              hasService: () => existsSync(servicePath(process.env, homedir())),
+              fetch: async (url, init) => { const r = await fetch(url, init); return { ok: r.ok, status: r.status }; },
+              now: () => Date.now(),
+              sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+            }),
+          }
+        : undefined;
       const reporter = new Reporter(
-        { fetch: async (url, init) => { const r = await fetch(url, init); return { status: r.status, ok: r.ok, text: await r.text() }; }, now: () => Date.now(), runIn, log: () => undefined },
-        withMachine(optionsOf(ctx.options, null, process.env, settings.text)),
+        { fetch: async (url, init) => { const r = await fetch(url, init); return { status: r.status, ok: r.ok, text: await r.text() }; }, now: () => Date.now(), runIn, log: () => undefined, answering },
+        options,
       );
+      bridge.reporter = reporter;
+      if (answering) {
+        // The TUI part says it is attached here, and is handed a question's answer as an event.
+        void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
+          (reg) => { bridge.emit = async (e) => (reg as unknown as { events: { emit: (name: 'answer', data: AnswerEvent) => Promise<void> } }).events.emit('answer', e); },
+          () => undefined,
+        );
+      }
       // The timer is the only caller that talks to the server; the event loop below never awaits it.
       const timer = setInterval(() => void reporter.tick().catch(() => undefined), DEFAULTS.flushMs);
       timer.unref?.();
