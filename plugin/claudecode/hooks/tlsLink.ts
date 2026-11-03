@@ -1,9 +1,13 @@
 // The mod's side of the TLS connection (#584, SPEC 5.9): find the reporter config file, find `node`, start helper.mjs
 // and send the mod's requests through its Unix socket. The mod cannot give $.http.fetch a CA or a client certificate,
 // so the helper makes the connection. Nothing here ever falls back from `https://` to `http://`.
-import { configNamesNewestFirst, parseConfigHeaders, decodeBase64Utf8, isWindowsPath, mailboxDirFor, podiumHome, resolveHome, trimTrailingSeparators, socketPathFor, SOCKET_PATH_MAX, utf8Length, type ConfigHeaders } from './reporterConfig.ts';
+// What chooses the config file (core/tls/findConfig.ts) and what its problems are called (core/tls/problems.ts) is shared with the other reporters;
+// what is here is what only the Claude mod does: find `node`, start the helper and talk to it.
+import { decodeBase64Utf8, isWindowsPath, mailboxDirFor, socketPathFor, SOCKET_PATH_MAX, utf8Length } from './reporterConfig.ts';
 import { trimTrailingSlashes } from '../../core/machine.ts';
-import { CONTEXTS_FILE, contextFilePath, parseContexts } from './contexts.ts';
+import { envValue, findConfig, readEnv, type ConfigSource, type EnvValues, type FoundConfig } from '../../core/tls/findConfig.ts';
+import { configProblemFor, problemFor, type Problem } from '../../core/tls/problems.ts';
+import { podiumHome, trimTrailingSeparators, type ConfigHeaders } from '../../core/tls/reporterConfig.ts';
 import type { FetchLike, HttpResult } from '../../core/transport.ts';
 
 /** How long to wait for the helper's `ready` line. */
@@ -15,13 +19,6 @@ export const RESTART_MIN_MS = 10_000;
 const HELPER_ERROR_HEADER = 'x-podium-helper-error';
 const NODE_PLACES = ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node', '/opt/local/bin/node', '/snap/bin/node'];
 
-/** What is wrong, said so a person can act on it: a short word for the status line and a sentence for `/podium`. */
-export interface Problem {
-  code: string;
-  status: string;
-  text: string;
-}
-
 /** What the helper sends back for a mailbox request (#834). */
 interface MailboxAnswer {
   status: number;
@@ -30,14 +27,8 @@ interface MailboxAnswer {
 }
 
 /** The slice of the engine's `$` this file uses, so a test can stand in for it. */
-export interface LinkEngine {
-  env: { get: (name: string) => Promise<string | undefined> };
-  fs: {
-    read: (path: string) => Promise<unknown>;
-    list: (path?: string) => Promise<Array<{ name: string; kind: string }>>;
-    exists: (path: string) => Promise<boolean>;
-    write: (path: string, text: string) => Promise<void>;
-  };
+export interface LinkEngine extends ConfigSource {
+  fs: ConfigSource['fs'] & { write: (path: string, text: string) => Promise<void> };
   process: {
     run: (argv: readonly string[], init?: { timeoutMs?: number }) => Promise<{ exitCode: number; stdout: string }>;
     spawn: (request: { argv: readonly string[]; env?: Record<string, string> }) => AsyncIterable<{ stream: string; text: string }>;
@@ -47,13 +38,8 @@ export interface LinkEngine {
   plugin: { root: string };
 }
 
-export interface EnvValues {
-  config: string | undefined;
-  /** `PODIUM_REPORTER_CONTEXT` (#606). */
-  context?: string | undefined;
-  home: string | undefined;
-  /** The variable `home` came from (`HOME`, `USERPROFILE` or `HOMEDRIVE+HOMEPATH`), for `/podium` (#834). */
-  homeFrom?: string | undefined;
+/** The variables the link reads: those that choose the config file (shared) and those that find `node` and a place for the socket. */
+export interface LinkEnv extends EnvValues {
   node: string | undefined;
   tmp: string | undefined;
   /** `ProgramFiles` and `LOCALAPPDATA`, where Windows installs node (#834). */
@@ -61,32 +47,10 @@ export interface EnvValues {
   localAppData?: string | undefined;
 }
 
-/** `$.env.get` takes a name written out in the source, so each one is spelled here; a lookup that throws, in its call or its promise, reads as unset. */
-async function envValue(get: () => Promise<string | undefined>): Promise<string | undefined> {
-  try {
-    return await get();
-  } catch {
-    return undefined;
-  }
-}
-
-/** The home folder and the variable it came from (#834): `HOME`, else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`. */
-export async function readHome($: Pick<LinkEngine, 'env'>): Promise<{ home: string | undefined; from: string | undefined }> {
-  return resolveHome({
-    HOME: await envValue(() => $.env.get('HOME')),
-    USERPROFILE: await envValue(() => $.env.get('USERPROFILE')),
-    HOMEDRIVE: await envValue(() => $.env.get('HOMEDRIVE')),
-    HOMEPATH: await envValue(() => $.env.get('HOMEPATH')),
-  });
-}
-
-async function readEnv($: LinkEngine): Promise<EnvValues> {
-  const { home, from } = await readHome($);
+/** The environment the link reads. `$.env.get` takes a name written out in the source, so each one is spelled here. */
+export async function readLinkEnv($: Pick<LinkEngine, 'env'>): Promise<LinkEnv> {
   return {
-    config: await envValue(() => $.env.get('PODIUM_REPORTER_CONFIG')),
-    context: await envValue(() => $.env.get('PODIUM_REPORTER_CONTEXT')),
-    home,
-    homeFrom: from,
+    ...(await readEnv($)),
     node: await envValue(() => $.env.get('PODIUM_NODE')),
     programFiles: await envValue(() => $.env.get('ProgramFiles')),
     localAppData: await envValue(() => $.env.get('LOCALAPPDATA')),
@@ -94,93 +58,10 @@ async function readEnv($: LinkEngine): Promise<EnvValues> {
   };
 }
 
-async function readText($: LinkEngine, path: string): Promise<string | null> {
-  try {
-    const t = await $.fs.read(path);
-    return typeof t === 'string' ? t : null;
-  } catch {
-    return null;
-  }
-}
-
-export interface FoundConfig {
-  path: string;
-  headers: ConfigHeaders;
-  /** The context that chose this file (#606); absent when the file came from the environment or from the newest-file rule. */
-  context?: string;
-}
-
-/** The config file the context `name` points at, or why it cannot be used. */
-async function contextFile($: LinkEngine, home: string, name: string | null, fromEnv: boolean, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null }> {
-  // The file this session's context chose at its start, kept across a reload so a later `use` does not move a running session (#606).
-  if (held) {
-    const text = await readText($, held.path);
-    const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: held.path, headers, context: held.context }, problem: null };
-  }
-  const source = fromEnv ? 'PODIUM_REPORTER_CONTEXT' : 'the current context';
-  const bad = (why: string): { found: null; problem: Problem } => ({
-    found: null,
-    problem: { code: 'CONTEXT_INVALID', status: 'context unusable', text: `${why} The newest reporter config file is used instead. Check it with /podium context.` },
-  });
-  const contextsPath = `${podiumHome(home)}/${CONTEXTS_FILE}`;
-  const contextsText = await readText($, contextsPath);
-  // A file that is there but cannot be read is a problem, not an absent file: the newest file may be another server.
-  if (contextsText === null && (await $.fs.exists(contextsPath).catch(() => false))) return bad(`${contextsPath} cannot be read.`);
-  if (contextsText === null) return fromEnv ? bad(`PODIUM_REPORTER_CONTEXT names "${name}", but there is no ${podiumHome(home)}/${CONTEXTS_FILE}.`) : { found: null, problem: null };
-  const contexts = parseContexts(contextsText);
-  if (!contexts) return bad(`${podiumHome(home)}/${CONTEXTS_FILE} is not a valid contexts file.`);
-  const which = name ?? contexts.current;
-  if (!which) return { found: null, problem: null };
-  const file = Object.hasOwn(contexts.contexts, which) ? contexts.contexts[which] : undefined;
-  if (!file) return bad(`${fromEnv ? source : 'The current context'} names "${which}", which is not one of the contexts.`);
-  const path = contextFilePath(home, file);
-  const text = await readText($, path);
-  const headers = text === null ? null : parseConfigHeaders(text);
-  if (!headers) return bad(`The context "${which}" points at ${path}, which is missing or is not a Podium reporter config file.`);
-  return { found: { path, headers, context: which }, problem: null };
-}
-
-/**
- * The reporter config file, in this order (#606): `PODIUM_REPORTER_CONFIG`; the context `PODIUM_REPORTER_CONTEXT` names, or
- * else the current one in `~/.podium/contexts.json`; the newest `reporter-config-*.pem` in `~/.podium/` by the epoch in its name.
- * `held` is the file a context chose earlier in this session; it is used again while it is still a config file. A context that cannot be used comes back as `contextProblem` with the newest file in `found`, so the person is told and the
- * reporter still works. Null `found`: no config, the reporter works as today.
- */
-export async function findConfig($: LinkEngine, env?: EnvValues, held?: { path: string; context: string } | null): Promise<{ found: FoundConfig | null; problem: Problem | null; contextProblem: Problem | null; homeNote: string | null; env: EnvValues }> {
-  const e = env ?? (await readEnv($));
-  if (e.config) {
-    const text = await readText($, e.config);
-    const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: e.config, headers }, problem: null, contextProblem: null, homeNote: null, env: e };
-    return {
-      found: null,
-      env: e,
-      contextProblem: null,
-      homeNote: null,
-      problem: { code: 'CONFIG_INVALID', status: 'config unreadable', text: `PODIUM_REPORTER_CONFIG names ${e.config}, which is missing or is not a Podium reporter config file (version 1, with a name, an https server and an issued-at line).` },
-    };
-  }
-  if (!e.home) {
-    const homeNote = 'no home folder found (HOME, USERPROFILE and HOMEDRIVE+HOMEPATH are all empty), so no reporter config file can be read. Set PODIUM_REPORTER_CONFIG to its full path.';
-    return { found: null, problem: null, contextProblem: null, homeNote, env: e };
-  }
-  const chosen = await contextFile($, e.home, e.context || null, !!e.context, held);
-  if (chosen.found) return { found: chosen.found, problem: null, contextProblem: null, homeNote: null, env: e };
-  const dir = podiumHome(e.home);
-  let names: Array<{ name: string; kind: string }> = [];
-  try {
-    names = await $.fs.list(dir);
-  } catch {
-    return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
-  }
-  // Newest by the epoch in the name, and the first that parses wins: the key of a file that is not chosen is never read (#607).
-  for (const name of configNamesNewestFirst(names.filter((n) => n.kind === 'file').map((n) => n.name))) {
-    const text = await readText($, `${dir}/${name}`);
-    const headers = text === null ? null : parseConfigHeaders(text);
-    if (headers) return { found: { path: `${dir}/${name}`, headers }, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
-  }
-  return { found: null, problem: null, contextProblem: chosen.problem, homeNote: null, env: e };
+/** The shared choice of a config file (`findConfig` in core), with the environment the link needs read as well and handed back in `env`. */
+export async function findLinkConfig($: LinkEngine, env?: LinkEnv, held?: { path: string; context: string } | null): Promise<Omit<Awaited<ReturnType<typeof findConfig>>, 'env'> & { env: LinkEnv }> {
+  const e = env ?? (await readLinkEnv($));
+  return { ...(await findConfig($, e, held)), env: e };
 }
 
 /** A POSIX path (`/usr/bin/node`) or a Windows drive path (`C:\Program Files\nodejs\node.exe`, `C:/x`). */
@@ -189,7 +70,7 @@ function isAbsolutePath(p: string): boolean {
 }
 
 /** `node` by `PODIUM_NODE`, then the PATH the mod runs with, then the usual places (a desktop launcher often has neither nvm's nor Homebrew's PATH). */
-export async function findNode($: LinkEngine, env: EnvValues): Promise<string | null> {
+export async function findNode($: LinkEngine, env: LinkEnv): Promise<string | null> {
   if (env.node) return (await $.fs.exists(env.node).catch(() => false)) ? env.node : null;
   try {
     const r = await $.process.run(['node', '-p', 'process.execPath'], { timeoutMs: 5000 });
@@ -216,58 +97,6 @@ export async function findNode($: LinkEngine, env: EnvValues): Promise<string | 
   return null;
 }
 
-/** Clocks closer than this are not the reason a certificate looks expired or not yet valid. */
-export const CLOCK_SKEW_MS = 5 * 60_000;
-
-/** The two clocks a certificate date is judged by: this machine's now, and the server's when a reply has told us (epoch ms). */
-export interface ClockView {
-  now: number;
-  serverNow?: number;
-}
-
-const stamp = (ms: number): string => `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-
-/**
- * A server certificate that looks expired or not yet valid says the clock may be wrong when the server's time is unknown
- * (the handshake failed before any reply) or differs from this machine's by more than CLOCK_SKEW_MS (#650). It never says
- * the clock is wrong for certain: the certificate could be expired. Null when the clock is not in question.
- */
-function clockProblem(code: string, clock: ClockView | undefined): Problem | null {
-  if (!clock || (code !== 'CERT_HAS_EXPIRED' && code !== 'CERT_NOT_YET_VALID')) return null;
-  const look = code === 'CERT_HAS_EXPIRED' ? 'expired' : 'not yet valid';
-  if (clock.serverNow === undefined) {
-    return { code, status: 'check the clock', text: `The server's certificate looks ${look} from here. This machine's clock says it is ${stamp(clock.now)}; if that is not right, a wrong clock is the likely cause. Check the system date and time. If it is right, tell whoever runs the Podium server.` };
-  }
-  if (Math.abs(clock.serverNow - clock.now) <= CLOCK_SKEW_MS) return null;
-  return { code, status: 'check the clock', text: `The server's certificate looks ${look} from here. This machine's clock says it is ${stamp(clock.now)}, and the server's says ${stamp(clock.serverNow)}. Clocks that far apart can make a good certificate look wrong. Check the system date and time. If this machine's is right, the server's clock may be the wrong one: tell whoever runs the Podium server.` };
-}
-
-/** What a helper error code means to the person. Null for a network failure, which is an outage the reporter retries as today. */
-export function problemFor(code: string, host: string, clock?: ClockView, expiredOn?: string): Problem | null {
-  const skewed = clockProblem(code, clock);
-  if (skewed) return skewed;
-  switch (code) {
-    case 'CLIENT_CERT_REJECTED':
-      return { code, status: 'certificate refused', text: 'The server did not accept your certificate: it was revoked, has expired, or the server was reset. Ask an Admin to reissue your reporter config.' };
-    case 'CERT_EXPIRED':
-      return { code, status: 'certificate expired', text: `Your Podium certificate expired${expiredOn ? ` on ${expiredOn}` : ''}. Ask an Admin to generate a new reporter config.` };
-    case 'CERT_RENEWAL_REFUSED':
-      return { code, status: 'certificate refused', text: 'The server would not renew your certificate: it was revoked, or is not one this server issued. Ask an Admin to reissue your reporter config.' };
-    case 'CLOSED_AFTER_HANDSHAKE':
-      return { code, status: 'server closed connection', text: 'The server closed the connection right after the handshake. Either it restarted, or it did not accept your certificate (revoked or expired). If this goes on, ask an Admin to reissue your reporter config.' };
-    case 'CERT_HAS_EXPIRED':
-      return { code, status: 'server certificate expired', text: "The server's own certificate has expired. Tell whoever runs the Podium server." };
-    case 'ALTNAME':
-      return { code, status: 'wrong server name', text: `The server's certificate is not for ${host}. The address in the reporter config file does not match the server.` };
-    case 'UNABLE_TO_VERIFY_LEAF_SIGNATURE':
-    case 'SELF_SIGNED_CERT_IN_CHAIN':
-    case 'DEPTH_ZERO_SELF_SIGNED_CERT':
-      return { code, status: 'server not trusted', text: 'The server’s certificate is not signed by the CA in your reporter config file. Ask an Admin for a new file.' };
-    default:
-      return code.startsWith('CERT_') ? { code, status: 'server certificate refused', text: `The server's certificate was refused (${code}).` } : null;
-  }
-}
-
 /** The helper's first line of output when it cannot start: `error CODE message`. Split by hand: one regex over the line could backtrack. */
 function startupWords(line: string): [string, string] | null {
   const t = line.trim();
@@ -278,19 +107,12 @@ function startupWords(line: string): [string, string] | null {
   return code ? [code, space < 0 ? '' : rest.slice(space).trim()] : null;
 }
 
-const STATUS_REASON_MAX = 60
-
-/** `config unreadable`, with the helper's reason after it (cut to fit a status line) so the status says what is wrong with the file (#672). */
-function configStatus(reason: string | undefined): string {
-  const short = reason && reason.length > STATUS_REASON_MAX ? `${reason.slice(0, STATUS_REASON_MAX - 1)}…` : reason
-  return short ? `config unreadable: ${short}` : 'config unreadable'
-}
 export function problemFromStartup(line: string, path: string, helper?: string): Problem {
   const w = startupWords(line);
   if (!w && !line.trim() && helper) return { code: 'HELPER_EXITED', status: 'helper stopped', text: `The Podium connection helper exited before it was ready and printed nothing (started from ${helper}). It restarts on the next session.` };
   const code = w?.[0] ?? 'HELPER_EXITED';
-  if (code === 'CONFIG_PERMISSIONS') return { code, status: 'config too open', text: `The reporter config file ${path} can be read by other people, and it holds your private key. Run: chmod 600 ${path}` };
-  if (code === 'CONFIG_INVALID' || code === 'CONFIG_MISSING') return { code, status: configStatus(w?.[1]), text: `The reporter config file ${path} cannot be used: ${w?.[1] ?? code}.` };
+  const aboutConfig = configProblemFor(code, w?.[1], path);
+  if (aboutConfig) return aboutConfig;
   return { code, status: 'helper stopped', text: `The Podium connection helper stopped${w ? `: ${w[1] || code}` : ''}. It restarts on the next session.` };
 }
 
@@ -343,7 +165,7 @@ export interface LinkOptions {
  * Starts the helper for `found` and returns a link whose `fetch` sends through it, or a link that says what is wrong.
  * Checked before anything starts: the name matches the session's and `node` exists. An expired certificate does not stop it: the helper says it has expired, with the date, instead of connecting.
  */
-export async function startLink($: LinkEngine, found: FoundConfig, env: EnvValues, o: LinkOptions): Promise<Link> {
+export async function startLink($: LinkEngine, found: FoundConfig, env: LinkEnv, o: LinkOptions): Promise<Link> {
   const { headers } = found;
   const log = o.log ?? (() => {});
   if (o.sessionName && o.sessionName !== headers.user) {
