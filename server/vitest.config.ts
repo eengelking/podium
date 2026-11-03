@@ -7,7 +7,7 @@ export default defineConfig({
   // The ones that need no engine also run here, so CI measures the mod's pure modules (the test code is the same).
   resolve: { alias: { "claude-code/testing": "vitest" } },
   test: {
-    include: ["src/**/*.test.ts", "../scripts/**/*.test.ts", "../plugin/core/**/*.test.ts", "../plugin/claudecode/hooks/{fileDiff,transport,peers}.test.ts"],
+    include: ["src/**/*.test.ts", "../scripts/**/*.test.ts", "../plugin/core/**/*.test.ts", "../plugin/opencode/**/*.test.ts", "../plugin/claudecode/hooks/{fileDiff,transport,peers}.test.ts"],
     setupFiles: ["src/testSetup.ts"],
     // Says the PostgreSQL tests were skipped, or fails the run when PODIUM_TEST_PG names a server that does not answer (#891).
     globalSetup: ["src/storage/postgres/globalSetup.ts"],
@@ -16,8 +16,8 @@ export default defineConfig({
       provider: "v8",
       allowExternal: true, // the simulator in scripts/ and the mod's pure modules are tested here too
       reporter: ["text-summary", "lcov"],
-      include: ["src/**/*.ts", "../scripts/**/*.ts", "../scripts/docLinks.mjs", "../scripts/docFrontmatter.mjs", "../scripts/docTopics.mjs", "../scripts/build-doc-indexes.mjs", "../scripts/check-doc-refs.mjs", "../scripts/atlas-functions.mjs", "../scripts/podium-compaction-seed.mjs", "../scripts/plugin-build.mjs", "../scripts/plugin-dev.mjs", "../scripts/plugin-publish.mjs", "../scripts/plugin-dist-compare.mjs", "../scripts/git-bin.mjs", "../scripts/harness-scripts.mjs", "../scripts/podium-reporter-zip.mjs", "../scripts/promise-misuse.mjs", "../scripts/storage-order-parity.mjs", "../site/scripts/lib.mjs", "../site/docs-nav.mjs", "../plugin/core/*.ts", "../plugin/claudecode/hooks/*.ts"], // the mod's pure modules are tested from scripts/
-      exclude: ["**/*.test.ts", "src/testSetup.ts", "**/*.d.ts"],
+      include: ["src/**/*.ts", "../scripts/**/*.ts", "../scripts/docLinks.mjs", "../scripts/docFrontmatter.mjs", "../scripts/docTopics.mjs", "../scripts/build-doc-indexes.mjs", "../scripts/check-doc-refs.mjs", "../scripts/atlas-functions.mjs", "../scripts/podium-compaction-seed.mjs", "../scripts/plugin-build.mjs", "../scripts/plugin-dev.mjs", "../scripts/plugin-publish.mjs", "../scripts/plugin-dist-compare.mjs", "../scripts/git-bin.mjs", "../scripts/harness-scripts.mjs", "../scripts/podium-reporter-zip.mjs", "../scripts/promise-misuse.mjs", "../scripts/storage-order-parity.mjs", "../site/scripts/lib.mjs", "../site/docs-nav.mjs", "../plugin/core/*.ts", "../plugin/opencode/*.ts", "../plugin/claudecode/hooks/*.ts"], // the mod's pure modules are tested from scripts/
+      exclude: ["**/*.test.ts", "../plugin/opencode/index.ts", "src/testSetup.ts", "**/*.d.ts"],
     },
   },
 });

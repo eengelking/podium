@@ -1,0 +1,8 @@
+{
+  "name": "podium-reporter-opencode",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Reports OpenCode sessions to Podium (watch only).",
+  "main": "index.ts"
+}

@@ -44,8 +44,9 @@ folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it 
 keeps the last good one); run `/reload-plugins` in the session after each rebuild. Arguments for `claude` go after a second `--`:
 `npm run plugin:dev:claudecode -- --watch -- --model sonnet`. `PODIUM_CLAUDE_BIN` names the `claude` to run if it is not on `PATH`.
 `npm run plugin:dev:cleanup` deletes `dist/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
-`dist/claudecode/`). It removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no plugin yet, so
-`npm run plugin:dev:opencode` exits with an error until #855. `scripts/plugin-dev.mjs` is the script behind these.
+`dist/claudecode/`). It removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no dev runner yet,
+so `npm run plugin:dev:opencode` exits with an error until its distribution (#857); build it with `node scripts/plugin-build.mjs opencode`
+and load `dist/opencode/plugin/opencode/index.ts` as an OpenCode plugin. `scripts/plugin-dev.mjs` is the script behind these.
 
 `npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
 Its output is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp, which is how CI and the release archive are built and what to run before a local zip; the publish and zip scripts refuse a folder that carries a stamp.
@@ -125,8 +126,8 @@ Each reporter is a folder under `plugin/`, and the shared code is `plugin/core/`
 
 - `npm run test:core` runs the tests in `plugin/core/` with no harness CLI and no harness API types installed. CI runs it on every PR.
 - A harness `<harness>` ships `npm run test:mod:<harness>` and `npm run typecheck:mod:<harness>`. The first builds `dist/<harness>/` with `--with-tests` (`node scripts/plugin-build.mjs <harness> --with-tests --out .build-test`) and runs that harness's own test runner on it. The second type-checks `plugin/<harness>/` against that harness's API types, using the `tsconfig.json` in `plugin/<harness>/`.
-- A harness whose runner or types need a CLI the CI runners lack says so in `ci.yml`, as Claude Code's do. Today only `claudecode` has the pair.
-- `scripts/harness-scripts.test.ts` (part of `npm test`) fails when a folder under `plugin/` other than `core` has no matching pair in `package.json`. `plugin/opencode/` is exempt until #855 adds its code, and #855 removes the exemption in `scripts/harness-scripts.mjs`.
+- A harness whose runner or types need a CLI the CI runners lack says so in `ci.yml`, as Claude Code's do. `claudecode` has the pair and CI does not run it. `opencode` has it too, and CI does run it (`test-opencode`): its tests are vitest's, run on the built `dist/opencode/` (`npm run test:mod:opencode`), and `npm run typecheck:mod:opencode` installs the pinned `@opencode/plugin` types once into `.build-test/opencode-types/` (about 160 MB, never a dependency of this repo) and checks `plugin/opencode/` against them.
+- `scripts/harness-scripts.test.ts` (part of `npm test`) fails when a folder under `plugin/` other than `core` has no matching pair in `package.json`. No harness is exempt.
 
 Which checks a change runs depends on where it sits. A change to `plugin/core/` runs `test:core` and every harness's pair, because a core change can break any harness. A change to `plugin/<harness>/` runs that harness's pair.
 
@@ -303,8 +304,8 @@ The build fails on a broken link between pages. A new page inside a split topic'
 
 ### The plugin build and plugin-dist
 
-The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, a
-placeholder until #855 (DECISIONS 56). They are installed from a built folder, not from the source.
+The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, the OpenCode
+reporter (#855, DECISIONS 56). They are installed from a built folder, not from the source.
 
 - `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options).
   `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and

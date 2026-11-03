@@ -62,7 +62,7 @@ describe("the harness table", () => {
     expect(e.args("/r")).toEqual(["--plugin-dir", join("/r", "dist", "claudecode")]);
   });
   it("has opencode as a stub with nothing to run", () => {
-    expect(HARNESS_TABLE.opencode.stub).toContain("#855");
+    expect(HARNESS_TABLE.opencode.stub).toContain("#857");
     expect("build" in HARNESS_TABLE.opencode).toBe(false);
   });
 });
@@ -125,8 +125,8 @@ describe("run", () => {
   it("fails opencode at once with the reason, building and running nothing", async () => {
     const t = harnessRun(["opencode"]);
     expect(await t.go()).toBe(1);
-    expect(t.err[0]).toContain("OpenCode has no plugin yet");
-    expect(t.err[0]).toContain("#855");
+    expect(t.err[0]).toContain("OpenCode has no dev runner yet");
+    expect(t.err[0]).toContain("#857");
     expect(t.spawnHarness).not.toHaveBeenCalled();
   });
   it("builds, prints the line, runs the harness with --plugin-dir and the args after --, and passes its exit code through", async () => {
@@ -505,6 +505,6 @@ describe("the command line", () => {
   it("opencode fails with exit code 1 and the reason", () => {
     const r = cli("opencode");
     expect(r.code).toBe(1);
-    expect(r.err).toContain("#855");
+    expect(r.err).toContain("#857");
   });
 });

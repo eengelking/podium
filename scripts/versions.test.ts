@@ -16,6 +16,15 @@ describe("mod version", () => {
   });
 });
 
+describe("opencode reporter version", () => {
+  // The OpenCode reporter reports VERSION; its package.json is what the build and the archive carry (#855).
+  it("plugin/opencode/version.ts matches its package.json", () => {
+    const manifest = JSON.parse(read("plugin/opencode/package.json")).version as string;
+    const m = /export const VERSION = '([^']+)'/.exec(read("plugin/opencode/version.ts"));
+    expect(m?.[1]).toBe(manifest);
+  });
+});
+
 describe("supported reporter range", () => {
   // Without this, a mod minor bump that forgets REPORTER_SUPPORT.max makes every up-to-date mod show
   // "upgrade server" (SPEC 6.8, DECISIONS 18).
@@ -39,7 +48,7 @@ describe("package versions", () => {
   });
 
   // Every harness under plugin/ that carries a version file (a Claude Code plugin.json, or a package.json) is versioned with the
-  // product. A harness with no version file yet (opencode) has nothing to compare; one that gains it is picked up here.
+  // product. A harness with no version file yet has nothing to compare; one that gains it is picked up here (opencode's is plugin/opencode/package.json).
   it("every harness's version file shares the product version", () => {
     const root = JSON.parse(read("package.json")).version as string;
     const files = fs
@@ -48,6 +57,7 @@ describe("package versions", () => {
       .flatMap((d) => [`plugin/${d.name}/.claude-plugin/plugin.json`, `plugin/${d.name}/package.json`])
       .filter((p) => fs.existsSync(path.join(ROOT, p)));
     expect(files).toContain("plugin/claudecode/.claude-plugin/plugin.json");
+    expect(files).toContain("plugin/opencode/package.json");
     expect(files.filter((p) => JSON.parse(read(p)).version !== root)).toEqual([]);
   });
 

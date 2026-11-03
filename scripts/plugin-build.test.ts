@@ -213,7 +213,7 @@ describe("plugin-build: the command line", () => {
     for (const flag of ["--help", "-h"]) expect(execFileSync("node", [SCRIPT, flag], { encoding: "utf8" })).toContain("Usage:");
   });
 
-  it("builds claudecode into --out, and skips opencode, which has no plugin.json yet", () => {
+  it("builds claudecode into --out, and builds opencode only when it is named (it is not distributed until #857)", () => {
     const out = tmp();
     expect(defaultHarnesses()).toEqual(["claudecode"]);
     const r = run(["--out", out]);
@@ -225,8 +225,47 @@ describe("plugin-build: the command line", () => {
     expect(walk(join(out, "claudecode"))).toContain("plugin/core/git.test.ts");
   });
 
-  it("fails clearly for a harness named that has nothing to build, a bad flag and a missing value", () => {
-    expect(run(["opencode", "--out", tmp()])).toMatchObject({ code: 1, err: expect.stringContaining("plugin/opencode has no .claude-plugin/plugin.json") });
+  it("builds opencode as a package: package.json pointing at the entry, its source and the shared source", () => {
+    const out = tmp();
+    const r = run(["opencode", "--out", out, "--with-tests"]);
+    expect(r.code).toBe(0);
+    const dir = join(out, "opencode");
+    const files = walk(dir);
+    for (const f of ["package.json", "plugin/opencode/index.ts", "plugin/opencode/reporter.ts", "plugin/opencode/reporter.test.ts", "plugin/core/transport.ts"]) expect(files, f).toContain(f);
+    for (const f of ["plugin/opencode/tsconfig.json", "plugin/opencode/vitest.config.ts", "plugin/opencode/package.json", ".claude-plugin/plugin.json", "hooks/hooks.json"]) expect(files, f).not.toContain(f);
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    expect(pkg).toMatchObject({ name: "podium-reporter-opencode", main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts" }, version: JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version });
+    expect(files.some((f: string) => f.endsWith(".test.ts") && f.startsWith("plugin/opencode/"))).toBe(true);
+    expect(run(["opencode", "--check", "--out", out])).toMatchObject({ code: 0 });
+    // Without --with-tests the tests stay out, and the same source gives the same bytes.
+    const a = tmp();
+    const b = tmp();
+    run(["opencode", "--out", a]);
+    run(["opencode", "--out", b]);
+    expect(walk(join(a, "opencode")).some((f: string) => f.endsWith(".test.ts"))).toBe(false);
+    expect(snapshot(join(a, "opencode"))).toEqual(snapshot(join(b, "opencode")));
+  });
+
+  it("checks an opencode folder's package.json", () => {
+    const dir = tmp();
+    mkdirSync(join(dir, "plugin", "opencode"), { recursive: true });
+    writeFileSync(join(dir, "plugin", "opencode", "index.ts"), "export default 1\n");
+    writeFileSync(join(dir, "package.json"), "{ nope");
+    expect(checkTree(dir)).toEqual(["package.json is not valid JSON."]);
+    writeFileSync(join(dir, "package.json"), '{"name":"x"}');
+    const noExports = 'package.json needs a name and an exports entry for "." that names a file in the folder (OpenCode loads a local plugin through them).';
+    expect(checkTree(dir)).toEqual(["package.json has no version.", "package.json main does not name a file in the folder.", noExports]);
+    writeFileSync(join(dir, "package.json"), '{"version":"1.0.0","main":"plugin/opencode/index.ts"}');
+    expect(checkTree(dir)).toEqual([noExports]);
+    writeFileSync(join(dir, "package.json"), '{"name":"x","version":"1.0.0","main":"plugin/opencode/index.ts","exports":{".":"./plugin/opencode/index.ts"}}');
+    expect(checkTree(dir)).toEqual([]);
+  });
+
+  it("fails clearly for a harness with no manifest, a bad flag and a missing value", () => {
+    const empty = tmp();
+    mkdirSync(join(empty, "plugin", "opencode"), { recursive: true });
+    expect(() => planTree("opencode", { root: empty })).toThrow("plugin/opencode has no package.json");
+    expect(() => planTree("claudecode", { root: empty })).toThrow("plugin/claudecode has no .claude-plugin/plugin.json");
     expect(run(["--nope"]).err).toContain('Unknown argument "--nope"');
     expect(run(["--out"]).err).toContain("--out needs a value");
     expect(run(["--check", "--out", tmp()]).err).toContain("not self-contained");

@@ -26,7 +26,7 @@ describe("a script pair per harness (#934)", () => {
     }
   });
 
-  it("exempts only opencode, until #855 adds its code", () => {
-    expect([...EXEMPT]).toEqual(["opencode"]);
+  it("exempts no harness", () => {
+    expect([...EXEMPT]).toEqual([]);
   });
 });
