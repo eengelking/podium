@@ -610,7 +610,7 @@ describe("Reporters tab (#142)", () => {
 
   it("opens the callout's picker on the harness the reporter's machine runs (#857)", async () => {
     fakeServer();
-    const body = makeState({ sessions: [makeSession({ id: "oc", harness: "opencode", machine: { name: "10.4.0.52", id: "addr:10.4.0.52" } })] });
+    const body = makeState({ sessions: [makeSession({ id: "oc", harness: "opencode", machine: { name: "10.4.0.52", id: "addr:10.4.0.52" } })] }); // NOSONAR S1313: the made-up private address of the fake admin server's admin-secret reporter, never connected to
     const quiet: FleetSource = new QuietSource() as unknown as FleetSource;
     render(<AdminView fleetOptions={{ open: () => quiet, fetchState: async () => body }} />);
     await unlock();
