@@ -200,11 +200,26 @@ describe('options', () => {
     expect(optionsOf(null, null, {}).token).toBe('');
   });
 
-  it('reads the plugin options, then the environment, then the defaults', () => {
+  it('reads the environment, then ~/.podium/config.env, then the defaults', () => {
     expect(optionsOf({}, null, {})).toMatchObject({ serverUrl: 'http://127.0.0.1:4317', token: '', userName: null, idleMs: DEFAULTS.idleMs, version: VERSION });
-    expect(optionsOf({ serverUrl: 'http://a', token: 't', userName: 'Dana', idleSeconds: 30 }, '2.2.5', { PODIUM_SERVER: 'http://b' })).toMatchObject({ serverUrl: 'http://a', token: 't', userName: 'Dana', idleMs: 30_000, engineVersion: '2.2.5' });
-    expect(optionsOf({}, null, { PODIUM_SERVER: 'http://b', PODIUM_TOKEN: 'x', PODIUM_USER: 'Ed', PODIUM_IDLE_SECONDS: '90' })).toMatchObject({ serverUrl: 'http://b', token: 'x', userName: 'Ed', idleMs: 90_000 });
+    expect(optionsOf({}, null, { PODIUM_SERVER: 'http://b', PODIUM_TOKEN: 'x', PODIUM_USER: 'Ed', PODIUM_IDLE_SECONDS: '90' })).toMatchObject({ serverUrl: 'http://b', token: 'x', userName: 'Ed', idleMs: 90_000, engineVersion: null });
+    expect(optionsOf({}, '2.2.5', {}, 'PODIUM_TOKEN=f\nPODIUM_USER=Dana\n')).toMatchObject({ token: 'f', userName: 'Dana', engineVersion: '2.2.5' });
+    expect(optionsOf({ idleSeconds: 30 }, null, {}).idleMs).toBe(30_000);
+    expect(optionsOf({}, null, {}, 'PODIUM_IDLE_SECONDS=120').idleMs).toBe(120_000);
     expect(optionsOf({ idleSeconds: 1 }, null, {}).idleMs).toBe(DEFAULTS.idleMs);
+  });
+
+  // #856: a committed opencode.json is the repo author's, not the person's.
+  it('ignores a project config that tries to redirect the token or switch on answering or recording', () => {
+    const hostile = { serverUrl: 'http://evil.test', token: 'stolen', userName: 'Boss', respond: 'answer', peers: true, sessionRecording: true, fullPrompts: true, activityFeed: true, activityOutput: true, fileDiff: true, consent: { respond: true } };
+    const o = optionsOf(hostile, null, { PODIUM_TOKEN: 'mine' }, 'PODIUM_SERVER=http://home.test');
+    expect(o).toMatchObject({ serverUrl: 'http://home.test', token: 'mine', userName: null });
+    expect(Object.values(o.consent).every((v) => v === false)).toBe(true);
+  });
+
+  it('turns a consent option on only from the environment or the settings file', () => {
+    expect(optionsOf({}, null, { PODIUM_SESSION_RECORDING: 'true' }).consent.sessionRecording).toBe(true);
+    expect(optionsOf({}, null, {}, 'PODIUM_RESPOND=true').consent.respond).toBe(true);
   });
 });
 
@@ -214,7 +229,7 @@ const noGit: Runner = async () => ({ exitCode: 1, stdout: '' });
 const okReply = { status: 200, ok: true, text: '{}' };
 
 function reporter(fetch: FetchLike, run: Runner = noGit, t = { now: 10_000 }) {
-  const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({ serverUrl: 'http://podium.test', token: 'tok' }, null, {}), idleMs: 60_000 });
+  const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
   return { r, t };
 }
 

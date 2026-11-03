@@ -43,6 +43,25 @@ export function machineIdPath(configDir: string | undefined, home: string | unde
   return /^(\/|[A-Za-z]:[\\/])/.test(dir) ? `${dir}/${MACHINE_ID_FILE}` : null;
 }
 
+/** The file name of the id shared by every reporter, in the person's `~/.podium/` folder (#856). */
+export const SHARED_MACHINE_ID_FILE = 'machine-id';
+
+/** `~/.podium/machine-id`. Null when the home directory is not an absolute path. */
+export function sharedMachineIdPath(home: string | undefined): string | null {
+  const h = trimTrailingSlashes((home ?? '').trim());
+  return /^(\/|[A-Za-z]:[\\/])/.test(h) ? `${h}/.podium/${SHARED_MACHINE_ID_FILE}` : null;
+}
+
+/**
+ * The id a machine uses, from what each place holds: the shared `~/.podium/machine-id` first, then the id a Claude install
+ * already made (its `podium-machine-id` file, then its store), so an existing install keeps its row. Null when none is an id,
+ * and the caller makes one.
+ */
+export function chooseMachineId(c: { shared?: string | null; legacyFile?: string | null; kept?: unknown }): string | null {
+  for (const v of [c.shared, c.legacyFile, c.kept]) if (isMachineId(v)) return v;
+  return null;
+}
+
 /** The id the shared file holds: its one line, when that is an id this reporter made. Null otherwise. */
 export function parseMachineIdFile(text: string | null | undefined): string | null {
   const id = (text ?? '').trim();

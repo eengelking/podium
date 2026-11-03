@@ -11,7 +11,8 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `state.ts` | Folds one bus event into a `Store`. A root session and the child sessions it launched are one `Root`: one record, one report; a child is an agent. |
 | `report.ts` | A `Root` as a v2 report: the `harness` block, the capabilities and `costSource: 'harness'`. |
 | `reporter.ts` | The runtime: one `Transport` per root, the flush `tick`, the idle sweep, the branch read and the bounded final flush. `handle` never waits for the network. |
-| `options.ts` | Settings from the plugin options, then the environment, then the defaults. |
+| `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
+| `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
 ## What it reports
 
@@ -26,8 +27,9 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 
 ## Settings
 
-Plugin options (or the environment): `serverUrl` (`PODIUM_SERVER`, default `http://127.0.0.1:4317`), `token` (`PODIUM_TOKEN`), `userName`
-(`PODIUM_USER`), `idleSeconds` (`PODIUM_IDLE_SECONDS`, at least 5). Consent, token storage and the machine id are #856.
+Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
+`http://127.0.0.1:4317`), `PODIUM_TOKEN`, `PODIUM_USER`, `PODIUM_IDLE_SECONDS` (at least 5; also accepted as the `idleSeconds` plugin option) and the consent
+options. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).
 
 ## Build and test
 

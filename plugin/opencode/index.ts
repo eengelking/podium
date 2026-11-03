@@ -3,6 +3,7 @@
 import { execFile } from 'node:child_process';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
+import { readMachine, readSettingsFile } from './machine.ts';
 import { optionsOf } from './options.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
@@ -38,6 +39,9 @@ async function recoverPermissions(ctx: Plugin.Context, reporter: Reporter): Prom
   }
 }
 
+/** Adds this machine to the options. Read once per location and cheap, so several locations in one process may each run it. */
+const withMachine = <T extends { userName: string | null; machine: unknown }>(o: T): T => ({ ...o, machine: readMachine(o.userName) });
+
 const plugin: Plugin.Plugin = {
   id: 'podium-reporter',
   async setup(ctx) {
@@ -45,9 +49,12 @@ const plugin: Plugin.Plugin = {
     const reg = registry();
     let holder = reg.get(location);
     if (!holder) {
+      const settings = readSettingsFile();
+      // The token is in that file: say once per location when anyone but the owner can read it. The message holds no secret.
+      if (settings.open) console.warn('podium-reporter: ~/.podium/config.env can be read by other users; run chmod 600 on it.');
       const reporter = new Reporter(
         { fetch: async (url, init) => { const r = await fetch(url, init); return { status: r.status, ok: r.ok, text: await r.text() }; }, now: () => Date.now(), runIn, log: () => undefined },
-        optionsOf(ctx.options, null),
+        withMachine(optionsOf(ctx.options, null, process.env, settings.text)),
       );
       // The timer is the only caller that talks to the server; the event loop below never awaits it.
       const timer = setInterval(() => void reporter.tick().catch(() => undefined), DEFAULTS.flushMs);

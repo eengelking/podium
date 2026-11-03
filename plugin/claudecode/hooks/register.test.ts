@@ -880,6 +880,25 @@ describe('podium-reporter end to end', () => {
 
   const SHARED = '/Users/dev/.claude/podium-machine-id'
 
+  const PODIUM_SHARED = '/Users/dev/.podium/machine-id'
+
+  test('the ~/.podium/machine-id file wins over the Claude file, so both reporters on a machine agree (#856)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, { machineId: 'aaaaaaaaaaaa' }, { [PODIUM_SHARED]: 'dddddddddddd\n', [SHARED]: 'cccccccccccc\n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.id).toBe('dddddddddddd')
+  })
+
+  test('an id the Claude install already made is copied to ~/.podium/machine-id and kept (#856)', { options: { userName: 'Dana' } }, async ($, on) => {
+    const w = world(on, { machineId: 'aaaaaaaaaaaa' }, { [SHARED]: 'cccccccccccc\n' })
+    mock.env(on, { HOME: '/Users/dev' })
+    await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+    await w.clock.advance(1000)
+    expect(w.posts[0]!.machine!.id).toBe('cccccccccccc')
+    expect(w.files.text[PODIUM_SHARED]).toBe('cccccccccccc\n')
+  })
+
   test('a machine id in the shared file wins over the one in this load\'s store, so two plugin loads agree (#267)', { options: { userName: 'Dana' } }, async ($, on) => {
     const w = world(on, { machineId: 'aaaaaaaaaaaa' }, { [SHARED]: 'cccccccccccc\n' })
     mock.env(on, { HOME: '/Users/dev' })
