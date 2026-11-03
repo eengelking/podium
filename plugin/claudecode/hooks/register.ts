@@ -61,7 +61,7 @@ import { contextCommand, type ContextIO } from './contexts.ts';
 import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
-import { hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, localHostNameOf, parseMachineNameFile, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
+import { chooseMachineId, sharedMachineIdPath, hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, localHostNameOf, parseMachineNameFile, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
@@ -840,22 +840,25 @@ function random(): number {
  * keeps the id, as before.
  */
 async function machineId($: Engine): Promise<string> {
-  const path = machineIdPath(
-    await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    (await readHome($)).home,
-  );
-  const shared = async () => (path ? parseMachineIdFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
-  const fromFile = await shared();
+  const home = (await readHome($)).home;
+  const path = machineIdPath(await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined), home);
+  // The id every reporter on this machine shares (#856); the Claude file, then the store, stay as the way back to an id made before it.
+  const sharedPath = sharedMachineIdPath(home);
+  const readFile = async (p: string | null) => (p ? parseMachineIdFile(await attempt(async () => (await $.fs.read(p)) as string, null)) : null);
+  const shared = async () => (await readFile(sharedPath)) ?? (await readFile(path));
   const kept = await attempt(() => $.store.get(MACHINE_ID_KEY), undefined);
+  const fromFile = chooseMachineId({ shared: await readFile(sharedPath), legacyFile: await readFile(path) });
   if (fromFile) {
     // Keep this load's store in step, so the id survives the shared file being deleted.
     if (fromFile !== kept) await attempt(() => $.store.set(MACHINE_ID_KEY, fromFile), undefined);
+    if (sharedPath && fromFile !== (await readFile(sharedPath))) await attempt(() => $.fs.write(sharedPath, `${fromFile}\n`), undefined);
     return fromFile;
   }
   const id = isMachineId(kept) ? kept : newMachineId(random);
   if (id !== kept) await attempt(() => $.store.set(MACHINE_ID_KEY, id), undefined);
-  if (!path) return id;
-  await attempt(() => $.fs.write(path, `${id}\n`), undefined);
+  if (!path && !sharedPath) return id;
+  if (sharedPath) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
+  if (path) await attempt(() => $.fs.write(path, `${id}\n`), undefined);
   return (await shared()) ?? id;
 }
 

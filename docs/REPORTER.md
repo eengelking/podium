@@ -387,8 +387,9 @@ put on record:
 - That name.
 - Which machine the session runs on: its short host name (on a Mac `scutil --get LocalHostName`, else what `hostname` prints, up to the first dot) and a
   random 12-character id. The mod makes the id the first time and keeps it in one file
-  (`~/.claude/podium-machine-id`, or under `CLAUDE_CONFIG_DIR` when that is set). Two machines with the same
-  host name stay apart, and every copy of the mod on a machine reports the same id. The name is pinned the
+  (`~/.podium/machine-id`, shared with the OpenCode reporter; an id an earlier install kept in `~/.claude/podium-machine-id`, or under
+  `CLAUDE_CONFIG_DIR`, is copied there, so that install keeps its row). Two machines with the same
+  host name stay apart, and every reporter on a machine reports the same id. The name is pinned the
   same way, in `podium-machine-name` beside the id file, so a name that changes with the network (#715) does not
   split one machine into two. Delete that file to take the machine's current name.
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
@@ -402,6 +403,41 @@ replaced with `[redacted]`: `sk-ant-...` keys, `ghp_...` tokens, `AKIA...` keys,
 the values after `password=`, `token=`, `secret=`, `apikey=` and `api_key=`. A whole prompt or answer goes
 out only for `fullPrompts`, and what an agent is doing goes out only for `activityFeed`, while someone
 watches or, if the Admin keeps Activity history, whenever the agent runs.
+
+## The OpenCode reporter: what it trusts
+
+This is the threat note for the OpenCode reporter (`plugin/opencode/`, #856). It says what the reporter relies on and what it does not.
+
+**Where settings come from.** The server URL, the token, the user name and every consent option are read only from `PODIUM_*` environment
+variables and from `~/.podium/config.env`. They are never read from `opencode.json`, in the project or in the user's config. A project's
+`opencode.json` is part of a clone, so whoever wrote the repo wrote it: if it could set `serverUrl` it could send the token to its own server, and
+if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin option still read is
+`idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
+(`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
+`PODIUM_FILE_DIFF`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
+
+**The token file.** `~/.podium/config.env` holds the token, so it should be mode `0600` and the folder `0700`. Those permissions are the
+operating system's, not Podium's: anything that runs as the same user can read the file. The reporter creates the machine id file as `0600` and does
+not change the mode of a file you made.
+
+**Same process, no wall.** OpenCode loads plugins into one shared service process and has no trust gate: a plugin in a repo's
+`.opencode/plugins/`, or in the config directory's `plugins/`, runs with the same reach as the reporter. It can read `~/.podium/` (tokens and mTLS keys) and call
+`permission.reply` or `session.prompt` itself. The reporter cannot prevent that and does not try to sandbox it; this is OpenCode's boundary. Only
+install OpenCode plugins you trust, and do not open an untrusted repo in OpenCode with a token on the machine.
+
+**`service.json`.** In service mode OpenCode writes the service's address, pid and password to `$XDG_STATE_HOME/opencode/service.json`. Anything that
+can read it can answer questions and permissions. The file's permissions are OpenCode's. The reporter does not read it; answering from Podium will need it,
+and that change carries its own review.
+
+**Text that arrives as the user's.** OpenCode does not mark text sent with `session.prompt` or as `synthetic`: the model sees it as the user's own words.
+When messaging is on, framing that says a message came from another orchestrator or a person is added by Podium in the text, as the Claude reporter does (#411).
+
+**A repo that removes the reporter.** A project can list the plugin as removed (`"plugins":["-podium.reporter"]`). A session that was already reporting then
+stops, and the console shows it going stale like any other session whose reporter went quiet. The limit: a session that never loaded the reporter never reported, so
+there is nothing to go stale and the console cannot tell it from a session that was never started.
+
+**Several locations in one process.** One OpenCode process can hold a plugin instance per location. Each reads the same settings and the same machine id, and the
+reading is safe to run once per location.
 
 ## Sessions without the mod
 

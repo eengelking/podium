@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, machineNamePath, parseMachineNameFile, localHostNameOf } from './machine.ts'
+import { chooseMachineId, sharedMachineIdPath, cleanOs, hostOf, isMachineId, trimTrailingSlashes, machineIdPath, machineInfo, newMachineId, platformRandom, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, machineNamePath, parseMachineNameFile, localHostNameOf } from './machine.ts'
 
 describe('machine', () => {
   test('trailing slashes are dropped from a URL, in linear time (#362)', () => {
@@ -132,5 +132,19 @@ describe('the pinned machine name (#715)', () => {
   test('localHostNameOf is the same cleaning as hostOf, for scutil output', () => {
     expect(localHostNameOf('Dana-MacBook-Pro\n')).toBe('Dana-MacBook-Pro')
     expect(localHostNameOf('')).toBeNull()
+  })
+})
+
+describe('the machine id both reporters share (#856)', () => {
+  test('lives in ~/.podium/machine-id', () => {
+    expect(sharedMachineIdPath('/Users/dev/')).toBe('/Users/dev/.podium/machine-id')
+    expect(sharedMachineIdPath('rel')).toBeNull()
+    expect(sharedMachineIdPath(undefined)).toBeNull()
+  })
+  test('the shared id wins, then an existing Claude id, then the store', () => {
+    expect(chooseMachineId({ shared: 'aaaaaaaaaaaa', legacyFile: 'bbbbbbbbbbbb', kept: 'cccccccccccc' })).toBe('aaaaaaaaaaaa')
+    expect(chooseMachineId({ shared: null, legacyFile: 'bbbbbbbbbbbb', kept: 'cccccccccccc' })).toBe('bbbbbbbbbbbb')
+    expect(chooseMachineId({ kept: 'cccccccccccc' })).toBe('cccccccccccc')
+    expect(chooseMachineId({ shared: '<b>x</b>', legacyFile: 7 as never })).toBeNull()
   })
 })
