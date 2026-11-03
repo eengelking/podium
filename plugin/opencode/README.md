@@ -16,6 +16,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `host.ts` | The calls into OpenCode: `permission.reply`, the session prompt and compact API, and the two ways to answer a question form. |
 | `bridge.ts`, `tui.ts` | The TUI part. The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
+| `tls.ts` | The secure connection (#948): finds the reporter config file the way the Claude reporter does (`../core/tls/findConfig.ts`), makes the mTLS client in this process (`../core/tls/client.mjs`), and gives the `Reporter` a `fetch` through it. A file that cannot be used becomes a link that sends nothing and says why, once, as a `podium-reporter:` console line and in `Reporter.statusText()`. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
 ## What it reports
@@ -45,7 +46,9 @@ Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environ
 
 Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
 `http://127.0.0.1:4317`), `PODIUM_TOKEN`, `PODIUM_USER`, `PODIUM_IDLE_SECONDS` (at least 5; also accepted as the `idleSeconds` plugin option) and the consent
-options. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).
+options. A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
+and run `chmod 600` on it, and the reporter connects to the address in it over HTTPS with your certificate (no token needed). `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT`, from the
+same two places, choose another file; with no file nothing changes. The client starts with the reporter, renews the certificate when it is due, and stops when the plugin is cleaned up. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).
 
 ## Build and test
 
