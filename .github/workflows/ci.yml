@@ -94,6 +94,28 @@ jobs:
       - name: Test plugin/core
         run: scripts/ci-retry.sh --name "Test plugin/core" --timeout 10m -- npm run test:core
 
-# Not run here: each harness's `test:mod:<harness>` and `typecheck:mod:<harness>` (today `claudecode`) need that harness's CLI and
-# its plugin API declarations, which the runners do not have. Run them locally when plugin/<harness>/ or plugin/core/ changes
-# (CONTRIBUTING.md, "Testing a reporter").
+  # The OpenCode reporter (#855). Its runner is vitest, run on the built dist/opencode, and its types are fetched by the typecheck
+  # script (`@opencode/plugin`, installed once into .build-test/), so neither needs the OpenCode CLI.
+  test-opencode:
+    name: Test the OpenCode reporter
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Test the built OpenCode reporter
+        run: scripts/ci-retry.sh --name "Test the built OpenCode reporter" --timeout 10m -- npm run test:mod:opencode
+
+      - name: Type-check the OpenCode reporter
+        run: scripts/ci-retry.sh --name "Type-check the OpenCode reporter" --timeout 10m -- npm run typecheck:mod:opencode
+
+# Not run here: `test:mod:claudecode` and `typecheck:mod:claudecode`, which need Claude Code's CLI and its plugin API declarations,
+# which the runners do not have. Run them locally when plugin/claudecode/ or plugin/core/ changes (CONTRIBUTING.md, "Testing a reporter").

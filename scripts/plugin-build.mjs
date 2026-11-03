@@ -7,6 +7,10 @@
 // folder is refused. The source keeps each harness in plugin/<harness>/ and the code every harness shares in plugin/core/, with
 // imports such as `../../core/git.ts`. The build lays the source tree out under the plugin's folder with no import rewritten:
 //
+// OpenCode (#855) has no Claude plugin manifest or hooks. Its folder is a package: package.json (version, and `main` pointing at the
+// plugin entry), plugin/opencode/** and plugin/core/**. It is built when named, and --check and the zip and publish scripts treat
+// it the same way; with no harness named only claudecode is built, so nothing publishes opencode before it is distributed (#857).
+//
 //   dist/claudecode/
 //     .claude-plugin/plugin.json      the manifest
 //     types/                          the plugin API declarations the manifest names
@@ -36,16 +40,16 @@ const USAGE = `Usage: node scripts/plugin-build.mjs [claudecode] [opencode] [--o
 
 Builds dist/<harness>/ for each harness named: the folder a plugin is installed and zipped from.
   <harness>      claudecode or opencode. With none named, every harness that has a .claude-plugin/plugin.json
-                 (opencode has none yet, so it is skipped unless named; naming it then fails).
+                 (so claudecode only: opencode is built when named, until it is distributed in #857).
   --out <dir>    where to build (default: dist/ in the repo). The harness's folder is <dir>/<harness>/ and is replaced.
-  --with-tests   keep the *.test.ts files, so \`claude plugin test <dir>/<harness>\` can run them (npm run test:mod:claudecode).
+  --with-tests   keep the *.test.ts files, so the harness's own test runner can run them (npm run test:mod:claudecode, test:mod:opencode).
   --dev-stamp    when the repo is a git checkout, write .claude-plugin/dev-build.json (commit, tag, dirty) so the mod shows
                  \`dev: <commit>\`. For a developer's own build only: plugin-publish and the zip script refuse a tree that has it.
   --check        build nothing; only run the self-containment check on the existing <out>/<harness>/ folders.
   -h, --help     this text.
 Left out: *.test.ts (unless --with-tests), .DS_Store, node_modules, tsconfig.json and the types the typecheck script lays in
 .claude-plugin/types/. The build fails on a symlink, an import that leaves the folder or names a missing file, a missing
-plugin.json, and a hooks/hooks.json whose modules do not exist inside the folder.`;
+plugin.json (opencode: package.json), and a hooks/hooks.json whose modules do not exist inside the folder.`;
 
 /** The harnesses and where their source lives. Shared code is plugin/core, copied into every harness's tree. */
 export const HARNESSES = ["claudecode", "opencode"];
@@ -110,11 +114,13 @@ export function devStamp(root = ROOT, git = (args) => gitIn(root, args)) {
 export function planTree(harness, { root = ROOT, withTests = false, stamp = /** @type {{ commit: string, tag: string, dirty: boolean } | null} */ (null) } = {}) {
   if (!HARNESSES.includes(harness)) throw new Error(`Unknown harness "${harness}". Known: ${HARNESSES.join(", ")}.`);
   const src = join(root, "plugin", harness);
-  if (!existsSync(join(src, ".claude-plugin", "plugin.json"))) {
-    throw new Error(`plugin/${harness} has no .claude-plugin/plugin.json, so there is nothing to build for ${harness}.`);
+  const manifest = harness === "opencode" ? "package.json" : ".claude-plugin/plugin.json";
+  if (!existsSync(join(src, ...manifest.split("/")))) {
+    throw new Error(`plugin/${harness} has no ${manifest}, so there is nothing to build for ${harness}.`);
   }
   const files = new Map();
   const put = (name, data) => files.set(name, Buffer.isBuffer(data) ? data : Buffer.from(data));
+  if (harness === "opencode") return planOpencode({ root, src, withTests, stamp, files, put });
   const nested = (prefix, dir, skip = () => false) => {
     for (const rel of walk(dir)) {
       if (included(rel, withTests) && !skip(rel)) put(`${prefix}/${rel}`, readFileSync(join(dir, rel)));
@@ -155,6 +161,22 @@ export function planTree(harness, { root = ROOT, withTests = false, stamp = /** 
   return new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
+/** OpenCode's tree: package.json at the root with `main` repointed at the entry in the tree, the harness's source, and the shared source. */
+function planOpencode({ root, src, withTests, stamp, files, put }) {
+  for (const rel of walk(src)) {
+    if (!included(rel, withTests)) continue;
+    if (rel === "tsconfig.json" || rel === "vitest.config.ts" || rel === "package.json") continue; // dev only / handled below
+    put(`plugin/opencode/${rel}`, readFileSync(join(src, rel)));
+  }
+  const pkg = JSON.parse(readFileSync(join(src, "package.json"), "utf8"));
+  // OpenCode finds a local plugin's entry through the package's name and `exports`; `main` is kept for tools that read it.
+  put("package.json", `${JSON.stringify({ ...pkg, main: "plugin/opencode/index.ts", exports: { ".": "./plugin/opencode/index.ts" } }, null, 2)}\n`);
+  const core = join(root, "plugin", "core");
+  if (existsSync(core)) for (const rel of walk(core)) if (included(rel, withTests)) put(`plugin/core/${rel}`, readFileSync(join(core, rel)));
+  if (stamp) put(".claude-plugin/dev-build.json", `${JSON.stringify(stamp)}\n`);
+  return new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
 /** Every relative module specifier a source file names (static import and export-from, side-effect import, import("literal")). */
 export function relativeSpecifiers(text) {
   const found = new Set();
@@ -178,17 +200,26 @@ function resolveSpecifier(dir, fromRel, spec) {
   return { outside: false, target: null, wanted: base };
 }
 
-/** Problems with the built folder `dir`: empty when it is self-contained and complete. */
-export function checkTree(dir) {
-  const problems = [];
-  if (!existsSync(dir)) return [`${dir} does not exist; run node scripts/plugin-build.mjs first.`];
-  let files;
+/** Problems with an OpenCode folder's package.json: valid JSON, a version, and a `main` that names a file in the folder. */
+function checkOpencodeManifest(dir, files) {
   try {
-    files = walk(dir);
-  } catch (e) {
-    return [e.message];
+    const m = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    const problems = [];
+    if (typeof m.version !== "string") problems.push("package.json has no version.");
+    if (typeof m.main !== "string" || !files.includes(m.main)) problems.push("package.json main does not name a file in the folder.");
+    const entry = m.exports?.["."];
+    if (typeof m.name !== "string" || typeof entry !== "string" || !files.includes(entry.replace(/^\.\//, ""))) {
+      problems.push("package.json needs a name and an exports entry for \".\" that names a file in the folder (OpenCode loads a local plugin through them).");
+    }
+    return problems;
+  } catch {
+    return ["package.json is not valid JSON."];
   }
-  // A symlink can also be a dangling one that readdir lists as a link; walk() throws on every link, so only real files remain.
+}
+
+/** Problems with a Claude Code plugin's manifest and hooks. */
+function checkClaudeManifest(dir, files) {
+  const problems = [];
   if (!files.includes(".claude-plugin/plugin.json")) problems.push(".claude-plugin/plugin.json is missing.");
   else {
     try {
@@ -221,6 +252,22 @@ export function checkTree(dir) {
       }
     }
   } else problems.push("hooks/hooks.json is missing.");
+  return problems;
+}
+
+/** Problems with the built folder `dir`: empty when it is self-contained and complete. */
+export function checkTree(dir) {
+  const problems = [];
+  if (!existsSync(dir)) return [`${dir} does not exist; run node scripts/plugin-build.mjs first.`];
+  let files;
+  try {
+    files = walk(dir);
+  } catch (e) {
+    return [e.message];
+  }
+  // A symlink can also be a dangling one that readdir lists as a link; walk() throws on every link, so only real files remain.
+  if (!files.includes(".claude-plugin/plugin.json") && files.includes("package.json")) problems.push(...checkOpencodeManifest(dir, files));
+  else problems.push(...checkClaudeManifest(dir, files));
   for (const rel of files.filter((f) => CODE.test(f))) {
     for (const spec of relativeSpecifiers(readFileSync(join(dir, ...rel.split("/")), "utf8"))) {
       const r = resolveSpecifier(dir, rel, spec);

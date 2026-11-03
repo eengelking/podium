@@ -36,6 +36,8 @@
     "test:core": "vitest run --config plugin/core/vitest.config.ts",
     "test:mod:claudecode": "node scripts/plugin-build.mjs claudecode --with-tests --out .build-test && claude plugin test .build-test/claudecode",
     "typecheck:mod:claudecode": "bash scripts/podium-mod-typecheck.sh",
+    "test:mod:opencode": "node scripts/plugin-build.mjs opencode --with-tests --out .build-test && vitest run --root .build-test/opencode --config ../../plugin/opencode/vitest.config.ts",
+    "typecheck:mod:opencode": "bash scripts/podium-opencode-typecheck.sh",
     "podiumctl": "node bin/podiumctl",
     "e2e": "bash scripts/e2e-up.sh run",
     "e2e:down": "bash scripts/e2e-up.sh down",

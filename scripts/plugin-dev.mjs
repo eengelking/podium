@@ -24,7 +24,7 @@ const USAGE = `Usage: node scripts/plugin-dev.mjs <harness> [--watch] [-- <args 
 
 Builds the harness's plugin into dist/<harness>/ with the dev stamp (the same as npm run plugin:build), then runs the harness with
 that folder loaded. The source folder plugin/claudecode cannot be loaded on its own, so use this instead of --plugin-dir by hand.
-  <harness>   claudecode (opencode is a stub until #855: it exits 1 at once).
+  <harness>   claudecode (opencode is a stub until #857: it exits 1 at once).
   --watch     rebuild into the same folder when a file under plugin/claudecode or plugin/core changes (*.test.ts, .DS_Store and
               anything under dist/ are ignored). A failed rebuild keeps the last good build. Run /reload-plugins in the session
               after a rebuild.
@@ -77,7 +77,7 @@ export const HARNESS_TABLE = {
     args: (root) => ["--plugin-dir", join(root, "dist", "claudecode")],
   },
   opencode: {
-    stub: "OpenCode has no plugin yet, so there is nothing to build or run. It lands with #855.",
+    stub: "OpenCode has no dev runner yet (it comes with its distribution, #857). Build it with `node scripts/plugin-build.mjs opencode` and load dist/opencode/plugin/opencode/index.ts as a plugin.",
   },
 };
 

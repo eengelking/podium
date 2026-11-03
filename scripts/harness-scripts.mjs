@@ -3,8 +3,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-// plugin/opencode/ holds only a README until #855 adds its code. #855 removes this entry.
-export const EXEMPT = new Set(["opencode"]);
+// No harness is exempt: every folder under plugin/ other than core ships the pair (#855 removed the opencode entry).
+export const EXEMPT = new Set();
 
 export function harnesses(pluginDir) {
   return fs

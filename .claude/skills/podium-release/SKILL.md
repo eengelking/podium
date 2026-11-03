@@ -32,8 +32,9 @@ All in the same commit, never as a follow-up after the tag. A hotfix changes the
 | `CHANGELOG.md` | Rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and add a fresh empty `[Unreleased]` above it. Update the two links at the bottom (`[Unreleased]` compares `vX.Y.Z...HEAD`; `[X.Y.Z]` points at the release) |
 | `package.json`, `server/package.json`, `frontend/package.json` | `version`, all three the new release number |
 | `package-lock.json` | Run `npm install --package-lock-only` so its entries follow the manifests |
-| `plugin/claudecode/.claude-plugin/plugin.json` (and the version file of any other harness that has one; `plugin/opencode/` has none yet) | `version`, the same release number |
+| `plugin/claudecode/.claude-plugin/plugin.json` (and the version file of any other harness that has one) | `version`, the same release number |
 | `plugin/claudecode/hooks/register.ts` | `VERSION`, equal to `plugin.json` |
+| `plugin/opencode/package.json` and `plugin/opencode/version.ts` | `version` and `VERSION`, the same release number (`scripts/versions.test.ts` fails if they differ from each other or from the root) |
 | `docs/atlas/podium-atlas.html` | The version in the rail ("Reads from the repo at vX.Y.Z") and in the footer ("at version X.Y.Z"); the line counts under "How much is tested", the chart and its table, and the "Counted from the repository on" date, when the release changed much code (`podium-atlas-update`) |
 | `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date mod it is newer than the server supports (SPEC 6.8) |
 
