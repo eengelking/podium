@@ -15,7 +15,7 @@
       (`server/src/fleet/protocol.ts` only adds the validator and re-exports it).
 - [ ] If this changes intended behavior, `docs/spec/` was updated (or the mismatch is called out here
       and the maintainer has agreed to it). Other docs describing the change are updated in the same PR.
-- [ ] `npm test` and `npm run build` pass. If the mod changed, `npm run test:mod` and `npm run typecheck:mod`
+- [ ] `npm test` and `npm run build` pass. If the mod changed, `npm run test:mod:claudecode` and `npm run typecheck:mod:claudecode`
       pass too (they need Claude Code installed).
 - [ ] If this adds, changes or removes a feature a browser can observe, the e2e specs and `docs/e2e/COVERAGE.md` changed with it and `npm run e2e` passed on the whole suite (say the counts), or the PR says why nothing a spec asserts changed.
 - [ ] `CHANGELOG.md` has a line under `[Unreleased]` for anything a user would notice.

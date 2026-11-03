@@ -182,12 +182,12 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Depends on:** T3.2.
 - **Acceptance:**
   1. `claude plugin validate dist/claudecode` passes with no errors and lists the hooked events from section 5.3 and the `$` calls from 5.4. Attach its output to `docs/architecture/`.
-  2. The mod type-checks (`npm run typecheck:mod`) and passes.
+  2. The mod type-checks (`npm run typecheck:mod:claudecode`) and passes.
   3. Every hook calls `next(e)` exactly once (or `yield*` for `turn.step`) and returns its result unchanged; a test with a hook that throws inside the reporter proves the session is unaffected.
   4. `session.start` registers `/podium` and starts the flusher, git poller and (if enabled) status line. A session-id change detected by the flusher sends a `done` report for the old id and starts the new one.
   5. `/podium` returns the dashboard URL, connection state, reports sent and failed, last error; `/podium name <text>` sets the name and persists it.
   6. `session.end` flushes with `status: "done"` and `endReason` before the hook returns.
-  7. `npm run test:mod` (a build, then `claude plugin test`) passes, with an end-to-end hook test that raises `session.start`, `agent.spawn` (subagent and fork), `tool.call` (Agent, Skill, TaskCreate, TaskUpdate, a failing Bash), `turn.step` (with usage and a window-exceeded stop), `session.compact` (auto) and `session.end`, and asserts the final posted report's agents, plan, failure, blowouts and skills.
+  7. `npm run test:mod:claudecode` (a build, then `claude plugin test`) passes, with an end-to-end hook test that raises `session.start`, `agent.spawn` (subagent and fork), `tool.call` (Agent, Skill, TaskCreate, TaskUpdate, a failing Bash), `turn.step` (with usage and a window-exceeded stop), `session.compact` (auto) and `session.end`, and asserts the final posted report's agents, plan, failure, blowouts and skills.
 
 ### T3.4 Real-session verification
 - **Scope:** running the real mod; no new files except notes in `docs/architecture/`.

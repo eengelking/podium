@@ -20,7 +20,7 @@
 //
 // The build then checks that the folder is self-contained (checkTree) and refuses to finish when it is not. The same bytes come
 // from the same source tree: files are written in name order with a fixed mode and no timestamp. Only node builtins are used.
-// podium-reporter-zip.mjs zips what this builds, and `npm run test:mod` builds with --with-tests to .build-test/ for
+// podium-reporter-zip.mjs zips what this builds, and `npm run test:mod:claudecode` builds with --with-tests to .build-test/ for
 // `claude plugin test`.
 import { spawnSync } from "node:child_process";
 import { gitBin } from "./git-bin.mjs";
@@ -38,7 +38,7 @@ Builds dist/<harness>/ for each harness named: the folder a plugin is installed 
   <harness>      claudecode or opencode. With none named, every harness that has a .claude-plugin/plugin.json
                  (opencode has none yet, so it is skipped unless named; naming it then fails).
   --out <dir>    where to build (default: dist/ in the repo). The harness's folder is <dir>/<harness>/ and is replaced.
-  --with-tests   keep the *.test.ts files, so \`claude plugin test <dir>/<harness>\` can run them (npm run test:mod).
+  --with-tests   keep the *.test.ts files, so \`claude plugin test <dir>/<harness>\` can run them (npm run test:mod:claudecode).
   --dev-stamp    when the repo is a git checkout, write .claude-plugin/dev-build.json (commit, tag, dirty) so the mod shows
                  \`dev: <commit>\`. For a developer's own build only: plugin-publish and the zip script refuse a tree that has it.
   --check        build nothing; only run the self-containment check on the existing <out>/<harness>/ folders.

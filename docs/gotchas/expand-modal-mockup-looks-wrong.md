@@ -27,5 +27,5 @@ it is taken.
 <!-- nav:start -->
 ---
 
-Previous: [An Admin style does nothing, or looks like the fleet page's](admin-style-does-nothing-or-looks-like-the-fleet-page.md) · Up: [Gotchas](README.md) · Next: [npm run test:mod and npm run typecheck:mod fail on a clean machine](test-mod-and-typecheck-mod-fail-on-a-clean-machine.md)
+Previous: [An Admin style does nothing, or looks like the fleet page's](admin-style-does-nothing-or-looks-like-the-fleet-page.md) · Up: [Gotchas](README.md) · Next: [npm run test:mod:claudecode and npm run typecheck:mod:claudecode fail on a clean machine](test-mod-and-typecheck-mod-fail-on-a-clean-machine.md)
 <!-- nav:end -->

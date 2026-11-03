@@ -28,7 +28,7 @@ that leaves it is refused, so shared code outside the folder cannot ship. Entry 
 - **The build.** `scripts/plugin-build.mjs` writes `dist/<harness>/` (git-ignored): the manifest, a generated `hooks/hooks.json`,
   and the source tree kept as it is under `plugin/<harness>/` and `plugin/core/`, with no import rewritten. It fails when the
   result is not self-contained. Each `dist/<harness>/` is a complete plugin that needs nothing outside itself, and the release
-  archive is a zip of the same folder. `--with-tests` keeps the test files (`npm run test:mod` builds that way into
+  archive is a zip of the same folder. `--with-tests` keeps the test files (`npm run test:mod:claudecode` builds that way into
   `.build-test/`), and `--check` only runs the self-containment check on a folder that is already built.
 - **The dev stamp.** `npm run plugin:build` passes `--dev-stamp`, which writes `.claude-plugin/dev-build.json` (the commit, its
   tag and whether the tree had edits), so a reporter run from a checkout still shows `Dev: <commit>`. The script alone stamps

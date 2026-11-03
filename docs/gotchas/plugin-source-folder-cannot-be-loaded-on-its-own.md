@@ -20,7 +20,7 @@ installed and zipped (DECISIONS 56). `claude --plugin-dir` does not rebuild it.
 **Do:** Run `npm run plugin:dev:claudecode`. It builds `dist/claudecode` and starts `claude` with that folder loaded; the source folder
 still cannot be loaded. Add `-- --watch` to rebuild after each edit, then run `/reload-plugins`. By hand it is `npm run plugin:build`
 followed by `claude --plugin-dir /path/to/podium/dist/claudecode`, and the build runs again after each edit. `npm run plugin:dev:cleanup`
-removes the output. `npm run test:mod` builds with the tests into `.build-test/` first, so it needs no separate step. If
+removes the output. `npm run test:mod:claudecode` builds with the tests into `.build-test/` first, so it needs no separate step. If
 the build says the folder is not self-contained, it names the import that leaves it. Both output folders are git-ignored.
 
 Two edges of `plugin:dev`: npm swallows the first `--`, so `claude` arguments need a second one (`npm run plugin:dev:claudecode -- --watch -- --model sonnet`). And `--watch` uses a recursive `fs.watch`, which needs Node 20 or later on Linux; the session still needs `/reload-plugins` after each rebuild.

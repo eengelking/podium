@@ -210,7 +210,7 @@ Each of these is a stated gap, not a covered feature.
 |---|---|
 | Real Fullscreen API | Headless Chrome refuses the request, because Cypress's clicks are not a user gesture. The spec checks that a refusal changes nothing and, with `requestFullscreen` stubbed, the app's own wall-mode state. The real call is checked by hand. |
 | Real TLS: the Certificates page with a CA, the reporter certificate and its renewal | The throwaway server is plain HTTP. Covered by `server/src/tls*.test.ts` and `frontend/src/fleet/admin/certificates.test.tsx`. |
-| The reporter mod inside Claude Code | Out of scope (`npm run test:mod`). The suite plays the mod's reports and its diff answers. |
+| The reporter mod inside Claude Code | Out of scope (`npm run test:mod:claudecode`). The suite plays the mod's reports and its diff answers. |
 | The release-check notice at the bottom of the wall | It needs a newer release from GitHub. Only the switch is covered; the notice is covered by `frontend/src/fleet/wall.test.tsx`. |
 | Admin > Reporting with 45 days of history | The history needs `scripts/podium-seed-history.ts`, which needs `tsx`, which no container here carries, and no route writes rollups. The pages are checked for shape and for today's live figures. Covered by `frontend/src/fleet/admin/reporting.test.tsx` and `server/src/fleet/rollups.test.ts`. |
 | Traffic's range filter (Last 24 hours and Last 30 days narrowing the list) | A message older than a day cannot be made: the server stamps every message with its own clock. The range buttons are clicked and the list is asserted unchanged for recent messages only. |
