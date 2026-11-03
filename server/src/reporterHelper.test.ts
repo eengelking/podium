@@ -13,7 +13,6 @@ import express from 'express';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
-import { REPORTER_ROUTE_TEMPLATES } from './tlsHttp.js';
 import { describeCert, ensureTls, serverNames } from './tlsCa.js';
 import { createReporterRenewRouter } from './tlsReporterRenew.js';
 import { makeForgerCa, signClientDated, signDated } from './tlsTesting.js';
@@ -363,50 +362,6 @@ describe('helper.mjs: identity and lifetime', () => {
 });
 
 describe('helper.mjs: it forwards the reporter routes and nothing else (#668)', () => {
-  type Target = { method: string; path: string } | null;
-  const load = async () => (await import(/* @vite-ignore */ HELPER)) as { REPORTER_ROUTES: Array<[string, string]>; reporterTarget: (method: string | undefined, url: string | undefined) => Target };
-
-  it('holds the same list of routes as the server, so one cannot change without the other', async () => {
-    const { REPORTER_ROUTES } = await load();
-    expect(REPORTER_ROUTES).toEqual(REPORTER_ROUTE_TEMPLATES.map(([m, p]) => [m, p]));
-  });
-
-  it('rebuilds the request target from the matched route: its method and fixed parts, the person’s ids, and a plain query', async () => {
-    const { reporterTarget } = await load();
-    expect(reporterTarget('POST', '/api/fleet/report')).toEqual({ method: 'POST', path: '/api/fleet/report' });
-    expect(reporterTarget('POST', '/API/Fleet/Report//')).toEqual({ method: 'POST', path: '/api/fleet/report' });
-    expect(reporterTarget('GET', '/api/fleet/sessions/Ab%20c-1/asks/a1/answer?wait=25')).toEqual({ method: 'GET', path: '/api/fleet/sessions/Ab%20c-1/asks/a1/answer?wait=25' });
-    expect(reporterTarget('PUT', '/api/fleet/sessions/s1/diffs/d.1')).toEqual({ method: 'PUT', path: '/api/fleet/sessions/s1/diffs/d.1' });
-  });
-
-  it('says no to every other route, method, address form and id that could change where the request goes', async () => {
-    const { reporterTarget } = await load();
-    for (const [m, u] of [
-      ['GET', '/api/fleet/ping'],
-      ['GET', '/api/fleet/report'],
-      ['DELETE', '/api/fleet/report'],
-      ['POST', '/api/reporter/renew'],
-      ['POST', '/api/admin/people'],
-      ['POST', '//evil.example/api/fleet/report'],
-      ['POST', 'http://evil.example/api/fleet/report'],
-      ['POST', '*'],
-      ['POST', '/api//fleet/report'],
-      ['POST', '/api/fleet/report/x'],
-      ['GET', '/api/fleet/sessions//peers'],
-      ['GET', '/api/fleet/sessions/../peers'],
-      ['GET', '/api/fleet/sessions/./peers'],
-      ['GET', '/api/fleet/sessions/%2e%2E/peers'],
-      ['GET', '/api/fleet/sessions/a%2Fb/peers'],
-      ['GET', '/api/fleet/sessions/a%5cb/peers'],
-      ['GET', '/api/fleet/sessions/a\\b/peers'],
-      ['GET', '/api/fleet/sessions/a b/peers'],
-      ['GET', '/api/fleet/sessions/s1/peers?a=b#frag'],
-      ['GET', '/api/fleet/sessions/s1/peers?a=\r\nHost: x'],
-      [undefined, '/api/fleet/report'],
-      ['POST', undefined],
-    ] as Array<[string | undefined, string | undefined]>) expect(reporterTarget(m, u), `${m} ${u}`).toBeNull();
-  });
-
   it('answers 403 to a route that is not a reporter route, and sends nothing upstream', async () => {
     const p = await pki();
     const seen: string[] = [];

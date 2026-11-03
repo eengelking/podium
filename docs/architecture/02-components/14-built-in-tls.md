@@ -103,8 +103,8 @@ nothing goes upstream: every request gets `X-Podium-Helper-Error: CERT_EXPIRED` 
 Unix socket. The seam in the mod is the one `FetchLike` at `register.ts` (`const fetch: FetchLike = ...`): with a
 config file it sends through the helper with `$.http.fetch(url, { ...init, socketPath })`, so `Transport` and its
 callers do not change. The held answer request keeps the engine's 30 second limit, now on the leg to the helper.
-The helper forwards only the calls in `REPORTER_ROUTES`, a copy of `REPORTER_ROUTE_TEMPLATES` in `tlsHttp.ts` that
-`reporterHelper.test.ts` compares. It builds the upstream request from the matched route, and anything else gets `403` with
+The helper forwards only the calls in `REPORTER_ROUTES`, in `plugin/core/tls/routes.mjs`, the one list that `tlsHttp.ts`
+imports too (#948). It builds the upstream request from the matched route, and anything else gets `403` with
 `X-Podium-Helper-Error: ROUTE_NOT_ALLOWED` (#668).
 
 **The helper on Windows (#834).** Everything above holds except the socket. The mod cannot reach a helper on Windows by a socket: Node there has no
