@@ -29,6 +29,8 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
+  problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
   answering?: { host: Host; consent: Consent; sleep?: (ms: number) => Promise<boolean>; answerMs?: number };
 }
@@ -83,6 +85,12 @@ export class Reporter {
       this.queue(root);
       if (!root.done) this.refreshGit(root, this.deps.now());
     }
+  }
+
+  /** The line a status view may show: the connection's state, led by what is wrong with the secure connection when something is (#948). Null before any report. */
+  statusText(): string | null {
+    const t = this.transports.values().next().value as Transport | undefined;
+    return t ? t.statusText(this.deps.problem?.()?.status) : null;
   }
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */

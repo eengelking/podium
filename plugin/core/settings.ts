@@ -32,6 +32,10 @@ export interface TrustedSettings {
   userName: string | null;
   /** PODIUM_IDLE_SECONDS as text; the reporter parses it. */
   idleSeconds: string;
+  /** PODIUM_REPORTER_CONFIG (#948): the reporter config file, which holds a private key. Only a trusted source may name it. '' when unset. */
+  reporterConfig: string;
+  /** PODIUM_REPORTER_CONTEXT (#606): the context that picks the file. '' when unset. */
+  reporterContext: string;
   /** The only source of a consent decision. A reporter that answers or records must read it here, never from a project option. */
   consent: Consent;
 }
@@ -78,6 +82,8 @@ export function trustedSettings(env: Env, fileText: string | null | undefined): 
     token: get('PODIUM_TOKEN'),
     userName: get('PODIUM_USER') || null,
     idleSeconds: get('PODIUM_IDLE_SECONDS'),
+    reporterConfig: get('PODIUM_REPORTER_CONFIG'),
+    reporterContext: get('PODIUM_REPORTER_CONTEXT'),
     consent,
   };
 }

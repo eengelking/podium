@@ -34,7 +34,7 @@ describe("plugin-build: the built folder", () => {
 
   it("has the manifest, the types, a generated hooks.json and the source tree under plugin/", () => {
     expect(built.dir).toBe(join(out, "claudecode"));
-    for (const f of [".claude-plugin/plugin.json", "types/index.d.ts", "hooks/hooks.json", "hooks/helper.mjs", "plugin/claudecode/hooks/register.ts", "plugin/core/git.ts"]) {
+    for (const f of [".claude-plugin/plugin.json", "types/index.d.ts", "hooks/hooks.json", "plugin/core/tls/helper.mjs", "plugin/core/tls/atomic.mjs", "plugin/core/tls/config.mjs", "plugin/core/tls/errors.mjs", "plugin/core/tls/lock.mjs", "plugin/core/tls/rotation.mjs", "plugin/core/tls/routes.mjs", "plugin/claudecode/hooks/register.ts", "plugin/core/git.ts"]) {
       expect(built.files, f).toContain(f);
     }
     expect(JSON.parse(readFileSync(join(built.dir, "hooks", "hooks.json"), "utf8"))).toEqual({ modules: ["../plugin/claudecode/hooks/register.ts"] });
@@ -304,6 +304,9 @@ describe("plugin-build: the command line", () => {
   it("filters tests and .DS_Store", () => {
     expect(included("a.test.ts")).toBe(false);
     expect(included("a.test.ts", true)).toBe(true);
+    // a test that needs node: modules cannot run under a harness's test runner, so it never ships, with tests or without
+    expect(included("a.node.test.ts")).toBe(false);
+    expect(included("a.node.test.ts", true)).toBe(false);
     expect(included("x/.DS_Store", true)).toBe(false);
     expect(included("a.ts")).toBe(true);
   });

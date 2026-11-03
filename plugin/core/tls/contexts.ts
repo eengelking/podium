@@ -1,6 +1,7 @@
 // Podium contexts (#606): a name for one reporter config file, kept in `~/.podium/contexts.json` the way a kubeconfig keeps
 // `contexts` and `current-context`. This file holds the format, the changes to it and the `/podium context` command.
-// tlsLink.ts reads the file to choose a config; podiumctl keeps a copy of the format (scripts/podiumctl.test.ts compares them).
+// findConfig.ts reads the file to choose a config; podiumctl keeps a copy of the format (scripts/podiumctl.test.ts compares them).
+// Shared by every reporter (#948); no `node:` import.
 import { parseConfigHeaders, podiumHome } from './reporterConfig.ts';
 
 export const CONTEXTS_FILE = 'contexts.json';

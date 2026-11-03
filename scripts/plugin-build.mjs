@@ -16,9 +16,8 @@
 //     .claude-plugin/plugin.json      the manifest
 //     types/                          the plugin API declarations the manifest names
 //     hooks/hooks.json                generated: its `modules` entry points at the real register module in the tree below
-//     hooks/helper.mjs                the TLS helper, where the mod looks for it (`$.plugin.root/hooks/helper.mjs`)
 //     plugin/claudecode/**            the harness's own source
-//     plugin/core/**                  the shared source
+//     plugin/core/**                  the shared source, including the TLS helper (plugin/core/tls/helper.mjs, run by path from the root)
 //
 // --dev-stamp (npm run plugin:build, never CI) also writes .claude-plugin/dev-build.json: the commit, tag and dirtiness of the checkout
 // the build came from, so a reporter run from the built folder still shows `dev: <hash>` (#400). Without it nothing is stamped.
@@ -80,6 +79,9 @@ export function included(rel, withTests = false) {
   const name = rel.split("/").at(-1);
   if (name === ".DS_Store") return false;
   if (!withTests && name.endsWith(".test.ts")) return false;
+  // A harness's test runner only lets a test import its own files and the harness API, not `node:` modules. A test that needs them
+  // (a real temp folder, a child process, `openssl`) is named *.node.test.ts and runs under `npm run test:core` and the server suite.
+  if (name.endsWith(".node.test.ts")) return false;
   return true;
 }
 
@@ -150,15 +152,10 @@ export function planTree(harness, { root = ROOT, withTests = false, stamp = /** 
   for (const rel of walk(src)) {
     if (!included(rel, withTests)) continue;
     if (rel.startsWith(".claude-plugin/types/") || rel === "tsconfig.json") continue; // laid by the typecheck script / dev only
-    if (rel === "hooks/hooks.json" || rel === "hooks/helper.mjs") continue; // handled below
+    if (rel === "hooks/hooks.json") continue; // handled below
     const bytes = readFileSync(join(src, rel));
     put(top(rel) ? rel : `plugin/${harness}/${rel}`, bytes);
   }
-
-  // hooks/helper.mjs is run by path from the plugin's root, so it sits at the root's hooks/. It imports nothing of the tree.
-  const helper = join(src, "hooks", "helper.mjs");
-  const helperBytes = readIfPresent(helper);
-  if (helperBytes) put("hooks/helper.mjs", helperBytes);
 
   // hooks/hooks.json: the source's modules, repointed from the source's hooks/ to the same files under plugin/<harness>/hooks/.
   const hooksJson = join(src, "hooks", "hooks.json");

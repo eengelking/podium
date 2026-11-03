@@ -56,8 +56,9 @@ import {
 } from './state.ts';
 import { nextCronAt } from './cron.ts';
 import { isDelivery, Transport, type FetchLike } from '../../core/transport.ts';
-import { findConfig, readHome, startLink, unusableLink, type Link } from './tlsLink.ts';
-import { contextCommand, type ContextIO } from './contexts.ts';
+import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
+import { readHome } from '../../core/tls/findConfig.ts';
+import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
 import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
@@ -1782,7 +1783,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     linking ??= (async () => {
       // A reload starts over, so the file a context chose at the start is read back from $.state and kept: a later `use` is for the next session (#606).
       const held = (await attempt(async () => (await $.state.get(CHOSEN_CONFIG)).value, null)) ?? null;
-      const found = await findConfig($ as never, undefined, held).catch(() => null);
+      const found = await findLinkConfig($ as never, undefined, held).catch(() => null);
       if (found?.found?.context && found.found.path !== held?.path) await attempt(() => $.state.set(CHOSEN_CONFIG, { path: found.found!.path, context: found.found!.context! }), undefined);
       if (found?.problem) record($, 'tls', new Error(found.problem.text));
       if (found?.contextProblem) record($, 'tls', new Error(found.contextProblem.text));

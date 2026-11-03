@@ -206,7 +206,7 @@ cluster. They are for someone who uses more than one Podium server. Designed in 
   A context that could not be used shows `[context unusable]` there instead.
 
 **The helper.** The mod cannot give `$.http.fetch` a CA or a client certificate, so podium-reporter starts a small
-Node script, `hooks/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from
+Node script, `plugin/core/tls/helper.mjs`, once per session. It makes the TLS connection with the CA and certificate from
 the file, and the mod sends its requests to it over a Unix socket with `$.http.fetch(..., { socketPath })`.
 
 - It is started as `node helper.mjs <config path> <socket path> <server url>` and prints `ready` on its stdout
