@@ -24,13 +24,16 @@ export const AgentRow = forwardRef<HTMLButtonElement, {
   selected: boolean;
   flash: boolean;
   delegating?: string;
+  /** Whether the session's harness reports a context size and an effort level (#944); false leaves that column out of the row. */
+  context?: boolean;
+  effort?: boolean;
   onSelect: (id: string) => void;
-}>(function AgentRow({ a, guides, now, selected, flash, delegating, onSelect }, ref) {
+}>(function AgentRow({ a, guides, now, selected, flash, delegating, context = true, effort = true, onSelect }, ref) {
   return (
     <button
       ref={ref}
       type="button"
-      className={`trow${flash ? " flash" : ""}`}
+      className={`trow${flash ? " flash" : ""}${context ? "" : " no-ctx"}${effort ? "" : " no-eff"}`}
       id={`row-${a.id}`}
       aria-current={selected}
       onClick={() => onSelect(a.id)}
@@ -52,14 +55,18 @@ export const AgentRow = forwardRef<HTMLButtonElement, {
       <div className="cell">
         <ModelChip family={a.modelFamily} model={a.model} label={a.modelLabel} />
       </div>
-      <div className="cell">
-        <EffortMeter effort={a.effort} />
-      </div>
-      <div className="ctxc">
-        <ContextBar percent={a.context.percent} blowouts={a.blowouts} />
-        <span>{fmtPct(a.context.percent)}</span>
-        <BlowBadge n={a.blowouts} />
-      </div>
+      {effort && (
+        <div className="cell">
+          <EffortMeter effort={a.effort} />
+        </div>
+      )}
+      {context && (
+        <div className="ctxc">
+          <ContextBar percent={a.context.percent} blowouts={a.blowouts} />
+          <span>{fmtPct(a.context.percent)}</span>
+          <BlowBadge n={a.blowouts} />
+        </div>
+      )}
       <div className="num c-tok" title={TOKENS_HINT}>{fmtTok(agentTokens(a))}</div>
       <div className="num" title={COST_HINT_AGENT}><Cost usd={a.costUsdEst} family={a.modelFamily} /></div>
       <div className="num">{fmtDur(agentElapsedSec(a, now))}</div>

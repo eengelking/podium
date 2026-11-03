@@ -427,6 +427,10 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .tw { overflow-x: auto; position: relative; }
 /* --deep (set on .tw) is how many levels the agent tree goes past two: each widens the Task column by one 16px guide, and the table scrolls sideways in .tw, so a deep row keeps as much text as a second-level one (#101). */
 .podium .trow { display: grid; grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 92px 52px 142px 64px 64px 70px 104px; gap: 10px; align-items: center; padding: 0 12px; min-height: 36px; border-bottom: 1px solid var(--grid); width: 100%; min-width: calc(892px + var(--deep, 0) * 16px); }
+/* A column the session's harness cannot report is absent from every row, so the row loses its track (#944). The tracks are the ones above. */
+.podium .trow.no-eff { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 92px 142px 64px 64px 70px 104px; min-width: calc(830px + var(--deep, 0) * 16px); }
+.podium .trow.no-ctx { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 92px 52px 64px 64px 70px 104px; min-width: calc(740px + var(--deep, 0) * 16px); }
+.podium .trow.no-eff.no-ctx { grid-template-columns: minmax(calc(210px + var(--deep, 0) * 16px), 1fr) 92px 64px 64px 70px 104px; min-width: calc(678px + var(--deep, 0) * 16px); }
 .podium .trow.hd { min-height: 28px; color: var(--muted); font-size: 11.5px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .podium button.trow:hover { background: var(--hover); }
 .podium button.trow[aria-current="true"] { background: var(--sel); }
@@ -712,6 +716,9 @@ body.modal-open #root { filter: blur(5px); }
 
 @media (max-width: 1280px) {
   .podium .trow { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 92px 52px 150px 64px 70px 104px; }
+  .podium .trow.no-eff { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 92px 150px 64px 70px 104px; }
+  .podium .trow.no-ctx { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 92px 52px 64px 70px 104px; }
+  .podium .trow.no-eff.no-ctx { grid-template-columns: minmax(calc(200px + var(--deep, 0) * 16px), 1fr) 92px 64px 70px 104px; }
   .podium .trow .c-tok { display: none; }
   .podium { --rail-base: 224px; }
   .podium .cols { --side-w: 310px; }
