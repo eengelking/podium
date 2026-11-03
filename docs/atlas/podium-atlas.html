@@ -202,8 +202,8 @@ pre.cmd{margin:0;background:var(--sunk);border-radius:10px;padding:12px 14px;fon
 input[type=range]{width:100%;accent-color:var(--accent)}
 .modsearch{width:100%;max-width:420px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;margin-bottom:12px}
 .modlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 28px}
-.mod{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}
-.mod code{background:none;padding:0;color:var(--accent);font-weight:500}
+.mod{display:grid;grid-template-columns:minmax(0,42%) minmax(0,1fr);gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:baseline}
+.mod code{overflow-wrap:anywhere;background:none;padding:0;color:var(--accent);font-weight:500}
 .mod span{color:var(--ink2)}
 
 /* data */

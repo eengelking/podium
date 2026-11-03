@@ -89,6 +89,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The atlas's Server source index no longer runs file names into their descriptions.** The name column was a fixed 150px, so a long path such as `storage/postgres/singleton.ts` overlapped the text beside it. The column is now 42% of the row and a long name wraps. Atlas page only; no console, server or storage change, so no adapter is affected.
+
 - **An effort that is not one of Claude Code's five levels shows as what was sent (#936, from #850).** A report v2 can send any text as `effort`, such as `minimal`. The meter draws it as five hollow bars with "Effort: minimal" as its tooltip and accessible name, instead of "Effort not reported", which now means only `null`. The agent tree's effort column puts no effort first, then `low` to `max`, then any other text after `max` in the order of that text, where it used to sort with no effort. SPEC 8.1 Effort meter now says so; an e2e case covers it.
   Standards: a new variant of the effort meter, `eff-other` (five hollow bars outlined in `--muted`), for an effort outside the five levels; approved by the maintainer when they accepted `mockup/podium-effort-other.html` on 2026-11-02.
 
