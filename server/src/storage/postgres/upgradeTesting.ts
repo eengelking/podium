@@ -1,5 +1,5 @@
 // Test support for the upgrade contract (#892): a PostgreSQL database at the schema before peer requests had an insertion number and reporters a name and sessions a harness (main step 1),
-// holding the given requests in the order given. Opening it as a storage then runs steps 2 to 4 on rows that exist. The caller drops the database.
+// holding the given requests in the order given. Opening it as a storage then runs steps 2 to 5 on rows that exist. The caller drops the database.
 import { PgDb } from './conn.js';
 import { MAIN_SCHEMA, MAIN_STEPS, migrate } from './schema.js';
 import { openPostgresStorage } from './index.js';

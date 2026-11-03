@@ -3,6 +3,7 @@
 import type { AgentRow, BlowoutRow, EventRow, SampleRow, SessionRow } from '../storage/rows.js';
 import { checkReporter, reporterOfHarness } from './compat.js';
 import { idleOnBackground } from './protocol.js';
+import type { Capabilities } from '../../../plugin/core/protocol.js';
 import { tokenSum } from './ingest.js';
 import type { ModelUsage, Pricing } from './pricing.js';
 import type {
@@ -319,6 +320,9 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     clearedFrom: row.cleared_from ?? null,
     harness: row.harness,
     costSource: row.cost_source === 'harness' ? 'harness' : 'estimate',
+    capabilities: parse<Capabilities | null>(row.capabilities_json, null),
+    modelLabel: row.model_label,
+    modelProvider: row.model_provider,
     agents,
     series: buildSeries(input.samples, input.blowouts, now),
   };

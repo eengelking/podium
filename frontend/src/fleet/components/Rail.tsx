@@ -116,7 +116,7 @@ export function Rail(props: {
               </span>
             )}
             <BlowBadge n={s.blowouts.total} level={s.blowouts.level} />
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </div>
           <div className="l2">
             {p ? (

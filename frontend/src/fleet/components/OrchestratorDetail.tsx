@@ -30,7 +30,7 @@ export function OrchestratorDetail(props: { s: SessionView; now: number; onBack:
           <dd>Orchestrator</dd>
           <dt>Model</dt>
           <dd>
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
           </dd>
           <dt>Effort</dt>
           <dd>

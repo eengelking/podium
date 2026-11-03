@@ -350,6 +350,14 @@ CREATE INDEX IF NOT EXISTS peer_requests_seq ON peer_requests(created_at, seq);`
     sql: `ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';
 ALTER TABLE sessions ADD COLUMN cost_source TEXT;`,
   },
+  {
+    version: 29,
+    // What a harness declares (#940): the capabilities it can report, its model's label and its model's provider. NULL means no report has
+    // declared it, which is what every session stored before this, and every v1 session, is.
+    sql: `ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;
+ALTER TABLE sessions ADD COLUMN model_label TEXT;
+ALTER TABLE sessions ADD COLUMN model_provider TEXT;`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

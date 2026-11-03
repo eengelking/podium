@@ -45,12 +45,13 @@ export function CostSourceNote({ s }: { s: Pick<SessionView, "costSource" | "har
   return s.costSource === "harness" ? <span className="src">from {harnessOf(s.harness).name}</span> : null;
 }
 
-export function ModelChip({ family, model }: { family: ModelFamily; model?: string | null }) {
+/** The family name, or the label the harness gave the model (#940), with the model id as the title either way. */
+export function ModelChip({ family, model, label }: { family: ModelFamily; model?: string | null; label?: string | null }) {
   const title = model ?? undefined;
   return (
     <span className="chip" style={cssVar(FAMILY_COLOR[family])} title={title}>
       <i />
-      {familyName(family, model ?? null)}
+      {label || familyName(family, model ?? null)}
     </span>
   );
 }

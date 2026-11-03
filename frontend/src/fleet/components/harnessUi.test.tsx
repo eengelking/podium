@@ -85,3 +85,39 @@ describe("a model that is not a Claude model, without Claude wording (#853)", ()
     expect(NO_PRICE_TITLE).toBe("Podium has no price for this model and the harness reported none");
   });
 });
+
+describe("what a session's harness declares (#940)", () => {
+  it("hides the Context cell for a harness that declares context false, whatever its id, and says so on the page", () => {
+    const s = makeSession({ harness: "future-harness", capabilities: { context: false, commands: [] } });
+    expect(cells(card(s).container)).not.toContain("Context");
+    cleanup();
+    render(<FocusHeader s={s} kind="running" now={2_000_000} />);
+    expect(screen.getByText(/does not report context/)).toBeInTheDocument();
+  });
+
+  it("shows the Context cell for a harness the table says cannot report it when it declares context true", () => {
+    const s = makeSession({ harness: "opencode", capabilities: { context: true, commands: [] } });
+    expect(cells(card(s).container)).toContain("Context");
+  });
+
+  it("follows the table for a field the session does not declare, and for a session that declared nothing", () => {
+    expect(cells(card(makeSession({ harness: "opencode", capabilities: { commands: [] } })).container)).not.toContain("Context");
+    cleanup();
+    expect(cells(card(makeSession({ harness: "opencode", capabilities: null })).container)).not.toContain("Context");
+    cleanup();
+    expect(cells(card(makeSession()).container)).toContain("Context");
+  });
+
+  it("hides the effort meter for a harness that declares effort false", () => {
+    const { container } = card(makeSession({ capabilities: { effort: false, commands: [] } }));
+    expect(container.querySelector(".eff")).toBeNull();
+  });
+
+  it("reads the label on the model chip, with the model id as its title, and the family name when there is none", () => {
+    render(<ModelChip family="other" model="gpt-5.1-2026" label="GPT-5.1" />);
+    expect(screen.getByText("GPT-5.1").closest(".chip")).toHaveAttribute("title", "gpt-5.1-2026");
+    cleanup();
+    render(<ModelChip family="other" model="gpt-5.1-2026" label={null} />);
+    expect(screen.getByText("gpt-5.1-2026")).toBeInTheDocument();
+  });
+});

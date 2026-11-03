@@ -327,6 +327,61 @@ describe('ingestReport with a cost the harness reported (#851)', () => {
   });
 });
 
+describe('ingestReport with what a harness declares (#940)', () => {
+  const v2 = (over: Partial<Report> = {}, session: Partial<Report['session']> = {}): Report => {
+    const r = fixtureReport();
+    return { ...r, agents: [], capabilities: { context: false, effort: true, commands: ['/clear'] }, session: { ...r.session, harness: 'opencode', modelLabel: 'GPT-5.1', modelProvider: 'openai', ...session }, ...over };
+  };
+
+  it('stores the capabilities, the model label and the model provider', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: false, effort: true, commands: ['/clear'] });
+    expect(row).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('updates them from a later report of the same session', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({ capabilities: { context: true, commands: [] } }, { modelLabel: 'GPT-5.2' }), T0 + 1000);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: true, commands: [] });
+    expect(row.model_label).toBe('GPT-5.2');
+  });
+
+  it('keeps what was stored when a later report does not declare them', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    const { capabilities: _c, ...bare } = r;
+    const later: Report = { ...bare, session: { ...r.session, modelLabel: undefined, modelProvider: undefined } };
+    await ingestReport(storage, later, T0 + 1000);
+    const row = (await f.getSession(r.session.id))!;
+    expect(JSON.parse(row.capabilities_json!)).toEqual({ context: false, effort: true, commands: ['/clear'] });
+    expect(row).toMatchObject({ model_label: 'GPT-5.1', model_provider: 'openai' });
+  });
+
+  it('drops the label and provider of the old model when a report names another model without them', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({}, { model: 'gpt-5.2', modelLabel: undefined, modelProvider: undefined }), T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model: 'gpt-5.2', model_label: null, model_provider: null });
+  });
+
+  it('clears a label or provider a report sends as null', async () => {
+    const r = v2();
+    await ingestReport(storage, r, T0);
+    await ingestReport(storage, v2({}, { modelLabel: null, modelProvider: null }), T0 + 1000);
+    expect(await f.getSession(r.session.id)).toMatchObject({ model_label: null, model_provider: null });
+  });
+
+  it('leaves them not declared for a v1 report', async () => {
+    const r = fixtureReport();
+    await ingestReport(storage, r, T0);
+    expect(await f.getSession(r.session.id)).toMatchObject({ capabilities_json: null, model_label: null, model_provider: null });
+  });
+});
+
 describe('ingestReport with a model that has no price (#66)', () => {
   it('drops a cost an older reporter priced as Sonnet, and keeps a Claude model\'s cost', async () => {
     const r = fixtureReport();

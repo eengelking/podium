@@ -177,6 +177,11 @@ export interface SessionView {
   harness: string;
   /** Who worked out `costUsd`: `harness` when the harness reported it, which the console labels as the harness's figure; `estimate` when Podium priced it. */
   costSource: CostSource;
+  /** What the harness declared it can report (#940); null when no report has declared any (every v1 session, and every session stored before this). A key it did not declare is absent. */
+  capabilities: Capabilities | null;
+  /** The model's name as the harness shows it, and the company or service behind it (#940); null when none was sent. */
+  modelLabel: string | null;
+  modelProvider: string | null;
   /** The session this one continues after a /clear. */
   clearedFrom: string | null;
   /** The session's recording, for the notice everyone sees (#353): absent or null when nothing is chosen or kept. Carries no text. */
@@ -334,6 +339,8 @@ export interface HistoryRow {
   /** The harness that ran the session, and who worked out `costUsd` (#853), as in SessionView. */
   harness: string;
   costSource: CostSource;
+  /** The model's name as the harness shows it (#940); null when none was sent. */
+  modelLabel: string | null;
   blowouts: number;
   agents: number;
   endReason: string | null;
@@ -761,7 +768,7 @@ function harnessBlock(v: unknown, path: string): HarnessInfo {
   return { id, name, version: str(o.version, `${path}.version`, LIMITS.short), surface: strOrNull(o.surface, `${path}.surface`, LIMITS.short) };
 }
 
-/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter supports, and its commands. Unknown keys are dropped. */
+/** The `capabilities` block of a v2 report (#850): a boolean per key the reporter declares (a key left out is not declared), and its commands. Unknown keys are dropped. */
 function capabilitiesBlock(v: unknown, path: string): Capabilities {
   const o = obj(v, path);
   const out: Capabilities = { commands: [] };

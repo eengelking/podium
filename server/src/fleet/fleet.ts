@@ -732,6 +732,7 @@ export class Fleet {
       costUsd: repriced(this.prices.pricing(), row.usage_json, row.cost_usd),
       harness: row.harness,
       costSource: row.cost_source === 'harness' ? 'harness' : 'estimate',
+      modelLabel: row.model_label,
       blowouts: row.blowouts + agents.reduce((n, a) => n + a.blowouts, 0),
       agents: agents.length,
       endReason: row.dropped_at !== null ? 'heartbeat lost' : row.end_reason,

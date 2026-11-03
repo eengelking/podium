@@ -155,6 +155,14 @@ ALTER TABLE sessions ADD COLUMN harness TEXT NOT NULL DEFAULT 'claude-code';  --
 ALTER TABLE sessions ADD COLUMN cost_source TEXT;                              -- 'harness' when cost_usd is the harness's own figure; NULL when Podium priced it
 ```
 
+Migration 29 (#940; PostgreSQL main step 5) stores what a harness declares. NULL in each means no report has declared it, which is what every earlier row and every v1 session is:
+
+```sql
+ALTER TABLE sessions ADD COLUMN capabilities_json TEXT;  -- Report.capabilities as sent: a JSON Capabilities; a key left out was not declared
+ALTER TABLE sessions ADD COLUMN model_label TEXT;        -- Report.session.modelLabel
+ALTER TABLE sessions ADD COLUMN model_provider TEXT;     -- Report.session.modelProvider
+```
+
 Migration 17 (#277) drops `people.token_last4`, the last four characters of a person's token, which nothing has read since #218:
 
 ```sql

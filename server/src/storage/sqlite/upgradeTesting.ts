@@ -1,5 +1,5 @@
 // Test support for the upgrade contract (#892): a SQLite file at the schema before peer requests had an insertion number (migration 25), reporters a name (27) and sessions a harness (28),
-// holding the given requests in the order given. Opening it as a storage then runs migrations 26 to 28 on rows that exist.
+// holding the given requests in the order given. Opening it as a storage then runs migrations 26 to 29 on rows that exist.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';

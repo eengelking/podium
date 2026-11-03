@@ -9,7 +9,8 @@
  * `harness` block and a `capabilities` declaration and takes those three as free strings, so another harness can report.
  * The server reads both; a v1 report means Claude Code.
  *
- * Absence, written down once: a field or capability that is OMITTED is not supported by that reporter or harness. `null`
+ * Absence, written down once: a field that is OMITTED is not supported by that reporter or harness (a capability key left out is
+ * NOT DECLARED instead, #940: the console falls back to what it knows of the harness, and only `false` means no). `null`
  * means it is supported but has no value right now (an effort not chosen, a cost not yet known). Nothing else is
  * guessed from an omission, and a reader never turns one into the other.
  */
@@ -245,7 +246,7 @@ export interface HarnessInfo {
   surface: string | null;
 }
 
-/** What a harness's reporter can send (#850). A key left out is not supported; see the note at the top of this file. */
+/** What a harness's reporter can send (#850). A key left out is not declared; see the note at the top of this file. */
 export interface Capabilities {
   effort?: boolean;
   plan?: boolean;

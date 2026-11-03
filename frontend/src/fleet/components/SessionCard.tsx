@@ -12,7 +12,7 @@ import { OwnerLine } from "./People";
 import { SessionId } from "./SessionId";
 import { IconPin } from "./Icons";
 import { bandWords } from "../recording";
-import { harnessOf } from "../harness";
+import { harnessOfSession } from "../harness";
 
 export const HOOKS_NOTE = "Reported by Claude Code settings hooks, not the reporter mod: context, cost, tokens, the plan and which agent launched which are unavailable, so every agent shows under the orchestrator.";
 
@@ -196,7 +196,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   // The states that want the person (or say the session is lost) get the heavier tint; a calm state a lighter one. The top line is the same thin line on every band.
   const hot = kind === "waiting" || kind === "stale";
   const hooks = s.reporter === "hooks";
-  const harness = harnessOf(s.harness);
+  const harness = harnessOfSession(s);
   const cls = `card sc${props.entering ? " enter" : ""}${props.leaving ? " leave" : ""}${risk ? " risk" : ""}${detached ? " detached" : ""}`;
   const sinceSeen = Math.max(0, (now - s.lastSeenAt) / 1000);
   const hasNotes = detached || hooks || vNote !== null;
@@ -216,7 +216,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
           {props.pin && <span className="pinslot" aria-hidden="true" />}
           <span className="mdl">
             {props.showHarness && <HarnessBadge harness={s.harness} />}
-            <ModelChip family={s.modelFamily} model={s.model} />
+            <ModelChip family={s.modelFamily} model={s.model} label={s.modelLabel} />
             {harness.effort && <EffortMeter effort={s.effort} />}
           </span>
         </div>

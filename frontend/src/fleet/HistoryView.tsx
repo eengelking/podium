@@ -248,7 +248,7 @@ export function HistoryView({ base = "/api/fleet", initialDay, fleetOptions, res
                             </td>
                             <td className="mono">{r.project}</td>
                             <td>
-                              <ModelChip family={r.modelFamily} model={r.model} />
+                              <ModelChip family={r.modelFamily} model={r.model} label={r.modelLabel} />
                             </td>
                             <td className="num">{fmtClock(r.endedAt)}</td>
                             <td className="num">{fmtDur(r.durationSec)}</td>

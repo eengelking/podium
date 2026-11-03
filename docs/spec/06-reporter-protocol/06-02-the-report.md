@@ -232,7 +232,7 @@ interface ReportV2 extends Omit<Report, 'v'> {
   v: 2;
   // both blocks are required in v2; a report without one is a 400 at its path
   harness: { id: string; name: string; version: string; surface: string | null };  // id: 1 to 32 letters, digits, - or _ (the key the server uses)
-  capabilities: {                       // each key is a boolean; a key left out is not supported
+  capabilities: {                       // each key is a boolean; a key left out is not declared (below)
     effort?: boolean; plan?: boolean; agents?: boolean; cost?: boolean; context?: boolean; git?: boolean; respond?: boolean;
     commands?: string[];                // the slash commands Podium may send, at most 64, none empty; left out means none
   };
@@ -243,9 +243,10 @@ What changes inside the v1 fields when `v` is 2:
 
 - `session.effort` and `agents[].effort` are any non-empty string or `null`; `plan.source` and `agents[].kind` are any non-empty string. v1 keeps its closed lists.
 - `session.model` and `agents[].model` stay strings. New and optional on both: `modelProvider` (such as `anthropic`) and `modelLabel` (the name the harness shows).
+- The server stores what a report declares (7.2): `capabilities` as sent (a key left out stays not declared), and `modelProvider` and `modelLabel`. A later report of the session replaces `capabilities` and replaces a label or provider it sends, `null` included; a report that carries none of them, v1 or a settings hook, leaves what is stored alone. A report that names a different `model` and sends no label or provider drops the stored ones, because they described the old model.
 - `session.costSource` says whether `costUsd` is the harness's own figure (`harness`) or an estimate (6.5). `session.harness`, if sent, must equal `harness.id`.
 
-**Omitted and null.** The two mean different things, in v2 and wherever a field is optional. A field or capability that is **omitted** is not supported by that reporter. `null` means it is supported and has no value now (an effort not chosen, a cost not yet known). A reader never turns one into the other. This does not change v1, whose optional fields keep the rule at the top of this page.
+**Omitted and null.** The two mean different things, in v2 and wherever a field is optional. A field that is **omitted** is not supported by that reporter. A capability key is the one exception (#940): `true` and `false` are the reporter's answer, and a key left out is **not declared**, so the console draws that field as it would for the harness without a declaration (8.1) and does not read the omission as a no. `null` means it is supported and has no value now (an effort not chosen, a cost not yet known). A reader never turns one into the other. This does not change v1, whose optional fields keep the rule at the top of this page.
 
 **Refusals.**
 
