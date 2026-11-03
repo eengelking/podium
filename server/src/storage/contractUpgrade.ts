@@ -118,9 +118,9 @@ export function upgradeCases(o: UpgradeOpeners): void {
       row('Addr:10.0.0.8', 'mod', T0 + 2), row('addr:10.0.0.8', 'mod', T0 + 3),
     ]);
     try {
-      const keys = (kind: 'mod' | 'hooks') => s.reporters.keysFor({ kind, machineId: null, source: '10.0.0.77', sessionId: 'sx', owner: null });
-      expect(await keys('hooks')).toEqual(['hooks:10.0.0.77', 'hooks:10.0.0.9']);
-      expect(await keys('mod')).toEqual(['addr:10.0.0.77', 'addr:10.0.0.8']);
+      const keys = (kind: 'mod' | 'hooks') => s.reporters.keysFor({ kind, machineId: null, source: '192.0.2.77', sessionId: 'sx', owner: null });
+      expect(await keys('hooks')).toEqual(['hooks:192.0.2.77', 'hooks:10.0.0.9']);
+      expect(await keys('mod')).toEqual(['addr:192.0.2.77', 'addr:10.0.0.8']);
     } finally {
       await s.close();
     }
