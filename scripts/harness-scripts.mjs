@@ -11,7 +11,7 @@ export function harnesses(pluginDir) {
     .readdirSync(pluginDir, { withFileTypes: true })
     .filter((e) => e.isDirectory() && e.name !== "core" && !e.name.startsWith("."))
     .map((e) => e.name)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 }
 
 // The scripts each harness folder is missing, as "test:mod:<harness>" / "typecheck:mod:<harness>".
