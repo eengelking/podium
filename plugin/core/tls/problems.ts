@@ -60,6 +60,16 @@ export function problemFor(code: string, host: string, clock?: ClockView, expire
   }
 }
 
+/**
+ * The file is for one person and this session reports as another (#948). `nameSource` says where the session's name came from, in words;
+ * `nameIsSetting` is true when that is a setting the person can empty. The words are the Claude reporter's.
+ */
+export function nameMismatchProblem(fileUser: string, sessionName: string, nameSource?: string, nameIsSetting?: boolean): Problem {
+  const from = nameSource ? `, and "${sessionName}" comes from ${nameSource}` : '';
+  const fix = nameSource && nameIsSetting ? `leave that empty so the session takes the file's name` : 'change the name';
+  return { code: 'NAME_MISMATCH', status: 'wrong config for this name', text: `The reporter config file is for "${fileUser}", but this session reports as "${sessionName}"${from}. Use the file for "${sessionName}", or ${fix}.` };
+}
+
 const STATUS_REASON_MAX = 60;
 
 /** `config unreadable`, with the reason after it (cut to fit a status line) so the status says what is wrong with the file (#672). */

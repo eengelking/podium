@@ -178,6 +178,7 @@ connects to the address in the file, the server's reporter port, over HTTPS with
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
 set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
 file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes. If you use more than one Podium server, name each file with a context (below).
+The OpenCode reporter finds and uses the file the same way, with no helper: it makes the connection inside the OpenCode process, and it has no status line, so what is wrong (a file others can read, an expired or refused certificate, the wrong name) is written once to the console as a `podium-reporter:` line.
 
 ### Contexts: more than one Podium server
 
@@ -415,14 +416,20 @@ if it could set a consent option it could turn on answering or recording without
 `idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
 (`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
 `PODIUM_FILE_DIFF`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
+The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.
+
+**The key file.** A reporter config file (#948) holds your private key. The reporter reads it from `~/.podium/` (or the path `PODIUM_REPORTER_CONFIG` or the current context gives), and nothing in a
+project can name it. It refuses a file that group or others can read (anything but mode `0600`), and says so. The key is held in the memory of the OpenCode process and used only for the
+connection to the server in that file, over HTTPS, never to another address and never over plain HTTP. It is never logged, put in a report, an error, a status or a
+console line. When the certificate is near its end, the reporter renews it and rewrites the file under a lock that every Claude Code and OpenCode session on the machine shares, so two sessions do not renew at once.
 
 **The token file.** `~/.podium/config.env` holds the token, so it should be mode `0600` and the folder `0700`. Those permissions are the
 operating system's, not Podium's: anything that runs as the same user can read the file. The reporter creates the machine id file as `0600` and does
 not change the mode of a file you made.
 
 **Same process, no wall.** OpenCode loads plugins into one shared service process and has no trust gate: a plugin in a repo's
-`.opencode/plugins/`, or in the config directory's `plugins/`, runs with the same reach as the reporter. It can read `~/.podium/` (tokens and mTLS keys) and call
-`permission.reply` or `session.prompt` itself. The reporter cannot prevent that and does not try to sandbox it; this is OpenCode's boundary. Only
+`.opencode/plugins/`, or in the config directory's `plugins/`, runs with the same reach as the reporter. It can read `~/.podium/` (tokens and mTLS keys), read the key the
+reporter holds in memory, send reports as you, and call `permission.reply` or `session.prompt` itself. The reporter cannot prevent that and does not try to sandbox it; this is OpenCode's boundary. Only
 install OpenCode plugins you trust, and do not open an untrusted repo in OpenCode with a token on the machine.
 
 **`service.json`.** In service mode OpenCode writes the service's address, pid and password to `$XDG_STATE_HOME/opencode/service.json`. Anything that

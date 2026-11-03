@@ -12,6 +12,9 @@ type Env = Readonly<Record<string, string | undefined>>;
 export interface OpenCodeOptions extends ReporterOptions {
   /** What this person allowed on this machine. Nothing in a project can change it. */
   consent: Consent;
+  /** PODIUM_REPORTER_CONFIG and PODIUM_REPORTER_CONTEXT (#948): which reporter config file to use. Like consent, only a trusted source names them. */
+  reporterConfig: string;
+  reporterContext: string;
 }
 
 /** The reporter's settings: the trusted sources first, `idleSeconds` from the plugin options, then the defaults. */
@@ -30,5 +33,7 @@ export function optionsOf(projectOptions: Readonly<Record<string, any>> | null |
     engineVersion,
     hostSurface: null,
     consent: t.consent,
+    reporterConfig: t.reporterConfig,
+    reporterContext: t.reporterContext,
   };
 }

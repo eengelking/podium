@@ -18,6 +18,10 @@ describe('trusted settings (#856)', () => {
     const on = trustedSettings({ PODIUM_RESPOND: 'true', PODIUM_SESSION_RECORDING: 'yes', PODIUM_PEERS: '1' }, 'PODIUM_FILE_DIFF=true\nPODIUM_ACTIVITY_FEED=TRUE')
     expect(on.consent).toMatchObject({ respond: true, sessionRecording: false, peers: false, fileDiff: true, activityFeed: false })
   })
+  test('the reporter config file and context are trusted settings too (#948)', () => {
+    expect(trustedSettings({}, null)).toMatchObject({ reporterConfig: '', reporterContext: '' })
+    expect(trustedSettings({ PODIUM_REPORTER_CONFIG: '/e.pem' }, 'PODIUM_REPORTER_CONFIG=/f.pem\nPODIUM_REPORTER_CONTEXT=work')).toMatchObject({ reporterConfig: '/e.pem', reporterContext: 'work' })
+  })
   test('the file is parsed leniently', () => {
     expect(parseSettingsFile('# c\n\nexport A="x y"\nB=\'z\'\nnoequals\n=bad\nC=1\nC=2')).toEqual({ A: 'x y', B: 'z', C: '2' })
     expect(parseSettingsFile(undefined)).toEqual({})
