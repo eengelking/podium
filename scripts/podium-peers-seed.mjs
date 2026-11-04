@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const HELP = `Usage: node scripts/podium-peers-seed.mjs --url <server> --secret <admin secret> [--name Ed] [--long] [--talk] [--keep]
+       [--activity-output] [--session-recording] [--file-diff]
 
 Seeds one person's reporters with orchestrator messaging on, for looking at My reporters and Traffic in a browser.
 Never point it at a server you use: it changes the Admin's settings and adds a person.
@@ -21,6 +22,12 @@ Never point it at a server you use: it changes the Admin's settings and adds a p
   --long    give two machines very long names
   --talk    exchange messages first (delivered, waiting, held and redacted ones), for Traffic's conversations
   --keep    keep reporting every 8 seconds so the sessions stay live
+  --activity-output    also turn on the Admin flag "activity-output" (a Bash command's output in the feed)
+  --session-recording  also turn on the Admin flag "session-recording"
+  --file-diff          also turn on the Admin flag "file-diff"
+                       The reporter option for each (activityOutput, sessionRecording, fileDiff) is the session's own choice: the
+                       Claude Code reporter reads it from its plugin options, the OpenCode reporter from PODIUM_ACTIVITY_OUTPUT,
+                       PODIUM_SESSION_RECORDING and PODIUM_FILE_DIFF. scripts/podium-peers-e2e.sh sets both from the same flags.
   -h        show this help`;
 
 const args = process.argv.slice(2);
@@ -92,7 +99,9 @@ const must = (r, what) => {
 };
 
 must(await admin('POST', '/unlock', { name: 'Admin', token: SECRET }), 'unlock');
-must(await admin('PUT', '/settings', { features: { 'peer-messaging': true, respond: true, 'activity-feed': true } }), 'flags');
+// Admin flags a run may need besides the messaging ones, each turned on by its own flag.
+const extraFlags = Object.fromEntries([['--activity-output', 'activity-output'], ['--session-recording', 'session-recording'], ['--file-diff', 'file-diff']].filter(([f]) => args.includes(f)).map(([, k]) => [k, true]));
+must(await admin('PUT', '/settings', { features: { 'peer-messaging': true, respond: true, 'activity-feed': true, ...extraFlags } }), 'flags');
 let made = await admin('POST', '/people', { name: person.name });
 if (made.status >= 300) {
   person.name = `${person.name}-${rid().slice(0, 4)}`;

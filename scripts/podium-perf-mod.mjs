@@ -12,6 +12,7 @@ const FLAG = '--experimental-transform-types';
 const HELP = `Usage: node scripts/podium-perf-mod.mjs [--agents 0,20,200] [--calls N] [--json] [-h]
 
 Times the reporter mod's reducers and report builder in this process (no server, no network, no Claude Code).
+Claude Code reporter only: it imports plugin/claudecode/hooks, so it takes no harness option.
 
   --agents <list>  agent counts to measure, comma separated (default 0,20,200)
   --calls <n>      tool calls per agent count after the agents exist (default 400)
