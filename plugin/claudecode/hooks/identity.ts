@@ -37,8 +37,4 @@ export function pickIdentity(from: { held: Identity | undefined; env: EnvIdentit
   return { userName: from.options.userName, token: from.options.token };
 }
 
-/** The text of `/podium name <text>`: trimmed, at most 80 characters. Null when no name follows. The two parts of the pattern are disjoint (#515). */
-export function nameArg(args: string): string | null {
-  const m = /^name\s+(\S[\s\S]*)$/i.exec(args.trim());
-  return m ? m[1]!.trim().slice(0, 80) : null;
-}
+export { nameArg } from '../../core/podiumCommand.ts'

@@ -152,7 +152,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {
       id: root.id,
-      name: clip(main.title || meta.optionName?.trim() || root.id, 80),
+      name: clip(root.storedName || main.title || meta.optionName?.trim() || root.id, 80),
       ...st,
       endReason: st.status === 'done' ? root.endReason : null,
       resumeId: null,

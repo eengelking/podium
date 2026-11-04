@@ -592,6 +592,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
   const generated: unknown[] = [];
   const hooks: Record<string, (i: any) => void> = {};
   const transforms: (() => void)[] = [];
+  const stored = new Map<string, unknown>();
   const removed: string[] = [];
   let reloads = 0;
   return {
@@ -614,6 +615,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
         for (const t of transforms) t();
       },
     },
+    storage: { get: async (k: string) => stored.get(k), set: async (k: string, v: unknown) => void stored.set(k, v) },
     session: { prompt: async (i: unknown) => void prompts.push(i), hook: async (name: string, cb: (i: any) => void) => { hooks[name] = cb; return { dispose: async () => undefined }; } },
     model: { list: async () => ({ data: [{ providerID: 'local', id: 'qwen-mini', type: 'chat', enabled: true, status: 'active', cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }] }) },
     experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
@@ -623,6 +625,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     prompts,
     generated,
     hooks,
+    stored,
     removed,
     reloads: () => reloads,
   };
@@ -797,6 +800,71 @@ describe('the plugin entry reports what an idle session still runs (#987)', () =
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe('the plugin entry answers /podium name and /podium context (#987)', () => {
+  it('names the session, keeps the name in storage, reports it, and reads it back after a reload', async () => {
+    const bodies: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => { bodies.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const events = [{ id: 'n1', type: 'session.created', data: { sessionID: 'ses_nm', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/nm' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/nm', events);
+        const stop = await setup(ctx);
+        for (let waited = 0; bodies.length === 0 && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        await ctx.commands[0]!.execute({ sessionID: 'ses_nm', prompt: { text: '/podium name Silverbolt' } });
+        expect(ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message).toBe('Podium: this session is now named "Silverbolt".');
+        expect(ctx.stored.get('name:ses_nm')).toBe('Silverbolt');
+        for (let waited = 0; !bodies.some((b) => b.session?.name === 'Silverbolt') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(bodies.some((b) => b.session?.name === 'Silverbolt')).toBe(true);
+        await ctx.commands[0]!.execute({ sessionID: 'ses_nobody', prompt: { text: '/podium name Other' } });
+        expect(ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message).toContain('has not started yet');
+        await stop();
+        // A new load of the plugin in the same location (the reporter was closed) finds the kept name.
+        bodies.length = 0;
+        const again = fakeCtx({ flushIntervalMs: 200 }, '/loc/nm', events);
+        again.stored.set('name:ses_nm', 'Silverbolt');
+        const stopAgain = await setup(again);
+        for (let waited = 0; !bodies.some((b) => b.session?.name === 'Silverbolt') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(bodies.some((b) => b.session?.name === 'Silverbolt')).toBe(true);
+        await stopAgain();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('runs /podium context against the contexts file in the home folder, and says what failed', async () => {
+    const home = tmp();
+    await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {
+      const setup = (plugin as unknown as { setup: Setup }).setup;
+      const ctx = fakeCtx({}, '/loc/cx');
+      const stop = await setup(ctx);
+      const said = () => ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message as string;
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context' } });
+      expect(said()).toMatch(/context/i);
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context add work nofile.pem' } });
+      expect(said()).toContain('nofile.pem');
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context bogus' } });
+      expect(said()).toContain('Unknown context command "bogus"');
+      // A context for a reporter config file is written to ~/.podium/contexts.json and listed again.
+      fs.mkdirSync(path.join(home, '.podium'), { recursive: true });
+      putConfig(home, 'reporter-config-Dana-1700000200.pem', configText('Dana', 'https://localhost:4318'));
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context add work reporter-config-Dana-1700000200.pem' } });
+      expect(JSON.parse(fs.readFileSync(path.join(home, '.podium', 'contexts.json'), 'utf8')).contexts.work).toBe('reporter-config-Dana-1700000200.pem');
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context list' } });
+      expect(said()).toContain('work');
+      fs.rmSync(path.join(home, '.podium', 'contexts.json'));
+      // A contexts file that cannot be read is said, and nothing is rewritten.
+      fs.mkdirSync(path.join(home, '.podium'), { recursive: true });
+      fs.mkdirSync(path.join(home, '.podium', 'contexts.json'));
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context list' } });
+      expect(said()).toMatch(/cannot be read|failed/);
+      await stop();
+    });
   });
 });
 

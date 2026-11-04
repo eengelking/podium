@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '../core/transport.ts';
-import { dedupe, deliver, noticeOf, podiumText, StatusWatcher, statusChange } from './notice.ts';
+import { dedupe, deliver, messagingLine, messagingOffReason, noticeOf, podiumText, StatusWatcher, statusChange } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
 import type { BusEvent } from './state.ts';
@@ -12,6 +12,8 @@ function reporter(reply: { status: number; text: string }, log: (l: string) => v
   const fetch: FetchLike = async () => ({ status: reply.status, ok: reply.status >= 200 && reply.status < 300, text: reply.text });
   return new Reporter({ fetch, now: () => 5000, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test:4317/', PODIUM_TOKEN: 't' }, null), idleMs: 600_000 });
 }
+
+const sign = { signIn: { configPath: null, tokenSet: true }, signedIn: true, context: null };
 
 describe('dedupe: a warning is said once (#969)', () => {
   it('passes a line on the first time and drops the same line after', () => {
@@ -57,7 +59,7 @@ describe('podiumText: what /podium shows (#969)', () => {
     const r = reporter({ status: 200, text: '{"ok":true,"liveSessions":2,"serverVersion":"1.5.0"}' });
     r.handle(ev('session.created', { sessionID: 'ses_a' }, 1000));
     await r.tick();
-    const text = podiumText(r.summary(), { serverUrl: r.opts.serverUrl, home: '/home/dana', tls: null, version: r.opts.version });
+    const text = podiumText(r.summary(), { serverUrl: r.opts.serverUrl, home: '/home/dana', tls: null, version: r.opts.version, ...sign });
     expect(text).toContain('Podium fleet console: http://podium.test:4317/#/');
     expect(text).toContain('Home folder: /home/dana');
     expect(text).toContain('Connection: online (2 live sessions)');
@@ -70,29 +72,29 @@ describe('podiumText: what /podium shows (#969)', () => {
 
   it('says a connection is offline, not tried, or refused, and prints the notice and the last error', async () => {
     const down = new Reporter({ fetch: async () => { throw new Error('connect ECONNREFUSED'); }, now: () => 5000, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, optionsOf({}, null, {}, null));
-    expect(podiumText(down.summary(), { serverUrl: 'http://x', home: '/h', tls: null, version: '1' })).toContain('Connection: not tried yet');
+    expect(podiumText(down.summary(), { serverUrl: 'http://x', home: '/h', tls: null, version: '1', ...sign })).toContain('Connection: not tried yet');
     down.handle(ev('session.created', { sessionID: 'ses_b' }, 1000));
     await down.tick();
-    const t = podiumText(down.summary(), { serverUrl: 'http://x', home: '/h', tls: 'connected over HTTPS', version: '1' });
+    const t = podiumText(down.summary(), { serverUrl: 'http://x', home: '/h', tls: 'connected over HTTPS', version: '1', ...sign });
     expect(t).toContain('Connection: offline, retrying');
     expect(t).toContain('Last error: connect ECONNREFUSED');
     expect(t).toContain('TLS: connected over HTTPS');
     const old = reporter({ status: 400, text: '{"path":"$.v"}' });
     old.handle(ev('session.created', { sessionID: 'ses_c' }, 1000));
     await old.tick();
-    expect(podiumText(old.summary(), { serverUrl: 'http://x', home: '/h', tls: null, version: '1' })).toContain('report version 1');
+    expect(podiumText(old.summary(), { serverUrl: 'http://x', home: '/h', tls: null, version: '1', ...sign })).toContain('report version 1');
   });
 
   it('counts dropped events when there are some', () => {
     const base = reporter({ status: 200, text: '{}' }).summary();
-    expect(podiumText({ ...base, dropped: 3 }, { serverUrl: 'http://x', home: '/h', tls: null, version: '1' })).toContain(', dropped: 3');
+    expect(podiumText({ ...base, dropped: 3 }, { serverUrl: 'http://x', home: '/h', tls: null, version: '1', ...sign })).toContain(', dropped: 3');
   });
 });
 
 describe('podiumText: the console address (#969)', () => {
   it('drops every slash at the end of the address, and only those', () => {
-    const facts = (serverUrl: string) => ({ serverUrl, home: '/h', tls: null, version: '1' });
-    const summary = { online: null, liveSessions: null, serverVersion: null, notices: [], sent: 0, failed: 0, rejected: 0, queued: 0, dropped: 0, lastError: null, sessions: 0 };
+    const facts = (serverUrl: string) => ({ serverUrl, home: '/h', tls: null, version: '1', ...sign });
+    const summary = { online: null, liveSessions: null, serverVersion: null, notices: [], sent: 0, failed: 0, rejected: 0, queued: 0, dropped: 0, lastError: null, sessions: 0, messaging: { option: false, canPrompt: false, reported: false, serverSays: false } };
     expect(podiumText(summary, facts('http://x///'))).toContain('Podium fleet console: http://x/#/');
     expect(podiumText(summary, facts('http://x/a/b'))).toContain('Podium fleet console: http://x/a/b/#/');
     expect(podiumText(summary, facts('///'))).toContain('Podium fleet console: /#/');
@@ -142,5 +144,42 @@ describe('StatusWatcher and deliver (#969)', () => {
     await deliver(n, undefined, (l) => lines.push(l));
     await deliver(n, async () => { throw new Error('gone'); }, (l) => lines.push(l));
     expect(lines).toEqual(['podium v1 ● 1 live', 'podium v1 ● 1 live']);
+  });
+});
+
+describe('podiumText: sign-in, messaging, context and the commands (#987)', () => {
+  const on = { option: true, canPrompt: true, reported: true, serverSays: true };
+
+  it('says how the reporter signs in and the commands it takes, and never a token', () => {
+    const base = reporter({ status: 200, text: '{}' }).summary();
+    const t = podiumText(base, { serverUrl: 'http://x', home: '/h', tls: null, version: '1', signIn: { configPath: '/h/.podium/a.pem', tokenSet: true }, signedIn: true, context: null });
+    expect(t).toContain('Sign-in: reporter config file /h/.podium/a.pem (mTLS)');
+    expect(t).toContain('Name this session: /podium name <text>. Contexts (which Podium server): /podium context');
+    expect(t).not.toContain('Context:');
+    expect(podiumText(base, { serverUrl: 'http://x', home: '/h', tls: null, version: '1', signIn: { configPath: null, tokenSet: false }, signedIn: false, context: null })).toContain('Sign-in: none');
+  });
+  it('names the context that chose the reporter config file', () => {
+    const base = reporter({ status: 200, text: '{}' }).summary();
+    const t = podiumText(base, { serverUrl: 'https://p.test:4318/', home: '/h', tls: null, version: '1', ...sign, context: 'work' });
+    expect(t).toContain('Context: work (https://p.test:4318). Switch it for the next session with /podium context use <name>.');
+  });
+  it('gives the reason messaging is off, the first that holds, and says on when nothing stops it', () => {
+    expect(messagingOffReason({ ...on, option: false }, true)).toContain('PODIUM_PEERS is off');
+    expect(messagingOffReason({ ...on, canPrompt: false }, true)).toContain('cannot submit a prompt');
+    expect(messagingOffReason(on, false)).toContain('no per-person token');
+    expect(messagingOffReason({ ...on, reported: false }, true)).toContain('no session has reported yet');
+    expect(messagingOffReason({ ...on, serverSays: false }, true)).toContain("messaging flag is off");
+    expect(messagingOffReason(on, true)).toBeNull();
+    expect(messagingLine(on, true)).toBe('Messaging: on. PODIUM_PEERS: on; Podium says: takes part');
+    expect(messagingLine({ ...on, serverSays: false }, true)).toContain('Podium says: does not take part');
+    expect(messagingLine({ ...on, reported: false }, true)).toContain('off, because no session has reported yet: send it a prompt. PODIUM_PEERS: on; Podium says: nothing yet');
+    expect(messagingLine({ ...on, option: false }, true)).toContain('PODIUM_PEERS: off');
+  });
+  it('reads the messaging facts from the reporter', async () => {
+    const r = reporter({ status: 200, text: '{"peers":true}' });
+    expect(r.summary().messaging).toEqual({ option: false, canPrompt: false, reported: false, serverSays: false });
+    r.handle(ev('session.created', { sessionID: 'ses_m' }, 1000));
+    await r.tick();
+    expect(r.summary().messaging).toMatchObject({ reported: true, serverSays: true });
   });
 });

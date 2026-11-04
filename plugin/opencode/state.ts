@@ -155,6 +155,8 @@ export interface Root {
   git: GitInfo | null;
   /** The git project root and `owner/name`, once git has been read for the folder in `cwd` (#987); null before, and the report then says the folder and its name. */
   place: Place | null;
+  /** The name `/podium name` gave (#987); it wins over the title OpenCode gives and the `sessionName` option, as in Claude Code. */
+  storedName: string | null;
   /** What the root is idle on, as `experimental.idle` last listed it (#987); null while it works again, and when nothing is running. */
   background: BackgroundWait | null;
   /** The folder `place` was read for, so a root that moves is read again. */
@@ -220,7 +222,7 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
   recorder.begin(id);
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
-    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, background: null, placeFor: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
+    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
     watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null,
   };
 }

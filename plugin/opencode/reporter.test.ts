@@ -1113,3 +1113,42 @@ describe('Reporter: a dev build says so (#987)', () => {
     }
   });
 });
+
+describe('Reporter: /podium name (#987)', () => {
+  const collect = (bodies: Report[]): FetchLike => async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; };
+  const start = (r: Reporter, id = ROOT) => r.handle(ev('session.created', { sessionID: id, title: 'OpenCode title', location: { directory: '/work/project' } }, 10_000));
+
+  it('names the root, over OpenCode\'s title, from the root or from a child session, and says which root to keep it for', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    expect(r.rename(KID, 'Silverbolt')).toBe(ROOT);
+    await r.tick();
+    expect(bodies.at(-1)!.session.name).toBe('Silverbolt');
+    expect(r.rename('ses_nobody', 'x')).toBeNull();
+  });
+  it('asks once for a name kept before a reload, and a name typed since wins over it', async () => {
+    const asked: string[] = [];
+    const bodies: Report[] = [];
+    const r = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async (id) => (asked.push(id), 'Kept name') }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(r);
+    start(r);
+    await r.tick();
+    await new Promise((res) => setTimeout(res, 0));
+    await r.tick();
+    expect(asked).toEqual([ROOT]);
+    expect(bodies.at(-1)!.session.name).toBe('Kept name');
+    const typed = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async () => 'Old' }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(typed);
+    typed.rename(ROOT, 'New');
+    await new Promise((res) => setTimeout(res, 0));
+    await typed.tick();
+    expect(bodies.at(-1)!.session.name).toBe('New');
+    const none = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async () => { throw new Error('no storage'); } }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(none);
+    await new Promise((res) => setTimeout(res, 0));
+    await none.tick();
+    expect(bodies.at(-1)!.session.name).toBe('OpenCode title');
+  });
+});

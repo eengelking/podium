@@ -59,12 +59,7 @@ export function nonBooleanOptions(o: Record<string, unknown>): { name: string; g
   return BOOLEAN_OPTIONS.filter((name) => o[name] !== undefined && o[name] !== null && typeof o[name] !== 'boolean').map((name) => ({ name, got: describeValue(o[name]) }));
 }
 
-/** The `Sign-in:` line: a plain token or a reporter config file (mTLS), and which file. */
-export function connectionLine(c: { configPath: string | null; tokenSet: boolean }): string {
-  if (c.configPath) return `Sign-in: reporter config file ${c.configPath} (mTLS)`;
-  if (c.tokenSet) return 'Sign-in: a plain token (not a reporter config file)';
-  return 'Sign-in: none (no token and no reporter config file)';
-}
+export { connectionLine } from '../../core/podiumCommand.ts';
 
 /**
  * The `Option problem:` line for one mistyped switch. The mod does not read `"true"` as true: a consent option such as

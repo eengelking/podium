@@ -1,5 +1,6 @@
 // What the OpenCode reporter tells the person (#969): the transport's notices as console lines said once, the text of `/podium`, and the
 // toast the TUI part shows when the connection changes. Pure; index.ts and tui.ts only carry the text to where it is shown.
+import { connectionLine } from '../core/podiumCommand.ts';
 import type { Summary } from './reporter.ts';
 
 /** A logger that says each distinct line once. It remembers at most `max` lines, so a long run cannot make it grow without end. */
@@ -20,22 +21,49 @@ export interface PodiumFacts {
   /** What the secure connection says, or null when there is no reporter config file. */
   tls: string | null;
   version: string;
+  /** How the reporter signs in: the reporter config file, and whether there is a plain token (#987). Never the token. */
+  signIn: { configPath: string | null; tokenSet: boolean };
+  /** Whether the person is signed in as someone: a reporter config file, or a user name with a token. Messaging needs it. */
+  signedIn: boolean;
+  /** The context that chose the reporter config file, or null. */
+  context: string | null;
 }
 
 const connection = (online: boolean | null): string => (online === null ? 'not tried yet' : online ? 'online' : 'offline, retrying');
+
+/** Why messaging is off, in the order the reporter can know it, in plain words; null when it is on. */
+export function messagingOffReason(m: Summary['messaging'], signedIn: boolean): string | null {
+  if (!m.option) return 'PODIUM_PEERS is off on this machine: turn it on in the environment or ~/.podium/config.env';
+  if (!m.canPrompt) return 'this OpenCode cannot submit a prompt, so no message could enter a session';
+  if (!signedIn) return "there is no per-person token with a user name, or reporter config file: messaging is only between one person's own reporters, so set both";
+  if (!m.reported) return 'no session has reported yet: send it a prompt';
+  if (!m.serverSays) return "Podium's messaging flag is off (Admin > Settings), or this reporter signs in with the admin secret, which belongs to no person";
+  return null;
+}
+
+/** The `Messaging:` line of `/podium`: the verdict, then each fact behind it. */
+export function messagingLine(m: Summary['messaging'], signedIn: boolean): string {
+  const why = messagingOffReason(m, signedIn);
+  const says = !m.reported ? 'nothing yet' : m.serverSays ? 'takes part' : 'does not take part';
+  return `Messaging: ${why === null ? 'on' : `off, because ${why}`}. PODIUM_PEERS: ${m.option ? 'on' : 'off'}; Podium says: ${says}`;
+}
 
 /** The `/podium` answer: the same facts the Claude Code `/podium` gives that OpenCode has. */
 export function podiumText(s: Summary, f: PodiumFacts): string {
   return [
     `Podium fleet console: ${withoutTrailingSlashes(f.serverUrl)}/#/`,
     f.tls ? `TLS: ${f.tls}` : '',
+    f.context ? `Context: ${f.context} (${withoutTrailingSlashes(f.serverUrl)}). Switch it for the next session with /podium context use <name>.` : '',
     `Home folder: ${f.home}`,
     `Connection: ${connection(s.online)}${s.liveSessions === null ? '' : ` (${s.liveSessions} live sessions)`}`,
     `Versions: reporter ${f.version}${s.serverVersion ? `, server ${s.serverVersion}` : ''}`,
     ...s.notices,
+    connectionLine(f.signIn),
+    messagingLine(s.messaging, f.signedIn),
     `Reports sent: ${s.sent}, failed: ${s.failed}, rejected: ${s.rejected}; events queued: ${s.queued}${s.dropped ? `, dropped: ${s.dropped}` : ''}`,
     `Last error: ${s.lastError ?? 'none'}`,
     `Sessions: ${s.sessions}`,
+    'Name this session: /podium name <text>. Contexts (which Podium server): /podium context',
   ]
     .filter(Boolean)
     .join('\n');

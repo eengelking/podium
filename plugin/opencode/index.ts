@@ -2,15 +2,16 @@
 // the modules beside it, which need no OpenCode API and are tested on their own.
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
 import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
-import { parseAnswer } from '../core/peers.ts';
+import { contextCommand, type ContextIO } from '../core/tls/contexts.ts';
 import { buildOf, packageRoot } from './build.ts';
+import { argsOf, runPodium } from './command.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
@@ -77,6 +78,19 @@ const plainFetch: FetchLike = async (url, init) => {
   return { status: r.status, ok: r.ok, text: await r.text() };
 };
 
+/** `/podium context ...` (#606): the contexts file is read and written on disk; a file that is not there reads as null. */
+const contextVerb = async (args: string): Promise<string> => {
+  const io: ContextIO = {
+    read: (path) => readFile(path, 'utf8').catch((err: NodeJS.ErrnoException) => (err.code === 'ENOENT' ? null : Promise.reject(err))),
+    write: (path, text) => writeFile(path, text, { mode: 0o600 }),
+  };
+  try {
+    return await contextCommand(io, homeOf(process.env), args, process.env.PODIUM_REPORTER_CONTEXT || undefined);
+  } catch (err) {
+    return `Podium: the context command failed (${err instanceof Error ? err.message : String(err)}).`;
+  }
+};
+
 /** One reporter for a location: its options, the secure connection when a reporter config file is found, and the flush timer. */
 async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const settings = readSettingsFile();
@@ -125,6 +139,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
       problem: link?.problem,
       answering,
+      loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
       ...(options.explainFailures ? { explain: (prompt: string) => explainWith((input) => ctx.experimental.generate.text(input), () => ctx.model.list(), prompt) } : {}),
@@ -144,21 +159,40 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   );
   const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
-  // `/podium allow|decline|deliver <id>` answers a messaging request instead.
+  // `/podium allow|decline|deliver <id>` answers a messaging request, `/podium name <text>` names the session and `/podium context ...` picks the Podium server.
   void ctx.command.transform((editor) =>
     editor.add({
       name: 'podium',
-      description: 'Show where Podium reports go and how the connection is; answer a messaging request with allow, decline or deliver and its id',
+      description: 'Show where Podium reports go and how the connection is; name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
       execute: async (invocation) => {
-        const asked = parseAnswer(String(invocation?.prompt?.text ?? '').replace(/^\/?podium\b/i, ''));
-        if (asked) return show({ title: 'Podium', message: await reporter.answerRequest(invocation.sessionID, asked.answer, asked.id), variant: 'info' });
-        const status = podiumText(reporter.summary(), { serverUrl: options.serverUrl, home: homeOf(process.env), tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null, version: options.version });
-        const waiting = reporter.waitingRequests();
-        return show({ title: 'Podium', message: waiting ? `${status}\n${waiting}` : status, variant: 'info' });
+        const sessionID = invocation.sessionID;
+        const message = await runPodium(argsOf(invocation?.prompt?.text), {
+          answer: (answer, id) => reporter.answerRequest(sessionID, answer, id),
+          name: async (name) => {
+            const id = reporter.rename(sessionID, name);
+            if (!id) return 'Podium reporter is loaded but the session has not started yet.';
+            await ctx.storage.set(`name:${id}`, name).catch(() => undefined);
+            return `Podium: this session is now named "${name}".`;
+          },
+          context: (args) => contextVerb(args),
+          status: () => {
+            const status = podiumText(reporter.summary(), {
+              serverUrl: options.serverUrl,
+              home: homeOf(process.env),
+              tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null,
+              version: options.version,
+              signIn: { configPath: link?.configPath ?? null, tokenSet: options.token.trim() !== '' },
+              signedIn: !!link || (!!options.userName?.trim() && options.token.trim() !== ''),
+              context: link?.context ?? null,
+            });
+            const waiting = reporter.waitingRequests();
+            return waiting ? `${status}\n${waiting}` : status;
+          },
+        });
+        return show({ title: 'Podium', message, variant: 'info' });
       },
     }),
   ).catch(() => undefined);
-  // The `plan` tool, and the messaging tools where the person allowed them.
   // The messaging tools come and go with Podium's word that the session takes part (#987): the list is built again on each `reload`.
   void ctx.tool.transform((editor) => {
     const offered = podiumTools(reporter);

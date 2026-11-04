@@ -53,6 +53,8 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** The name `/podium name` kept for a session (`ctx.storage`), or null; asked once for each root when it appears (#987). */
+  loadName?: (rootId: string) => Promise<string | null>;
   /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
   attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
@@ -118,6 +120,8 @@ export interface Summary {
   /** The distinct notices (refused, belongs to someone else, server too old, version mismatch, update available). */
   notices: string[];
   sessions: number;
+  /** What `/podium` says about messaging (#987). */
+  messaging: { option: boolean; canPrompt: boolean; reported: boolean; serverSays: boolean };
 }
 
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
@@ -125,6 +129,7 @@ export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, f
 export class Reporter {
   readonly store: Store = newStore();
   readonly transports = new Map<string, Transport>();
+  private readonly named = new Set<string>();
   private readonly gitAt = new Map<string, number>();
   /** Branch reads in flight: a final flush waits for them (within its time limit) so a short-lived run still reports its branch. */
   private readonly gitPending = new Set<Promise<void>>();
@@ -172,7 +177,10 @@ export class Reporter {
     if (ev.type === 'session.step.started') this.wantWindow(ev.data?.model?.providerID, ev.data?.model?.id);
     if (root) {
       this.queue(root);
-      if (!root.done) this.refreshGit(root, this.deps.now());
+      if (!root.done) {
+        this.refreshGit(root, this.deps.now());
+        this.remember(root);
+      }
     }
   }
 
@@ -218,6 +226,7 @@ export class Reporter {
       lastError: ts.find((t) => t.lastError)?.lastError ?? null,
       notices: [...notices],
       sessions: this.store.roots.size,
+      messaging: { option: this.opts.peers === true, canPrompt: !!this.deps.prompt, reported: ts.some((t) => t.sent > 0), serverSays: ts.some((t) => t.peers) },
     };
   }
 
@@ -225,6 +234,30 @@ export class Reporter {
   background(sessionId: string, jobs: readonly IdleJob[]): void {
     const root = this.store.roots.get(this.store.rootOf.get(sessionId) ?? sessionId);
     if (root) setBackground(root, jobs);
+  }
+
+  /** `/podium name <text>` typed in a session: names its root. The root's id (to keep the name by), or null when the session is not known. */
+  rename(sessionId: string, name: string): string | null {
+    const root = this.store.roots.get(this.store.rootOf.get(sessionId) ?? sessionId);
+    if (!root) return null;
+    root.storedName = name;
+    root.dirty = true;
+    return root.id;
+  }
+
+  /** Asks once for the name a root was given before a reload or restart. A name typed since wins over the one read. */
+  private remember(root: Root): void {
+    if (!this.deps.loadName || this.named.has(root.id)) return;
+    this.named.add(root.id);
+    void this.deps.loadName(root.id).then(
+      (name) => {
+        if (name && !root.storedName) {
+          root.storedName = name;
+          root.dirty = true;
+        }
+      },
+      () => undefined,
+    );
   }
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
