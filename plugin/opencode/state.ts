@@ -65,6 +65,8 @@ export interface Sess {
   steps: number;
   /** Automatic compactions: OpenCode compacts by itself when the context nears its limit. */
   blowouts: number;
+  /** When each automatic compaction of the current run ended, newest last (kept to the last 20): the run's count for the classifier and the evidence line. */
+  blowoutTimes: number[];
   prompt: string;
   answer: string;
   failure: Failure | null;
@@ -201,7 +203,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
   return {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
-    toolCounts: {}, lastTool: null, steps: 0, blowouts: 0, prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
+    toolCounts: {}, lastTool: null, steps: 0, blowouts: 0, blowoutTimes: [], prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
     activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }
@@ -336,8 +338,8 @@ const freshCandidate = (s: Sess, at: number): FailureCandidate | null => (s.cand
  */
 function recordFailure(s: Sess, reason: 'error' | 'aborted', at: number, errText: string): Failure {
   const cand = freshCandidate(s, at);
-  const cls = classify({ reason, candidate: cand, stopReason: null, blowouts: 0, now: at }) ?? 'Unknown';
-  const ev = evidence({ blowoutTimes: [], failedCalls: s.failedCalls, reads: {}, denyText: cand?.denied ? cand.denyText : null });
+  const cls = classify({ reason, candidate: cand, stopReason: null, blowouts: s.blowoutTimes.length, now: at }) ?? 'Unknown';
+  const ev = evidence({ blowoutTimes: s.blowoutTimes, failedCalls: s.failedCalls, reads: {}, denyText: cand?.denied ? cand.denyText : null });
   const request = cls === 'Model API error' ? { tool: 'model request', call: s.model ? `model request (${s.model}${s.effort ? `, effort ${s.effort}` : ''})` : 'model request' } : {};
   const f = buildFailure(cls, cand, ev, at, request);
   if (!cand && errText) f.outputTail = tailLines(errText);
@@ -352,10 +354,16 @@ function skillLoaded(root: Root, s: Sess, name: string | null, at: number): void
   emit(root, at, 'skill', s.id === root.id ? null : s.id, `${name} loaded into ${s.id === root.id ? 'orchestrator' : (s.agent ?? 'agent')}`, { skill: name });
 }
 
-function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, failed: boolean): void {
+/** The exit code of a finished shell call, from its metadata (OpenCode 2.2.5 sets `metadata.exit`); null for another tool or none. */
+const shellExit = (tool: string, d: Record<string, any>): number | null => (tool === 'Bash' && typeof d.metadata?.exit === 'number' && Number.isFinite(d.metadata.exit) ? d.metadata.exit : null);
+
+function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, failedEvent: boolean): void {
   const id = str(d.id);
   if (!id) return;
   const call = s.calls.get(id) ?? { id, tool: 'tool', input: {}, at, done: false };
+  // OpenCode 2.2.5 reports a shell call that exits non-zero as a success, with the code in its metadata; for Claude Code that is a failed call.
+  const exit = shellExit(call.tool, d);
+  const failed = failedEvent || (exit !== null && exit !== 0);
   call.done = true;
   s.calls.delete(id);
   const loop = loopKey(root, s);
@@ -375,12 +383,13 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   }
   const cand = candidateFrom(call.tool, call.input, { isError: true, text: result }, at);
   if (!cand) return;
+  if (exit !== null) cand.exitCode = exit;
   s.failedCalls[cand.call] = (s.failedCalls[cand.call] ?? 0) + 1;
   // The call a person just refused fails as a result; the refusal stays the cause.
   const denied = freshCandidate(s, at)?.denied ? s.candidate : null;
   if (!denied) s.candidate = cand;
-  const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: 0, now: at });
-  s.failure = buildFailure(cls ?? 'Tool error', denied ?? cand, evidence({ blowoutTimes: [], failedCalls: s.failedCalls, reads: {}, denyText: denied?.denyText ?? null }), at);
+  const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: s.blowoutTimes.length, now: at });
+  s.failure = buildFailure(cls ?? 'Tool error', denied ?? cand, evidence({ blowoutTimes: s.blowoutTimes, failedCalls: s.failedCalls, reads: {}, denyText: denied?.denyText ?? null }), at);
   emit(root, at, 'fail', s.id === root.id ? null : s.id, `${call.tool} failed`, { class: s.failure.class });
 }
 
@@ -436,6 +445,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       s.executing = true;
       s.end = 'running';
       s.endedAt = null;
+      // A new run starts its own count: compactions of an earlier run do not make this run's failure a spent window.
+      s.blowoutTimes = [];
       break;
     case 'session.execution.succeeded':
       s.executing = false;
@@ -568,7 +579,10 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const before = s.ctxTokens;
       const after = failed || !num(d.tokens?.output) ? before : num(d.tokens?.output);
       if (!failed) s.ctxTokens = after;
-      if (auto && !failed) s.blowouts++;
+      if (auto && !failed) {
+        s.blowouts++;
+        s.blowoutTimes = [...s.blowoutTimes, t].slice(-20);
+      }
       const label = failed ? 'compaction failed' : auto ? 'auto-compacted' : 'compacted';
       emit(root, t, 'compact', s.id === root.id ? null : s.id, label, { trigger: auto ? 'auto' : 'manual', tokensBefore: before, tokensAfter: after });
       break;
