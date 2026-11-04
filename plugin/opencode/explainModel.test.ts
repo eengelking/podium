@@ -49,10 +49,14 @@ describe('asking it (#986)', () => {
     expect(await explainWith(text, () => { throw new Error('no model API'); }, 'p')).toBe('ok (explained by OpenCode\'s default model)');
   });
 
-  it('retries once on the default model when the chosen one fails', async () => {
-    const text = vi.fn(async (i: { prompt: string; model?: unknown }) => { if (i.model) throw new Error('no credentials'); return { text: 'ok' }; });
-    expect(await explainWith(text, async () => list, 'p')).toBe('ok (explained by OpenCode\'s default model)');
-    expect(text).toHaveBeenCalledTimes(2);
+  it('does not fall back to the default model when the chosen one fails', async () => {
+    const text = vi.fn(async () => { throw new Error('no credentials'); });
+    await expect(explainWith(text, async () => list, 'p')).rejects.toThrow('no credentials');
+    expect(text).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null for an answer that is not text', async () => {
+    expect(await explainWith(async () => ({}) as { text: string }, async () => list, 'p')).toBeNull();
   });
 
   it('returns null for an empty answer', async () => {

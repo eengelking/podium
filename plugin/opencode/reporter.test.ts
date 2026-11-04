@@ -650,6 +650,15 @@ describe('failure detail', () => {
     expect(failureOf(s)).toMatchObject({ class: 'Context window exhausted', evidence: [expect.stringContaining('exceeded the context window 3 times')] });
   });
 
+  it('counts compactions per run: those of an earlier run do not classify a later failure (#986)', () => {
+    const s = setup();
+    for (const t of [10, 20, 30]) apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'auto' }, t), t);
+    apply(s, ev('session.execution.started', { sessionID: KID }, 40), 40);
+    call(s, 'c1', 'bash', { command: 'false' }, 41);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'exit code 1' } }, 43), 43);
+    expect(failureOf(s)).toMatchObject({ class: 'Tool error', evidence: [] });
+  });
+
   it('keeps a step failure after fewer than three auto-compactions out of that class, and carries the count to a failed call (#986)', () => {
     const s = setup();
     for (const t of [10, 20]) apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'auto' }, t), t);
@@ -666,6 +675,10 @@ describe('failure detail', () => {
     call(s, 'c1', 'shell', { command: 'exit 7' }, 3);
     apply(s, ev('session.tool.success', { sessionID: KID, id: 'c1', content: [{ type: 'text', text: 'oops\n' }, { type: 'text', text: 'Exited with code 7' }], metadata: { status: 'completed', truncated: false, exit: 7 } }, 5), 5);
     expect(failureOf(s)).toMatchObject({ class: 'Tool error', tool: 'Bash', call: 'exit 7', exitCode: 7 });
+    const t2 = setup();
+    call(t2, 'c1', 'shell', { command: 'x' }, 3);
+    apply(t2, ev('session.tool.success', { sessionID: KID, id: 'c1', content: [{ type: 'text', text: 'Exited with code 9' }], metadata: { exit: 4 } }, 5), 5);
+    expect(failureOf(t2).exitCode).toBe(4);
     expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('Bash failed');
   });
 

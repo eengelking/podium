@@ -41,8 +41,8 @@ const DEFAULT_LABEL = "OpenCode's default model";
 const LIMIT = 400;
 
 /**
- * Asks for an explanation of a failure from the small model `pickExplainModel` chose, falling back to OpenCode's default model when none is
- * listed, the list cannot be read or the chosen model fails. The answer ends with the model that gave it. Null for an empty answer.
+ * Asks for an explanation of a failure from the small model `pickExplainModel` chose, falling back to OpenCode's default model only when none is
+ * listed or the list cannot be read. A chosen model that fails gives no explanation. The answer ends with the model that gave it. Null for an empty answer.
  */
 export async function explainWith(generate: Generate, list: () => Promise<unknown>, prompt: string): Promise<string | null> {
   let chosen: ModelRef | null = null;
@@ -51,20 +51,12 @@ export async function explainWith(generate: Generate, list: () => Promise<unknow
   } catch {
     // A list that cannot be read (or a host without one) means the default model.
   }
-  let label = chosen ? `${chosen.providerID}/${chosen.id}` : DEFAULT_LABEL;
+  const label = chosen ? `${chosen.providerID}/${chosen.id}` : DEFAULT_LABEL;
   let out: { text: string };
-  if (chosen) {
-    try {
-      out = await generate({ prompt, model: chosen });
-    } catch {
-      label = DEFAULT_LABEL;
-      out = await generate({ prompt });
-    }
-  } else {
-    out = await generate({ prompt });
-  }
-  const text = out.text.trim();
+  // A chosen model that fails is not retried on the default: that is the expensive model this exists to avoid.
+  out = await generate(chosen ? { prompt, model: chosen } : { prompt });
+  const text = typeof out?.text === 'string' ? out.text.trim() : '';
   if (!text) return null;
   const tag = ` (explained by ${label})`;
-  return `${clip(text, LIMIT - tag.length)}${tag}`;
+  return `${clip(text, Math.max(0, LIMIT - tag.length))}${tag}`;
 }

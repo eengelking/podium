@@ -43,7 +43,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
   Claude Code reporter. OpenCode 2.2.5 reports a shell call that exits non-zero as `session.tool.success` with the code in `metadata.exit` (checked live, with `shell.exited` carrying the same number), so the reporter treats that as a failed call and sends the code. A recording tells the
   person through a toast (or the console) when it starts, stops or was refused, and keeps an answer sent from Podium once, after the call it answers.
 - The files the session changed always; one file's diff on request, only with `PODIUM_FILE_DIFF` (`core/fileDiff.ts`, shared with the Claude Code reporter).
-- With `PODIUM_EXPLAIN_FAILURES`, a short explanation of each new failure, asked through `ctx.experimental.generate` of the cheapest small model in `ctx.model.list()` (`explainModel.ts`; OpenCode's default model when none is listed or it fails), from the redacted failure
+- With `PODIUM_EXPLAIN_FAILURES`, a short explanation of each new failure, asked through `ctx.experimental.generate` of the cheapest small model in `ctx.model.list()` (`explainModel.ts`; OpenCode's default model only when none is listed), from the redacted failure
   record only, cut at 400 characters, ending with the model that wrote it. Its cost is not counted anywhere.
 - Tools with input and result, permission asks and questions (the session is `waiting`), compaction, the plan from the todo tool, failures,
   and the git branch. A tool is counted and worded under the Claude Code reporter's name for it (`shell` is `Bash`, `subagent` is `Agent`, and so on; `activity.ts`),

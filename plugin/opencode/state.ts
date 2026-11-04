@@ -65,7 +65,7 @@ export interface Sess {
   steps: number;
   /** Automatic compactions: OpenCode compacts by itself when the context nears its limit. */
   blowouts: number;
-  /** When each automatic compaction ended, newest last (kept to the last 20), for the failure's evidence line. */
+  /** When each automatic compaction of the current run ended, newest last (kept to the last 20): the run's count for the classifier and the evidence line. */
   blowoutTimes: number[];
   prompt: string;
   answer: string;
@@ -338,7 +338,7 @@ const freshCandidate = (s: Sess, at: number): FailureCandidate | null => (s.cand
  */
 function recordFailure(s: Sess, reason: 'error' | 'aborted', at: number, errText: string): Failure {
   const cand = freshCandidate(s, at);
-  const cls = classify({ reason, candidate: cand, stopReason: null, blowouts: s.blowouts, now: at }) ?? 'Unknown';
+  const cls = classify({ reason, candidate: cand, stopReason: null, blowouts: s.blowoutTimes.length, now: at }) ?? 'Unknown';
   const ev = evidence({ blowoutTimes: s.blowoutTimes, failedCalls: s.failedCalls, reads: {}, denyText: cand?.denied ? cand.denyText : null });
   const request = cls === 'Model API error' ? { tool: 'model request', call: s.model ? `model request (${s.model}${s.effort ? `, effort ${s.effort}` : ''})` : 'model request' } : {};
   const f = buildFailure(cls, cand, ev, at, request);
@@ -383,12 +383,12 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   }
   const cand = candidateFrom(call.tool, call.input, { isError: true, text: result }, at);
   if (!cand) return;
-  if (exit !== null && cand.exitCode === null) cand.exitCode = exit;
+  if (exit !== null) cand.exitCode = exit;
   s.failedCalls[cand.call] = (s.failedCalls[cand.call] ?? 0) + 1;
   // The call a person just refused fails as a result; the refusal stays the cause.
   const denied = freshCandidate(s, at)?.denied ? s.candidate : null;
   if (!denied) s.candidate = cand;
-  const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: s.blowouts, now: at });
+  const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: s.blowoutTimes.length, now: at });
   s.failure = buildFailure(cls ?? 'Tool error', denied ?? cand, evidence({ blowoutTimes: s.blowoutTimes, failedCalls: s.failedCalls, reads: {}, denyText: denied?.denyText ?? null }), at);
   emit(root, at, 'fail', s.id === root.id ? null : s.id, `${call.tool} failed`, { class: s.failure.class });
 }
@@ -445,6 +445,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       s.executing = true;
       s.end = 'running';
       s.endedAt = null;
+      // A new run starts its own count: compactions of an earlier run do not make this run's failure a spent window.
+      s.blowoutTimes = [];
       break;
     case 'session.execution.succeeded':
       s.executing = false;
