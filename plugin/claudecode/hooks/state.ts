@@ -761,6 +761,9 @@ export function toolStarted(s: SessionState, agentId: string | undefined, tool: 
   if (!loop) return s;
   let next = putLoop(s, agentId, { ...loop, lastTool: cap(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
   if (next.waitReason === 'permission' && !agentId) next = withStatus({ ...next, waitReason: null, waitNote: null });
+  // A tool call in the main loop means it is working. A background agent's report wakes an idle loop with no new
+  // prompt, so turnStart never runs; without this the session keeps saying "waiting" through the whole turn (#997).
+  if (!agentId && next.mainIdle) next = withStatus({ ...next, mainIdle: false, background: null });
   return next;
 }
 
