@@ -29,6 +29,8 @@ const plugin: Plugin.Definition = {
     const load = async (): Promise<StatusParts> => ({ solid: (await import('solid-js')) as StatusParts['solid'], jsx: (await import('@opentui/solid/jsx-runtime')) as StatusParts['jsx'] });
     const line = await mountStatus(ctx.ui as unknown as Parameters<typeof mountStatus>[0], load);
     const offStatus = rpc.events.on('status', (e) => line?.set(e.data.text));
+    // The first attach above ran before this listener existed, so the status it triggered was lost; say it again now that the listener is there (#999).
+    attach();
     return () => {
       clearInterval(timer);
       off();
