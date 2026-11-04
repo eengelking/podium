@@ -384,12 +384,12 @@ export function runStorageContract(name: string, open: () => Storage | Promise<S
     it('finds a reporter that sends no machine id by its session, whichever reporter it is, and keeps the two harnesses apart (#967)', async () => {
       const store = await open();
       const noId = (over: Partial<ReporterSeen>) => mkSeen('x', 'box', { machineId: null, ...over });
-      const claude = await store.reporters.record(noId({ sessionId: 'sc', source: '10.0.0.1' }), T0);
-      const oc = await store.reporters.record(noId({ sessionId: 'so', source: '10.0.0.1', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 1);
+      const claude = await store.reporters.record(noId({ sessionId: 'sc', source: 'host-a' }), T0);
+      const oc = await store.reporters.record(noId({ sessionId: 'so', source: 'host-a', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 1);
       expect(oc).not.toBe(claude);
-      // The source address changed; the session is how each is found again, and each keeps its own row.
-      expect(await store.reporters.record(noId({ sessionId: 'sc', source: '10.0.0.2', reporterName: 'podium-reporter-claudecode' }), T0 + 2)).toBe(claude);
-      expect(await store.reporters.record(noId({ sessionId: 'so', source: '10.0.0.2', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 3)).toBe(oc);
+      // The source changed; the session is how each is found again, and each keeps its own row.
+      expect(await store.reporters.record(noId({ sessionId: 'sc', source: 'host-b', reporterName: 'podium-reporter-claudecode' }), T0 + 2)).toBe(claude);
+      expect(await store.reporters.record(noId({ sessionId: 'so', source: 'host-b', reporterName: 'podium-reporter-opencode', version: '1.4.0' }), T0 + 3)).toBe(oc);
       expect((await store.reporters.list({}, T0 + 10)).rows).toHaveLength(2);
       await store.close();
     });

@@ -39,7 +39,7 @@ const hostIO: HostIO = {
   run: (argv) =>
     new Promise((resolve, reject) => {
       execFile(argv[0]!, argv.slice(1), { timeout: 2000, maxBuffer: 1 << 20 }, (err, stdout) => {
-        if (err && (err as { code?: unknown }).code === 'ENOENT') reject(err);
+        if (err && (err as { code?: unknown }).code === 'ENOENT') reject(new Error(`${argv[0]} is not installed`));
         else resolve(err ? null : String(stdout ?? ''));
       });
     }),
