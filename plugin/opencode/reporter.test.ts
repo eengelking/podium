@@ -1059,14 +1059,14 @@ describe('Reporter: background work and attached (#987)', () => {
     expect(s).toMatchObject({ status: 'waiting', waitReason: null });
     expect(s.background).toEqual({
       tasks: [
-        { type: 'shell', description: expect.stringMatching(/^npm run dev/), status: 'running' },
+        { type: 'shell', description: 'npm', status: 'running' },
         { type: 'agent', description: 'Scan the repo', status: 'running' },
         { type: 'other', description: 'image', status: 'running' },
       ],
       wakeAt: null,
     });
     expect(JSON.stringify(s.background)).not.toContain('sk-ant');
-    expect(JSON.stringify(s.background)).not.toContain('second line');
+    expect(JSON.stringify(s.background)).not.toMatch(/second line|--token|run dev/);
   });
   it('leaves it out for an empty list, an unknown session, and once a run starts again', async () => {
     const bodies: Report[] = [];
@@ -1092,13 +1092,42 @@ describe('Reporter: background work and attached (#987)', () => {
     r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
     expect(await lastOf(bodies, r)).toMatchObject({ status: 'waiting', waitReason: 'permission' });
   });
-  it('reports attached from the TUI part: true while one is attached, false when none is, null where the host cannot say', async () => {
-    for (const [attached, want] of [[() => true, true], [() => false, false], [undefined, null]] as const) {
+  it('reports attached true while a TUI part is attached, and null (never false) when none is or the host cannot say', async () => {
+    // false would make the server hide the card after a minute: an OpenCode run with no TUI part (serve, the desktop app, `opencode run`) is still a live session.
+    for (const [attached, want] of [[() => true, true], [() => false, null], [undefined, null]] as const) {
       const bodies: Report[] = [];
       const r = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, ...(attached ? { attached } : {}) }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
       start(r);
       expect((await lastOf(bodies, r)).attached).toBe(want);
     }
+  });
+  it('keeps at most 20 background tasks, names a shell by its first word and never sends the rest of its command', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    const jobs = Array.from({ length: 30 }, (_, i) => ({ kind: 'shell', sessionID: ROOT, shellID: `s${i}`, command: `API_KEY=hunter2 /usr/bin/curl -u user:pass https://x.test/${i}` }));
+    r.background(ROOT, [...jobs, { kind: 'shell', sessionID: ROOT, shellID: 'e', command: '' }]);
+    const s = await lastOf(bodies, r);
+    expect(s.background!.tasks).toHaveLength(20);
+    expect(s.background!.tasks[0]).toEqual({ type: 'shell', description: 'curl', status: 'running' });
+    expect(JSON.stringify(s.background)).not.toMatch(/hunter2|user:pass|x\.test/);
+    const empty = [] as Report[];
+    const e = reporter(collect(empty));
+    start(e.r);
+    e.r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 'e', command: '' }, { kind: 'subagent', sessionID: ROOT, childSessionID: 'c', agent: 'g', description: '' }]);
+    expect((await lastOf(empty, e.r)).background!.tasks).toEqual([
+      { type: 'shell', description: 'shell', status: 'running' },
+      { type: 'agent', description: 'subagent', status: 'running' },
+    ]);
+  });
+  it('ignores the idle hook of a child session: only the root lists the work of the whole tree', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    r.background(KID, []);
+    expect((await lastOf(bodies, r)).background!.tasks).toHaveLength(1);
   });
 });
 

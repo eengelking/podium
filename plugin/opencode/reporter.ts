@@ -230,9 +230,10 @@ export class Reporter {
     };
   }
 
-  /** What `experimental.idle` lists as still running for a session that went idle (#987). A session this reporter does not know is ignored. */
+  /** What `experimental.idle` lists as still running for a session that went idle (#987). A session this reporter does not know, and a child session, are ignored. */
   background(sessionId: string, jobs: readonly IdleJob[]): void {
-    const root = this.store.roots.get(this.store.rootOf.get(sessionId) ?? sessionId);
+    // The root's own list already holds the work of its whole tree; a child that goes idle must not replace it with its own.
+    const root = this.store.roots.get(sessionId);
     if (root) setBackground(root, jobs);
   }
 
@@ -290,7 +291,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached ? { attached: this.deps.attached() } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */

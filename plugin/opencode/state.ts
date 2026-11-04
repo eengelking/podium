@@ -657,11 +657,20 @@ export interface IdleJob {
   description?: string;
 }
 
-/** The work an idle root still runs, as a background wait: a shell by its first line, redacted and short, never the whole command. */
+/** The most background tasks a report may carry (SPEC 6.2, and the server's limit: more is a rejected report). */
+const MAX_BACKGROUND_TASKS = 20;
+
+/** The first word of a shell command that is not a `NAME=value` assignment, without its folder: all of the command that is ever sent. */
+function firstWord(command: string | undefined): string {
+  const word = (command ?? '').trim().split(/\s+/).find((w) => w !== '' && !w.includes('='));
+  return word?.split('/').pop() || 'shell';
+}
+
+/** The work an idle root still runs, as a background wait: a shell by its first word, never its command. */
 export function setBackground(root: Root, jobs: readonly IdleJob[]): void {
-  const tasks: BackgroundWait['tasks'] = jobs.map((j) => {
-    if (j.kind === 'shell') return { type: 'shell', description: excerpt((j.command ?? '').split('\n')[0], 60), status: 'running' };
-    if (j.kind === 'subagent') return { type: 'agent', description: excerpt(j.description, 80), status: 'running' };
+  const tasks: BackgroundWait['tasks'] = jobs.slice(0, MAX_BACKGROUND_TASKS).map((j) => {
+    if (j.kind === 'shell') return { type: 'shell', description: clip(firstWord(j.command), 60), status: 'running' };
+    if (j.kind === 'subagent') return { type: 'agent', description: excerpt(j.description, 120) || 'subagent', status: 'running' };
     return { type: 'other', description: j.kind === 'image' ? 'image' : 'background work', status: 'running' };
   });
   const next = tasks.length ? { tasks, wakeAt: null } : null;

@@ -25,6 +25,7 @@ export async function gitPlace(run: Runner, cwd: string): Promise<Place> {
   };
   const common = await git(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']);
   const dir = common.endsWith('/') ? common.slice(0, -1) : common;
-  const projectRoot = dir.endsWith('/.git') ? dir.slice(0, -'/.git'.length) : dir || cwd;
+  // A submodule's git dir is under the superproject's (`<super>/.git/modules/<name>`): its own top level is the root, not the superproject.
+  const projectRoot = dir.includes('/.git/modules/') ? (await git(['git', 'rev-parse', '--show-toplevel'])) || cwd : dir.endsWith('/.git') ? dir.slice(0, -'/.git'.length) : dir || cwd;
   return { projectRoot, repoName: repoFromRemote(await git(['git', 'config', '--get', 'remote.origin.url'])) ?? lastSegment(projectRoot) };
 }

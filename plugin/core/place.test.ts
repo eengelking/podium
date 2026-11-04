@@ -40,4 +40,14 @@ describe('gitPlace', () => {
   test('falls back to the directory itself outside a repository', async () => {
     expect(await gitPlace(runner({}), '/tmp/scratch')).toEqual({ projectRoot: '/tmp/scratch', repoName: 'scratch' });
   });
+  test('is the submodule\'s own top level inside a submodule, whose common dir is under the superproject', async () => {
+    const run = runner({
+      'git rev-parse --path-format=absolute --git-common-dir': '/work/super/.git/modules/sub\n',
+      'git rev-parse --show-toplevel': '/work/super/sub\n',
+      'git config --get remote.origin.url': 'git@github.com:acme/sub.git\n',
+    });
+    expect(await gitPlace(run, '/work/super/sub/src')).toEqual({ projectRoot: '/work/super/sub', repoName: 'acme/sub' });
+    const noTop = runner({ 'git rev-parse --path-format=absolute --git-common-dir': '/work/super/.git/modules/sub\n' });
+    expect(await gitPlace(noTop, '/work/super/sub/src')).toEqual({ projectRoot: '/work/super/sub/src', repoName: 'src' });
+  });
 });

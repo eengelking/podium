@@ -27,9 +27,9 @@ export interface ReportMeta {
   respond?: { info: RespondInfo; asks: Ask[] } | null;
   /** The context window of a model, once known. Absent or null: the percent is left out. */
   windowOf?: (provider: string | null, model: string | null) => number | null;
+  /** True while a TUI part is attached; absent otherwise, never false: false would hide the card after a minute (#987). */
+  attached?: true;
   /** The `PODIUM_FILE_DIFF` consent: the console may ask for one changed file's diff (#319). */
-  /** Whether a TUI is attached; absent where the host cannot say. */
-  attached?: boolean;
   fileDiff?: boolean;
   /** The `fileDiffPreload` option: with the consent, the console may ask for every changed file's diff while its page is open (#631). */
   fileDiffPreload?: boolean;

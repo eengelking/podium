@@ -792,7 +792,7 @@ describe('the plugin entry reports what an idle session still runs (#987)', () =
         ctx.hooks['experimental.idle']!({ sessionID: 'ses_b', background: [{ kind: 'shell', sessionID: 'ses_b', shellID: 's', command: 'npm run dev' }] });
         for (let waited = 0; !bodies.some((b) => b.session?.background) && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
         const sent = bodies.find((b) => b.session?.background);
-        expect(sent.session).toMatchObject({ status: 'waiting', waitReason: null, background: { tasks: [{ type: 'shell', description: 'npm run dev' }] } });
+        expect(sent.session).toMatchObject({ status: 'waiting', waitReason: null, background: { tasks: [{ type: 'shell', description: 'npm' }] } });
         // The status line goes to the TUI part each poll, for the prompt's footer.
         expect(ctx.emitted.find((e) => e.name === 'status')?.data.text).toEqual(expect.any(String));
         // Not a dev build here: the built folder has no stamp.
