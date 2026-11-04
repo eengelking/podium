@@ -49,9 +49,9 @@ export function CostSourceNote({ s }: { s: Pick<SessionView, "costSource" | "har
 export function ModelChip({ family, model, label }: { family: ModelFamily; model?: string | null; label?: string | null }) {
   const title = model ?? undefined;
   return (
-    <span className="chip" style={cssVar(FAMILY_COLOR[family])} title={title}>
+    <span className="chip model" style={cssVar(FAMILY_COLOR[family])} title={title}>
       <i />
-      {label || familyName(family, model ?? null)}
+      <span>{label || familyName(family, model ?? null)}</span>
     </span>
   );
 }

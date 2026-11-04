@@ -118,6 +118,26 @@ describe('harness badge and neutral labels', () => {
     cy.get('#podium-side-body').contains('dt', 'Model').next('dd').find('.chip').should('contain.text', 'Haiku').and('have.attr', 'title', 'claude-haiku-5-5');
   });
 
+  // A long model name (OpenCode sends provider/model, #975) is clipped inside the Model cell and does not paint over the Effort cell.
+  it('clips a long agent model label inside its Model cell, with the full id as the title', () => {
+    const longId = 'google/gemma-4-26b-a4b-it-with-a-very-long-suffix';
+    cy.reportAgain('invoice', {}, { 'e2e-a-port': { model: longId, modelLabel: longId } }, undefined, true);
+    cy.openConsole('#/');
+    cy.card('invoice').click();
+    cy.get('main#podium-main h1').should('contain.text', 'invoice-v2');
+    cy.get('#row-e2e-a-port .chip.model').should('have.attr', 'title', longId).and('have.text', longId).then(($chip) => {
+      const chip = $chip[0];
+      const label = chip.querySelector(':scope > span');
+      expect(label.scrollWidth, 'the label is wider than its box, so it is clipped').to.be.greaterThan(label.clientWidth);
+      expect(getComputedStyle(label).textOverflow).to.eq('ellipsis');
+      const chipBox = chip.getBoundingClientRect();
+      const cellBox = chip.parentElement.getBoundingClientRect();
+      expect(chipBox.right, 'the chip ends inside its cell').to.be.at.most(cellBox.right + 0.5);
+      const next = chip.parentElement.nextElementSibling.getBoundingClientRect();
+      expect(chipBox.right, 'the chip stops before the next column').to.be.at.most(next.left);
+    });
+  });
+
   // The agent tree and the orchestrator panel follow what the session's harness declares (#944): a column it cannot report is absent, not zero.
   // The session is a copy of invoice (which has agents) reported by Acme with context and effort both declared false.
   const TR = 'e2e-s-acme-tree';
