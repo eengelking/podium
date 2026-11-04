@@ -112,8 +112,9 @@ The folder must hold `package.json` at its top, not one more folder down.
 opencode plugin add "git+https://github.com/eengelking/podium.git#plugin-dist::path:dist/opencode"
 ```
 
-`#plugin-dist` follows the latest release. To stay on one version, use a release tag, `#v1.5.0::path:dist/opencode`, or a range,
-`#semver:^1.5.0::path:dist/opencode`. The part after `::path:` is required, because the package is in a folder of the branch and not at its top.
+`dist/opencode` on `plugin-dist` always holds the current release, so an update follows the latest release. There is no tag or version range to pin
+to: release tags sit on `main`, where `dist/` does not exist. To stay on one version, install the archive above, whose zip is named for its version.
+The part after `::path:` is required, because the package is in a folder of the branch and not at its top.
 `opencode plugin check` shows an update and `opencode plugin update` installs it.
 
 **Then restart OpenCode's service,** so it loads the plugin:
@@ -508,7 +509,7 @@ variables and from `~/.podium/config.env`. They are never read from `opencode.js
 if it could set a consent option it could turn on answering or recording without the person knowing. The only plugin option still read is
 `idleSeconds`, which gains an attacker nothing. A consent option is on only when it is exactly `true`
 (`PODIUM_RESPOND`, `PODIUM_PEERS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FULL_PROMPTS`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`,
-`PODIUM_FILE_DIFF`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
+`PODIUM_FILE_DIFF`, `PODIUM_EXPLAIN_FAILURES`); the Admin's switches in Podium still apply on top. `plugin/opencode/reporter.test.ts` shows that a hostile `opencode.json` changes none of them.
 The same holds for which reporter config file is used: `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT` come from those two places only, and `plugin/opencode/tls.test.ts` shows that an `opencode.json` that names a file, a context or a server changes none of them.
 
 **The key file.** A reporter config file (#948) holds your private key. The reporter reads it from `~/.podium/` (or the path `PODIUM_REPORTER_CONFIG` or the current context gives), and nothing in a

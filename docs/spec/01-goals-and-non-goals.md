@@ -53,6 +53,16 @@ Podium can answer a session that waits on its person, and only in the ways the h
 - allow one tool call once, or deny it with a reason;
 - send a new message, and run `/clear` or `/compact`.
 
+For OpenCode those are:
+
+- allow one permission request once, or reject it (never "always");
+- answer a question form, by the key of each field;
+- send a new message, and run `/compact`.
+
+Plan approval and `/clear` are not available for OpenCode, because OpenCode has no plan-approval step and no equivalent of `/clear`. The console
+does not offer them for an OpenCode session. The rest of what OpenCode cannot do is in
+[REPORTER.md](../REPORTER.md#opencode-settings).
+
 All of it goes through podium-reporter inside the session, which fetches it from the server. The server never
 connects to a session. It is off unless the Admin turns on **Respond from Podium** and the session's owner sets
 the reporter's `respond` option ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md)), and only the session's owner or an
