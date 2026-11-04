@@ -59,7 +59,7 @@ describe("the harness table", () => {
     expect(e.bin).toBe("claude");
     expect(e.binEnv).toBe("PODIUM_CLAUDE_BIN");
     expect(e.roots).toEqual(["plugin/claudecode", "plugin/core"]);
-    expect(e.args("/r")).toEqual(["--plugin-dir", join("/r", "dist", "claudecode")]);
+    expect(e.args("/r")).toEqual(["--plugin-dir", join("/r", "dist-dev", "claudecode")]);
   });
   it("has opencode as a stub with nothing to run", () => {
     expect(HARNESS_TABLE.opencode.stub).toContain("#857");
@@ -133,7 +133,7 @@ describe("run", () => {
     const t = harnessRun(["claudecode", "--", "--model", "sonnet"], { spawnHarness: vi.fn(async () => 7) });
     expect(await t.go()).toBe(7);
     expect(t.deps.table.claudecode.build).toHaveBeenCalledWith("/repo");
-    expect(t.out).toEqual(["built dist/claudecode at abc12345; after a rebuild run /reload-plugins in the session"]);
+    expect(t.out).toEqual(["built dist-dev/claudecode at abc12345; after a rebuild run /reload-plugins in the session"]);
     expect((t.deps.spawnHarness as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual(["/bin/claude", ["--plugin-dir", "/x/dist/claudecode", "--model", "sonnet"]]);
   });
   it("passes the override variable to the finder", async () => {
@@ -199,7 +199,7 @@ describe("--watch", () => {
     expect(watchFn.mock.calls[0][0]).toEqual([join("/repo", "plugin/claudecode"), join("/repo", "plugin/core")]);
     onChange("hooks/x.ts");
     timers[0]();
-    await vi.waitFor(() => expect(t.out.some((l) => l.startsWith("rebuilt dist at"))).toBe(true));
+    await vi.waitFor(() => expect(t.out.some((l) => l.startsWith("rebuilt dist-dev at"))).toBe(true));
     expect(t.deps.table.claudecode.build).toHaveBeenCalledTimes(2);
     exit(3);
     expect(await done).toBe(3);
@@ -220,9 +220,9 @@ describe("the claudecode build", () => {
     cpSync(join(ROOT, "plugin"), join(root, "plugin"), { recursive: true });
     return root;
   };
-  it("builds dist/claudecode with the commit stamped and reports it", async () => {
+  it("builds dist-dev/claudecode with the commit stamped and reports it", async () => {
     const root = copy("build-git");
-    writeFileSync(join(root, ".gitignore"), "dist/\n");
+    writeFileSync(join(root, ".gitignore"), "dist-dev/\n");
     git(root, "init", "-q", "-b", "main");
     git(root, "config", "user.email", "t@example.com");
     git(root, "config", "user.name", "T");
@@ -230,24 +230,25 @@ describe("the claudecode build", () => {
     git(root, "commit", "-q", "-m", "x");
     const sha = git(root, "rev-parse", "--short=8", "HEAD");
     expect(await HARNESS_TABLE.claudecode.build(root)).toBe(sha);
-    expect(existsSync(join(root, "dist", "claudecode", ".claude-plugin", "plugin.json"))).toBe(true);
-    expect(JSON.parse(readFileSync(join(root, "dist", "claudecode", ".claude-plugin", "dev-build.json"), "utf8")).commit).toBe(sha);
+    expect(existsSync(join(root, "dist-dev", "claudecode", ".claude-plugin", "plugin.json"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(root, "dist-dev", "claudecode", ".claude-plugin", "dev-build.json"), "utf8")).commit).toBe(sha);
     writeFileSync(join(root, "edit.txt"), "x");
     expect(await HARNESS_TABLE.claudecode.build(root)).toBe(`${sha} (dirty)`);
   });
   it("says no git outside a checkout", async () => {
     const root = copy("build-nogit");
     expect(await HARNESS_TABLE.claudecode.build(root)).toBe("no git");
-    expect(existsSync(join(root, "dist", "claudecode", ".claude-plugin", "dev-build.json"))).toBe(false);
+    expect(existsSync(join(root, "dist-dev", "claudecode", ".claude-plugin", "dev-build.json"))).toBe(false);
   });
 });
 
 describe("ignoredChange", () => {
-  it("ignores tests, .DS_Store and anything under dist, not source files", () => {
+  it("ignores tests, .DS_Store and anything under dist or dist-dev, not source files", () => {
     expect(ignoredChange("hooks/a.test.ts")).toBe(true);
     expect(ignoredChange("hooks/.DS_Store")).toBe(true);
     expect(ignoredChange("dist/claudecode/x.ts")).toBe(true);
     expect(ignoredChange("a\\dist\\x.ts")).toBe(true);
+    expect(ignoredChange("dist-dev/claudecode/x.ts")).toBe(true);
     expect(ignoredChange("hooks/a.ts")).toBe(false);
     expect(ignoredChange("")).toBe(false);
   });
@@ -277,7 +278,7 @@ describe("createRebuilder", () => {
     expect(s.clearTimer).toHaveBeenCalledTimes(2);
     s.fire();
     await s.r.idle();
-    expect(s.log).toEqual(["rebuilt dist at h1; run /reload-plugins in the session"]);
+    expect(s.log).toEqual(["rebuilt dist-dev at h1; run /reload-plugins in the session"]);
   });
   it("does not schedule for an ignored change", () => {
     const s = setup(() => "h");
@@ -320,7 +321,7 @@ describe("createRebuilder", () => {
     s.r.notify("a.ts");
     s.fire();
     await s.r.idle();
-    expect(s.log).toEqual(["rebuilt dist at ok; run /reload-plugins in the session"]);
+    expect(s.log).toEqual(["rebuilt dist-dev at ok; run /reload-plugins in the session"]);
   });
   it("builds nothing after stop, and drops a pending timer", async () => {
     const s = setup(() => "h");
@@ -396,12 +397,12 @@ describe("spawnInherited", () => {
 });
 
 describe("cleanup", () => {
-  /** A git repo ignoring dist/, .build-test/ and dist-zips/, with some of them built. */
+  /** A git repo ignoring dist-dev/, .build-test/ and dist-zips/, with some of them built. */
   function repo(name: string, make: string[]) {
     const root = join(scratch, name);
     mkdirSync(root, { recursive: true });
     git(root, "init", "-q", "-b", "main");
-    writeFileSync(join(root, ".gitignore"), "dist/\n.build-test/\ndist-zips/\n");
+    writeFileSync(join(root, ".gitignore"), "dist-dev/\n.build-test/\ndist-zips/\n");
     writeFileSync(join(root, "keep.txt"), "tracked");
     git(root, "add", ".");
     for (const d of make) {
@@ -411,29 +412,36 @@ describe("cleanup", () => {
     return root;
   }
 
-  it("removes exactly dist, .build-test and dist-zips and leaves everything else", () => {
-    const root = repo("all", ["dist/claudecode", ".build-test/claudecode", "dist-zips", "plugin"]);
-    expect(cleanup(undefined, { root })).toEqual({ removed: ["dist", ".build-test", "dist-zips"], refused: [] });
-    expect(["dist", ".build-test", "dist-zips"].some((d) => existsSync(join(root, d)))).toBe(false);
+  it("removes exactly dist-dev, .build-test and dist-zips and leaves everything else", () => {
+    const root = repo("all", ["dist-dev/claudecode", ".build-test/claudecode", "dist-zips", "plugin"]);
+    expect(cleanup(undefined, { root })).toEqual({ removed: ["dist-dev", ".build-test", "dist-zips"], refused: [] });
+    expect(["dist-dev", ".build-test", "dist-zips"].some((d) => existsSync(join(root, d)))).toBe(false);
     expect(existsSync(join(root, "plugin", "f"))).toBe(true);
     expect(existsSync(join(root, "keep.txt"))).toBe(true);
   });
-  it("with a harness removes only dist/<harness>", () => {
-    const root = repo("one", ["dist/claudecode", "dist/opencode", ".build-test/claudecode"]);
-    expect(cleanup("claudecode", { root })).toEqual({ removed: ["dist/claudecode"], refused: [] });
-    expect(existsSync(join(root, "dist", "claudecode"))).toBe(false);
-    expect(existsSync(join(root, "dist", "opencode"))).toBe(true);
+  it("with a harness removes only dist-dev/<harness>", () => {
+    const root = repo("one", ["dist-dev/claudecode", "dist-dev/opencode", ".build-test/claudecode"]);
+    expect(cleanup("claudecode", { root })).toEqual({ removed: ["dist-dev/claudecode"], refused: [] });
+    expect(existsSync(join(root, "dist-dev", "claudecode"))).toBe(false);
+    expect(existsSync(join(root, "dist-dev", "opencode"))).toBe(true);
     expect(existsSync(join(root, ".build-test"))).toBe(true);
+  });
+  it("never touches dist/, which is tracked and holds the release build (#983)", () => {
+    const root = repo("tracked-dist", ["dist/claudecode", "dist-dev/claudecode"]);
+    expect(cleanup(undefined, { root }).removed).toEqual(["dist-dev"]);
+    expect(existsSync(join(root, "dist", "claudecode", "f"))).toBe(true);
+    expect(cleanup("claudecode", { root }).removed).toEqual([]);
+    expect(existsSync(join(root, "dist", "claudecode", "f"))).toBe(true);
   });
   it("has nothing to clean when nothing is built", () => {
     expect(cleanup(undefined, { root: repo("none", []) })).toEqual({ removed: [], refused: [] });
     expect(cleanup("claudecode", { root: repo("none2", []) })).toEqual({ removed: [], refused: [] });
   });
   it("refuses a folder git does not ignore, and removes the others", () => {
-    const root = repo("tracked", ["dist", "dist-zips"]);
-    writeFileSync(join(root, ".gitignore"), "dist/\n"); // dist-zips is no longer ignored
+    const root = repo("tracked", ["dist-dev", "dist-zips"]);
+    writeFileSync(join(root, ".gitignore"), "dist-dev/\n"); // dist-zips is no longer ignored
     const r = cleanup(undefined, { root });
-    expect(r.removed).toEqual(["dist"]);
+    expect(r.removed).toEqual(["dist-dev"]);
     expect(r.refused).toEqual([{ path: "dist-zips", why: "git does not ignore it, so it may hold tracked files" }]);
     expect(existsSync(join(root, "dist-zips", "f"))).toBe(true);
   });
@@ -442,16 +450,16 @@ describe("cleanup", () => {
     const elsewhere = join(scratch, "elsewhere");
     mkdirSync(join(elsewhere, "claudecode"), { recursive: true });
     writeFileSync(join(elsewhere, "claudecode", "f"), "x");
-    symlinkSync(elsewhere, join(root, "dist"));
-    expect(cleanup(undefined, { root }).refused).toEqual([{ path: "dist", why: "it is a symlink" }]);
-    expect(cleanup("claudecode", { root }).refused).toEqual([{ path: "dist/claudecode", why: "it is a symlink" }]);
+    symlinkSync(elsewhere, join(root, "dist-dev"));
+    expect(cleanup(undefined, { root }).refused).toEqual([{ path: "dist-dev", why: "it is a symlink" }]);
+    expect(cleanup("claudecode", { root }).refused).toEqual([{ path: "dist-dev/claudecode", why: "it is a symlink" }]);
     expect(existsSync(join(elsewhere, "claudecode", "f"))).toBe(true);
   });
   it("refuses something that is not a folder", () => {
     const root = repo("file", []);
-    writeFileSync(join(root, "dist"), "a file");
-    expect(cleanup(undefined, { root }).refused).toEqual([{ path: "dist", why: "it is not a folder" }]);
-    expect(existsSync(join(root, "dist"))).toBe(true);
+    writeFileSync(join(root, "dist-dev"), "a file");
+    expect(cleanup(undefined, { root }).refused).toEqual([{ path: "dist-dev", why: "it is not a folder" }]);
+    expect(existsSync(join(root, "dist-dev"))).toBe(true);
   });
   it("refuses when git cannot say", () => {
     const remove = vi.fn();
@@ -462,13 +470,13 @@ describe("cleanup", () => {
     expect(remove).not.toHaveBeenCalled();
   });
   it("gitIgnores: true for ignored, false for tracked, null outside a repo", () => {
-    const root = repo("ign", ["dist"]);
-    expect(gitIgnores(root, "dist")).toBe(true);
+    const root = repo("ign", ["dist-dev"]);
+    expect(gitIgnores(root, "dist-dev")).toBe(true);
     expect(gitIgnores(root, "keep.txt")).toBe(false);
     const bare = join(scratch, "not-a-repo");
     mkdirSync(bare, { recursive: true });
-    expect(gitIgnores(bare, "dist")).toBeNull();
-    expect(gitIgnores(root, "dist", () => { throw new Error("no git"); })).toBeNull();
+    expect(gitIgnores(bare, "dist-dev")).toBeNull();
+    expect(gitIgnores(root, "dist-dev", () => { throw new Error("no git"); })).toBeNull();
   });
 });
 

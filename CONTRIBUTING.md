@@ -32,24 +32,24 @@ npm run dev          # server on http://127.0.0.1:4317, Vite UI on http://localh
 npm run podium:sim -- --sessions 5 --chaos    # fake sessions, in a second terminal
 ```
 
-To try the mod in a real session, build it and load the built folder from your checkout. Claude Code runs against `dist/claudecode/`, not
-the source in `plugin/`, because that folder is what gets installed (DECISIONS 56):
+To try the mod in a real session, build it and load the built folder from your checkout. Claude Code runs against `dist-dev/claudecode/`, not
+the source in `plugin/`, because a built folder is what gets installed (DECISIONS 56, 59):
 
 ```sh
 npm run plugin:dev:claudecode
 ```
 
-That builds `dist/claudecode/` and starts `claude --plugin-dir` on it. `npm run plugin:dev:claudecode -- --watch` also rebuilds into the same
-folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it ignores tests, `.DS_Store` and `dist/`, and a failed rebuild
+That builds `dist-dev/claudecode/` and starts `claude --plugin-dir` on it. `npm run plugin:dev:claudecode -- --watch` also rebuilds into the same
+folder whenever a file under `plugin/claudecode/` or `plugin/core/` changes (it ignores tests, `.DS_Store`, `dist/` and `dist-dev/`, and a failed rebuild
 keeps the last good one); run `/reload-plugins` in the session after each rebuild. Arguments for `claude` go after a second `--`:
 `npm run plugin:dev:claudecode -- --watch -- --model sonnet`. `PODIUM_CLAUDE_BIN` names the `claude` to run if it is not on `PATH`.
-`npm run plugin:dev:cleanup` deletes `dist/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
-`dist/claudecode/`). It removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no dev runner yet,
-so `npm run plugin:dev:opencode` exits with an error; build it with `node scripts/plugin-build.mjs opencode`
-and load `dist/opencode/plugin/opencode/index.ts` as an OpenCode plugin, or copy `dist/opencode/` into `~/.config/opencode/plugins/podium/` ("Install the OpenCode reporter" in `docs/REPORTER.md`). `scripts/plugin-dev.mjs` is the script behind these.
+`npm run plugin:dev:cleanup` deletes `dist-dev/`, `.build-test/` and `dist-zips/` (or `npm run plugin:dev:cleanup claudecode` only
+`dist-dev/claudecode/`). It never touches `dist/`, which is tracked, and removes only folders git ignores, never follows a symlink, and stops no process. OpenCode has no dev runner yet,
+so `npm run plugin:dev:opencode` exits with an error; build it with `node scripts/plugin-build.mjs opencode --dev-stamp`
+and load `dist-dev/opencode/plugin/opencode/index.ts` as an OpenCode plugin, or copy `dist-dev/opencode/` into `~/.config/opencode/plugins/podium/` ("Install the OpenCode reporter" in `docs/REPORTER.md`). `scripts/plugin-dev.mjs` is the script behind these.
 
 `npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
-Its output is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp, which is how CI and the release archive are built and what to run before a local zip; the publish and zip scripts refuse a folder that carries a stamp.
+Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist-dev/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp into the tracked `dist/`, emptying it first. Only the `release-prep/<version>` PR commits that (DECISIONS 60); the check and the zip script refuse a folder that carries a stamp.
 
 ## Checks to run
 
@@ -57,8 +57,9 @@ Its output is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the com
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
 npm run build          # UI and server build, scripts type-check
-npm run plugin:build    # build dist/claudecode/ (the folder that is installed and zipped); fails if it is not self-contained
-npm run plugin:build:release  # the same build with no dev stamp, for the zip script and the release check
+npm run plugin:build    # build dist-dev/<harness>/ with the dev stamp, for trying the reporter from your checkout; fails if it is not self-contained
+npm run plugin:build:release  # the release build: empties dist/ and builds every harness there with no stamp (only release-prep commits it)
+npm run plugin:dist:check     # fails unless the tracked dist/ is exactly what a clean build of plugin/ produces (CI runs it on a PR into main)
 npm run plugin:dev:claudecode  # build it and start Claude Code with it loaded (`-- --watch` rebuilds on change); `plugin:dev:cleanup` deletes the build folders
 npm run test:core                 # the tests in plugin/core/, with no harness CLI and no harness API types installed (CI runs it)
 npm run test:mod:claudecode       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
@@ -73,7 +74,7 @@ scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open 
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
 scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code or OpenCode sessions in tmux (--harness; costs model usage unless the model is local or free)
-scripts/podium-opencode-demo.sh --help  # `start` checks the reporter certificate, builds dist/opencode/, starts Ollama and OpenCode with the plugin; `stop` closes both and checks your OpenCode config is unchanged (macOS, Homebrew)
+scripts/podium-opencode-demo.sh --help  # `start` checks the reporter certificate, builds dist-dev/opencode/, starts Ollama and OpenCode with the plugin; `stop` closes both and checks your OpenCode config is unchanged (macOS, Homebrew)
 node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
 ```
@@ -304,23 +305,25 @@ python3 -m http.server -d site/out 4400     # open http://127.0.0.1:4400/
 The build fails on a broken link between pages. A new page inside a split topic's folder is found from its folder and its `order`. A new page or topic elsewhere needs a line in `site/docs-nav.mjs`, or it is not published. The
 `podium-docs-site` skill (`.claude/skills/`) has the rest, including how older versions are built from their git tags.
 
-### The plugin build and plugin-dist
+### The plugin build and the tracked dist/
 
 The reporters live in `plugin/`: shared code in `plugin/core/`, Claude Code's own in `plugin/claudecode/`, and `plugin/opencode/`, the OpenCode
 reporter (#855, DECISIONS 56). They are installed from a built folder, not from the source.
 
-- `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options).
-  `--with-tests` keeps the test files, `--out <dir>` builds elsewhere, `--check` only checks a folder already built, and
-  `--dev-stamp` writes the commit into the folder (`npm run plugin:build` and `npm run plugin:dev` add it; CI, the release and `npm run plugin:build:release` never do).
-- `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three folders below, and only when git reports them ignored.
-- `dist/`, `.build-test/` (where `npm run test:mod:claudecode` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output.
+- `scripts/plugin-build.mjs` writes `dist/<harness>/` and checks that it is self-contained (`--help` lists the options). A build that names
+  no harness empties the output folder first, so nothing from an earlier build stays. `--with-tests` keeps the test files, `--out <dir>` builds
+  elsewhere, `--check` only checks a folder already built, and `--dev-stamp` writes the commit into the folder and builds into `dist-dev/`
+  unless `--out` says otherwise (`npm run plugin:build` and `npm run plugin:dev` add it; CI, the release and `npm run plugin:build:release` never do).
+- `scripts/plugin-dev.mjs` is behind `npm run plugin:dev`, `plugin:dev:claudecode`, `plugin:dev:opencode` and `plugin:dev:cleanup` (see "Trying the mod" above; `--help` lists the options). It finds `git` through `scripts/git-bin.mjs`, as the other plugin scripts do, and `cleanup` deletes only the three ignored folders below, and only when git reports them ignored.
+- `dist-dev/` (a developer's stamped build), `.build-test/` (where `npm run test:mod:claudecode` builds) and `dist-zips/` (where the release job puts the archive) are git-ignored build output. `dist/` is not: it is tracked, holds the release build, and a feature PR never changes it.
 - `scripts/podium-reporter-zip.mjs` zips `dist/claudecode/` into `podium-reporter-<version>.zip`, and with `--harness opencode` zips `dist/opencode/` into `podium-opencode-<version>.zip` (#857). Each harness's version is read from its own manifest: `.claude-plugin/plugin.json`, or `package.json` for opencode.
-- `.github/workflows/plugin-dist.yml` runs on a merge to `main`, which is a release. After the tests and the build it runs
-  `scripts/plugin-publish.mjs`, which adds the built folders as a new commit on the `plugin-dist` branch (never a force-push, nothing
-  when the tree is unchanged). `eengelking-marketplace` installs from that branch (DECISIONS 58, #928). `release.yml` then runs
-  `scripts/plugin-dist-compare.mjs` once for each archive, which fails the release if a zip differs from what the branch holds for its harness.
-- To test a publish, run the workflow by hand from Actions with a throwaway `target` branch name, never `plugin-dist` itself. The
-  branch has to allow the Actions bot to push and refuse a force-push; that is a repository setting, not something the code sets.
+- `scripts/plugin-dist-check.mjs` (`npm run plugin:dist:check`) rebuilds in memory and fails unless `dist/` is exactly that build: the same
+  files and bytes, nothing extra, no dev stamp, every harness at the product version. `ci.yml` runs it on a PR into `main` and on a push to
+  `main`, so only a release (or a hotfix) with its final build can reach `main`. It writes nothing; to fix a failure run
+  `npm run plugin:build:release` and commit `dist/` (DECISIONS 60, #983).
+- `eengelking-marketplace` installs from `dist/claudecode` on `main`, with no `ref`, so a release reaches an installed copy as a new
+  commit there. `release.yml` runs the check, zips the tracked `dist/` and runs `scripts/plugin-dist-compare.mjs` once for each archive,
+  which fails the release if a zip differs from `dist/<harness>/` in the tag's checkout.
 
 ### The mod version bump
 

@@ -100,7 +100,7 @@ appears in the console within a couple of seconds.
   [releases page](https://github.com/eengelking/podium/releases) and upload it in Settings > Plugins. The steps, and the
   Node.js it needs, are in [Install in the Claude desktop app](docs/REPORTER.md#install-in-the-claude-desktop-app-on-windows-11).
 - **From a checkout of this repository:** the mod is built before Claude Code can load it. Run `npm run plugin:dev:claudecode`,
-  which builds `dist/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild when you change the source in
+  which builds `dist-dev/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild when you change the source in
   `plugin/` (then run `/reload-plugins`), and run `npm run plugin:dev:cleanup` to delete the build folders afterwards.
 - **Update or remove it:** see [Updating the mod](docs/user-guide/09-updating-the-mod.md) and
   [Remove it](docs/user-guide/11-remove-it.md).

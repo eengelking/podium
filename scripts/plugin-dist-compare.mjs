@@ -1,36 +1,27 @@
 #!/usr/bin/env node
-// Checks that a release zip and the plugin-dist branch hold the same plugin (#927): the same file list and the same bytes.
-// release.yml runs this after the tag's zip is built. The branch is published by plugin-dist.yml (scripts/plugin-publish.mjs), which
-// may still be running when the tag is pushed, so this waits, with a limit, for the commit that names the tag's source commit.
+// Checks that a release zip and the tracked dist/<harness>/ hold the same plugin (#927, #983): the same file list and the same bytes.
+// release.yml runs this after the tag's zip is built from dist/, in the checkout of the tag, so a difference means the archive was
+// built from something other than the committed release build.
 //
-//   node scripts/plugin-dist-compare.mjs --zip <file> --sha <source-sha> [--harness claudecode] [--remote origin]
-//        [--branch plugin-dist] [--wait <seconds>] [--interval <seconds>] [--grace <seconds>] [--version <x.y.z>]
-//   node scripts/plugin-dist-compare.mjs --zip <file> --dir <folder>      (compare a zip to a folder; used by tests)
-import { execFileSync, spawnSync } from "node:child_process";
+//   node scripts/plugin-dist-compare.mjs --zip <file> [--harness claudecode]
+//   node scripts/plugin-dist-compare.mjs --zip <file> --dir <folder>      (compare a zip to any folder; used by tests)
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inflateRawSync } from "node:zlib";
-import { gitBin } from "./git-bin.mjs";
-import { manifestPath, walk } from "./plugin-build.mjs";
+import { walk } from "./plugin-build.mjs";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 
-const USAGE = `Usage: node scripts/plugin-dist-compare.mjs --zip <file> (--dir <folder> | --sha <source-sha>) [options]
+const USAGE = `Usage: node scripts/plugin-dist-compare.mjs --zip <file> [--harness <name> | --dir <folder>]
 
-Fails unless the zip's file list and bytes equal the folder, or dist/<harness>/ on the plugin-dist branch.
+Fails unless the zip's file list and bytes equal dist/<harness>/ of this checkout (or the folder named with --dir).
   --zip <file>        the release archive
-  --dir <folder>      compare with this folder (no git involved)
-  --sha <sha>         the tag's source commit; waits for a plugin-dist commit whose message names it
-  --harness <name>    dist/<harness>/ on the branch (default claudecode)
-  --remote <name>     where to fetch the branch (default origin)
-  --branch <name>     the branch (default plugin-dist)
-  --wait <seconds>    how long to wait for that commit (default 900)
-  --interval <secs>   the pause between looks (default 30)
-  --grace <seconds>   after this long with no commit naming the sha, compare with the branch tip if its plugin.json version equals
-                      --version (a rerun of an unchanged tree publishes no commit). Default 300.
-  --version <x.y.z>   the tag's number, for that fallback
+  --harness <name>    dist/<harness>/ of this checkout (default claudecode)
+  --dir <folder>      compare with this folder instead
   -h, --help          this text`;
 
 /** The entries of a zip, from its central directory: name to bytes. */
@@ -70,70 +61,22 @@ export function readDir(dir) {
   return new Map(walk(dir).map((n) => [n, readFileSync(join(dir, n))]));
 }
 
-const git = (cwd, args) => execFileSync(gitBin(), args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 }).trim();
-
-/** The files under `prefix` in `commit` as a map of path (relative to prefix) to bytes. */
-export function readCommitDir(cwd, commit, prefix) {
-  const names = git(cwd, ["ls-tree", "-r", "--name-only", "-z", commit, `${prefix}/`]).split("\0").filter(Boolean);
-  const out = new Map();
-  for (const n of names) {
-    const r = spawnSync(gitBin(), ["show", `${commit}:${n}`], { cwd, maxBuffer: 256 * 1024 * 1024 });
-    if (r.status !== 0) throw new Error(`git show ${commit}:${n} failed`);
-    out.set(n.slice(prefix.length + 1), r.stdout);
-  }
-  return out;
-}
-
-const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
-
-/** Finds the plugin-dist commit to compare with, waiting up to `wait` seconds. Returns { commit, how }. */
-export async function findCommit({ cwd, remote, branch, sha, harness, version, wait, interval, grace, log }) {
-  const started = Date.now();
-  for (;;) {
-    git(cwd, ["fetch", "--quiet", "--no-tags", remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`].filter(Boolean));
-    const ref = `refs/remotes/${remote}/${branch}`;
-    const named = git(cwd, ["log", "--fixed-strings", `--grep=Source commit: ${sha}`, "-n", "1", "--format=%H", ref]);
-    if (named) return { commit: named, how: "names the source commit" };
-    const waited = (Date.now() - started) / 1000;
-    if (version && waited >= grace) {
-      const tip = git(cwd, ["rev-parse", ref]);
-      const r = spawnSync(gitBin(), ["show", `${tip}:dist/${harness}/${manifestPath(harness)}`], { cwd, encoding: "utf8" });
-      if (r.status === 0 && JSON.parse(r.stdout).version === version) {
-        return { commit: tip, how: `is the branch tip at version ${version}; no commit names ${sha}, which happens when a rerun finds an unchanged tree` };
-      }
-    }
-    if (waited >= wait) {
-      throw new Error(`No ${branch} commit naming ${sha} appeared in ${wait} seconds. Check the plugin-dist workflow run for that commit, fix it, then re-run this job.`);
-    }
-    log(`No ${branch} commit names ${sha} yet; waiting.`);
-    await sleep(interval);
-  }
-}
-
-export async function run(args, cwd = process.cwd(), log = console.log) {
+export async function run(args, root = ROOT) {
   if (args.includes("--help") || args.includes("-h")) return { code: 0, out: USAGE };
-  const o = { remote: "origin", branch: "plugin-dist", harness: "claudecode", wait: 900, interval: 30, grace: 300 };
-  const names = { "--zip": "zip", "--dir": "dir", "--sha": "sha", "--harness": "harness", "--remote": "remote", "--branch": "branch", "--wait": "wait", "--interval": "interval", "--grace": "grace", "--version": "version" };
+  const o = { harness: "claudecode" };
+  const names = { "--zip": "zip", "--dir": "dir", "--harness": "harness" };
   for (let i = 0; i < args.length; i++) {
     const k = names[args[i]];
     const v = args[++i];
     if (!k || v === undefined || v.startsWith("--")) return { code: 1, err: `Bad argument "${args[i - 1]}".\n\n${USAGE}` };
-    o[k] = ["wait", "interval", "grace"].includes(k) ? Number(v) : v;
+    o[k] = v;
   }
-  if (!o.zip || (!o.dir && !o.sha)) return { code: 1, err: `Give --zip and one of --dir or --sha.\n\n${USAGE}` };
+  if (!o.zip) return { code: 1, err: `Give --zip.\n\n${USAGE}` };
+  const dir = o.dir ?? join(root, "dist", o.harness);
+  const label = o.dir ? o.dir : `dist/${o.harness}`;
   try {
     const zip = readZipEntries(readFileSync(o.zip));
-    let other;
-    let label;
-    if (o.dir) {
-      other = readDir(o.dir);
-      label = o.dir;
-    } else {
-      const found = await findCommit({ cwd, ...o, log });
-      other = readCommitDir(cwd, found.commit, `dist/${o.harness}`);
-      label = `${o.branch}@${found.commit.slice(0, 12)}`;
-      log(`Comparing with ${label}, which ${found.how}.`);
-    }
+    const other = readDir(dir);
     if (other.size === 0) return { code: 1, err: `${label} holds no files to compare with.` };
     const problems = diffFiles(zip, other, label);
     if (problems.length) return { code: 1, err: `The zip and ${label} differ:\n${problems.map((p) => `  - ${p}`).join("\n")}` };

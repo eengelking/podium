@@ -43,7 +43,7 @@ plugin/claudecode/                   the Claude Code mod (what is specific to th
   hooks/respond.ts                   responding from Podium (#206): asks, answers, terminal lines (pure)
   hooks/*.test.ts                    run by `claude plugin test` against the built tree
 plugin/opencode/                     the OpenCode reporter (#855)
-dist/<harness>/                      what `npm run plugin:build` writes (git-ignored): a self-contained plugin
+dist/<harness>/                      the release build, tracked on `main` (`npm run plugin:build:release`); `dist-dev/<harness>/` is a developer's own (git-ignored)
 server/src/fleet/
   protocol.ts                        re-exports plugin/core/protocol.ts and adds the view types and validators
   ingest.ts                          Report → rows, events, blowouts, samples
@@ -169,14 +169,14 @@ The mod runs inside each Claude Code process and posts to `serverUrl`. It is ins
 `eengelking-marketplace`:
 
 - `eengelking/skills` lists `podium-reporter` in its `.claude-plugin/marketplace.json` with a `git-subdir`
-  source pointing at the built `dist/claudecode` on this repo's `plugin-dist` branch. Use a full `https://` URL; the `owner/repo` shorthand
+  source pointing at the built `dist/claudecode` on this repo's `main` branch, which holds only releases. Use a full `https://` URL; the `owner/repo` shorthand
   clones over SSH.
 - Users run `/plugin install podium-reporter@eengelking-marketplace`.
 - This repo carries no marketplace file.
 - The mod's version is set in `plugin.json` and in `VERSION` in `hooks/register.ts`, kept equal by
   `scripts/versions.test.ts`.
 - The `token` option is `sensitive`, so it is set with `/plugin configure`, not the `/config` menu.
-- To work on the mod, run `npm run plugin:build` and then `claude --plugin-dir dist/claudecode`.
+- To work on the mod, run `npm run plugin:build` and then `claude --plugin-dir dist-dev/claudecode`.
 
 ---
 

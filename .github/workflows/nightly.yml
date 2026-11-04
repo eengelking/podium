@@ -3,8 +3,8 @@ name: Nightly
 # A daily snapshot of `development` for testers (#528). It publishes the tag `nightly-YYYY-MM-DD` and a GitHub prerelease that
 # carries a source tarball of the tested commit and the two reporters' zips (#835, #857), then removes every earlier nightly, so one exists at a time. There is no registry.
 # A `schedule:` trigger only runs from the workflow file on the default branch, so this file takes effect when it reaches `main`;
-# it checks out `development` by name. The reporter's zip is built by the same scripts as a release's, and a nightly publishes no
-# `plugin-dist` branch (#927): only a merge to `main` does (plugin-dist.yml). Run it by hand from the Actions tab with `workflow_dispatch`.
+# it checks out `development` by name. The reporter's zip is built by the same scripts as a release's. A nightly never changes the tracked
+# dist/ (#983): that holds a release's build and moves only with a merge to `main`. Run it by hand from the Actions tab with `workflow_dispatch`.
 
 on:
   schedule:
@@ -169,7 +169,8 @@ jobs:
 
           git archive --format=tar.gz --prefix="podium-${tag}/" -o "podium-${tag}.tar.gz" "$SHA"
           # The reporter as an archive for Claude Desktop (#835), named for the version development carries and the day.
-          node scripts/plugin-build.mjs claudecode opencode
+          # A full build, which empties dist/ in this throwaway checkout first, so the zips hold the source of the commit and nothing older.
+          node scripts/plugin-build.mjs
           zip="$(node scripts/podium-reporter-zip.mjs --out . --suffix "-${tag}")"
           test -f "$zip"
           # The OpenCode reporter's archive (#857), named podium-opencode-<version>-nightly-<date>.zip.

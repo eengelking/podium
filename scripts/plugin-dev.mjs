@@ -5,15 +5,15 @@
 //   node scripts/plugin-dev.mjs cleanup [<harness>]
 //
 // Why: plugin/claudecode cannot be loaded on its own. Its hooks import ../../core/, outside the plugin folder, and Claude Code refuses
-// that. The folder it can load is the build, dist/claudecode/ (scripts/plugin-build.mjs). This script builds it with the dev stamp, the
-// same as `npm run plugin:build`, and starts the harness against it. With --watch it rebuilds into the same folder when the source
+// that. The folder it can load is the build, dist-dev/claudecode/ (scripts/plugin-build.mjs; dist/ is tracked and holds only the release
+// build, #983). This script builds it with the dev stamp, the same as `npm run plugin:build`, and starts the harness against it. With --watch it rebuilds into the same folder when the source
 // changes; the session then needs /reload-plugins. Adding a harness is one entry in HARNESS_TABLE. Only node builtins are used.
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, lstatSync, rmSync, statSync, watch as fsWatch } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gitBin } from "./git-bin.mjs";
-import { buildHarness, readIfPresent } from "./plugin-build.mjs";
+import { buildHarness, DEV_OUT, readIfPresent } from "./plugin-build.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -22,17 +22,17 @@ export const DEBOUNCE_MS = 300;
 const USAGE = `Usage: node scripts/plugin-dev.mjs <harness> [--watch] [-- <args for the harness>]
        node scripts/plugin-dev.mjs cleanup [<harness>]
 
-Builds the harness's plugin into dist/<harness>/ with the dev stamp (the same as npm run plugin:build), then runs the harness with
+Builds the harness's plugin into dist-dev/<harness>/ with the dev stamp (the same as npm run plugin:build), then runs the harness with
 that folder loaded. The source folder plugin/claudecode cannot be loaded on its own, so use this instead of --plugin-dir by hand.
   <harness>   claudecode (opencode is a stub: it exits 1 at once, and says how to build and start it; for a real OpenCode
               session against a throwaway server use scripts/podium-peers-e2e.sh --harness opencode).
   --watch     rebuild into the same folder when a file under plugin/claudecode or plugin/core changes (*.test.ts, .DS_Store and
-              anything under dist/ are ignored). A failed rebuild keeps the last good build. Run /reload-plugins in the session
+              anything under dist/ or dist-dev/ are ignored). A failed rebuild keeps the last good build. Run /reload-plugins in the session
               after a rebuild.
   --           everything after it goes to the harness unchanged. Through npm the first -- is npm's own:
               npm run plugin:dev:claudecode -- --watch -- --model sonnet
-  cleanup     remove build outputs only: dist/, .build-test/ and dist-zips/, or just dist/<harness>/ when one is named. It refuses
-              a path git does not report as ignored, and a symlink. It stops no process.
+  cleanup     remove build outputs only: dist-dev/, .build-test/ and dist-zips/, or just dist-dev/<harness>/ when one is named. It never
+              touches dist/ (tracked, the release build), refuses a path git does not report as ignored, and a symlink. It stops no process.
   -h, --help  this text.
 The harness's own binary is found on PATH (an absolute path, never a bare name); PODIUM_CLAUDE_BIN overrides it for claude.
 The harness's exit code is this script's exit code.`;
@@ -59,9 +59,9 @@ export function isExecutableFile(path) {
   }
 }
 
-/** The build of claudecode: dev-stamped into dist/claudecode, and the stamp text to show. */
+/** The build of claudecode: dev-stamped into dist-dev/claudecode, and the stamp text to show. */
 function buildClaudecode(root) {
-  const { dir } = buildHarness("claudecode", { root, outDir: join(root, "dist"), stamp: true });
+  const { dir } = buildHarness("claudecode", { root, outDir: join(root, DEV_OUT), stamp: true });
   const raw = readIfPresent(join(dir, ".claude-plugin", "dev-build.json"));
   if (!raw) return "no git";
   const s = JSON.parse(raw.toString("utf8"));
@@ -75,10 +75,10 @@ export const HARNESS_TABLE = {
     binEnv: "PODIUM_CLAUDE_BIN",
     roots: ["plugin/claudecode", "plugin/core"],
     build: buildClaudecode,
-    args: (root) => ["--plugin-dir", join(root, "dist", "claudecode")],
+    args: (root) => ["--plugin-dir", join(root, DEV_OUT, "claudecode")],
   },
   opencode: {
-    stub: "OpenCode has no dev runner yet (it comes with its distribution, #857). Build it with `node scripts/plugin-build.mjs opencode` and load dist/opencode/plugin/opencode/index.ts as a plugin.",
+    stub: "OpenCode has no dev runner yet (it comes with its distribution, #857). Build it with `node scripts/plugin-build.mjs opencode --dev-stamp` and load dist-dev/opencode/plugin/opencode/index.ts as a plugin.",
   },
 };
 
@@ -87,7 +87,7 @@ export function ignoredChange(rel) {
   if (!rel) return false;
   const parts = String(rel).split(/[\\/]/);
   const name = parts.at(-1);
-  return name === ".DS_Store" || name.endsWith(".test.ts") || parts.includes("dist");
+  return name === ".DS_Store" || name.endsWith(".test.ts") || parts.includes("dist") || parts.includes(DEV_OUT);
 }
 
 /**
@@ -105,7 +105,7 @@ export function createRebuilder({ build, log, logError, delay = DEBOUNCE_MS, set
   async function runBuild() {
     again = false;
     try {
-      log(`rebuilt dist at ${await build()}; run /reload-plugins in the session`);
+      log(`rebuilt ${DEV_OUT} at ${await build()}; run /reload-plugins in the session`);
     } catch (e) {
       logError(`rebuild failed, keeping the last good build: ${e.message}`);
     }
@@ -188,15 +188,15 @@ export function gitIgnores(root, rel, git = gitBin) {
 }
 
 /** The build outputs in the repo root that cleanup may remove with no harness named. */
-export const OUTPUT_DIRS = ["dist", ".build-test", "dist-zips"];
+export const OUTPUT_DIRS = [DEV_OUT, ".build-test", "dist-zips"];
 
 /**
- * Removes build outputs. Targets are fixed: the three OUTPUT_DIRS, or dist/<harness> for a known harness. Each target must exist,
+ * Removes build outputs. Targets are fixed: the three OUTPUT_DIRS, or dist-dev/<harness> for a known harness. dist/ is tracked and never a target. Each target must exist,
  * must not be a symlink (nor sit under one) and must be reported as ignored by git, or it is refused and nothing is removed for it.
  * Returns { removed, refused } with paths relative to the root.
  */
 export function cleanup(harness, { root = ROOT, isIgnored = gitIgnores, lstat = lstatSync, remove = (p) => rmSync(p, { recursive: true, force: true }) } = {}) {
-  const targets = harness ? [`dist/${harness}`] : OUTPUT_DIRS;
+  const targets = harness ? [`${DEV_OUT}/${harness}`] : OUTPUT_DIRS;
   const removed = [];
   const refused = [];
   for (const rel of targets) {
@@ -289,7 +289,7 @@ export async function run(args, deps = {}) {
     err(`The build failed, so ${p.harness} was not started: ${e.message}`);
     return 1;
   }
-  out(`built dist/${p.harness} at ${stamp}; after a rebuild run /reload-plugins in the session`);
+  out(`built ${DEV_OUT}/${p.harness} at ${stamp}; after a rebuild run /reload-plugins in the session`);
   let watcher = null;
   let rebuilder = null;
   if (p.watch) {

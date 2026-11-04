@@ -158,7 +158,7 @@ For scenarios 5 to 7 there is no ask, so check the server log in `$LIVE/server.l
 ```sh
 sed 's/"respond": "everything"/"respond": "off"/' "$LIVE/settings.json" > "$LIVE/settings-off.json"
 tmux new-window -t live -n off -c "$LIVE/proj-planner"
-tmux send-keys -t live:off "export HOME='$LIVE/home-claude' PODIUM_USER='$NAME' PODIUM_TOKEN='$TOKEN'; claude --plugin-dir '$PWD/dist/claudecode' --settings '$LIVE/settings-off.json' --model haiku -n off" C-m
+tmux send-keys -t live:off "export HOME='$LIVE/home-claude' PODIUM_USER='$NAME' PODIUM_TOKEN='$TOKEN'; claude --plugin-dir '$PWD/dist-dev/claudecode' --settings '$LIVE/settings-off.json' --model haiku -n off" C-m
 sleep 14; tmux send-keys -t live:off -l 'Say hello in one word.'; sleep 1; tmux send-keys -t live:off C-m
 ```
 

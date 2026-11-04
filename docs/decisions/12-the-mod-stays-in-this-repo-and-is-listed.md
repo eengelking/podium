@@ -10,7 +10,7 @@ order: 12
 
 # 12. The mod stays in this repo and is listed from the skills marketplace
 
-*Amended by 58 (#927): the listing now points at the built plugin on the `plugin-dist` branch (`ref: plugin-dist`, `path: dist/claudecode`), not at `mod/podium-reporter` on `main`. The mod is now `plugin/claudecode/`. The rest, including the version bump rule, is unchanged.*
+*Amended by 60 (#983, which superseded 58): the listing now points at the built plugin tracked on `main` (`path: dist/claudecode`, no `ref`), not at `mod/podium-reporter`. The mod is now `plugin/claudecode/`. The rest, including the version bump rule, is unchanged.*
 
 **Decision.** `podium-reporter` lives in `mod/podium-reporter/` here. `eengelking-marketplace` (in
 `eengelking/skills`) lists it with a `git-subdir` source, using a full `https://` URL (2026-10-11,

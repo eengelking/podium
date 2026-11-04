@@ -86,7 +86,7 @@ same two places, choose another file; with no file nothing changes. The client s
 
 ## Build and test
 
-- `node scripts/plugin-build.mjs opencode` builds `dist/opencode/`: a `package.json` whose `main` is `plugin/opencode/index.ts` (and whose `./tui` export is the TUI part), plus the
+- `node scripts/plugin-build.mjs opencode` builds `dist/opencode/` (the tracked release build; add `--dev-stamp` for your own build in `dist-dev/opencode/`): a `package.json` whose `main` is `plugin/opencode/index.ts` (and whose `./tui` export is the TUI part), plus the
   source of this folder and `plugin/core/`.
 - `npm run test:mod:opencode` builds with the tests and runs them with vitest on the built folder. `npm run typecheck:mod:opencode`
   checks this folder against `@opencode/plugin` (the version pinned in `scripts/podium-opencode-typecheck.sh`).

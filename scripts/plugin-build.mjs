@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Builds the folder a harness's plugin is installed and zipped from (#927): dist/<harness>/.
+// Builds the folder a harness's plugin is installed and zipped from (#927): dist/<harness>/, tracked in git on `main` (#983).
 //
 //   node scripts/plugin-build.mjs [claudecode] [opencode] [--out <dir>] [--with-tests] [--dev-stamp] [--check]
 //
@@ -9,8 +9,8 @@
 //
 // OpenCode (#855) has no Claude plugin manifest or hooks. Its folder is a package: package.json (version, and `main` pointing at the
 // plugin entry), plugin/opencode/** and plugin/core/**. It is built with the others when none is named (#857), and --check and the
-// zip and publish scripts treat it the same way. The Git specifier that installs it from the plugin-dist branch names the folder:
-// `#plugin-dist::path:dist/opencode`.
+// zip and check scripts treat it the same way. The Git specifier that installs it from `main` names the folder:
+// `#main::path:dist/opencode`.
 //
 //   dist/claudecode/
 //     .claude-plugin/plugin.json      the manifest
@@ -21,6 +21,11 @@
 //
 // --dev-stamp (npm run plugin:build, never CI) also writes .claude-plugin/dev-build.json: the commit, tag and dirtiness of the checkout
 // the build came from, so a reporter run from the built folder still shows `dev: <hash>` (#400). Without it nothing is stamped.
+// A stamped build goes to dist-dev/ (git-ignored), never to dist/: dist/ is tracked and holds only the release build (#983).
+//
+// A build that names no harness is a full build, and it empties the output folder first, so nothing from an earlier build can stay in
+// the tracked dist/. A build that names a harness replaces only that harness's folder. `node scripts/plugin-dist-check.mjs` rebuilds
+// in memory and fails when dist/ is not what the build produces; it gates every PR into `main`.
 //
 // The build then checks that the folder is self-contained (checkTree) and refuses to finish when it is not. The same bytes come
 // from the same source tree: files are written in name order with a fixed mode and no timestamp. Only node builtins are used.
@@ -41,10 +46,13 @@ const USAGE = `Usage: node scripts/plugin-build.mjs [claudecode] [opencode] [--o
 Builds dist/<harness>/ for each harness named: the folder a plugin is installed and zipped from.
   <harness>      claudecode or opencode. With none named, every harness that has its manifest:
                  .claude-plugin/plugin.json (claudecode) or package.json (opencode).
-  --out <dir>    where to build (default: dist/ in the repo). The harness's folder is <dir>/<harness>/ and is replaced.
+  --out <dir>    where to build (default: dist/ in the repo, or dist-dev/ with --dev-stamp). The harness's folder is <dir>/<harness>/
+                 and is replaced. With no harness named and no --out, dist/ (dist-dev/ with --dev-stamp) is emptied first; a folder
+                 named with --out is never emptied, only the harness folders in it are replaced.
   --with-tests   keep the *.test.ts files, so the harness's own test runner can run them (npm run test:mod:claudecode, test:mod:opencode).
   --dev-stamp    when the repo is a git checkout, write .claude-plugin/dev-build.json (commit, tag, dirty) so the mod shows
-                 \`dev: <commit>\`. For a developer's own build only: plugin-publish and the zip script refuse a tree that has it.
+                 \`dev: <commit>\`. For a developer's own build only: the zip script and plugin-dist-check refuse a tree that has it.
+                 Without --out it builds into dist-dev/, never into the tracked dist/.
   --check        build nothing; only run the self-containment check on the existing <out>/<harness>/ folders.
   -h, --help     this text.
 Left out: *.test.ts (unless --with-tests), .DS_Store, node_modules, tsconfig.json and the types the typecheck script lays in
@@ -111,6 +119,9 @@ export function readIfPresent(path) {
   }
 }
 
+/** Where a stamped (developer's) build goes by default: a git-ignored folder, so the tracked dist/ never holds a dev stamp (#983). */
+export const DEV_OUT = "dist-dev";
+
 /** Runs git in `root`; the exit code and stdout, or a failure code when git cannot start. */
 function gitIn(root, args) {
   const r = spawnSync(gitBin(), ["-C", root, ...args], { encoding: "utf8" });
@@ -124,7 +135,7 @@ export function devStamp(root = ROOT, git = (args) => gitIn(root, args)) {
     const commit = head.out.trim();
     if (head.code !== 0 || !commit) return null;
     const tag = git(["describe", "--exact-match", "--tags", "HEAD"]);
-    const status = git(["status", "--porcelain", "--", ".", ":(exclude)dist", ":(exclude).build-test", ":(exclude)dist-zips"]);
+    const status = git(["status", "--porcelain", "--", ".", ":(exclude)dist-dev", ":(exclude).build-test", ":(exclude)dist-zips"]);
     if (status.code !== 0) return null;
     return { commit, tag: tag.code === 0 ? tag.out.trim() : "", dirty: status.out.trim() !== "" };
   } catch {
@@ -312,6 +323,22 @@ export function buildHarness(harness, { root = ROOT, outDir = join(root, "dist")
   return { dir, files: [...files.keys()] };
 }
 
+/**
+ * Removes everything inside `dir` and keeps `dir` itself; a folder that does not exist is left alone. Refuses the repo root `root`, a
+ * folder above it, plugin/ or .git (or a folder inside them) and a folder that holds either, so a wrong --out cannot empty the checkout.
+ */
+export function emptyDir(dir, root = ROOT) {
+  const target = resolve(dir);
+  const repo = resolve(root);
+  const contains = (outer, inner) => inner === outer || inner.startsWith(outer.endsWith(sep) ? outer : outer + sep);
+  const protectedPaths = [join(repo, "plugin"), join(repo, ".git")];
+  if (contains(target, repo) || protectedPaths.some((p) => contains(p, target)) || existsSync(join(target, "plugin")) || existsSync(join(target, ".git"))) {
+    throw new Error(`Refusing to empty ${target}: it is the repo root, a folder above it, plugin/ or .git or a folder inside them, or it holds plugin/ or .git. Name an output folder with --out.`);
+  }
+  if (!existsSync(target)) return;
+  for (const name of readdirSync(target)) rmSync(join(target, name), { recursive: true, force: true });
+}
+
 /** Harnesses to build when none is named: those with their manifest (plugin.json, or package.json for opencode). */
 export function defaultHarnesses(root = ROOT) {
   return HARNESSES.filter((h) => existsSync(join(root, "plugin", h, ...manifestPath(h).split("/"))));
@@ -321,7 +348,7 @@ export function defaultHarnesses(root = ROOT) {
 export function run(args, root = ROOT) {
   if (args.includes("--help") || args.includes("-h")) return { code: 0, out: USAGE };
   const named = [];
-  let outDir = join(root, "dist");
+  let outDir = null;
   let withTests = false;
   let checkOnly = false;
   let stamp = false;
@@ -337,10 +364,16 @@ export function run(args, root = ROOT) {
     else if (HARNESSES.includes(a)) named.push(a);
     else return { code: 1, err: `Unknown argument "${a}".\n\n${USAGE}` };
   }
+  // A stamped build is a developer's: it goes to the git-ignored dist-dev/, never into the tracked dist/ (#983).
+  // Only the repo's own output folders are emptied (below); a folder named with --out is not ours, so only the harness folders in it are replaced.
+  const ownOut = outDir === null;
+  outDir ??= join(root, stamp ? DEV_OUT : "dist");
   const harnesses = named.length ? named : defaultHarnesses(root);
   if (harnesses.length === 0) return { code: 1, err: "No harness has its manifest (.claude-plugin/plugin.json, or package.json for opencode); nothing to build." };
   const out = [];
   try {
+    // A full build starts from an empty folder (#983), so a file the source no longer produces cannot stay in dist/.
+    if (!checkOnly && named.length === 0 && ownOut) emptyDir(outDir, root);
     for (const h of harnesses) {
       if (checkOnly) {
         const problems = checkTree(resolve(outDir, h));

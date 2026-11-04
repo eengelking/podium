@@ -34,12 +34,12 @@ Rules the module must obey:
 Run during development:
 
 ```
-npm run plugin:build                                 # writes dist/claudecode/, the built plugin
-claude plugin validate dist/claudecode               # manifest + source: lists every event hooked and every $ call made
+npm run plugin:build                                 # writes dist-dev/claudecode/, the built plugin (stamped, git-ignored)
+claude plugin validate dist-dev/claudecode               # manifest + source: lists every event hooked and every $ call made
 npm run typecheck:mod:claudecode                                # type-checks plugin/claudecode and plugin/core
 npm run test:mod:claudecode                                     # builds with the tests, then `claude plugin test` runs hooks/*.test.ts against the engine
-claude --plugin-dir dist/claudecode                  # a session with the mod loaded (rebuild after an edit)
-claude --plugin-dir dist/claudecode -p "…"           # headless; always loads fresh
+claude --plugin-dir dist-dev/claudecode                  # a session with the mod loaded (rebuild after an edit)
+claude --plugin-dir dist-dev/claudecode -p "…"           # headless; always loads fresh
 ```
 
 <!-- nav:start -->

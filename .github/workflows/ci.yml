@@ -37,6 +37,13 @@ jobs:
         if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         run: npm run standards:parity
 
+      # dist/ holds the built reporter and is tracked (#983). The marketplace installs it from main, so a PR into main (a release or a
+      # hotfix) and a push to main must leave it exactly what a clean build of the source produces. Feature PRs into development never
+      # touch it; release-prep rebuilds it with `npm run plugin:build:release`.
+      - name: The tracked dist/ is the clean build of the source (PRs into main, and main)
+        if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
+        run: npm run plugin:dist:check
+
   # The PostgreSQL adapter's tests (#822) are skipped unless PODIUM_TEST_PG names a server, and `npm test` above sets none. This job gives
   # them one: a service container with a health check, on a GitHub-hosted runner (the self-hosted runners above are containers on a shared
   # Podman host, where a service's published port is not reachable as localhost). Each test file makes and drops its own database, so
