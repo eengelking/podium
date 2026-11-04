@@ -206,6 +206,17 @@ describe('Responder: what a reporter with its own plumbing adds (#971)', () => {
     expect(await w.r.wait('s', ASK, always, always, { skip: () => true })).toBeNull()
   })
 
+  test('onAnnounce hears every announce, including the one a wait makes after a 404', async () => {
+    const heard: number[] = []
+    const replies = [{ status: 404, text: '' }, { status: 200, text: '' }, delivery()]
+    const r = new Responder(async () => ({ ok: true, ...replies.shift()! }), cfg, clock, newResponderState(), { onAnnounce: (_ask, status) => void heard.push(status) })
+    expect((await r.wait('s', ASK, always, always))?.id).toBe('d1')
+    expect(heard).toEqual([200])
+    const down = new Responder(async () => { throw new Error('down') }, cfg, clock, newResponderState(), { onAnnounce: (_ask, status) => void heard.push(status) })
+    expect(await down.announce('s', ASK)).toBe(0)
+    expect(heard).toEqual([200, 0])
+  })
+
   test('state is shared between responders, and onActed sees each new id', async () => {
     const state = newResponderState()
     const kept: string[][] = []

@@ -929,29 +929,40 @@ function serverBase(): string {
   return trimTrailingSlashes(link?.serverUrl ?? opts.serverUrl);
 }
 
-/**
- * The shared answering client over this hook's own fetch (Esc aborts a hook's fetches, so each call brings its own) and clock.
- * The server, the token and the TLS link are read when a call is made, because they are settled after register.
- */
+/** The shared answering client over this hook's own fetch (Esc aborts a hook's fetches, so each call brings its own) and clock. */
 function responderFor($: Engine, afterSend?: () => Promise<void>): Responder {
   return new Responder(
     (url, init) => (link ? link.fetch(url, init) : $.http.fetch(url, init)),
-    {
-      get serverUrl() {
-        return serverBase();
-      },
-      get token() {
-        return who.token;
-      },
-    },
+    responderConfig,
     { now: nowMs, sleep: (ms) => pause($, ms) },
     respondState,
-    { onActed: (ids) => void attempt(() => $.store.set(ACTED_KEY, ids), undefined), afterSend },
+    {
+      onActed: (ids) => void attempt(() => $.store.set(ACTED_KEY, ids), undefined),
+      afterSend,
+      // The first time an ask lands (also when a wait announces it again), the terminal says it is open in Podium too.
+      onAnnounce: (ask, status) => {
+        const a = asks.get(ask.id);
+        if (status === 200 && a && !a.announced) {
+          a.announced = true;
+          transcriptLine($, LINE_OPEN);
+        }
+      },
+    },
   );
 }
 
-/** For queueing only: a call waiting for the flush timer needs no fetch. */
-const queuer = (): Responder => responderFor(undefined as never);
+/** The server and the token are read when a call is made, because they are settled after register. */
+const responderConfig = {
+  get serverUrl(): string {
+    return serverBase();
+  },
+  get token(): string {
+    return who.token;
+  },
+};
+
+/** For queueing only: a call waiting for the flush timer needs no engine, and this one cannot make a call or wait. */
+const queuer = (): Responder => new Responder(() => Promise.reject(new Error('queue only')), responderConfig, { now: nowMs, sleep: async () => false }, respondState);
 
 /** One request to the server with the reporter's token; null when it could not be made (offline, or aborted by Esc). */
 function podiumCall($: Engine, method: string, path: string, body?: unknown): Promise<{ status: number; text: string } | null> {
@@ -999,12 +1010,7 @@ function markActed($: Engine, id: string): boolean {
 
 /** Announces an ask (PUT). The first time it lands, the terminal says it is also open in Podium. */
 async function announce($: Engine, a: OpenAsk): Promise<number> {
-  const status = await responderFor($).announce(a.sessionId, a.ask);
-  if (status === 200 && !a.announced) {
-    a.announced = true;
-    transcriptLine($, LINE_OPEN);
-  }
-  return status;
+  return responderFor($).announce(a.sessionId, a.ask);
 }
 
 function openAsk(r: Runtime, ask: Ask, questions?: OpenAsk['questions']): OpenAsk {

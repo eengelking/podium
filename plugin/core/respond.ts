@@ -43,6 +43,8 @@ export const newResponderState = (): ResponderState => ({ outbox: [], acted: [],
 export interface ResponderHooks {
   /** Called with the remembered ids after a new one is added, so a reporter can keep them across a reload. */
   onActed?: (acted: string[]) => void;
+  /** Called with the ask and the status after every announce, including the one a wait makes when the server forgot the ask. */
+  onAnnounce?: (ask: Ask, status: number) => void;
   /** Called after each queued call the server took, before the next one goes (a reporter's own calls waiting behind the outbox). */
   afterSend?: () => Promise<void>;
 }
@@ -82,7 +84,9 @@ export class Responder {
 
   /** Announces an ask (PUT). The status the server answered with, or 0 when it could not be reached. */
   async announce(sessionId: string, ask: Ask): Promise<number> {
-    return (await this.call('PUT', `${sessionPath(sessionId)}/asks/${encodeURIComponent(ask.id)}`, ask))?.status ?? 0;
+    const status = (await this.call('PUT', `${sessionPath(sessionId)}/asks/${encodeURIComponent(ask.id)}`, ask))?.status ?? 0;
+    this.hooks.onAnnounce?.(ask, status);
+    return status;
   }
 
   /** Notes a delivery as acted on, so one handed over twice (a lost reply, a reload) acts once. False when it already was. */
@@ -91,7 +95,7 @@ export class Responder {
     if (acted.includes(id)) return false;
     acted.push(id);
     if (acted.length > ACTED_KEPT) acted.splice(0, acted.length - ACTED_KEPT);
-    this.hooks.onActed?.(acted);
+    this.hooks.onActed?.([...acted]);
     return true;
   }
 
@@ -111,7 +115,7 @@ export class Responder {
 
   /**
    * Sends what was queued. A call that cannot be made keeps the rest for the next pass; one the server answers is dropped, whatever
-   * it said. Callers that arrive while a pass runs wait for that pass: a reporter with several roots flushes from each, and two
+   * it said. Callers that arrive while a pass runs wait for that pass, and so the first caller's `afterSend` is the one that runs: a reporter with several roots flushes from each, and two
    * passes at once would send the first item twice.
    */
   flush(): Promise<void> {
