@@ -405,9 +405,12 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   const known = store.rootOf.has(sid);
   if (!known && !ev.recovered && !type.startsWith('session.')) return null;
   const { root, sess: s } = locate(store, sid, parent, t, cwd);
+  // A delete or archive of a root that is already done ends nothing new: it must not reopen it just to end it again (#984).
+  const ending = type === 'session.deleted' || type === 'session.archived';
+  if (ending && root.done) return root;
   root.lastAt = t;
   s.lastAt = t;
-  reopen(root, t);
+  if (!ending) reopen(root, t);
   root.dirty = true;
   switch (type) {
     case 'session.created':
@@ -603,9 +606,13 @@ export function idleFor(root: Root, now: number, idleMs: number): boolean {
   return now - root.lastAt >= idleMs;
 }
 
-/** Finishes every root that has been quiet for `idleMs`. Returns the roots it finished. */
-export function sweep(store: Store, now: number, idleMs: number): Root[] {
+/**
+ * Finishes every root that has been quiet for `idleMs`. Returns the roots it finished. While `hold` is set (a TUI is attached,
+ * so the session is open and can be messaged) nothing is finished for being quiet (#984).
+ */
+export function sweep(store: Store, now: number, idleMs: number, hold = false): Root[] {
   const out: Root[] = [];
+  if (hold) return out;
   for (const r of store.roots.values()) {
     if (idleFor(r, now, idleMs)) {
       finish(r, now, 'idle');

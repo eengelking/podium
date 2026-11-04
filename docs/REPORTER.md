@@ -148,7 +148,7 @@ four plugin options at the end of the table.
 | `PODIUM_SERVER` | `http://127.0.0.1:4317` | Where reports go |
 | `PODIUM_TOKEN` | empty | Sent as `X-Podium-Token` |
 | `PODIUM_USER` | empty | The name your token was made for |
-| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5). Also the `idleSeconds` plugin option |
+| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5), unless the OpenCode terminal UI is attached: then it stays `waiting` and keeps taking messages until it is closed or deleted (DECISIONS 59). Also the `idleSeconds` plugin option |
 | `PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT` | empty | Which reporter config file to use over TLS (see [Over TLS](#over-tls)) |
 | `PODIUM_ACTIVITY_FEED` | off | The activity feed, as for Claude Code's `activityFeed` option. Answering needs it too |
 | `PODIUM_ACTIVITY_OUTPUT` | off | A shell call's output in the feed. Needs the feed on |
