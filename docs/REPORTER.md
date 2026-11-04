@@ -141,7 +141,7 @@ See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), 
 
 The OpenCode reporter reads these from the environment and `~/.podium/config.env`. A variable that is set, even to nothing, wins over the file. Each
 switch is off unless it is exactly `true`; `PODIUM_RESPOND` is the one that also takes a level name. Nothing here is read from `opencode.json`, except the
-four plugin options at the end of the table.
+five plugin options at the end of the table.
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -158,7 +158,7 @@ four plugin options at the end of the table.
 | `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
 | `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
 | `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with the cheapest small model in OpenCode's model list (an enabled chat model whose id names a Haiku, mini, nano, flash, lite or small tier) and uses OpenCode's default model only when none is listed (a chosen model that fails gives no explanation, so the expensive default is never the retry). The explanation ends with the model that wrote it. It is cut at 400 characters, and its cost is not counted anywhere |
-| `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds` | `1000`, `5000`, empty, `60` | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named |
+| `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds`, `fileDiffPreload` | `1000`, `5000`, empty, `60`, on | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named. `fileDiffPreload: false` turns off sending the diffs ahead of a request; it only narrows `PODIUM_FILE_DIFF`, so it never turns a diff on. These five are read only if OpenCode hands the plugin its options, and the PR that added them (#978) found they cannot be set on an auto-discovered plugin, which every install above is. That is not confirmed with a live run, so use the environment variable (`PODIUM_IDLE_SECONDS`) where one exists |
 
 What OpenCode reports: the model and its provider, tokens and cost (OpenCode's own figure), the context size and percent (from `ctx.model.list`, so a model
 that list does not hold shows a size and no percent), effort (the model's variant on each step, shown as observed), the skills it used (from the `skill` tool), tokens per
@@ -166,6 +166,8 @@ model, the plan (from the todo tool, or the name the `plan` tool gives it), the 
 
 Not available on OpenCode, and why:
 
+- **Messages after the session goes `done`.** A session reports `done` after `idleSeconds` of quiet (60 by default) unless the OpenCode terminal UI is attached. A `done` session is a closed one: a question or permission still open on it is closed as ended, and the session takes no message from Podium until it reports activity again, which reopens it under the same id. With the terminal UI attached it stays `waiting` and keeps taking messages (DECISIONS 59). Under `opencode --standalone` or with the service disabled, the command ending also ends the reporter.
+- **The status line, background tasks and `attached`.** The reporter reads no status line from OpenCode, so the card has none. The report carries no background-task list, and it sends `attached` as unknown (`null`), never as `true` or `false`, so the console cannot tell a session left running without a terminal from one that has one.
 - **Plan approval and `/clear`.** OpenCode has no plan-approval step and no equivalent of `/clear`, so the console does not offer them for an OpenCode session.
 - **The fork command.** The console's fork command is a shell line (`claude --resume <id> --fork-session`). Podium knows no OpenCode command line that starts a new session from a copy of one, so the cell reads as not available. The resume command works.
 - **`/podium name`, `/podium context` and `/podium messaging`.** The OpenCode `/podium` command answers with a toast and takes only `allow`, `decline` and `deliver`. Set the name with `sessionName` and the context with `PODIUM_REPORTER_CONTEXT`.

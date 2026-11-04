@@ -50,7 +50,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
   and a file tool's `path` is read as `file_path`. A compaction counts as a `compact` event and resets the context to the size of the summary it wrote until the next
   step ends; an automatic one is also a blowout. OpenCode's todo tool (`todowrite`) is off unless `experimental.todo` is on in `opencode.json`; without it the plan
   tool's title is all the console shows, as a plan with no steps.
-- A session is `done` after it has been quiet for `idleSeconds` (default 60), at once on `session.deleted` or `session.archived`, and when the
+- A session is `done` after it has been quiet for `idleSeconds` (default 60; not while a TUI is attached, #984). A `done` session takes no message from Podium until it reports activity again, at once on `session.deleted` or `session.archived`, and when the
   plugin is cleaned up (one final, time-bounded flush). It reopens under the same id when it sees activity again.
 
 ## Answering
@@ -69,8 +69,8 @@ Off unless `PODIUM_RESPOND` is `true` (or a level: `questions`, `questions-and-p
 
 Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
 `http://127.0.0.1:4317`), `PODIUM_TOKEN`, `PODIUM_USER`, `PODIUM_IDLE_SECONDS` (at least 5; also accepted as the `idleSeconds` plugin option) and the consent
-options (`PODIUM_RESPOND`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`, `PODIUM_FULL_PROMPTS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FILE_DIFF`, `PODIUM_PEERS` and `PODIUM_EXPLAIN_FAILURES`, each off unless exactly `true`). Three plugin options, named and bounded as in the Claude Code reporter, are the only others read from `opencode.json`: `flushIntervalMs` (default 1000, at least 200),
-`heartbeatMs` (default 5000, at least 1000) and `sessionName` (empty; it names a session OpenCode has not named, and OpenCode's own title wins). A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
+options (`PODIUM_RESPOND`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`, `PODIUM_FULL_PROMPTS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FILE_DIFF`, `PODIUM_PEERS` and `PODIUM_EXPLAIN_FAILURES`, each off unless exactly `true`). Five plugin options, named and bounded as in the Claude Code reporter, are the only others read from `opencode.json`: `idleSeconds`, `flushIntervalMs` (default 1000, at least 200),
+`heartbeatMs` (default 5000, at least 1000), `sessionName` (empty; it names a session OpenCode has not named, and OpenCode's own title wins) and `fileDiffPreload` (on; `false` stops the diffs sent ahead of a request and never turns one on). PR #978 found that an auto-discovered plugin, which every documented install is, gets no options, so they may not reach the reporter at all; that is not confirmed with a live run. A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
 and run `chmod 600` on it, and the reporter connects to the address in it over HTTPS with your certificate (no token needed). `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT`, from the
 same two places, choose another file; with no file nothing changes. The client starts with the reporter, renews the certificate when it is due, and stops when the plugin is cleaned up. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).
 
