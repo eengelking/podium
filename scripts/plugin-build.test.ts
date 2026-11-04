@@ -45,6 +45,16 @@ describe("plugin-build: the built folder", () => {
     expect(built.files.some((f: string) => f.includes("tsconfig.json") || f.includes(".claude-plugin/types/") || f.includes("node_modules"))).toBe(false);
   });
 
+  it("ships no test configuration file in either harness's tree, with or without the tests (#971)", () => {
+    for (const harness of ["claudecode", "opencode"]) {
+      for (const withTests of [false, true]) {
+        const files: string[] = buildHarness(harness, { outDir: tmp(), withTests }).files;
+        expect(files.filter((f) => f.endsWith("vitest.config.ts")), `${harness} withTests=${withTests}`).toEqual([]);
+      }
+    }
+    expect(included("plugin/core/vitest.config.ts")).toBe(false);
+  });
+
   it("is self-contained", () => {
     expect(checkTree(built.dir)).toEqual([]);
   });
