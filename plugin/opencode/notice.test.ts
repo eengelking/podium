@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '../core/transport.ts';
-import { dedupe, deliver, messagingLine, messagingOffReason, noticeOf, podiumText, StatusWatcher, statusChange } from './notice.ts';
+import { dedupe, deliver, messagingLine, messagingOffReason, noticeOf, podiumText, StatusRelay, StatusWatcher, statusChange } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
 import type { BusEvent } from './state.ts';
@@ -188,5 +188,55 @@ describe('podiumText: sign-in, messaging, context and the commands (#987)', () =
     r.handle(ev('session.created', { sessionID: 'ses_m' }, 1000));
     await r.tick();
     expect(r.summary().messaging).toMatchObject({ reported: true, serverSays: true });
+  });
+});
+
+describe('StatusRelay: the footer status is sent on change and on attach (#999)', () => {
+  it('sends a text once, and nothing again while it is the same', () => {
+    const sent: string[] = [];
+    const relay = new StatusRelay(async (s) => void sent.push(s.text));
+    relay.push('online');
+    relay.push('online');
+    relay.push('online');
+    expect(sent).toEqual(['online']);
+  });
+
+  it('sends an empty text when the status goes away, so the footer clears', () => {
+    const sent: string[] = [];
+    const relay = new StatusRelay(async (s) => void sent.push(s.text));
+    relay.push('online');
+    relay.push(null);
+    relay.push(null);
+    expect(sent).toEqual(['online', '']);
+  });
+
+  it('sends nothing for a status that was never there', () => {
+    const sent: string[] = [];
+    new StatusRelay(async (s) => void sent.push(s.text)).push(null);
+    expect(sent).toEqual([]);
+  });
+
+  it('hands the current text to a TUI part that attaches late, and only when there is one', () => {
+    const sent: string[] = [];
+    const relay = new StatusRelay(async (s) => void sent.push(s.text));
+    relay.attached();
+    expect(sent).toEqual([]);
+    relay.push('online');
+    relay.attached();
+    expect(sent).toEqual(['online', 'online']);
+  });
+
+  it('is not sent when there is nowhere to send it, and is sent once a sender exists', () => {
+    const sent: string[] = [];
+    const relay = new StatusRelay();
+    relay.push('online');
+    relay.send = async (s) => void sent.push(s.text);
+    relay.attached();
+    expect(sent).toEqual(['online']);
+  });
+
+  it('survives a failing send', async () => {
+    const relay = new StatusRelay(async () => Promise.reject(new Error('gone')));
+    expect(() => relay.push('online')).not.toThrow();
   });
 });

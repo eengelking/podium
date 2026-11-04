@@ -2,17 +2,17 @@
 // the modules beside it, which need no OpenCode API and are tested on their own.
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
 import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
-import { contextCommand, type ContextIO } from '../core/tls/contexts.ts';
+import { runContext } from './contextVerb.ts';
 import { buildOf, packageRoot } from './build.ts';
 import { argsOf, runPodium } from './command.ts';
-import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
+import { dedupe, deliver, podiumText, StatusRelay, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
 import { MESSAGING_TOOLS, podiumTools } from './tools.ts';
@@ -78,19 +78,6 @@ const plainFetch: FetchLike = async (url, init) => {
   return { status: r.status, ok: r.ok, text: await r.text() };
 };
 
-/** `/podium context ...` (#606): the contexts file is read and written on disk; a file that is not there reads as null. */
-const contextVerb = async (args: string): Promise<string> => {
-  const io: ContextIO = {
-    read: (path) => readFile(path, 'utf8').catch((err: NodeJS.ErrnoException) => (err.code === 'ENOENT' ? null : Promise.reject(err))),
-    write: (path, text) => writeFile(path, text, { mode: 0o600 }),
-  };
-  try {
-    return await contextCommand(io, homeOf(process.env), args, process.env.PODIUM_REPORTER_CONTEXT || undefined);
-  } catch (err) {
-    return `Podium: the context command failed (${err instanceof Error ? err.message : String(err)}).`;
-  }
-};
-
 /** One reporter for a location: its options, the secure connection when a reporter config file is found, and the flush timer. */
 async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const settings = readSettingsFile();
@@ -106,7 +93,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     seenAt: 0,
     emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
     notify: undefined as undefined | ((n: NoticeEvent) => Promise<void>),
-    status: undefined as undefined | ((s: StatusEvent) => Promise<void>),
+    status: new StatusRelay(),
     reporter: undefined as Reporter | undefined,
   };
   // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
@@ -150,12 +137,13 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   );
   bridge.reporter = reporter;
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
-  void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
+  void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); bridge.status.attached(); return { ok: true }; } }).then(
     (reg) => {
       const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status', data: AnswerEvent | NoticeEvent | StatusEvent) => Promise<void> } }).events;
       bridge.emit = async (e) => events.emit('answer', e);
       bridge.notify = async (n) => events.emit('notice', n);
-      bridge.status = async (s) => events.emit('status', s);
+      bridge.status.send = async (s) => events.emit('status', s);
+      bridge.status.attached();
     },
     () => undefined,
   );
@@ -176,7 +164,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
             await ctx.storage.set(`name:${id}`, name).catch(() => undefined);
             return `Podium: this session is now named "${name}".`;
           },
-          context: (args) => contextVerb(args),
+          context: (args) => runContext(args, homeOf(process.env), process.env.PODIUM_REPORTER_CONTEXT || undefined),
           status: () => {
             const status = podiumText(reporter.summary(), {
               serverUrl: options.serverUrl,
@@ -215,7 +203,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
   const watcher = new StatusWatcher();
   const timer = setInterval(
-    () => void reporter.tick().then(() => { reloadTools(); const text = reporter.statusText(); if (text) void bridge.status?.({ text }).catch(() => undefined); const n = watcher.poll(text); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
+    () => void reporter.tick().then(() => { reloadTools(); const text = reporter.statusText(); bridge.status.push(text); const n = watcher.poll(text); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
     options.flushMs,
   );
   timer.unref?.();

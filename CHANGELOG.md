@@ -126,6 +126,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The OpenCode footer status clears when the connection is gone, is sent only when it changes, and `/podium context` writes safely (#999).** The status goes to the TUI part when its text changes and when a TUI part attaches, not on every flush, and an empty text clears the footer once no connection to Podium remains. `/podium context` creates `~/.podium` when it is missing, writes `contexts.json` through a temporary file and a rename (so a failed write leaves the old file), and says plainly when there is no home folder, as the Claude Code command does.
 - **A card's session ID leaves the wall with the card (#992).** The ID is a button beside the card's own button, so the leave animation, which ran on the card alone, left it (and the pin, Remove and respond buttons) on screen for a moment. The animation now runs on the slot that holds all of them.
 
 - **The console no longer says OpenCode cannot message, and an OpenCode card shows Context and Effort (#985).** The OpenCode report now sends `peers: false` when messaging is off (it left the field out, which SPEC 6.2 reads as "not supported"), so a session with messaging off shows as "messaging off". The Admin and My reporters pages tell people to switch messaging on with `PODIUM_PEERS=true`, and the console's fallback for OpenCode no longer declares context and effort unsupported.
