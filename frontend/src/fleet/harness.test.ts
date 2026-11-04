@@ -15,8 +15,8 @@ describe("harness (#853)", () => {
     expect(harnessOf("constructor").name).toBe("constructor");
   });
 
-  it("hides the fields OpenCode does not report", () => {
-    expect(harnessOf("opencode")).toMatchObject({ context: false, effort: false });
+  it("shows the fields OpenCode reports (#985)", () => {
+    expect(harnessOf("opencode")).toMatchObject({ context: true, effort: true });
     expect(harnessOf("claude-code")).toMatchObject({ context: true, effort: true });
   });
 

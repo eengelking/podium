@@ -13,14 +13,14 @@ describe('harness badge and neutral labels', () => {
     cy.get('.chip.hx').should('not.exist');
   });
 
-  it('shows the badge on every card once a second harness reports, and drops Context from the OpenCode card', () => {
+  it('shows the badge on every card once a second harness reports, and keeps Context on the OpenCode card (#985)', () => {
     cy.reportAgain('api', { id: OC, name: 'oc-session', harness: 'opencode', costSource: 'harness', costUsd: 2.5 }, undefined, undefined, opencode);
     cy.openConsole('#/');
     cy.cards().should('have.length', 13);
     oc().find('.chip.hx').should('contain.text', 'OpenCode');
     oc().find('.chip.hx svg').should('have.attr', 'data-shape', 'diamond');
-    oc().find('.z3').should('have.class', 'three');
-    oc().find('.z3 .c.ctx').should('not.exist');
+    oc().find('.z3').should('not.have.class', 'three');
+    oc().find('.z3 .c.ctx').should('exist');
     oc().contains('.src', 'from OpenCode');
     cy.card('api').find('.chip.hx').should('contain.text', 'Claude Code');
     cy.card('api').find('.chip.hx svg').should('have.attr', 'data-shape', 'square');
@@ -28,7 +28,7 @@ describe('harness badge and neutral labels', () => {
     cy.card('api').find('.src').should('not.exist');
   });
 
-  it('names the harness on the orchestrator page: no context size, a plain Cost label, Fork not available', () => {
+  it('names the harness on the orchestrator page: a context size, a plain Cost label, Fork not available', () => {
     cy.openConsole('#/');
     oc().click();
     cy.get('main#podium-main h1').should('contain.text', 'oc-session');
@@ -37,7 +37,7 @@ describe('harness badge and neutral labels', () => {
     cy.window().then((w) => w.navigator.clipboard.readText()).should('match', /opencode .*--session e2e-s-opencode/s);
     cy.get('main#podium-main').within(() => {
       cy.get('.chip.hx').should('contain.text', 'OpenCode');
-      cy.contains('OpenCode does not report context size.');
+      cy.contains('OpenCode does not report context size.').should('not.exist');
       cy.contains('.fact .k', /^Cost$/).should('exist');
       cy.contains('.fact .k', 'Est. cost').should('not.exist');
       cy.get('button[aria-label="Copy fork command"]').should('not.exist');

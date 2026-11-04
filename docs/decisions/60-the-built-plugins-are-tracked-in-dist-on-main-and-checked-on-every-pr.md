@@ -1,14 +1,14 @@
 ---
-title: "59. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)"
+title: "60. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)"
 description: "dist/ is committed in the release-prep PR, a check fails any PR into main whose dist/ is not a clean build, and the marketplace follows main."
 group: "Project internals"
-number: 59
+number: 60
 date: "2026-11-04"
 status: "accepted"
-order: 59
+order: 60
 ---
 
-# 59. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)
+# 60. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)
 
 *Supersedes 58 (#927): the built plugins are no longer published to a `plugin-dist` branch. Amends 12 and 56 in the places named below.*
 

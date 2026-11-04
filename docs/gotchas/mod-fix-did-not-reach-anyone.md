@@ -14,7 +14,7 @@ order: 51
 
 **Why:** Installed copies only update when `version` in `plugin/claudecode/.claude-plugin/plugin.json` changes. A merge into `development`
 reaches no installed copy either way: the marketplace serves the built plugin from `dist/claudecode` on `main`, and `main` moves only on a
-release. The release-prep PR rebuilds `dist/` and `npm run plugin:dist:check` fails the PR into `main` if it is stale (DECISIONS 59). A change to the shared code in `plugin/core/` counts as a mod change, because
+release. The release-prep PR rebuilds `dist/` and `npm run plugin:dist:check` fails the PR into `main` if it is stale (DECISIONS 60). A change to the shared code in `plugin/core/` counts as a mod change, because
 it ships inside the built plugin.
 
 **Do:** The version is bumped in the release-prep PR, not in feature PRs. See the `podium-release` skill (`.claude/skills/podium-release/`) for the

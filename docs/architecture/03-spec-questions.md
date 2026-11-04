@@ -154,7 +154,7 @@ numbers, so they stay fixed.
     `mod/podium-reporter` in this repo (full `https://` URL, because the `owner/repo` shorthand clones over
     SSH). Install with `/plugin install podium-reporter@eengelking-marketplace`. This repo has no
     marketplace file of its own. docs/spec/ was amended to match (4.4, and the deferred item removed).
-    *Since #983 the entry points at the built plugin tracked on `main` (`path: dist/claudecode`, no `ref`), not at `mod/podium-reporter` (DECISIONS 59, which superseded 58).*
+    *Since #983 the entry points at the built plugin tracked on `main` (`path: dist/claudecode`, no `ref`), not at `mod/podium-reporter` (DECISIONS 60, which superseded 58).*
 40. **Inside the container the server binds `0.0.0.0`.** The first spec said the server binds `127.0.0.1`
     by default. In the image it has to listen on all interfaces for the published port to reach it, so
     `podiumctl` publishes it only on the host's `127.0.0.1` (or the `--bind` address). The server's own

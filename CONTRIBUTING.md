@@ -49,7 +49,7 @@ so `npm run plugin:dev:opencode` exits with an error; build it with `node script
 and load `dist-dev/opencode/plugin/opencode/index.ts` as an OpenCode plugin, or copy `dist-dev/opencode/` into `~/.config/opencode/plugins/podium/` ("Install the OpenCode reporter" in `docs/REPORTER.md`). `scripts/plugin-dev.mjs` is the script behind these.
 
 `npm run plugin:build` alone builds without starting anything, and a change in `plugin/` shows only after a rebuild and a `/reload-plugins`.
-Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist-dev/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp into the tracked `dist/`, emptying it first. Only the `release-prep/<version>` PR commits that (DECISIONS 59); the check and the zip script refuse a folder that carries a stamp.
+Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev` stamp the commit into the built folder (`.claude-plugin/dev-build.json`), so a mod run from `dist-dev/claudecode/` still reports `Dev: <commit>`. `npm run plugin:build:release` builds every harness with no stamp into the tracked `dist/`, emptying it first. Only the `release-prep/<version>` PR commits that (DECISIONS 60); the check and the zip script refuse a folder that carries a stamp.
 
 ## Checks to run
 
@@ -320,7 +320,7 @@ reporter (#855, DECISIONS 56). They are installed from a built folder, not from 
 - `scripts/plugin-dist-check.mjs` (`npm run plugin:dist:check`) rebuilds in memory and fails unless `dist/` is exactly that build: the same
   files and bytes, nothing extra, no dev stamp, every harness at the product version. `ci.yml` runs it on a PR into `main` and on a push to
   `main`, so only a release (or a hotfix) with its final build can reach `main`. It writes nothing; to fix a failure run
-  `npm run plugin:build:release` and commit `dist/` (DECISIONS 59, #983).
+  `npm run plugin:build:release` and commit `dist/` (DECISIONS 60, #983).
 - `eengelking-marketplace` installs from `dist/claudecode` on `main`, with no `ref`, so a release reaches an installed copy as a new
   commit there. `release.yml` runs the check, zips the tracked `dist/` and runs `scripts/plugin-dist-compare.mjs` once for each archive,
   which fails the release if a zip differs from `dist/<harness>/` in the tag's checkout.
