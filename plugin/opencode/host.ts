@@ -1,6 +1,7 @@
 // What answering does inside OpenCode (#858): the calls the server part makes. The OpenCode API arrives as a small `Api` the entry
 // file fills in from `ctx`, so everything here is tested with fakes. A question form is answered through the TUI part when one is
 // attached, otherwise through OpenCode's local HTTP route with the address and password in `service.json`.
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { Host } from './answering.ts';
 import { ATTACH_TTL_MS, type AnswerEvent } from './bridge.ts';
@@ -49,7 +50,35 @@ export function serviceOf(text: string | null): { url: string; password: string 
   }
 }
 
+const ID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+/** How many delivery ids keep their message id, so a retry is the same message. */
+const IDS_KEPT = 200;
+
+/**
+ * The id OpenCode takes for a message or a compaction. It takes only a string that starts with `msg_` (OpenCode 2.2.5 answers `Expected a
+ * string starting with "msg_"` to anything else), and orders messages by id, so the id is OpenCode's own shape: 12 hex digits of the time,
+ * then 14 characters. The characters come from the delivery id, and the first id made for a delivery is kept, so the same delivery sent
+ * twice is the same message.
+ */
+export function messageIdFor(deliveryId: string, now: number, kept: Map<string, string>): string {
+  const was = kept.get(deliveryId);
+  if (was) return was;
+  const time = (BigInt(Math.max(0, Math.trunc(now))) * 0x1000n).toString(16).padStart(12, '0').slice(-12);
+  const tail = Array.from(createHash('sha256').update(deliveryId).digest().subarray(0, 14), (b) => ID_CHARS[b % ID_CHARS.length]).join('');
+  const id = `msg_${time}${tail}`;
+  kept.set(deliveryId, id);
+  if (kept.size > IDS_KEPT) kept.delete(kept.keys().next().value as string);
+  return id;
+}
+
+/** Submits text as a prompt through `api` under a message id made from `id`. Used for a peer's message, which does not go through the host. */
+export function promptVia(api: Api, now: () => number): (sessionId: string, id: string, text: string) => Promise<void> {
+  const kept = new Map<string, string>();
+  return async (sessionID, id, text) => void (await api.prompt({ sessionID, id: messageIdFor(id, now(), kept), text }));
+}
+
 export function makeHost(d: HostDeps): Host {
+  const ids = new Map<string, string>();
   const tui = (): boolean => d.tuiSeenAt() > 0 && d.now() - d.tuiSeenAt() < ATTACH_TTL_MS;
   // `service.json` is looked for at most every 5 seconds: the form channel is asked about on every pass for every ask.
   let serviceAt = -Infinity;
@@ -86,7 +115,7 @@ export function makeHost(d: HostDeps): Host {
       });
       if (!res.ok) throw new Error(`the form reply was refused (${res.status})`);
     },
-    prompt: async (sessionID, id, text) => void (await d.api.prompt({ sessionID, id, text })),
-    compact: async (sessionID, id) => void (await d.api.compact({ sessionID, id })),
+    prompt: async (sessionID, id, text) => void (await d.api.prompt({ sessionID, id: messageIdFor(id, d.now(), ids), text })),
+    compact: async (sessionID, id) => void (await d.api.compact({ sessionID, id: messageIdFor(id, d.now(), ids) })),
   };
 }

@@ -41,7 +41,13 @@ export class Answering {
     private readonly host: Host,
     private readonly consent: Consent,
     private readonly now: () => number = Date.now,
+    /** Where a warning goes. The reporter's log drops a line it has just said, so a call that keeps failing the same way is said once. */
+    private readonly log: (line: string) => void = () => undefined,
   ) {}
+
+  private warn(what: string, err: unknown): void {
+    this.log(`podium-reporter: OpenCode did not take ${what}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   /** What the session takes now. Null while the person has not allowed answering: the report then says nothing about it. */
   info(): RespondInfo | null {
@@ -115,7 +121,8 @@ export class Answering {
       await this.host.formReply(ask.sessionId, ask.id, answer);
       this.record(root, ask, d);
       return this.result(root, d, 'took');
-    } catch {
+    } catch (err) {
+      this.warn('an answer from Podium', err);
       return this.result(root, d, 'not-taken');
     }
   }
@@ -146,7 +153,8 @@ export class Answering {
         return this.result(root, d, 'took');
       }
       return this.result(root, d, 'refused');
-    } catch {
+    } catch (err) {
+      this.warn(d.kind === 'message' ? 'a message from Podium' : 'the /compact from Podium', err);
       return this.result(root, d, 'not-taken');
     }
   }

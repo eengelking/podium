@@ -4,7 +4,7 @@ import type { FetchLike } from '../core/transport.ts';
 import { formAnswer, framedMessage, permissionReply, podiumAsk } from './answer.ts';
 import type { Host } from './answering.ts';
 import { ATTACH_TTL_MS } from './bridge.ts';
-import { makeHost, serviceOf, servicePath, type HostDeps } from './host.ts';
+import { makeHost, messageIdFor, promptVia, serviceOf, servicePath, type HostDeps } from './host.ts';
 import { optionsOf } from './options.ts';
 import { capabilities } from './report.ts';
 import { Reporter } from './reporter.ts';
@@ -123,12 +123,41 @@ describe('host: answering inside OpenCode', () => {
     return { deps, calls, host: makeHost(deps) };
   };
 
-  it('passes a permission reply, a prompt and a compaction through to OpenCode', async () => {
+  it('passes a permission reply, a prompt and a compaction through to OpenCode, each under an id OpenCode takes', async () => {
     const { host, calls } = baseDeps();
     await host.permissionReply('s', 'per_1', 'once');
-    await host.prompt('s', 'd1', 'hi');
-    await host.compact('s', 'd2');
-    expect(calls).toEqual(['reply per_1 once', 'prompt s d1 hi', 'compact s d2']);
+    await host.prompt('s', 'dlv_d1', 'hi');
+    await host.compact('s', 'dlv_d2');
+    expect(calls[0]).toBe('reply per_1 once');
+    expect(calls[1]).toMatch(/^prompt s msg_[0-9a-f]{12}[0-9A-Za-z]{14} hi$/);
+    expect(calls[2]).toMatch(/^compact s msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  });
+
+  it('gives one delivery one message id, so a retry is the same message, and another delivery another', async () => {
+    const { host, calls } = baseDeps();
+    await host.prompt('s', 'dlv_d1', 'hi');
+    await host.prompt('s', 'dlv_d1', 'hi');
+    await host.prompt('s', 'dlv_d2', 'hi');
+    const ids = calls.map((c) => c.split(' ')[2]);
+    expect(ids[0]).toBe(ids[1]);
+    expect(ids[2]).not.toBe(ids[0]);
+  });
+
+  it('derives a message id that starts with msg_ from any delivery id, the same one each time, and forgets old ones', () => {
+    const ids = new Map<string, string>();
+    const a = messageIdFor('dlv_x', 1_700_000_000_000, ids);
+    expect(a).toMatch(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    expect(messageIdFor('dlv_x', 1_800_000_000_000, ids)).toBe(a);
+    expect(messageIdFor('', 1, new Map())).toMatch(/^msg_/);
+    for (let i = 0; i < 300; i++) messageIdFor(`dlv_${i}`, 1, ids);
+    expect(ids.size).toBeLessThanOrEqual(200);
+  });
+
+  it('submits a peer message under a message id too', async () => {
+    const seen: string[] = [];
+    const send = promptVia({ prompt: async (i) => void seen.push(`${i.sessionID} ${i.id} ${i.text}`), compact: async () => undefined, permissionReply: async () => undefined }, () => 5);
+    await send('s', 'pd1', 'hello');
+    expect(seen[0]).toMatch(/^s msg_[0-9a-f]{12}[0-9A-Za-z]{14} hello$/);
   });
 
   it('chooses the channel for a question: the TUI part while attached, else the local service, else none', () => {
@@ -281,11 +310,11 @@ function fakeHost(over: Partial<Host> = {}) {
   return { host, calls };
 }
 
-function rig(host: Host, respond = true, activityFeed = true, server = podium(), answerMs?: number, env: Record<string, string> = {}) {
+function rig(host: Host, respond = true, activityFeed = true, server = podium(), answerMs?: number, env: Record<string, string> = {}, log: (line: string) => void = () => undefined) {
   const t = { now: 10_000 };
   const options = optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', PODIUM_RESPOND: 'everything', ...env });
   const r = new Reporter(
-    { fetch: server.fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined, answering: { host, consent: { respond, activityFeed, level: options.respondLevel }, sleep: async () => true, answerMs } },
+    { fetch: server.fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log, answering: { host, consent: { respond, activityFeed, level: options.respondLevel }, sleep: async () => true, answerMs } },
     { ...options, idleMs: 600_000 },
   );
   r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, 10_000));
@@ -607,6 +636,27 @@ describe('Reporter answering (#858)', () => {
     await r.tick();
     expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m9/result']).toMatchObject({ result: 'not-taken' });
     expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/m8/result']).toMatchObject({ result: 'not-taken' });
+  });
+
+  it('says why OpenCode did not take a message, a command or an answer, instead of hiding it', async () => {
+    const reason = new Error('Expected a string starting with "msg_"');
+    const { host } = fakeHost({ prompt: async () => { throw reason; }, compact: async () => { throw reason; }, permissionReply: async () => { throw new Error('no permission'); } });
+    const lines: string[] = [];
+    const server = podium();
+    const { r, t } = rig(host, true, true, server, undefined, {}, (l) => lines.push(l));
+    r.handle(permission());
+    await r.tick();
+    t.now += 6000;
+    server.handOver([D({ id: 'm9', kind: 'message', text: 'x' }), D({ id: 'm8', kind: 'command', command: 'compact' })]);
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dp', kind: 'allow-once' });
+    await vi.waitFor(() => expect(lines.some((l) => l.includes('answer') && l.includes('no permission'))).toBe(true));
+    await r.tick();
+    expect(lines.some((l) => l.includes('podium-reporter') && l.includes('message') && l.includes('msg_'))).toBe(true);
+    expect(lines.some((l) => l.includes('/compact') && l.includes('msg_'))).toBe(true);
+    expect(lines.some((l) => l.includes('answer') && l.includes('no permission'))).toBe(true);
+    server.releaseAll();
   });
 
   it('stops listening and lists no asks when the server stops taking answers', async () => {

@@ -46,7 +46,7 @@ describe('activity feed: what is kept', () => {
     setWatched(s.roots.get(ROOT)!, [MAIN_LOOP]);
     for (const e of [...begin.slice(1), ...call(ROOT, 'c2', 'read', { filePath: '/work/project/a.ts' }, 6), ...call(ROOT, 'c3', 'grep', { pattern: 'foo', path: 'src' }, 8), ...call(ROOT, 'c4', 'task', { description: 'look around' }, 10), ...call(ROOT, 'c5', 'webfetch', { url: 'https://example.com' }, 12), ...call(ROOT, 'c6', 'skill', { name: 'review' }, 14)]) apply(s, e, e.created ?? 0);
     const feed = feedOf(s);
-    expect(feed.map((e) => e.text)).toEqual(['Bash ls -la # [redacted]', 'Read /work/project/a.ts', 'Grep "foo" in src', 'Agent look around', 'webfetch https://example.com', 'Skill review']);
+    expect(feed.map((e) => e.text)).toEqual(['Bash ls -la # [redacted]', 'Read /work/project/a.ts', 'Grep "foo" in src', 'Agent look around', 'WebFetch https://example.com', 'Skill review']);
     expect(feed[0]).toMatchObject({ kind: 'tool', id: 'c1', command: 'ls -la # [redacted]' });
     expect(feed[1]).not.toHaveProperty('command');
     expect(JSON.stringify(feed)).not.toContain(SECRET);
@@ -310,7 +310,7 @@ describe('session recording', () => {
     expect(batches).toHaveLength(1);
     expect(batches[0]!.url).toContain(`/${ROOT}/recording`);
     const entries = batches[0]!.body.entries;
-    expect(entries.map((e) => [e.loop, e.seq, e.kind, e.name])).toEqual([[MAIN_LOOP, 1, 'prompt', undefined], [MAIN_LOOP, 2, 'thinking', undefined], [MAIN_LOOP, 3, 'tool', 'bash'], [MAIN_LOOP, 4, 'result', 'bash'], [MAIN_LOOP, 5, 'text', undefined]]);
+    expect(entries.map((e) => [e.loop, e.seq, e.kind, e.name])).toEqual([[MAIN_LOOP, 1, 'prompt', undefined], [MAIN_LOOP, 2, 'thinking', undefined], [MAIN_LOOP, 3, 'tool', 'Bash'], [MAIN_LOOP, 4, 'result', 'Bash'], [MAIN_LOOP, 5, 'text', undefined]]);
     expect(entries[0]!.text).toBe('Fix it [redacted]');
     expect(entries[3]).toMatchObject({ text: 'built', callSeq: 3 });
     expect(JSON.stringify(batches)).not.toContain(SECRET);
@@ -330,7 +330,7 @@ describe('session recording', () => {
     const entries = batches[0]!.body.entries;
     expect(entries.map((e) => [e.loop, e.kind, e.failed ?? false])).toEqual([[KID, 'prompt', false], [KID, 'tool', false], [KID, 'result', true], [MAIN_LOOP, 'compact', false]]);
     // The tool's input names a file on the never-send list: its path alone is kept.
-    expect(entries[1]!.text).toBe('{"filePath":"/work/.env"}');
+    expect(entries[1]!.text).toBe('{"file_path":"/work/.env"}');
   });
 
   it('captures and sends nothing while the sessionRecording option is off, though the server says the session is chosen', async () => {
@@ -463,6 +463,19 @@ describe('activity entries for OpenCode tools', () => {
     expect(entryFor('patch', { filePath: '/a.ts' }, 'p1', 5)).toEqual({ at: 5, kind: 'tool', text: 'Edit /a.ts' });
     expect(entryFor('bash', {}, undefined, 5)).toEqual({ at: 5, kind: 'tool', text: 'Bash' });
     expect(entryFor('bash', { command: 'x'.repeat(30_000) }, 'b', 5)).toMatchObject({ commandCut: true, id: 'b' });
+  });
+
+  it('reads the names and arguments of OpenCode 2.2.5: the shell tool is shell, a file tool takes path, the skill tool takes id', () => {
+    expect(entryFor('shell', { command: 'echo hi' }, 's1', 5)).toEqual({ at: 5, kind: 'tool', text: 'Bash echo hi', id: 's1', command: 'echo hi' });
+    expect(entryFor('read', { path: '/a/b.ts' }, 'r1', 5).text).toBe('Read /a/b.ts');
+    expect(entryFor('write', { path: '/a/c.ts', content: 'x' }, 'r1', 5).text).toBe('Write /a/c.ts');
+    expect(entryFor('edit', { path: '/a/d.ts', oldString: 'a', newString: 'b' }, 'r1', 5).text).toBe('Edit /a/d.ts');
+    expect(entryFor('apply_patch', { patchText: 'x' }, 'r1', 5).text).toBe('Edit');
+    expect(entryFor('subagent', { agent: 'general', description: 'look around' }, 'r1', 5).text).toBe('Agent look around');
+    expect(entryFor('skill', { id: 'hello' }, 'r1', 5).text).toBe('Skill hello');
+    expect(entryFor('websearch', { query: 'cats' }, 'r1', 5).text).toBe('WebSearch cats');
+    expect(entryFor('todowrite', { todos: [{ content: 'a', status: 'pending' }] }, 'r1', 5).text).toMatch(/^TodoWrite /);
+    expect(entryFor('Glob', { pattern: '*.ts' }, 'r1', 5).text).toBe('Glob *.ts');
   });
 
   it('cuts a long output and says so, and keeps exit codes only for a failed call', () => {

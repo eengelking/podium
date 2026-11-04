@@ -6,7 +6,7 @@ import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
 import { Recorder } from '../core/recording.ts';
-import { entryFor, finishedEntry } from './activity.ts';
+import { canonical, entryFor, finishedEntry, toolName } from './activity.ts';
 
 /** One event from the OpenCode bus as the plugin receives it. Only the fields this reporter reads are typed. */
 export interface BusEvent {
@@ -63,6 +63,8 @@ export interface Sess {
   toolCounts: Record<string, number>;
   lastTool: string | null;
   steps: number;
+  /** Automatic compactions: OpenCode compacts by itself when the context nears its limit. */
+  blowouts: number;
   prompt: string;
   answer: string;
   failure: Failure | null;
@@ -199,7 +201,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
   return {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
-    toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
+    toolCounts: {}, lastTool: null, steps: 0, blowouts: 0, prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
     activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }
@@ -343,6 +345,13 @@ function recordFailure(s: Sess, reason: 'error' | 'aborted', at: number, errText
   return f;
 }
 
+/** A skill the session loaded: kept once, with an event. OpenCode 2.2.5 sends no `session.skill.activated` for its skill tool, so the tool's own result calls this too. */
+function skillLoaded(root: Root, s: Sess, name: string | null, at: number): void {
+  if (!name || s.skills.includes(name)) return;
+  s.skills = [...s.skills, cap(name, 120)].slice(-50);
+  emit(root, at, 'skill', s.id === root.id ? null : s.id, `${name} loaded into ${s.id === root.id ? 'orchestrator' : (s.agent ?? 'agent')}`, { skill: name });
+}
+
 function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, failed: boolean): void {
   const id = str(d.id);
   if (!id) return;
@@ -360,7 +369,10 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   s.toolCalls++;
   s.lastTool = call.tool;
   s.toolCounts[call.tool] = (s.toolCounts[call.tool] ?? 0) + 1;
-  if (!failed) return;
+  if (!failed) {
+    if (call.tool === 'Skill') skillLoaded(root, s, str(d.metadata?.name) ?? str(call.input.skill), at);
+    return;
+  }
   const cand = candidateFrom(call.tool, call.input, { isError: true, text: result }, at);
   if (!cand) return;
   s.failedCalls[cand.call] = (s.failedCalls[cand.call] ?? 0) + 1;
@@ -459,13 +471,9 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       emit(root, t, 'fail', s.id === root.id ? null : s.id, `step failed: ${errorText(d.error) || 'error'}`, { class: f.class });
       break;
     }
-    case 'session.skill.activated': {
-      const name = str(d.name);
-      if (!name || s.skills.includes(name)) break;
-      s.skills = [...s.skills, cap(name, 120)].slice(-50);
-      emit(root, t, 'skill', s.id === root.id ? null : s.id, `${name} loaded into ${s.id === root.id ? 'orchestrator' : (s.agent ?? 'agent')}`, { skill: name });
+    case 'session.skill.activated':
+      skillLoaded(root, s, str(d.name), t);
       break;
-    }
     case 'session.usage.updated':
       s.tokens = tokensOf(d.tokens);
       s.costUsd = num(d.cost);
@@ -488,21 +496,24 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'session.tool.input.started': {
       const id = str(d.id);
-      if (id) s.calls.set(id, { id, tool: str(d.name) ?? 'tool', input: {}, at: t, done: false });
+      if (id) s.calls.set(id, { id, tool: toolName(str(d.name) ?? 'tool'), input: {}, at: t, done: false });
       break;
     }
     case 'session.tool.called': {
       const id = str(d.id);
       if (!id) break;
-      const call = s.calls.get(id) ?? { id, tool: str(d.name) ?? 'tool', input: {}, at: t, done: false };
-      call.input = d.input && typeof d.input === 'object' ? d.input : {};
+      const call = s.calls.get(id) ?? { id, tool: toolName(str(d.name) ?? 'tool'), input: {}, at: t, done: false };
+      // The name and arguments the Claude Code reporter's wording, feed and recording read: `shell` is Bash, a path is `file_path`.
+      const c = canonical(call.tool, d.input && typeof d.input === 'object' ? d.input : {});
+      call.tool = c.tool;
+      call.input = c.input;
       s.calls.set(id, call);
       if (call.recSeq === undefined) {
         addActivity(root, s, entryFor(call.tool, call.input, id, t));
         call.recSeq = root.recorder.call(loopKey(root, s), call.tool, call.input, t);
       }
       s.lastTool = call.tool;
-      if (call.tool === 'todowrite' && s.id === root.id) {
+      if (call.tool === 'TodoWrite' && s.id === root.id) {
         root.plan = todoWrite(root.plan, d.input);
         emit(root, t, 'plan', null, 'plan updated');
       }
@@ -544,11 +555,20 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       root.podiumCompact = null;
       break;
     case 'session.compaction.ended':
-    case 'session.compaction.failed':
+    case 'session.compaction.failed': {
       root.compacting = false;
       root.compactions++;
-      emit(root, t, 'compact', null, type.endsWith('failed') ? 'compaction failed' : 'compacted');
+      const failed = type.endsWith('failed');
+      const auto = d.reason === 'auto';
+      // The compaction's own usage is the summary it wrote: that is about what the context holds now. The next step ends with the real size.
+      const before = s.ctxTokens;
+      const after = failed ? before : num(d.tokens?.output) || null;
+      if (!failed) s.ctxTokens = after;
+      if (auto && !failed) s.blowouts++;
+      const label = failed ? 'compaction failed' : auto ? 'auto-compacted' : 'compacted';
+      emit(root, t, 'compact', s.id === root.id ? null : s.id, label, { trigger: auto ? 'auto' : 'manual', tokensBefore: before, tokensAfter: after });
       break;
+    }
     case 'session.deleted':
     case 'session.archived':
       if (s.id === root.id) finish(root, t, type.endsWith('deleted') ? 'deleted' : 'archived');

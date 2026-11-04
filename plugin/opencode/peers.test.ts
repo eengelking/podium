@@ -24,7 +24,7 @@ interface Server {
   reports: Report[];
 }
 
-function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { prompt?: ((s: string, id: string, text: string) => Promise<void>) | null; peerCallMs?: number } = {}) {
+function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { prompt?: ((s: string, id: string, text: string) => Promise<void>) | null; peerCallMs?: number; log?: (line: string) => void } = {}) {
   const server: Server = { peers: true, deliveries: [], requests: [], calls: [], reports: [], answer: () => ({ status: 200, text: '{"peers":[],"leftOut":[]}' }) };
   const fetch: FetchLike = async (url, init) => {
     const path = url.replace('http://podium.test', '');
@@ -44,7 +44,7 @@ function rig(env: Record<string, string> = { PODIUM_PEERS: 'true' }, over: { pro
   const prompt = over.prompt === undefined ? async (session: string, id: string, text: string) => void prompts.push({ session, id, text }) : (over.prompt ?? undefined);
   const t = { now: 10_000 };
   const r = new Reporter(
-    { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined, notify: (l) => void toasts.push(l), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
+    { fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: over.log ?? (() => undefined), notify: (l) => void toasts.push(l), ...(prompt ? { prompt } : {}), ...(over.peerCallMs ? { peerCallMs: over.peerCallMs } : {}) },
     { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', PODIUM_USER: 'Ed', ...env }), machine: { name: 'mac', id: 'm1' }, idleMs: 600_000 },
   );
   r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }));
@@ -172,6 +172,16 @@ describe('a message for the orchestrator (#969)', () => {
     expect(y.toasts).toEqual([]);
     await x.r.tick();
     expect(x.server.calls.find((c) => c.path.endsWith('/nofrom/result'))!.body.result).toBe('refused');
+  });
+
+  it('says why OpenCode did not take a message or a notice prompt', async () => {
+    const lines: string[] = [];
+    const x = rig({ PODIUM_PEERS: 'true' }, { prompt: async () => { throw new Error('Expected a string starting with "msg_"'); }, log: (l) => lines.push(l) });
+    await reported(x);
+    x.server.deliveries = [message({ id: 'lost' }), message({ id: 'n3', kind: 'notice', from: null, text: 'Ed allowed your request for access to pi.' })];
+    await x.r.tick();
+    await flushed();
+    expect(lines.filter((l) => l.includes('podium-reporter') && l.includes('msg_'))).toHaveLength(2);
   });
 
   it('shows a notice, and makes the answer to an access request a turn in Podium\'s own words', async () => {

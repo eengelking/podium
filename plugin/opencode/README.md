@@ -30,7 +30,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
   the list does not hold has a context size and no percent.
 - Effort is the model's variant on `session.step.started` (`model.variant`), reported as the free string OpenCode gives with
   `effortSource: 'observed'`. A step with no variant reports effort as unknown; the model's default is not on the bus.
-- Skills come from `session.skill.activated`. Tokens per model and prompt-size tier (`usageByModel`) are totalled from each finished step.
+- Skills come from the skill tool (`session.tool.success` for the `skill` tool, which names the skill in its result), and from `session.skill.activated` where OpenCode sends it; OpenCode 2.2.5 sends no such event for its skill tool. Tokens per model and prompt-size tier (`usageByModel`) are totalled from each finished step.
 - A failure carries the engine's error text, and "Blocked by permission" when a person rejected a permission and that call then failed.
   A call that failed twice or more is listed as evidence.
 - The activity feed (`PODIUM_ACTIVITY_FEED`) and a shell call's output (`PODIUM_ACTIVITY_OUTPUT`), full prompts (`PODIUM_FULL_PROMPTS`) and
@@ -40,7 +40,10 @@ every reporter shares from `../core/` (report types, transport, failures, redact
   Claude Code reporter. The type declarations carry no numeric exit code, so one is sent only when the call's text states it. A recording tells the
   person through a toast (or the console) when it starts, stops or was refused, and keeps an answer sent from Podium once, after the call it answers.
 - Tools with input and result, permission asks and questions (the session is `waiting`), compaction, the plan from the todo tool, failures,
-  and the git branch.
+  and the git branch. A tool is counted and worded under the Claude Code reporter's name for it (`shell` is `Bash`, `subagent` is `Agent`, and so on; `activity.ts`),
+  and a file tool's `path` is read as `file_path`. A compaction counts as a `compact` event and resets the context to the size of the summary it wrote until the next
+  step ends; an automatic one is also a blowout. OpenCode's todo tool (`todowrite`) is off unless `experimental.todo` is on in `opencode.json`; without it the plan
+  tool's title is all the console shows, as a plan with no steps.
 - A session is `done` after it has been quiet for `idleSeconds` (default 60), at once on `session.deleted` or `session.archived`, and when the
   plugin is cleaned up (one final, time-bounded flush). It reopens under the same id when it sees activity again.
 
@@ -52,7 +55,7 @@ Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environ
 - **Question:** answered by field key. Through the TUI part when a TUI is attached (it says so every 30 seconds); otherwise through OpenCode's local
   route with the address and password in `service.json`, read only when an answer is sent and only for an address on this machine; otherwise Podium
   is not offered the question, because it could not be answered.
-- **Message and `/compact`:** `session.prompt` and `session.compact` with `delivery: queue`, Podium's delivery id as the idempotency `id`. A message's
+- **Message and `/compact`:** `session.prompt` and `session.compact` with `delivery: queue`. The idempotency `id` is made from Podium's delivery id and starts with `msg_`, the only kind OpenCode takes, so one delivery sent twice is one message. When OpenCode refuses a call the reporter writes why to the console once, and Podium is told `not-taken`. A message's
   text starts with a line saying it came through Podium, because OpenCode hands the model the text as the user's own.
 - **Not offered:** plan approval and `/clear` (OpenCode has no equivalent), and always-allow.
 
@@ -72,7 +75,8 @@ same two places, choose another file; with no file nothing changes. The client s
 - The TUI part shows `Reporter.statusText()` as a toast when the connection changes (not for a change in the live-session count).
 - `/podium` shows the console address, the home folder, the secure connection, the connection state, the versions, reports sent, failed and rejected, events queued, the
   last error and the number of sessions. OpenCode's `command.add` has no reply to print, so the answer is a toast in the TUI, and a console line when no TUI part is attached.
-  `/podium name`, `/podium context` and the messaging subcommands are not offered.
+  `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging request (the id is in the request's toast), and are on only where the person allowed
+  messaging. `/podium name` and `/podium context` are not offered.
 
 ## Build and test
 

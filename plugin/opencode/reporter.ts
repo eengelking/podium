@@ -151,8 +151,8 @@ export class Reporter {
     const a = deps.answering;
     // Also the way a file diff goes back to the server, so it exists with answering off.
     this.responder = new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a?.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) });
-    this.answering = a ? new Answering(this.responder, a.host, a.consent, deps.now) : null;
-    this.peers = opts.peers && deps.prompt ? new Peers({ responder: this.responder, prompt: deps.prompt, notify: deps.notify, now: deps.now, owner: () => opts.userName, machine: () => opts.machine?.name ?? null, callMs: deps.peerCallMs }) : null;
+    this.answering = a ? new Answering(this.responder, a.host, a.consent, deps.now, deps.log) : null;
+    this.peers = opts.peers && deps.prompt ? new Peers({ responder: this.responder, prompt: deps.prompt, notify: deps.notify, now: deps.now, owner: () => opts.userName, machine: () => opts.machine?.name ?? null, callMs: deps.peerCallMs, log: deps.log }) : null;
   }
 
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */

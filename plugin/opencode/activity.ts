@@ -5,15 +5,36 @@ import { activityCall, parseExitCode } from '../core/failures.ts';
 import { commandDetail, outputDetail } from '../core/feed.ts';
 import type { ActivityEntry } from '../core/protocol.ts';
 
-/** OpenCode's tool name, as the Claude Code reporter names the same kind of tool. Anything else keeps its own name. */
-const NAMES: Record<string, string> = { bash: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', glob: 'Glob', grep: 'Grep', task: 'Agent', skill: 'Skill', patch: 'Edit' };
+/**
+ * OpenCode's tool name, as the Claude Code reporter names the same kind of tool. The names are the ones OpenCode 2.2.5 sends (seen in a
+ * live run: `shell`, `read`, `write`, `edit`, `glob`, `grep`, `skill`, `subagent`, `webfetch`, `question`, and `todowrite` where the person
+ * turned `experimental.todo` on); `bash`, `task` and `patch` are the older names. Anything else keeps its own name.
+ */
+const NAMES: Record<string, string> = {
+  shell: 'Bash', bash: 'Bash', read: 'Read', edit: 'Edit', write: 'Write', patch: 'Edit', apply_patch: 'Edit', glob: 'Glob', grep: 'Grep',
+  subagent: 'Agent', task: 'Agent', skill: 'Skill', webfetch: 'WebFetch', websearch: 'WebSearch', question: 'AskUserQuestion', todowrite: 'TodoWrite',
+};
 
-/** The tool and its arguments under the names `activityCall` reads. */
-function canonical(tool: string, input: Record<string, unknown>): { tool: string; input: Record<string, unknown> } {
-  const name = NAMES[tool] ?? tool;
+/** The Claude Code reporter's name for an OpenCode tool. */
+export const toolName = (tool: string): string => NAMES[tool] ?? tool;
+
+const FILE_TOOLS = new Set(['Read', 'Edit', 'Write']);
+
+/** The tool and its arguments under the names `activityCall` and the recording read. A file tool's path is `file_path`; the skill tool's `id` is `skill`. */
+export function canonical(tool: string, input: Record<string, unknown>): { tool: string; input: Record<string, unknown> } {
+  const name = toolName(tool);
   const out: Record<string, unknown> = { ...input };
-  if (typeof input.filePath === 'string' && out.file_path === undefined) out.file_path = input.filePath;
-  if (name === 'Skill' && typeof input.name === 'string' && out.skill === undefined) out.skill = input.name;
+  if (FILE_TOOLS.has(name)) {
+    for (const key of ['path', 'filePath']) {
+      if (typeof input[key] !== 'string') continue;
+      if (out.file_path === undefined) out.file_path = input[key];
+      delete out[key];
+    }
+  }
+  if (name === 'Skill' && out.skill === undefined) {
+    const named = [input.id, input.name].find((v) => typeof v === 'string');
+    if (named !== undefined) out.skill = named;
+  }
   return { tool: name, input: out };
 }
 

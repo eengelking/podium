@@ -36,6 +36,8 @@ export interface PeersDeps {
   machine: () => string | null;
   /** How long a tool waits for Podium. */
   callMs?: number;
+  /** Where a warning goes (the reporter's log, which drops a line it has just said). */
+  log?: (line: string) => void;
 }
 
 type Outcome = { status: number; text: string } | 'unreachable' | 'unanswered';
@@ -86,7 +88,7 @@ export class Peers {
       // Podium's own sentence, shown. The answer to an access request is also a turn, as the tool promised.
       this.d.notify?.(oneLine(d.text, 1000));
       this.result(root, d.id, 'took');
-      if (isAccessAnswer(d.text)) void this.d.prompt(root.id, d.id, noticePrompt(d.text)).catch(() => undefined);
+      if (isAccessAnswer(d.text)) void this.d.prompt(root.id, d.id, noticePrompt(d.text)).catch((err) => this.warn('a notice from Podium', err));
       return;
     }
     const text = peerPrompt(d);
@@ -97,8 +99,15 @@ export class Peers {
         if (d.from) this.d.notify?.(deliveredLine(d.from));
         this.result(root, d.id, 'took');
       },
-      () => this.result(root, d.id, 'refused'),
+      (err) => {
+        this.warn('a message from another orchestrator', err);
+        this.result(root, d.id, 'refused');
+      },
     );
+  }
+
+  private warn(what: string, err: unknown): void {
+    this.d.log?.(`podium-reporter: OpenCode did not take ${what}: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   /** The owner's open requests: each new one is a toast (the only place a waiting message's text is shown). */

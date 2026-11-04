@@ -3,7 +3,7 @@
 import { cap, clip, excerpt, LIMITS } from '../core/failures.ts';
 import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
-import { toPlan } from '../core/plan.ts';
+import { toPlan, type PlanState } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
 import type { Root, Sess } from './state.ts';
 
@@ -103,7 +103,7 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     lastTool: s.lastTool,
     toolCalls: s.toolCalls,
     toolCounts: { ...s.toolCounts },
-    blowouts: 0,
+    blowouts: s.blowouts,
     steps: { done: s.steps, total: null },
     promptExcerpt: excerpt(s.prompt),
     answerExcerpt: s.answer ? excerpt(s.answer) : null,
@@ -122,6 +122,14 @@ function status(root: Root): { status: 'running' | 'waiting' | 'done'; waitReaso
   if (first) return { status: 'waiting', waitReason: first.kind === 'permission' ? 'permission' : 'input', waitNote: first.note };
   const working = [...root.sessions.values()].some((s) => s.executing) || root.compacting;
   return working ? { status: 'running', waitReason: null, waitNote: null } : { status: 'waiting', waitReason: 'input', waitNote: null };
+}
+
+/**
+ * A plan the plan tool named but no todo list has steps for yet (OpenCode's todo tool is off unless the person turns `experimental.todo` on).
+ * Shown by its title with no steps, so the name reaches the console; null while nothing named it.
+ */
+function titleOnly(p: PlanState): Report['session']['plan'] {
+  return p.toolTitle ? { title: p.toolTitle, source: 'podium_plan', steps: [] } : null;
 }
 
 /** A full snapshot of the root plus the events given (at most 100). */
@@ -159,8 +167,8 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       tokens: { ...main.tokens },
       usageByModel: usageRows(...[...root.sessions.values()].map((s) => s.usage)),
       rateLimits: [],
-      blowouts: 0,
-      plan: plan ? { ...plan, source: 'todowrite' } : null,
+      blowouts: main.blowouts,
+      plan: plan ? { ...plan, source: 'todowrite' } : titleOnly(root.plan),
       loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
       files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
       fileDiff: meta.fileDiff === true,

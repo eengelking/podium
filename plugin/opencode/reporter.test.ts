@@ -5,6 +5,7 @@ import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
+import { setTitle } from '../core/plan.ts';
 import { apply, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
 import { VERSION } from './version.ts';
 
@@ -54,7 +55,7 @@ describe('state: one record per root, children folded in', () => {
     expect(r.harness).toMatchObject({ id: 'opencode', name: 'OpenCode' });
     expect(r.session).toMatchObject({ id: ROOT, harness: 'opencode', costSource: 'harness', costUsd: 0.00028, model: 'qwen', modelProvider: 'local', status: 'running', waitReason: null });
     expect(r.session.tokens.input).toBe(200);
-    expect(r.session.loop).toMatchObject({ toolCalls: 1, lastTool: 'task', toolCounts: { task: 1 } });
+    expect(r.session.loop).toMatchObject({ toolCalls: 1, lastTool: 'Agent', toolCounts: { Agent: 1 } });
     expect(r.agents).toHaveLength(1);
     expect(r.agents[0]).toMatchObject({ id: KID, parentId: null, kind: 'subagent', type: 'general', name: 'child task', status: 'done', costUsdEst: 0.00014, model: 'qwen' });
     expect(r.events.map((e) => e.kind)).toEqual(['start', 'spawn', 'done']);
@@ -97,7 +98,7 @@ describe('state: status', () => {
 
   it('names a tool call from its own event when the start of its input was missed', () => {
     const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.called', { sessionID: ROOT, id: 'c1', name: 'todowrite', input: { todos: [{ content: 'A', status: 'pending' }] } }, 2), ev('session.tool.success', { sessionID: ROOT, id: 'c1' }, 3));
-    expect(s.roots.get(ROOT)!.sessions.get(ROOT)!.toolCounts).toEqual({ todowrite: 1 });
+    expect(s.roots.get(ROOT)!.sessions.get(ROOT)!.toolCounts).toEqual({ TodoWrite: 1 });
   });
 
   it('tracks compaction', () => {
@@ -631,8 +632,8 @@ describe('failure detail', () => {
     }
     apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'gave up' } }, 40), 40);
     const f = failureOf(s);
-    expect(f).toMatchObject({ class: 'Tool error', tool: 'bash', exitCode: 1 });
-    expect(f.evidence).toEqual(['same call failed 2 times: bash npm test']);
+    expect(f).toMatchObject({ class: 'Tool error', tool: 'Bash', exitCode: 1 });
+    expect(f.evidence).toEqual(['same call failed 2 times: npm test']);
   });
 
   it('classifies an interruption as Aborted, and a stale failing call is not the cause', () => {
@@ -794,5 +795,105 @@ describe('Reporter: changed files and the file diff on request', () => {
     await new Promise((res) => setTimeout(res, 20));
     await r.tick();
     await expect(r.close()).resolves.toBeUndefined();
+  });
+});
+
+// What a real OpenCode 2.2.5 sends (seen in a live run, #969): the shell tool is `shell`, a file tool takes `path`, the skill tool takes `id` and
+// reports no `session.skill.activated`, a subagent is launched by `subagent`, and a compaction says how it was started.
+describe('OpenCode 2.2.5 tools and events (#969)', () => {
+  const run = (sid: string, id: string, name: string, input: Record<string, unknown>, at: number, result?: Record<string, unknown>) => [
+    ev('session.tool.input.started', { sessionID: sid, id, name }, at),
+    ev('session.tool.called', { sessionID: sid, id, input }, at + 1),
+    ev('session.tool.success', { sessionID: sid, id, content: [{ type: 'text', text: 'ok' }], ...(result ? { metadata: result } : {}) }, at + 2),
+  ];
+  const sessOf = (s: ReturnType<typeof store>, sid = ROOT) => s.roots.get(ROOT)!.sessions.get(sid)!;
+
+  it('counts the tools under the Claude Code reporter\'s names', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ...run(ROOT, 'a', 'shell', { command: 'echo hi' }, 2), ...run(ROOT, 'b', 'bash', { command: 'ls' }, 5), ...run(ROOT, 'c', 'read', { path: 'a.txt' }, 8),
+      ...run(ROOT, 'd', 'write', { path: 'a.txt', content: 'x' }, 11), ...run(ROOT, 'e', 'edit', { path: 'a.txt', oldString: 'x', newString: 'y' }, 14),
+      ...run(ROOT, 'f', 'glob', { pattern: '*.txt' }, 17), ...run(ROOT, 'g', 'grep', { pattern: 'y' }, 20), ...run(ROOT, 'h', 'subagent', { agent: 'general', description: 'look', prompt: 'p' }, 23),
+      ...run(ROOT, 'i', 'webfetch', { url: 'http://x.test' }, 26), ...run(ROOT, 'j', 'question', { questions: [] }, 29), ...run(ROOT, 'k', 'mcp_thing', {}, 32),
+    );
+    const k = sessOf(s);
+    expect(k.toolCounts).toEqual({ Bash: 2, Read: 1, Write: 1, Edit: 1, Glob: 1, Grep: 1, Agent: 1, WebFetch: 1, AskUserQuestion: 1, mcp_thing: 1 });
+    expect(k.lastTool).toBe('mcp_thing');
+  });
+
+  it('names a failed shell call by its command and keeps its exit code, as for Bash', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'shell' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { command: 'make test' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'Exit code 2' } }, 4));
+    const f = sessOf(s).failure!;
+    expect(f).toMatchObject({ tool: 'Bash', call: 'make test', exitCode: 2 });
+  });
+
+  it('names a failed file read by its path', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'read' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { path: '/nonexistent/file.txt' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'not found' } }, 4));
+    expect(sessOf(s).failure).toMatchObject({ tool: 'Read', call: 'Read /nonexistent/file.txt' });
+  });
+
+  it('records a skill when its tool succeeds, from the skill the result names, once each', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ...run(ROOT, 'a', 'skill', { id: 'hello' }, 2, { name: 'hello', directory: '/p' }),
+      ...run(ROOT, 'b', 'skill', { id: 'hello' }, 5, { name: 'hello' }),
+      ...run(ROOT, 'c', 'skill', { id: 'pdf' }, 8),
+    );
+    expect(sessOf(s).skills).toEqual(['hello', 'pdf']);
+    expect(s.roots.get(ROOT)!.events.filter((e) => e.kind === 'skill').map((e) => e.text)).toEqual(['hello loaded into orchestrator', 'pdf loaded into orchestrator']);
+  });
+
+  it('records no skill when the skill tool failed', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'skill' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { id: 'nope' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'no such skill' } }, 4));
+    expect(sessOf(s).skills).toEqual([]);
+  });
+
+  it('builds the plan from the todo tool a call at a time, in the orchestrator only', () => {
+    const todo = (sid: string, id: string, status: string, at: number) => run(sid, id, 'todowrite', { todos: [{ content: 'write a file', status }] }, at, { todos: [{ content: 'write a file', status }] });
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2), ...todo(KID, 'k', 'pending', 3), ...todo(ROOT, 'a', 'pending', 6), ...todo(ROOT, 'b', 'completed', 9));
+    const root = s.roots.get(ROOT)!;
+    expect(root.plan.tasks.map((t) => [t.text, t.status])).toEqual([['write a file', 'completed']]);
+    expect(buildReport(root, [], { now: 12, version: VERSION, engineVersion: null, hostSurface: null }).session.plan!.steps.map((p) => p.state)).toEqual(['done']);
+  });
+
+  it('shows a plan the plan tool named even before any step is known, and the steps when they come', () => {
+    const meta = { now: 12, version: VERSION, engineVersion: null, hostSurface: null };
+    const s = store(ev('session.created', { sessionID: ROOT }, 1));
+    const root = s.roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).session.plan).toBeNull();
+    root.plan = setTitle(root.plan, { title: 'Ship it', phase: 'one' });
+    expect(buildReport(root, [], meta).session.plan).toEqual({ title: 'Ship it · one', source: 'podium_plan', steps: [] });
+    apply(s, ev('session.tool.called', { sessionID: ROOT, id: 't', name: 'todowrite', input: { todos: [{ content: 'A', status: 'pending' }] } }, 3), 3);
+    expect(buildReport(root, [], meta).session.plan).toMatchObject({ title: 'Ship it · one', source: 'todowrite', steps: [{ text: 'A' }] });
+  });
+
+  it('counts a compaction, says how it began, and drops the context to the size of the summary it wrote', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      step(ROOT, 2),
+      ev('session.step.ended', { sessionID: ROOT, tokens: { input: 9000, output: 5, reasoning: 0, cache: { read: 1000, write: 0 } } }, 3),
+      ev('session.compaction.started', { sessionID: ROOT, reason: 'auto' }, 4),
+    );
+    const root = s.roots.get(ROOT)!;
+    expect(sessOf(s).ctxTokens).toBe(10_000);
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'auto', text: 'summary', tokens: { input: 6000, output: 97, reasoning: 2514, cache: { read: 0, write: 0 } } }, 5), 5);
+    expect(root.compactions).toBe(1);
+    expect(sessOf(s).ctxTokens).toBe(97);
+    expect(sessOf(s).blowouts).toBe(1);
+    expect(root.events.find((e) => e.kind === 'compact')).toMatchObject({ text: 'auto-compacted', data: { trigger: 'auto', tokensBefore: 10_000, tokensAfter: 97 } });
+    apply(s, step(ROOT, 6), 6);
+    apply(s, ev('session.step.ended', { sessionID: ROOT, tokens: { input: 400, output: 3, reasoning: 0, cache: { read: 0, write: 0 } } }, 7), 7);
+    expect(sessOf(s).ctxTokens).toBe(400);
+    expect(buildReport(root, [], { now: 8, version: VERSION, engineVersion: null, hostSurface: null }).session.blowouts).toBe(1);
+  });
+
+  it('counts a manual compaction without a blowout, and a failed one without changing the context', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.step.ended', { sessionID: ROOT, tokens: { input: 500 } }, 2), ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 3));
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual', tokens: { input: 500, output: 40 } }, 4), 4);
+    apply(s, ev('session.compaction.failed', { sessionID: ROOT, reason: 'auto', error: { message: 'x' } }, 5), 5);
+    expect(s.roots.get(ROOT)!.compactions).toBe(2);
+    expect(sessOf(s).blowouts).toBe(0);
+    expect(sessOf(s).ctxTokens).toBe(40);
+    expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('compaction failed');
   });
 });

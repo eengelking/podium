@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
 import { BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
-import { makeHost, servicePath, type Api } from './host.ts';
+import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { parseAnswer } from '../core/peers.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
@@ -121,7 +121,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
       ...(options.explainFailures ? { explain: async (prompt: string) => (await ctx.experimental.generate.text({ prompt })).text } : {}),
-      ...(options.peers ? { prompt: async (sessionId: string, id: string, text: string) => void (await apiOf(ctx).prompt({ sessionID: sessionId, id, text })) } : {}),
+      ...(options.peers ? { prompt: promptVia(apiOf(ctx), () => Date.now()) } : {}),
     },
     options,
   );

@@ -805,7 +805,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
         const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/t3', sessionEvents('t3'));
         const stop = await setup(ctx);
         await until(() => ctx.prompts.length > 0 && ctx.emitted.some((e) => e.name === 'notice' && String(e.data.message).includes('asks to send')));
-        expect(ctx.prompts[0]).toMatchObject({ sessionID: 'ses_t3', id: 'pd9', delivery: 'queue' });
+        expect(ctx.prompts[0]).toMatchObject({ sessionID: 'ses_t3', id: expect.stringMatching(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/), delivery: 'queue' });
         expect(String((ctx.prompts[0] as { text: string }).text)).toContain('Message from the orchestrator build-pi on pi');
         const command = ctx.commands[0]!;
         await command.execute({ sessionID: 'ses_t3', prompt: { text: '/podium' } });
