@@ -21,6 +21,8 @@ export interface PodiumFacts {
   /** What the secure connection says, or null when there is no reporter config file. */
   tls: string | null;
   version: string;
+  /** The commit of a dev build, or null/absent for a release (#987). */
+  build?: string | null;
   /** How the reporter signs in: the reporter config file, and whether there is a plain token (#987). Never the token. */
   signIn: { configPath: string | null; tokenSet: boolean };
   /** Whether the person is signed in as someone: a reporter config file, or a user name with a token. Messaging needs it. */
@@ -56,7 +58,7 @@ export function podiumText(s: Summary, f: PodiumFacts): string {
     f.context ? `Context: ${f.context} (${withoutTrailingSlashes(f.serverUrl)}). Switch it for the next session with /podium context use <name>.` : '',
     `Home folder: ${f.home}`,
     `Connection: ${connection(s.online)}${s.liveSessions === null ? '' : ` (${s.liveSessions} live sessions)`}`,
-    `Versions: reporter ${f.version}${s.serverVersion ? `, server ${s.serverVersion}` : ''}`,
+    `Versions: reporter ${f.version}${f.build ? ` · Dev: ${f.build}` : ''}${s.serverVersion ? `, server ${s.serverVersion}` : ''}`,
     ...s.notices,
     connectionLine(f.signIn),
     messagingLine(s.messaging, f.signedIn),

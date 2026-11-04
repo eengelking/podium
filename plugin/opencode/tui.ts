@@ -25,10 +25,8 @@ const plugin: Plugin.Definition = {
     // The connection's status and the answer to `/podium` are shown as a toast (#969).
     const offNotice = rpc.events.on('notice', (e) => ctx.ui.toast.show(e.data));
     // The status line stays in the prompt's footer (#987). The pieces come from the host's own runtime; where it has none the toast is all there is.
-    const load = async (): Promise<StatusParts> => {
-      const need = (name: string): Promise<any> => import(name);
-      return { solid: await need('solid-js'), jsx: await need('@opentui/solid/jsx-runtime') };
-    };
+    // The specifiers are literal: the host resolves a literal one to its own copy, and cannot resolve a name held in a variable (a live run failed on that).
+    const load = async (): Promise<StatusParts> => ({ solid: (await import('solid-js')) as StatusParts['solid'], jsx: (await import('@opentui/solid/jsx-runtime')) as StatusParts['jsx'] });
     const line = await mountStatus(ctx.ui as unknown as Parameters<typeof mountStatus>[0], load);
     const offStatus = rpc.events.on('status', (e) => line?.set(e.data.text));
     return () => {

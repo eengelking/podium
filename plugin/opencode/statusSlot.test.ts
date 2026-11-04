@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { mountStatus, type SlotHost, type StatusParts } from './statusSlot.ts';
 
@@ -30,5 +31,11 @@ describe('the status line in the prompt footer (#987)', () => {
     const f = fakes();
     expect(await mountStatus(f.host, async () => { throw new Error('no solid-js'); })).toBeNull();
     expect(await mountStatus({ slot: () => { throw new Error('no slot'); } }, async () => f.parts)).toBeNull();
+  });
+  it('names the host modules with literal specifiers in tui.ts: the host cannot resolve a name held in a variable (found in a live run)', () => {
+    const tui = readFileSync(new URL('./tui.ts', import.meta.url), 'utf8');
+    expect(tui).toContain("import('solid-js')");
+    expect(tui).toContain("import('@opentui/solid/jsx-runtime')");
+    expect(tui).not.toMatch(/import\((?!['"])/);
   });
 });

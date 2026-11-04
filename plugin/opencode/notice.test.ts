@@ -158,6 +158,13 @@ describe('podiumText: sign-in, messaging, context and the commands (#987)', () =
     expect(t).not.toContain('Context:');
     expect(podiumText(base, { serverUrl: 'http://x', home: '/h', tls: null, version: '1', signIn: { configPath: null, tokenSet: false }, signedIn: false, context: null })).toContain('Sign-in: none');
   });
+  it('says the commit of a dev build on the Versions line, and nothing for a release', () => {
+    const base = reporter({ status: 200, text: '{}' }).summary();
+    const facts = { serverUrl: 'http://x', home: '/h', tls: null, version: '1.4.0', ...sign };
+    expect(podiumText(base, { ...facts, build: 'a1b2c3d4-dirty' })).toContain('Versions: reporter 1.4.0 · Dev: a1b2c3d4-dirty');
+    expect(podiumText(base, { ...facts, build: null })).toContain('Versions: reporter 1.4.0');
+    expect(podiumText(base, facts)).not.toContain('Dev:');
+  });
   it('names the context that chose the reporter config file', () => {
     const base = reporter({ status: 200, text: '{}' }).summary();
     const t = podiumText(base, { serverUrl: 'https://p.test:4318/', home: '/h', tls: null, version: '1', ...sign, context: 'work' });

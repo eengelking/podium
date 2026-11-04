@@ -183,6 +183,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
               home: homeOf(process.env),
               tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null,
               version: options.version,
+              build: options.build,
               signIn: { configPath: link?.configPath ?? null, tokenSet: options.token.trim() !== '' },
               signedIn: !!link || (!!options.userName?.trim() && options.token.trim() !== ''),
               context: link?.context ?? null,
