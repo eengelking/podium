@@ -6,7 +6,7 @@ import type { Host } from './answering.ts';
 import { ATTACH_TTL_MS, type AnswerEvent } from './bridge.ts';
 
 export interface Api {
-  permissionReply(input: { sessionID: string; requestID: string; reply: 'once' | 'reject' }): Promise<unknown>;
+  permissionReply(input: { sessionID: string; requestID: string; reply: 'once' | 'reject'; message?: string }): Promise<unknown>;
   prompt(input: { sessionID: string; id: string; text: string }): Promise<unknown>;
   compact(input: { sessionID: string; id: string }): Promise<unknown>;
 }
@@ -63,7 +63,7 @@ export function makeHost(d: HostDeps): Host {
   };
   const waitMs = d.tuiWaitMs ?? 5000;
   return {
-    permissionReply: async (sessionID, requestID, reply) => void (await d.api.permissionReply({ sessionID, requestID, reply })),
+    permissionReply: async (sessionID, requestID, reply, message) => void (await d.api.permissionReply({ sessionID, requestID, reply, ...(message === undefined ? {} : { message }) })),
     formChannel: () => (tui() ? 'tui' : hasService() ? 'http' : null),
     async formReply(sessionID, formID, answer) {
       if (tui()) {

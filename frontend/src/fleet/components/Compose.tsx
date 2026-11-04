@@ -56,13 +56,20 @@ export function Compose(props: {
   onSend: (text: string) => void;
   error: string | null;
   busy: boolean;
+  /** The slash commands the session's reporter declared, without the slash; null or left out when it declared no capabilities, which lists every command; an empty list lists none. */
+  commands?: readonly string[] | null;
+  /** False when the reporter takes no typed reply in place of a question's answer (the `no-reply-in-place` limit). */
+  canReply?: boolean;
 }) {
   const [ta, setTa] = useState(0);
   const val = props.draft;
   const slash = val.startsWith("/") ? (val.split(/\s/)[0] ?? "") : null;
-  const known = slash !== null && COMMANDS.some((c) => c.name === slash);
-  const matches = slash !== null && !val.includes(" ") && !known ? COMMANDS.filter((c) => c.name.startsWith(slash)) : [];
+  const offered = props.commands ? COMMANDS.filter((c) => props.commands!.includes(c.name.slice(1))) : COMMANDS;
+  const known = slash !== null && offered.some((c) => c.name === slash);
+  const matches = slash !== null && !val.includes(" ") && !known ? offered.filter((c) => c.name.startsWith(slash)) : [];
   const pending = props.pending;
+  // A slash command never closes the question, so only a typed reply is held back.
+  const noReply = pending === "question" && props.canReply === false && !known;
 
   let extra = null;
   if (props.confirmClear) {
@@ -90,13 +97,15 @@ export function Compose(props: {
       </div>
     );
   } else if (slash && !known && val.length > 1 && !matches.length) {
-    extra = <div className="err">{slash} runs only in the terminal. From here you can send /clear and /compact.</div>;
+    extra = <div className="err">{slash} runs only in the terminal. From here you can send {offered.map((c) => c.name).join(" and ") || "no commands"}.</div>;
   } else if (known && val.trim() !== slash) {
     extra = (
       <div className="err">
         {slash} takes nothing after it from here. Send {slash} on its own, or use the terminal.
       </div>
     );
+  } else if (noReply) {
+    extra = <div className="warnline">This reporter can't take a reply in place of this question. Answer it above, or in the terminal.</div>;
   } else if (pending && val.trim() && !slash) {
     extra = <div className="warnline">Sending this closes the {ASK_WORD[pending]} without an answer and gives Claude your message instead, like "Chat about this" in the terminal.</div>;
   }
@@ -104,11 +113,12 @@ export function Compose(props: {
   const send = () => {
     const text = val.trim();
     if (!text || props.busy) return;
-    if (text === "/clear") {
+    if (text === "/clear" && offered.some((c) => c.name === text)) {
       props.onConfirmClear(true);
       return;
     }
-    if (text.startsWith("/") && !COMMANDS.some((c) => c.name === text)) return;
+    if (noReply) return;
+    if (text.startsWith("/") && !offered.some((c) => c.name === text)) return;
     props.onSend(text);
   };
   const choose = (name: string) => {
@@ -131,7 +141,7 @@ export function Compose(props: {
       send();
     }
   };
-  const placeholder = pending ? (pending === "question" ? "Chat about this instead of answering" : "Reply instead, for example: hold off, I want to look first") : `Message ${props.name}, or type / for a command`;
+  const placeholder = noReply ? "Answer the question above" : pending ? (pending === "question" ? "Chat about this instead of answering" : "Reply instead, for example: hold off, I want to look first") : `Message ${props.name}, or type / for a command`;
   return (
     <div className="compose">
       {matches.length > 0 && !props.confirmClear && (
@@ -164,7 +174,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        <button className="btn pri" type="button" disabled={!val.trim() || props.busy} onClick={send}>
+        <button className="btn pri" type="button" disabled={!val.trim() || props.busy || noReply} onClick={send}>
           Send
         </button>
       </div>

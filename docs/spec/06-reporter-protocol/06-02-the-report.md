@@ -55,7 +55,7 @@ interface Report {
     respond?: {                         // whether and how far this session can be answered from Podium (#206, 5.3, 5.9); absent from a reporter older than 0.14.0
       level: 'off' | 'questions' | 'questions-and-plans' | 'everything';   // the `respond` option as set
       accepts: RespondKind[];           // what the session takes now: the level's kinds, empty while `activityFeed` is off or the session is not interactive, less what `limits` removes
-      limits: ('no-permission-hooks' | 'not-interactive')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), or a `claude -p` run (drops everything)
+      limits: ('no-permission-hooks' | 'not-interactive' | 'no-reply-in-place')[];  // why a kind the level allows is missing: PermissionRequest hooks don't run here (drops plan-approve and permission), a `claude -p` run (drops everything), or the session takes no typed reply in place of a question's answer (drops no kind, #968)
     };
     asks?: Ask[];                       // the asks open now, at most 8; sent only while the last reply said `respond: true`, else omitted
     clearedFrom?: string | null;        // the session id this one continues after a /clear (5.8); null or absent otherwise

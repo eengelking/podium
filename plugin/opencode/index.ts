@@ -59,7 +59,7 @@ const withMachine = async <T extends { userName: string | null; machine: unknown
 
 /** The calls answering makes into OpenCode, from the plugin context. */
 const apiOf = (ctx: Plugin.Context): Api => ({
-  permissionReply: (i) => ctx.permission.reply({ sessionID: i.sessionID, requestID: i.requestID, decision: i.reply }),
+  permissionReply: (i) => ctx.permission.reply({ sessionID: i.sessionID, requestID: i.requestID, decision: i.reply, ...(i.message === undefined ? {} : { message: i.message }) }),
   prompt: (i) => ctx.session.prompt({ sessionID: i.sessionID, id: i.id, text: i.text, delivery: 'queue' }),
   compact: (i) => ctx.session.compact({ sessionID: i.sessionID, id: i.id, delivery: 'queue' }),
 });

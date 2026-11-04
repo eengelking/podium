@@ -470,7 +470,7 @@ describe("Your reporters", () => {
     // Claude Code's two routes: the terminal command with the full key, and the Claude desktop app's settings (#837).
     expect(off).toHaveTextContent("In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on.");
     expect(off).toHaveTextContent("In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers.");
-    expect(off).toHaveTextContent("In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.");
+    expect(off).toHaveTextContent("The OpenCode reporter does not message yet.");
     // The row of text that said this under the table is gone; only the hover note carries it.
     expect(document.querySelector(".pm-note")?.textContent ?? "").not.toContain("has messaging off");
     expect(screen.getByText("Showing 1 to 4 of 4")).toBeInTheDocument();
@@ -482,7 +482,7 @@ describe("Your reporters", () => {
     const table = within(screen.getByRole("region", { name: "Table of your reporters" }));
     fireEvent.focus(within(table.getByText("win-lab").closest("tr")!).getByText("Off on the machine"));
     const note = screen.getByRole("tooltip");
-    expect(note).toHaveTextContent("In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart.");
+    expect(note).toHaveTextContent("The OpenCode reporter does not message yet.");
     expect(note).not.toHaveTextContent("Claude Code");
     cleanup();
     page({ sessions: [makeSession({ id: "s-cc", harness: "claude-code", owner: "Ed", machine: { name: "win-lab", id: "k4" } })] });

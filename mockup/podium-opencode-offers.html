@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podium message box and messaging hint, following what the reporter can do</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<!-- Mockup for issue #968. Every color is a token from tokens.css. The message box is the app's own Compose markup with the fleet.css classes, so what is approved is what ships. No new class and no new token. -->
+<style>
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-ui, system-ui, sans-serif); }
+.page { max-width: 1040px; margin: 0 auto; padding: 32px 16px 72px; display: flex; flex-direction: column; gap: 28px; }
+h1 { font-size: 26px; line-height: 1.15; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0 0 6px; }
+p { margin: 0 0 8px; max-width: 72ch; color: var(--ink2); }
+code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+.frames { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+.frames figure { margin: 0; }
+.frames figcaption { font-size: 12px; color: var(--ink2); margin: 0 0 6px; }
+.frames iframe { display: block; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.frames .wide iframe { width: 500px; max-width: 100%; height: 980px; }
+.frames .narrow iframe { width: 400px; max-width: 100%; height: 1100px; }
+.specimen { padding: 20px 16px 48px; display: flex; flex-direction: column; gap: 30px; }
+.specimen .label { font-size: 12px; color: var(--ink2); margin: 0 0 8px; max-width: 60ch; }
+.specimen .label b { color: var(--ink); }
+.specimen .box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0 18px; overflow: visible; }
+.specimen .box .compose { margin-bottom: 0; }
+.specimen .hold { padding-top: 124px; }
+.specimen .side { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 13px; }
+.specimen .side b { display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="page podium" id="intro">
+  <section>
+    <h1>The message box offers only what the session's reporter can do</h1>
+    <p>OpenCode sessions are offered <code>/clear</code>, which the OpenCode reporter refuses, and a "reply instead" on a question, which it cannot take. The messaging hint for OpenCode names a variable that does nothing. #968 makes the console stop offering these (#858: the console hides what does not work).</p>
+    <p><b>What changes.</b> The command list follows the commands a session declares (#940); a session that declares none lists both, so Claude Code looks as before. On an OpenCode question the box shows a one-line note in the existing <code>warnline</code> style, disables Send, and changes the placeholder. The OpenCode messaging hint says the reporter does not message yet. A permission still takes a reply: OpenCode rejects it with the text.</p>
+    <p><b>Not new:</b> no class, token or component. The note uses <code>.compose .warnline</code> and <code>.compose .err</code>. No standard changes, so no <code>Standards:</code> line.</p>
+    <p>Each frame is this file, in light, in dark, and at 400 px. There is no chart in this change, so the dataviz skill has nothing to apply to.</p>
+  </section>
+  <section class="frames">
+    <figure class="wide"><figcaption>Light</figcaption><iframe title="Light theme specimens" src="podium-opencode-offers.html#specimen-light"></iframe></figure>
+    <figure class="wide"><figcaption>Dark</figcaption><iframe title="Dark theme specimens" src="podium-opencode-offers.html#specimen-dark"></iframe></figure>
+    <figure class="narrow"><figcaption>Light, 400 px wide</figcaption><iframe title="Light theme specimens at 400 pixels" src="podium-opencode-offers.html#specimen-light"></iframe></figure>
+    <figure class="narrow"><figcaption>Dark, 400 px wide</figcaption><iframe title="Dark theme specimens at 400 pixels" src="podium-opencode-offers.html#specimen-dark"></iframe></figure>
+  </section>
+</div>
+
+<div class="specimen podium" id="specimen" hidden>
+  <div>
+    <p class="label"><b>1. OpenCode session, typing /.</b> Only the command its reporter declares is listed. /clear is gone.</p>
+    <div class="box hold"><div class="compose">
+      <div class="typeahead" role="listbox" aria-label="Commands">
+        <button type="button" role="option" aria-selected="true" class="on"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button>
+        <div class="tf">Other commands run only in the terminal.</div>
+      </div>
+      <div class="crow"><textarea rows="1" aria-label="Message to web-api">/</textarea><button class="btn pri" type="button">Send</button></div>
+      <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="label"><b>2. OpenCode session, /clear typed in full.</b> The existing error line, naming only what can be sent. Send does nothing.</p>
+    <div class="box"><div class="compose">
+      <div class="err">/clear runs only in the terminal. From here you can send /compact.</div>
+      <div class="crow"><textarea rows="1" aria-label="Message to web-api">/clear</textarea><button class="btn pri" type="button">Send</button></div>
+      <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="label"><b>3. OpenCode session waiting on a question.</b> The reporter cannot give up a form for a typed reply yet, so the box says so and Send is disabled. Answering the form above still works.</p>
+    <div class="box"><div class="compose">
+      <div class="warnline">This reporter can't take a reply in place of this question. Answer it above, or in the terminal.</div>
+      <div class="crow"><textarea rows="1" aria-label="Message to web-api" placeholder="Answer the question above"></textarea><button class="btn pri" type="button" disabled>Send</button></div>
+      <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="label"><b>4. OpenCode session waiting on a permission.</b> Unchanged: a reply is taken, and OpenCode rejects the permission with the text.</p>
+    <div class="box"><div class="compose">
+      <div class="warnline">Sending this closes the permission without an answer and gives Claude your message instead, like "Chat about this" in the terminal.</div>
+      <div class="crow"><textarea rows="1" aria-label="Message to web-api">hold off, I want to look first</textarea><button class="btn pri" type="button">Send</button></div>
+      <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="label"><b>5. Claude Code session, typing /.</b> Unchanged: both commands.</p>
+    <div class="box hold"><div class="compose">
+      <div class="typeahead" role="listbox" aria-label="Commands">
+        <button type="button" role="option" aria-selected="true" class="on"><span class="cn">/clear</span><span class="cd">Start over with an empty conversation</span></button>
+        <button type="button" role="option" aria-selected="false"><span class="cn">/compact</span><span class="cd">Summarize the conversation to free context</span></button>
+        <div class="tf">Other commands run only in the terminal.</div>
+      </div>
+      <div class="crow"><textarea rows="1" aria-label="Message to api-gateway">/</textarea><button class="btn pri" type="button">Send</button></div>
+      <div class="hint"><span>Sent as you, through podium-reporter. The session reads it as a message from Podium.</span><span>Enter sends · Shift+Enter for a new line</span></div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="label"><b>6. Messaging hint for an OpenCode machine</b> (My reporters tip and Admin > Reporters). It no longer names <code>PODIUM_PEERS</code>.</p>
+    <div class="side"><b>Messaging is off on build-box</b>Only that machine can turn it on. The OpenCode reporter does not message yet. Until then there is nothing to set here.</div>
+  </div>
+</div>
+
+<script>
+// The page shows its specimens when opened with #specimen-light or #specimen-dark, which is how the frames above load it.
+(function () {
+  var m = /^#specimen-(light|dark)$/.exec(location.hash);
+  if (!m) return;
+  var root = document.documentElement;
+  root.setAttribute('data-theme', m[1]);
+  root.setAttribute('data-theme-name', 'podium');
+  document.getElementById('intro').hidden = true;
+  var s = document.getElementById('specimen');
+  s.hidden = false;
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>

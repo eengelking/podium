@@ -4,12 +4,13 @@
 import { acceptsFor, type Ask as PodiumAsk, type Delivery, type DeliveryResult, type RespondInfo, type RespondKind, type RespondLimit } from '../core/protocol.ts';
 import type { Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
-import { formAnswer, framedMessage, permissionReply, podiumAsk } from './answer.ts';
+import { formAnswer, framedMessage, permissionReply, podiumAsk, rejectMessage } from './answer.ts';
 import type { Ask, Root } from './state.ts';
 
 /** The calls into OpenCode. Each rejects when OpenCode did not take it. */
 export interface Host {
-  permissionReply(sessionId: string, requestId: string, reply: 'once' | 'reject'): Promise<void>;
+  /** `message` goes with a rejection only: the reason OpenCode gives the model. */
+  permissionReply(sessionId: string, requestId: string, reply: 'once' | 'reject', message?: string): Promise<void>;
   /** How a question can be answered now: through a TUI part that is attached, through the local HTTP route, or not at all. */
   formChannel(): 'tui' | 'http' | null;
   formReply(sessionId: string, formId: string, answer: Record<string, string | string[]>): Promise<void>;
@@ -27,7 +28,7 @@ export interface Consent {
 const UNSUPPORTED: readonly RespondKind[] = ['plan-approve', 'plan-feedback'];
 
 /** Which kinds of delivery take an ask of each kind. */
-const TAKES: Record<Ask['kind'], readonly Delivery['kind'][]> = { permission: ['allow-once', 'deny'], question: ['question'] };
+const TAKES: Record<Ask['kind'], readonly Delivery['kind'][]> = { permission: ['allow-once', 'deny', 'reply'], question: ['question'] };
 
 export class Answering {
   /** Ask ids with a wait running. */
@@ -42,7 +43,8 @@ export class Answering {
   /** What the session takes now. Null while the person has not allowed answering: the report then says nothing about it. */
   info(): RespondInfo | null {
     if (!this.consent.respond) return null;
-    const limits: RespondLimit[] = [];
+    // A question form cannot be given up for a typed reply until OpenCode can cancel a form and take a prompt in one step (#968).
+    const limits: RespondLimit[] = ['no-reply-in-place'];
     const accepts = acceptsFor('everything', limits, this.consent.activityFeed).filter((k) => !UNSUPPORTED.includes(k) && (k !== 'question' || this.host.formChannel() !== null));
     return { level: 'everything', accepts, limits };
   }
@@ -99,7 +101,8 @@ export class Answering {
       if (ask.kind === 'permission') {
         const reply = permissionReply(d.kind);
         if (!reply) return this.result(root, d, 'refused');
-        await this.host.permissionReply(ask.sessionId, ask.id, reply);
+        if (reply === 'once') await this.host.permissionReply(ask.sessionId, ask.id, reply);
+        else await this.host.permissionReply(ask.sessionId, ask.id, reply, rejectMessage(d));
         return this.result(root, d, 'took');
       }
       const answer = formAnswer(ask.fields ?? [], d.answers ?? []);

@@ -21,6 +21,7 @@ import {
   type Report,
   type RespondInfo,
   type RespondKind,
+  type RespondLimit,
 } from './protocol.js';
 import { nameKey } from '../storage/rows.js';
 
@@ -82,6 +83,8 @@ interface Waiter {
 
 interface SessionEntry {
   info: RespondInfo | null;
+  /** The slash commands the reporter declared (#940); null while it has sent no capabilities block, which leaves every command Podium knows open. An empty list is a declaration: the session takes none. */
+  commands: string[] | null;
   asks: Map<string, AskEntry>;
   messages: DeliveryEntry[];
 }
@@ -91,7 +94,7 @@ export type AnswerError =
   | { status: 404; error: 'unknown ask' }
   | { status: 409; error: 'answered'; by: string; at: number }
   | { status: 410; error: 'closed'; outcome: AskOutcome; at: number }
-  | { status: 422; error: 'not accepted'; kind: string }
+  | { status: 422; error: 'not accepted'; kind: string; message?: string }
   | { status: 429; error: string };
 
 // eslint-disable-next-line no-control-regex
@@ -226,7 +229,7 @@ export class RespondStore {
   private entry(sessionId: string): SessionEntry {
     let s = this.sessions.get(sessionId);
     if (!s) {
-      s = { info: null, asks: new Map(), messages: [] };
+      s = { info: null, commands: null, asks: new Map(), messages: [] };
       this.sessions.set(sessionId, s);
     }
     return s;
@@ -246,6 +249,7 @@ export class RespondStore {
     const sid = report.session.id;
     if (report.session.respond) this.entry(sid).info = report.session.respond;
     else if (this.sessions.has(sid)) this.entry(sid).info = null;
+    if (report.capabilities) this.entry(sid).commands = report.capabilities.commands;
     if (report.session.status === 'done') {
       this.endSession(sid);
       return;
@@ -461,7 +465,8 @@ export class RespondStore {
     if (!e) return { ok: false, err: { status: 404, error: 'unknown ask' } };
     if (e.closed) return { ok: false, err: { status: 410, error: 'closed', outcome: e.closed.outcome, at: e.closed.at } };
     if (e.delivery && e.delivery.result !== 'refused') return { ok: false, err: { status: 409, error: 'answered', by: e.delivery.d.by, at: e.delivery.d.at } };
-    const parsed = parseAnswer(body, e.ask, this.info(sessionId)?.accepts ?? []);
+    const info = this.info(sessionId);
+    const parsed = parseAnswer(body, e.ask, info?.accepts ?? [], info?.limits ?? []);
     if (!parsed.ok) return { ok: false, err: parsed.err };
     const delivery: Delivery = { id: newId(), askId, by, at: this.now(), ...parsed.fields };
     e.delivery = { d: delivery, byKey: nameKey(by), result: null, handedOver: false };
@@ -474,7 +479,7 @@ export class RespondStore {
   /** A new message or command from the browser. One sent while the session runs waits in Claude Code's queue (5.3). */
   message(sessionId: string, by: string, body: unknown): { ok: true; delivery: Delivery } | { ok: false; err: AnswerError } {
     const accepts = this.info(sessionId)?.accepts ?? [];
-    const parsed = parseMessage(body, accepts);
+    const parsed = parseMessage(body, accepts, this.sessions.get(sessionId)?.commands ?? null);
     if (!parsed.ok) return { ok: false, err: parsed.err };
     const s = this.entry(sessionId);
     if (s.messages.filter((m) => m.result === null).length >= RESPOND_LIMITS.deliveries) {
@@ -567,13 +572,17 @@ type Parsed = { ok: true; fields: Omit<Delivery, 'id' | 'askId' | 'by' | 'at'> }
 
 const bad = (error: string, path: string): Parsed => ({ ok: false, err: { status: 400, error, path } });
 const notAccepted = (kind: string): Parsed => ({ ok: false, err: { status: 422, error: 'not accepted', kind } });
+/** A command the session's reporter did not declare (#968), with the words the person is shown. */
+const unsupported = (name: string): Parsed => ({ ok: false, err: { status: 422, error: 'not accepted', kind: 'command', message: `This session's reporter does not take /${name} from Podium. Send it in the terminal.` } });
 
 /** Checks an answer from the browser against its ask and what the session takes (7.7). Nothing over a limit is cut: it is refused. */
-export function parseAnswer(body: unknown, ask: Ask, accepts: readonly RespondKind[]): Parsed {
+export function parseAnswer(body: unknown, ask: Ask, accepts: readonly RespondKind[], limits: readonly RespondLimit[] = []): Parsed {
   if (!isObj(body)) return bad('expected an object', '$');
   const kind = body.kind;
   if (kind === 'reply') {
     if (!accepts.includes(REPLY_NEEDS[ask.kind])) return notAccepted('reply');
+    // A session that cannot give up a question for a typed reply says so (#968): the answer is refused here, not at the reporter.
+    if (ask.kind === 'question' && limits.includes('no-reply-in-place')) return notAccepted('reply');
     const text = cleanText(body.text, RESPOND_LIMITS.message);
     if (text === null || !text.trim()) return bad(`expected a message of 1 to ${RESPOND_LIMITS.message} characters`, '$.text');
     return { ok: true, fields: { kind, text } };
@@ -639,11 +648,12 @@ export function commandOf(text: string): { command: PodiumCommand } | { refused:
 }
 
 /** Checks a new message or command from the browser. */
-export function parseMessage(body: unknown, accepts: readonly RespondKind[]): Parsed {
+export function parseMessage(body: unknown, accepts: readonly RespondKind[], commands: readonly string[] | null = null): Parsed {
   if (!isObj(body)) return bad('expected an object', '$');
   if (body.command !== undefined) {
     if (body.command !== 'clear' && body.command !== 'compact') return bad('/clear and /compact are the only commands', '$.command');
     if (!accepts.includes('command')) return notAccepted('command');
+    if (commands && !commands.includes(body.command)) return unsupported(body.command);
     return { ok: true, fields: { kind: 'command', command: body.command } };
   }
   const text = cleanText(body.text, RESPOND_LIMITS.message);
@@ -652,6 +662,7 @@ export function parseMessage(body: unknown, accepts: readonly RespondKind[]): Pa
   if (cmd && 'refused' in cmd) return bad(cmd.refused, '$.text');
   if (cmd) {
     if (!accepts.includes('command')) return notAccepted('command');
+    if (commands && !commands.includes(cmd.command)) return unsupported(cmd.command);
     return { ok: true, fields: { kind: 'command', command: cmd.command } };
   }
   if (!accepts.includes('message')) return notAccepted('message');

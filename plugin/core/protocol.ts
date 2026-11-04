@@ -441,9 +441,9 @@ export const RESPOND_LEVELS: readonly RespondLevel[] = ['off', 'questions', 'que
 export type RespondKind = 'question' | 'plan-approve' | 'plan-feedback' | 'permission' | 'message' | 'command';
 export const RESPOND_KINDS: readonly RespondKind[] = ['question', 'plan-approve', 'plan-feedback', 'permission', 'message', 'command'];
 
-/** Why a kind the level allows is missing from `accepts`. */
-export type RespondLimit = 'no-permission-hooks' | 'not-interactive';
-export const RESPOND_LIMIT_NAMES: readonly RespondLimit[] = ['no-permission-hooks', 'not-interactive'];
+/** Why a kind the level allows is missing from `accepts`. `no-reply-in-place` removes no kind: the session takes no typed reply in place of a question's answer (#968). */
+export type RespondLimit = 'no-permission-hooks' | 'not-interactive' | 'no-reply-in-place';
+export const RESPOND_LIMIT_NAMES: readonly RespondLimit[] = ['no-permission-hooks', 'not-interactive', 'no-reply-in-place'];
 
 /** The kinds each level allows. Each level allows what the one before it does. */
 export const LEVEL_KINDS: Record<RespondLevel, readonly RespondKind[]> = {

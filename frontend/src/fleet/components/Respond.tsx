@@ -352,6 +352,8 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
         onSend={(t) => void send(t)}
         error={error}
         busy={busy}
+        commands={s.capabilities?.commands ?? null}
+        canReply={!s.respond?.limits.includes("no-reply-in-place")}
       />
     );
 

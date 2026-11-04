@@ -42,6 +42,8 @@ export const optionVariable = (option: string): string => `PODIUM_${option.repla
 
 /** How to turn a consent option on, for a reporter on `harness`; the Claude Code text is the one the console has always shown. */
 export function turnOnText(harness: SetupHarness, option: string): string {
+  // The OpenCode reporter has no messaging yet (#968), so there is no variable to name for it until the parity issue adds one.
+  if (harness === "opencode" && option === "peers") return "The OpenCode reporter does not message yet.";
   if (harness === "opencode") return `In OpenCode there, add ${optionVariable(option)}=true to ${OPENCODE_SETTINGS_FILE}, then run ${OPENCODE_RESTART}.`;
   return `In Claude Code there, run ${OPTION_CMD} and set ${option} to on. In the Claude desktop app there, open ${DESKTOP_OPTIONS} and turn on ${option}.`;
 }
