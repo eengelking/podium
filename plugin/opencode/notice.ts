@@ -121,3 +121,25 @@ export async function deliver(n: Notice, emit: ((n: Notice) => Promise<void>) | 
     fallback(n.message);
   }
 }
+
+/**
+ * The status line for the prompt's footer (#999): sent when the text changes and when a TUI part attaches, not on every flush. A status
+ * that goes away is sent as an empty text, so the footer clears; a status that was never there is not sent at all.
+ */
+export class StatusRelay {
+  private current = '';
+  constructor(public send?: (s: { text: string }) => Promise<void>) {}
+  push(text: string | null): void {
+    const next = text ?? '';
+    if (next === this.current) return;
+    this.current = next;
+    this.emit();
+  }
+  /** A TUI part attached: it gets the current text, when there is one. */
+  attached(): void {
+    if (this.current) this.emit();
+  }
+  private emit(): void {
+    void this.send?.({ text: this.current }).catch(() => undefined);
+  }
+}
