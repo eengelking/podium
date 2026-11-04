@@ -3,7 +3,7 @@
 // sessions it launched are one Root and one report; a child is an agent in that report.
 import { clip, cap, candidateFrom, classify, buildFailure, evidence, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
-import type { ActivityEvent, Failure, GitInfo, ModelUsage } from '../core/protocol.ts';
+import type { ActivityEvent, Failure, FilesReport, GitInfo, ModelUsage } from '../core/protocol.ts';
 
 /** One event from the OpenCode bus as the plugin receives it. Only the fields this reporter reads are typed. */
 export interface BusEvent {
@@ -132,6 +132,10 @@ export interface Root {
   done: boolean;
   endReason: string | null;
   git: GitInfo | null;
+  /** The files changed since the session began, once git has been read; null before, and when git cannot be read. */
+  files: FilesReport | null;
+  /** The commit HEAD was at on the first read; the files list and a file's diff are against it. */
+  gitBase: string | null;
   /** Events for the next report. */
   events: ActivityEvent[];
   seq: number;
@@ -176,7 +180,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
 function newRoot(id: string, cwd: string | null, at: number): Root {
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
-    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, events: [], seq: 0, dirty: true,
+    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
   };
 }
 

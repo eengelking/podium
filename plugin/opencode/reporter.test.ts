@@ -646,3 +646,153 @@ describe('failure detail', () => {
     expect(failureOf(t)).toMatchObject({ class: 'Model API error', outputTail: ['late'] });
   });
 });
+
+describe('Reporter: changed files and the file diff on request', () => {
+  /** A scripted repository: one modified file and one new file, and a diff for the modified one. */
+  function repo(over: { diffExit?: number; paths?: string } = {}) {
+    const calls: string[] = [];
+    const run: Runner = async (argv) => {
+      const a = argv.slice(1).join(' ');
+      calls.push(a);
+      if (a.endsWith('rev-parse --show-toplevel')) return { exitCode: 0, stdout: '/work/project\n' };
+      if (a.endsWith('rev-parse HEAD')) return { exitCode: 0, stdout: 'aaaaaaa\n' };
+      if (a.includes('merge-base --is-ancestor')) return { exitCode: 0, stdout: '' };
+      if (a.includes('--name-status')) return { exitCode: 0, stdout: over.paths ?? 'M\0src/a.ts\0' };
+      if (a.includes('--numstat')) return { exitCode: 0, stdout: '2\t1\tsrc/a.ts\0' };
+      if (a.includes('ls-files')) return { exitCode: 0, stdout: 'notes.txt\0' };
+      if (a.includes('grep')) return { exitCode: 0, stdout: 'notes.txt\x003\n' };
+      if (a.includes('hash-object')) return { exitCode: 0, stdout: 'a'.repeat(40) + '\n' };
+      if (a.includes(' diff ') || a.startsWith('diff ')) return { exitCode: over.diffExit ?? 0, stdout: 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+token = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"\n' };
+      return { exitCode: 1, stdout: '' };
+    };
+    return { run, calls };
+  }
+
+  function wired(run: Runner, extra: Record<string, unknown> = {}, reply: unknown | (() => unknown) = {}, idleMs = 60_000) {
+    const posts: Report[] = [];
+    const puts: { url: string; body: any }[] = [];
+    const t = { now: 10_000 };
+    const fetch: FetchLike = async (url, init) => {
+      if (init.method === 'PUT') puts.push({ url, body: JSON.parse(init.body!) });
+      else posts.push(JSON.parse(init.body!) as Report);
+      return { status: 200, ok: true, text: init.method === 'PUT' ? '{}' : JSON.stringify(typeof reply === 'function' ? reply() : reply) };
+    };
+    const env = { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', ...extra };
+    const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({}, null, env), idleMs });
+    return { r, t, posts, puts };
+  }
+
+  it('reports the files the session changed, read in the session directory off the event loop', async () => {
+    const { run } = repo();
+    const { r, posts } = wired(run);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.store.roots.get(ROOT)!.files).toBeNull(); // handle returned before git answered
+    await r.close();
+    const files = posts.at(-1)!.session.files!;
+    expect(files.since).toBe('start');
+    expect(files.files.map((f) => [f.path, f.status, f.added, f.removed])).toEqual([['notes.txt', 'added', 3, 0], ['src/a.ts', 'modified', 2, 1]]);
+    expect(files.total).toBe(2);
+  });
+
+  it('keeps the starting commit it first read, so the list stays "since the session began"', async () => {
+    const { run, calls } = repo();
+    const { r, t } = wired(run);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.close();
+    expect(r.store.roots.get(ROOT)!.gitBase).toBe('aaaaaaa');
+    expect(calls.some((c) => c.includes('diff --name-status -z -M aaaaaaa'))).toBe(true);
+    expect(t.now).toBe(10_000);
+  });
+
+  it('leaves files out of the report when git fails, and sends a long path cut', async () => {
+    const { r, posts } = wired(async () => ({ exitCode: 128, stdout: '' }));
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.close();
+    expect(posts.at(-1)!.session.files).toBeNull();
+    const long = 'x'.repeat(400);
+    const { run } = repo({ paths: `M\0${long}\0` });
+    const w = wired(run);
+    w.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await w.r.close();
+    expect(w.posts.at(-1)!.session.files!.files.every((f) => f.path.length <= 300)).toBe(true);
+  });
+
+  it('says whether the file diff is on, and the preload, in every report', async () => {
+    const off = wired(repo().run);
+    off.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await off.r.tick();
+    expect(off.posts[0]!.session).toMatchObject({ fileDiff: false, fileDiffPreload: false });
+    const on = wired(repo().run, { PODIUM_FILE_DIFF: 'true' });
+    on.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await on.r.tick();
+    expect(on.posts[0]!.session).toMatchObject({ fileDiff: true, fileDiffPreload: true });
+    const some = new Reporter({ fetch: async () => okReply, now: () => 1, runIn: () => noGit, log: () => undefined }, { ...optionsOf({ fileDiffPreload: false }, null, { PODIUM_FILE_DIFF: 'true' }), idleMs: 60_000 });
+    expect(some.opts).toMatchObject({ fileDiff: true, fileDiffPreload: false });
+  });
+
+  it('answers a listed diff request once, redacted, with the same reply shape as the Claude Code reporter', async () => {
+    const { run } = repo();
+    const { r, t, puts } = wired(run, { PODIUM_FILE_DIFF: 'true' }, { diffs: [{ id: 'd1', path: 'src/a.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20)); // the file list is read in the background
+    await r.tick();
+    t.now += 5000;
+    await r.tick(); // the same request again in the next reply
+    await r.close();
+    expect(puts).toHaveLength(1);
+    expect(puts[0]!.url).toBe('http://podium.test/api/fleet/sessions/ses_root/diffs/d1');
+    expect(puts[0]!.body).toMatchObject({ path: 'src/a.ts', status: 'ok', truncated: false, base: 'aaaaaaa' });
+    expect(puts[0]!.body.text).toContain('+new');
+    expect(puts[0]!.body.text).not.toContain('sk-ant-api03');
+    expect(puts[0]!.body.redactions).toBeGreaterThan(0);
+  });
+
+  it('answers unavailable for a path the list does not name, and reads nothing for it', async () => {
+    const { run, calls } = repo();
+    const { r, puts } = wired(run, { PODIUM_FILE_DIFF: 'true' }, { diffs: [{ id: 'd2', path: 'other.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await r.close();
+    expect(puts.map((p) => [p.body.path, p.body.status])).toEqual([['other.ts', 'unavailable']]);
+    expect(calls.filter((c) => c.includes('other.ts'))).toEqual([]);
+  });
+
+  it('reads nothing and answers nothing while the file diff is off', async () => {
+    const { run } = repo();
+    const { r, puts } = wired(run, {}, { diffs: [{ id: 'd1', path: 'src/a.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await r.close();
+    expect(puts).toEqual([]);
+  });
+
+  it('forgets the oldest answered ids past a limit, and answers unavailable when git is gone', async () => {
+    let n = 0;
+    const { r, t, puts } = wired(async () => { throw new Error('git is gone'); }, { PODIUM_FILE_DIFF: 'true' }, () => ({ diffs: Array.from({ length: 4 }, () => ({ id: `d${n++ % 205}`, path: 'src/a.ts' })) }), 10 ** 9);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    for (let i = 0; i < 120; i++) {
+      t.now += 5000;
+      await r.tick();
+    }
+    await r.close();
+    // Requests cycle over 205 ids: the oldest id has left the 200 kept, so it is answered a second time.
+    expect(puts.length).toBeGreaterThan(205);
+    expect(puts.every((p) => p.body.status === 'unavailable')).toBe(true);
+  });
+
+  it('does not let a failing answer call stop the reporter', async () => {
+    const { run } = repo();
+    const t = { now: 10_000 };
+    const fetch: FetchLike = async (_u, init) => {
+      if (init.method === 'PUT') throw new Error('offline');
+      return { status: 200, ok: true, text: JSON.stringify({ diffs: [{ id: 'd1', path: 'src/a.ts' }] }) };
+    };
+    const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_FILE_DIFF: 'true' }), idleMs: 60_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await expect(r.close()).resolves.toBeUndefined();
+  });
+});

@@ -42,6 +42,9 @@ export function optionsOf(projectOptions: Readonly<Record<string, any>> | null |
     engineVersion,
     hostSurface: null,
     consent: t.consent,
+    fileDiff: t.consent.fileDiff,
+    // Only narrows what the person already allowed, so a project may turn the preload off.
+    fileDiffPreload: projectOptions?.fileDiffPreload !== false,
     reporterConfig: t.reporterConfig,
     reporterContext: t.reporterContext,
   };

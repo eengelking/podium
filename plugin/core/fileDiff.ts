@@ -1,9 +1,9 @@
 // Reading one file's diff on request (SPEC 6.4, "File diff", #319). `readFileDiff` runs git through the injected runner
 // and returns what the mod sends back: redacted, cut to the limits, against the same base the Files list counts from.
 // Nothing is read for a path the list does not name, and nothing for a path that usually holds secrets.
-import { EMPTY_TREE, resolveRef, type Runner } from '../../core/git.ts'
-import { redactDiff, withheldPath } from '../../core/diffRedact.ts'
-import type { FileDiffReply, FilesReport } from '../../core/protocol.ts'
+import { EMPTY_TREE, resolveRef, type Runner } from './git.ts'
+import { redactDiff, withheldPath } from './diffRedact.ts'
+import type { FileDiffReply, FilesReport } from './protocol.ts'
 
 export const DIFF_LIMITS = {
   /** Lines and bytes sent; more is cut at a line boundary. Bytes of `git diff` read before it answers `too-large`. The server holds the same numbers (FILE_DIFF_LIMITS). */

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { EMPTY_TREE, type Runner } from '../../core/git.ts'
+import { EMPTY_TREE, type Runner } from './git.ts'
 import { readFileDiff, DIFF_LIMITS } from './fileDiff.ts'
-import type { ChangedFile, FilesReport } from '../../core/protocol.ts'
+import type { ChangedFile, FilesReport } from './protocol.ts'
 
 const file = (path: string, status: ChangedFile['status'] = 'modified', over: Partial<ChangedFile> = {}): ChangedFile => ({ path, status, from: null, added: 1, removed: 1, ...over })
 const list = (files: ChangedFile[], since: FilesReport['since'] = 'start'): FilesReport => ({ files, total: files.length, added: 1, removed: 1, since })

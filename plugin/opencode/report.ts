@@ -26,6 +26,10 @@ export interface ReportMeta {
   respond?: { info: RespondInfo; asks: Ask[] } | null;
   /** The context window of a model, once known. Absent or null: the percent is left out. */
   windowOf?: (provider: string | null, model: string | null) => number | null;
+  /** The `PODIUM_FILE_DIFF` consent: the console may ask for one changed file's diff (#319). */
+  fileDiff?: boolean;
+  /** The `fileDiffPreload` option: with the consent, the console may ask for every changed file's diff while its page is open (#631). */
+  fileDiffPreload?: boolean;
 }
 
 function pct(tokens: number | null, window: number | null): number | null {
@@ -144,7 +148,9 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       blowouts: 0,
       plan: plan ? { ...plan, source: 'todowrite' } : null,
       loop: { skills: [...main.skills], lastTool: main.lastTool, toolCalls: main.toolCalls, toolCounts: { ...main.toolCounts }, steps: { done: main.steps, total: null } },
-      files: null,
+      files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
+      fileDiff: meta.fileDiff === true,
+      fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
       attached: null,
       ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),
     },

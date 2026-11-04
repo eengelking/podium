@@ -1,9 +1,10 @@
 // The OpenCode reporter's runtime (#855): one Reporter per location, many root sessions in it. `handle` folds an event
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
-import { readGit, type Runner } from '../core/git.ts';
-import type { MachineInfo } from '../core/protocol.ts';
-import { Responder } from '../core/respond.ts';
+import { readChanges, readGit, type Runner } from '../core/git.ts';
+import { readFileDiff } from '../core/fileDiff.ts';
+import type { DiffRequest, MachineInfo } from '../core/protocol.ts';
+import { Responder, sessionPath } from '../core/respond.ts';
 import { Transport, type FetchLike } from '../core/transport.ts';
 import { Answering, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
@@ -23,6 +24,10 @@ export interface ReporterOptions {
   build?: string | null;
   engineVersion: string | null;
   hostSurface: string | null;
+  /** The file diff consent (`PODIUM_FILE_DIFF`): answer requests for one file's diff. Off when absent. */
+  fileDiff?: boolean;
+  /** The `fileDiffPreload` option, on unless turned off. Only meaningful with `fileDiff`. */
+  fileDiffPreload?: boolean;
 }
 
 export interface ReporterDeps {
@@ -53,6 +58,9 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 /** How long a model whose window could not be read waits before it is asked about again. */
 const WINDOW_RETRY_MS = 60_000;
+
+/** How many answered diff request ids are remembered. */
+const DIFFS_KEPT = 200;
 
 /** What `/podium` shows: the counts and notices of every root's transport, added up. */
 export interface Summary {
@@ -86,18 +94,23 @@ export class Reporter {
   private engineVersion: string | null = null;
   /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
   private readonly answering: Answering | null;
-  private readonly responder: Responder | null;
+  private readonly responder: Responder;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
   private readonly windows = new Map<string, { window: number | null; at: number }>();
   private readonly windowPending = new Set<string>();
+  /** Diff requests already taken, so one listed in two replies is read once (#319). */
+  private readonly diffsDone: string[] = [];
+  /** File diffs being read: a final flush waits for them, within its time limit. */
+  private readonly diffPending = new Set<Promise<void>>();
 
   constructor(
     private readonly deps: ReporterDeps,
     readonly opts: ReporterOptions,
   ) {
     const a = deps.answering;
-    this.responder = a ? new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) }) : null;
-    this.answering = a && this.responder ? new Answering(this.responder, a.host, a.consent) : null;
+    // Also the way a file diff goes back to the server, so it exists with answering off.
+    this.responder = new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a?.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) });
+    this.answering = a ? new Answering(this.responder, a.host, a.consent) : null;
   }
 
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
@@ -193,7 +206,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -210,12 +223,13 @@ export class Reporter {
     });
   }
 
-  /** Reads the root's branch in the background when it is stale. Never throws, and never holds up a report. */
+  /** Reads the root's branch and changed files in the background when they are stale. Never throws, and never holds up a report. */
   private refreshGit(root: Root, now: number): void {
     if (!root.cwd || now - (this.gitAt.get(root.id) ?? -Infinity) < DEFAULTS.gitEveryMs) return;
     this.gitAt.set(root.id, now);
     const cwd = root.cwd;
-    const read: Promise<void> = readGit(this.deps.runIn(cwd), cwd).then(
+    const run = this.deps.runIn(cwd);
+    const branch: Promise<void> = readGit(run, cwd).then(
       (g) => {
         if (JSON.stringify(g) !== JSON.stringify(root.git)) {
           root.git = g;
@@ -224,8 +238,47 @@ export class Reporter {
       },
       () => undefined,
     );
-    this.gitPending.add(read);
-    void read.finally(() => this.gitPending.delete(read));
+    // Tried even when the branch read gave null: a repository with no commits yet fails that but has files to list. A failed read keeps the last list.
+    const files: Promise<void> = readChanges(run, cwd, root.gitBase).then(
+      (c) => {
+        if (!c) return;
+        root.gitBase = c.base;
+        if (JSON.stringify(c.files) !== JSON.stringify(root.files)) {
+          root.files = c.files;
+          root.dirty = true;
+        }
+      },
+      () => undefined,
+    );
+    for (const read of [branch, files]) {
+      this.gitPending.add(read);
+      void read.finally(() => this.gitPending.delete(read));
+    }
+  }
+
+  /** The diffs a reply asked for, each read and answered once. With the option off nothing is read and the list is ignored. */
+  private handleDiffs(root: Root, t: Transport): void {
+    const list: DiffRequest[] = t.diffs;
+    t.diffs = [];
+    if (!this.opts.fileDiff) return;
+    for (const req of list) {
+      if (this.diffsDone.includes(req.id)) continue;
+      this.diffsDone.push(req.id);
+      if (this.diffsDone.length > DIFFS_KEPT) this.diffsDone.splice(0, this.diffsDone.length - DIFFS_KEPT);
+      const answer = this.answerDiff(root, req);
+      this.diffPending.add(answer);
+      void answer.finally(() => this.diffPending.delete(answer));
+    }
+  }
+
+  private async answerDiff(root: Root, req: DiffRequest): Promise<void> {
+    try {
+      const cwd = root.cwd ?? '';
+      const reply = await readFileDiff(this.deps.runIn(cwd), cwd, root.gitBase, req.path, root.files);
+      await this.responder.call('PUT', `${sessionPath(root.id)}/diffs/${encodeURIComponent(req.id)}`, reply);
+    } catch {
+      // The console keeps asking while the owner waits; nothing to undo here.
+    }
   }
 
   /**
@@ -248,6 +301,7 @@ export class Reporter {
       if (t.due(now, root.dirty)) sends.push(this.send(root, t, now));
     }
     await Promise.all(sends);
+    for (const root of this.store.roots.values()) this.handleDiffs(root, this.transportOf(root));
     // After the reports, so each root's reply has been read: start waiting for answers and act on what was handed over.
     // Bounded: a call into OpenCode that never returns must not hold up the next report or the other roots.
     if (this.answering) await Promise.all([...this.store.roots.values()].map((root) => withTimeout(this.answering!.drive(root, this.transportOf(root)), this.deps.answering?.answerMs ?? DEFAULTS.answerMs).catch(() => undefined)));
@@ -273,7 +327,7 @@ export class Reporter {
       timer = setTimeout(resolve, closeMs);
     });
     const flush = async (): Promise<void> => {
-      await Promise.all([...this.gitPending]);
+      await Promise.all([...this.gitPending, ...this.diffPending]);
       const sends: Promise<void>[] = [];
       for (const root of this.store.roots.values()) {
         this.queue(root);
