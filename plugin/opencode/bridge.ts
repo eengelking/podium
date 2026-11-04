@@ -32,6 +32,14 @@ export const BRIDGE = {
         required: ['message'],
       },
     },
+    // The connection's status line for the prompt's footer (#987), sent each time the server part polls so a TUI that attaches late has it too.
+    status: {
+      schema: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      },
+    },
   },
 } as const;
 
@@ -47,4 +55,9 @@ export interface NoticeEvent {
   title?: string;
   message: string;
   variant?: 'info' | 'success' | 'warning' | 'error';
+}
+
+/** The connection's status line the TUI part shows in the prompt's footer. */
+export interface StatusEvent {
+  text: string;
 }

@@ -793,6 +793,8 @@ describe('the plugin entry reports what an idle session still runs (#987)', () =
         for (let waited = 0; !bodies.some((b) => b.session?.background) && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
         const sent = bodies.find((b) => b.session?.background);
         expect(sent.session).toMatchObject({ status: 'waiting', waitReason: null, background: { tasks: [{ type: 'shell', description: 'npm run dev' }] } });
+        // The status line goes to the TUI part each poll, for the prompt's footer.
+        expect(ctx.emitted.find((e) => e.name === 'status')?.data.text).toEqual(expect.any(String));
         // Not a dev build here: the built folder has no stamp.
         expect(sent.reporter.build).toBeUndefined();
         await stop();
