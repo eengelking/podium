@@ -599,6 +599,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
     tool: { transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void }) => void) => { cb({ add: (d) => void tools.push(d) }); return { dispose: async () => undefined }; } },
     session: { prompt: async (i: unknown) => void prompts.push(i) },
+    model: { list: async () => ({ data: [{ providerID: 'local', id: 'qwen-mini', type: 'chat', enabled: true, status: 'active', cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }] }) },
     experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
     emitted,
     commands,
@@ -832,6 +833,7 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
         const stop = await setup(ctx);
         await until(() => ctx.generated.length > 0);
         expect(String((ctx.generated[0] as { prompt: string }).prompt)).toContain('An OpenCode agent failed');
+        expect((ctx.generated[0] as { model?: unknown }).model).toEqual({ providerID: 'local', id: 'qwen-mini' });
         await stop();
       });
       await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: undefined, PODIUM_SERVER: 'http://podium.test:4317' }, async () => {

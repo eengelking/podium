@@ -638,6 +638,52 @@ describe('failure detail', () => {
     expect(failureOf(s)).toMatchObject({ class: 'Model API error', tool: 'model request', outputTail: ['provider down'] });
   });
 
+  it('classifies a run that auto-compacted three times as Context window exhausted, with the times as evidence (#986)', () => {
+    const s = setup();
+    for (const t of [10, 20, 30]) {
+      apply(s, ev('session.compaction.started', { sessionID: KID, reason: 'auto' }, t), t);
+      apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'auto' }, t + 1), t + 1);
+    }
+    // A manual compaction is not the window running out, and does not count.
+    apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'manual' }, 40), 40);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'stopped' } }, 50), 50);
+    expect(failureOf(s)).toMatchObject({ class: 'Context window exhausted', evidence: [expect.stringContaining('exceeded the context window 3 times')] });
+  });
+
+  it('keeps a step failure after fewer than three auto-compactions out of that class, and carries the count to a failed call (#986)', () => {
+    const s = setup();
+    for (const t of [10, 20]) apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'auto' }, t), t);
+    apply(s, ev('session.step.failed', { sessionID: KID, error: { message: 'boom' } }, 30), 30);
+    expect(failureOf(s).class).toBe('Model API error');
+    apply(s, ev('session.compaction.ended', { sessionID: KID, reason: 'auto' }, 40), 40);
+    call(s, 'c9', 'bash', { command: 'npm test' }, 41);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c9', error: { message: 'exit code 1' } }, 43), 43);
+    expect(failureOf(s)).toMatchObject({ class: 'Context window exhausted', evidence: [expect.stringContaining('3 times')] });
+  });
+
+  it('treats a shell call that exits non-zero as a failed call, with its exit code, though OpenCode 2.2.5 reports it as a success (#986)', () => {
+    const s = setup();
+    call(s, 'c1', 'shell', { command: 'exit 7' }, 3);
+    apply(s, ev('session.tool.success', { sessionID: KID, id: 'c1', content: [{ type: 'text', text: 'oops\n' }, { type: 'text', text: 'Exited with code 7' }], metadata: { status: 'completed', truncated: false, exit: 7 } }, 5), 5);
+    expect(failureOf(s)).toMatchObject({ class: 'Tool error', tool: 'Bash', call: 'exit 7', exitCode: 7 });
+    expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('Bash failed');
+  });
+
+  it('takes the exit code from the metadata when the text does not state it, and ignores a zero exit, a missing one and a non-shell tool (#986)', () => {
+    const s = setup();
+    call(s, 'c1', 'shell', { command: 'run' }, 3);
+    apply(s, ev('session.tool.success', { sessionID: KID, id: 'c1', content: [{ type: 'text', text: 'no code here' }], metadata: { exit: 2 } }, 5), 5);
+    expect(failureOf(s).exitCode).toBe(2);
+    const ok = setup();
+    call(ok, 'c1', 'shell', { command: 'true' }, 3);
+    apply(ok, ev('session.tool.success', { sessionID: KID, id: 'c1', metadata: { exit: 0 } }, 5), 5);
+    call(ok, 'c2', 'shell', { command: 'true' }, 6);
+    apply(ok, ev('session.tool.success', { sessionID: KID, id: 'c2', metadata: {} }, 8), 8);
+    call(ok, 'c3', 'read', { filePath: '/x' }, 9);
+    apply(ok, ev('session.tool.success', { sessionID: KID, id: 'c3', metadata: { exit: 3 } }, 11), 11);
+    expect(ok.roots.get(ROOT)!.sessions.get(KID)!.failure).toBeNull();
+  });
+
   it('says what model request failed, with the effort when known', () => {
     const s = setup();
     apply(s, stepWith(KID, 3, { id: 'm', providerID: 'p', variant: 'high' }), 3);

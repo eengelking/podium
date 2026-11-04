@@ -157,23 +157,20 @@ four plugin options at the end of the table.
 | `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
 | `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
 | `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
-| `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with OpenCode's default model, cuts the answer at 400 characters, and its cost is not counted anywhere |
+| `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with the cheapest small model in OpenCode's model list (an enabled chat model whose id names a Haiku, mini, nano, flash, lite or small tier) and falls back to OpenCode's default model when none is listed or that one fails. The explanation ends with the model that wrote it. It is cut at 400 characters, and its cost is not counted anywhere |
 | `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds` | `1000`, `5000`, empty, `60` | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named |
 
 What OpenCode reports: the model and its provider, tokens and cost (OpenCode's own figure), the context size and percent (from `ctx.model.list`, so a model
 that list does not hold shows a size and no percent), effort (the model's variant on each step, shown as observed), the skills it used (from the `skill` tool), tokens per
-model, the plan (from the todo tool, or the name the `plan` tool gives it), the files it changed, failures with the engine's error text, compactions, and the git branch.
+model, the plan (from the todo tool, or the name the `plan` tool gives it), the files it changed, failures with the engine's error text (a session that auto-compacts three times before it fails is classed "Context window exhausted", with the times of the compactions as evidence; a shell call that exits non-zero is a failed call with its exit code, read from the call's `metadata.exit`, which OpenCode 2.2.5 sets and reports as a success), compactions, and the git branch.
 
 Not available on OpenCode, and why:
 
 - **Plan approval and `/clear`.** OpenCode has no plan-approval step and no equivalent of `/clear`, so the console does not offer them for an OpenCode session.
 - **The fork command.** The console's fork command is a shell line (`claude --resume <id> --fork-session`). Podium knows no OpenCode command line that starts a new session from a copy of one, so the cell reads as not available. The resume command works.
-- **The "Context window exhausted" classification.** A failed step carries no stop reason, so the failure cannot be told from any other.
-- **Real exit codes.** OpenCode's events carry no exit code for a shell call. One is sent only when the call's text states it.
 - **`/podium name`, `/podium context` and `/podium messaging`.** The OpenCode `/podium` command answers with a toast and takes only `allow`, `decline` and `deliver`. Set the name with `sessionName` and the context with `PODIUM_REPORTER_CONTEXT`.
 - **Hiding the messaging tools before Podium confirms the session takes part.** The reporter adds its tools through `ctx.tool.transform` whenever `PODIUM_PEERS` is on, so the model is offered all three whether or not Podium has yet confirmed the session takes part. Claude Code's mod shows them only after Podium confirms.
 - **A cost for explained failures.** The explain call does not report usage, so its cost is in no total.
-- **Choosing the hosted model for explained failures.** The call uses OpenCode's default model; Claude Code's Haiku choice has no equivalent.
 - **Rate limits.** OpenCode's event stream carries none. OpenCode's HTTP API has `usage.limits` (`/api/experimental/usage/limits`), which returns the allowance of the OpenCode Console workspace the person is signed in to (the Go plan's rolling, weekly and monthly percent used, and per-model budgets), and a failed step names `rate_limit` as its reason. It is an experimental call for one vendor's plan, not a provider's rate limit, and the reporter does not read it.
 
 A plan's steps come from OpenCode's todo tool, which exists only with `experimental.todo: true` in `opencode.json`. Without it the plan shows the title the `plan` tool gave it and no steps.

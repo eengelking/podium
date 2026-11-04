@@ -16,6 +16,7 @@ import { podiumTools } from './tools.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
+import { explainWith } from './explainModel.ts';
 import { windowFromList } from './window.ts';
 
 const KEY = Symbol.for('podium-reporter.opencode');
@@ -122,7 +123,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       answering,
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
-      ...(options.explainFailures ? { explain: async (prompt: string) => (await ctx.experimental.generate.text({ prompt })).text } : {}),
+      ...(options.explainFailures ? { explain: (prompt: string) => explainWith((input) => ctx.experimental.generate.text(input), () => ctx.model.list(), prompt) } : {}),
       ...(options.peers ? { prompt: promptVia(apiOf(ctx), () => Date.now()) } : {}),
     },
     options,
