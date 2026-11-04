@@ -4,11 +4,14 @@ description: "The marketplace pins ref plugin-dist and path dist/claudecode, plu
 group: "Project internals"
 number: 58
 date: "2026-11-02"
-status: "accepted"
+status: "superseded"
+superseded_by: 59
 order: 58
 ---
 
 # 58. The built plugins are published to the plugin-dist branch on a merge to main (#927)
+
+**Superseded by 59 (#983).** The built plugins are tracked in `dist/` on `main` and checked on every PR into `main`; the `plugin-dist` branch, its workflow and its publish script are gone. The text below records what was true then.
 
 *Amends 12: the plugin is still in this repo and listed from `eengelking-marketplace`, but the listing points at built output on a branch, not at a source folder on `main`.*
 
@@ -57,5 +60,5 @@ users still holds.
 <!-- nav:start -->
 ---
 
-Previous: [57. The report types and the shared reporter code live once, in plugin/core (#927)](57-the-report-types-and-shared-reporter-code-live-once-in-plugin-core.md) · Up: [Decisions](README.md)
+Previous: [57. The report types and the shared reporter code live once, in plugin/core (#927)](57-the-report-types-and-shared-reporter-code-live-once-in-plugin-core.md) · Up: [Decisions](README.md) · Next: [59. The built plugins are tracked in dist/ on main and checked on every PR into main (#983)](59-the-built-plugins-are-tracked-in-dist-on-main-and-checked-on-every-pr.md)
 <!-- nav:end -->

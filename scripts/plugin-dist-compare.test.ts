@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -76,61 +76,53 @@ describe("plugin-dist-compare", () => {
     expect((await run(["--zip", join(scratch, "missing.zip"), "--dir", scratch])).code).toBe(1);
   });
 
-  describe("against a plugin-dist branch", () => {
-    const g = (cwd: string, ...a: string[]) => execFileSync("git", ["-c", "commit.gpgsign=false", ...a], { cwd, encoding: "utf8" }).trim();
-    function setup(version = "1.0.0", message = "Publish\n\nSource commit: abc123\n") {
-      const dir = join(scratch, `g${++n}`);
-      const bare = join(dir, "o.git");
-      const work = join(dir, "w");
-      const check = join(dir, "c");
-      mkdirSync(work, { recursive: true });
-      mkdirSync(check);
-      g(dir, "init", "-q", "--bare", bare);
-      g(work, "init", "-q", "-b", "plugin-dist");
-      g(work, "config", "user.email", "t@e.com");
-      g(work, "config", "user.name", "T");
-      for (const [name, data] of Object.entries(files)) {
-        const p = join(work, "dist", "claudecode", name);
-        mkdirSync(join(p, ".."), { recursive: true });
-        writeFileSync(p, name.endsWith("plugin.json") ? JSON.stringify({ version }) : data);
+  describe("against the tracked dist/ (#983)", () => {
+    /** A fake repo root whose dist/<harness>/ holds `content`, and a zip of `zipContent`. */
+    function repoWith(harness: string, content: Record<string, string>, zipContent: Record<string, string> = content) {
+      const root = join(scratch, `r${++n}`);
+      for (const [name, data] of Object.entries(content)) {
+        mkdirSync(join(root, "dist", harness, name, ".."), { recursive: true });
+        writeFileSync(join(root, "dist", harness, name), data);
       }
-      g(work, "add", ".");
-      g(work, "commit", "-q", "-m", message);
-      g(work, "push", "-q", bare, "plugin-dist");
-      g(check, "init", "-q");
-      g(check, "remote", "add", "origin", bare);
-      const zip = join(dir, "x.zip");
-      const zipFiles = { ...files, ".claude-plugin/plugin.json": JSON.stringify({ version }) };
-      writeFileSync(zip, zipBytes(Object.entries(zipFiles).map(([k, v]) => [k, Buffer.from(v)])));
-      return { check, zip };
+      const zip = join(root, "x.zip");
+      writeFileSync(zip, zipBytes(Object.entries(zipContent).map(([k, v]) => [k, Buffer.from(v)])));
+      return { root, zip };
     }
 
-    it("compares with the commit that names the source commit", async () => {
-      const { check, zip } = setup();
-      const r = await run(["--zip", zip, "--sha", "abc123", "--wait", "0"], check, () => {});
+    it("compares the zip with dist/claudecode of the checkout by default", async () => {
+      const { root, zip } = repoWith("claudecode", files);
+      const r = await run(["--zip", zip], root);
       expect(r.code).toBe(0);
+      expect(r.out).toContain("dist/claudecode");
     });
 
-    it("fails with a clear message when no commit names the sha within the wait", async () => {
-      const { check, zip } = setup();
-      const r = await run(["--zip", zip, "--sha", "def456", "--wait", "0"], check, () => {});
+    it("compares with dist/<harness> for --harness", async () => {
+      const { root, zip } = repoWith("opencode", { "package.json": "{}" });
+      expect((await run(["--zip", zip, "--harness", "opencode"], root)).code).toBe(0);
+      expect((await run(["--zip", zip], root)).code).toBe(1); // no dist/claudecode here
+    });
+
+    it("fails when dist/ differs from the zip, and names the file", async () => {
+      const { root, zip } = repoWith("claudecode", { ...files, "plugin/core/a.ts": "changed\n" }, files);
+      const r = await run(["--zip", zip], root);
       expect(r.code).toBe(1);
-      expect(r.err).toContain("No plugin-dist commit naming def456 appeared");
+      expect(r.err).toContain("different bytes: plugin/core/a.ts");
     });
 
-    it("falls back to the tip at the tag's version when a rerun published no commit", async () => {
-      const { check, zip } = setup("2.0.0");
-      const r = await run(["--zip", zip, "--sha", "def456", "--wait", "0", "--grace", "0", "--version", "2.0.0"], check, () => {});
-      expect(r.code).toBe(0);
-      const wrong = await run(["--zip", zip, "--sha", "def456", "--wait", "0", "--grace", "0", "--version", "3.0.0"], check, () => {});
-      expect(wrong.code).toBe(1);
+    it("no longer knows the plugin-dist branch options", async () => {
+      const { root, zip } = repoWith("claudecode", files);
+      for (const flag of ["--sha", "--branch", "--remote", "--wait", "--interval", "--grace", "--version"]) {
+        const r = await run(["--zip", zip, flag, "x"], root);
+        expect(r.code, flag).toBe(1);
+        expect(r.err).toContain(`Bad argument "${flag}"`);
+      }
     });
 
     it("runs from the command line", () => {
-      const { zip } = setup();
       const r = spawnSync("node", [join(ROOT, "scripts", "plugin-dist-compare.mjs"), "--help"], { encoding: "utf8" });
       expect(r.status).toBe(0);
-      expect(zip).toBeTruthy();
+      expect(r.stdout).toContain("--zip");
+      expect(r.stdout).not.toContain("plugin-dist branch");
     });
   });
 });

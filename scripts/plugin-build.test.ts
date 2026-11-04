@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildHarness, checkTree, defaultHarnesses, devStamp, included, manifestPath, manifestVersion, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
+import { buildHarness, checkTree, defaultHarnesses, devStamp, emptyDir, included, manifestPath, manifestVersion, planTree, relativeSpecifiers, run, walk } from "./plugin-build.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT = join(ROOT, "scripts", "plugin-build.mjs");
@@ -98,7 +98,7 @@ describe("plugin-build: the dev stamp (#927)", () => {
       return fakeGit({ "rev-parse": { out: "a1b2c3d4\n" }, describe: { code: 128 }, status: { out: " M x.ts\n" } })(args);
     };
     expect(devStamp(ROOT, git)).toEqual({ commit: "a1b2c3d4", tag: "", dirty: true });
-    expect(seen.find((a) => a[0] === "status")).toEqual(["status", "--porcelain", "--", ".", ":(exclude)dist", ":(exclude).build-test", ":(exclude)dist-zips"]);
+    expect(seen.find((a) => a[0] === "status")).toEqual(["status", "--porcelain", "--", ".", ":(exclude)dist-dev", ":(exclude).build-test", ":(exclude)dist-zips"]);
     expect(devStamp(ROOT, fakeGit({ "rev-parse": { out: "a1b2c3d4\n" }, describe: { out: "v1.1.0\n" }, status: { out: "" } }))).toEqual({ commit: "a1b2c3d4", tag: "v1.1.0", dirty: false });
   });
 
@@ -346,5 +346,97 @@ describe("plugin-build: npm run plugin:build:release (#932)", () => {
       expect(existsSync(join(viaNpm, h, ".claude-plugin", "dev-build.json")), h).toBe(false);
       expect(snapshot(join(viaNpm, h))).toEqual(snapshot(join(direct, h)));
     }
+  });
+});
+
+describe("plugin-build: a clean build of dist/ (#983)", () => {
+  /** A temp repo root holding only the plugin sources, so run() can build into its own dist/ and dist-dev/. */
+  function repoRoot(): string {
+    const root = tmp();
+    cpSync(join(ROOT, "plugin"), join(root, "plugin"), { recursive: true });
+    return root;
+  }
+
+  it("empties the output folder before a full build, so nothing from an earlier build is left", () => {
+    const root = repoRoot();
+    const out = join(root, "dist");
+    mkdirSync(join(out, "old-harness", "deep"), { recursive: true });
+    writeFileSync(join(out, "old-harness", "deep", "x.txt"), "x");
+    writeFileSync(join(out, "stray.txt"), "x");
+    mkdirSync(join(out, "claudecode"), { recursive: true });
+    writeFileSync(join(out, "claudecode", "removed-file.ts"), "x");
+    const r = run([], root);
+    expect(r.code).toBe(0);
+    expect(readdirSync(out).sort()).toEqual(["claudecode", "opencode"]);
+    expect(walk(join(out, "claudecode"))).not.toContain("removed-file.ts");
+  });
+
+  it("replaces only the harness named, and leaves the other harness's folder alone", () => {
+    const root = repoRoot();
+    expect(run([], root).code).toBe(0);
+    writeFileSync(join(root, "dist", "opencode", "marker.txt"), "keep");
+    writeFileSync(join(root, "dist", "claudecode", "gone.txt"), "x");
+    expect(run(["claudecode"], root).code).toBe(0);
+    expect(existsSync(join(root, "dist", "opencode", "marker.txt"))).toBe(true);
+    expect(existsSync(join(root, "dist", "claudecode", "gone.txt"))).toBe(false);
+  });
+
+  it("does not empty the folder on --check, which only reads it", () => {
+    const root = repoRoot();
+    expect(run([], root).code).toBe(0);
+    writeFileSync(join(root, "dist", "keep.txt"), "x");
+    run(["--check"], root);
+    expect(existsSync(join(root, "dist", "keep.txt"))).toBe(true);
+  });
+
+  it("builds a dev-stamped build into dist-dev/, never into the tracked dist/", () => {
+    const root = repoRoot();
+    expect(run(["claudecode", "--dev-stamp"], root).code).toBe(0);
+    expect(existsSync(join(root, "dist-dev", "claudecode", ".claude-plugin", "plugin.json"))).toBe(true);
+    expect(existsSync(join(root, "dist"))).toBe(false);
+  });
+
+  it("builds a release build into dist/, and --out still wins over both defaults", () => {
+    const root = repoRoot();
+    expect(run(["claudecode"], root).code).toBe(0);
+    expect(existsSync(join(root, "dist", "claudecode"))).toBe(true);
+    expect(existsSync(join(root, "dist-dev"))).toBe(false);
+    const out = tmp();
+    expect(run(["claudecode", "--dev-stamp", "--out", out], root).code).toBe(0);
+    expect(existsSync(join(out, "claudecode"))).toBe(true);
+  });
+
+  it("emptyDir removes what is inside a folder, keeps the folder, and ignores one that is not there", () => {
+    const dir = tmp();
+    mkdirSync(join(dir, "a", "b"), { recursive: true });
+    writeFileSync(join(dir, "a", "b", "c.txt"), "x");
+    writeFileSync(join(dir, "d.txt"), "x");
+    emptyDir(dir, tmp());
+    expect(readdirSync(dir)).toEqual([]);
+    expect(() => emptyDir(join(dir, "missing"), tmp())).not.toThrow();
+  });
+
+  it("emptyDir refuses the repo root, a folder holding the plugin sources or a .git, and a folder above them", () => {
+    const root = repoRoot();
+    expect(() => emptyDir(root, root)).toThrow(/refus/i);
+    expect(() => emptyDir(join(root, "plugin"), root)).toThrow(/refus/i);
+    expect(() => emptyDir(dirname(root), root)).toThrow(/refus/i);
+    const withGit = tmp();
+    mkdirSync(join(withGit, ".git"));
+    expect(() => emptyDir(withGit, tmp())).toThrow(/refus/i);
+    expect(existsSync(join(root, "plugin"))).toBe(true);
+  });
+
+  it("a folder named with --out is never emptied, only its harness folders are replaced", () => {
+    const root = repoRoot();
+    const out = tmp();
+    writeFileSync(join(out, "mine.txt"), "keep");
+    expect(run([], root).code).toBe(0);
+    expect(run(["--out", out], root).code).toBe(0);
+    expect(existsSync(join(out, "mine.txt"))).toBe(true);
+    expect(readdirSync(out).sort()).toEqual(["claudecode", "mine.txt", "opencode"]);
+    const rootRun = run(["--out", root], root);
+    expect(existsSync(join(root, "plugin", "core"))).toBe(true);
+    expect(rootRun.code).toBe(0);
   });
 });

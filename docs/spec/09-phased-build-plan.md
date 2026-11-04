@@ -181,7 +181,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Scope:** `hooks/register.ts`, `plugin.json`, `hooks/hooks.json`.
 - **Depends on:** T3.2.
 - **Acceptance:**
-  1. `claude plugin validate dist/claudecode` passes with no errors and lists the hooked events from section 5.3 and the `$` calls from 5.4. Attach its output to `docs/architecture/`.
+  1. `claude plugin validate dist-dev/claudecode` passes with no errors and lists the hooked events from section 5.3 and the `$` calls from 5.4. Attach its output to `docs/architecture/`.
   2. The mod type-checks (`npm run typecheck:mod:claudecode`) and passes.
   3. Every hook calls `next(e)` exactly once (or `yield*` for `turn.step`) and returns its result unchanged; a test with a hook that throws inside the reporter proves the session is unaffected.
   4. `session.start` registers `/podium` and starts the flusher, git poller and (if enabled) status line. A session-id change detected by the flusher sends a `done` report for the old id and starts the new one.
@@ -193,7 +193,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Scope:** running the real mod; no new files except notes in `docs/architecture/`.
 - **Depends on:** T3.3, T1.5.
 - **Acceptance:**
-  1. Start the server. Run `claude --plugin-dir dist/claudecode --model haiku -p "<a tiny task that uses the Agent tool once and TaskCreate once>"` (see rules in 10.4 on cost). The session appears in `GET /api/fleet/state` with the right model, a git branch, at least one agent with a model and a state, and a plan with the task, then ends and leaves the live set.
+  1. Start the server. Run `claude --plugin-dir dist-dev/claudecode --model haiku -p "<a tiny task that uses the Agent tool once and TaskCreate once>"` (see rules in 10.4 on cost). The session appears in `GET /api/fleet/state` with the right model, a git branch, at least one agent with a model and a state, and a plan with the task, then ends and leaves the live set.
   2. Compare `session.costUsd` with what `/cost` or the final result reports. Record whether session cost includes subagents.
   3. Record in `docs/architecture/` under "Mod API findings": which Assumptions in section 5 were right and which were wrong, with the evidence, including whether `classic.PermissionRequest` and `classic.Notification` are hookable, whether `session.compact` fires for agents, whether effort is visible on spawn, and the exact import-extension rule.
 
@@ -226,7 +226,7 @@ Phases run in order. Each ends with committed, passing, runnable work. Inside a 
 - **Scope:** `README.md`, `docs/architecture/`, `.env.example`.
 - **Depends on:** all above.
 - **Acceptance:**
-  1. `README.md` explains what Podium is, how to run the server and UI, how to install the mod (from `eengelking-marketplace`, or `npm run plugin:build` then `claude --plugin-dir dist/claudecode` for a session), how to run the server with `podiumctl` (4.4), how to run the simulator, the env vars (`PORT`, `HOST`, `PODIUM_DB`, `PODIUM_TOKEN`, `STALE_AFTER_MS`, `DROP_AFTER_MS`, `LINGER_MS`) and what is sent off the session (section 6.4).
+  1. `README.md` explains what Podium is, how to run the server and UI, how to install the mod (from `eengelking-marketplace`, or `npm run plugin:build` then `claude --plugin-dir dist-dev/claudecode` for a session), how to run the server with `podiumctl` (4.4), how to run the simulator, the env vars (`PORT`, `HOST`, `PODIUM_DB`, `PODIUM_TOKEN`, `STALE_AFTER_MS`, `DROP_AFTER_MS`, `LINGER_MS`) and what is sent off the session (section 6.4).
   2. `docs/architecture/` documents the final architecture, the mod API findings, deviations from this spec with reasons, known issues, and the verification evidence.
   3. `.env.example` lists the new env vars with defaults.
   4. No `TODO` is left in code without a matching entry under "Known issues".

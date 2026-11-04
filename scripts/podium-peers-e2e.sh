@@ -99,8 +99,8 @@ USAGE
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # A plugin loads only from a self-contained folder (an import that leaves it is refused), so run the built one (#927).
-MOD="$ROOT/dist/claudecode"
-OC_DIST="$ROOT/dist/opencode"
+MOD="$ROOT/dist-dev/claudecode"
+OC_DIST="$ROOT/dist-dev/opencode"
 MARKER=".podium-peers-e2e"
 TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
 

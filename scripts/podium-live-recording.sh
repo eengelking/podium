@@ -95,7 +95,7 @@ EOF
     node "$HERE/scripts/plugin-build.mjs" claudecode --dev-stamp >/dev/null || die "plugin build failed"
     # env -i: nothing of the parent's PODIUM_*/CLAUDE* variables reaches the session.
     tmux new-session -d -s "$name" -x 200 -y 50 -c "$dir/work" \
-      "env -i HOME=$HOME USER=$USER LOGNAME=$USER SHELL=/bin/zsh TMPDIR=${TMPDIR:-/tmp} PATH=$PATH TERM=xterm-256color claude --permission-mode default --plugin-dir $HERE/dist/claudecode --settings $dir/settings.json --setting-sources project --strict-mcp-config --mcp-config $dir/mcp.json --model haiku --add-dir $dir/work"
+      "env -i HOME=$HOME USER=$USER LOGNAME=$USER SHELL=/bin/zsh TMPDIR=${TMPDIR:-/tmp} PATH=$PATH TERM=xterm-256color claude --permission-mode default --plugin-dir $HERE/dist-dev/claudecode --settings $dir/settings.json --setting-sources project --strict-mcp-config --mcp-config $dir/mcp.json --model haiku --add-dir $dir/work"
     echo "started tmux session $name in $dir/work"
     ;;
   stop)

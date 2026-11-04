@@ -67,9 +67,9 @@ ok "Podium answers at $("$REPO/bin/podiumctl" url)"
 ok "reporter port 4318 open"
 
 step "3. Build podium-reporter-opencode"
-(cd "$REPO" && node scripts/plugin-build.mjs opencode) >/dev/null
-[[ -f "$REPO/dist/opencode/package.json" ]] || die "dist/opencode was not built"
-ok "built $REPO/dist/opencode"
+(cd "$REPO" && node scripts/plugin-build.mjs opencode --dev-stamp) >/dev/null
+[[ -f "$REPO/dist-dev/opencode/package.json" ]] || die "dist-dev/opencode was not built"
+ok "built $REPO/dist-dev/opencode"
 
 step "4. Ollama"
 if ! curl -sf "$OLLAMA_URL/api/tags" >/dev/null; then
@@ -91,7 +91,7 @@ step "5. Start OpenCode"
 export OPENCODE_CONFIG_CONTENT
 OPENCODE_CONFIG_CONTENT=$(cat <<JSON
 {
-  "plugin": ["$REPO/dist/opencode"],
+  "plugin": ["$REPO/dist-dev/opencode"],
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",

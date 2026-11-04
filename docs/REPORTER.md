@@ -27,7 +27,7 @@ Contents:
 ## Install the mod
 
 The reporter is a Claude Code mod. Its source is `plugin/claudecode/` (with shared code in `plugin/core/`), and what you install is
-the built plugin that each release publishes to the `plugin-dist` branch (`dist/claudecode/`, DECISIONS 58) and zips for Claude Desktop. Install it from the eengelking
+the built plugin that each release commits to `dist/claudecode/` on `main` (DECISIONS 59) and zips for Claude Desktop. Install it from the eengelking
 marketplace, in Claude Code:
 
 ```
@@ -52,7 +52,7 @@ To work on the mod itself, build it and load the built folder from a checkout fo
 npm run plugin:dev:claudecode
 ```
 
-That builds `dist/claudecode` and starts `claude` with it loaded. Add `-- --watch` to rebuild on every change (then `/reload-plugins`).
+That builds `dist-dev/claudecode` (git-ignored, with the commit stamped in) and starts `claude` with it loaded. Add `-- --watch` to rebuild on every change (then `/reload-plugins`).
 The source is not loadable on its own, because it imports the shared code from outside its folder. `npm run plugin:build` builds
 without starting `claude`, and `npm run plugin:dev:cleanup` removes the build folders.
 
@@ -92,7 +92,7 @@ do not load plugins.
 ## Install the OpenCode reporter
 
 The OpenCode reporter (`plugin/opencode/`, with shared code in `plugin/core/`) watches OpenCode 2.x sessions and reports them to Podium, and
-answers them from Podium where you allow it (see [OpenCode settings](#opencode-settings)). What you install is the built folder `dist/opencode/`, which a release publishes to the `plugin-dist` branch and zips as
+answers them from Podium where you allow it (see [OpenCode settings](#opencode-settings)). What you install is the built folder `dist/opencode/`, which a release commits to `main` and zips as
 `podium-opencode-<version>.zip` (the nightly prerelease has `podium-opencode-<version>-nightly-<date>.zip`). OpenCode supplies the plugin API at runtime, so
 nothing else is bundled. Pick one way to install it.
 
@@ -109,12 +109,12 @@ The folder must hold `package.json` at its top, not one more folder down.
 **From Git.** One line, and OpenCode can update it later. Quote the specifier, because `#` starts a comment in a shell:
 
 ```sh
-opencode plugin add "git+https://github.com/eengelking/podium.git#plugin-dist::path:dist/opencode"
+opencode plugin add "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"
 ```
 
-`dist/opencode` on `plugin-dist` always holds the current release, so an update follows the latest release. There is no tag or version range to pin
-to: release tags sit on `main`, where `dist/` does not exist. To stay on one version, install the archive above, whose zip is named for its version.
-The part after `::path:` is required, because the package is in a folder of the branch and not at its top.
+`dist/opencode` on `main` always holds the current release, because `main` only moves on a release, so an update follows the latest release. There is no
+version range to pin to. To stay on one version, install the archive above, whose zip is named for its version.
+The part after `::path:` is required, because the package is in a folder of the repository and not at its top.
 `opencode plugin check` shows an update and `opencode plugin update` installs it.
 
 **Then restart OpenCode's service,** so it loads the plugin:

@@ -37,7 +37,7 @@ Do the phases in order. After each phase run `npm test` and `npm run build` at t
 
 ## 10.4 Using the real Claude CLI (T3.4)
 
-Allowed: at most **three** `claude -p` smoke runs total, each with `--model haiku`, a prompt under 40 words, and `--plugin-dir dist/claudecode`. They use the user's quota; do not loop. Set `PORT` to a free port for the test server rather than 4317 if 4317 is busy, and pass it to the mod as `serverUrl` through settings or `pluginConfigs`. Never run an interactive `claude` session. If `claude -p` is unavailable or fails to authenticate, stop that task, record it under "Known issues", and finish the rest.
+Allowed: at most **three** `claude -p` smoke runs total, each with `--model haiku`, a prompt under 40 words, and `--plugin-dir dist-dev/claudecode`. They use the user's quota; do not loop. Set `PORT` to a free port for the test server rather than 4317 if 4317 is busy, and pass it to the mod as `serverUrl` through settings or `pluginConfigs`. Never run an interactive `claude` session. If `claude -p` is unavailable or fails to authenticate, stop that task, record it under "Known issues", and finish the rest.
 
 ## 10.5 What to report when done
 

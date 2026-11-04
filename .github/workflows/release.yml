@@ -2,9 +2,9 @@ name: Release asset
 
 # Attaches podium-reporter-<version>.zip and podium-opencode-<version>.zip (#857) to the GitHub Release of a vX.Y.Z tag (#835). Claude Desktop installs a plugin only from an
 # archive, so every release carries one. The tag is pushed first and the release is made right after (podium-release skill), so the
-# job waits for the release to exist. The zip is built by scripts/podium-reporter-zip.mjs, the script a person runs too, and the job
-# fails if the mod's version is not the tag's, or if the zip differs from what the `plugin-dist` branch holds for that commit
-# (plugin-dist.yml publishes it on the merge to `main` and may still be running, so the job waits). Run it by hand from the Actions tab with `workflow_dispatch` to redo an upload.
+# job waits for the release to exist. The zip is made by scripts/podium-reporter-zip.mjs, the script a person runs too, from the tracked
+# dist/ of the tag (#983): the job first checks that dist/ is exactly a clean build of the tag's source (scripts/plugin-dist-check.mjs),
+# fails if the mod's version is not the tag's, and fails if the zip differs from dist/. Run it by hand from the Actions tab with `workflow_dispatch` to redo an upload.
 
 on:
   push:
@@ -66,28 +66,24 @@ jobs:
           echo "${dir}/gh_${GH_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
           "${dir}/gh_${GH_VERSION}_linux_amd64/bin/gh" --version
 
+      - name: Check that dist/ is the clean build of this tag
+        # dist/ is tracked on `main` and holds the release build. This rebuilds in memory and fails on any difference, a dev stamp,
+        # a stray file or a version that is not the product's, so an archive is never made from a stale or hand-edited dist/.
+        run: node scripts/plugin-dist-check.mjs
+
       - name: Build the archive
         run: |
           set -euo pipefail
-          node scripts/plugin-build.mjs claudecode opencode
-          # The zips go to dist-zips/, never dist/, which holds the build trees that plugin-dist publishes.
+          # The zips go to dist-zips/, never dist/, which holds the tracked release build. Nothing is rebuilt: the zips are of dist/.
           node scripts/podium-reporter-zip.mjs --out dist-zips --expect-version "${TAG#v}"
           node scripts/podium-reporter-zip.mjs --harness opencode --out dist-zips --expect-version "${TAG#v}"
           ls -l dist-zips
 
-      - name: Check the zip against the plugin-dist branch
-        # plugin-dist.yml publishes the same build on the merge to `main` and may still be running. The script waits, up to
-        # 15 minutes, for the plugin-dist commit that names this tag's source commit, then compares the file list and the bytes.
+      - name: Check the zips against dist/
         run: |
           set -euo pipefail
-          sha="$(git rev-list -n 1 "refs/tags/${TAG}")"
-          node scripts/plugin-dist-compare.mjs \
-            --zip dist-zips/podium-reporter-"${TAG#v}".zip \
-            --sha "$sha" --version "${TAG#v}" --wait 900 --interval 30
-          # The first compare already waited for the plugin-dist commit, which holds both harnesses, so this one needs only a short wait.
-          node scripts/plugin-dist-compare.mjs --harness opencode \
-            --zip dist-zips/podium-opencode-"${TAG#v}".zip \
-            --sha "$sha" --version "${TAG#v}" --wait 120 --interval 15
+          node scripts/plugin-dist-compare.mjs --zip dist-zips/podium-reporter-"${TAG#v}".zip
+          node scripts/plugin-dist-compare.mjs --harness opencode --zip dist-zips/podium-opencode-"${TAG#v}".zip
 
       - name: Attach it to the release
         run: |
