@@ -27,7 +27,7 @@ const connection = (online: boolean | null): string => (online === null ? 'not t
 /** The `/podium` answer: the same facts the Claude Code `/podium` gives that OpenCode has. */
 export function podiumText(s: Summary, f: PodiumFacts): string {
   return [
-    `Podium fleet console: ${f.serverUrl.replace(/\/+$/, '')}/#/`,
+    `Podium fleet console: ${withoutTrailingSlashes(f.serverUrl)}/#/`,
     f.tls ? `TLS: ${f.tls}` : '',
     `Home folder: ${f.home}`,
     `Connection: ${connection(s.online)}${s.liveSessions === null ? '' : ` (${s.liveSessions} live sessions)`}`,
@@ -41,8 +41,22 @@ export function podiumText(s: Summary, f: PodiumFacts): string {
     .join('\n');
 }
 
-/** The count of live sessions changes all the time and is no news. */
-const withoutCount = (text: string): string => text.replace(/\d+ live/, 'live');
+/** The address without the slashes at its end. A loop, because a regular expression for this backtracks badly on a long run of slashes. */
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
+/** The count of live sessions changes all the time and is no news. Drops the digits before the first ` live`; a loop for the same reason as above. */
+function withoutCount(text: string): string {
+  for (let at = text.indexOf(' live'); at !== -1; at = text.indexOf(' live', at + 1)) {
+    let start = at;
+    while (start > 0 && text.charCodeAt(start - 1) >= 48 && text.charCodeAt(start - 1) <= 57) start--;
+    if (start < at) return text.slice(0, start) + text.slice(at + 1);
+  }
+  return text;
+}
 
 /** The status text to show now, or null when it is not news: no status yet, still connecting, or the same apart from the live count. */
 export function statusChange(prev: string | null, next: string | null): string | null {

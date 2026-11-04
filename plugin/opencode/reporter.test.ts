@@ -507,14 +507,20 @@ describe('context window and percent', () => {
   });
 
   it('does not look up a model it cannot name, or without a lookup', async () => {
-    const { r } = withWindow(async () => { throw new Error('should not be asked'); });
+    let asked = 0;
+    const { r, bodies } = withWindow(async () => { asked++; return 1000; });
     r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
     r.handle(ev('session.step.started', { sessionID: ROOT, model: { id: 'm' } }, 10_001));
-    const { r: plain } = reporter(async () => okReply);
+    const plainBodies: Report[] = [];
+    const { r: plain } = reporter(async (_u, init) => { plainBodies.push(JSON.parse(init.body!) as Report); return okReply; });
     plain.handle(ev('session.created', { sessionID: ROOT }, 10_000));
     plain.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
     await settle();
+    await r.tick();
     await plain.tick();
+    expect(asked).toBe(0);
+    expect(bodies.at(-1)!.session.context?.window ?? null).toBeNull();
+    expect(plainBodies.at(-1)!.session.context?.window ?? null).toBeNull();
   });
 });
 

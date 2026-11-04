@@ -89,6 +89,16 @@ describe('podiumText: what /podium shows (#969)', () => {
   });
 });
 
+describe('podiumText: the console address (#969)', () => {
+  it('drops every slash at the end of the address, and only those', () => {
+    const facts = (serverUrl: string) => ({ serverUrl, home: '/h', tls: null, version: '1' });
+    const summary = { online: null, liveSessions: null, serverVersion: null, notices: [], sent: 0, failed: 0, rejected: 0, queued: 0, dropped: 0, lastError: null, sessions: 0 };
+    expect(podiumText(summary, facts('http://x///'))).toContain('Podium fleet console: http://x/#/');
+    expect(podiumText(summary, facts('http://x/a/b'))).toContain('Podium fleet console: http://x/a/b/#/');
+    expect(podiumText(summary, facts('///'))).toContain('Podium fleet console: /#/');
+  });
+});
+
 describe('statusChange and noticeOf: the toast (#969)', () => {
   it('is quiet until there is a status, and again when only the live count changed', () => {
     expect(statusChange(null, null)).toBeNull();
@@ -96,6 +106,13 @@ describe('statusChange and noticeOf: the toast (#969)', () => {
     expect(statusChange(null, 'podium v1 ● 1 live')).toBe('podium v1 ● 1 live');
     expect(statusChange('podium v1 ● 1 live', 'podium v1 ● 3 live')).toBeNull();
     expect(statusChange('podium v1 ● 1 live', 'podium v1 ○ offline')).toBe('podium v1 ○ offline');
+  });
+
+  it('compares two texts that differ only in the digits before the first " live", and keeps any other text as it is', () => {
+    expect(statusChange('podium v1 ● 12 live', 'podium v1 ● 345 live')).toBeNull();
+    expect(statusChange('live ● 1 live', 'live ● 2 live')).toBeNull();
+    expect(statusChange('a live ● x', 'a live ● y')).toBe('a live ● y');
+    expect(statusChange('2 live', '3 live')).toBeNull();
   });
 
   it('shows a problem as a warning and a good state as information', () => {
