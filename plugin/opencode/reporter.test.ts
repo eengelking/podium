@@ -1101,3 +1101,15 @@ describe('Reporter: background work and attached (#987)', () => {
     }
   });
 });
+
+describe('Reporter: a dev build says so (#987)', () => {
+  it('puts the build in the report the reporter sends, and leaves the field out for a release', async () => {
+    for (const [build, want] of [['a1b2c3d4-dirty', 'a1b2c3d4-dirty'], [null, undefined]] as const) {
+      const bodies: Report[] = [];
+      const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => 10_000, runIn: () => noGit, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), build, idleMs: 60_000 });
+      r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+      await r.tick();
+      expect(bodies.at(-1)!.reporter.build).toBe(want);
+    }
+  });
+});

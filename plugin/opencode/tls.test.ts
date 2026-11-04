@@ -590,6 +590,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
   const tools: { name: string; description: string; input: unknown; execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }> }[] = [];
   const prompts: unknown[] = [];
   const generated: unknown[] = [];
+  const hooks: Record<string, (i: any) => void> = {};
   return {
     options,
     location: { directory },
@@ -598,7 +599,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     rpc: { register: async () => ({ events: { emit: async (name: string, data: unknown) => void emitted.push({ name, data }) } }) },
     command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
     tool: { transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void }) => void) => { cb({ add: (d) => void tools.push(d) }); return { dispose: async () => undefined }; } },
-    session: { prompt: async (i: unknown) => void prompts.push(i) },
+    session: { prompt: async (i: unknown) => void prompts.push(i), hook: async (name: string, cb: (i: any) => void) => { hooks[name] = cb; return { dispose: async () => undefined }; } },
     model: { list: async () => ({ data: [{ providerID: 'local', id: 'qwen-mini', type: 'chat', enabled: true, status: 'active', cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }] }) },
     experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
     emitted,
@@ -606,6 +607,7 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     tools,
     prompts,
     generated,
+    hooks,
   };
 }
 type Setup = (c: unknown) => Promise<() => Promise<void>>;
@@ -750,6 +752,33 @@ describe('the plugin entry tells the person what is wrong (#969)', () => {
       });
     } finally {
       log.mockRestore();
+    }
+  });
+});
+
+describe('the plugin entry reports what an idle session still runs (#987)', () => {
+  it('hands experimental.idle to the reporter, and the next report says the session waits on background work', async () => {
+    const bodies: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => { bodies.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const events = [{ id: 'b1', type: 'session.created', data: { sessionID: 'ses_b', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/b2' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/b2', events);
+        const stop = await setup(ctx);
+        // The session must be known before the hook can name it: wait for its first report.
+        for (let waited = 0; bodies.length === 0 && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        ctx.hooks['experimental.idle']!({ sessionID: 'ses_b', background: [{ kind: 'shell', sessionID: 'ses_b', shellID: 's', command: 'npm run dev' }] });
+        for (let waited = 0; !bodies.some((b) => b.session?.background) && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+        const sent = bodies.find((b) => b.session?.background);
+        expect(sent.session).toMatchObject({ status: 'waiting', waitReason: null, background: { tasks: [{ type: 'shell', description: 'npm run dev' }] } });
+        // Not a dev build here: the built folder has no stamp.
+        expect(sent.reporter.build).toBeUndefined();
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
     }
   });
 });

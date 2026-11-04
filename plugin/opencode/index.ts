@@ -2,6 +2,7 @@
 // the modules beside it, which need no OpenCode API and are tested on their own.
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
@@ -9,6 +10,7 @@ import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent } from './bri
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { parseAnswer } from '../core/peers.ts';
+import { buildOf, packageRoot } from './build.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
@@ -83,7 +85,9 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const trusted = optionsOf(ctx.options, null, process.env, settings.text);
   // A reporter config file (#948) is found from the environment and ~/.podium only, never from the project's options.
   const link = await openLink({ options: trusted, env: process.env, home: homeOf(process.env), now: () => Date.now() });
-  const options = await withMachine(withLink(trusted, link));
+  // A dev build says so in every report (#987): the commit `npm run plugin:build` stamped into the built folder.
+  const build = await buildOf(packageRoot(import.meta.url), runIn(process.cwd()), (path) => readFile(path, 'utf8').catch(() => null));
+  const options = { ...(await withMachine(withLink(trusted, link))), build };
   const bridge = {
     seenAt: 0,
     emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
