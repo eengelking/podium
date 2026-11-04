@@ -66,12 +66,7 @@ export function displayName(s: Pick<SessionState, 'id' | 'git' | 'projectRoot' |
   return clip(name, 80);
 }
 
-/** `owner/name` from an origin URL (`git@github.com:o/n.git`, `https://host/o/n`). */
-export function repoFromRemote(remote: string | null | undefined): string | null {
-  if (!remote) return null;
-  const m = /[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/.exec(remote.trim());
-  return m ? `${m[1]}/${m[2]}` : null;
-}
+export { repoFromRemote } from '../../core/place.ts';
 
 function cleanFailure(f: Failure | null): Failure | null {
   if (!f) return null;

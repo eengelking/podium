@@ -1019,3 +1019,85 @@ describe('OpenCode 2.2.5 tools and events (#969)', () => {
     expect(root.podiumCompact).toBeNull();
   });
 });
+
+describe('Reporter: the place of the session (#987)', () => {
+  const gitRun: Runner = async (argv) => {
+    const cmd = argv.join(' ');
+    if (cmd.includes('--git-common-dir')) return { exitCode: 0, stdout: '/work/project/.git\n' };
+    if (cmd.includes('remote.origin.url')) return { exitCode: 0, stdout: 'https://github.com/acme/project.git\n' };
+    return { exitCode: 1, stdout: '' };
+  };
+  it('reports the project root and owner/name from the origin once git has been read', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, gitRun);
+    r.handle(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project/sub' } }, 10_000));
+    await r.close();
+    expect(bodies.at(-1)!.session).toMatchObject({ cwd: '/work/project/sub', projectRoot: '/work/project', repoName: 'acme/project' });
+  });
+  it('starts with the folder it knows and the folder name before git has answered', () => {
+    const root = store(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project' } }, 1)).roots.get(ROOT)!;
+    const rep = buildReport(root, [], { now: 2, version: VERSION, engineVersion: null, hostSurface: null });
+    expect(rep.session).toMatchObject({ projectRoot: '/work/project', repoName: 'project' });
+  });
+});
+
+describe('Reporter: background work and attached (#987)', () => {
+  const start = (r: Reporter) => r.handle(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project' } }, 10_000));
+  const lastOf = async (bodies: Report[], r: Reporter) => { await r.tick(); return bodies.at(-1)!.session; };
+  const collect = (bodies: Report[]): FetchLike => async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; };
+
+  it('says what an idle session still runs, and that it is not waiting on the person', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.background(ROOT, [
+      { kind: 'shell', sessionID: ROOT, shellID: 's1', command: 'npm run dev -- --token=sk-ant-api03-abcdefghijklmnopqrstuvwxyz\nsecond line' },
+      { kind: 'subagent', sessionID: ROOT, childSessionID: 'ses_c', agent: 'general', description: 'Scan the repo' },
+      { kind: 'image', sessionID: ROOT, path: '/tmp/a.png', model: 'img' },
+    ]);
+    const s = await lastOf(bodies, r);
+    expect(s).toMatchObject({ status: 'waiting', waitReason: null });
+    expect(s.background).toEqual({
+      tasks: [
+        { type: 'shell', description: expect.stringMatching(/^npm run dev/), status: 'running' },
+        { type: 'agent', description: 'Scan the repo', status: 'running' },
+        { type: 'other', description: 'image', status: 'running' },
+      ],
+      wakeAt: null,
+    });
+    expect(JSON.stringify(s.background)).not.toContain('sk-ant');
+    expect(JSON.stringify(s.background)).not.toContain('second line');
+  });
+  it('leaves it out for an empty list, an unknown session, and once a run starts again', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.background('ses_nobody', [{ kind: 'shell', sessionID: 'ses_nobody', shellID: 's', command: 'x' }]);
+    r.background(ROOT, []);
+    expect((await lastOf(bodies, r)).background).toBeUndefined();
+    const again = [] as Report[];
+    const second = reporter(collect(again));
+    start(second.r);
+    second.r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    second.r.handle(ev('session.execution.started', { sessionID: ROOT }, 10_001));
+    const s = await lastOf(again, second.r);
+    expect(s.background).toBeUndefined();
+    expect(s.status).toBe('running');
+  });
+  it('reports a question as the wait even with background work', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle({ type: 'permission.asked', data: { id: 'p1', sessionID: ROOT, action: 'bash', resources: ['ls'] } });
+    r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    expect(await lastOf(bodies, r)).toMatchObject({ status: 'waiting', waitReason: 'permission' });
+  });
+  it('reports attached from the TUI part: true while one is attached, false when none is, null where the host cannot say', async () => {
+    for (const [attached, want] of [[() => true, true], [() => false, false], [undefined, null]] as const) {
+      const bodies: Report[] = [];
+      const r = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, ...(attached ? { attached } : {}) }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+      start(r);
+      expect((await lastOf(bodies, r)).attached).toBe(want);
+    }
+  });
+});

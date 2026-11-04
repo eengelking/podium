@@ -28,6 +28,8 @@ export interface ReportMeta {
   /** The context window of a model, once known. Absent or null: the percent is left out. */
   windowOf?: (provider: string | null, model: string | null) => number | null;
   /** The `PODIUM_FILE_DIFF` consent: the console may ask for one changed file's diff (#319). */
+  /** Whether a TUI is attached; absent where the host cannot say. */
+  attached?: boolean;
   fileDiff?: boolean;
   /** The `fileDiffPreload` option: with the consent, the console may ask for every changed file's diff while its page is open (#631). */
   fileDiffPreload?: boolean;
@@ -121,7 +123,9 @@ function status(root: Root): { status: 'running' | 'waiting' | 'done'; waitReaso
   const first = asks.find((a) => a.kind === 'permission') ?? asks[0];
   if (first) return { status: 'waiting', waitReason: first.kind === 'permission' ? 'permission' : 'input', waitNote: first.note };
   const working = [...root.sessions.values()].some((s) => s.executing) || root.compacting;
-  return working ? { status: 'running', waitReason: null, waitNote: null } : { status: 'waiting', waitReason: 'input', waitNote: null };
+  if (working) return { status: 'running', waitReason: null, waitNote: null };
+  // Idle on work that is still running is not waiting on the person (#119, #987).
+  return { status: 'waiting', waitReason: root.background ? null : 'input', waitNote: null };
 }
 
 /**
@@ -154,8 +158,8 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       resumeId: null,
       startedAt: root.startedAt,
       cwd,
-      projectRoot: cwd || null,
-      repoName: cwd ? lastSegment(cwd) : null,
+      projectRoot: root.place?.projectRoot ?? (cwd || null),
+      repoName: root.place?.repoName ?? (cwd ? lastSegment(cwd) : null),
       git: root.git,
       model: main.model,
       modelProvider: main.provider,
@@ -178,7 +182,8 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       sessionRecording: meta.sessionRecording === true,
       peers: meta.peers === true,
       ...(meta.activity && main.activity.length ? { activity: feedOf(main.activity, meta.activityOutput === true) } : {}),
-      attached: null,
+      ...(st.status === 'waiting' && root.background ? { background: root.background } : {}),
+      attached: meta.attached ?? null,
       ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),
     },
     agents: withinTextBudget(agents.map((s) => agentReport(s, root.id, meta))),

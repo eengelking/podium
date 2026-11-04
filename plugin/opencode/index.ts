@@ -158,6 +158,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   void ctx.tool.transform((editor) => {
     for (const t of podiumTools(reporter)) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
   }).catch(() => undefined);
+  // What a session that goes idle still runs (a shell, a subagent): reported as the wait, so it is not shown as waiting on the person (#987).
+  void ctx.session.hook('experimental.idle', (idle) => reporter.background(idle.sessionID, idle.background)).catch(() => undefined);
   // The renewal check of the certificate (shared lock with Claude sessions), once per location.
   link?.start();
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
