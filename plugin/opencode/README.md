@@ -1,7 +1,9 @@
 # plugin/opencode
 
-The OpenCode reporter (#855). It watches OpenCode 2.x sessions and reports them to Podium, and (#858) answers a permission, a question, a message and `/compact` from
-Podium where the person turned that on. It is written in TypeScript against `@opencode/plugin`, which OpenCode supplies at runtime, and it imports the code
+The OpenCode reporter (#855). It watches OpenCode 2.x sessions and reports them to Podium, and (#858, #969) answers a permission, a question, a message and `/compact` from
+Podium where the person turned that on. It also carries the activity feed, recording, peers messaging and explained failures, each behind its own consent.
+What it cannot do, and why, is under "Not offered" below and in [docs/REPORTER.md](../../docs/REPORTER.md#opencode-settings); install steps are in
+[docs/REPORTER.md](../../docs/REPORTER.md#install-the-opencode-reporter). Updates follow the latest release; a fixed version comes from the versioned zip. It is written in TypeScript against `@opencode/plugin`, which OpenCode supplies at runtime, and it imports the code
 every reporter shares from `../core/` (report types, transport, failures, redaction, plan, git). It never imports `../claudecode/`;
 `server/src/plugin.test.ts` fails if it does.
 
@@ -80,7 +82,7 @@ same two places, choose another file; with no file nothing changes. The client s
 - `/podium` shows the console address, the home folder, the secure connection, the connection state, the versions, reports sent, failed and rejected, events queued, the
   last error and the number of sessions. OpenCode's `command.add` has no reply to print, so the answer is a toast in the TUI, and a console line when no TUI part is attached.
   `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging request (the id is in the request's toast), and are on only where the person allowed
-  messaging. `/podium name` and `/podium context` are not offered.
+  messaging. `/podium name`, `/podium context` and `/podium messaging` are not offered.
 
 ## Build and test
 

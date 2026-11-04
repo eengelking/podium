@@ -42,7 +42,7 @@ plugin/claudecode/                   the Claude Code mod (what is specific to th
   hooks/models.ts                    model family, context windows, price table
   hooks/respond.ts                   responding from Podium (#206): asks, answers, terminal lines (pure)
   hooks/*.test.ts                    run by `claude plugin test` against the built tree
-plugin/opencode/                     placeholder for the OpenCode reporter (#855)
+plugin/opencode/                     the OpenCode reporter (#855)
 dist/<harness>/                      what `npm run plugin:build` writes (git-ignored): a self-contained plugin
 server/src/fleet/
   protocol.ts                        re-exports plugin/core/protocol.ts and adds the view types and validators
