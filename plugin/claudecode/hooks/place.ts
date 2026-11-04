@@ -1,12 +1,9 @@
 // Where a session works, and how the reporter notices it moved (#382, SPEC 6.7). Pure: the mod passes what
 // `$.session` answered and a runner for git, so the server's test run can measure it (the mod's own tests cannot be).
 import { lastSegment, type Runner } from '../../core/git.ts';
-import { repoFromRemote } from './report.ts';
+import { gitPlace, repoFromRemote, type Place } from '../../core/place.ts';
 
-export interface Place {
-  projectRoot: string;
-  repoName: string;
-}
+export type { Place };
 
 /** What `$.session.root()` and `$.session.repo()` answered. */
 export interface SessionPlace {
@@ -40,14 +37,7 @@ export async function placeOf(session: SessionPlace, cwd: string, run: Runner): 
     const { repo } = session;
     return { projectRoot: base, repoName: repo?.name ?? repoFromRemote(repo?.remote) ?? lastSegment(base) };
   }
-  const git = async (argv: string[]) => {
-    const res = await run(argv);
-    return res.exitCode === 0 ? res.stdout.trim() : '';
-  };
-  const common = await git(['git', 'rev-parse', '--path-format=absolute', '--git-common-dir']);
-  const dir = common.endsWith('/') ? common.slice(0, -1) : common;
-  const projectRoot = dir.endsWith('/.git') ? dir.slice(0, -'/.git'.length) : dir || cwd;
-  return { projectRoot, repoName: repoFromRemote(await git(['git', 'config', '--get', 'remote.origin.url'])) ?? lastSegment(projectRoot) };
+  return gitPlace(run, cwd);
 }
 
 /** The parts of `$` that the place logic reads, so a test can stand in for them. */

@@ -1019,3 +1019,165 @@ describe('OpenCode 2.2.5 tools and events (#969)', () => {
     expect(root.podiumCompact).toBeNull();
   });
 });
+
+describe('Reporter: the place of the session (#987)', () => {
+  const gitRun: Runner = async (argv) => {
+    const cmd = argv.join(' ');
+    if (cmd.includes('--git-common-dir')) return { exitCode: 0, stdout: '/work/project/.git\n' };
+    if (cmd.includes('remote.origin.url')) return { exitCode: 0, stdout: 'https://github.com/acme/project.git\n' };
+    return { exitCode: 1, stdout: '' };
+  };
+  it('reports the project root and owner/name from the origin once git has been read', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, gitRun);
+    r.handle(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project/sub' } }, 10_000));
+    await r.close();
+    expect(bodies.at(-1)!.session).toMatchObject({ cwd: '/work/project/sub', projectRoot: '/work/project', repoName: 'acme/project' });
+  });
+  it('starts with the folder it knows and the folder name before git has answered', () => {
+    const root = store(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project' } }, 1)).roots.get(ROOT)!;
+    const rep = buildReport(root, [], { now: 2, version: VERSION, engineVersion: null, hostSurface: null });
+    expect(rep.session).toMatchObject({ projectRoot: '/work/project', repoName: 'project' });
+  });
+});
+
+describe('Reporter: background work and attached (#987)', () => {
+  const start = (r: Reporter) => r.handle(ev('session.created', { sessionID: ROOT, location: { directory: '/work/project' } }, 10_000));
+  const lastOf = async (bodies: Report[], r: Reporter) => { await r.tick(); return bodies.at(-1)!.session; };
+  const collect = (bodies: Report[]): FetchLike => async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; };
+
+  it('says what an idle session still runs, and that it is not waiting on the person', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.background(ROOT, [
+      { kind: 'shell', sessionID: ROOT, shellID: 's1', command: 'npm run dev -- --token=sk-ant-api03-abcdefghijklmnopqrstuvwxyz\nsecond line' },
+      { kind: 'subagent', sessionID: ROOT, childSessionID: 'ses_c', agent: 'general', description: 'Scan the repo' },
+      { kind: 'image', sessionID: ROOT, path: '/tmp/a.png', model: 'img' },
+    ]);
+    const s = await lastOf(bodies, r);
+    expect(s).toMatchObject({ status: 'waiting', waitReason: null });
+    expect(s.background).toEqual({
+      tasks: [
+        { type: 'shell', description: 'npm', status: 'running' },
+        { type: 'agent', description: 'Scan the repo', status: 'running' },
+        { type: 'other', description: 'image', status: 'running' },
+      ],
+      wakeAt: null,
+    });
+    expect(JSON.stringify(s.background)).not.toContain('sk-ant');
+    expect(JSON.stringify(s.background)).not.toMatch(/second line|--token|run dev/);
+  });
+  it('leaves it out for an empty list, an unknown session, and once a run starts again', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.background('ses_nobody', [{ kind: 'shell', sessionID: 'ses_nobody', shellID: 's', command: 'x' }]);
+    r.background(ROOT, []);
+    expect((await lastOf(bodies, r)).background).toBeUndefined();
+    const again = [] as Report[];
+    const second = reporter(collect(again));
+    start(second.r);
+    second.r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    second.r.handle(ev('session.execution.started', { sessionID: ROOT }, 10_001));
+    const s = await lastOf(again, second.r);
+    expect(s.background).toBeUndefined();
+    expect(s.status).toBe('running');
+  });
+  it('reports a question as the wait even with background work', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle({ type: 'permission.asked', data: { id: 'p1', sessionID: ROOT, action: 'bash', resources: ['ls'] } });
+    r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    expect(await lastOf(bodies, r)).toMatchObject({ status: 'waiting', waitReason: 'permission' });
+  });
+  it('reports attached true while a TUI part is attached, and null (never false) when none is or the host cannot say', async () => {
+    // false would make the server hide the card after a minute: an OpenCode run with no TUI part (serve, the desktop app, `opencode run`) is still a live session.
+    for (const [attached, want] of [[() => true, true], [() => false, null], [undefined, null]] as const) {
+      const bodies: Report[] = [];
+      const r = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, ...(attached ? { attached } : {}) }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+      start(r);
+      expect((await lastOf(bodies, r)).attached).toBe(want);
+    }
+  });
+  it('keeps at most 20 background tasks, names a shell by its first word and never sends the rest of its command', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    const jobs = Array.from({ length: 30 }, (_, i) => ({ kind: 'shell', sessionID: ROOT, shellID: `s${i}`, command: `API_KEY=hunter2 /usr/bin/curl -u user:pass https://x.test/${i}` }));
+    r.background(ROOT, [...jobs, { kind: 'shell', sessionID: ROOT, shellID: 'e', command: '' }]);
+    const s = await lastOf(bodies, r);
+    expect(s.background!.tasks).toHaveLength(20);
+    expect(s.background!.tasks[0]).toEqual({ type: 'shell', description: 'curl', status: 'running' });
+    expect(JSON.stringify(s.background)).not.toMatch(/hunter2|user:pass|x\.test/);
+    const empty = [] as Report[];
+    const e = reporter(collect(empty));
+    start(e.r);
+    e.r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 'e', command: '' }, { kind: 'subagent', sessionID: ROOT, childSessionID: 'c', agent: 'g', description: '' }]);
+    expect((await lastOf(empty, e.r)).background!.tasks).toEqual([
+      { type: 'shell', description: 'shell', status: 'running' },
+      { type: 'agent', description: 'subagent', status: 'running' },
+    ]);
+  });
+  it('ignores the idle hook of a child session: only the root lists the work of the whole tree', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    r.background(ROOT, [{ kind: 'shell', sessionID: ROOT, shellID: 's', command: 'sleep 9' }]);
+    r.background(KID, []);
+    expect((await lastOf(bodies, r)).background!.tasks).toHaveLength(1);
+  });
+});
+
+describe('Reporter: a dev build says so (#987)', () => {
+  it('puts the build in the report the reporter sends, and leaves the field out for a release', async () => {
+    for (const [build, want] of [['a1b2c3d4-dirty', 'a1b2c3d4-dirty'], [null, undefined]] as const) {
+      const bodies: Report[] = [];
+      const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => 10_000, runIn: () => noGit, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), build, idleMs: 60_000 });
+      r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+      await r.tick();
+      expect(bodies.at(-1)!.reporter.build).toBe(want);
+    }
+  });
+});
+
+describe('Reporter: /podium name (#987)', () => {
+  const collect = (bodies: Report[]): FetchLike => async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; };
+  const start = (r: Reporter, id = ROOT) => r.handle(ev('session.created', { sessionID: id, title: 'OpenCode title', location: { directory: '/work/project' } }, 10_000));
+
+  it('names the root, over OpenCode\'s title, from the root or from a child session, and says which root to keep it for', async () => {
+    const bodies: Report[] = [];
+    const { r } = reporter(collect(bodies));
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    expect(r.rename(KID, 'Silverbolt')).toBe(ROOT);
+    await r.tick();
+    expect(bodies.at(-1)!.session.name).toBe('Silverbolt');
+    expect(r.rename('ses_nobody', 'x')).toBeNull();
+  });
+  it('asks once for a name kept before a reload, and a name typed since wins over it', async () => {
+    const asked: string[] = [];
+    const bodies: Report[] = [];
+    const r = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async (id) => (asked.push(id), 'Kept name') }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(r);
+    start(r);
+    await r.tick();
+    await new Promise((res) => setTimeout(res, 0));
+    await r.tick();
+    expect(asked).toEqual([ROOT]);
+    expect(bodies.at(-1)!.session.name).toBe('Kept name');
+    const typed = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async () => 'Old' }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(typed);
+    typed.rename(ROOT, 'New');
+    await new Promise((res) => setTimeout(res, 0));
+    await typed.tick();
+    expect(bodies.at(-1)!.session.name).toBe('New');
+    const none = new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadName: async () => { throw new Error('no storage'); } }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(none);
+    await new Promise((res) => setTimeout(res, 0));
+    await none.tick();
+    expect(bodies.at(-1)!.session.name).toBe('OpenCode title');
+  });
+});

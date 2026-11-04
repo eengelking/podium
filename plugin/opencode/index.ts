@@ -2,17 +2,20 @@
 // the modules beside it, which need no OpenCode API and are tested on their own.
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
-import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
+import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent, type StatusEvent } from './bridge.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
-import { parseAnswer } from '../core/peers.ts';
+import { contextCommand, type ContextIO } from '../core/tls/contexts.ts';
+import { buildOf, packageRoot } from './build.ts';
+import { argsOf, runPodium } from './command.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { podiumTools } from './tools.ts';
+import { MESSAGING_TOOLS, podiumTools } from './tools.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
@@ -75,6 +78,19 @@ const plainFetch: FetchLike = async (url, init) => {
   return { status: r.status, ok: r.ok, text: await r.text() };
 };
 
+/** `/podium context ...` (#606): the contexts file is read and written on disk; a file that is not there reads as null. */
+const contextVerb = async (args: string): Promise<string> => {
+  const io: ContextIO = {
+    read: (path) => readFile(path, 'utf8').catch((err: NodeJS.ErrnoException) => (err.code === 'ENOENT' ? null : Promise.reject(err))),
+    write: (path, text) => writeFile(path, text, { mode: 0o600 }),
+  };
+  try {
+    return await contextCommand(io, homeOf(process.env), args, process.env.PODIUM_REPORTER_CONTEXT || undefined);
+  } catch (err) {
+    return `Podium: the context command failed (${err instanceof Error ? err.message : String(err)}).`;
+  }
+};
+
 /** One reporter for a location: its options, the secure connection when a reporter config file is found, and the flush timer. */
 async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const settings = readSettingsFile();
@@ -83,11 +99,14 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const trusted = optionsOf(ctx.options, null, process.env, settings.text);
   // A reporter config file (#948) is found from the environment and ~/.podium only, never from the project's options.
   const link = await openLink({ options: trusted, env: process.env, home: homeOf(process.env), now: () => Date.now() });
-  const options = await withMachine(withLink(trusted, link));
+  // A dev build says so in every report (#987): the commit `npm run plugin:build` stamped into the built folder.
+  const build = await buildOf(packageRoot(import.meta.url), runIn(process.cwd()), (path) => readFile(path, 'utf8').catch(() => null));
+  const options = { ...(await withMachine(withLink(trusted, link))), build };
   const bridge = {
     seenAt: 0,
     emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
     notify: undefined as undefined | ((n: NoticeEvent) => Promise<void>),
+    status: undefined as undefined | ((s: StatusEvent) => Promise<void>),
     reporter: undefined as Reporter | undefined,
   };
   // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
@@ -121,6 +140,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
       problem: link?.problem,
       answering,
+      loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
       ...(options.explainFailures ? { explain: (prompt: string) => explainWith((input) => ctx.experimental.generate.text(input), () => ctx.model.list(), prompt) } : {}),
@@ -132,38 +152,70 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
   void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
     (reg) => {
-      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice', data: AnswerEvent | NoticeEvent) => Promise<void> } }).events;
+      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice' | 'status', data: AnswerEvent | NoticeEvent | StatusEvent) => Promise<void> } }).events;
       bridge.emit = async (e) => events.emit('answer', e);
       bridge.notify = async (n) => events.emit('notice', n);
+      bridge.status = async (s) => events.emit('status', s);
     },
     () => undefined,
   );
   const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
-  // `/podium allow|decline|deliver <id>` answers a messaging request instead.
+  // `/podium allow|decline|deliver <id>` answers a messaging request, `/podium name <text>` names the session and `/podium context ...` picks the Podium server.
   void ctx.command.transform((editor) =>
     editor.add({
       name: 'podium',
-      description: 'Show where Podium reports go and how the connection is; answer a messaging request with allow, decline or deliver and its id',
+      description: 'Show where Podium reports go and how the connection is; name this session (name <text>); choose the Podium server (context); answer a messaging request with allow, decline or deliver and its id',
       execute: async (invocation) => {
-        const asked = parseAnswer(String(invocation?.prompt?.text ?? '').replace(/^\/?podium\b/i, ''));
-        if (asked) return show({ title: 'Podium', message: await reporter.answerRequest(invocation.sessionID, asked.answer, asked.id), variant: 'info' });
-        const status = podiumText(reporter.summary(), { serverUrl: options.serverUrl, home: homeOf(process.env), tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null, version: options.version });
-        const waiting = reporter.waitingRequests();
-        return show({ title: 'Podium', message: waiting ? `${status}\n${waiting}` : status, variant: 'info' });
+        const sessionID = invocation.sessionID;
+        const message = await runPodium(argsOf(invocation?.prompt?.text), {
+          answer: (answer, id) => reporter.answerRequest(sessionID, answer, id),
+          name: async (name) => {
+            const id = reporter.rename(sessionID, name);
+            if (!id) return 'Podium reporter is loaded but the session has not started yet.';
+            await ctx.storage.set(`name:${id}`, name).catch(() => undefined);
+            return `Podium: this session is now named "${name}".`;
+          },
+          context: (args) => contextVerb(args),
+          status: () => {
+            const status = podiumText(reporter.summary(), {
+              serverUrl: options.serverUrl,
+              home: homeOf(process.env),
+              tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null,
+              version: options.version,
+              build: options.build,
+              signIn: { configPath: link?.configPath ?? null, tokenSet: options.token.trim() !== '' },
+              signedIn: !!link || (!!options.userName?.trim() && options.token.trim() !== ''),
+              context: link?.context ?? null,
+            });
+            const waiting = reporter.waitingRequests();
+            return waiting ? `${status}\n${waiting}` : status;
+          },
+        });
+        return show({ title: 'Podium', message, variant: 'info' });
       },
     }),
   ).catch(() => undefined);
-  // The `plan` tool, and the messaging tools where the person allowed them.
+  // The messaging tools come and go with Podium's word that the session takes part (#987): the list is built again on each `reload`.
   void ctx.tool.transform((editor) => {
-    for (const t of podiumTools(reporter)) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
+    const offered = podiumTools(reporter);
+    for (const name of MESSAGING_TOOLS) if (!offered.some((t) => t.name === name)) editor.remove(name);
+    for (const t of offered) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
   }).catch(() => undefined);
+  let offering = reporter.offersMessaging;
+  const reloadTools = (): void => {
+    if (reporter.offersMessaging === offering) return;
+    offering = reporter.offersMessaging;
+    void ctx.tool.reload().catch(() => undefined);
+  };
+  // What a session that goes idle still runs (a shell, a subagent): reported as the wait, so it is not shown as waiting on the person (#987).
+  void ctx.session.hook('experimental.idle', (idle) => reporter.background(idle.sessionID, idle.background)).catch(() => undefined);
   // The renewal check of the certificate (shared lock with Claude sessions), once per location.
   link?.start();
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
   const watcher = new StatusWatcher();
   const timer = setInterval(
-    () => void reporter.tick().then(() => { const n = watcher.poll(reporter.statusText()); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
+    () => void reporter.tick().then(() => { reloadTools(); const text = reporter.statusText(); if (text) void bridge.status?.({ text }).catch(() => undefined); const n = watcher.poll(text); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
     options.flushMs,
   );
   timer.unref?.();

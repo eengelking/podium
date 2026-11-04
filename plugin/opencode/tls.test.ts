@@ -590,6 +590,11 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
   const tools: { name: string; description: string; input: unknown; execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }> }[] = [];
   const prompts: unknown[] = [];
   const generated: unknown[] = [];
+  const hooks: Record<string, (i: any) => void> = {};
+  const transforms: (() => void)[] = [];
+  const stored = new Map<string, unknown>();
+  const removed: string[] = [];
+  let reloads = 0;
   return {
     options,
     location: { directory },
@@ -597,8 +602,21 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     permission: { list: async () => [] },
     rpc: { register: async () => ({ events: { emit: async (name: string, data: unknown) => void emitted.push({ name, data }) } }) },
     command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
-    tool: { transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void }) => void) => { cb({ add: (d) => void tools.push(d) }); return { dispose: async () => undefined }; } },
-    session: { prompt: async (i: unknown) => void prompts.push(i) },
+    // The host builds the list again from every transform on `reload`, as OpenCode does.
+    tool: {
+      transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void; remove: (name: string) => void }) => void) => {
+        transforms.push(() => cb({ add: (d) => void tools.push(d), remove: (name) => void removed.push(name) }));
+        transforms.at(-1)!();
+        return { dispose: async () => undefined };
+      },
+      reload: async () => {
+        reloads++;
+        tools.length = 0;
+        for (const t of transforms) t();
+      },
+    },
+    storage: { get: async (k: string) => stored.get(k), set: async (k: string, v: unknown) => void stored.set(k, v) },
+    session: { prompt: async (i: unknown) => void prompts.push(i), hook: async (name: string, cb: (i: any) => void) => { hooks[name] = cb; return { dispose: async () => undefined }; } },
     model: { list: async () => ({ data: [{ providerID: 'local', id: 'qwen-mini', type: 'chat', enabled: true, status: 'active', cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }] }) },
     experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
     emitted,
@@ -606,6 +624,10 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     tools,
     prompts,
     generated,
+    hooks,
+    stored,
+    removed,
+    reloads: () => reloads,
   };
 }
 type Setup = (c: unknown) => Promise<() => Promise<void>>;
@@ -754,6 +776,100 @@ describe('the plugin entry tells the person what is wrong (#969)', () => {
   });
 });
 
+describe('the plugin entry reports what an idle session still runs (#987)', () => {
+  it('hands experimental.idle to the reporter, and the next report says the session waits on background work', async () => {
+    const bodies: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => { bodies.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const events = [{ id: 'b1', type: 'session.created', data: { sessionID: 'ses_b', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/b2' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/b2', events);
+        const stop = await setup(ctx);
+        // The session must be known before the hook can name it: wait for its first report.
+        for (let waited = 0; bodies.length === 0 && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        ctx.hooks['experimental.idle']!({ sessionID: 'ses_b', background: [{ kind: 'shell', sessionID: 'ses_b', shellID: 's', command: 'npm run dev' }] });
+        for (let waited = 0; !bodies.some((b) => b.session?.background) && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+        const sent = bodies.find((b) => b.session?.background);
+        expect(sent.session).toMatchObject({ status: 'waiting', waitReason: null, background: { tasks: [{ type: 'shell', description: 'npm' }] } });
+        // The status line goes to the TUI part each poll, for the prompt's footer.
+        expect(ctx.emitted.find((e) => e.name === 'status')?.data.text).toEqual(expect.any(String));
+        // Not a dev build here: the built folder has no stamp.
+        expect(sent.reporter.build).toBeUndefined();
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe('the plugin entry answers /podium name and /podium context (#987)', () => {
+  it('names the session, keeps the name in storage, reports it, and reads it back after a reload', async () => {
+    const bodies: any[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_u: unknown, init?: { body?: string }) => { bodies.push(JSON.parse(String(init?.body))); return new Response('{}', { status: 200 }); }) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const events = [{ id: 'n1', type: 'session.created', data: { sessionID: 'ses_nm', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/nm' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/nm', events);
+        const stop = await setup(ctx);
+        for (let waited = 0; bodies.length === 0 && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        await ctx.commands[0]!.execute({ sessionID: 'ses_nm', prompt: { text: '/podium name Silverbolt' } });
+        expect(ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message).toBe('Podium: this session is now named "Silverbolt".');
+        expect(ctx.stored.get('name:ses_nm')).toBe('Silverbolt');
+        for (let waited = 0; !bodies.some((b) => b.session?.name === 'Silverbolt') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(bodies.some((b) => b.session?.name === 'Silverbolt')).toBe(true);
+        await ctx.commands[0]!.execute({ sessionID: 'ses_nobody', prompt: { text: '/podium name Other' } });
+        expect(ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message).toContain('has not started yet');
+        await stop();
+        // A new load of the plugin in the same location (the reporter was closed) finds the kept name.
+        bodies.length = 0;
+        const again = fakeCtx({ flushIntervalMs: 200 }, '/loc/nm', events);
+        again.stored.set('name:ses_nm', 'Silverbolt');
+        const stopAgain = await setup(again);
+        for (let waited = 0; !bodies.some((b) => b.session?.name === 'Silverbolt') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(bodies.some((b) => b.session?.name === 'Silverbolt')).toBe(true);
+        await stopAgain();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('runs /podium context against the contexts file in the home folder, and says what failed', async () => {
+    const home = tmp();
+    await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {
+      const setup = (plugin as unknown as { setup: Setup }).setup;
+      const ctx = fakeCtx({}, '/loc/cx');
+      const stop = await setup(ctx);
+      const said = () => ctx.emitted.filter((e) => e.name === 'notice').at(-1)?.data.message as string;
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context' } });
+      expect(said()).toMatch(/context/i);
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context add work nofile.pem' } });
+      expect(said()).toContain('nofile.pem');
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context bogus' } });
+      expect(said()).toContain('Unknown context command "bogus"');
+      // A context for a reporter config file is written to ~/.podium/contexts.json and listed again.
+      fs.mkdirSync(path.join(home, '.podium'), { recursive: true });
+      putConfig(home, 'reporter-config-Dana-1700000200.pem', configText('Dana', 'https://localhost:4318'));
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context add work reporter-config-Dana-1700000200.pem' } });
+      expect(JSON.parse(fs.readFileSync(path.join(home, '.podium', 'contexts.json'), 'utf8')).contexts.work).toBe('reporter-config-Dana-1700000200.pem');
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context list' } });
+      expect(said()).toContain('work');
+      fs.rmSync(path.join(home, '.podium', 'contexts.json'));
+      // A contexts file that cannot be read is said, and nothing is rewritten.
+      fs.mkdirSync(path.join(home, '.podium'), { recursive: true });
+      fs.mkdirSync(path.join(home, '.podium', 'contexts.json'));
+      await ctx.commands[0]!.execute({ sessionID: 's', prompt: { text: '/podium context list' } });
+      expect(said()).toMatch(/cannot be read|failed/);
+      await stop();
+    });
+  });
+});
+
 describe('the plugin entry adds tools, explains failures and answers requests (#969)', () => {
   const at = Date.now();
   const sessionEvents = (dir: string, extra: unknown[] = []) => [
@@ -791,10 +907,36 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
     await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true' }, async () => {
       const ctx = fakeCtx({}, '/loc/t2');
       const stop = await setup(ctx);
-      expect(ctx.tools.map((t) => t.name)).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
-      expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
+      // Podium has not said yet that the session takes part: the three tools are not offered, and are removed from the host.
+      expect(ctx.tools.map((t) => t.name)).toEqual(['plan']);
+      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access']);
       await stop();
     });
+  });
+
+  it('offers the messaging tools once Podium says the session takes part, by reloading the tool list, and withdraws them when it stops', async () => {
+    let peers = true;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ peers }), { status: 200 })) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true', PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok', PODIUM_USER: 'Dana' }, async () => {
+        const events = [{ id: 't3', type: 'session.created', data: { sessionID: 'ses_t3m', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/t3' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200, heartbeatMs: 1000 }, '/loc/t3', events);
+        const stop = await setup(ctx);
+        const names = () => ctx.tools.map((t) => t.name);
+        for (let waited = 0; !names().includes('podium_peers') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
+        expect(ctx.reloads()).toBe(1);
+        expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
+        peers = false;
+        for (let waited = 0; names().length > 1 && waited < 8000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(names()).toEqual(['plan']);
+        expect(ctx.reloads()).toBe(2);
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('delivers a message from another orchestrator with session.prompt, queued, and answers a request typed as /podium', async () => {

@@ -2,7 +2,8 @@
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
 import { excerpt, explainPrompt } from '../core/failures.ts';
-import { readChanges, readGit, type Runner } from '../core/git.ts';
+import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
+import { gitPlace } from '../core/place.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
 import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
@@ -12,7 +13,7 @@ import { Peers } from './peers.ts';
 import { Answering, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, type BusEvent, type Root, type Store } from './state.ts';
+import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -52,6 +53,8 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** The name `/podium name` kept for a session (`ctx.storage`), or null; asked once for each root when it appears (#987). */
+  loadName?: (rootId: string) => Promise<string | null>;
   /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
   attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
@@ -117,6 +120,8 @@ export interface Summary {
   /** The distinct notices (refused, belongs to someone else, server too old, version mismatch, update available). */
   notices: string[];
   sessions: number;
+  /** What `/podium` says about messaging (#987). */
+  messaging: { option: boolean; canPrompt: boolean; reported: boolean; serverSays: boolean };
 }
 
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
@@ -124,6 +129,7 @@ export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, f
 export class Reporter {
   readonly store: Store = newStore();
   readonly transports = new Map<string, Transport>();
+  private readonly named = new Set<string>();
   private readonly gitAt = new Map<string, number>();
   /** Branch reads in flight: a final flush waits for them (within its time limit) so a short-lived run still reports its branch. */
   private readonly gitPending = new Set<Promise<void>>();
@@ -171,7 +177,10 @@ export class Reporter {
     if (ev.type === 'session.step.started') this.wantWindow(ev.data?.model?.providerID, ev.data?.model?.id);
     if (root) {
       this.queue(root);
-      if (!root.done) this.refreshGit(root, this.deps.now());
+      if (!root.done) {
+        this.refreshGit(root, this.deps.now());
+        this.remember(root);
+      }
     }
   }
 
@@ -217,7 +226,39 @@ export class Reporter {
       lastError: ts.find((t) => t.lastError)?.lastError ?? null,
       notices: [...notices],
       sessions: this.store.roots.size,
+      messaging: { option: this.opts.peers === true, canPrompt: !!this.deps.prompt, reported: ts.some((t) => t.sent > 0), serverSays: ts.some((t) => t.peers) },
     };
+  }
+
+  /** What `experimental.idle` lists as still running for a session that went idle (#987). A session this reporter does not know, and a child session, are ignored. */
+  background(sessionId: string, jobs: readonly IdleJob[]): void {
+    // The root's own list already holds the work of its whole tree; a child that goes idle must not replace it with its own.
+    const root = this.store.roots.get(sessionId);
+    if (root) setBackground(root, jobs);
+  }
+
+  /** `/podium name <text>` typed in a session: names its root. The root's id (to keep the name by), or null when the session is not known. */
+  rename(sessionId: string, name: string): string | null {
+    const root = this.store.roots.get(this.store.rootOf.get(sessionId) ?? sessionId);
+    if (!root) return null;
+    root.storedName = name;
+    root.dirty = true;
+    return root.id;
+  }
+
+  /** Asks once for the name a root was given before a reload or restart. A name typed since wins over the one read. */
+  private remember(root: Root): void {
+    if (!this.deps.loadName || this.named.has(root.id)) return;
+    this.named.add(root.id);
+    void this.deps.loadName(root.id).then(
+      (name) => {
+        if (name && !root.storedName) {
+          root.storedName = name;
+          root.dirty = true;
+        }
+      },
+      () => undefined,
+    );
   }
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
@@ -250,7 +291,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -363,7 +404,17 @@ export class Reporter {
       },
       () => undefined,
     );
-    for (const read of [branch, files]) {
+    // The root and the repository's name change only when the session moves to another folder, so they are read once per folder.
+    const place: Promise<void> = root.placeFor === cwd ? Promise.resolve() : gitPlace(run, cwd).then(
+      (p) => {
+        root.placeFor = cwd;
+        // A folder git does not know answers with the folder and its name, which the report says already: that is no change to send.
+        if (p.projectRoot !== (root.place?.projectRoot ?? cwd) || p.repoName !== (root.place?.repoName ?? lastSegment(cwd))) root.dirty = true;
+        root.place = p;
+      },
+      () => undefined,
+    );
+    for (const read of [branch, files, place]) {
       this.gitPending.add(read);
       void read.finally(() => this.gitPending.delete(read));
     }
@@ -458,6 +509,14 @@ export class Reporter {
   /** Whether the messaging tools are offered: the person allowed it, and the host can submit a prompt. */
   get messaging(): boolean {
     return this.peers !== null;
+  }
+
+  /**
+   * Whether the model is offered the messaging tools now (#987): the person allowed it and Podium has said, in the last reply to some session,
+   * that it takes part. Claude Code's mod shows its tools on the same word. The tools come and go with it (`ctx.tool.reload`).
+   */
+  get offersMessaging(): boolean {
+    return this.peers !== null && [...this.transports.values()].some((t) => t.peers);
   }
 
   /**

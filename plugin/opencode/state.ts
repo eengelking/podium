@@ -1,10 +1,11 @@
 // What the OpenCode reporter knows about its sessions (#855). Pure: no engine API, no clock of its own, no network.
 // `apply` folds one bus event into a Store; report.ts turns a Root into a v2 report. A root session and the child
 // sessions it launched are one Root and one report; a child is an agent in that report.
-import { activityText, clip, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { activityText, clip, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
-import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
+import type { Place } from '../core/place.ts';
+import { MAIN_LOOP, type ActivityEntry, type BackgroundWait, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
 import { Recorder } from '../core/recording.ts';
 import { canonical, entryFor, finishedEntry, toolName } from './activity.ts';
 
@@ -152,6 +153,14 @@ export interface Root {
   done: boolean;
   endReason: string | null;
   git: GitInfo | null;
+  /** The git project root and `owner/name`, once git has been read for the folder in `cwd` (#987); null before, and the report then says the folder and its name. */
+  place: Place | null;
+  /** The name `/podium name` gave (#987); it wins over the title OpenCode gives and the `sessionName` option, as in Claude Code. */
+  storedName: string | null;
+  /** What the root is idle on, as `experimental.idle` last listed it (#987); null while it works again, and when nothing is running. */
+  background: BackgroundWait | null;
+  /** The folder `place` was read for, so a root that moves is read again. */
+  placeFor: string | null;
   /** The files changed since the session began, once git has been read; null before, and when git cannot be read. */
   files: FilesReport | null;
   /** The commit HEAD was at on the first read; the files list and a file's diff are against it. */
@@ -213,7 +222,7 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
   recorder.begin(id);
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
-    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
+    asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
     watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null,
   };
 }
@@ -443,6 +452,11 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
     }
     case 'session.execution.started':
       s.executing = true;
+      // The list was true when the session went idle; a new run makes it stale.
+      if (root.background) {
+        root.background = null;
+        root.dirty = true;
+      }
       s.end = 'running';
       s.endedAt = null;
       // A new run starts its own count: compactions of an earlier run do not make this run's failure a spent window.
@@ -634,4 +648,33 @@ export function sweep(store: Store, now: number, idleMs: number, hold = false): 
     }
   }
   return out;
+}
+
+/** One job `experimental.idle` lists: a shell has a `command`, a subagent a `description`. */
+export interface IdleJob {
+  kind: string;
+  command?: string;
+  description?: string;
+}
+
+/** The most background tasks a report may carry (SPEC 6.2, and the server's limit: more is a rejected report). */
+const MAX_BACKGROUND_TASKS = 20;
+
+/** The first word of a shell command that is not a `NAME=value` assignment, without its folder: all of the command that is ever sent. */
+function firstWord(command: string | undefined): string {
+  const word = (command ?? '').trim().split(/\s+/).find((w) => w !== '' && !w.includes('='));
+  return word?.split('/').pop() || 'shell';
+}
+
+/** The work an idle root still runs, as a background wait: a shell by its first word, never its command. */
+export function setBackground(root: Root, jobs: readonly IdleJob[]): void {
+  const tasks: BackgroundWait['tasks'] = jobs.slice(0, MAX_BACKGROUND_TASKS).map((j) => {
+    if (j.kind === 'shell') return { type: 'shell', description: clip(firstWord(j.command), 60), status: 'running' };
+    if (j.kind === 'subagent') return { type: 'agent', description: excerpt(j.description, 120) || 'subagent', status: 'running' };
+    return { type: 'other', description: j.kind === 'image' ? 'image' : 'background work', status: 'running' };
+  });
+  const next = tasks.length ? { tasks, wakeAt: null } : null;
+  if (JSON.stringify(next) === JSON.stringify(root.background)) return;
+  root.background = next;
+  root.dirty = true;
 }

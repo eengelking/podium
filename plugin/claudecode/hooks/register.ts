@@ -59,6 +59,7 @@ import { Transport, type FetchLike } from '../../core/transport.ts';
 import { Responder, newResponderState, sessionPath } from '../../core/respond.ts';
 import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { readHome } from '../../core/tls/findConfig.ts';
+import { contextArgs } from '../../core/podiumCommand.ts';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
 import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
@@ -1885,8 +1886,8 @@ async function podiumCommand($: Engine, args: string): Promise<string> {
   const verb = parseAnswer(args);
   if (verb) return answerRequest($, verb.answer, verb.id);
   // The word `context`, alone or followed by whitespace; startsWith and a one-character test, so no pattern can backtrack over the rest.
-  const trimmed = args.trim();
-  if (trimmed.startsWith('context') && (trimmed.length === 7 || /\s/.test(trimmed.charAt(7)))) return contextVerb($, trimmed.slice(7));
+  const context = contextArgs(args);
+  if (context !== null) return contextVerb($, context);
   const name = nameArg(args);
   if (name !== null && r) {
     try {
