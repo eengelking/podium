@@ -35,6 +35,10 @@ export interface ReporterOptions {
   activityOutput?: boolean;
   /** The full prompts consent (`PODIUM_FULL_PROMPTS`): send each agent's whole prompt and answer, once. */
   fullPrompts?: boolean;
+  /** The explain failures consent (`PODIUM_EXPLAIN_FAILURES`): a small model is asked to explain each new failure, from its redacted record only. Off when absent. */
+  explainFailures?: boolean;
+  /** The peers consent (`PODIUM_PEERS`): this orchestrator may message the person's other orchestrators. Off when absent. */
+  peers?: boolean;
   /** The session recording consent (`PODIUM_SESSION_RECORDING`): the owner's yes to being recorded when the Admin and the session's chooser have said yes too. */
   sessionRecording?: boolean;
 }

@@ -1,7 +1,7 @@
 // Answering a session from Podium (#858): the OpenCode reporter's side of it. Runs from the reporter's timer, never from an event
 // handler, so the event loop does not wait on the network. The waiting, announcing and reporting back is `core/respond.ts`;
 // what is specific to OpenCode (replying to a permission, answering a form, sending a prompt) comes in through `Host`.
-import { acceptsFor, MAIN_LOOP, type Ask as PodiumAsk, type Delivery, type DeliveryResult, type RespondInfo, type RespondKind, type RespondLimit } from '../core/protocol.ts';
+import { acceptsFor, MAIN_LOOP, type Ask as PodiumAsk, type Delivery, type DeliveryResult, type RespondInfo, type RespondKind, type RespondLevel, type RespondLimit } from '../core/protocol.ts';
 import type { Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
 import { decisionRecord, formAnswer, framedMessage, permissionReply, podiumAsk, rejectMessage } from './answer.ts';
@@ -22,6 +22,8 @@ export interface Host {
 export interface Consent {
   respond: boolean;
   activityFeed: boolean;
+  /** How far answering goes, from the person's settings (`PODIUM_RESPOND`). `off` takes nothing, whatever `respond` says. */
+  level: RespondLevel;
 }
 
 /** The kinds of answer OpenCode has no equivalent for. `/clear` is not here: it is a command, and `deliver` refuses every command but `/compact`. */
@@ -46,8 +48,8 @@ export class Answering {
     if (!this.consent.respond) return null;
     // A question form cannot be given up for a typed reply until OpenCode can cancel a form and take a prompt in one step (#968).
     const limits: RespondLimit[] = ['no-reply-in-place'];
-    const accepts = acceptsFor('everything', limits, this.consent.activityFeed).filter((k) => !UNSUPPORTED.includes(k) && (k !== 'question' || this.host.formChannel() !== null));
-    return { level: 'everything', accepts, limits };
+    const accepts = acceptsFor(this.consent.level, limits, this.consent.activityFeed).filter((k) => !UNSUPPORTED.includes(k) && (k !== 'question' || this.host.formChannel() !== null));
+    return { level: this.consent.level, accepts, limits };
   }
 
   /** The asks Podium may be told of: only while the server takes answers, and only those it can answer. */

@@ -283,15 +283,87 @@ function fakeHost(over: Partial<Host> = {}) {
 
 function rig(host: Host, respond = true, activityFeed = true, server = podium(), answerMs?: number, env: Record<string, string> = {}) {
   const t = { now: 10_000 };
+  const options = optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', PODIUM_RESPOND: 'everything', ...env });
   const r = new Reporter(
-    { fetch: server.fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined, answering: { host, consent: { respond, activityFeed }, sleep: async () => true, answerMs } },
-    { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', ...env }), idleMs: 600_000 },
+    { fetch: server.fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined, answering: { host, consent: { respond, activityFeed, level: options.respondLevel }, sleep: async () => true, answerMs } },
+    { ...options, idleMs: 600_000 },
   );
   r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, 10_000));
   return { r, t, server };
 }
 
 const last = (s: ReturnType<typeof podium>): Report => s.reports[s.reports.length - 1]!;
+
+describe('respond levels (#969)', () => {
+  const kinds = (level: string) => {
+    const { host, calls } = fakeHost();
+    const { r, t, server } = rig(host, true, true, podium(), undefined, { PODIUM_RESPOND: level });
+    return { r, t, server, calls };
+  };
+
+  it('reads the level from the person\'s settings: a plain true is questions, and a project cannot raise it', () => {
+    expect(optionsOf({}, null, { PODIUM_RESPOND: 'true' }).respondLevel).toBe('questions');
+    expect(optionsOf({}, null, {}, 'PODIUM_RESPOND=questions-and-plans').respondLevel).toBe('questions-and-plans');
+    expect(optionsOf({ respond: 'everything', respondLevel: 'everything' }, null, {}).respondLevel).toBe('off');
+  });
+
+  it.each([
+    ['questions', ['question', 'message']],
+    ['questions-and-plans', ['question', 'message']],
+    ['everything', ['question', 'message', 'permission', 'command']],
+  ])('level %s declares what it takes, and plan approval is never among it', async (level, accepts) => {
+    const { r, server } = kinds(level);
+    await r.tick();
+    expect(last(server).session.respond).toEqual({ level, accepts, limits: ['no-reply-in-place'] });
+    expect(last(server).capabilities).toMatchObject({ respond: true, commands: accepts.includes('command') ? ['compact'] : [] });
+  });
+
+  it.each(['questions', 'questions-and-plans'])('level %s does not announce or answer a permission, but does a question', async (level) => {
+    const { r, t, server, calls } = kinds(level);
+    r.handle(permission());
+    r.handle(ev('form.created', { form: FORM }));
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls).toContain('PUT /api/fleet/sessions/ses_root/asks/frm_1'));
+    expect(server.calls.some((c) => c.includes('per_1'))).toBe(false);
+    t.now += 6000;
+    await r.tick();
+    expect(last(server).session.asks!.map((a) => a.id)).toEqual(['frm_1']);
+    server.answer('frm_1', { id: 'dq', kind: 'question', answers: [{ options: [0] }] });
+    await vi.waitFor(() => expect(calls).toEqual(['form ses_root frm_1 {"q0":"A"}']));
+    expect(calls.some((c) => c.startsWith('permission'))).toBe(false);
+  });
+
+  it('a permission delivery at a lower level is never replied to, even if the server hands one over', async () => {
+    const { r, server, calls } = kinds('questions');
+    r.handle(permission());
+    server.handOver([D({ id: 'dp', askId: 'per_1', kind: 'allow-once' })]);
+    await r.tick();
+    await r.tick();
+    expect(calls).toEqual([]);
+  });
+
+  it('a message is taken at every level above off, and /compact only at everything', async () => {
+    for (const level of ['questions', 'questions-and-plans', 'everything']) {
+      const { host, calls } = fakeHost();
+      const { r, server } = rig(host, true, true, podium({ deliveries: [D({ id: 'm1', kind: 'message', text: 'hello' }), D({ id: 'c1', kind: 'command', command: 'compact' })] }), undefined, { PODIUM_RESPOND: level });
+      await r.tick();
+      await r.tick();
+      expect(calls.some((c) => c.startsWith('prompt'))).toBe(true);
+      expect(calls.filter((c) => c.startsWith('compact')).length).toBe(level === 'everything' ? 1 : 0);
+      expect(server.bodies['POST /api/fleet/sessions/ses_root/deliveries/c1/result']).toMatchObject({ result: level === 'everything' ? 'took' : 'refused' });
+    }
+  });
+
+  it('level off says nothing about answering and takes nothing', async () => {
+    const { host, calls } = fakeHost();
+    const { r, server } = rig(host, false, true, podium({ deliveries: [D({ id: 'm1', kind: 'message', text: 'hello' })] }), undefined, { PODIUM_RESPOND: 'off' });
+    r.handle(permission());
+    await r.tick();
+    await r.tick();
+    expect(last(server).session.respond).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+});
 
 describe('Reporter answering (#858)', () => {
   it('says nothing about answering until the person allowed it, and never waits for an answer', async () => {

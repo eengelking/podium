@@ -3,6 +3,7 @@
 // Where a setting may come from is the rule in `core/settings.ts`: the server, the token, the user name and every consent option
 // are read only from `PODIUM_*` and `~/.podium/config.env`. The plugin's own options come from `opencode.json`, which a cloned
 // repo can ship, so they never reach those. Only `idleSeconds`, `flushIntervalMs`, `heartbeatMs` and `sessionName`, which no attacker gains from, are still taken from them.
+import type { RespondLevel } from '../core/protocol.ts';
 import { trustedSettings, type Consent } from '../core/settings.ts';
 import { DEFAULTS, type ReporterOptions } from './reporter.ts';
 import { VERSION } from './version.ts';
@@ -12,6 +13,8 @@ type Env = Readonly<Record<string, string | undefined>>;
 export interface OpenCodeOptions extends ReporterOptions {
   /** What this person allowed on this machine. Nothing in a project can change it. */
   consent: Consent;
+  /** How far answering goes (`PODIUM_RESPOND`): `off`, `questions`, `questions-and-plans` or `everything`. */
+  respondLevel: RespondLevel;
   /** `flushIntervalMs` (1000, at least 200): how often the flush timer runs. */
   flushMs: number;
   /** The `sessionName` option, trimmed; null when unset. Below the name OpenCode gives the session, as in the Claude Code reporter (SPEC 6.6). */
@@ -42,6 +45,9 @@ export function optionsOf(projectOptions: Readonly<Record<string, any>> | null |
     engineVersion,
     hostSurface: null,
     consent: t.consent,
+    respondLevel: t.respondLevel,
+    explainFailures: t.consent.explainFailures,
+    peers: t.consent.peers,
     fileDiff: t.consent.fileDiff,
     activityFeed: t.consent.activityFeed,
     // A shell call's output goes out only with the feed on as well, as in the Claude Code reporter.

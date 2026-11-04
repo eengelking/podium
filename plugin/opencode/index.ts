@@ -90,7 +90,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
   const answering = options.consent.respond
     ? {
-        consent: { respond: options.consent.respond, activityFeed: options.consent.activityFeed },
+        consent: { respond: options.consent.respond, activityFeed: options.consent.activityFeed, level: options.respondLevel },
         host: makeHost({
           api: apiOf(ctx),
           emitAnswer: async (e) => bridge.emit?.(e),
