@@ -4,6 +4,9 @@
 import { TOOL_DESCRIPTIONS } from '../core/peers.ts';
 import type { Reporter } from './reporter.ts';
 
+/** The names of the messaging tools: removed from the host when Podium stops saying the session takes part. */
+export const MESSAGING_TOOLS = ['podium_peers', 'podium_send', 'podium_request_access'] as const;
+
 export interface PodiumTool {
   name: string;
   description: string;
@@ -13,7 +16,7 @@ export interface PodiumTool {
 
 const text = (content: string): { content: string } => ({ content });
 
-/** `plan` always; the messaging tools only when the person allowed them (`PODIUM_PEERS`) and the host can submit a prompt. */
+/** `plan` always; the messaging tools only when the person allowed them (`PODIUM_PEERS`), the host can submit a prompt and Podium says the session takes part (#987). */
 export function podiumTools(reporter: Reporter): PodiumTool[] {
   const tools: PodiumTool[] = [
     {
@@ -23,7 +26,7 @@ export function podiumTools(reporter: Reporter): PodiumTool[] {
       execute: async (input, c) => text(reporter.namePlan(c.sessionID, input)),
     },
   ];
-  if (!reporter.messaging) return tools;
+  if (!reporter.offersMessaging) return tools;
   const peerTool = (name: 'podium_peers' | 'podium_send' | 'podium_request_access') => async (input: unknown, c: { sessionID: string }) => text(await reporter.peerTool(name, c.sessionID, input).catch(() => 'Not done. The reporter could not finish this call; /podium shows the connection.'));
   tools.push(
     { name: 'podium_peers', description: TOOL_DESCRIPTIONS.peers, input: { type: 'object', properties: {} }, execute: peerTool('podium_peers') },

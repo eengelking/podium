@@ -78,6 +78,19 @@ describe('messaging is the person\'s to allow (#969)', () => {
     expect(x.server.calls).toEqual([]);
   });
 
+  it('offers the messaging tools only after Podium says the session takes part (#987)', async () => {
+    const x = rig();
+    expect(x.r.offersMessaging).toBe(false);
+    expect(podiumTools(x.r).map((t) => t.name)).toEqual(['plan']);
+    await x.r.tick();
+    expect(x.r.offersMessaging).toBe(true);
+    x.server.peers = false;
+    x.r.handle({ id: 'x', type: 'session.execution.started', data: { sessionID: ROOT }, created: 1 });
+    await x.r.tick();
+    expect(x.r.offersMessaging).toBe(false);
+    expect(rig({}).r.offersMessaging).toBe(false);
+  });
+
   it('takes no part either when the host cannot submit a prompt', async () => {
     const x = rig({ PODIUM_PEERS: 'true' }, { prompt: null });
     expect(x.r.messaging).toBe(false);

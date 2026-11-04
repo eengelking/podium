@@ -14,7 +14,7 @@ import { buildOf, packageRoot } from './build.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { podiumTools } from './tools.ts';
+import { MESSAGING_TOOLS, podiumTools } from './tools.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
@@ -159,9 +159,18 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
     }),
   ).catch(() => undefined);
   // The `plan` tool, and the messaging tools where the person allowed them.
+  // The messaging tools come and go with Podium's word that the session takes part (#987): the list is built again on each `reload`.
   void ctx.tool.transform((editor) => {
-    for (const t of podiumTools(reporter)) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
+    const offered = podiumTools(reporter);
+    for (const name of MESSAGING_TOOLS) if (!offered.some((t) => t.name === name)) editor.remove(name);
+    for (const t of offered) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
   }).catch(() => undefined);
+  let offering = reporter.offersMessaging;
+  const reloadTools = (): void => {
+    if (reporter.offersMessaging === offering) return;
+    offering = reporter.offersMessaging;
+    void ctx.tool.reload().catch(() => undefined);
+  };
   // What a session that goes idle still runs (a shell, a subagent): reported as the wait, so it is not shown as waiting on the person (#987).
   void ctx.session.hook('experimental.idle', (idle) => reporter.background(idle.sessionID, idle.background)).catch(() => undefined);
   // The renewal check of the certificate (shared lock with Claude sessions), once per location.
@@ -169,7 +178,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
   const watcher = new StatusWatcher();
   const timer = setInterval(
-    () => void reporter.tick().then(() => { const n = watcher.poll(reporter.statusText()); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
+    () => void reporter.tick().then(() => { reloadTools(); const n = watcher.poll(reporter.statusText()); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
     options.flushMs,
   );
   timer.unref?.();

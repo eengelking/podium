@@ -591,6 +591,9 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
   const prompts: unknown[] = [];
   const generated: unknown[] = [];
   const hooks: Record<string, (i: any) => void> = {};
+  const transforms: (() => void)[] = [];
+  const removed: string[] = [];
+  let reloads = 0;
   return {
     options,
     location: { directory },
@@ -598,7 +601,19 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     permission: { list: async () => [] },
     rpc: { register: async () => ({ events: { emit: async (name: string, data: unknown) => void emitted.push({ name, data }) } }) },
     command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
-    tool: { transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void }) => void) => { cb({ add: (d) => void tools.push(d) }); return { dispose: async () => undefined }; } },
+    // The host builds the list again from every transform on `reload`, as OpenCode does.
+    tool: {
+      transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void; remove: (name: string) => void }) => void) => {
+        transforms.push(() => cb({ add: (d) => void tools.push(d), remove: (name) => void removed.push(name) }));
+        transforms.at(-1)!();
+        return { dispose: async () => undefined };
+      },
+      reload: async () => {
+        reloads++;
+        tools.length = 0;
+        for (const t of transforms) t();
+      },
+    },
     session: { prompt: async (i: unknown) => void prompts.push(i), hook: async (name: string, cb: (i: any) => void) => { hooks[name] = cb; return { dispose: async () => undefined }; } },
     model: { list: async () => ({ data: [{ providerID: 'local', id: 'qwen-mini', type: 'chat', enabled: true, status: 'active', cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }] }] }) },
     experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
@@ -608,6 +623,8 @@ function fakeCtx(options: Record<string, unknown>, directory: string, events: un
     prompts,
     generated,
     hooks,
+    removed,
+    reloads: () => reloads,
   };
 }
 type Setup = (c: unknown) => Promise<() => Promise<void>>;
@@ -820,10 +837,36 @@ describe('the plugin entry adds tools, explains failures and answers requests (#
     await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true' }, async () => {
       const ctx = fakeCtx({}, '/loc/t2');
       const stop = await setup(ctx);
-      expect(ctx.tools.map((t) => t.name)).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
-      expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
+      // Podium has not said yet that the session takes part: the three tools are not offered, and are removed from the host.
+      expect(ctx.tools.map((t) => t.name)).toEqual(['plan']);
+      expect(ctx.removed).toEqual(['podium_peers', 'podium_send', 'podium_request_access']);
       await stop();
     });
+  });
+
+  it('offers the messaging tools once Podium says the session takes part, by reloading the tool list, and withdraws them when it stops', async () => {
+    let peers = true;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ peers }), { status: 200 })) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true', PODIUM_SERVER: 'http://podium.test:4317', PODIUM_TOKEN: 'tok', PODIUM_USER: 'Dana' }, async () => {
+        const events = [{ id: 't3', type: 'session.created', data: { sessionID: 'ses_t3m', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/t3' } }];
+        const ctx = fakeCtx({ flushIntervalMs: 200, heartbeatMs: 1000 }, '/loc/t3', events);
+        const stop = await setup(ctx);
+        const names = () => ctx.tools.map((t) => t.name);
+        for (let waited = 0; !names().includes('podium_peers') && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(names()).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
+        expect(ctx.reloads()).toBe(1);
+        expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
+        peers = false;
+        for (let waited = 0; names().length > 1 && waited < 8000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+        expect(names()).toEqual(['plan']);
+        expect(ctx.reloads()).toBe(2);
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('delivers a message from another orchestrator with session.prompt, queued, and answers a request typed as /podium', async () => {

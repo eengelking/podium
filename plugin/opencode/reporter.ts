@@ -478,6 +478,14 @@ export class Reporter {
   }
 
   /**
+   * Whether the model is offered the messaging tools now (#987): the person allowed it and Podium has said, in the last reply to some session,
+   * that it takes part. Claude Code's mod shows its tools on the same word. The tools come and go with it (`ctx.tool.reload`).
+   */
+  get offersMessaging(): boolean {
+    return this.peers !== null && [...this.transports.values()].some((t) => t.peers);
+  }
+
+  /**
    * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`) from the session it ran in. A call from a subagent's
    * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
    */
