@@ -52,6 +52,8 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. */
+  attached?: () => boolean;
   /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
   notify?: (line: string) => void;
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
@@ -399,7 +401,7 @@ export class Reporter {
   async tick(): Promise<void> {
     if (this.closed) return;
     const now = this.deps.now();
-    sweep(this.store, now, this.opts.idleMs);
+    sweep(this.store, now, this.opts.idleMs, this.deps.attached?.() ?? false);
     const sends: Promise<void>[] = [];
     for (const root of [...this.store.roots.values()]) {
       this.queue(root);
