@@ -303,6 +303,15 @@ Read the fields from `live_json <session> <field>` while the session is live or 
 
 Two things only a person sees: the toast the TUI shows when the connection changes, and the recording's toast when it starts or stops.
 
+#### Contexts, a name across a restart, no TUI, and the messaging flag
+
+These checks need a few steps the table above does not give. Run them in the same window, after the wiring check.
+
+- **`/podium context`.** `add` refuses a file that is not a reporter config, so make two small ones in the window's scratch home (a v1 header, a `# user:` line, an `https` `# server:` line and an `# issued-at:` epoch, mode 0600, named `reporter-config-<name>-<epoch>.pem`), then run `add`, `list`, `use`, `show`, `rename` and `remove` as `/podium context <verb>`. Each answers in a dialog. Remove the contexts and the two files at the end: a file left in `home-planner/.podium/` is the newest config and sends the next start to its server.
+- **A name across a restart.** Run `/podium name <text>`, leave OpenCode with Ctrl+C (not Ctrl+D, which closes the window's shell and ends the tmux server), start a new window with `new-session ... -c "$LIVE/proj-planner"`, source `$LIVE/oc-env-planner.sh` and run `opencode --standalone -s <session id>`. A session that has not had a turn since the restart is not on the server yet: send a prompt, then read `live_json <id> name`.
+- **No TUI part.** `opencode run --standalone -m <provider/model> "<prompt>"` from a shell that sourced the env file reports the session with `attached: null`, and the card stays (it shows `done` once the run ends). For `serve`, source the env file and run `opencode serve --port 4390 --hostname 127.0.0.1`: it prints a one-time password, and every route takes basic auth as `opencode:<password>`. Create a session with `POST /api/session` (`{"model":{"providerID":"opencode","id":"<model>"},"location":{"directory":"$LIVE/proj-planner"}}`) and send `POST /api/session/<id>/prompt` (`{"text":"..."}`); the routes are in `/openapi.json`. `opencode web` takes no port or host, and the web client and the desktop app ask a person for a pairing link or the password, so an agent cannot drive them: say so in the report.
+- **The messaging flag turned off mid-session.** Unlock Admin on the throwaway server with `POST /api/admin/unlock` (`{"name":"Admin","token":"<contents of $LIVE/admin-secret>"}`, with `Origin: $B` and `X-Podium-Admin: 1`, and a cookie jar), then `PUT /api/admin/settings` with `{"features":{"peer-messaging":false}}` and the same headers and cookies. Within about 20 seconds the model no longer has `podium_peers` or `podium_send` (it says the tool was removed), and `/podium` reads `Messaging: off, because Podium's messaging flag is off`. The footer has no messaging text and does not change.
+
 ### 6. Shut it down
 
 Run all of this, even after a failure:
