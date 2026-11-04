@@ -7,7 +7,7 @@ order: 12
 
 # File diff
 
-Files: `plugin/claudecode/hooks/fileDiff.ts`, `plugin/core/diffRedact.ts`; `server/src/fleet/fileDiffs.ts`, `respondRoutes.ts`;
+Files: `plugin/core/fileDiff.ts`, `plugin/core/diffRedact.ts`; `server/src/fleet/fileDiffs.ts`, `respondRoutes.ts`;
 `frontend/src/fleet/components/FileDiffModal.tsx`, `FilesList.tsx`, `diffRows.ts`. Issue #319. The reasoning is in
 DECISIONS 36.
 

@@ -18,6 +18,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
 | `tls.ts` | The secure connection (#948): finds the reporter config file the way the Claude reporter does (`../core/tls/findConfig.ts`), makes the mTLS client in this process (`../core/tls/client.mjs`), and gives the `Reporter` a `fetch` through it. A file that cannot be used becomes a link that sends nothing and says why, once, as a `podium-reporter:` console line and in `Reporter.statusText()`. |
 | `notice.ts` | Pure: the console lines said once (`dedupe`), the text of `/podium`, and the toast the TUI part shows when the connection changes. |
+| `peers.ts`, `tools.ts` | Orchestrator messaging (`PODIUM_PEERS`, #347): the `podium_peers`, `podium_send` and `podium_request_access` tools, the `plan` tool, messages that arrive as `session.prompt`, and `/podium allow\|decline\|deliver <id>`. The words are `../core/peers.ts`. |
 | `window.ts` | Pure: a model's context window from a `ctx.model.list()` answer. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
@@ -39,6 +40,9 @@ every reporter shares from `../core/` (report types, transport, failures, redact
   `execute.after` hook, which would add nothing; `core/feed.ts` and `core/recording.ts` hold the limits, redaction and batching shared with the
   Claude Code reporter. The type declarations carry no numeric exit code, so one is sent only when the call's text states it. A recording tells the
   person through a toast (or the console) when it starts, stops or was refused, and keeps an answer sent from Podium once, after the call it answers.
+- The files the session changed always; one file's diff on request, only with `PODIUM_FILE_DIFF` (`core/fileDiff.ts`, shared with the Claude Code reporter).
+- With `PODIUM_EXPLAIN_FAILURES`, a short explanation of each new failure, asked of OpenCode's default model through `ctx.experimental.generate` from the redacted failure
+  record only, cut at 400 characters. Its cost is not counted anywhere.
 - Tools with input and result, permission asks and questions (the session is `waiting`), compaction, the plan from the todo tool, failures,
   and the git branch. A tool is counted and worded under the Claude Code reporter's name for it (`shell` is `Bash`, `subagent` is `Agent`, and so on; `activity.ts`),
   and a file tool's `path` is read as `file_path`. A compaction counts as a `compact` event and resets the context to the size of the summary it wrote until the next
@@ -49,7 +53,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 
 ## Answering
 
-Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environment or `~/.podium/config.env`, and the Admin's flags are on. Then:
+Off unless `PODIUM_RESPOND` is `true` (or a level: `questions`, `questions-and-plans` or `everything`) and `PODIUM_ACTIVITY_FEED` is `true`, in the environment or `~/.podium/config.env`, and the Admin's flags are on. The level decides what is accepted: a question and a message from `questions` up, a permission and a command (`/compact`) only at `everything`. Then:
 
 - **Permission:** allow once or reject, with `permission.reply`. Never "always".
 - **Question:** answered by field key. Through the TUI part when a TUI is attached (it says so every 30 seconds); otherwise through OpenCode's local
@@ -57,13 +61,13 @@ Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environ
   is not offered the question, because it could not be answered.
 - **Message and `/compact`:** `session.prompt` and `session.compact` with `delivery: queue`. The idempotency `id` is made from Podium's delivery id and starts with `msg_`, the only kind OpenCode takes, so one delivery sent twice is one message. When OpenCode refuses a call the reporter writes why to the console once, and Podium is told `not-taken`. A message's
   text starts with a line saying it came through Podium, because OpenCode hands the model the text as the user's own.
-- **Not offered:** plan approval and `/clear` (OpenCode has no equivalent), and always-allow.
+- **Not offered:** plan approval and `/clear` (OpenCode has no equivalent), and always-allow. The rest of what OpenCode cannot do, and why, is listed under "Not available on OpenCode" in [docs/REPORTER.md](../../docs/REPORTER.md#opencode-settings).
 
 ## Settings
 
 Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
 `http://127.0.0.1:4317`), `PODIUM_TOKEN`, `PODIUM_USER`, `PODIUM_IDLE_SECONDS` (at least 5; also accepted as the `idleSeconds` plugin option) and the consent
-options. Three plugin options, named and bounded as in the Claude Code reporter, are the only others read from `opencode.json`: `flushIntervalMs` (default 1000, at least 200),
+options (`PODIUM_RESPOND`, `PODIUM_ACTIVITY_FEED`, `PODIUM_ACTIVITY_OUTPUT`, `PODIUM_FULL_PROMPTS`, `PODIUM_SESSION_RECORDING`, `PODIUM_FILE_DIFF`, `PODIUM_PEERS` and `PODIUM_EXPLAIN_FAILURES`, each off unless exactly `true`). Three plugin options, named and bounded as in the Claude Code reporter, are the only others read from `opencode.json`: `flushIntervalMs` (default 1000, at least 200),
 `heartbeatMs` (default 5000, at least 1000) and `sessionName` (empty; it names a session OpenCode has not named, and OpenCode's own title wins). A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
 and run `chmod 600` on it, and the reporter connects to the address in it over HTTPS with your certificate (no token needed). `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT`, from the
 same two places, choose another file; with no file nothing changes. The client starts with the reporter, renews the certificate when it is due, and stops when the plugin is cleaned up. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).

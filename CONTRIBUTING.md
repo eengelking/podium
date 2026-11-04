@@ -170,7 +170,7 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `docs/decisions/` | Why a significant choice was made |
 | `docs/gotchas/` | Sharp edges that are easy to hit |
 | `docs/e2e/COVERAGE.md` | The end-to-end suite: the map of every feature to its Cypress spec, how to run it, how to read a CI failure, how to add a spec, the test-id convention |
-| `docs/LIVE_TESTING.md` | Checking a change with real Claude Code sessions: tmux, a throwaway server, keeping the session off your real server, answering from the API, shutting it down |
+| `docs/LIVE_TESTING.md` | Checking a change with real Claude Code or OpenCode sessions: tmux, a throwaway server, keeping the session off your real server, answering from the API, shutting it down |
 | `docs/PERFORMANCE.md` | What Podium costs to run at four fleet sizes, how to measure it again (`scripts/podium-perf*`), and the ranked findings of the performance audit |
 | `docs/COMMUNITY.md` | The Discord server: how to join it, and how the maintainer sets it up and keeps it safe. Also the docs site's domain: its DNS record and renewal |
 | `docs/standards/` | How the UI looks and is built: tokens, components, patterns, voice, accessibility. Generated from the app, never edited by hand |

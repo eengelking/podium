@@ -20,7 +20,7 @@ filed with the `github-issue-filing` skill, and removed here.
 ### Recording redaction is piece-wise, so a secret across a cut can be missed (#353)
 
 The file diff's redactor costs time with the square of a line's length. `redactBounded` in
-`plugin/claudecode/hooks/recording.ts` therefore redacts a line longer than 1,000 characters in pieces (cut at a space
+`plugin/core/diffRedact.ts` therefore redacts a line longer than 1,000 characters in pieces (cut at a space
 when it has one). A secret that straddles a cut is not seen. Matters because a recording keeps whole tool results, and
 minified files or base64 are long lines. A linear-time redactor, or overlapping pieces, would close it. See
 `docs/REPLAY.md`, "What redaction does not cover".
