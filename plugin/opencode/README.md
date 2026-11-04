@@ -16,9 +16,11 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `answering.ts` | Answering from Podium, driven by the flush tick: starts a wait for each open ask, acts on the messages and commands a reply hands over, and says what the session accepts. The announcing, waiting and reporting back are `../core/respond.ts`. |
 | `answer.ts` | Pure: the asks Podium is shown (redacted and cut), the reply OpenCode takes for a permission, the form answer for a question, and the label a message carries. |
 | `host.ts` | The calls into OpenCode: `permission.reply`, the session prompt and compact API, and the two ways to answer a question form. |
-| `bridge.ts`, `tui.ts` | The TUI part. The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
+| `bridge.ts`, `tui.ts`, `statusSlot.ts` | The TUI part. `statusSlot.ts` claims the `prompt.footer.status` slot and keeps the connection's status there (#987). The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
 | `tls.ts` | The secure connection (#948): finds the reporter config file the way the Claude reporter does (`../core/tls/findConfig.ts`), makes the mTLS client in this process (`../core/tls/client.mjs`), and gives the `Reporter` a `fetch` through it. A file that cannot be used becomes a link that sends nothing and says why, once, as a `podium-reporter:` console line and in `Reporter.statusText()`. |
+| `command.ts` | Pure: which word `/podium` was given (`allow\|decline\|deliver`, `name`, `context`, or none) and the text that answers it. |
+| `build.ts` | The dev-build stamp (`.claude-plugin/dev-build.json`), read once so a dev build says so in its reports (#987). |
 | `notice.ts` | Pure: the console lines said once (`dedupe`), the text of `/podium`, and the toast the TUI part shows when the connection changes. |
 | `peers.ts`, `tools.ts` | Orchestrator messaging (`PODIUM_PEERS`, #347): the `podium_peers`, `podium_send` and `podium_request_access` tools, the `plan` tool, messages that arrive as `session.prompt`, and `/podium allow\|decline\|deliver <id>`. The words are `../core/peers.ts`. |
 | `window.ts` | Pure: a model's context window from a `ctx.model.list()` answer. |
@@ -78,11 +80,12 @@ same two places, choose another file; with no file nothing changes. The client s
 
 - The transport's notices (token refused, session belongs to someone else or to another harness, server too old for report version 2) are written once each to the
   console as `podium-reporter:` lines.
-- The TUI part shows `Reporter.statusText()` as a toast when the connection changes (not for a change in the live-session count).
-- `/podium` shows the console address, the home folder, the secure connection, the connection state, the versions, reports sent, failed and rejected, events queued, the
+- The TUI part shows `Reporter.statusText()` as a toast when the connection changes (not for a change in the live-session count), and keeps it in the prompt's footer (`prompt.footer.status`) where the host lets it claim the slot (#987).
+- `/podium` shows the console address, the home folder, the secure connection, the context that chose the config file, the connection state, the versions, how the reporter signs in (`Sign-in:`), whether messaging is on and why not (`Messaging:`), reports sent, failed and rejected, events queued, the
   last error and the number of sessions. OpenCode's `command.add` has no reply to print, so the answer is a toast in the TUI, and a console line when no TUI part is attached.
   `/podium allow <id>`, `/podium decline <id>` and `/podium deliver <id>` answer a messaging request (the id is in the request's toast), and are on only where the person allowed
-  messaging. `/podium name`, `/podium context` and `/podium messaging` are not offered.
+  messaging. `/podium name <text>` names the session (kept in the plugin's storage, and it wins over OpenCode's title) and `/podium context ...` lists, adds, renames, removes and picks the Podium server's context, as in Claude Code.
+- The messaging tools are offered only once Podium says the session takes part, and are withdrawn when it stops (`ctx.tool.reload`). A session idle on a shell or subagent is reported as waiting on background work, from the `experimental.idle` hook.
 
 ## Build and test
 
