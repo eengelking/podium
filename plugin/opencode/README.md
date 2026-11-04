@@ -17,6 +17,7 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `bridge.ts`, `tui.ts` | The TUI part. The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
 | `tls.ts` | The secure connection (#948): finds the reporter config file the way the Claude reporter does (`../core/tls/findConfig.ts`), makes the mTLS client in this process (`../core/tls/client.mjs`), and gives the `Reporter` a `fetch` through it. A file that cannot be used becomes a link that sends nothing and says why, once, as a `podium-reporter:` console line and in `Reporter.statusText()`. |
+| `notice.ts` | Pure: the console lines said once (`dedupe`), the text of `/podium`, and the toast the TUI part shows when the connection changes. |
 | `window.ts` | Pure: a model's context window from a `ctx.model.list()` answer. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
@@ -53,9 +54,19 @@ Off unless `PODIUM_RESPOND` and `PODIUM_ACTIVITY_FEED` are `true` in the environ
 
 Settings are read only from the environment and `~/.podium/config.env`, never from `opencode.json` (a repo can ship that): `PODIUM_SERVER` (default
 `http://127.0.0.1:4317`), `PODIUM_TOKEN`, `PODIUM_USER`, `PODIUM_IDLE_SECONDS` (at least 5; also accepted as the `idleSeconds` plugin option) and the consent
-options. A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
+options. Three plugin options, named and bounded as in the Claude Code reporter, are the only others read from `opencode.json`: `flushIntervalMs` (default 1000, at least 200),
+`heartbeatMs` (default 5000, at least 1000) and `sessionName` (empty; it names a session OpenCode has not named, and OpenCode's own title wins). A Podium server with built-in TLS needs a client certificate: save the reporter config file the Admin gives you (`reporter-config-<name>-<epoch>.pem`) in `~/.podium/`
 and run `chmod 600` on it, and the reporter connects to the address in it over HTTPS with your certificate (no token needed). `PODIUM_REPORTER_CONFIG` and `PODIUM_REPORTER_CONTEXT`, from the
 same two places, choose another file; with no file nothing changes. The client starts with the reporter, renews the certificate when it is due, and stops when the plugin is cleaned up. What this trusts and why is in [the threat note](../../docs/REPORTER.md#the-opencode-reporter-what-it-trusts).
+
+## What it tells you
+
+- The transport's notices (token refused, session belongs to someone else or to another harness, server too old for report version 2) are written once each to the
+  console as `podium-reporter:` lines.
+- The TUI part shows `Reporter.statusText()` as a toast when the connection changes (not for a change in the live-session count).
+- `/podium` shows the console address, the home folder, the secure connection, the connection state, the versions, reports sent, failed and rejected, events queued, the
+  last error and the number of sessions. OpenCode's `command.add` has no reply to print, so the answer is a toast in the TUI, and a console line when no TUI part is attached.
+  `/podium name`, `/podium context` and the messaging subcommands are not offered.
 
 ## Build and test
 

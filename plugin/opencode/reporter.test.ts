@@ -192,6 +192,41 @@ describe('state: failures and plan', () => {
     apply(s, ev('session.renamed', { sessionID: ROOT, title: 'My task' }, 3), 3);
     expect(buildReport(root, [], meta).session.name).toBe('My task');
   });
+
+  it('uses the sessionName option when OpenCode has given the session no name, and the name OpenCode gave wins over it (#969)', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1));
+    const root = s.roots.get(ROOT)!;
+    const meta = { now: 3, version: VERSION, engineVersion: null, hostSurface: null, optionName: 'nightly build' };
+    expect(buildReport(root, [], meta).session.name).toBe('nightly build');
+    expect(buildReport(root, [], { ...meta, optionName: '   ' }).session.name).toBe(ROOT);
+    apply(s, ev('session.renamed', { sessionID: ROOT, title: 'My task' }, 3), 3);
+    expect(buildReport(root, [], meta).session.name).toBe('My task');
+  });
+
+  it('a Reporter built with a sessionName reports it (#969)', async () => {
+    const bodies: string[] = [];
+    const fetch: FetchLike = async (_u, init) => { bodies.push(init.body ?? ''); return { status: 200, ok: true, text: '{"ok":true}' }; };
+    const r = new Reporter({ fetch, now: () => 5000, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, { ...optionsOf({ sessionName: 'from option' }, null, {}, null), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 1000));
+    await r.tick();
+    expect(JSON.parse(bodies[0]!).session.name).toBe('from option');
+  });
+
+  it('the heartbeat option sets how soon an unchanged session reports again (#969)', async () => {
+    let at = 10_000;
+    const bodies: string[] = [];
+    const fetch: FetchLike = async (_u, init) => { bodies.push(init.body ?? ''); return { status: 200, ok: true, text: '{"ok":true}' }; };
+    const r = new Reporter({ fetch, now: () => at, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, { ...optionsOf({ heartbeatMs: 20_000 }, null, {}, null), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.tick();
+    expect(bodies).toHaveLength(1);
+    at += 10_000;
+    await r.tick();
+    expect(bodies).toHaveLength(1);
+    at += 10_001;
+    await r.tick();
+    expect(bodies).toHaveLength(2);
+  });
 });
 
 describe('options', () => {

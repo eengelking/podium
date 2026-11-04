@@ -5,11 +5,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
-import { BRIDGE, type AnswerEvent } from './bridge.ts';
+import { BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
 import { makeHost, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
+import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
-import { DEFAULTS, Reporter } from './reporter.ts';
+import { Reporter } from './reporter.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
@@ -80,7 +81,12 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   // A reporter config file (#948) is found from the environment and ~/.podium only, never from the project's options.
   const link = await openLink({ options: trusted, env: process.env, home: homeOf(process.env), now: () => Date.now() });
   const options = await withMachine(withLink(trusted, link));
-  const bridge = { seenAt: 0, emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>), reporter: undefined as Reporter | undefined };
+  const bridge = {
+    seenAt: 0,
+    emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>),
+    notify: undefined as undefined | ((n: NoticeEvent) => Promise<void>),
+    reporter: undefined as Reporter | undefined,
+  };
   // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
   const answering = options.consent.respond
     ? {
@@ -101,19 +107,34 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       }
     : undefined;
   // Everything sent to Podium, the answering calls included, goes through the link when there is one, and never falls back to http.
-  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: () => undefined, problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
+  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: dedupe((line) => console.warn(line)), problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
   bridge.reporter = reporter;
-  if (answering) {
-    // The TUI part says it is attached here, and is handed a question's answer as an event.
-    void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
-      (reg) => { bridge.emit = async (e) => (reg as unknown as { events: { emit: (name: 'answer', data: AnswerEvent) => Promise<void> } }).events.emit('answer', e); },
-      () => undefined,
-    );
-  }
+  // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
+  void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
+    (reg) => {
+      const events = (reg as unknown as { events: { emit: (name: 'answer' | 'notice', data: AnswerEvent | NoticeEvent) => Promise<void> } }).events;
+      bridge.emit = async (e) => events.emit('answer', e);
+      bridge.notify = async (n) => events.emit('notice', n);
+    },
+    () => undefined,
+  );
+  const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
+  // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
+  void ctx.command.transform((editor) =>
+    editor.add({
+      name: 'podium',
+      description: 'Show where Podium reports go and how the connection is',
+      execute: () => show({ title: 'Podium', message: podiumText(reporter.summary(), { serverUrl: options.serverUrl, home: homeOf(process.env), tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null, version: options.version }), variant: 'info' }),
+    }),
+  ).catch(() => undefined);
   // The renewal check of the certificate (shared lock with Claude sessions), once per location.
   link?.start();
   // The timer is the only caller that talks to the server; the event loop below never awaits it.
-  const timer = setInterval(() => void reporter.tick().catch(() => undefined), DEFAULTS.flushMs);
+  const watcher = new StatusWatcher();
+  const timer = setInterval(
+    () => void reporter.tick().then(() => { const n = watcher.poll(reporter.statusText()); return n ? deliver(n, bridge.notify, () => undefined) : undefined; }).catch(() => undefined),
+    options.flushMs,
+  );
   timer.unref?.();
   return { reporter, timer, link };
 }

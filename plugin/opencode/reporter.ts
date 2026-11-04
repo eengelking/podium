@@ -17,6 +17,8 @@ export interface ReporterOptions {
   /** How long a root is quiet before it reports `done`. At or below the location's idle timeout. */
   idleMs: number;
   heartbeatMs: number;
+  /** The `sessionName` option, used when OpenCode has not named the session. */
+  sessionName?: string | null;
   version: string;
   build?: string | null;
   engineVersion: string | null;
@@ -51,6 +53,23 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 /** How long a model whose window could not be read waits before it is asked about again. */
 const WINDOW_RETRY_MS = 60_000;
+
+/** What `/podium` shows: the counts and notices of every root's transport, added up. */
+export interface Summary {
+  /** false when any root cannot reach the server, true when one can, null before any report. */
+  online: boolean | null;
+  liveSessions: number | null;
+  serverVersion: string | null;
+  sent: number;
+  failed: number;
+  rejected: number;
+  queued: number;
+  dropped: number;
+  lastError: string | null;
+  /** The distinct notices (refused, belongs to someone else, server too old, version mismatch, update available). */
+  notices: string[];
+  sessions: number;
+}
 
 export const DEFAULTS = { answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
@@ -123,6 +142,27 @@ export class Reporter {
     return t ? t.statusText(this.deps.problem?.()?.status) : null;
   }
 
+  /** The connection's counts and notices for `/podium`, added up over the roots. */
+  summary(): Summary {
+    const ts = [...this.transports.values()];
+    const notices = new Set<string>();
+    for (const t of ts) for (const n of [t.refusalNotice(), t.rejectNotice(), t.ownerNotice(), t.versionNotice(), t.updateNotice()]) if (n) notices.add(n);
+    const sum = (f: (t: Transport) => number): number => ts.reduce((a, t) => a + f(t), 0);
+    return {
+      online: ts.some((t) => t.online === false) ? false : ts.some((t) => t.online === true) ? true : null,
+      liveSessions: ts.find((t) => t.liveSessions !== null)?.liveSessions ?? null,
+      serverVersion: ts.find((t) => t.serverVersion)?.serverVersion ?? null,
+      sent: sum((t) => t.sent),
+      failed: sum((t) => t.failed),
+      rejected: sum((t) => t.rejected),
+      queued: sum((t) => t.queue.length),
+      dropped: sum((t) => t.dropped),
+      lastError: ts.find((t) => t.lastError)?.lastError ?? null,
+      notices: [...notices],
+      sessions: this.store.roots.size,
+    };
+  }
+
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
   sessionIds(): string[] {
     return [...this.store.rootOf.keys()];
@@ -153,7 +193,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, machine: o.machine, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */

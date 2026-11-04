@@ -19,6 +19,8 @@ export interface ReportMeta {
   hostSurface: string | null;
   build?: string | null;
   userName?: string | null;
+  /** The `sessionName` option: names a session OpenCode has not named (SPEC 6.6). */
+  optionName?: string | null;
   machine?: MachineInfo | null;
   /** What the session takes from Podium and the asks open now; absent while answering is off (#858). */
   respond?: { info: RespondInfo; asks: Ask[] } | null;
@@ -120,7 +122,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     ...(meta.userName && meta.userName.trim() ? { userName: clip(meta.userName.trim(), 80), ...(meta.machine ? { machine: { ...meta.machine } } : {}) } : {}),
     session: {
       id: root.id,
-      name: clip(main.title ?? root.id, 80),
+      name: clip(main.title || meta.optionName?.trim() || root.id, 80),
       ...st,
       endReason: st.status === 'done' ? root.endReason : null,
       resumeId: null,

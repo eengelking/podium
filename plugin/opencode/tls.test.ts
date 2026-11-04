@@ -585,11 +585,17 @@ async function withEnv<T>(vars: Record<string, string | undefined>, body: () => 
 
 /** The part of OpenCode's plugin context the entry uses, with one session's events. */
 function fakeCtx(options: Record<string, unknown>, directory: string, events: unknown[] = []) {
+  const emitted: { name: string; data: any }[] = [];
+  const commands: { name: string; description?: string; execute: (i: unknown) => Promise<void> }[] = [];
   return {
     options,
     location: { directory },
     event: { subscribe: async function* () { for (const e of events) yield e; } },
     permission: { list: async () => [] },
+    rpc: { register: async () => ({ events: { emit: async (name: string, data: unknown) => void emitted.push({ name, data }) } }) },
+    command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
+    emitted,
+    commands,
   };
 }
 type Setup = (c: unknown) => Promise<() => Promise<void>>;
@@ -606,7 +612,10 @@ describe('the plugin entry (#948)', () => {
       ];
       await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {
         const setup = (plugin as unknown as { setup: Setup }).setup;
-        const first = await setup(fakeCtx({}, '/loc/a', events));
+        const ctxA = fakeCtx({}, '/loc/a', events);
+        const first = await setup(ctxA);
+        await ctxA.commands[0]!.execute({});
+        expect(ctxA.emitted.find((e) => e.name === 'notice')?.data.message).toMatch(/TLS: .*HTTPS|TLS: /);
         const second = await setup(fakeCtx({}, '/loc/a'));
         expect(seen.made).toHaveLength(1);
         expect(seen.starts).toBe(1);
@@ -679,5 +688,58 @@ describe('the plugin entry (#948)', () => {
     }
     expect(seen.made).toEqual([]);
     expect(warned.filter((w) => w.includes('chmod 600'))).toHaveLength(1);
+  });
+});
+
+describe('the plugin entry tells the person what is wrong (#969)', () => {
+  const events = [
+    { id: 'u1', type: 'session.created', data: { sessionID: 'ses_u', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/u' } },
+    { id: 'u2', type: 'session.execution.started', data: { sessionID: 'ses_u' }, created: Date.now(), location: { directory: '/loc/u' } },
+  ];
+
+  it('writes the refusal to the console once, shows the status as a toast, and answers /podium with a toast', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('{"error":"no"}', { status: 401 })) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/u', events);
+        const stop = await setup(ctx);
+        for (let waited = 0; !ctx.emitted.some((e) => e.name === 'notice') && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+        const toast = ctx.emitted.find((e) => e.name === 'notice');
+        expect(toast?.data).toMatchObject({ title: 'Podium', variant: 'warning' });
+        expect(toast?.data.message).toContain('token refused');
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes('refused this reporter'))).toHaveLength(1);
+        expect(ctx.commands.map((c) => c.name)).toEqual(['podium']);
+        await ctx.commands[0]!.execute({});
+        const shown = ctx.emitted.filter((e) => e.name === 'notice').map((e) => e.data.message as string);
+        const text = shown[shown.length - 1]!;
+        expect(text).toContain('Podium fleet console: http://podium.test:4317/#/');
+        expect(text).toContain('Home folder:');
+        expect(text).toContain('Reports sent: 0');
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      warn.mockRestore();
+    }
+  });
+
+  it('prints the /podium answer to the console when no TUI part has registered', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp() }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const ctx = fakeCtx({}, '/loc/v');
+        ctx.rpc.register = async () => { throw new Error('no rpc'); };
+        const stop = await setup(ctx);
+        await ctx.commands[0]!.execute({});
+        expect(String(log.mock.calls[0]?.[0])).toContain('Podium fleet console: http://127.0.0.1:4317/#/');
+        await stop();
+      });
+    } finally {
+      log.mockRestore();
+    }
   });
 });
