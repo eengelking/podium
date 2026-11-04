@@ -13,7 +13,7 @@ OLLAMA_URL="http://localhost:11434"
 CHECK_ONLY=0
 STATE_DIR="$HOME/.podium/demo"; PIDFILE="$STATE_DIR/opencode.pid"; SNAP="$STATE_DIR/opencode-config.sha"
 CFG_DIR="$HOME/.config/opencode"
-cfg_sum() { [ -d "$CFG_DIR" ] || { echo none; return 0; }; (cd "$CFG_DIR" && find . -path ./node_modules -prune -o -type f \( -name 'opencode.json*' -o -name 'cli.json' -o -name 'package.json' -o -name 'AGENTS.md' \) -print | sort | xargs shasum 2>/dev/null | shasum | cut -d' ' -f1); }
+cfg_sum() { [[ -d "$CFG_DIR" ]] || { echo none; return 0; }; (cd "$CFG_DIR" && find . -path ./node_modules -prune -o -type f \( -name 'opencode.json*' -o -name 'cli.json' -o -name 'package.json' -o -name 'AGENTS.md' \) -print | sort | xargs shasum -a 256 2>/dev/null | shasum -a 256 | cut -d' ' -f1); }
 step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 ok()   { printf '  ok: %s\n' "$*"; }
 die()  { printf '  FAIL: %s\n' "$*" >&2; exit 1; }
@@ -23,9 +23,9 @@ case "${1:-}" in -h|--help)
   exit 0;;
 esac
 
-if [ "${1:-}" = "stop" ]; then
+if [[ "${1:-}" = "stop" ]]; then
   step "Stopping OpenCode"
-  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && ps -p "$(cat "$PIDFILE")" -o command= | grep -q opencode; then
+  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null && ps -p "$(cat "$PIDFILE")" -o command= | grep -q opencode; then
     pid=$(cat "$PIDFILE"); kill "$pid"
     for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
@@ -39,18 +39,18 @@ if [ "${1:-}" = "stop" ]; then
   curl -sf "$OLLAMA_URL/api/tags" >/dev/null 2>&1 && die "Ollama still answers (started outside Homebrew? quit it by hand)"
   ok "Ollama stopped"
   step "OpenCode config"
-  if [ -f "$SNAP" ]; then
-    [ "$(cfg_sum)" = "$(cat "$SNAP")" ] && ok "$CFG_DIR is exactly as it was before the demo" || die "$CFG_DIR changed since start (something else edited it)"
+  if [[ -f "$SNAP" ]]; then
+    [[ "$(cfg_sum)" = "$(cat "$SNAP")" ]] && ok "$CFG_DIR is exactly as it was before the demo" || die "$CFG_DIR changed since start (something else edited it)"
     rm -f "$SNAP"
   else ok "no snapshot (demo never started); nothing to restore"; fi
   exit 0
 fi
-[ "${1:-}" = "start" ] && shift
-[ "${1:-}" = "--check-only" ] && { CHECK_ONLY=1; shift; }
-[ "${1:-}" = "--" ] && shift
+[[ "${1:-}" = "start" ]] && shift
+[[ "${1:-}" = "--check-only" ]] && { CHECK_ONLY=1; shift; }
+[[ "${1:-}" = "--" ]] && shift
 
 step "1. Reporter certificate"
-[ -n "$PEM" ] && [ -f "$PEM" ] || die "no reporter-config-*.pem in ~/.podium"
+[[ -n "$PEM" ]] && [[ -f "$PEM" ]] || die "no reporter-config-*.pem in ~/.podium"
 chmod 600 "$PEM"
 server=$(sed -n 's/^# server: //p' "$PEM" | head -1)
 expires=$(sed -n 's/^# expires: //p' "$PEM" | head -1)
@@ -67,7 +67,7 @@ ok "reporter port 4318 open"
 
 step "3. Build podium-reporter-opencode"
 (cd "$REPO" && node scripts/plugin-build.mjs opencode) >/dev/null
-[ -f "$REPO/dist/opencode/package.json" ] || die "dist/opencode was not built"
+[[ -f "$REPO/dist/opencode/package.json" ]] || die "dist/opencode was not built"
 ok "built $REPO/dist/opencode"
 
 step "4. Ollama"
@@ -84,7 +84,7 @@ curl -sf "$OLLAMA_URL/api/generate" -d "{\"model\":\"$MODEL\",\"prompt\":\"hi\",
 curl -sf "$OLLAMA_URL/api/ps" | grep -q "\"name\":\"$MODEL\"" || die "$MODEL is not running"
 ok "$MODEL is running"
 
-[ "$CHECK_ONLY" = 1 ] && { step "all checks passed (--check-only)"; exit 0; }
+[[ "$CHECK_ONLY" = 1 ]] && { step "all checks passed (--check-only)"; exit 0; }
 
 step "5. Start OpenCode"
 export OPENCODE_CONFIG_CONTENT
@@ -105,7 +105,7 @@ JSON
 )
 export PODIUM_REPORTER_CONFIG="$PEM"
 mkdir -p "$STATE_DIR"
-[ -f "$SNAP" ] || cfg_sum > "$SNAP"   # kept from the first start until stop
+[[ -f "$SNAP" ]] || cfg_sum > "$SNAP"   # kept from the first start until stop
 ok "config snapshot saved"
 cd "${DEMO_DIR:-$PWD}"
 # --standalone: a private server, so this config and the plugin apply (not the background service's).
