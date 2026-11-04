@@ -1,87 +1,13 @@
 // What a Bash entry in the activity feed carries beyond its summary (#431, SPEC 6.4): the whole command and, when asked for, what
 // the call printed. Pure: no `$` here. Redaction is `redactBounded` from recording.ts, the one path a recording and a diff use.
-import { redactBounded } from './recording.ts';
-import { activityCall, CUT_MARKER, parseExitCode } from '../../core/failures.ts';
+import { activityCall, parseExitCode } from '../../core/failures.ts';
+import { commandDetail, outputDetail } from '../../core/feed.ts';
 import type { ActivityEntry } from '../../core/protocol.ts';
-
-/** Characters of a command or of an output sent, before the cut-off marker. */
-export const DETAIL_LIMIT = 20_000;
-/** Raw characters read before redaction, so a huge output costs bounded work; the cut at DETAIL_LIMIT comes after redaction. */
-const RAW_LIMIT = 100_000;
-/** Characters of commands and output over one report (the server's `activityDetailChars`), apart from the 60,000 of summaries. */
-export const DETAIL_CHARS_PER_REPORT = 200_000;
+// The limits and the text clean-up moved to core/feed.ts for the OpenCode reporter (#969); they are still exported from here.
+export { commandDetail, DETAIL_CHARS_PER_REPORT, DETAIL_LIMIT, outputDetail, stripControl, type Detail } from '../../core/feed.ts';
 
 /** The first line of a failed Bash call's text, with its line break (or alone, when nothing was printed). */
 const EXIT_LINE = /^Exit code -?\d{1,3}(?:\n|$)/;
-
-const ESC = 0x1b;
-const BEL = 0x07;
-
-/** Index just past the escape sequence that starts at `i` (a code point 0x1b), or `text.length` when it never ends. */
-function sequenceEnd(text: string, i: number): number {
-  const kind = text.charAt(i + 1);
-  if (kind === '[') {
-    // CSI: parameters and intermediates, then one final byte 0x40-0x7e.
-    for (let j = i + 2; j < text.length; j++) {
-      const c = text.charCodeAt(j);
-      if (c >= 0x40 && c <= 0x7e) return j + 1;
-    }
-    return text.length;
-  }
-  if (kind === ']' || kind === 'P' || kind === '_' || kind === '^' || kind === 'X') {
-    // OSC, DCS, APC, PM, SOS: a string ended by BEL or ESC backslash.
-    for (let j = i + 2; j < text.length; j++) {
-      const c = text.charCodeAt(j);
-      if (c === BEL) return j + 1;
-      if (c === ESC && text.charAt(j + 1) === '\\') return j + 2;
-    }
-    return text.length;
-  }
-  return Math.min(text.length, i + 2);
-}
-
-/**
- * The text without ANSI escape sequences or other control characters. Line breaks and tabs stay, `\r\n` becomes `\n` and a lone
- * `\r` (a progress bar's redraw) goes. The text is data, never markup, but a terminal's codes are noise in a row.
- */
-export function stripControl(text: string): string {
-  let out = '';
-  let from = 0;
-  let i = 0;
-  while (i < text.length) {
-    const c = text.charCodeAt(i);
-    if ((c >= 0x20 && c < 0x7f) || c > 0x9f || c === 0x0a || c === 0x09) {
-      i++;
-      continue;
-    }
-    out += text.slice(from, i);
-    from = c === ESC ? sequenceEnd(text, i) : i + 1;
-    i = from;
-  }
-  return from === 0 ? text : out + text.slice(from);
-}
-
-export interface Detail {
-  text: string;
-  cut: boolean;
-}
-
-/** Control characters out, redacted, cut at the limit with the visible marker. The text is not trimmed: a command's line breaks are its own. */
-function detail(raw: string): Detail {
-  const clean = redactBounded(stripControl(raw.length > RAW_LIMIT ? raw.slice(0, RAW_LIMIT) : raw)).text;
-  return clean.length > DETAIL_LIMIT ? { text: clean.slice(0, DETAIL_LIMIT) + CUT_MARKER, cut: true } : { text: clean, cut: false };
-}
-
-/** A Bash call's whole command, as an entry carries it. */
-export function commandDetail(command: string): Detail {
-  return detail(command);
-}
-
-/** A Bash call's output, as an entry carries it. */
-export function outputDetail(output: string): Detail {
-  return detail(output);
-}
-
 /** What a `tool.call`'s `next(e)` resolves to, as far as an entry reads it. */
 export interface BashResult {
   deny?: unknown;
@@ -149,3 +75,4 @@ export function finishedCall(res: BashResult, withOutput: boolean): Partial<Acti
   const o = outputDetail(raw);
   return { output: o.text, ...(o.cut ? { outputCut: true } : {}), ...status };
 }
+
