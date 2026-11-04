@@ -66,6 +66,8 @@ export interface Sess {
   prompt: string;
   answer: string;
   failure: Failure | null;
+  /** The time of the failure the model was last asked to explain, so each failure is asked about once (#969). */
+  explainedAt: number | null;
   /** The model variant of the last step (`model.variant`), which is OpenCode's name for effort; null when the step named none. */
   effort: string | null;
   skills: string[];
@@ -197,7 +199,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
   return {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
-    toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
+    toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
     activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }

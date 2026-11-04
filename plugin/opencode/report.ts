@@ -39,6 +39,8 @@ export interface ReportMeta {
   fullText?: boolean;
   /** The `PODIUM_SESSION_RECORDING` consent, which the report states (#353). */
   sessionRecording?: boolean;
+  /** The `PODIUM_PEERS` consent: this orchestrator may message the person's others (#347). Stated only when on, so a server that sees no `peers` from a reporter still knows it never offered. */
+  peers?: boolean;
 }
 
 function pct(tokens: number | null, window: number | null): number | null {
@@ -166,6 +168,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       activityFeed: meta.activity === true,
       activityOutput: meta.activityOutput === true,
       sessionRecording: meta.sessionRecording === true,
+      ...(meta.peers ? { peers: true } : {}),
       ...(meta.activity && main.activity.length ? { activity: feedOf(main.activity, meta.activityOutput === true) } : {}),
       attached: null,
       ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),

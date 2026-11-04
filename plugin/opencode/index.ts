@@ -8,9 +8,11 @@ import type { Runner } from '../core/git.ts';
 import { BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
 import { makeHost, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
+import { parseAnswer } from '../core/peers.ts';
 import { dedupe, deliver, podiumText, StatusWatcher, type Notice } from './notice.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
+import { podiumTools } from './tools.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
@@ -107,7 +109,22 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       }
     : undefined;
   // Everything sent to Podium, the answering calls included, goes through the link when there is one, and never falls back to http.
-  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: dedupe((line) => console.warn(line)), notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }), problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
+  const reporter = new Reporter(
+    {
+      fetch: link ? link.fetch : plainFetch,
+      now: () => Date.now(),
+      runIn,
+      log: dedupe((line) => console.warn(line)),
+      notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
+      problem: link?.problem,
+      answering,
+      windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
+      // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
+      ...(options.explainFailures ? { explain: async (prompt: string) => (await ctx.experimental.generate.text({ prompt })).text } : {}),
+      ...(options.peers ? { prompt: async (sessionId: string, id: string, text: string) => void (await apiOf(ctx).prompt({ sessionID: sessionId, id, text })) } : {}),
+    },
+    options,
+  );
   bridge.reporter = reporter;
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
   void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(
@@ -120,13 +137,24 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   );
   const show = (n: Notice): Promise<void> => deliver(n, bridge.notify, (line) => console.log(line));
   // `/podium`: the console address, the home folder, the counts and the connection, as a toast (the command has no way to print a reply).
+  // `/podium allow|decline|deliver <id>` answers a messaging request instead.
   void ctx.command.transform((editor) =>
     editor.add({
       name: 'podium',
-      description: 'Show where Podium reports go and how the connection is',
-      execute: () => show({ title: 'Podium', message: podiumText(reporter.summary(), { serverUrl: options.serverUrl, home: homeOf(process.env), tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null, version: options.version }), variant: 'info' }),
+      description: 'Show where Podium reports go and how the connection is; answer a messaging request with allow, decline or deliver and its id',
+      execute: async (invocation) => {
+        const asked = parseAnswer(String(invocation?.prompt?.text ?? '').replace(/^\/?podium\b/i, ''));
+        if (asked) return show({ title: 'Podium', message: await reporter.answerRequest(invocation.sessionID, asked.answer, asked.id), variant: 'info' });
+        const status = podiumText(reporter.summary(), { serverUrl: options.serverUrl, home: homeOf(process.env), tls: link ? (link.problem()?.text ?? `connected over HTTPS with the certificate in ${link.configPath}`) : null, version: options.version });
+        const waiting = reporter.waitingRequests();
+        return show({ title: 'Podium', message: waiting ? `${status}\n${waiting}` : status, variant: 'info' });
+      },
     }),
   ).catch(() => undefined);
+  // The `plan` tool, and the messaging tools where the person allowed them.
+  void ctx.tool.transform((editor) => {
+    for (const t of podiumTools(reporter)) editor.add({ name: t.name, description: t.description, input: t.input, execute: (input, context) => t.execute(input, context) });
+  }).catch(() => undefined);
   // The renewal check of the certificate (shared lock with Claude sessions), once per location.
   link?.start();
   // The timer is the only caller that talks to the server; the event loop below never awaits it.

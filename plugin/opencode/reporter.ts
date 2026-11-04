@@ -1,11 +1,14 @@
 // The OpenCode reporter's runtime (#855): one Reporter per location, many root sessions in it. `handle` folds an event
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
+import { excerpt, explainPrompt } from '../core/failures.ts';
 import { readChanges, readGit, type Runner } from '../core/git.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
 import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
+import { setTitle } from '../core/plan.ts';
+import { Peers } from './peers.ts';
 import { Answering, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
@@ -59,6 +62,20 @@ export interface ReporterDeps {
    * carries the window once the answer is in. Never awaited by `handle`.
    */
   windowOf?: (provider: string, model: string) => Promise<number | null>;
+  /**
+   * Asks a model for a short text from a prompt (`ctx.experimental.generate.text`), or null when it says nothing. Absent where the host cannot generate.
+   * Used only with the explain failures consent on, and only from the timer.
+   */
+  explain?: (prompt: string) => Promise<string | null>;
+  /** How long one explanation may take. */
+  explainMs?: number;
+  /** How long a messaging tool waits for Podium. */
+  peerCallMs?: number;
+  /**
+   * Submits text as a prompt in a session, queued behind the turn that runs (`ctx.session.prompt`): how a message from another orchestrator enters.
+   * Absent: this reporter takes no part in messaging, whatever the person allowed.
+   */
+  prompt?: (sessionId: string, id: string, text: string) => Promise<void>;
   answering?: { host: Host; consent: Consent; sleep?: (ms: number) => Promise<boolean>; answerMs?: number };
 }
 
@@ -70,6 +87,9 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
   return Promise.race([p, limit]).finally(() => clearTimeout(timer));
 }
+
+/** Explanations being asked for at once: a run of failures never makes a burst of model calls. */
+const EXPLAIN_AT_ONCE = 2;
 
 /** How long a model whose window could not be read waits before it is asked about again. */
 const WINDOW_RETRY_MS = 60_000;
@@ -97,7 +117,7 @@ export interface Summary {
   sessions: number;
 }
 
-export const DEFAULTS = { answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
+export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
 export class Reporter {
   readonly store: Store = newStore();
@@ -113,11 +133,14 @@ export class Reporter {
   /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
   private readonly answering: Answering | null;
   private readonly responder: Responder;
+  /** Orchestrator messaging (#347); null unless the person allowed it (`PODIUM_PEERS`) and the host can submit a prompt. */
+  private readonly peers: Peers | null;
   /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
   private readonly windows = new Map<string, { window: number | null; at: number }>();
   private readonly windowPending = new Set<string>();
   /** Diff requests already taken, so one listed in two replies is read once (#319). */
   private readonly diffsDone: string[] = [];
+  private explaining = 0;
   /** File diffs being read: a final flush waits for them, within its time limit. */
   private readonly diffPending = new Set<Promise<void>>();
 
@@ -129,6 +152,7 @@ export class Reporter {
     // Also the way a file diff goes back to the server, so it exists with answering off.
     this.responder = new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a?.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) });
     this.answering = a ? new Answering(this.responder, a.host, a.consent, deps.now) : null;
+    this.peers = opts.peers && deps.prompt ? new Peers({ responder: this.responder, prompt: deps.prompt, notify: deps.notify, now: deps.now, owner: () => opts.userName, machine: () => opts.machine?.name ?? null, callMs: deps.peerCallMs }) : null;
   }
 
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
@@ -224,7 +248,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -389,10 +413,90 @@ export class Reporter {
     }
     await Promise.all(sends);
     await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
+    if (this.peers) {
+      for (const root of this.store.roots.values()) this.peers.take(root, this.transportOf(root));
+      await this.responder.flush();
+    }
     for (const root of this.store.roots.values()) this.handleDiffs(root, this.transportOf(root));
+    this.explainNew();
     // After the reports, so each root's reply has been read: start waiting for answers and act on what was handed over.
     // Bounded: a call into OpenCode that never returns must not hold up the next report or the other roots.
     if (this.answering) await Promise.all([...this.store.roots.values()].map((root) => withTimeout(this.answering!.drive(root, this.transportOf(root)), this.deps.answering?.answerMs ?? DEFAULTS.answerMs).catch(() => undefined)));
+  }
+
+  /**
+   * Asks the model to explain each failure that has no explanation, when the person allowed it. Called from the timer, never from `handle`, and
+   * never awaited: the call is bounded by a time limit and its failure is swallowed. The prompt is built from the redacted failure record only.
+   */
+  private explainNew(): void {
+    const ask = this.deps.explain;
+    if (!this.opts.explainFailures || !ask) return;
+    for (const root of this.store.roots.values()) {
+      for (const s of root.sessions.values()) {
+        const f = s.failure;
+        if (!f || f.explanation || s.explainedAt === f.at) continue;
+        if (this.explaining >= EXPLAIN_AT_ONCE) return;
+        s.explainedAt = f.at;
+        this.explaining++;
+        void withTimeout(ask(explainPrompt(f, 'OpenCode')), this.deps.explainMs ?? DEFAULTS.explainMs)
+          .then((text) => {
+            const explanation = excerpt(text, 400);
+            // Only if it is still the failure that was asked about.
+            if (explanation && s.failure?.at === f.at) {
+              s.failure = { ...s.failure, explanation };
+              root.dirty = true;
+            }
+          })
+          .catch(() => undefined)
+          .finally(() => this.explaining--);
+      }
+    }
+  }
+
+  /** Whether the messaging tools are offered: the person allowed it, and the host can submit a prompt. */
+  get messaging(): boolean {
+    return this.peers !== null;
+  }
+
+  /**
+   * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`) from the session it ran in. A call from a subagent's
+   * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
+   */
+  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access', sessionId: string, input: unknown): Promise<string> {
+    const peers = this.peers;
+    if (!peers) return 'Not taking part. Orchestrator messaging is off on this machine.';
+    const rootId = this.store.rootOf.get(sessionId);
+    const root = rootId ? this.store.roots.get(rootId) : undefined;
+    const t = root ? this.transportOf(root) : undefined;
+    const sub = !!root && root.id !== sessionId;
+    const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+    if (name === 'podium_peers') return peers.list(root, t, sub);
+    if (name === 'podium_send') return peers.send(root, t, sub, args);
+    return peers.access(root, t, sub, args);
+  }
+
+  /** `/podium allow|decline|deliver <id>` typed in a session, and the waiting requests `/podium` lists. */
+  async answerRequest(sessionId: string, answer: 'allow' | 'decline' | 'deliver', arg: string): Promise<string> {
+    const rootId = this.store.rootOf.get(sessionId);
+    const root = rootId ? this.store.roots.get(rootId) : undefined;
+    if (!this.peers) return 'Orchestrator messaging is not on in this session, so nothing can be answered here. Answer in Podium > My reporters.';
+    return this.peers.answer(root, root ? this.transportOf(root) : undefined, answer, arg);
+  }
+
+  /** The requests waiting for the person, one line each; empty when none or messaging is off. */
+  waitingRequests(): string {
+    return this.peers?.openLine() ?? '';
+  }
+
+  /** The `plan` tool: names the plan of the orchestrator that called it. A subagent's call changes nothing. */
+  namePlan(sessionId: string, input: unknown): string {
+    const root = this.store.roots.get(sessionId);
+    if (!root) return 'Not named. Only the orchestrator names the plan.';
+    const plan = setTitle(root.plan, input);
+    if (plan === root.plan) return 'Not named. Give a short title.';
+    root.plan = plan;
+    root.dirty = true;
+    return `Named the plan: ${plan.toolTitle}.`;
   }
 
   /** Drops a done root that has stayed quiet for a long while, so a busy server process does not grow without end. */
