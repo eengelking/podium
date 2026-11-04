@@ -19,6 +19,7 @@ Where this repo differs from the generic skill:
 The generic gate, made concrete. On the tip of `development`:
 
 - `npm test` and `npm run build` pass (CI runs both).
+- `npm run plugin:dist:check` passes on the release-prep result: `dist/` is exactly a clean build of `plugin/` at the release version (CI runs it on the PR into `main` and on the push to `main`, and a failure blocks the merge). Order matters: bump the versions, then rebuild `dist/` with `npm run plugin:build:release`, then commit. Any commit that lands on `development` after that makes `dist/` stale, so redo the rebuild in the release-prep PR before opening the release PR. Never run `plugin:build:release` on a feature branch: it rewrites the tracked `dist/`; use `npm run plugin:build`, which builds into `dist-dev/`.
 - `npm run standards:parity` passes: the standards must equal the app that is about to become `main` (CI runs it on a PR into `main`). If `[Unreleased]` has `Standards:` lines, load `podium-standards-update` in the release-prep PR and bring `docs/standards/` in line.
 - `npm run e2e` passes: the whole end-to-end suite, in containers, with no failure and no retry (the `E2E` workflow also runs on the release PR into `main`, on the self-hosted runners; run it locally first, since a failing spec stops a release).
 - The docs site builds: `node site/scripts/build.mjs` (the release PR's `Docs site` workflow runs it).
@@ -44,7 +45,7 @@ Then grep the repo for the old version string and look at every hit before assum
 
 `plugin/core/` ships inside every harness, so a change only in `plugin/core/` (not in a `*.test.ts`) changes the reporter: `mod-version-check.yml` requires a `plugin.json` bump for it, and the bump level follows what `[Unreleased]` says. A new harness under `plugin/` adds a row to the table above, a `REPORTER_SUPPORT` entry of its own in `compat.ts` (#852; no entry means no version warning), and a line in `scripts/versions.test.ts`'s harness list if it keeps its version somewhere other than `.claude-plugin/plugin.json` or `package.json`.
 
-A hotfix that changes the UI also updates `docs/standards/` in the same PR (`podium-standards-update`).
+A hotfix changes the same files with a patch bump, and rebuilds and commits `dist/` in the same PR (`npm run plugin:build:release`, then `npm run plugin:dist:check`), because the PR into `main` is gated by the same check. A hotfix that changes the UI also updates `docs/standards/` in the same PR (`podium-standards-update`).
 
 ## The release check
 
