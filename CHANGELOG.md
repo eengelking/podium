@@ -126,6 +126,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **A Claude Code session whose main loop is working no longer reads "waiting" after a background agent wakes it (#997).** The mod kept the main loop idle from a `Stop` until the next prompt. A background agent's report starts a new turn with no prompt, so a session that was running a command (for example `gh pr checks --watch`) showed "Waiting for your approval" on its card and band with nothing to approve. A tool call in the main loop now ends the idle state, and the next `Stop` sets it again. A turn that is only thinking, with no tool call yet, still reads as idle: no hook tells the mod otherwise.
+
 - **A card's session ID leaves the wall with the card (#992).** The ID is a button beside the card's own button, so the leave animation, which ran on the card alone, left it (and the pin, Remove and respond buttons) on screen for a moment. The animation now runs on the slot that holds all of them.
 
 - **The console no longer says OpenCode cannot message, and an OpenCode card shows Context and Effort (#985).** The OpenCode report now sends `peers: false` when messaging is off (it left the field out, which SPEC 6.2 reads as "not supported"), so a session with messaging off shows as "messaging off". The Admin and My reporters pages tell people to switch messaging on with `PODIUM_PEERS=true`, and the console's fallback for OpenCode no longer declares context and effort unsupported.

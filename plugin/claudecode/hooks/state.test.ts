@@ -432,6 +432,16 @@ describe('background work (#119)', () => {
     expect(r.session.background).toEqual({ tasks: [{ type: 'shell', description: 'nightly build', status: 'running' }], wakeAt: null })
   })
 
+  test('a main-loop tool call after the turn ended means the session is working again, not waiting (#997)', () => {
+    // A background agent's report wakes the idle main loop without a new prompt, so no turnStart fires.
+    const woken = toolStarted(idle(), undefined, 'Bash', T0 + 5)
+    expect(woken).toMatchObject({ status: 'running', waitReason: null })
+    // A subagent's own tool call says nothing about the main loop, which is still between turns.
+    expect(toolStarted(idle(), 'a1', 'Bash', T0 + 5)).toMatchObject({ status: 'waiting', waitReason: 'input' })
+    // The Stop hook of the woken turn puts it back to waiting.
+    expect(turnComplete(woken, { reason: 'answer' }, T0 + 9)).toMatchObject({ status: 'waiting', waitReason: 'input' })
+  })
+
   test('describeBackground lists each held entry, or says none (#128)', () => {
     expect(describeBackground(idle())).toBe('Background work: none')
     const s = setBackground(idle(), { tasks: [shell, { id: 'm1', type: 'monitor', status: 'exited', description: 'watch logs' }], crons: [] }, T0 + 2)
