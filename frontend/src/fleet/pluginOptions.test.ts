@@ -14,6 +14,12 @@ describe("pluginOptions (#857)", () => {
     expect(turnOnTexts(["claude-code", "opencode"], "peers")).toBe(`${turnOnText("claude-code", "peers")} ${turnOnText("opencode", "peers")}`);
   });
 
+  it("does not tell OpenCode users to set PODIUM_PEERS, because its reporter does not message yet (#968)", () => {
+    expect(turnOnText("opencode", "peers")).not.toContain("PODIUM_PEERS");
+    expect(turnOnText("opencode", "peers")).toContain("does not message yet");
+    expect(turnOnText("opencode", "respond")).toContain("PODIUM_RESPOND=true");
+  });
+
   it("finds the harnesses on a machine from its sessions, by the row's key, and reads a missing harness as Claude Code", () => {
     const sessions = [
       { harness: "opencode", machine: { id: "m1" } },

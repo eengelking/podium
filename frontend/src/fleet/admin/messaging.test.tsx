@@ -285,7 +285,7 @@ describe("a reporter's Messaging section (#416)", () => {
     expect(await within(await screen.findByRole("region", { name: "Messaging" })).findByText("Messaging is off on win-lab")).toBeInTheDocument();
     // Both of Claude Code's routes, as My reporters says them (#837), then OpenCode's (#857).
     expect(within(messaging()).getByText(/Only that machine can turn it on/)).toHaveTextContent(
-      "In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on. In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers. In OpenCode there, add PODIUM_PEERS=true to ~/.podium/config.env, then run opencode service restart. Until then there is nothing to set here.",
+      "In Claude Code there, run /plugin configure podium-reporter@eengelking-marketplace and set peers to on. In the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on peers. The OpenCode reporter does not message yet. Until then there is nothing to set here.",
     );
     expect(within(messaging()).queryByRole("combobox")).toBeNull();
     expect(screen.queryByRole("button", { name: /all links/ })).toBeNull();

@@ -7,7 +7,13 @@ import type { Ask, FormField, Root } from './state.ts';
 /** The reply OpenCode takes for a permission. Podium never sends `always`: allowing once is the most a person at a console can grant. */
 export type PermissionReply = 'once' | 'reject';
 
-export const permissionReply = (kind: Delivery['kind']): PermissionReply | null => (kind === 'allow-once' ? 'once' : kind === 'deny' ? 'reject' : null);
+export const permissionReply = (kind: Delivery['kind']): PermissionReply | null => (kind === 'allow-once' ? 'once' : kind === 'deny' || kind === 'reply' ? 'reject' : null);
+
+/** What the reporter says when Podium denies a tool without a reason. The same words as the Claude Code reporter. */
+export const DENIED_FROM_PODIUM = 'Denied from Podium.';
+
+/** The message that goes with a rejection: the reason or reply typed in Podium, or `DENIED_FROM_PODIUM` when there is none. Never sent with `once`. */
+export const rejectMessage = (d: Pick<Delivery, 'text'>): string => (d.text ?? '').trim().slice(0, RESPOND_LIMITS.answer) || DENIED_FROM_PODIUM;
 
 /** The loop an ask belongs to: null for the root session, the child session's id for a subagent. */
 const agentOf = (a: Ask, root: Root): string | null => (a.sessionId === root.id ? null : a.sessionId);

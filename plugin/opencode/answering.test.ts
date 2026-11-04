@@ -70,7 +70,8 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
   it('replies once or reject to a permission and nothing else, never always', () => {
     expect(permissionReply('allow-once')).toBe('once');
     expect(permissionReply('deny')).toBe('reject');
-    for (const k of ['question', 'reply', 'plan-approve', 'plan-feedback', 'message', 'command'] as const) expect(permissionReply(k)).toBeNull();
+    expect(permissionReply('reply')).toBe('reject');
+    for (const k of ['question', 'plan-approve', 'plan-feedback', 'message', 'command'] as const) expect(permissionReply(k)).toBeNull();
   });
 
   const field = (over: Partial<FormField> = {}): FormField => ({ key: 'q0', title: 'T', description: '', type: 'string', options: [{ value: 'A', label: 'A', description: '' }, { value: 'B', label: 'B', description: '' }], custom: false, ...over });
@@ -268,7 +269,7 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[] } = {}) {
 function fakeHost(over: Partial<Host> = {}) {
   const calls: string[] = [];
   const host: Host = {
-    permissionReply: async (s, r, reply) => void calls.push(`permission ${s} ${r} ${reply}`),
+    permissionReply: async (s, r, reply, message) => void calls.push(`permission ${s} ${r} ${reply}${message === undefined ? '' : ` ${message}`}`),
     formChannel: () => 'tui',
     formReply: async (s, f, a) => void calls.push(`form ${s} ${f} ${JSON.stringify(a)}`),
     prompt: async (s, id, text) => void calls.push(`prompt ${s} ${id} ${text.split('\n').pop()}`),
@@ -319,7 +320,7 @@ describe('Reporter answering (#858)', () => {
     r.handle(ev('form.created', { form: FORM }));
     await r.tick();
     expect(last(server).capabilities).toMatchObject({ respond: true, commands: ['compact'] });
-    expect(last(server).session.respond).toEqual({ level: 'everything', accepts: ['question', 'message', 'permission', 'command'], limits: [] });
+    expect(last(server).session.respond).toEqual({ level: 'everything', accepts: ['question', 'message', 'permission', 'command'], limits: ['no-reply-in-place'] });
     expect(last(server).session.asks).toEqual([]); // the first reply has not said yet
     t.now += 6000;
     await r.tick();
@@ -358,7 +359,34 @@ describe('Reporter answering (#858)', () => {
     await r.tick();
     await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
     server.answer('per_1', { id: 'dd', kind: 'deny' });
-    await vi.waitFor(() => expect(calls).toEqual(['permission ses_root per_1 reject']));
+    await vi.waitFor(() => expect(calls).toEqual(['permission ses_root per_1 reject Denied from Podium.']));
+  });
+
+  it('passes the typed deny reason to OpenCode as the reply message (#968)', async () => {
+    const { host, calls } = fakeHost();
+    const { r, server } = rig(host);
+    r.handle(permission());
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dd', kind: 'deny', text: '  not in this repo  ' });
+    await vi.waitFor(() => expect(calls).toEqual(['permission ses_root per_1 reject not in this repo']));
+  });
+
+  it('takes a reply in place of a permission as a rejection with the text (#968)', async () => {
+    const { host, calls } = fakeHost();
+    const { r, server } = rig(host);
+    r.handle(permission());
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dr', kind: 'reply', text: 'hold off, I want to look first' });
+    await vi.waitFor(() => expect(calls).toEqual(['permission ses_root per_1 reject hold off, I want to look first']));
+  });
+
+  it('declares that a question takes no reply in its place (#968)', async () => {
+    const { host } = fakeHost();
+    const { r, server } = rig(host);
+    await r.tick();
+    expect(last(server).session.respond?.limits).toContain('no-reply-in-place');
   });
 
   it('refuses an answer of the wrong kind for a permission, and leaves OpenCode alone', async () => {
