@@ -62,7 +62,8 @@ import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
 import { activityCall, activityText, explainPrompt } from '../../core/failures.ts';
 import { activityEntry, finishedCall, type BashResult } from './activityDetail.ts';
 import { nameArg, pickIdentity, worthHolding, type Identity } from './identity.ts';
-import { chooseMachineId, sharedMachineIdPath, hostOf, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, localHostNameOf, parseMachineNameFile, machineInfo, newMachineId, platformRandom, type RandomSource, osFromOsRelease, osFromSwVers, osFromVer, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
+import { pinnedMachineName, readOsName, type HostIO } from '../../core/machineHost.ts';
+import { chooseMachineId, sharedMachineIdPath, isMachineId, MACHINE_ID_KEY, machineIdPath, machineNamePath, machineInfo, newMachineId, platformRandom, type RandomSource, parseMachineIdFile, trimTrailingSlashes } from '../../core/machine.ts';
 import { MAIN_LOOP, RECORDING_LIMITS, type Ask, type Delivery, type DeliveryResult, type MachineInfo, type PeerDelivery, type PeerRequest, type PeerResult, type RecordingGrant, type RespondInfo, type RespondKind, type RespondLevel } from '../../core/protocol.ts';
 import { isRecordingGrant } from '../../core/transport.ts';
 import { limitLine, Recorder, refusedLine, startLine, stoppedLine, unframeSent } from './recording.ts';
@@ -833,9 +834,9 @@ function random(): number {
 }
 
 /**
- * The machine's id, one for every load of the mod on it (#267). The shared file under the Claude config
- * directory decides; without a valid one, the id this load's store already holds is kept (so an install
- * keeps its row) and shared, else a new one is made and shared. The file is read back after a write. Two loads
+ * The machine's id, one for every load of the mod on it (#267). The file under the Claude config directory decides,
+ * then the id this load's store already holds (so an install keeps its row, #967), then the shared `~/.podium` file
+ * another reporter made; the winner is written to the shared file. Else a new one is made and shared. The file is read back after a write. Two loads
  * that start in the same instant can still each keep the id they wrote for that session (the last write is
  * the file's), and agree from their next session on. Where the file cannot be used, the store alone
  * keeps the id, as before.
@@ -846,50 +847,49 @@ async function machineId($: Engine): Promise<string> {
   // The id every reporter on this machine shares (#856); the Claude file, then the store, stay as the way back to an id made before it.
   const sharedPath = sharedMachineIdPath(home);
   const readFile = async (p: string | null) => (p ? parseMachineIdFile(await attempt(async () => (await $.fs.read(p)) as string, null)) : null);
-  const shared = async () => (await readFile(sharedPath)) ?? (await readFile(path));
+  const current = async () => (await readFile(path)) ?? (await readFile(sharedPath));
   const kept = await attempt(() => $.store.get(MACHINE_ID_KEY), undefined);
-  const fromFile = chooseMachineId({ shared: await readFile(sharedPath), legacyFile: await readFile(path) });
-  if (fromFile) {
-    // Keep this load's store in step, so the id survives the shared file being deleted.
-    if (fromFile !== kept) await attempt(() => $.store.set(MACHINE_ID_KEY, fromFile), undefined);
-    if (sharedPath && fromFile !== (await readFile(sharedPath))) await attempt(() => $.fs.write(sharedPath, `${fromFile}\n`), undefined);
-    return fromFile;
+  // An id this install already made wins over the shared file (#967): the legacy file, then the store, then whatever another reporter shared.
+  const legacyFile = await readFile(path);
+  const fromFile = chooseMachineId({ legacyFile, shared: await readFile(sharedPath) });
+  if (legacyFile || (fromFile && !isMachineId(kept))) {
+    const id = fromFile!;
+    // Keep this load's store in step, so the id survives the files being deleted.
+    if (id !== kept) await attempt(() => $.store.set(MACHINE_ID_KEY, id), undefined);
+    if (sharedPath && id !== (await readFile(sharedPath))) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
+    return id;
   }
   const id = isMachineId(kept) ? kept : newMachineId(random);
   if (id !== kept) await attempt(() => $.store.set(MACHINE_ID_KEY, id), undefined);
   if (!path && !sharedPath) return id;
   if (sharedPath) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
   if (path) await attempt(() => $.fs.write(path, `${id}\n`), undefined);
-  return (await shared()) ?? id;
+  return (await current()) ?? id;
 }
 
 /**
  * The machine's short host name, pinned (#715). `hostname` follows the network on a Mac with no `HostName` set (a
  * DHCP or reverse-DNS answer such as `Mac`, or the stable `LocalHostName`), and can change on Linux with a DHCP
- * hostname or a recreated container, so one machine showed two names. The first name read is kept in
- * `podium-machine-name` beside the id file and every later load reports it. Where the file cannot be used, the live
- * name is reported as before. Delete the file to take a new name.
+ * hostname or a recreated container, so one machine showed two names. The first name read is kept in the shared
+ * `~/.podium/machine-name` (this file beside the id file is the fallback) and every later load reports it, as the OpenCode
+ * reporter does too (#967). Where no file can be used, the live name is reported as before. Delete the file to take a new name.
  */
 async function machineName($: Engine): Promise<string | null> {
-  const path = machineNamePath(
-    await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined),
-    (await readHome($)).home,
-  );
-  const pinnedName = async () => (path ? parseMachineNameFile(await attempt(async () => (await $.fs.read(path)) as string, null)) : null);
-  const pinned = await pinnedName();
-  if (pinned) return pinned;
-  const run = async (argv: string[]) => {
-    const res = await $.process.run(argv, { timeoutMs: 2000 });
-    return res.exitCode === 0 ? res.stdout : null;
+  const home = (await readHome($)).home;
+  const path = machineNamePath(await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined), home);
+  return pinnedMachineName(hostIO($), home, path, { ownFirst: true });
+}
+
+/** What the shared machine readers (`core/machineHost.ts`) use here: this engine's files and processes, a missing executable rejecting. */
+function hostIO($: Engine): HostIO {
+  return {
+    read: async (p) => (await $.fs.read(p)) as string,
+    write: (p, text) => $.fs.write(p, text) as Promise<void>,
+    run: async (argv) => {
+      const res = await $.process.run(argv, { timeoutMs: 2000 });
+      return res.exitCode === 0 ? res.stdout : null;
+    },
   };
-  // macOS first: LocalHostName is the Sharing name and does not follow the network. A missing `scutil` rejects.
-  const live =
-    (await attempt(async () => localHostNameOf(await run(['scutil', '--get', 'LocalHostName'])), null)) ??
-    (await attempt(async () => hostOf(await run(['hostname'])), null));
-  if (!live || !path) return live;
-  await attempt(() => $.fs.write(path, `${live}\n`), undefined);
-  // Two loads starting together both write; each reports whichever name the file ended with, as machineId does.
-  return (await pinnedName()) ?? live;
 }
 
 /**
@@ -914,15 +914,7 @@ async function readMachine($: Engine): Promise<MachineInfo | null> {
  * and `cmd /c ver` (Windows) that works. A missing executable rejects, so each is tried in turn. Null when none does.
  */
 async function readOs($: Engine): Promise<string | null> {
-  const run = async (argv: string[]) => {
-    const res = await $.process.run(argv, { timeoutMs: 2000 });
-    return res.exitCode === 0 ? res.stdout : null;
-  };
-  return (
-    (await attempt(async () => osFromSwVers(await run(['sw_vers'])), null)) ??
-    (await attempt(async () => osFromOsRelease((await $.fs.read('/etc/os-release')) as string), null)) ??
-    (await attempt(async () => osFromVer(await run(['cmd', '/c', 'ver'])), null))
-  );
+  return readOsName(hostIO($));
 }
 
 async function attempt<T>(fn: () => Promise<T>, fallback: T): Promise<T> {

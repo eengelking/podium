@@ -436,11 +436,14 @@ put on record:
 - That name.
 - Which machine the session runs on: its short host name (on a Mac `scutil --get LocalHostName`, else what `hostname` prints, up to the first dot) and a
   random 12-character id. The mod makes the id the first time and keeps it in one file
-  (`~/.podium/machine-id`, shared with the OpenCode reporter; an id an earlier install kept in `~/.claude/podium-machine-id`, or under
-  `CLAUDE_CONFIG_DIR`, is copied there, so that install keeps its row). Two machines with the same
-  host name stay apart, and every reporter on a machine reports the same id. The name is pinned the
-  same way, in `podium-machine-name` beside the id file, so a name that changes with the network (#715) does not
-  split one machine into two. Delete that file to take the machine's current name.
+  (`~/.podium/machine-id`, shared with the OpenCode reporter). An id the Claude Code reporter already made, in
+  `~/.claude/podium-machine-id` (or under `CLAUDE_CONFIG_DIR`) or in its store, is never replaced: it is copied there, so that install keeps its
+  row (#967). The OpenCode reporter reads the shared file on each load, and can see only the file, not the store; so an OpenCode id may change once, when
+  Claude Code next writes the id it keeps. Two machines with the same
+  host name stay apart, and every reporter on a machine reports the same id. Both reporters read the name and the OS one way (#967): the name is pinned
+  in `~/.podium/machine-name`, with the Claude Code reporter's `podium-machine-name` beside its id file, which that reporter reads first so a name it already reported never changes (the OpenCode reporter reads the shared pin first), so a name that changes with the network (#715) does not
+  split one machine into two. Delete the pin to take the machine's current name. The two reporters on a machine appear in Admin > Reporters as two rows, named
+  `podium-reporter-claudecode` and `podium-reporter-opencode` (the Claude Code reporter still sends `podium-reporter` in its v1 reports, which the server reads as the first).
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
   string does not make Windows a supported platform; see In the session.

@@ -36,7 +36,7 @@ All in the same commit, never as a follow-up after the tag. A hotfix changes the
 | `plugin/claudecode/hooks/register.ts` | `VERSION`, equal to `plugin.json` |
 | `plugin/opencode/package.json` and `plugin/opencode/version.ts` | `version` and `VERSION`, the same release number (`scripts/versions.test.ts` fails if they differ from each other or from the root) |
 | `docs/atlas/podium-atlas.html` | The version in the rail ("Reads from the repo at vX.Y.Z") and in the footer ("at version X.Y.Z"); the line counts under "How much is tested", the chart and its table, and the "Counted from the repository on" date, when the release changed much code (`podium-atlas-update`) |
-| `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in the `podium-reporter` entry of `REPORTER_SUPPORT` to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date mod it is newer than the server supports (SPEC 6.8) |
+| `server/src/fleet/compat.ts` | On a new **minor or major** only: move `max` in both entries of `REPORTER_SUPPORT` (`podium-reporter-claudecode` and `podium-reporter-opencode`) to the release's `MAJOR.MINOR.0`, or the server tells every up-to-date reporter it is newer than the server supports (SPEC 6.8; `scripts/versions.test.ts` fails for either) |
 
 Then grep the repo for the old version string and look at every hit before assuming the table is complete. Known hits that are sample data and do not change: `docs/fixtures/report.sample.json`, the fixtures in `server/src/fleet/*.test.ts`, `docs/gotchas/`, `plugin/claudecode/hooks/scripted.ts`, the simulator's `0.1.0-sim`, and the manifest example in `docs/spec/`.
 

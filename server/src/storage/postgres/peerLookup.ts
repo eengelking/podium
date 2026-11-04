@@ -2,7 +2,7 @@
 // has no orchestrator to message, so every read here is of mod reporters; owners compare without regard to (ASCII) case.
 import { checkReporter } from '../../fleet/compat.js';
 import type { ReporterRef } from '../../fleet/peerTypes.js';
-import { ADMIN_SECRET, IDLE_MS, REPORTING_MS, type ReporterState } from '../rows.js';
+import { ADMIN_SECRET, canonicalReporterName, IDLE_MS, REPORTING_MS, type ReporterState } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import type { PgDb } from './conn.js';
 
@@ -30,7 +30,7 @@ const ref = (r: DbPeerRef): ReporterRef => ({
   os: r.os,
   peers: r.peers === null ? null : r.peers === 1,
   version: r.reporter_version,
-  reporterName: r.reporter_name,
+  reporterName: canonicalReporterName(r.reporter_name),
 });
 
 const COLS = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
@@ -45,7 +45,7 @@ export function pgPeerLookup(db: PgDb, startedAt: number = Date.now()): AsyncPee
         `SELECT ${COLS}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${MINE}`,
         { owner, now, started: startedAt },
       );
-      return rows.map((r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, r.reporter_name) }));
+      return rows.map((r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)) }));
     },
     get: async (key) => {
       const r = await db.get<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE key = ? AND kind = 'mod'`, [key]);

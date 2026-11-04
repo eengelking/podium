@@ -46,14 +46,14 @@ describe("REPORTER_SUPPORT", () => {
 });
 
 describe("a range per reporter (#852)", () => {
-  const ranges = { "podium-reporter": { min: "0.2.0", max: "1.4.0" }, "opencode-reporter": { min: "1.5.0", max: "1.5.0" } };
+  const ranges = { "podium-reporter-claudecode": { min: "0.2.0", max: "1.4.0" }, "podium-reporter-opencode": { min: "1.5.0", max: "1.5.0" } };
   const of = (name: string) => ranges[name as keyof typeof ranges] ?? null;
 
   it("judges a reporter by its own range, so one outside it warns and the other does not", () => {
-    expect(check("1.5.0", "podium-reporter", of("podium-reporter"))).toBe("newer");
-    expect(check("1.5.0", "opencode-reporter", of("opencode-reporter"))).toBe("ok");
-    expect(check("1.4.0", "opencode-reporter", of("opencode-reporter"))).toBe("outdated");
-    expect(check("1.4.0", "podium-reporter", of("podium-reporter"))).toBe("ok");
+    expect(check("1.5.0", "podium-reporter-claudecode", of("podium-reporter-claudecode"))).toBe("newer");
+    expect(check("1.5.0", "podium-reporter-opencode", of("podium-reporter-opencode"))).toBe("ok");
+    expect(check("1.4.0", "podium-reporter-opencode", of("podium-reporter-opencode"))).toBe("outdated");
+    expect(check("1.4.0", "podium-reporter-claudecode", of("podium-reporter-claudecode"))).toBe("ok");
   });
 
   it("does not check a reporter with no range of its own", () => {
@@ -69,14 +69,23 @@ describe("a range per reporter (#852)", () => {
   });
 
   it("names the reporter that serves a harness, or the harness itself when none is known", () => {
-    expect(reporterOfHarness("claude-code")).toBe("podium-reporter");
-    expect(reporterOfHarness("opencode")).toBe("opencode");
-    expect(reporterOfHarness(null)).toBe("podium-reporter");
+    expect(reporterOfHarness("claude-code")).toBe("podium-reporter-claudecode");
+    expect(reporterOfHarness("opencode")).toBe("podium-reporter-opencode");
+    expect(reporterOfHarness(null)).toBe("podium-reporter-claudecode");
   });
 });
 
 describe("serverVersion", () => {
   it("reads the version from server/package.json", () => {
     expect(serverVersion()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("the legacy and the per-harness names (#967)", () => {
+  it("reads the legacy name as the Claude Code reporter, and gives the OpenCode reporter a range of its own", () => {
+    expect(supportFor("podium-reporter")).toEqual(supportFor("podium-reporter-claudecode"));
+    expect(supportFor("podium-reporter-opencode")).not.toBeNull();
+    expect(reporterOfHarness("opencode")).toBe("podium-reporter-opencode");
+    expect(check("99.0.0", "podium-reporter-opencode")).toBe("newer");
   });
 });

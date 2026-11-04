@@ -387,7 +387,7 @@ describe("reporter and server versions that do not match (#49)", () => {
     expect(container.querySelector(".top")!.textContent).toContain("2 reporters need an update");
     fireEvent.click(container.querySelector(".wall .card")!);
     const cell = (c: HTMLElement) => [...c.querySelectorAll(".facts > .fact")].find((f) => f.querySelector(".k")!.textContent === "Reporter")!;
-    expect(cell(container).getAttribute("title")).toMatch(/update the podium-reporter mod/i);
+    expect(cell(container).getAttribute("title")).toMatch(/update the claude code reporter/i);
   });
 
   it("gives the opposite advice for a reporter newer than the server", () => {

@@ -533,6 +533,15 @@ describe("Your reporters", () => {
     expect(screen.getByText(/win-lab's reporter is too old to message/)).toBeInTheDocument();
   });
 
+  it("does not call an OpenCode reporter too old to message, because it takes no part in messaging yet (#967)", async () => {
+    const d = baseRead();
+    d.reporters[3] = { ...d.reporters[3]!, peers: null, reporterName: "podium-reporter-opencode" };
+    page({ server: fakeServer(d) });
+    await flush();
+    expect(screen.queryByText(/win-lab's reporter is too old to message/)).toBeNull();
+    expect(screen.getByText(/win-lab's OpenCode reporter does not take part in messaging yet/)).toBeInTheDocument();
+  });
+
   it("cuts a long machine name and keeps it whole as a title", async () => {
     const d = baseRead();
     const long = "ed-macbook-pro-16-inch-2026-home-office";

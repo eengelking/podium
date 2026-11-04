@@ -29,6 +29,7 @@ export interface FakePeerRef {
   os: string | null;
   peers: boolean | null;
   version: string;
+  reporterName?: string;
 }
 interface FakeRight {
   from: string;

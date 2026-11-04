@@ -55,7 +55,7 @@ async function recoverPermissions(ctx: Plugin.Context, reporter: Reporter): Prom
 }
 
 /** Adds this machine to the options. Read once per location and cheap, so several locations in one process may each run it. */
-const withMachine = <T extends { userName: string | null; machine: unknown }>(o: T): T => ({ ...o, machine: readMachine(o.userName) });
+const withMachine = async <T extends { userName: string | null; machine: unknown }>(o: T): Promise<T> => ({ ...o, machine: await readMachine(o.userName) });
 
 /** The calls answering makes into OpenCode, from the plugin context. */
 const apiOf = (ctx: Plugin.Context): Api => ({
@@ -78,7 +78,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
   const trusted = optionsOf(ctx.options, null, process.env, settings.text);
   // A reporter config file (#948) is found from the environment and ~/.podium only, never from the project's options.
   const link = await openLink({ options: trusted, env: process.env, home: homeOf(process.env), now: () => Date.now() });
-  const options = withMachine(withLink(trusted, link));
+  const options = await withMachine(withLink(trusted, link));
   const bridge = { seenAt: 0, emit: undefined as undefined | ((e: AnswerEvent) => Promise<void>), reporter: undefined as Reporter | undefined };
   // Answering exists only where the person allowed it, in the environment or ~/.podium/config.env, never in a project's options.
   const answering = options.consent.respond

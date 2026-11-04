@@ -391,6 +391,9 @@ export interface SessionReport {
   sessionRecording?: boolean;
 }
 
+/** The names a reporter sends in `reporter.name` (#967): `podium-reporter` is the Claude Code reporter before it had a name of its own, and still accepted. */
+export type ReporterName = 'podium-reporter' | 'podium-reporter-claudecode' | 'podium-reporter-opencode';
+
 export interface Report {
   v: ReportVersion;
   sentAt: number;
@@ -399,7 +402,7 @@ export interface Report {
   /** What the reporter can send (v2). Absent from a v1 report, which means everything Claude Code has. */
   capabilities?: Capabilities;
   /** `build` is the commit hash of a dev build of the mod (#400). A release, and a mod that predates it, leave it out. */
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
+  reporter: { name: ReporterName; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };
   session: SessionReport;
   agents: AgentReport[];
   events: ActivityEvent[];

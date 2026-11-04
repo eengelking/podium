@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { keyOf, nameSuffix, DEFAULT_REPORTER_NAME, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -118,10 +118,12 @@ export class PgReporterStore implements ReporterStoreApi {
     if (s.machineId) return undefined;
     // A byte comparison, not LIKE: SQLite's LIKE folds ASCII case and PostgreSQL's does not (#943).
     const prefix = s.kind === 'hooks' ? 'hooks:' : 'addr:';
+    // A row made before the rename holds the legacy name (#967).
+    const names = storedReporterNames(s.reporterName);
     const hit = await this.db.get<{ key: string }>(
       `SELECT r.key FROM reporter_sessions x JOIN reporters r ON r.key = x.reporter_key
-       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name = ? AND substr(r.key, 1, ?) = ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
-      [s.sessionId, s.kind, s.reporterName ?? DEFAULT_REPORTER_NAME, prefix.length, prefix],
+       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name IN (?, ?) AND substr(r.key, 1, ?) = ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
+      [s.sessionId, s.kind, ...names, prefix.length, prefix],
     );
     return hit?.key;
   }
@@ -149,14 +151,14 @@ export class PgReporterStore implements ReporterStoreApi {
       await this.db.run(
         `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, machine_name = excluded.machine_name, source_address = excluded.source_address,
+         ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, reporter_name = excluded.reporter_name, machine_name = excluded.machine_name, source_address = excluded.source_address,
            owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
            engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
            os = COALESCE(excluded.os, reporters.os), peers = COALESCE(excluded.peers, reporters.peers)`,
         [
           key,
           s.kind,
-          s.reporterName ?? DEFAULT_REPORTER_NAME,
+          canonicalReporterName(s.reporterName),
           s.machineId,
           s.machineName?.slice(0, 64) ?? null,
           s.source?.slice(0, 120) ?? null,
@@ -220,8 +222,8 @@ export class PgReporterStore implements ReporterStoreApi {
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,
-      reporterName: r.reporter_name,
-      compat: checkReporter(r.reporter_version, r.reporter_name),
+      reporterName: canonicalReporterName(r.reporter_name),
+      compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)),
       firstSeenAt: r.first_seen_at,
       lastSeenAt: r.last_seen_at,
       sessions: r.sessions,

@@ -10,12 +10,13 @@ import { LEVEL_LABEL, LEVELS, pairKey, rightsModel, type PeerLevel, type PeerRep
 import { ADMIN } from "../people";
 import { ReadGate } from "../readGate";
 import { Blank } from "../components/Blank";
+import { reporterKind } from "../reporterUpdate";
 import { DESKTOP_OPTIONS, OPTION_CMD, turnOnText, type SetupHarness } from "../pluginOptions";
 
 export const PEER_FLAG = "peer-messaging";
 
 /** A reporter as the Admin's read lists it: no state or live orchestrators, which this page does not draw. */
-export type PeerRef = Pick<PeerReporter, "key" | "machine" | "owner" | "adminSecret" | "os" | "peers" | "version">;
+export type PeerRef = Pick<PeerReporter, "key" | "machine" | "owner" | "adminSecret" | "os" | "peers" | "version"> & { reporterName?: string };
 interface Effective {
   from: string;
   to: string;
@@ -72,6 +73,9 @@ function cannot(r: PeerRef, harnesses: readonly SetupHarness[]): ReactNode {
     );
   }
   if (!eligible(r)) return <Blank title="This reporter belongs to no one">Messaging only joins one person's own reporters, so there is nothing to set here.</Blank>;
+  if (r.peers === null && reporterKind(r.reporterName ?? "") === "opencode") {
+    return <Blank title={`${r.machine}'s reporter can't message`}>The OpenCode reporter does not take part in messaging yet, so there is nothing to set here.</Blank>;
+  }
   if (r.peers === null) {
     return (
       <Blank title={`${r.machine}'s reporter can't message`}>

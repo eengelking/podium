@@ -7,7 +7,7 @@ import { checkReporter } from '../../fleet/compat.js';
 import { clampPage, likeTerm } from './people.js';
 import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { keyOf, nameSuffix, DEFAULT_REPORTER_NAME, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { keyOf, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -110,10 +110,12 @@ export class ReporterStore {
     if (s.machineId) return undefined;
     // A byte comparison, not LIKE: SQLite's LIKE folds ASCII case and PostgreSQL's does not (#943).
     const prefix = s.kind === 'hooks' ? 'hooks:' : 'addr:';
+    // A row made before the rename holds the legacy name (#967).
+    const names = storedReporterNames(s.reporterName);
     const hit = this.stmt(
       `SELECT r.key FROM reporter_sessions x JOIN reporters r ON r.key = x.reporter_key
-       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name = ? AND substr(r.key, 1, ?) = ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
-    ).get(s.sessionId, s.kind, s.reporterName ?? DEFAULT_REPORTER_NAME, prefix.length, prefix) as { key: string } | undefined;
+       WHERE x.session_id = ? AND r.machine_id IS NULL AND r.kind = ? AND r.reporter_name IN (?, ?) AND substr(r.key, 1, ?) = ? ORDER BY r.first_seen_at, r.key LIMIT 1`,
+    ).get(s.sessionId, s.kind, ...names, prefix.length, prefix) as { key: string } | undefined;
     return hit?.key;
   }
 
@@ -141,14 +143,14 @@ export class ReporterStore {
     this.stmt(
       `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, machine_name = excluded.machine_name, source_address = excluded.source_address,
+       ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, reporter_name = excluded.reporter_name, machine_name = excluded.machine_name, source_address = excluded.source_address,
          owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
          engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
          os = COALESCE(excluded.os, os), peers = COALESCE(excluded.peers, peers)`,
     ).run(
       key,
       s.kind,
-      s.reporterName ?? DEFAULT_REPORTER_NAME,
+      canonicalReporterName(s.reporterName),
       s.machineId,
       s.machineName?.slice(0, 64) ?? null,
       s.source?.slice(0, 120) ?? null,
@@ -189,7 +191,7 @@ export class ReporterStore {
       os: r.os,
       peers: r.peers === null ? null : r.peers === 1,
       version: r.reporter_version,
-      reporterName: r.reporter_name,
+      reporterName: canonicalReporterName(r.reporter_name),
     });
     const cols = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
     const mine = `lower(owner) = lower(:owner) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`;
@@ -197,7 +199,7 @@ export class ReporterStore {
       startedAt: this.startedAt,
       ofOwnerSeen: (owner, now) =>
         (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ owner, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
-          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, r.reporter_name) }),
+          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)) }),
         ),
       get: (key) => {
         // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.
@@ -237,8 +239,8 @@ export class ReporterStore {
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,
-      reporterName: r.reporter_name,
-      compat: checkReporter(r.reporter_version, r.reporter_name),
+      reporterName: canonicalReporterName(r.reporter_name),
+      compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)),
       firstSeenAt: r.first_seen_at,
       lastSeenAt: r.last_seen_at,
       sessions: r.sessions,

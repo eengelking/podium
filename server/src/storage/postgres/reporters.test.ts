@@ -119,7 +119,7 @@ describe.skipIf(!TEST_PG)('reporters', () => {
     await store.record(seen({ machineId: 'bbbbbbbbbbbb', machineName: null, owner: 'dana', credential: 'admin secret', sessionId: 's2' }), START + MIN);
     await store.record(seen({ machineId: 'cccccccccccc', owner: 'Alex', sessionId: 's3' }), START + MIN);
     const look = store.peerLookup();
-    expect((await look.get('9f3a1c7d2e40'))).toEqual({ key: '9f3a1c7d2e40', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0', reporterName: 'podium-reporter' });
+    expect((await look.get('9f3a1c7d2e40'))).toEqual({ key: '9f3a1c7d2e40', machine: 'studio-m2', owner: 'Dana', adminSecret: false, os: 'macOS 27.0.1', peers: true, version: '0.13.0', reporterName: 'podium-reporter-claudecode' });
     expect((await look.get('bbbbbbbbbbbb'))).toMatchObject({ machine: 'bbbbbbbbbbbb', adminSecret: true, peers: null });
     expect((await look.get('nope'))).toBeNull();
     expect((await look.ofOwner('DANA')).map((r) => r.key)).toEqual(['bbbbbbbbbbbb', '9f3a1c7d2e40']);

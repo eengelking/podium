@@ -13,14 +13,27 @@ keeps one range for each reporter, by `reporter.name`, in `REPORTER_SUPPORT` in 
 oldest and newest versions of that reporter it reads correctly. Podium has one product version, but a reporter
 starts at its own first release, so a reporter is judged only against its own range and never against another
 reporter's. A range changes when the report format or that reporter's behavior needs it, not on every release.
-A reporter with no range on the server (a name the server does not know yet) is `unknown` and gets no warning.
+A reporter with no range on the server is `unknown` and gets no warning; a report that carries a reporter name the server does not know is refused (see Reporter names).
+
+**Reporter names (#967).** `podium-reporter` is the product, the plugin and the MCP tools. A reporter's wire name,
+`reporter.name`, says which harness it is: `podium-reporter-claudecode` for the Claude Code reporter and
+`podium-reporter-opencode` for the OpenCode reporter. The Claude Code reporter keeps sending `podium-reporter` in its v1
+reports, so one updated before its server is not refused; the server reads that and `podium-reporter-claudecode` as the
+Claude Code reporter. They land on one row with one key, and its `reporterName` is `podium-reporter-claudecode`. A v2
+report carries its harness's own name: `podium-reporter-opencode` for the `opencode` harness, and either Claude Code name for
+`claude-code`. Any other name is a 400 on `$.reporter.name`, so is the OpenCode name in a v1 report, and so is the legacy name
+from an OpenCode build, which would otherwise land on the Claude Code row. The OpenCode reporter
+has a range of its own in `REPORTER_SUPPORT`, and `REPORTER_OF_HARNESS` points the `opencode` harness at it, so a session's
+warning and the reporter's row agree. The warning names the reporter to update: the Claude Code reporter
+(`claude plugin update podium-reporter@eengelking-marketplace`) or the OpenCode reporter (`opencode plugin update`, then
+`opencode service restart`).
 
 Only `major.minor` is compared, so a mod-only patch fix never warns. `checkReporter` returns:
 
 | Result | Meaning | What to do |
 |---|---|---|
 | `ok` | Inside the range. | Nothing. |
-| `outdated` | Below `min`. | Update the mod: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. |
+| `outdated` | Below `min`. | Update the reporter. Claude Code: `claude plugin update podium-reporter@eengelking-marketplace`, then `/reload-plugins`. OpenCode: `opencode plugin update`, then `opencode service restart`. |
 | `newer` | Above `max`. | Upgrade the server. |
 | `unknown` | The version is not `X.Y.Z` (the simulator's `0.1.0-sim`, for one). | Nothing. No warning is shown. |
 

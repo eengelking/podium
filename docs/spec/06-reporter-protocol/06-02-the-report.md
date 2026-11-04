@@ -14,7 +14,7 @@ All times are epoch milliseconds. All token counts are integers. Unknown fields 
 interface Report {
   v: 1;
   sentAt: number;
-  reporter: { name: 'podium-reporter'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
+  reporter: { name: 'podium-reporter' | 'podium-reporter-claudecode'; version: string; engineVersion: string | null; hostSurface: string | null; build?: string | null };  // build: the commit of a dev build of the mod (6.8); left out for a release
   session: {
     id: string;
     name: string;                       // display name (6.6)

@@ -99,15 +99,18 @@ export function upgradeCases(o: UpgradeOpeners): void {
     try {
       const { rows } = await s.reporters.list({ sort: 'last', dir: 1 }, T0 + 40);
       expect(rows.map((r) => [r.key, r.reporterName, r.version, r.firstSeenAt, r.lastSeenAt, r.who])).toEqual([
-        ['ma', 'podium-reporter', '1.2.0', T0, T0 + 10, 'ed'],
-        ['ma#eve', 'podium-reporter', '1.3.0', T0 + 1, T0 + 20, 'eve'],
-        ['hooks:10.0.0.9', 'podium-reporter', 'hooks', T0 + 2, T0 + 30, 'Unassigned'],
+        ['ma', 'podium-reporter-claudecode', '1.2.0', T0, T0 + 10, 'ed'],
+        ['ma#eve', 'podium-reporter-claudecode', '1.3.0', T0 + 1, T0 + 20, 'eve'],
+        ['hooks:10.0.0.9', 'podium-reporter-claudecode', 'hooks', T0 + 2, T0 + 30, 'Unassigned'],
       ]);
       // A report from the same machine by the same reporter lands on the row it already had; another reporter gets a row of its own.
       const same = await s.reporters.record({ kind: 'mod', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '1.4.0', engineVersion: null, sessionId: 'x1' }, T0 + 50);
       expect(same).toBe('ma');
-      const other = await s.reporters.record({ kind: 'mod', reporterName: 'opencode-reporter', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '2.0.0', engineVersion: null, sessionId: 'x2' }, T0 + 51);
-      expect(other).toBe('ma@opencode-reporter');
+      // The Claude Code reporter's new wire name lands on the same row as the legacy one, with the same key (#967).
+      const renamed = await s.reporters.record({ kind: 'mod', reporterName: 'podium-reporter-claudecode', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '1.4.0', engineVersion: null, sessionId: 'x3' }, T0 + 52);
+      expect(renamed).toBe('ma');
+      const other = await s.reporters.record({ kind: 'mod', reporterName: 'podium-reporter-opencode', machineId: 'ma', machineName: 'box-a', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '2.0.0', engineVersion: null, sessionId: 'x2' }, T0 + 51);
+      expect(other).toBe('ma@podium-reporter-opencode');
       expect((await s.reporters.list({}, T0 + 60)).rows).toHaveLength(4);
     } finally {
       await s.close();

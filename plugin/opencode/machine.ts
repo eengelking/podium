@@ -1,8 +1,10 @@
 // This machine as the report names it (#856): the id every reporter on it shares, kept in `~/.podium/machine-id`.
-// An id a Claude install already made is taken over, so that install keeps its row.
-import { hostname, homedir, type, release } from 'node:os';
+// An id a Claude install already made is taken over, so that install keeps its row; the Claude Code reporter's id always wins (#967).
+import { homedir } from 'node:os';
+import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
-import { chooseMachineId, hostOf, machineIdPath, machineInfo, newMachineId, parseMachineIdFile, platformRandom, sharedMachineIdPath, type RandomSource } from '../core/machine.ts';
+import { chooseSharedMachineId, machineIdPath, machineInfo, machineNamePath, newMachineId, parseMachineIdFile, platformRandom, sharedMachineIdPath, type RandomSource } from '../core/machine.ts';
+import { pinnedMachineName, readOsName, type HostIO } from '../core/machineHost.ts';
 import type { MachineInfo } from '../core/protocol.ts';
 import { settingsPath, tooOpen } from '../core/settings.ts';
 
@@ -14,7 +16,7 @@ const read = (p: string | null): string | null => {
 export function sharedMachineId(home: string = homedir(), claudeConfigDir: string | undefined = process.env.CLAUDE_CONFIG_DIR): string {
   const path = sharedMachineIdPath(home);
   const shared = parseMachineIdFile(read(path));
-  const found = chooseMachineId({ shared, legacyFile: parseMachineIdFile(read(machineIdPath(claudeConfigDir, home))) });
+  const found = chooseSharedMachineId({ shared, legacyFile: parseMachineIdFile(read(machineIdPath(claudeConfigDir, home))) });
   const id = found ?? newMachineId(() => platformRandom(globalThis.crypto as RandomSource));
   if (!path || id === shared) return id;
   try {
@@ -25,10 +27,32 @@ export function sharedMachineId(home: string = homedir(), claudeConfigDir: strin
   return parseMachineIdFile(read(path)) ?? id;
 }
 
-/** This machine, or null when no user name is set: an unnamed reporter sends nothing that identifies the machine. */
-export function readMachine(userName: string | null, home: string = homedir()): MachineInfo | null {
+/** The files and processes the shared name and OS readers use here (`core/machineHost.ts`); a missing file or executable rejects. */
+const hostIO: HostIO = {
+  read: async (p) => readFileSync(p, 'utf8'),
+  write: async (p, text) => {
+    // Only the shared `~/.podium` folder is made here; the Claude Code reporter's own file is written only where that folder already exists.
+    const dir = p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')));
+    if (dir.endsWith('/.podium')) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(p, text, { mode: 0o600 });
+  },
+  run: (argv) =>
+    new Promise((resolve, reject) => {
+      execFile(argv[0]!, argv.slice(1), { timeout: 2000, maxBuffer: 1 << 20 }, (err, stdout) => {
+        if (err && (err as { code?: unknown }).code === 'ENOENT') reject(new Error(`${argv[0]} is not installed`));
+        else resolve(err ? null : String(stdout ?? ''));
+      });
+    }),
+};
+
+/**
+ * This machine, or null when no user name is set: an unnamed reporter sends nothing that identifies the machine. The name and the OS
+ * are read the way the Claude Code reporter reads them (#967), so one machine id never shows two names.
+ */
+export async function readMachine(userName: string | null, home: string = homedir(), claudeConfigDir: string | undefined = process.env.CLAUDE_CONFIG_DIR): Promise<MachineInfo | null> {
   if (!userName?.trim()) return null;
-  return machineInfo(hostOf(hostname()), sharedMachineId(home), `${type()} ${release()}`.trim() || null);
+  const [host, os] = await Promise.all([pinnedMachineName(hostIO, home, machineNamePath(claudeConfigDir, home)), readOsName(hostIO)]);
+  return machineInfo(host, sharedMachineId(home, claudeConfigDir), os);
 }
 
 /** The text of `~/.podium/config.env` and whether its permissions let anyone but the owner read it. */

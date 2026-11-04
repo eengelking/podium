@@ -14,7 +14,8 @@ describe('mod report -> server', () => {
     const report = scriptedReport();
     const v = validateReport(JSON.parse(JSON.stringify(report)));
     if (!v.ok) throw new Error(`${v.path}: ${v.error}`);
-    expect(v.report).toEqual(report);
+    // The server reads the legacy name the mod sends as the Claude Code reporter (#967); nothing else changes.
+    expect(v.report).toEqual({ ...report, reporter: { ...report.reporter, name: 'podium-reporter-claudecode' } });
   });
 
   it('ingests into a view with the plan, agents, failure and blowout level', async () => {
