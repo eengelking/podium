@@ -17,7 +17,7 @@ export interface PlanView extends Omit<Plan, 'steps'> {
   steps: PlanStepView[];
 }
 
-/** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in hooks/fileDiff.ts. */
+/** Limits for a file's diff on request (#319, SPEC 6.4). The mod keeps its own copy of the ones it uses, in plugin/core/fileDiff.ts. */
 export const FILE_DIFF_LIMITS = {
   /** Lines and bytes the mod sends; more is cut at a line boundary. */
   lines: 2000,

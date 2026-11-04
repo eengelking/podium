@@ -5,6 +5,7 @@ import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
+import { setTitle } from '../core/plan.ts';
 import { apply, finish, idleFor, newStore, sweep, tokensOf, type BusEvent } from './state.ts';
 import { VERSION } from './version.ts';
 
@@ -54,7 +55,7 @@ describe('state: one record per root, children folded in', () => {
     expect(r.harness).toMatchObject({ id: 'opencode', name: 'OpenCode' });
     expect(r.session).toMatchObject({ id: ROOT, harness: 'opencode', costSource: 'harness', costUsd: 0.00028, model: 'qwen', modelProvider: 'local', status: 'running', waitReason: null });
     expect(r.session.tokens.input).toBe(200);
-    expect(r.session.loop).toMatchObject({ toolCalls: 1, lastTool: 'task', toolCounts: { task: 1 } });
+    expect(r.session.loop).toMatchObject({ toolCalls: 1, lastTool: 'Agent', toolCounts: { Agent: 1 } });
     expect(r.agents).toHaveLength(1);
     expect(r.agents[0]).toMatchObject({ id: KID, parentId: null, kind: 'subagent', type: 'general', name: 'child task', status: 'done', costUsdEst: 0.00014, model: 'qwen' });
     expect(r.events.map((e) => e.kind)).toEqual(['start', 'spawn', 'done']);
@@ -97,7 +98,7 @@ describe('state: status', () => {
 
   it('names a tool call from its own event when the start of its input was missed', () => {
     const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.called', { sessionID: ROOT, id: 'c1', name: 'todowrite', input: { todos: [{ content: 'A', status: 'pending' }] } }, 2), ev('session.tool.success', { sessionID: ROOT, id: 'c1' }, 3));
-    expect(s.roots.get(ROOT)!.sessions.get(ROOT)!.toolCounts).toEqual({ todowrite: 1 });
+    expect(s.roots.get(ROOT)!.sessions.get(ROOT)!.toolCounts).toEqual({ TodoWrite: 1 });
   });
 
   it('tracks compaction', () => {
@@ -191,6 +192,41 @@ describe('state: failures and plan', () => {
     expect(buildReport(root, [], meta).session.name).toBe(ROOT);
     apply(s, ev('session.renamed', { sessionID: ROOT, title: 'My task' }, 3), 3);
     expect(buildReport(root, [], meta).session.name).toBe('My task');
+  });
+
+  it('uses the sessionName option when OpenCode has given the session no name, and the name OpenCode gave wins over it (#969)', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1));
+    const root = s.roots.get(ROOT)!;
+    const meta = { now: 3, version: VERSION, engineVersion: null, hostSurface: null, optionName: 'nightly build' };
+    expect(buildReport(root, [], meta).session.name).toBe('nightly build');
+    expect(buildReport(root, [], { ...meta, optionName: '   ' }).session.name).toBe(ROOT);
+    apply(s, ev('session.renamed', { sessionID: ROOT, title: 'My task' }, 3), 3);
+    expect(buildReport(root, [], meta).session.name).toBe('My task');
+  });
+
+  it('a Reporter built with a sessionName reports it (#969)', async () => {
+    const bodies: string[] = [];
+    const fetch: FetchLike = async (_u, init) => { bodies.push(init.body ?? ''); return { status: 200, ok: true, text: '{"ok":true}' }; };
+    const r = new Reporter({ fetch, now: () => 5000, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, { ...optionsOf({ sessionName: 'from option' }, null, {}, null), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 1000));
+    await r.tick();
+    expect(JSON.parse(bodies[0]!).session.name).toBe('from option');
+  });
+
+  it('the heartbeat option sets how soon an unchanged session reports again (#969)', async () => {
+    let at = 10_000;
+    const bodies: string[] = [];
+    const fetch: FetchLike = async (_u, init) => { bodies.push(init.body ?? ''); return { status: 200, ok: true, text: '{"ok":true}' }; };
+    const r = new Reporter({ fetch, now: () => at, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined }, { ...optionsOf({ heartbeatMs: 20_000 }, null, {}, null), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.tick();
+    expect(bodies).toHaveLength(1);
+    at += 10_000;
+    await r.tick();
+    expect(bodies).toHaveLength(1);
+    at += 10_001;
+    await r.tick();
+    expect(bodies).toHaveLength(2);
   });
 });
 
@@ -378,5 +414,514 @@ describe('Reporter', () => {
     expect(r.sessionIds()).toEqual([ROOT]);
     await r.tick();
     expect(bodies[0]!.session).toMatchObject({ status: 'waiting', waitReason: 'permission', waitNote: 'edit a.ts' });
+  });
+});
+
+// ---- parity with the Claude Code reporter (#969) ----
+
+const stepWith = (sessionID: string, created: number, model: Record<string, unknown>) => ev('session.step.started', { sessionID, agent: 'build', model }, created);
+const stepEnd = (sessionID: string, created: number, input: number, output = 10, cache = { read: 0, write: 0 }) =>
+  ev('session.step.ended', { sessionID, tokens: { input, output, reasoning: 0, cache } }, created);
+const meta = { now: 99, version: VERSION, engineVersion: null, hostSurface: null };
+
+describe('effort from the model variant', () => {
+  it('reports the variant as observed effort, and unknown when there is none', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2), stepWith(ROOT, 3, { id: 'gpt', providerID: 'openai', variant: 'xhigh' }), stepWith(KID, 4, { id: 'gpt', providerID: 'openai', variant: 'custom-deep' }));
+    const root = s.roots.get(ROOT)!;
+    let r = buildReport(root, [], meta);
+    expect(r.session.effort).toBe('xhigh');
+    expect(r.agents[0]).toMatchObject({ effort: 'custom-deep', effortSource: 'observed' });
+    apply(s, stepWith(ROOT, 5, { id: 'gpt', providerID: 'openai' }), 5);
+    apply(s, stepWith(KID, 6, { id: 'gpt', providerID: 'openai' }), 6);
+    r = buildReport(root, [], meta);
+    expect(r.session.effort).toBeNull();
+    expect(r.agents[0]).toMatchObject({ effort: null, effortSource: 'unknown' });
+    apply(s, ev('session.step.started', { sessionID: ROOT }, 7), 7); // no model at all: nothing changes
+    expect(buildReport(root, [], meta).session.effort).toBeNull();
+  });
+
+  it('declares effort and context as capabilities', () => {
+    const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).capabilities).toMatchObject({ effort: true, context: true });
+  });
+});
+
+describe('context window and percent', () => {
+  const lookups: string[] = [];
+  function withWindow(windowOf: (p: string, m: string) => Promise<number | null>) {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined, windowOf }, { ...optionsOf({}, null, {}), idleMs: 60_000 });
+    return { r, t, bodies };
+  }
+  const settle = () => new Promise((res) => setTimeout(res, 0));
+
+  it('fills the window on a later tick, never in handle, and asks once per model', async () => {
+    lookups.length = 0;
+    const { r, bodies } = withWindow(async (p, m) => { lookups.push(`${p}/${m}`); return 200_000; });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }))).toBeUndefined();
+    r.handle(stepEnd(ROOT, 10_002, 50_000));
+    r.handle(stepWith(ROOT, 10_003, { id: 'm', providerID: 'p' }));
+    await settle();
+    await r.tick();
+    expect(lookups).toEqual(['p/m']);
+    expect(bodies.at(-1)!.session.context).toEqual({ tokens: 50_000, window: 200_000, percent: 25 });
+  });
+
+  it('caps the percent at 100 and fills a subagent too', async () => {
+    const { r, bodies } = withWindow(async () => 1000);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT }, 10_001));
+    r.handle(stepWith(KID, 10_002, { id: 'm', providerID: 'p' }));
+    r.handle(stepEnd(KID, 10_003, 1500));
+    await settle();
+    await r.tick();
+    expect(bodies.at(-1)!.agents[0]!.context).toEqual({ tokens: 1500, window: 1000, percent: 100 });
+  });
+
+  it('leaves the window empty while the lookup is pending, and when it fails or finds nothing', async () => {
+    const { r, bodies } = withWindow(() => new Promise(() => undefined));
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    r.handle(stepEnd(ROOT, 10_002, 10));
+    await r.tick();
+    expect(bodies.at(-1)!.session.context).toEqual({ tokens: 10, window: null, percent: null });
+
+    let fail = true;
+    const two = withWindow(async () => { if (fail) throw new Error('down'); return null; });
+    two.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    two.r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    two.r.handle(stepEnd(ROOT, 10_002, 10));
+    await settle();
+    await two.r.tick();
+    expect(two.bodies.at(-1)!.session.context.window).toBeNull();
+    fail = false;
+    two.r.handle(stepWith(ROOT, 10_003, { id: 'm', providerID: 'p' })); // too soon to ask again
+    await settle();
+    two.t.now += 61_000;
+    two.r.handle(stepWith(ROOT, two.t.now, { id: 'm', providerID: 'p' })); // asks again, finds nothing
+    await settle();
+    await two.r.tick();
+    expect(two.bodies.at(-1)!.session.context).toEqual({ tokens: 10, window: null, percent: null });
+  });
+
+  it('does not look up a model it cannot name, or without a lookup', async () => {
+    let asked = 0;
+    const { r, bodies } = withWindow(async () => { asked++; return 1000; });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.step.started', { sessionID: ROOT, model: { id: 'm' } }, 10_001));
+    const plainBodies: Report[] = [];
+    const { r: plain } = reporter(async (_u, init) => { plainBodies.push(JSON.parse(init.body!) as Report); return okReply; });
+    plain.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    plain.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    await settle();
+    await r.tick();
+    await plain.tick();
+    expect(asked).toBe(0);
+    expect(bodies.at(-1)!.session.context?.window ?? null).toBeNull();
+    expect(plainBodies.at(-1)!.session.context?.window ?? null).toBeNull();
+  });
+});
+
+describe('window lookup from the model list', () => {
+  it('finds a model by provider and id', async () => {
+    const { windowFromList } = await import('./window.ts');
+    const list = { data: [{ providerID: 'a', id: 'x', limit: { context: 8 } }, { providerID: 'p', id: 'm', limit: { context: 128_000 } }, { providerID: 'p', id: 'z', limit: {} }] };
+    expect(windowFromList(list, 'p', 'm')).toBe(128_000);
+    expect(windowFromList(list, 'p', 'z')).toBeNull();
+    expect(windowFromList(list, 'p', 'nope')).toBeNull();
+    expect(windowFromList(undefined, 'p', 'm')).toBeNull();
+    expect(windowFromList({ data: 3 }, 'p', 'm')).toBeNull();
+  });
+});
+
+describe('skills', () => {
+  it('lists the skills a session activated, once each, with a feed entry', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT, agent: 'general' }, 2));
+    const act = (sessionID: string, name: string, t: number) => apply(s, ev('session.skill.activated', { sessionID, id: `sk_${name}`, name, text: 'body' }, t), t);
+    act(ROOT, 'pdf', 3);
+    act(ROOT, 'pdf', 4);
+    act(KID, 'docx', 5);
+    apply(s, ev('session.skill.activated', { sessionID: ROOT, id: 'x' }, 6), 6); // no name: ignored
+    const root = s.roots.get(ROOT)!;
+    const r = buildReport(root, root.events, meta);
+    expect(r.session.loop!.skills).toEqual(['pdf']);
+    expect(r.agents[0]!.skills).toEqual(['docx']);
+    expect(r.events.filter((e) => e.kind === 'skill').map((e) => e.text)).toEqual(['pdf loaded into orchestrator', 'docx loaded into general']);
+  });
+
+  it('subscribes to the skill event', async () => {
+    const { EVENT_TYPES } = await import('./state.ts');
+    expect(EVENT_TYPES).toContain('session.skill.activated');
+  });
+});
+
+describe('usageByModel', () => {
+  it('totals each step by model and prompt-size tier, children folded into the session', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ev('session.created', { sessionID: KID, parentID: ROOT }, 2),
+      stepWith(ROOT, 3, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 4, 1000, 100, { read: 200, write: 50 }),
+      stepWith(ROOT, 5, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 6, 500, 20),
+      stepWith(ROOT, 7, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 8, 150_000, 30),
+      stepWith(KID, 9, { id: 'small', providerID: 'q' }),
+      stepEnd(KID, 10, 7, 3),
+      stepWith(KID, 11, { id: 'big', providerID: 'p' }),
+      stepEnd(KID, 12, 1, 1),
+    );
+    const r = buildReport(s.roots.get(ROOT)!, [], meta);
+    const row = (rows: typeof r.session.usageByModel, model: string, tier: string) => rows!.find((u) => u.model === model && u.tier === tier)?.tokens;
+    expect(row(r.session.usageByModel, 'big', 'std')).toEqual({ input: 1501, output: 121, cacheRead: 200, cacheWrite: 50, cacheWrite1h: 0 });
+    expect(row(r.session.usageByModel, 'big', 'long')).toEqual({ input: 150_000, output: 30, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 });
+    expect(row(r.session.usageByModel, 'small', 'std')).toMatchObject({ input: 7, output: 3 });
+    expect(r.agents[0]!.usageByModel).toHaveLength(2);
+  });
+
+  it('counts nothing for a step that names no model', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), stepEnd(ROOT, 2, 10));
+    expect(buildReport(s.roots.get(ROOT)!, [], meta).session.usageByModel).toEqual([]);
+  });
+});
+
+describe('failure detail', () => {
+  const setup = () => store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2));
+  const call = (s: ReturnType<typeof setup>, id: string, tool: string, input: Record<string, unknown>, t: number) => {
+    apply(s, ev('session.tool.input.started', { sessionID: KID, id, name: tool }, t), t);
+    apply(s, ev('session.tool.called', { sessionID: KID, id, input }, t + 1), t + 1);
+  };
+  const failureOf = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!.failure!;
+
+  it('keeps the error text of a failed run and of a failed step', () => {
+    const s = setup();
+    apply(s, ev('session.step.failed', { sessionID: KID, error: { type: 'api', message: 'rate limit hit\nretry later' } }, 3), 3);
+    expect(failureOf(s)).toMatchObject({ class: 'Model API error', outputTail: ['rate limit hit', 'retry later'] });
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { type: 'api', message: 'provider down' } }, 4), 4);
+    expect(failureOf(s)).toMatchObject({ class: 'Model API error', tool: 'model request', outputTail: ['provider down'] });
+  });
+
+  it('says what model request failed, with the effort when known', () => {
+    const s = setup();
+    apply(s, stepWith(KID, 3, { id: 'm', providerID: 'p', variant: 'high' }), 3);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'x' } }, 4), 4);
+    expect(failureOf(s).call).toBe('model request (m, effort high)');
+  });
+
+  it('classifies a rejected permission as Blocked by permission, even when the call then fails', () => {
+    const s = setup();
+    apply(s, ev('permission.asked', { id: 'per_1', sessionID: KID, action: 'bash', resources: ['rm -rf /'] }, 3), 3);
+    call(s, 'c1', 'bash', { command: 'rm -rf /' }, 4);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'per_1', reply: 'reject' }, 6), 6);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'The user rejected this call' } }, 7), 7);
+    expect(failureOf(s)).toMatchObject({ class: 'Blocked by permission', evidence: [expect.stringContaining('permission denied')] });
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'stopped' } }, 8), 8);
+    expect(failureOf(s).class).toBe('Blocked by permission');
+  });
+
+  it('does not treat an allowed permission as a denial', () => {
+    const s = setup();
+    apply(s, ev('permission.asked', { id: 'per_1', sessionID: KID, action: 'edit', resources: ['a.ts'] }, 3), 3);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'per_1', reply: 'once' }, 4), 4);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'unknown', reply: 'reject' }, 5), 5);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'x' } }, 6), 6);
+    expect(failureOf(s).class).toBe('Model API error');
+  });
+
+  it('writes an evidence line when the same call failed twice', () => {
+    const s = setup();
+    for (const [i, id] of ['c1', 'c2'].entries()) {
+      call(s, id, 'bash', { command: 'npm test' }, 10 + i * 10);
+      apply(s, ev('session.tool.failed', { sessionID: KID, id, error: { message: 'exit code 1' } }, 12 + i * 10), 12 + i * 10);
+    }
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'gave up' } }, 40), 40);
+    const f = failureOf(s);
+    expect(f).toMatchObject({ class: 'Tool error', tool: 'Bash', exitCode: 1 });
+    expect(f.evidence).toEqual(['same call failed 2 times: npm test']);
+  });
+
+  it('classifies an interruption as Aborted, and a stale failing call is not the cause', () => {
+    const s = setup();
+    apply(s, ev('session.execution.interrupted', { sessionID: KID }, 3), 3);
+    expect(failureOf(s).class).toBe('Aborted');
+    const t = setup();
+    call(t, 'c1', 'bash', { command: 'x' }, 10);
+    apply(t, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: 'plain string error' }, 12), 12);
+    apply(t, ev('session.execution.failed', { sessionID: KID, error: { message: 'late' } }, 12 + 120_000), 12 + 120_000);
+    expect(failureOf(t)).toMatchObject({ class: 'Model API error', outputTail: ['late'] });
+  });
+});
+
+describe('Reporter: changed files and the file diff on request', () => {
+  /** A scripted repository: one modified file and one new file, and a diff for the modified one. */
+  function repo(over: { diffExit?: number; paths?: string } = {}) {
+    const calls: string[] = [];
+    const run: Runner = async (argv) => {
+      const a = argv.slice(1).join(' ');
+      calls.push(a);
+      if (a.endsWith('rev-parse --show-toplevel')) return { exitCode: 0, stdout: '/work/project\n' };
+      if (a.endsWith('rev-parse HEAD')) return { exitCode: 0, stdout: 'aaaaaaa\n' };
+      if (a.includes('merge-base --is-ancestor')) return { exitCode: 0, stdout: '' };
+      if (a.includes('--name-status')) return { exitCode: 0, stdout: over.paths ?? 'M\0src/a.ts\0' };
+      if (a.includes('--numstat')) return { exitCode: 0, stdout: '2\t1\tsrc/a.ts\0' };
+      if (a.includes('ls-files')) return { exitCode: 0, stdout: 'notes.txt\0' };
+      if (a.includes('grep')) return { exitCode: 0, stdout: 'notes.txt\x003\n' };
+      if (a.includes('hash-object')) return { exitCode: 0, stdout: 'a'.repeat(40) + '\n' };
+      if (a.includes(' diff ') || a.startsWith('diff ')) return { exitCode: over.diffExit ?? 0, stdout: 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1,2 @@\n-old\n+new\n+token = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"\n' };
+      return { exitCode: 1, stdout: '' };
+    };
+    return { run, calls };
+  }
+
+  function wired(run: Runner, extra: Record<string, unknown> = {}, reply: unknown | (() => unknown) = {}, idleMs = 60_000) {
+    const posts: Report[] = [];
+    const puts: { url: string; body: any }[] = [];
+    const t = { now: 10_000 };
+    const fetch: FetchLike = async (url, init) => {
+      if (init.method === 'PUT') puts.push({ url, body: JSON.parse(init.body!) });
+      else posts.push(JSON.parse(init.body!) as Report);
+      return { status: 200, ok: true, text: init.method === 'PUT' ? '{}' : JSON.stringify(typeof reply === 'function' ? reply() : reply) };
+    };
+    const env = { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', ...extra };
+    const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({}, null, env), idleMs });
+    return { r, t, posts, puts };
+  }
+
+  it('reports the files the session changed, read in the session directory off the event loop', async () => {
+    const { run } = repo();
+    const { r, posts } = wired(run);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.store.roots.get(ROOT)!.files).toBeNull(); // handle returned before git answered
+    await r.close();
+    const files = posts.at(-1)!.session.files!;
+    expect(files.since).toBe('start');
+    expect(files.files.map((f) => [f.path, f.status, f.added, f.removed])).toEqual([['notes.txt', 'added', 3, 0], ['src/a.ts', 'modified', 2, 1]]);
+    expect(files.total).toBe(2);
+  });
+
+  it('keeps the starting commit it first read, so the list stays "since the session began"', async () => {
+    const { run, calls } = repo();
+    const { r, t } = wired(run);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.close();
+    expect(r.store.roots.get(ROOT)!.gitBase).toBe('aaaaaaa');
+    expect(calls.some((c) => c.includes('diff --name-status -z -M aaaaaaa'))).toBe(true);
+    expect(t.now).toBe(10_000);
+  });
+
+  it('leaves files out of the report when git fails, and sends a long path cut', async () => {
+    const { r, posts } = wired(async () => ({ exitCode: 128, stdout: '' }));
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.close();
+    expect(posts.at(-1)!.session.files).toBeNull();
+    const long = 'x'.repeat(400);
+    const { run } = repo({ paths: `M\0${long}\0` });
+    const w = wired(run);
+    w.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await w.r.close();
+    expect(w.posts.at(-1)!.session.files!.files.every((f) => f.path.length <= 300)).toBe(true);
+  });
+
+  it('says whether the file diff is on, and the preload, in every report', async () => {
+    const off = wired(repo().run);
+    off.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await off.r.tick();
+    expect(off.posts[0]!.session).toMatchObject({ fileDiff: false, fileDiffPreload: false });
+    const on = wired(repo().run, { PODIUM_FILE_DIFF: 'true' });
+    on.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await on.r.tick();
+    expect(on.posts[0]!.session).toMatchObject({ fileDiff: true, fileDiffPreload: true });
+    const some = new Reporter({ fetch: async () => okReply, now: () => 1, runIn: () => noGit, log: () => undefined }, { ...optionsOf({ fileDiffPreload: false }, null, { PODIUM_FILE_DIFF: 'true' }), idleMs: 60_000 });
+    expect(some.opts).toMatchObject({ fileDiff: true, fileDiffPreload: false });
+  });
+
+  it('answers a listed diff request once, redacted, with the same reply shape as the Claude Code reporter', async () => {
+    const { run } = repo();
+    const { r, t, puts } = wired(run, { PODIUM_FILE_DIFF: 'true' }, { diffs: [{ id: 'd1', path: 'src/a.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20)); // the file list is read in the background
+    await r.tick();
+    t.now += 5000;
+    await r.tick(); // the same request again in the next reply
+    await r.close();
+    expect(puts).toHaveLength(1);
+    expect(puts[0]!.url).toBe('http://podium.test/api/fleet/sessions/ses_root/diffs/d1');
+    expect(puts[0]!.body).toMatchObject({ path: 'src/a.ts', status: 'ok', truncated: false, base: 'aaaaaaa' });
+    expect(puts[0]!.body.text).toContain('+new');
+    expect(puts[0]!.body.text).not.toContain('sk-ant-api03');
+    expect(puts[0]!.body.redactions).toBeGreaterThan(0);
+  });
+
+  it('answers unavailable for a path the list does not name, and reads nothing for it', async () => {
+    const { run, calls } = repo();
+    const { r, puts } = wired(run, { PODIUM_FILE_DIFF: 'true' }, { diffs: [{ id: 'd2', path: 'other.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await r.close();
+    expect(puts.map((p) => [p.body.path, p.body.status])).toEqual([['other.ts', 'unavailable']]);
+    expect(calls.filter((c) => c.includes('other.ts'))).toEqual([]);
+  });
+
+  it('reads nothing and answers nothing while the file diff is off', async () => {
+    const { run } = repo();
+    const { r, puts } = wired(run, {}, { diffs: [{ id: 'd1', path: 'src/a.ts' }] });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await r.close();
+    expect(puts).toEqual([]);
+  });
+
+  it('forgets the oldest answered ids past a limit, and answers unavailable when git is gone', async () => {
+    let n = 0;
+    const { r, t, puts } = wired(async () => { throw new Error('git is gone'); }, { PODIUM_FILE_DIFF: 'true' }, () => ({ diffs: Array.from({ length: 4 }, () => ({ id: `d${n++ % 205}`, path: 'src/a.ts' })) }), 10 ** 9);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    for (let i = 0; i < 120; i++) {
+      t.now += 5000;
+      await r.tick();
+    }
+    await r.close();
+    // Requests cycle over 205 ids: the oldest id has left the 200 kept, so it is answered a second time.
+    expect(puts.length).toBeGreaterThan(205);
+    expect(puts.every((p) => p.body.status === 'unavailable')).toBe(true);
+  });
+
+  it('does not let a failing answer call stop the reporter', async () => {
+    const { run } = repo();
+    const t = { now: 10_000 };
+    const fetch: FetchLike = async (_u, init) => {
+      if (init.method === 'PUT') throw new Error('offline');
+      return { status: 200, ok: true, text: JSON.stringify({ diffs: [{ id: 'd1', path: 'src/a.ts' }] }) };
+    };
+    const r = new Reporter({ fetch, now: () => t.now, runIn: () => run, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_FILE_DIFF: 'true' }), idleMs: 60_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await new Promise((res) => setTimeout(res, 20));
+    await r.tick();
+    await expect(r.close()).resolves.toBeUndefined();
+  });
+});
+
+// What a real OpenCode 2.2.5 sends (seen in a live run, #969): the shell tool is `shell`, a file tool takes `path`, the skill tool takes `id` and
+// reports no `session.skill.activated`, a subagent is launched by `subagent`, and a compaction says how it was started.
+describe('OpenCode 2.2.5 tools and events (#969)', () => {
+  const run = (sid: string, id: string, name: string, input: Record<string, unknown>, at: number, result?: Record<string, unknown>) => [
+    ev('session.tool.input.started', { sessionID: sid, id, name }, at),
+    ev('session.tool.called', { sessionID: sid, id, input }, at + 1),
+    ev('session.tool.success', { sessionID: sid, id, content: [{ type: 'text', text: 'ok' }], ...(result ? { metadata: result } : {}) }, at + 2),
+  ];
+  const sessOf = (s: ReturnType<typeof store>, sid = ROOT) => s.roots.get(ROOT)!.sessions.get(sid)!;
+
+  it('counts the tools under the Claude Code reporter\'s names', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ...run(ROOT, 'a', 'shell', { command: 'echo hi' }, 2), ...run(ROOT, 'b', 'bash', { command: 'ls' }, 5), ...run(ROOT, 'c', 'read', { path: 'a.txt' }, 8),
+      ...run(ROOT, 'd', 'write', { path: 'a.txt', content: 'x' }, 11), ...run(ROOT, 'e', 'edit', { path: 'a.txt', oldString: 'x', newString: 'y' }, 14),
+      ...run(ROOT, 'f', 'glob', { pattern: '*.txt' }, 17), ...run(ROOT, 'g', 'grep', { pattern: 'y' }, 20), ...run(ROOT, 'h', 'subagent', { agent: 'general', description: 'look', prompt: 'p' }, 23),
+      ...run(ROOT, 'i', 'webfetch', { url: 'http://x.test' }, 26), ...run(ROOT, 'j', 'question', { questions: [] }, 29), ...run(ROOT, 'k', 'mcp_thing', {}, 32),
+    );
+    const k = sessOf(s);
+    expect(k.toolCounts).toEqual({ Bash: 2, Read: 1, Write: 1, Edit: 1, Glob: 1, Grep: 1, Agent: 1, WebFetch: 1, AskUserQuestion: 1, mcp_thing: 1 });
+    expect(k.lastTool).toBe('mcp_thing');
+  });
+
+  it('names a failed shell call by its command and keeps its exit code, as for Bash', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'shell' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { command: 'make test' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'Exit code 2' } }, 4));
+    const f = sessOf(s).failure!;
+    expect(f).toMatchObject({ tool: 'Bash', call: 'make test', exitCode: 2 });
+  });
+
+  it('names a failed file read by its path', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'read' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { path: '/nonexistent/file.txt' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'not found' } }, 4));
+    expect(sessOf(s).failure).toMatchObject({ tool: 'Read', call: 'Read /nonexistent/file.txt' });
+  });
+
+  it('records a skill when its tool succeeds, from the skill the result names, once each', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ...run(ROOT, 'a', 'skill', { id: 'hello' }, 2, { name: 'hello', directory: '/p' }),
+      ...run(ROOT, 'b', 'skill', { id: 'hello' }, 5, { name: 'hello' }),
+      ...run(ROOT, 'c', 'skill', { id: 'pdf' }, 8),
+    );
+    expect(sessOf(s).skills).toEqual(['hello', 'pdf']);
+    expect(s.roots.get(ROOT)!.events.filter((e) => e.kind === 'skill').map((e) => e.text)).toEqual(['hello loaded into orchestrator', 'pdf loaded into orchestrator']);
+  });
+
+  it('records no skill when the skill tool failed', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.tool.input.started', { sessionID: ROOT, id: 'a', name: 'skill' }, 2), ev('session.tool.called', { sessionID: ROOT, id: 'a', input: { id: 'nope' } }, 3), ev('session.tool.failed', { sessionID: ROOT, id: 'a', error: { message: 'no such skill' } }, 4));
+    expect(sessOf(s).skills).toEqual([]);
+  });
+
+  it('builds the plan from the todo tool a call at a time, in the orchestrator only', () => {
+    const todo = (sid: string, id: string, status: string, at: number) => run(sid, id, 'todowrite', { todos: [{ content: 'write a file', status }] }, at, { todos: [{ content: 'write a file', status }] });
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2), ...todo(KID, 'k', 'pending', 3), ...todo(ROOT, 'a', 'pending', 6), ...todo(ROOT, 'b', 'completed', 9));
+    const root = s.roots.get(ROOT)!;
+    expect(root.plan.tasks.map((t) => [t.text, t.status])).toEqual([['write a file', 'completed']]);
+    expect(buildReport(root, [], { now: 12, version: VERSION, engineVersion: null, hostSurface: null }).session.plan!.steps.map((p) => p.state)).toEqual(['done']);
+  });
+
+  it('shows a plan the plan tool named even before any step is known, and the steps when they come', () => {
+    const meta = { now: 12, version: VERSION, engineVersion: null, hostSurface: null };
+    const s = store(ev('session.created', { sessionID: ROOT }, 1));
+    const root = s.roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).session.plan).toBeNull();
+    root.plan = setTitle(root.plan, { title: 'Ship it', phase: 'one' });
+    expect(buildReport(root, [], meta).session.plan).toEqual({ title: 'Ship it · one', source: 'podium_plan', steps: [] });
+    apply(s, ev('session.tool.called', { sessionID: ROOT, id: 't', name: 'todowrite', input: { todos: [{ content: 'A', status: 'pending' }] } }, 3), 3);
+    expect(buildReport(root, [], meta).session.plan).toMatchObject({ title: 'Ship it · one', source: 'todowrite', steps: [{ text: 'A' }] });
+  });
+
+  it('counts a compaction, says how it began, and drops the context to the size of the summary it wrote', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      step(ROOT, 2),
+      ev('session.step.ended', { sessionID: ROOT, tokens: { input: 9000, output: 5, reasoning: 0, cache: { read: 1000, write: 0 } } }, 3),
+      ev('session.compaction.started', { sessionID: ROOT, reason: 'auto' }, 4),
+    );
+    const root = s.roots.get(ROOT)!;
+    expect(sessOf(s).ctxTokens).toBe(10_000);
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'auto', text: 'summary', tokens: { input: 6000, output: 97, reasoning: 2514, cache: { read: 0, write: 0 } } }, 5), 5);
+    expect(root.compactions).toBe(1);
+    expect(sessOf(s).ctxTokens).toBe(97);
+    expect(sessOf(s).blowouts).toBe(1);
+    expect(root.events.find((e) => e.kind === 'compact')).toMatchObject({ text: 'auto-compacted', data: { trigger: 'auto', tokensBefore: 10_000, tokensAfter: 97 } });
+    apply(s, step(ROOT, 6), 6);
+    apply(s, ev('session.step.ended', { sessionID: ROOT, tokens: { input: 400, output: 3, reasoning: 0, cache: { read: 0, write: 0 } } }, 7), 7);
+    expect(sessOf(s).ctxTokens).toBe(400);
+    expect(buildReport(root, [], { now: 8, version: VERSION, engineVersion: null, hostSurface: null }).session.blowouts).toBe(1);
+  });
+
+  it('counts a manual compaction without a blowout, and a failed one without changing the context', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.step.ended', { sessionID: ROOT, tokens: { input: 500 } }, 2), ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 3));
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual', tokens: { input: 500, output: 40 } }, 4), 4);
+    apply(s, ev('session.compaction.failed', { sessionID: ROOT, reason: 'auto', error: { message: 'x' } }, 5), 5);
+    expect(s.roots.get(ROOT)!.compactions).toBe(2);
+    expect(sessOf(s).blowouts).toBe(0);
+    expect(sessOf(s).ctxTokens).toBe(40);
+    expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('compaction failed');
+  });
+
+  it('keeps the context fill when a compaction ends with no output tokens', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.step.ended', { sessionID: ROOT, tokens: { input: 500 } }, 2), ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 3));
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual' }, 4), 4);
+    expect(sessOf(s).ctxTokens).toBe(500);
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual', tokens: { input: 5, output: 0 } }, 5), 5);
+    expect(sessOf(s).ctxTokens).toBe(500);
+  });
+
+  it('records a subagent compaction under its own loop and leaves the /compact Podium sent for the orchestrator', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2));
+    const root = s.roots.get(ROOT)!;
+    const marks: { loop: string; by: string | undefined }[] = [];
+    root.recorder.compact = (loop, _at, by) => void marks.push({ loop, by });
+    root.podiumCompact = 'Ed';
+    apply(s, ev('session.compaction.started', { sessionID: KID, reason: 'auto' }, 3), 3);
+    expect(marks).toEqual([{ loop: KID, by: undefined }]);
+    expect(root.podiumCompact).toBe('Ed');
+    apply(s, ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 4), 4);
+    expect(marks[1]).toEqual({ loop: '@orchestrator', by: 'Ed' });
+    expect(root.podiumCompact).toBeNull();
   });
 });

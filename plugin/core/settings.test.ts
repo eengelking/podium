@@ -18,6 +18,22 @@ describe('trusted settings (#856)', () => {
     const on = trustedSettings({ PODIUM_RESPOND: 'true', PODIUM_SESSION_RECORDING: 'yes', PODIUM_PEERS: '1' }, 'PODIUM_FILE_DIFF=true\nPODIUM_ACTIVITY_FEED=TRUE')
     expect(on.consent).toMatchObject({ respond: true, sessionRecording: false, peers: false, fileDiff: true, activityFeed: false })
   })
+  test('PODIUM_RESPOND names how far answering goes, and a plain true is the lowest level', () => {
+    const level = (v: string | undefined, file: string | null = null) => trustedSettings(v === undefined ? {} : { PODIUM_RESPOND: v }, file)
+    expect(level(undefined).respondLevel).toBe('off')
+    expect(level('true').respondLevel).toBe('questions')
+    expect(level('questions').respondLevel).toBe('questions')
+    expect(level('questions-and-plans').respondLevel).toBe('questions-and-plans')
+    expect(level('everything').respondLevel).toBe('everything')
+    expect(level(undefined, 'PODIUM_RESPOND=everything').respondLevel).toBe('everything')
+    for (const v of ['', 'off', 'yes', 'EVERYTHING', 'all']) expect(level(v).respondLevel).toBe('off')
+    expect(level('everything').consent.respond).toBe(true)
+    expect(level('off').consent.respond).toBe(false)
+  })
+  test('explaining failures is a consent option, on only for "true"', () => {
+    expect(trustedSettings({ PODIUM_EXPLAIN_FAILURES: 'true' }, null).consent.explainFailures).toBe(true)
+    expect(trustedSettings({ PODIUM_EXPLAIN_FAILURES: '1' }, null).consent.explainFailures).toBe(false)
+  })
   test('the reporter config file and context are trusted settings too (#948)', () => {
     expect(trustedSettings({}, null)).toMatchObject({ reporterConfig: '', reporterContext: '' })
     expect(trustedSettings({ PODIUM_REPORTER_CONFIG: '/e.pem' }, 'PODIUM_REPORTER_CONFIG=/f.pem\nPODIUM_REPORTER_CONTEXT=work')).toMatchObject({ reporterConfig: '/e.pem', reporterContext: 'work' })

@@ -16,6 +16,7 @@ Contents:
 - [Install the mod](#install-the-mod)
 - [Install in the Claude desktop app on Windows 11](#install-in-the-claude-desktop-app-on-windows-11)
 - [Install the OpenCode reporter](#install-the-opencode-reporter)
+- [OpenCode settings](#opencode-settings)
 - [In the session](#in-the-session)
 - [Options](#options)
 - [Over TLS](#over-tls)
@@ -90,8 +91,8 @@ do not load plugins.
 
 ## Install the OpenCode reporter
 
-The OpenCode reporter (`plugin/opencode/`, with shared code in `plugin/core/`) watches OpenCode 2.x sessions and reports them to Podium. It is
-watch only. What you install is the built folder `dist/opencode/`, which a release publishes to the `plugin-dist` branch and zips as
+The OpenCode reporter (`plugin/opencode/`, with shared code in `plugin/core/`) watches OpenCode 2.x sessions and reports them to Podium, and
+answers them from Podium where you allow it (see [OpenCode settings](#opencode-settings)). What you install is the built folder `dist/opencode/`, which a release publishes to the `plugin-dist` branch and zips as
 `podium-opencode-<version>.zip` (the nightly prerelease has `podium-opencode-<version>-nightly-<date>.zip`). OpenCode supplies the plugin API at runtime, so
 nothing else is bundled. Pick one way to install it.
 
@@ -134,6 +135,47 @@ PODIUM_TOKEN=<token>
 ```
 
 See [what the OpenCode reporter trusts](#the-opencode-reporter-what-it-trusts), and `plugin/opencode/README.md` for what it reports.
+
+## OpenCode settings
+
+The OpenCode reporter reads these from the environment and `~/.podium/config.env`. A variable that is set, even to nothing, wins over the file. Each
+switch is off unless it is exactly `true`; `PODIUM_RESPOND` is the one that also takes a level name. Nothing here is read from `opencode.json`, except the
+four plugin options at the end of the table.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PODIUM_SERVER` | `http://127.0.0.1:4317` | Where reports go |
+| `PODIUM_TOKEN` | empty | Sent as `X-Podium-Token` |
+| `PODIUM_USER` | empty | The name your token was made for |
+| `PODIUM_IDLE_SECONDS` | `60` | A session is `done` after this long with no activity (at least 5). Also the `idleSeconds` plugin option |
+| `PODIUM_REPORTER_CONFIG`, `PODIUM_REPORTER_CONTEXT` | empty | Which reporter config file to use over TLS (see [Over TLS](#over-tls)) |
+| `PODIUM_ACTIVITY_FEED` | off | The activity feed, as for Claude Code's `activityFeed` option. Answering needs it too |
+| `PODIUM_ACTIVITY_OUTPUT` | off | A shell call's output in the feed. Needs the feed on |
+| `PODIUM_FULL_PROMPTS` | off | Whole task prompts and final answers, as for `fullPrompts` |
+| `PODIUM_SESSION_RECORDING` | off | Allow session recording, as for `sessionRecording`. The person is told through a toast when a recording starts or stops |
+| `PODIUM_FILE_DIFF` | off | Send a changed file's diff on request, as for `fileDiff`. The list of changed files is always sent |
+| `PODIUM_RESPOND` | off | How far Podium may answer: `true` or `questions`, `questions-and-plans`, or `everything`. Needs `PODIUM_ACTIVITY_FEED` too, and the Admin's Respond from Podium switch |
+| `PODIUM_PEERS` | off | Message my other orchestrators. The reporter then adds the `podium_peers`, `podium_send` and `podium_request_access` tools (the `plan` tool is always there), and `/podium allow`, `/podium decline` and `/podium deliver` answer a request (see [Messaging your other orchestrators](#messaging-your-other-orchestrators)) |
+| `PODIUM_EXPLAIN_FAILURES` | off | Ask a model for a short explanation of each failure, from its redacted record only. It uses `ctx.experimental.generate` with OpenCode's default model, cuts the answer at 400 characters, and its cost is not counted anywhere |
+| `flushIntervalMs`, `heartbeatMs`, `sessionName`, `idleSeconds` | `1000`, `5000`, empty, `60` | Plugin options in `opencode.json`, bounded as for Claude Code (flush at least 200, heartbeat at least 1000). `sessionName` is used only for a session OpenCode has not named |
+
+What OpenCode reports: the model and its provider, tokens and cost (OpenCode's own figure), the context size and percent (from `ctx.model.list`, so a model
+that list does not hold shows a size and no percent), effort (the model's variant on each step, shown as observed), the skills it used (from the `skill` tool), tokens per
+model, the plan (from the todo tool, or the name the `plan` tool gives it), the files it changed, failures with the engine's error text, compactions, and the git branch.
+
+Not available on OpenCode, and why:
+
+- **Plan approval and `/clear`.** OpenCode has no plan-approval step and no equivalent of `/clear`, so the console does not offer them for an OpenCode session.
+- **The fork command.** The console's fork command is a shell line (`claude --resume <id> --fork-session`). Podium knows no OpenCode command line that starts a new session from a copy of one, so the cell reads as not available. The resume command works.
+- **The "Context window exhausted" classification.** A failed step carries no stop reason, so the failure cannot be told from any other.
+- **Real exit codes.** OpenCode's events carry no exit code for a shell call. One is sent only when the call's text states it.
+- **`/podium name`, `/podium context` and `/podium messaging`.** The OpenCode `/podium` command answers with a toast and takes only `allow`, `decline` and `deliver`. Set the name with `sessionName` and the context with `PODIUM_REPORTER_CONTEXT`.
+- **Hiding the messaging tools before Podium confirms the session takes part.** The reporter adds its tools through `ctx.tool.transform` whenever `PODIUM_PEERS` is on, so the model is offered all three whether or not Podium has yet confirmed the session takes part. Claude Code's mod shows them only after Podium confirms.
+- **A cost for explained failures.** The explain call does not report usage, so its cost is in no total.
+- **Choosing the hosted model for explained failures.** The call uses OpenCode's default model; Claude Code's Haiku choice has no equivalent.
+- **Rate limits.** OpenCode's event stream carries none. OpenCode's HTTP API has `usage.limits` (`/api/experimental/usage/limits`), which returns the allowance of the OpenCode Console workspace the person is signed in to (the Go plan's rolling, weekly and monthly percent used, and per-model budgets), and a failed step names `rate_limit` as its reason. It is an experimental call for one vendor's plan, not a provider's rate limit, and the reporter does not read it.
+
+A plan's steps come from OpenCode's todo tool, which exists only with `experimental.todo: true` in `opencode.json`. Without it the plan shows the title the `plan` tool gave it and no steps.
 
 ## In the session
 

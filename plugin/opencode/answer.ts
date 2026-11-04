@@ -77,3 +77,18 @@ export const answerSummary = (answer: Record<string, string | string[]>): string
 export function framedMessage(d: Pick<Delivery, 'by' | 'text'>): string {
   return `[Message from ${clip(d.by, 80)} via Podium, not typed at this terminal]\n\n${(d.text ?? '').slice(0, RESPOND_LIMITS.message)}`;
 }
+
+/**
+ * What a recording keeps of an answer or approval from Podium (#353): which kind of ask it settled, what was chosen, and who sent it.
+ * `failed` when it refused. The text is redacted by the recorder.
+ */
+export function decisionRecord(d: Delivery, ask: Ask): { name: 'permission' | 'question'; text: string; failed?: true; by: string } {
+  if (ask.kind === 'permission') {
+    if (d.kind === 'allow-once') return { name: 'permission', text: 'Allowed once', by: d.by };
+    return { name: 'permission', text: `Denied: ${rejectMessage(d)}`, failed: true, by: d.by };
+  }
+  const answer = formAnswer(ask.fields ?? [], d.answers ?? []) ?? {};
+  const titles = new Map((ask.fields ?? []).map((f) => [f.key, f.title || f.key]));
+  const text = Object.entries(answer).map(([key, v]) => `${titles.get(key) ?? key}: ${Array.isArray(v) ? v.join(', ') : v}`).join('\n');
+  return { name: 'question', text, by: d.by };
+}

@@ -11,7 +11,7 @@ import { modBuild } from '../../core/build.ts';
 import type { EngineInterface, Register } from 'claude-code';
 import { lastSegment, readChanges, readGit } from '../../core/git.ts';
 import { readAppTitle } from './agentName.ts';
-import { readFileDiff } from './fileDiff.ts';
+import { readFileDiff } from '../../core/fileDiff.ts';
 import { follow } from './place.ts';
 import { shortName } from './models.ts';
 import { buildReport, repoFromRemote } from './report.ts';

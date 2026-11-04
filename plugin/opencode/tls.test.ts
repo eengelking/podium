@@ -585,15 +585,30 @@ async function withEnv<T>(vars: Record<string, string | undefined>, body: () => 
 
 /** The part of OpenCode's plugin context the entry uses, with one session's events. */
 function fakeCtx(options: Record<string, unknown>, directory: string, events: unknown[] = []) {
+  const emitted: { name: string; data: any }[] = [];
+  const commands: { name: string; description?: string; execute: (i: any) => Promise<void> }[] = [];
+  const tools: { name: string; description: string; input: unknown; execute: (input: unknown, context: { sessionID: string }) => Promise<{ content: string }> }[] = [];
+  const prompts: unknown[] = [];
+  const generated: unknown[] = [];
   return {
     options,
     location: { directory },
     event: { subscribe: async function* () { for (const e of events) yield e; } },
     permission: { list: async () => [] },
+    rpc: { register: async () => ({ events: { emit: async (name: string, data: unknown) => void emitted.push({ name, data }) } }) },
+    command: { transform: async (cb: (e: { add: (d: (typeof commands)[number]) => void }) => void) => { cb({ add: (d) => void commands.push(d) }); return { dispose: async () => undefined }; } },
+    tool: { transform: async (cb: (e: { add: (d: (typeof tools)[number]) => void }) => void) => { cb({ add: (d) => void tools.push(d) }); return { dispose: async () => undefined }; } },
+    session: { prompt: async (i: unknown) => void prompts.push(i) },
+    experimental: { generate: { text: async (i: unknown) => { generated.push(i); return { text: 'Because of X.' }; } } },
+    emitted,
+    commands,
+    tools,
+    prompts,
+    generated,
   };
 }
 type Setup = (c: unknown) => Promise<() => Promise<void>>;
-const PODIUM_ENV = { PODIUM_SERVER: undefined, PODIUM_TOKEN: undefined, PODIUM_USER: undefined, PODIUM_REPORTER_CONFIG: undefined, PODIUM_REPORTER_CONTEXT: undefined, PODIUM_RESPOND: undefined, XDG_STATE_HOME: undefined };
+const PODIUM_ENV = { PODIUM_SERVER: undefined, PODIUM_TOKEN: undefined, PODIUM_USER: undefined, PODIUM_REPORTER_CONFIG: undefined, PODIUM_REPORTER_CONTEXT: undefined, PODIUM_RESPOND: undefined, PODIUM_PEERS: undefined, PODIUM_EXPLAIN_FAILURES: undefined, XDG_STATE_HOME: undefined };
 
 describe('the plugin entry (#948)', () => {
   it('makes one client per location, starts it once and stops it once, and reports through it', async () => {
@@ -606,7 +621,10 @@ describe('the plugin entry (#948)', () => {
       ];
       await withEnv({ ...PODIUM_ENV, HOME: home }, async () => {
         const setup = (plugin as unknown as { setup: Setup }).setup;
-        const first = await setup(fakeCtx({}, '/loc/a', events));
+        const ctxA = fakeCtx({}, '/loc/a', events);
+        const first = await setup(ctxA);
+        await ctxA.commands[0]!.execute({});
+        expect(ctxA.emitted.find((e) => e.name === 'notice')?.data.message).toMatch(/TLS: .*HTTPS|TLS: /);
         const second = await setup(fakeCtx({}, '/loc/a'));
         expect(seen.made).toHaveLength(1);
         expect(seen.starts).toBe(1);
@@ -679,5 +697,150 @@ describe('the plugin entry (#948)', () => {
     }
     expect(seen.made).toEqual([]);
     expect(warned.filter((w) => w.includes('chmod 600'))).toHaveLength(1);
+  });
+});
+
+describe('the plugin entry tells the person what is wrong (#969)', () => {
+  const events = [
+    { id: 'u1', type: 'session.created', data: { sessionID: 'ses_u', slug: 'x', version: '2.2.5' }, created: Date.now(), location: { directory: '/loc/u' } },
+    { id: 'u2', type: 'session.execution.started', data: { sessionID: 'ses_u' }, created: Date.now(), location: { directory: '/loc/u' } },
+  ];
+
+  it('writes the refusal to the console once, shows the status as a toast, and answers /podium with a toast', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('{"error":"no"}', { status: 401 })) as typeof fetch;
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_SERVER: 'http://podium.test:4317' }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/u', events);
+        const stop = await setup(ctx);
+        for (let waited = 0; !ctx.emitted.some((e) => e.name === 'notice') && waited < 5000; waited += 100) await new Promise((r) => setTimeout(r, 100));
+        const toast = ctx.emitted.find((e) => e.name === 'notice');
+        expect(toast?.data).toMatchObject({ title: 'Podium', variant: 'warning' });
+        expect(toast?.data.message).toContain('token refused');
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes('refused this reporter'))).toHaveLength(1);
+        expect(ctx.commands.map((c) => c.name)).toEqual(['podium']);
+        await ctx.commands[0]!.execute({});
+        const shown = ctx.emitted.filter((e) => e.name === 'notice').map((e) => e.data.message as string);
+        const text = shown[shown.length - 1]!;
+        expect(text).toContain('Podium fleet console: http://podium.test:4317/#/');
+        expect(text).toContain('Home folder:');
+        expect(text).toContain('Reports sent: 0');
+        await stop();
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+      warn.mockRestore();
+    }
+  });
+
+  it('prints the /podium answer to the console when no TUI part has registered', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp() }, async () => {
+        const setup = (plugin as unknown as { setup: Setup }).setup;
+        const ctx = fakeCtx({}, '/loc/v');
+        ctx.rpc.register = async () => { throw new Error('no rpc'); };
+        const stop = await setup(ctx);
+        await ctx.commands[0]!.execute({});
+        expect(String(log.mock.calls[0]?.[0])).toContain('Podium fleet console: http://127.0.0.1:4317/#/');
+        await stop();
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('the plugin entry adds tools, explains failures and answers requests (#969)', () => {
+  const at = Date.now();
+  const sessionEvents = (dir: string, extra: unknown[] = []) => [
+    { id: `${dir}1`, type: 'session.created', data: { sessionID: `ses_${dir}`, slug: 'x', version: '2.2.5' }, created: at, location: { directory: `/loc/${dir}` } },
+    { id: `${dir}2`, type: 'session.execution.started', data: { sessionID: `ses_${dir}` }, created: at, location: { directory: `/loc/${dir}` } },
+    ...extra,
+  ];
+  const setup = (plugin as unknown as { setup: Setup }).setup;
+  const until = async (ok: () => boolean) => {
+    for (let waited = 0; !ok() && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
+  };
+  /** A Podium that answers every report with `reply`, and records the other calls. */
+  const withPodium = async (reply: Record<string, unknown>, body: () => Promise<void>, calls: { url: string; body: unknown }[] = []) => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init?: { method?: string; body?: string }) => {
+      if (String(url).endsWith('/api/fleet/report')) return new Response(JSON.stringify(reply), { status: 200 });
+      calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : undefined });
+      return new Response('{"ok":true}', { status: 200 });
+    }) as typeof fetch;
+    try {
+      await body();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  };
+
+  it('adds only the plan tool until the person allows messaging, and the tools answer through the reporter', async () => {
+    await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: undefined }, async () => {
+      const ctx = fakeCtx({}, '/loc/t1');
+      const stop = await setup(ctx);
+      expect(ctx.tools.map((t) => t.name)).toEqual(['plan']);
+      expect(await ctx.tools[0]!.execute({ title: 'x' }, { sessionID: 'ses_nobody' })).toEqual({ content: 'Not named. Only the orchestrator names the plan.' });
+      await stop();
+    });
+    await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true' }, async () => {
+      const ctx = fakeCtx({}, '/loc/t2');
+      const stop = await setup(ctx);
+      expect(ctx.tools.map((t) => t.name)).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access']);
+      expect((await ctx.tools[1]!.execute({}, { sessionID: 'ses_nobody' })).content).toContain('has not reported yet');
+      await stop();
+    });
+  });
+
+  it('delivers a message from another orchestrator with session.prompt, queued, and answers a request typed as /podium', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const delivery = { id: 'pd9', kind: 'message', at, text: 'hello there', from: { name: 'build-pi', machine: 'pi', owner: 'Ed', id: 'ab12' } };
+    const req = { id: 'prq_0123456789abcdef01234567', kind: 'access', at, from: { machine: 'pi', name: 'build-pi' }, to: { machine: 'mac', name: null }, level: 'send', by: 'build-pi', reason: 'r', text: null };
+    await withPodium({ peers: true, peerDeliveries: [delivery], peerRequests: [req] }, async () => {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_PEERS: 'true', PODIUM_USER: 'Ed', PODIUM_TOKEN: 'tok', PODIUM_SERVER: 'http://podium.test:4317' }, async () => {
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/t3', sessionEvents('t3'));
+        const stop = await setup(ctx);
+        await until(() => ctx.prompts.length > 0 && ctx.emitted.some((e) => e.name === 'notice' && String(e.data.message).includes('asks to send')));
+        expect(ctx.prompts[0]).toMatchObject({ sessionID: 'ses_t3', id: expect.stringMatching(/^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/), delivery: 'queue' });
+        expect(String((ctx.prompts[0] as { text: string }).text)).toContain('Message from the orchestrator build-pi on pi');
+        const command = ctx.commands[0]!;
+        await command.execute({ sessionID: 'ses_t3', prompt: { text: '/podium' } });
+        expect(String(ctx.emitted.filter((e) => e.name === 'notice').at(-1)!.data.message)).toContain('/podium allow 0123');
+        await command.execute({ sessionID: 'ses_t3', prompt: { text: 'allow 0123' } });
+        expect(String(ctx.emitted.filter((e) => e.name === 'notice').at(-1)!.data.message)).toContain('allowed 0123');
+        await command.execute({ sessionID: 'ses_t3', prompt: { text: 'deliver' } });
+        expect(String(ctx.emitted.filter((e) => e.name === 'notice').at(-1)!.data.message)).toContain('Name the request');
+        await stop();
+      });
+    }, calls);
+    expect(calls.some((c) => c.url.endsWith('/peers/requests/prq_0123456789abcdef01234567') && (c.body as { answer: string }).answer === 'allow')).toBe(true);
+  });
+
+  it('asks OpenCode\'s model to explain a failure only with PODIUM_EXPLAIN_FAILURES on', async () => {
+    const failing = (dir: string) => sessionEvents(dir, [
+      { id: `${dir}3`, type: 'session.tool.input.started', data: { sessionID: `ses_${dir}`, id: 'c1', name: 'bash' }, created: at, location: { directory: `/loc/${dir}` } },
+      { id: `${dir}4`, type: 'session.tool.called', data: { sessionID: `ses_${dir}`, id: 'c1', input: { command: 'npm test' } }, created: at, location: { directory: `/loc/${dir}` } },
+      { id: `${dir}5`, type: 'session.tool.failed', data: { sessionID: `ses_${dir}`, id: 'c1', error: { message: 'exit code 2' } }, created: at, location: { directory: `/loc/${dir}` } },
+    ]);
+    await withPodium({}, async () => {
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: 'true', PODIUM_SERVER: 'http://podium.test:4317' }, async () => {
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/e1', failing('e1'));
+        const stop = await setup(ctx);
+        await until(() => ctx.generated.length > 0);
+        expect(String((ctx.generated[0] as { prompt: string }).prompt)).toContain('An OpenCode agent failed');
+        await stop();
+      });
+      await withEnv({ ...PODIUM_ENV, HOME: tmp(), PODIUM_EXPLAIN_FAILURES: undefined, PODIUM_SERVER: 'http://podium.test:4317' }, async () => {
+        const ctx = fakeCtx({ flushIntervalMs: 200 }, '/loc/e2', failing('e2'));
+        const stop = await setup(ctx);
+        await new Promise((r) => setTimeout(r, 700));
+        expect(ctx.generated).toEqual([]);
+        await stop();
+      });
+    });
   });
 });

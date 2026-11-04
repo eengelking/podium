@@ -24,6 +24,14 @@ export const BRIDGE = {
         required: ['sessionID', 'formID', 'answer'],
       },
     },
+    // A line for the person (#969): the connection's status, and the answer to `/podium`. The server part has no toast; the TUI part has.
+    notice: {
+      schema: {
+        type: 'object',
+        properties: { title: { type: 'string' }, message: { type: 'string' }, variant: { type: 'string' } },
+        required: ['message'],
+      },
+    },
   },
 } as const;
 
@@ -32,4 +40,11 @@ export interface AnswerEvent {
   sessionID: string;
   formID: string;
   answer: Record<string, string | string[]>;
+}
+
+/** A line the server part hands the TUI part to show as a toast. */
+export interface NoticeEvent {
+  title?: string;
+  message: string;
+  variant?: 'info' | 'success' | 'warning' | 'error';
 }

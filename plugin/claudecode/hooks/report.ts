@@ -1,23 +1,18 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
-import { DETAIL_CHARS_PER_REPORT } from './activityDetail.ts';
+import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
 import { cap, clip, excerpt, LIMITS } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
 import { family, windowOf } from './models.ts';
 import { toPlan } from '../../core/plan.ts';
 import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
-import { utf8Bytes } from './recording.ts';
-import { RECORDING_LIMITS } from '../../core/protocol.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
 
 /** v1 keeps the legacy name, which every server reads as the Claude Code reporter, so a reporter updated before its server is not refused (#967). The new name arrives with v2. */
 export const REPORTER_NAME = 'podium-reporter';
 export const MAX_EVENTS_PER_REPORT = 100;
 export const MAX_AGENTS_PER_REPORT = 200;
-/** Full prompt and answer characters in one report; the server accepts a 512 kB body. The rest goes in later reports. */
-export const MAX_FULL_TEXT_PER_REPORT = 120_000;
-/** Activity-feed characters in one report (#118), as the server takes them: the orchestrator's first, then the agents'. */
-export const MAX_ACTIVITY_PER_REPORT = 60_000;
+export { MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT };
 
 export interface ReportMeta {
   version: string;
@@ -111,31 +106,6 @@ function usageRows(rows: ModelUsage[]): ModelUsage[] {
   return rows.slice(0, 40).map((r) => ({ ...r, model: cap(r.model, 120) }));
 }
 
-/** The most a command or an output may hold as the server takes it: the 20,000-character cut plus the marker (`activityDetail`). */
-const DETAIL_MAX = 20_100;
-
-/** A loop's feed as it is sent: every summary redacted and cut again here, like every other free-text field. A command and an output were redacted and cut when captured; here they are only held to the server's limit. */
-function feed(list: readonly ActivityEntry[], withOutput: boolean): ActivityEntry[] {
-  return list.map((e) => {
-    const out: ActivityEntry = { at: e.at, kind: e.kind, text: clip(e.text, LIMITS.activity) };
-    if (e.kind !== 'tool') return out;
-    if (e.id !== undefined) out.id = cap(e.id, 200);
-    if (e.command !== undefined) {
-      out.command = e.command.slice(0, DETAIL_MAX);
-      if (e.commandCut) out.commandCut = true;
-    }
-    if (withOutput && e.output !== undefined) {
-      out.output = e.output.slice(0, DETAIL_MAX);
-      if (e.outputCut) out.outputCut = true;
-    }
-    // How the call ended is not output: it goes with the feed (#598).
-    if (e.done) out.done = true;
-    if (e.exitCode !== undefined) out.exitCode = e.exitCode;
-    if (e.failed) out.failed = true;
-    return out;
-  });
-}
-
 export function agentReport(a: AgentState, fullText = false, activity = false, activityOutput = false): AgentReport {
   const window = a.window ?? (a.model ? windowOf(a.model) : null);
   return {
@@ -164,88 +134,6 @@ export function agentReport(a: AgentState, fullText = false, activity = false, a
     ...(activity && a.activity.length ? { activity: feed(a.activity, activityOutput) } : {}),
     failure: cleanFailure(a.failure),
   };
-}
-
-/** Drops full texts past the per-report budget (oldest agents first kept); they are still unsent, so a later report carries them. */
-function withinTextBudget(reports: AgentReport[]): AgentReport[] {
-  let left = MAX_FULL_TEXT_PER_REPORT;
-  return reports.map((r) => {
-    const { promptText, answerText, ...rest } = r;
-    const out: AgentReport = rest;
-    for (const [k, v] of [['promptText', promptText], ['answerText', answerText]] as const) {
-      if (v === undefined) continue;
-      if (v.length <= left || left === MAX_FULL_TEXT_PER_REPORT) {
-        out[k] = v;
-        left -= v.length;
-      }
-    }
-    return out;
-  });
-}
-
-/** Leaves out the feeds past the per-report budget, the orchestrator's first, then the agents' in order, as the server would. */
-function withinActivityBudget(r: Report): Report {
-  let left = MAX_ACTIVITY_PER_REPORT;
-  const fits = (list: ActivityEntry[]) => {
-    const n = list.reduce((sum, e) => sum + e.text.length, 0);
-    if (n > left) return false;
-    left -= n;
-    return true;
-  };
-  if (r.session.activity && !fits(r.session.activity)) delete r.session.activity;
-  for (const a of r.agents) if (a.activity && !fits(a.activity)) delete a.activity;
-  return r;
-}
-
-const OUTPUT_FIELDS = ['output', 'outputCut'] as const;
-const COMMAND_FIELDS = ['command', 'commandCut'] as const;
-
-/** The feeds of a report, the orchestrator's first, then each agent's in order, as the server reads them. */
-function feeds(r: Report): ActivityEntry[][] {
-  const lists: ActivityEntry[][] = [];
-  if (r.session.activity) lists.push(r.session.activity);
-  for (const a of r.agents) if (a.activity) lists.push(a.activity);
-  return lists;
-}
-
-const detailChars = (e: ActivityEntry): number => (e.command?.length ?? 0) + (e.output?.length ?? 0);
-
-/**
- * Keeps commands and output within the report's own 200,000 characters (#431), apart from the summaries' 60,000: in feed order and
- * newest entry first, as the server counts them. An entry that does not fit loses its output, and then its command, and keeps its summary.
- */
-function withinDetailBudget(r: Report): Report {
-  let room = DETAIL_CHARS_PER_REPORT;
-  for (const list of feeds(r)) {
-    for (let i = list.length - 1; i >= 0; i--) {
-      const e = list[i]!;
-      if (detailChars(e) <= room) {
-        room -= detailChars(e);
-        continue;
-      }
-      for (const k of OUTPUT_FIELDS) delete e[k];
-      if (detailChars(e) <= room) room -= detailChars(e);
-      else for (const k of COMMAND_FIELDS) delete e[k];
-    }
-  }
-  return r;
-}
-
-/**
- * Keeps the serialized report under the server's 512 KB body, as a recording's request does (480,000 bytes): the character budget
- * does not see a multi-byte text. Output goes first, then commands, from the last loop's oldest entry back, until it fits.
- */
-function withinSize(r: Report): void {
-  const lists = feeds(r);
-  if (!lists.length || utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
-  const order = lists.slice().reverse().flatMap((list) => list);
-  for (const fields of [OUTPUT_FIELDS, COMMAND_FIELDS]) {
-    for (const e of order) {
-      if (!fields.some((k) => k in e)) continue;
-      for (const k of fields) delete e[k];
-      if (utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
-    }
-  }
 }
 
 /** A full snapshot of the session plus the events given (at most 100). */

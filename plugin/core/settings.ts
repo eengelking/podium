@@ -6,6 +6,7 @@
 // environment variables and from `~/.podium/config.env`, never from project config. Each reporter calls this once; none keeps its own copy.
 
 import { trimTrailingSlashes } from './machine.ts';
+import type { RespondLevel } from './protocol.ts';
 
 /** The folder under the home directory that holds the person's own Podium files. */
 export const PODIUM_DIR_NAME = '.podium';
@@ -21,6 +22,7 @@ export const CONSENT_VARS = {
   activityFeed: 'PODIUM_ACTIVITY_FEED',
   activityOutput: 'PODIUM_ACTIVITY_OUTPUT',
   fileDiff: 'PODIUM_FILE_DIFF',
+  explainFailures: 'PODIUM_EXPLAIN_FAILURES',
 } as const;
 
 export type ConsentName = keyof typeof CONSENT_VARS;
@@ -36,6 +38,11 @@ export interface TrustedSettings {
   reporterConfig: string;
   /** PODIUM_REPORTER_CONTEXT (#606): the context that picks the file. '' when unset. */
   reporterContext: string;
+  /**
+   * How far answering goes. `PODIUM_RESPOND` is a level name (`questions`, `questions-and-plans` or `everything`); a plain `true` is the lowest level, `questions`,
+   * so turning answering on never grants permission replies by itself. Anything else is `off`.
+   */
+  respondLevel: RespondLevel;
   /** The only source of a consent decision. A reporter that answers or records must read it here, never from a project option. */
   consent: Consent;
 }
@@ -77,6 +84,8 @@ export function trustedSettings(env: Env, fileText: string | null | undefined): 
   };
   const consent = {} as Consent;
   for (const name of Object.keys(CONSENT_VARS) as ConsentName[]) consent[name] = get(CONSENT_VARS[name]) === 'true';
+  const respondLevel = respondLevelOf(get(CONSENT_VARS.respond));
+  consent.respond = respondLevel !== 'off';
   return {
     serverUrl: get('PODIUM_SERVER') || 'http://127.0.0.1:4317',
     token: get('PODIUM_TOKEN'),
@@ -84,6 +93,13 @@ export function trustedSettings(env: Env, fileText: string | null | undefined): 
     idleSeconds: get('PODIUM_IDLE_SECONDS'),
     reporterConfig: get('PODIUM_REPORTER_CONFIG'),
     reporterContext: get('PODIUM_REPORTER_CONTEXT'),
+    respondLevel,
     consent,
   };
+}
+
+/** The level a `PODIUM_RESPOND` value names. A plain `true` is the lowest level. */
+export function respondLevelOf(v: string): RespondLevel {
+  if (v === 'true') return 'questions';
+  return v === 'questions' || v === 'questions-and-plans' || v === 'everything' ? v : 'off';
 }

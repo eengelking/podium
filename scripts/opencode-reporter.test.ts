@@ -69,7 +69,7 @@ describe('OpenCode fixtures: what the wall shows', () => {
     expect(r.agents[0]!.parentId).toBeNull();
     // The root's own usage already includes the child's 0.00014: the session cost is not 0.00056.
     expect(r.session.costUsd).toBeCloseTo(0.00042, 8);
-    expect(r.session.loop?.toolCounts).toEqual({ subagent: 1 });
+    expect(r.session.loop?.toolCounts).toEqual({ Agent: 1 });
     expect(new Set(bodies.map((b) => (b as { session: { id: string } }).session.id)).size).toBe(1);
     const storage = openSqliteStorage(':memory:');
     for (const b of bodies) {
