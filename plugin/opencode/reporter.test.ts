@@ -380,3 +380,234 @@ describe('Reporter', () => {
     expect(bodies[0]!.session).toMatchObject({ status: 'waiting', waitReason: 'permission', waitNote: 'edit a.ts' });
   });
 });
+
+// ---- parity with the Claude Code reporter (#969) ----
+
+const stepWith = (sessionID: string, created: number, model: Record<string, unknown>) => ev('session.step.started', { sessionID, agent: 'build', model }, created);
+const stepEnd = (sessionID: string, created: number, input: number, output = 10, cache = { read: 0, write: 0 }) =>
+  ev('session.step.ended', { sessionID, tokens: { input, output, reasoning: 0, cache } }, created);
+const meta = { now: 99, version: VERSION, engineVersion: null, hostSurface: null };
+
+describe('effort from the model variant', () => {
+  it('reports the variant as observed effort, and unknown when there is none', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2), stepWith(ROOT, 3, { id: 'gpt', providerID: 'openai', variant: 'xhigh' }), stepWith(KID, 4, { id: 'gpt', providerID: 'openai', variant: 'custom-deep' }));
+    const root = s.roots.get(ROOT)!;
+    let r = buildReport(root, [], meta);
+    expect(r.session.effort).toBe('xhigh');
+    expect(r.agents[0]).toMatchObject({ effort: 'custom-deep', effortSource: 'observed' });
+    apply(s, stepWith(ROOT, 5, { id: 'gpt', providerID: 'openai' }), 5);
+    apply(s, stepWith(KID, 6, { id: 'gpt', providerID: 'openai' }), 6);
+    r = buildReport(root, [], meta);
+    expect(r.session.effort).toBeNull();
+    expect(r.agents[0]).toMatchObject({ effort: null, effortSource: 'unknown' });
+    apply(s, ev('session.step.started', { sessionID: ROOT }, 7), 7); // no model at all: nothing changes
+    expect(buildReport(root, [], meta).session.effort).toBeNull();
+  });
+
+  it('declares effort and context as capabilities', () => {
+    const root = store(ev('session.created', { sessionID: ROOT }, 1)).roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).capabilities).toMatchObject({ effort: true, context: true });
+  });
+});
+
+describe('context window and percent', () => {
+  const lookups: string[] = [];
+  function withWindow(windowOf: (p: string, m: string) => Promise<number | null>) {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined, windowOf }, { ...optionsOf({}, null, {}), idleMs: 60_000 });
+    return { r, t, bodies };
+  }
+  const settle = () => new Promise((res) => setTimeout(res, 0));
+
+  it('fills the window on a later tick, never in handle, and asks once per model', async () => {
+    lookups.length = 0;
+    const { r, bodies } = withWindow(async (p, m) => { lookups.push(`${p}/${m}`); return 200_000; });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    expect(r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }))).toBeUndefined();
+    r.handle(stepEnd(ROOT, 10_002, 50_000));
+    r.handle(stepWith(ROOT, 10_003, { id: 'm', providerID: 'p' }));
+    await settle();
+    await r.tick();
+    expect(lookups).toEqual(['p/m']);
+    expect(bodies.at(-1)!.session.context).toEqual({ tokens: 50_000, window: 200_000, percent: 25 });
+  });
+
+  it('caps the percent at 100 and fills a subagent too', async () => {
+    const { r, bodies } = withWindow(async () => 1000);
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT }, 10_001));
+    r.handle(stepWith(KID, 10_002, { id: 'm', providerID: 'p' }));
+    r.handle(stepEnd(KID, 10_003, 1500));
+    await settle();
+    await r.tick();
+    expect(bodies.at(-1)!.agents[0]!.context).toEqual({ tokens: 1500, window: 1000, percent: 100 });
+  });
+
+  it('leaves the window empty while the lookup is pending, and when it fails or finds nothing', async () => {
+    const { r, bodies } = withWindow(() => new Promise(() => undefined));
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    r.handle(stepEnd(ROOT, 10_002, 10));
+    await r.tick();
+    expect(bodies.at(-1)!.session.context).toEqual({ tokens: 10, window: null, percent: null });
+
+    let fail = true;
+    const two = withWindow(async () => { if (fail) throw new Error('down'); return null; });
+    two.r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    two.r.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    two.r.handle(stepEnd(ROOT, 10_002, 10));
+    await settle();
+    await two.r.tick();
+    expect(two.bodies.at(-1)!.session.context.window).toBeNull();
+    fail = false;
+    two.r.handle(stepWith(ROOT, 10_003, { id: 'm', providerID: 'p' })); // too soon to ask again
+    await settle();
+    two.t.now += 61_000;
+    two.r.handle(stepWith(ROOT, two.t.now, { id: 'm', providerID: 'p' })); // asks again, finds nothing
+    await settle();
+    await two.r.tick();
+    expect(two.bodies.at(-1)!.session.context).toEqual({ tokens: 10, window: null, percent: null });
+  });
+
+  it('does not look up a model it cannot name, or without a lookup', async () => {
+    const { r } = withWindow(async () => { throw new Error('should not be asked'); });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    r.handle(ev('session.step.started', { sessionID: ROOT, model: { id: 'm' } }, 10_001));
+    const { r: plain } = reporter(async () => okReply);
+    plain.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    plain.handle(stepWith(ROOT, 10_001, { id: 'm', providerID: 'p' }));
+    await settle();
+    await plain.tick();
+  });
+});
+
+describe('window lookup from the model list', () => {
+  it('finds a model by provider and id', async () => {
+    const { windowFromList } = await import('./window.ts');
+    const list = { data: [{ providerID: 'a', id: 'x', limit: { context: 8 } }, { providerID: 'p', id: 'm', limit: { context: 128_000 } }, { providerID: 'p', id: 'z', limit: {} }] };
+    expect(windowFromList(list, 'p', 'm')).toBe(128_000);
+    expect(windowFromList(list, 'p', 'z')).toBeNull();
+    expect(windowFromList(list, 'p', 'nope')).toBeNull();
+    expect(windowFromList(undefined, 'p', 'm')).toBeNull();
+    expect(windowFromList({ data: 3 }, 'p', 'm')).toBeNull();
+  });
+});
+
+describe('skills', () => {
+  it('lists the skills a session activated, once each, with a feed entry', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT, agent: 'general' }, 2));
+    const act = (sessionID: string, name: string, t: number) => apply(s, ev('session.skill.activated', { sessionID, id: `sk_${name}`, name, text: 'body' }, t), t);
+    act(ROOT, 'pdf', 3);
+    act(ROOT, 'pdf', 4);
+    act(KID, 'docx', 5);
+    apply(s, ev('session.skill.activated', { sessionID: ROOT, id: 'x' }, 6), 6); // no name: ignored
+    const root = s.roots.get(ROOT)!;
+    const r = buildReport(root, root.events, meta);
+    expect(r.session.loop!.skills).toEqual(['pdf']);
+    expect(r.agents[0]!.skills).toEqual(['docx']);
+    expect(r.events.filter((e) => e.kind === 'skill').map((e) => e.text)).toEqual(['pdf loaded into orchestrator', 'docx loaded into general']);
+  });
+
+  it('subscribes to the skill event', async () => {
+    const { EVENT_TYPES } = await import('./state.ts');
+    expect(EVENT_TYPES).toContain('session.skill.activated');
+  });
+});
+
+describe('usageByModel', () => {
+  it('totals each step by model and prompt-size tier, children folded into the session', () => {
+    const s = store(
+      ev('session.created', { sessionID: ROOT }, 1),
+      ev('session.created', { sessionID: KID, parentID: ROOT }, 2),
+      stepWith(ROOT, 3, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 4, 1000, 100, { read: 200, write: 50 }),
+      stepWith(ROOT, 5, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 6, 500, 20),
+      stepWith(ROOT, 7, { id: 'big', providerID: 'p' }),
+      stepEnd(ROOT, 8, 150_000, 30),
+      stepWith(KID, 9, { id: 'small', providerID: 'q' }),
+      stepEnd(KID, 10, 7, 3),
+      stepWith(KID, 11, { id: 'big', providerID: 'p' }),
+      stepEnd(KID, 12, 1, 1),
+    );
+    const r = buildReport(s.roots.get(ROOT)!, [], meta);
+    const row = (rows: typeof r.session.usageByModel, model: string, tier: string) => rows!.find((u) => u.model === model && u.tier === tier)?.tokens;
+    expect(row(r.session.usageByModel, 'big', 'std')).toEqual({ input: 1501, output: 121, cacheRead: 200, cacheWrite: 50, cacheWrite1h: 0 });
+    expect(row(r.session.usageByModel, 'big', 'long')).toEqual({ input: 150_000, output: 30, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 });
+    expect(row(r.session.usageByModel, 'small', 'std')).toMatchObject({ input: 7, output: 3 });
+    expect(r.agents[0]!.usageByModel).toHaveLength(2);
+  });
+
+  it('counts nothing for a step that names no model', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), stepEnd(ROOT, 2, 10));
+    expect(buildReport(s.roots.get(ROOT)!, [], meta).session.usageByModel).toEqual([]);
+  });
+});
+
+describe('failure detail', () => {
+  const setup = () => store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2));
+  const call = (s: ReturnType<typeof setup>, id: string, tool: string, input: Record<string, unknown>, t: number) => {
+    apply(s, ev('session.tool.input.started', { sessionID: KID, id, name: tool }, t), t);
+    apply(s, ev('session.tool.called', { sessionID: KID, id, input }, t + 1), t + 1);
+  };
+  const failureOf = (s: ReturnType<typeof setup>) => buildReport(s.roots.get(ROOT)!, [], meta).agents[0]!.failure!;
+
+  it('keeps the error text of a failed run and of a failed step', () => {
+    const s = setup();
+    apply(s, ev('session.step.failed', { sessionID: KID, error: { type: 'api', message: 'rate limit hit\nretry later' } }, 3), 3);
+    expect(failureOf(s)).toMatchObject({ class: 'Model API error', outputTail: ['rate limit hit', 'retry later'] });
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { type: 'api', message: 'provider down' } }, 4), 4);
+    expect(failureOf(s)).toMatchObject({ class: 'Model API error', tool: 'model request', outputTail: ['provider down'] });
+  });
+
+  it('says what model request failed, with the effort when known', () => {
+    const s = setup();
+    apply(s, stepWith(KID, 3, { id: 'm', providerID: 'p', variant: 'high' }), 3);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'x' } }, 4), 4);
+    expect(failureOf(s).call).toBe('model request (m, effort high)');
+  });
+
+  it('classifies a rejected permission as Blocked by permission, even when the call then fails', () => {
+    const s = setup();
+    apply(s, ev('permission.asked', { id: 'per_1', sessionID: KID, action: 'bash', resources: ['rm -rf /'] }, 3), 3);
+    call(s, 'c1', 'bash', { command: 'rm -rf /' }, 4);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'per_1', reply: 'reject' }, 6), 6);
+    apply(s, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: { message: 'The user rejected this call' } }, 7), 7);
+    expect(failureOf(s)).toMatchObject({ class: 'Blocked by permission', evidence: [expect.stringContaining('permission denied')] });
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'stopped' } }, 8), 8);
+    expect(failureOf(s).class).toBe('Blocked by permission');
+  });
+
+  it('does not treat an allowed permission as a denial', () => {
+    const s = setup();
+    apply(s, ev('permission.asked', { id: 'per_1', sessionID: KID, action: 'edit', resources: ['a.ts'] }, 3), 3);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'per_1', reply: 'once' }, 4), 4);
+    apply(s, ev('permission.replied', { sessionID: KID, requestID: 'unknown', reply: 'reject' }, 5), 5);
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'x' } }, 6), 6);
+    expect(failureOf(s).class).toBe('Model API error');
+  });
+
+  it('writes an evidence line when the same call failed twice', () => {
+    const s = setup();
+    for (const [i, id] of ['c1', 'c2'].entries()) {
+      call(s, id, 'bash', { command: 'npm test' }, 10 + i * 10);
+      apply(s, ev('session.tool.failed', { sessionID: KID, id, error: { message: 'exit code 1' } }, 12 + i * 10), 12 + i * 10);
+    }
+    apply(s, ev('session.execution.failed', { sessionID: KID, error: { message: 'gave up' } }, 40), 40);
+    const f = failureOf(s);
+    expect(f).toMatchObject({ class: 'Tool error', tool: 'bash', exitCode: 1 });
+    expect(f.evidence).toEqual(['same call failed 2 times: bash npm test']);
+  });
+
+  it('classifies an interruption as Aborted, and a stale failing call is not the cause', () => {
+    const s = setup();
+    apply(s, ev('session.execution.interrupted', { sessionID: KID }, 3), 3);
+    expect(failureOf(s).class).toBe('Aborted');
+    const t = setup();
+    call(t, 'c1', 'bash', { command: 'x' }, 10);
+    apply(t, ev('session.tool.failed', { sessionID: KID, id: 'c1', error: 'plain string error' }, 12), 12);
+    apply(t, ev('session.execution.failed', { sessionID: KID, error: { message: 'late' } }, 12 + 120_000), 12 + 120_000);
+    expect(failureOf(t)).toMatchObject({ class: 'Model API error', outputTail: ['late'] });
+  });
+});

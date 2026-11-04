@@ -32,6 +32,11 @@ export interface ReporterDeps {
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
   problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
+  /**
+   * The context window of a model, or null when OpenCode does not say. Asked in the background the first time a model is seen; a report
+   * carries the window once the answer is in. Never awaited by `handle`.
+   */
+  windowOf?: (provider: string, model: string) => Promise<number | null>;
   answering?: { host: Host; consent: Consent; sleep?: (ms: number) => Promise<boolean>; answerMs?: number };
 }
 
@@ -43,6 +48,9 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
   return Promise.race([p, limit]).finally(() => clearTimeout(timer));
 }
+
+/** How long a model whose window could not be read waits before it is asked about again. */
+const WINDOW_RETRY_MS = 60_000;
 
 export const DEFAULTS = { answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
@@ -60,6 +68,9 @@ export class Reporter {
   /** Answering from Podium (#858); null when the person has not allowed it or the host cannot do it. */
   private readonly answering: Answering | null;
   private readonly responder: Responder | null;
+  /** The window per `provider\0model`; `at` is when a missing one was last asked for. */
+  private readonly windows = new Map<string, { window: number | null; at: number }>();
+  private readonly windowPending = new Set<string>();
 
   constructor(
     private readonly deps: ReporterDeps,
@@ -81,10 +92,29 @@ export class Reporter {
     const v = ev.type === 'session.created' ? ev.data?.version : null;
     if (typeof v === 'string' && v) this.engineVersion = v;
     const root = apply(this.store, ev, this.deps.now());
+    if (ev.type === 'session.step.started') this.wantWindow(ev.data?.model?.providerID, ev.data?.model?.id);
     if (root) {
       this.queue(root);
       if (!root.done) this.refreshGit(root, this.deps.now());
     }
+  }
+
+  /** Asks for a model's window in the background when it is not known; never throws and never holds up `handle`. */
+  private wantWindow(provider: unknown, model: unknown): void {
+    const lookup = this.deps.windowOf;
+    if (!lookup || typeof provider !== 'string' || typeof model !== 'string' || !provider || !model) return;
+    const key = `${provider}\u0000${model}`;
+    const now = this.deps.now();
+    const known = this.windows.get(key);
+    if (this.windowPending.has(key) || (known && (known.window !== null || now - known.at < WINDOW_RETRY_MS))) return;
+    this.windowPending.add(key);
+    void lookup(provider, model)
+      .catch(() => null)
+      .then((window) => {
+        this.windowPending.delete(key);
+        this.windows.set(key, { window, at: now });
+        if (window !== null) for (const r of this.store.roots.values()) r.dirty = true;
+      });
   }
 
   /** The line a status view may show: the connection's state, led by what is wrong with the secure connection when something is (#948). Null before any report. */
@@ -123,7 +153,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, machine: o.machine };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, machine: o.machine, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */

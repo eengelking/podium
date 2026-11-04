@@ -1,9 +1,9 @@
 // What the OpenCode reporter knows about its sessions (#855). Pure: no engine API, no clock of its own, no network.
 // `apply` folds one bus event into a Store; report.ts turns a Root into a v2 report. A root session and the child
 // sessions it launched are one Root and one report; a child is an agent in that report.
-import { clip, candidateFrom, classify, buildFailure, LIMITS } from '../core/failures.ts';
+import { clip, cap, candidateFrom, classify, buildFailure, evidence, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
-import type { ActivityEvent, Failure, GitInfo } from '../core/protocol.ts';
+import type { ActivityEvent, Failure, GitInfo, ModelUsage } from '../core/protocol.ts';
 
 /** One event from the OpenCode bus as the plugin receives it. Only the fields this reporter reads are typed. */
 export interface BusEvent {
@@ -61,6 +61,15 @@ export interface Sess {
   prompt: string;
   answer: string;
   failure: Failure | null;
+  /** The model variant of the last step (`model.variant`), which is OpenCode's name for effort; null when the step named none. */
+  effort: string | null;
+  skills: string[];
+  /** Tokens per model and prompt-size tier, from each finished step. */
+  usage: Record<string, ModelUsage>;
+  /** The last failing or denied call: what a failure that follows is blamed on while it is fresh. */
+  candidate: FailureCandidate | null;
+  /** How often each failing call failed. */
+  failedCalls: Record<string, number>;
 }
 
 /** One field of a question form: what OpenCode asks, and the values it takes back. */
@@ -145,7 +154,7 @@ export const EVENT_TYPES = [
   'session.inbox.enqueued',
   'session.execution.started', 'session.execution.succeeded', 'session.execution.failed', 'session.execution.interrupted',
   'session.step.started', 'session.step.ended', 'session.step.failed',
-  'session.usage.updated', 'session.text.ended',
+  'session.usage.updated', 'session.text.ended', 'session.skill.activated',
   'session.tool.input.started', 'session.tool.called', 'session.tool.success', 'session.tool.failed',
   'session.compaction.started', 'session.compaction.ended', 'session.compaction.failed',
   'permission.asked', 'permission.replied',
@@ -160,7 +169,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
   return {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
-    toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null,
+    toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
   };
 }
 
@@ -231,6 +240,37 @@ function contentText(content: unknown): string {
   return content.map((c) => (c && typeof c.text === 'string' ? c.text : '')).filter(Boolean).join('\n');
 }
 
+/** A request whose prompt (input + cache reads + cache writes) is over this is priced at a model's long-prompt tier. */
+const LONG_PROMPT_TOKENS = 100_000;
+
+/** Adds one finished step's tokens to the session's per-model, per-tier totals. A step that names no model counts nowhere. */
+function addUsage(s: Sess, k: Tokens): void {
+  if (!s.model) return;
+  const tier = k.input + k.cacheRead + k.cacheWrite > LONG_PROMPT_TOKENS ? 'long' : 'std';
+  const key = `${s.model}\u0000${tier}`;
+  const was = s.usage[key]?.tokens ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 };
+  s.usage[key] = { model: s.model, tier, tokens: { input: was.input + k.input, output: was.output + k.output, cacheRead: was.cacheRead + k.cacheRead, cacheWrite: was.cacheWrite + k.cacheWrite, cacheWrite1h: 0 } };
+}
+
+/** The candidate for a failure at `at`: the last failing or denied call, if it is recent enough to be the cause. */
+const freshCandidate = (s: Sess, at: number): FailureCandidate | null => (s.candidate && at - s.candidate.at <= LIMITS.candidateMaxAgeMs ? s.candidate : null);
+
+/**
+ * Records why a session's run ended badly, as the Claude Code reporter does for an agent: the class, the failing call
+ * it blames, the lines the engine gave, and the facts observed (a denial, a call that kept failing). `errText` is the engine's own
+ * error and is kept when no failing call explains the end.
+ */
+function recordFailure(s: Sess, reason: 'error' | 'aborted', at: number, errText: string): Failure {
+  const cand = freshCandidate(s, at);
+  const cls = classify({ reason, candidate: cand, stopReason: null, blowouts: 0, now: at }) ?? 'Unknown';
+  const ev = evidence({ blowoutTimes: [], failedCalls: s.failedCalls, reads: {}, denyText: cand?.denied ? cand.denyText : null });
+  const request = cls === 'Model API error' ? { tool: 'model request', call: s.model ? `model request (${s.model}${s.effort ? `, effort ${s.effort}` : ''})` : 'model request' } : {};
+  const f = buildFailure(cls, cand, ev, at, request);
+  if (!cand && errText) f.outputTail = tailLines(errText);
+  s.failure = f;
+  return f;
+}
+
 function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, failed: boolean): void {
   const id = str(d.id);
   if (!id) return;
@@ -244,8 +284,12 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   const text = errorText(d.error) || contentText(d.content);
   const cand = candidateFrom(call.tool, call.input, { isError: true, text }, at);
   if (!cand) return;
-  const cls = classify({ reason: 'error', candidate: cand, stopReason: null, blowouts: 0, now: at });
-  s.failure = buildFailure(cls ?? 'Tool error', cand, [], at);
+  s.failedCalls[cand.call] = (s.failedCalls[cand.call] ?? 0) + 1;
+  // The call a person just refused fails as a result; the refusal stays the cause.
+  const denied = freshCandidate(s, at)?.denied ? s.candidate : null;
+  if (!denied) s.candidate = cand;
+  const cls = classify({ reason: 'error', candidate: denied ?? cand, stopReason: null, blowouts: 0, now: at });
+  s.failure = buildFailure(cls ?? 'Tool error', denied ?? cand, evidence({ blowoutTimes: [], failedCalls: s.failedCalls, reads: {}, denyText: denied?.denyText ?? null }), at);
   emit(root, at, 'fail', s.id === root.id ? null : s.id, `${call.tool} failed`, { class: s.failure.class });
 }
 
@@ -304,9 +348,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const aborted = type.endsWith('interrupted');
       s.end = aborted ? 'aborted' : 'failed';
       s.endedAt = t;
-      const cls = classify({ reason: aborted ? 'aborted' : 'error', candidate: null, stopReason: null, blowouts: 0, now: t });
-      if (cls) s.failure = buildFailure(cls, null, [], t);
-      emit(root, t, aborted ? 'end' : 'fail', s.id === root.id ? null : s.id, aborted ? 'interrupted' : 'failed', cls ? { class: cls } : null);
+      const f = recordFailure(s, aborted ? 'aborted' : 'error', t, errorText(d.error));
+      emit(root, t, aborted ? 'end' : 'fail', s.id === root.id ? null : s.id, aborted ? 'interrupted' : 'failed', { class: f.class });
       break;
     }
     case 'session.step.started':
@@ -314,16 +357,25 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       s.model = str(d.model?.id) ?? s.model;
       s.provider = str(d.model?.providerID) ?? s.provider;
       s.agent = str(d.agent) ?? s.agent;
+      // The model's variant is the closest thing OpenCode has to an effort level. No variant means the model's default, which is not known.
+      if (d.model) s.effort = str(d.model.variant);
       break;
     case 'session.step.ended': {
       const k = tokensOf(d.tokens);
       s.ctxTokens = k.input + k.cacheRead + k.cacheWrite;
+      addUsage(s, k);
       break;
     }
     case 'session.step.failed': {
-      const cls = classify({ reason: 'error', candidate: null, stopReason: null, blowouts: 0, now: t });
-      if (cls) s.failure = buildFailure(cls, null, [], t);
-      emit(root, t, 'fail', s.id === root.id ? null : s.id, `step failed: ${errorText(d.error) || 'error'}`, cls ? { class: cls } : null);
+      const f = recordFailure(s, 'error', t, errorText(d.error));
+      emit(root, t, 'fail', s.id === root.id ? null : s.id, `step failed: ${errorText(d.error) || 'error'}`, { class: f.class });
+      break;
+    }
+    case 'session.skill.activated': {
+      const name = str(d.name);
+      if (!name || s.skills.includes(name)) break;
+      s.skills = [...s.skills, cap(name, 120)].slice(-50);
+      emit(root, t, 'skill', s.id === root.id ? null : s.id, `${name} loaded into ${s.id === root.id ? 'orchestrator' : (s.agent ?? 'agent')}`, { skill: name });
       break;
     }
     case 'session.usage.updated':
@@ -362,9 +414,16 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources: Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [] });
       break;
     }
-    case 'permission.replied':
+    case 'permission.replied': {
+      const open = root.asks.get(String(d.requestID ?? ''));
+      // A refused permission is the likeliest cause of what fails next in that session.
+      if (open && d.reply === 'reject') {
+        const owner = root.sessions.get(open.sessionId) ?? s;
+        owner.candidate = candidateFrom(open.action ?? 'permission', { resources: (open.resources ?? []).join(' ') }, { deny: 'permission rejected' }, t);
+      }
       root.asks.delete(String(d.requestID ?? ''));
       break;
+    }
     case 'form.created': {
       const id = str(d.form?.id);
       if (id) ask(root, { id, kind: 'question', sessionId: sid, openedAt: t, note: clip(str(d.form?.fields?.[0]?.title) ?? str(d.form?.title) ?? 'question', 160), fields: formFields(d.form?.fields) });

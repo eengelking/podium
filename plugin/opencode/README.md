@@ -17,14 +17,21 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 | `bridge.ts`, `tui.ts` | The TUI part. The server part cannot answer a form, so it hands the answer to the TUI part as a plugin RPC event, and the TUI part replies with `session.form.reply`. `tui.ts` is the package's `./tui` export. |
 | `options.ts` | Settings from `PODIUM_*` and `~/.podium/config.env` (`../core/settings.ts`), `idleSeconds` from the plugin options, then the defaults. |
 | `tls.ts` | The secure connection (#948): finds the reporter config file the way the Claude reporter does (`../core/tls/findConfig.ts`), makes the mTLS client in this process (`../core/tls/client.mjs`), and gives the `Reporter` a `fetch` through it. A file that cannot be used becomes a link that sends nothing and says why, once, as a `podium-reporter:` console line and in `Reporter.statusText()`. |
+| `window.ts` | Pure: a model's context window from a `ctx.model.list()` answer. |
 | `machine.ts` | The machine id (`~/.podium/machine-id`, shared with the Claude reporter) and the settings file read. |
 
 ## What it reports
 
 - Model and provider (from `session.step.started`), tokens and cost from `session.usage.updated`. The root's usage already includes its
   children's, so the session cost is the root's figure and a child's cost is its own; nothing is added twice.
-- Context is the last step's prompt: input plus cache read plus cache write. The window is not on the bus, so there is no percent and the
-  reporter declares `context: false`. Effort is not on the bus either (`effort: false`).
+- Context is the last step's prompt: input plus cache read plus cache write. The window comes from the model list (`ctx.model.list`, the
+  model's `limit.context`), asked for in the background the first time a model is seen, so the percent appears on a later report. A model
+  the list does not hold has a context size and no percent.
+- Effort is the model's variant on `session.step.started` (`model.variant`), reported as the free string OpenCode gives with
+  `effortSource: 'observed'`. A step with no variant reports effort as unknown; the model's default is not on the bus.
+- Skills come from `session.skill.activated`. Tokens per model and prompt-size tier (`usageByModel`) are totalled from each finished step.
+- A failure carries the engine's error text, and "Blocked by permission" when a person rejected a permission and that call then failed.
+  A call that failed twice or more is listed as evidence.
 - Tools with input and result, permission asks and questions (the session is `waiting`), compaction, the plan from the todo tool, failures,
   and the git branch.
 - A session is `done` after it has been quiet for `idleSeconds` (default 60), at once on `session.deleted` or `session.archived`, and when the

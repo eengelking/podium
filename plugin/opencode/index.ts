@@ -13,6 +13,7 @@ import { DEFAULTS, Reporter } from './reporter.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { EVENT_TYPES, type BusEvent } from './state.ts';
 import { homeOf, openLink, withLink, type TlsLink } from './tls.ts';
+import { windowFromList } from './window.ts';
 
 const KEY = Symbol.for('podium-reporter.opencode');
 
@@ -100,7 +101,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       }
     : undefined;
   // Everything sent to Podium, the answering calls included, goes through the link when there is one, and never falls back to http.
-  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: () => undefined, problem: link?.problem, answering }, options);
+  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: () => undefined, problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
   bridge.reporter = reporter;
   if (answering) {
     // The TUI part says it is attached here, and is handed a question's answer as an event.
