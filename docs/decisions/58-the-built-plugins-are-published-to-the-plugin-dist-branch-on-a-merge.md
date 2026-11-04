@@ -57,5 +57,5 @@ users still holds.
 <!-- nav:start -->
 ---
 
-Previous: [57. The report types and the shared reporter code live once, in plugin/core (#927)](57-the-report-types-and-shared-reporter-code-live-once-in-plugin-core.md) · Up: [Decisions](README.md)
+Previous: [57. The report types and the shared reporter code live once, in plugin/core (#927)](57-the-report-types-and-shared-reporter-code-live-once-in-plugin-core.md) · Up: [Decisions](README.md) · Next: [59. An OpenCode session stays open, and reachable, while a TUI is attached (#984)](59-an-opencode-session-stays-open-while-a-tui-is-attached.md)
 <!-- nav:end -->

@@ -131,6 +131,25 @@ describe('state: done after idle, at once on delete or archive, and reopening', 
     expect(s.roots.get(ROOT)).toBe(root);
   });
 
+  it.each(['session.deleted', 'session.archived'])('%s on a root already done emits one end and no reopen (#984)', (type) => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1000), ev('session.execution.started', { sessionID: ROOT }, 1001));
+    apply(s, ev('session.execution.succeeded', { sessionID: ROOT }, 1002), 1002);
+    const root = s.roots.get(ROOT)!;
+    sweep(s, 1002 + 60_000, 60_000);
+    expect(root.done).toBe(true);
+    apply(s, ev(type, { sessionID: ROOT }, 70_000), 70_000);
+    expect(root.done).toBe(true);
+    expect(root.events.map((e) => e.text)).not.toContain('session reopened');
+    expect(root.events.filter((e) => e.kind === 'end')).toHaveLength(1);
+  });
+
+  it('does not sweep a quiet root while a TUI is attached (#984)', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1000));
+    expect(sweep(s, 1000 + 600_000, 60_000, true)).toEqual([]);
+    expect(s.roots.get(ROOT)!.done).toBe(false);
+    expect(sweep(s, 1000 + 600_000, 60_000, false)).toHaveLength(1);
+  });
+
   it.each([
     ['session.deleted', 'deleted'],
     ['session.archived', 'archived'],
@@ -302,6 +321,22 @@ describe('Reporter', () => {
     expect(bodies[0]!.events.map((e) => e.kind)).toEqual(['start']);
     expect(bodies[0]!.reporter.engineVersion).toBe('2.2.5');
     expect(tr.queue).toEqual([]);
+  });
+
+  it('keeps an idle root waiting and reporting while a TUI is attached, and ends it once the TUI goes (#984)', async () => {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    let attached = true;
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined, attached: () => attached }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    await r.tick();
+    t.now += 180_000;
+    await r.tick();
+    expect(bodies.at(-1)!.session.status).toBe('waiting');
+    attached = false;
+    t.now += 5000;
+    await r.tick();
+    expect(bodies.at(-1)!.session).toMatchObject({ status: 'done', endReason: 'idle' });
   });
 
   it('sends a heartbeat only while a root is open, and forgets a long-done root', async () => {

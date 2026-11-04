@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import type { Plugin } from '@opencode/plugin';
 import type { Runner } from '../core/git.ts';
-import { BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
+import { ATTACH_TTL_MS, BRIDGE, type AnswerEvent, type NoticeEvent } from './bridge.ts';
 import { makeHost, promptVia, servicePath, type Api } from './host.ts';
 import { readMachine, readSettingsFile } from './machine.ts';
 import { parseAnswer } from '../core/peers.ts';
@@ -115,6 +115,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       now: () => Date.now(),
       runIn,
       log: dedupe((line) => console.warn(line)),
+      // The TUI part says it is attached every ATTACH_EVERY_MS; an idle session stays open (and reachable) while it does (#984).
+      attached: () => !!bridge.emit && bridge.seenAt > 0 && Date.now() - bridge.seenAt < ATTACH_TTL_MS,
       notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }),
       problem: link?.problem,
       answering,

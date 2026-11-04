@@ -57,7 +57,8 @@ For OpenCode those are:
 
 - allow one permission request once, or reject it (never "always");
 - answer a question form, by the key of each field;
-- send a new message, and run `/compact`.
+- send a new message, and run `/compact`. An OpenCode session takes them while it is open, which means its terminal UI is attached. One
+  with no terminal UI that is quiet for `idleSeconds` is done, and takes nothing more (DECISIONS 59).
 
 Plan approval and `/clear` are not available for OpenCode, because OpenCode has no plan-approval step and no equivalent of `/clear`. The console
 does not offer them for an OpenCode session. The rest of what OpenCode cannot do is in
