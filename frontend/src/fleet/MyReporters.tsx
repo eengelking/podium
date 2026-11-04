@@ -15,6 +15,7 @@ import { ADMIN } from "./people";
 import type { MyPeers } from "./useMyPeers";
 import type { RespondMe } from "./types";
 import { Blank } from "./components/Blank";
+import { reporterKind } from "./reporterUpdate";
 import { harnessesOnMachine, harnessesToShow, turnOnTexts } from "./pluginOptions";
 import { Tip } from "./components/Tip";
 
@@ -195,7 +196,8 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
     }
   };
 
-  const tooOld = data.reporters.filter((r) => r.peers === null);
+  const tooOld = data.reporters.filter((r) => r.peers === null && reporterKind(r.reporterName) !== "opencode");
+  const noMessaging = data.reporters.filter((r) => r.peers === null && reporterKind(r.reporterName) === "opencode");
   return (
     <>
       {err && (
@@ -278,8 +280,13 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
               </tbody>
             </table>
           </div>
-          {tooOld.length > 0 && (
+          {tooOld.length + noMessaging.length > 0 && (
             <div className="pm-note">
+              {noMessaging.map((r) => (
+                <p key={r.key} className="hint">
+                  {r.machine}'s OpenCode reporter does not take part in messaging yet.
+                </p>
+              ))}
               {tooOld.map((r) => (
                 <p key={r.key} className="hint">
                   {r.machine}'s reporter is too old to message. Update podium-reporter on that machine: in Claude Code there, run <span className="mono">/plugin</span>, pick podium-reporter on the Installed tab and choose Update now.

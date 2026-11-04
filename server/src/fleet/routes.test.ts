@@ -38,7 +38,7 @@ describe('POST /api/fleet/report', () => {
 
   it('takes a v2 report from opencode, and answers 409 when the session id belongs to another harness (#850)', async () => {
     const { app } = await setup();
-    const v2 = (id: string): Report => ({ ...fixtureReport(), v: 2, harness: { id, name: id, version: '1', surface: 'tui' }, capabilities: { commands: [] } });
+    const v2 = (id: string): Report => ({ ...fixtureReport(), v: 2, reporter: { ...fixtureReport().reporter, name: id === 'opencode' ? 'podium-reporter-opencode' : 'podium-reporter' }, harness: { id, name: id, version: '1', surface: 'tui' }, capabilities: { commands: [] } });
     const first = await request(app).post('/api/fleet/report').send(v2('opencode'));
     expect(first.status).toBe(200);
     const clash = await request(app).post('/api/fleet/report').send(v2('pi'));

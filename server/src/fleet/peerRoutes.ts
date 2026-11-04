@@ -248,7 +248,9 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
 function reporterNamed(mine: ReporterRef[], to: string): ReporterRef | { status: 404 | 409; error: string } {
   const at = to.lastIndexOf('@');
   const want = (at >= 0 ? to.slice(at + 1) : to).trim().toLowerCase();
-  const found = mine.filter((r) => !r.adminSecret && r.machine.toLowerCase() === want);
+  const named = mine.filter((r) => !r.adminSecret && r.machine.toLowerCase() === want);
+  // Two harnesses on one machine share its name (#967); one that never sent the peers option, such as OpenCode, is not the one meant.
+  const found = named.length > 1 && named.some((r) => r.peers !== null) ? named.filter((r) => r.peers !== null) : named;
   if (found.length === 1) return found[0]!;
   if (found.length > 1) return { status: 409, error: `Two of your reporters are called ${want}. Ask your person to tell them apart on My reporters.` };
   return { status: 404, error: `No reporter of yours is called ${want}. Run podium_peers for the machines you have.` };

@@ -267,6 +267,17 @@ describe("a reporter's Messaging section (#416)", () => {
     expect(screen.getByText("Cannot take part")).toBeInTheDocument();
   });
 
+  it("says an OpenCode reporter takes no part in messaging yet, rather than asking for an update (#967)", async () => {
+    const s = server();
+    s.reporters.push({ key: "win01", state: "reporting", name: "win-lab", named: true, who: "Dana", credential: "pdm_0000000000aa", adminSecret: false, version: "1.4.0", reporterName: "podium-reporter-opencode", compat: "ok", firstSeenAt: 1, lastSeenAt: 40_000, sessions: 1, live: 0 });
+    s.peers!.reporters[2] = { ...WIN, peers: null, reporterName: "podium-reporter-opencode" };
+    await openReporter("win-lab");
+    const region = await screen.findByRole("region", { name: "Messaging" });
+    expect(await within(region).findByText("win-lab's reporter can't message")).toBeInTheDocument();
+    expect(within(region).getByText(/The OpenCode reporter does not take part in messaging yet/)).toBeInTheDocument();
+    expect(within(region).queryByText(/too old/)).toBeNull();
+  });
+
   it("says when messaging is off on the machine, or its reporter is too old, and offers no choices", async () => {
     const s = server();
     s.reporters.push({ key: "win01", state: "reporting", name: "win-lab", named: true, who: "Dana", credential: "pdm_0000000000aa", adminSecret: false, version: "0.16.0", reporterName: "podium-reporter", compat: "ok", firstSeenAt: 1, lastSeenAt: 40_000, sessions: 1, live: 0 });

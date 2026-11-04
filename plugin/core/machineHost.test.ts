@@ -26,6 +26,12 @@ describe('the shared machine name and OS (#967)', () => {
     expect(await pinnedMachineName(h, '/Users/dev', CLAUDE)).toBe('Claude')
     expect(h.files[SHARED]).toBe('Claude\n')
   })
+  test('an install that has its own pin keeps that name when the shared pin differs, and shares it', async () => {
+    const h = io({ [SHARED]: 'Other\n', [CLAUDE]: 'Claude\n' })
+    expect(await pinnedMachineName(h, '/Users/dev', CLAUDE, { ownFirst: true })).toBe('Claude')
+    expect(h.files[SHARED]).toBe('Claude\n')
+    expect(await pinnedMachineName(io({ [SHARED]: 'Other\n' }), '/Users/dev', CLAUDE, { ownFirst: true })).toBe('Other')
+  })
   test('with no pin, scutil LocalHostName then hostname, and the name is pinned in both places', async () => {
     const h = io({}, { scutil: 'Studio-Mac\n', hostname: 'other\n' })
     expect(await pinnedMachineName(h, '/Users/dev', CLAUDE)).toBe('Studio-Mac')

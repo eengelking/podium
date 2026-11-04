@@ -25,7 +25,7 @@ and #221.
 
 - `server/src/fleet/reporterNames.ts` holds the three names (`podium-reporter`, `podium-reporter-claudecode`,
   `podium-reporter-opencode`) and `canonicalReporterName`, which reads the legacy name and an absent name as the
-  Claude Code reporter. `nameSuffix` adds nothing for that reporter, so a legacy report and a new-name report from one
+  Claude Code reporter. A v2 report must carry its harness's own name (`namesFor` in `protocol.ts`). `nameSuffix` adds nothing for that reporter, so a legacy report and a new-name report from one
   machine are one row with one key.
 - No migration: a row made before holds `podium-reporter` in `reporter_name` and is read as the Claude Code reporter in
   both adapters. `record` writes the canonical name, so the row takes the new name the next time its reporter reports,

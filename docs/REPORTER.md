@@ -441,9 +441,9 @@ put on record:
   row (#967). The OpenCode reporter reads the shared file on each load, and can see only the file, not the store; so an OpenCode id may change once, when
   Claude Code next writes the id it keeps. Two machines with the same
   host name stay apart, and every reporter on a machine reports the same id. Both reporters read the name and the OS one way (#967): the name is pinned
-  in `~/.podium/machine-name`, with the Claude Code reporter's `podium-machine-name` beside its id file as the fallback, so a name that changes with the network (#715) does not
+  in `~/.podium/machine-name`, with the Claude Code reporter's `podium-machine-name` beside its id file, which that reporter reads first so a name it already reported never changes (the OpenCode reporter reads the shared pin first), so a name that changes with the network (#715) does not
   split one machine into two. Delete the pin to take the machine's current name. The two reporters on a machine appear in Admin > Reporters as two rows, named
-  `podium-reporter-claudecode` and `podium-reporter-opencode`.
+  `podium-reporter-claudecode` and `podium-reporter-opencode` (the Claude Code reporter still sends `podium-reporter` in its v1 reports, which the server reads as the first).
 - The machine's OS and version, such as `macOS 27.0.1`, from the first of `sw_vers` (macOS), `PRETTY_NAME` in
   `/etc/os-release` (Linux) or `cmd /c ver` (Windows) that works, cut to 80 characters. Left out when none does. Reading a Windows version
   string does not make Windows a supported platform; see In the session.

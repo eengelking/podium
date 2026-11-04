@@ -22,13 +22,14 @@ const attempt = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => {
  * The machine's short host name, pinned (#715, #967). The pin is `~/.podium/machine-name`, shared by every reporter, with the
  * Claude Code reporter's own `podium-machine-name` as the fallback, so an install keeps the name it already reported. With no pin the
  * live name is read (macOS `scutil LocalHostName` first, which does not follow the network, then `hostname`), pinned in the shared
- * file and in each extra path, and reported. Delete the pin to take a new name.
+ * file and in each extra path, and reported. Delete the pin to take a new name. `ownFirst` reads the caller's own pin first, which the Claude
+ * Code reporter sets so a name it already reported is never changed by another reporter's pin (the order of its machine id).
  */
-export async function pinnedMachineName(io: HostIO, home: string | undefined, fallbackPath: string | null): Promise<string | null> {
+export async function pinnedMachineName(io: HostIO, home: string | undefined, fallbackPath: string | null, opts: { ownFirst?: boolean } = {}): Promise<string | null> {
   const dir = sharedPodiumDir(home);
   const sharedPath = dir ? `${dir}/${SHARED_MACHINE_NAME_FILE}` : null;
   const pinned = async () => {
-    for (const p of [sharedPath, fallbackPath]) {
+    for (const p of opts.ownFirst ? [fallbackPath, sharedPath] : [sharedPath, fallbackPath]) {
       const name = p ? hostOf(await attempt(() => io.read(p), null)) : null;
       if (name) return name;
     }

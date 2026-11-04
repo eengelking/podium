@@ -55,6 +55,7 @@ describe('protocol', () => {
     const v2 = () => {
       const f = loadFixture() as Record<string, any>;
       f.v = 2;
+      f.reporter.name = 'podium-reporter-opencode';
       f.harness = { id: 'opencode', name: 'OpenCode', version: '1.2.3', surface: 'tui' };
       f.capabilities = { effort: true, plan: false, commands: ['/clear', '/compact'] };
       f.session.effort = 'minimal';

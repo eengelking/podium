@@ -32,6 +32,11 @@ describe("supported reporter range", () => {
     const manifest = JSON.parse(read("plugin/claudecode/.claude-plugin/plugin.json")).version as string;
     expect(checkReporter(manifest)).toBe("ok");
   });
+
+  it("includes the OpenCode reporter version in this repo (#967)", () => {
+    const manifest = JSON.parse(read("plugin/opencode/package.json")).version as string;
+    expect(checkReporter(manifest, "podium-reporter-opencode")).toBe("ok");
+  });
 });
 
 describe("package versions", () => {

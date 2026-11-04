@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { versionNote } from "./components/SessionCard";
 import { compatText } from "./admin/ReportersTab";
+import { reporterKind, updateSentence } from "./reporterUpdate";
 
 describe("the version warning names the reporter (#852)", () => {
   it("says which reporter is out of its range on a session", () => {
@@ -13,6 +14,11 @@ describe("the version warning names the reporter (#852)", () => {
     expect(other.text).toContain("Update the OpenCode reporter: run opencode plugin update, then opencode service restart.");
     expect(other.text).not.toContain("claude plugin update");
     expect(versionNote({ compat: "newer", reporterVersion: "9.0.0", reporterName: "podium-reporter-opencode" })!.text).toContain("podium-reporter-opencode 9.0.0");
+  });
+
+  it("falls back to naming the reporter for a name it does not know", () => {
+    expect(updateSentence("nobody-reporter")).toBe("Update nobody-reporter.");
+    expect(reporterKind("podium-reporter")).toBe("claudecode");
   });
 
   it("shows nothing for a reporter inside its range or with none", () => {

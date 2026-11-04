@@ -198,6 +198,17 @@ describe('two harnesses on one machine (#967)', () => {
     expect(after[0].reporterName).toBe('podium-reporter-claudecode');
   });
 
+  it('refuses a v2 report whose reporter name belongs to another harness, so an older OpenCode build cannot land on the Claude Code row', async () => {
+    const { app, reporters } = await setup();
+    const older = { ...opencode(), reporter: { ...fixtureReport().reporter, name: 'podium-reporter', version: '1.4.0' } };
+    const res = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(older);
+    expect(res.status).toBe(400);
+    expect(res.body.path).toBe('$.reporter.name');
+    const cross = { ...opencode(), reporter: { ...fixtureReport().reporter, name: 'podium-reporter-claudecode', version: '1.4.0' } };
+    expect((await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(cross)).status).toBe(400);
+    expect(await list(reporters)).toHaveLength(0);
+  });
+
   it('accepts only the legacy name in a v1 report, and a name no one knows is a 400 in v2', async () => {
     const { app } = await setup();
     const v1 = await request(app).post('/api/fleet/report').set('X-Podium-Token', 'admin-secret').send(claude('podium-reporter-opencode'));

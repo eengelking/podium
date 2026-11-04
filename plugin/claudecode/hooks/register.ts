@@ -834,9 +834,9 @@ function random(): number {
 }
 
 /**
- * The machine's id, one for every load of the mod on it (#267). The shared file under the Claude config
- * directory decides; without a valid one, the id this load's store already holds is kept (so an install
- * keeps its row) and shared, else a new one is made and shared. The file is read back after a write. Two loads
+ * The machine's id, one for every load of the mod on it (#267). The file under the Claude config directory decides,
+ * then the id this load's store already holds (so an install keeps its row, #967), then the shared `~/.podium` file
+ * another reporter made; the winner is written to the shared file. Else a new one is made and shared. The file is read back after a write. Two loads
  * that start in the same instant can still each keep the id they wrote for that session (the last write is
  * the file's), and agree from their next session on. Where the file cannot be used, the store alone
  * keeps the id, as before.
@@ -847,7 +847,7 @@ async function machineId($: Engine): Promise<string> {
   // The id every reporter on this machine shares (#856); the Claude file, then the store, stay as the way back to an id made before it.
   const sharedPath = sharedMachineIdPath(home);
   const readFile = async (p: string | null) => (p ? parseMachineIdFile(await attempt(async () => (await $.fs.read(p)) as string, null)) : null);
-  const shared = async () => (await readFile(path)) ?? (await readFile(sharedPath));
+  const current = async () => (await readFile(path)) ?? (await readFile(sharedPath));
   const kept = await attempt(() => $.store.get(MACHINE_ID_KEY), undefined);
   // An id this install already made wins over the shared file (#967): the legacy file, then the store, then whatever another reporter shared.
   const legacyFile = await readFile(path);
@@ -864,7 +864,7 @@ async function machineId($: Engine): Promise<string> {
   if (!path && !sharedPath) return id;
   if (sharedPath) await attempt(() => $.fs.write(sharedPath, `${id}\n`), undefined);
   if (path) await attempt(() => $.fs.write(path, `${id}\n`), undefined);
-  return (await shared()) ?? id;
+  return (await current()) ?? id;
 }
 
 /**
@@ -877,7 +877,7 @@ async function machineId($: Engine): Promise<string> {
 async function machineName($: Engine): Promise<string | null> {
   const home = (await readHome($)).home;
   const path = machineNamePath(await attempt(() => $.env.get('CLAUDE_CONFIG_DIR'), undefined), home);
-  return pinnedMachineName(hostIO($), home, path);
+  return pinnedMachineName(hostIO($), home, path, { ownFirst: true });
 }
 
 /** What the shared machine readers (`core/machineHost.ts`) use here: this engine's files and processes, a missing executable rejecting. */
