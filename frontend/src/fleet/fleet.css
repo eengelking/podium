@@ -137,7 +137,7 @@ body.podium-resizing .podium .cols { transition: none; }
 .podium .ritem .l2 { display: flex; align-items: center; gap: 8px; margin-top: 5px; color: var(--ink2); font-size: 12px; }
 .podium .ritem .bar { flex: 1; }
 .podium .ritem.enter, .podium .card.enter { animation: podium-enter .9s ease-out; }
-.podium .ritem.leave, .podium .card.leave { animation: podium-leave .6s ease-in forwards; }
+.podium .ritem.leave, .podium .card-slot.leave { animation: podium-leave .6s ease-in forwards; }
 @keyframes podium-enter { 0% { background: color-mix(in srgb, var(--good) 28%, transparent); transform: translateY(-4px); opacity: 0; } 30% { opacity: 1; transform: none; } 100% { } }
 @keyframes podium-leave { to { opacity: 0; transform: translateX(-8px); } }
 

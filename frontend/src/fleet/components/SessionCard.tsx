@@ -205,7 +205,7 @@ export function SessionCard(props: { s: SessionView; machineTitle?: boolean; now
   const recBand = s.recording ? bandWords(s.recording, now) : null;
   // The card is one big button, so Remove sits beside it in a slot rather than inside it.
   return (
-    <div className={`card-slot${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
+    <div className={`card-slot${props.leaving ? " leave" : ""}${props.pin?.on ? " pinned" : ""}${s.status === "stale" && props.onRemove ? " has-remove" : ""}${gate.show !== "none" ? ` has-respond${gate.show === "dimmed" ? " dimmed" : ""}` : ""}`}>
     <button type="button" className={cls} onClick={props.onOpen} disabled={props.leaving} data-session={s.id}>
       {/* Four layers, always in this order (#144): who, what it is doing, cost and health, then the status band. */}
       <div className="z1">

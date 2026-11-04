@@ -107,3 +107,18 @@ describe("the session id on the card and the orchestrator page (#322)", () => {
     expect(container.querySelector(".card-slot > .sid")!.textContent).toBe("Copy failed");
   });
 });
+
+// #992: the id is a sibling of the card's button, so the leave animation must run on the slot that holds both, or the id stays behind.
+describe("the card's id leaves with the card (#992)", () => {
+  it("puts the leave class on the slot that holds the card and its id, not only on the card", () => {
+    const { container } = render(<SessionCard s={makeSession({ id: ID })} now={Date.now()} config={CFG} entering={false} leaving={true} onOpen={() => {}} />);
+    const slot = container.querySelector(".card-slot")!;
+    expect(slot.className).toContain("leave");
+    expect(slot.querySelector(":scope > .sid")).not.toBeNull();
+  });
+
+  it("does not put it on the slot while the card stays", () => {
+    const { container } = card();
+    expect(container.querySelector(".card-slot")!.className).not.toContain("leave");
+  });
+});
