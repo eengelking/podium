@@ -55,7 +55,8 @@ import {
   type SessionState,
 } from './state.ts';
 import { nextCronAt } from './cron.ts';
-import { isDelivery, Transport, type FetchLike } from '../../core/transport.ts';
+import { Transport, type FetchLike } from '../../core/transport.ts';
+import { Responder, newResponderState, sessionPath } from '../../core/respond.ts';
 import { findLinkConfig, startLink, unusableLink, type Link } from './tlsLink.ts';
 import { readHome } from '../../core/tls/findConfig.ts';
 import { contextCommand, type ContextIO } from '../../core/tls/contexts.ts';
@@ -290,10 +291,7 @@ interface OutItem {
   body: Record<string, unknown>;
 }
 
-const OUTBOX_MAX = 50;
-const ACTED_KEPT = 100;
 const ACTED_KEY = 'respond:acted';
-const HOLD_SECONDS = 20;
 /** How long an approval has to take before it is reported not taken. */
 const APPROVAL_CONFIRM_MS = 5000;
 /** How long after tool.check says `ask` a PermissionRequest must fire before the hooks are taken as not running. */
@@ -302,8 +300,8 @@ const PERMISSION_CHECK_MS = 2000;
 const HOOKS_CHECK = 'hooks-check';
 
 let asks = new Map<string, OpenAsk>();
-let outbox: OutItem[] = [];
-let acted: string[] = [];
+/** The calls waiting to go to the server and the acted-on delivery ids, shared by every Responder this module makes. */
+let respondState = newResponderState();
 /** Requests for a file's diff already answered (#319), so one listed in two replies is read once. */
 const DIFFS_KEPT = 50;
 let diffsDone: string[] = [];
@@ -931,21 +929,33 @@ function serverBase(): string {
   return trimTrailingSlashes(link?.serverUrl ?? opts.serverUrl);
 }
 
-function sessionPath(sessionId: string): string {
-  return `/api/fleet/sessions/${encodeURIComponent(sessionId)}`;
+/**
+ * The shared answering client over this hook's own fetch (Esc aborts a hook's fetches, so each call brings its own) and clock.
+ * The server, the token and the TLS link are read when a call is made, because they are settled after register.
+ */
+function responderFor($: Engine, afterSend?: () => Promise<void>): Responder {
+  return new Responder(
+    (url, init) => (link ? link.fetch(url, init) : $.http.fetch(url, init)),
+    {
+      get serverUrl() {
+        return serverBase();
+      },
+      get token() {
+        return who.token;
+      },
+    },
+    { now: nowMs, sleep: (ms) => pause($, ms) },
+    respondState,
+    { onActed: (ids) => void attempt(() => $.store.set(ACTED_KEY, ids), undefined), afterSend },
+  );
 }
 
+/** For queueing only: a call waiting for the flush timer needs no fetch. */
+const queuer = (): Responder => responderFor(undefined as never);
+
 /** One request to the server with the reporter's token; null when it could not be made (offline, or aborted by Esc). */
-async function podiumCall($: Engine, method: string, path: string, body?: unknown): Promise<{ status: number; text: string } | null> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (who.token) headers['X-Podium-Token'] = who.token;
-  try {
-    const init = body === undefined ? { method, headers } : { method, headers, body: JSON.stringify(body) };
-    const res = await (link ? link.fetch(serverBase() + path, init) : $.http.fetch(serverBase() + path, init));
-    return { status: res.status, text: res.text };
-  } catch {
-    return null;
-  }
+function podiumCall($: Engine, method: string, path: string, body?: unknown): Promise<{ status: number; text: string } | null> {
+  return responderFor($).call(method, path, body);
 }
 
 /** A line in the transcript; the engine draws it as `podium-reporter: <text>`. */
@@ -958,54 +968,43 @@ function transcriptLine($: Engine, text: string): void {
 }
 
 function queueOut(item: OutItem): void {
-  outbox.push(item);
-  if (outbox.length > OUTBOX_MAX) outbox.splice(0, outbox.length - OUTBOX_MAX);
+  queuer().queue(item);
 }
 
 function queueResult(sessionId: string, deliveryId: string, result: DeliveryResult): void {
-  queueOut({ path: `${sessionPath(sessionId)}/deliveries/${encodeURIComponent(deliveryId)}/result`, body: { result, at: nowMs() } });
+  queuer().queueResult(sessionId, deliveryId, result);
 }
 
 function queueClose(a: OpenAsk, outcome: 'terminal' | 'closed' | 'ended', extra: { answer?: string | null; planApproved?: boolean } = {}): void {
-  queueOut({ path: `${sessionPath(a.sessionId)}/asks/${encodeURIComponent(a.ask.id)}/close`, body: { outcome, at: nowMs(), ...extra } });
+  queuer().queueClose(a.sessionId, a.ask.id, outcome, extra);
 }
 
 /**
  * The flush timer sends what the hooks queued. A failure keeps the rest for the next tick; a refusal drops the item.
  * A call a tool queued meanwhile goes between items, ahead of the rest (#414).
  */
-async function sendOutbox($: Engine, r: Runtime, now: number): Promise<void> {
-  while (outbox.length) {
-    const item = outbox[0]!;
-    const res = await podiumCall($, 'POST', item.path, item.body);
-    if (!res) return;
-    outbox.shift();
-    await sendPeerCalls($, r, now);
-  }
+function sendOutbox($: Engine, r: Runtime, now: number): Promise<void> {
+  return responderFor($, () => sendPeerCalls($, r, now)).flush();
 }
 
 async function loadActed($: Engine): Promise<string[]> {
   const v = await attempt(() => $.store.get(ACTED_KEY), undefined);
-  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(-ACTED_KEPT) : [];
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
 /** Notes a delivery as acted on, here and in the store, so one handed over twice (a lost reply, a reload) acts once. */
 function markActed($: Engine, id: string): boolean {
-  if (acted.includes(id)) return false;
-  acted.push(id);
-  if (acted.length > ACTED_KEPT) acted.splice(0, acted.length - ACTED_KEPT);
-  void attempt(() => $.store.set(ACTED_KEY, acted), undefined);
-  return true;
+  return responderFor($).markActed(id);
 }
 
 /** Announces an ask (PUT). The first time it lands, the terminal says it is also open in Podium. */
 async function announce($: Engine, a: OpenAsk): Promise<number> {
-  const res = await podiumCall($, 'PUT', `${sessionPath(a.sessionId)}/asks/${encodeURIComponent(a.ask.id)}`, a.ask);
-  if (res?.status === 200 && !a.announced) {
+  const status = await responderFor($).announce(a.sessionId, a.ask);
+  if (status === 200 && !a.announced) {
     a.announced = true;
     transcriptLine($, LINE_OPEN);
   }
-  return res?.status ?? 0;
+  return status;
 }
 
 function openAsk(r: Runtime, ask: Ask, questions?: OpenAsk['questions']): OpenAsk {
@@ -1049,55 +1048,10 @@ async function pause($: Engine, ms: number): Promise<boolean> {
   }
 }
 
-async function pollAnswer($: Engine, a: OpenAsk, wanted: (d: Delivery) => boolean, other?: (d: Delivery) => void, skip?: (d: Delivery) => boolean): Promise<Delivery | null> {
+function pollAnswer($: Engine, a: OpenAsk, wanted: (d: Delivery) => boolean, other?: (d: Delivery) => void, skip?: (d: Delivery) => boolean): Promise<Delivery | null> {
   // `rt` is module state, so a wait from an older register would otherwise read a newer session's switches.
   const gen = generation;
-  while (!a.done && gen === generation && rt?.transport.respond) {
-    const res = await podiumCall($, 'GET', `${sessionPath(a.sessionId)}/asks/${encodeURIComponent(a.ask.id)}/answer?wait=${HOLD_SECONDS}`);
-    if (a.done) {
-      const d = deliveryOf(res);
-      if (d && markActed($, d.id)) queueResult(a.sessionId, d.id, 'closed');
-      return null;
-    }
-    if (!res) {
-      if (!(await pause($, Transport.backoff(1)))) return null;
-      continue;
-    }
-    if (res.status === 204) continue;
-    if (res.status === 404) {
-      if ((await announce($, a)) !== 200 && !(await pause($, Transport.backoff(2)))) return null;
-      continue;
-    }
-    const d = deliveryOf(res);
-    if (!d) return null;
-    if (d.askId === a.ask.id && skip?.(d)) {
-      // Another wait on this ask acts on it (a plan's feedback is the tool.call hook's); ask again once it has.
-      if (!(await pause($, 500))) return null;
-      continue;
-    }
-    if (!markActed($, d.id)) {
-      // Already acted on and waiting for its result to reach the server: ask again shortly.
-      if (!(await pause($, 1000))) return null;
-      continue;
-    }
-    if (d.askId === a.ask.id && wanted(d)) return d;
-    if (d.askId === a.ask.id && other) {
-      other(d);
-      continue;
-    }
-    queueResult(a.sessionId, d.id, 'refused');
-  }
-  return null;
-}
-
-function deliveryOf(res: { status: number; text: string } | null): Delivery | null {
-  if (!res || res.status !== 200) return null;
-  try {
-    const d = (JSON.parse(res.text) as { delivery?: unknown }).delivery;
-    return isDelivery(d) ? d : null;
-  } catch {
-    return null;
-  }
+  return responderFor($).wait(a.sessionId, a.ask, () => !a.done && gen === generation && !!rt?.transport.respond, wanted, { other, skip });
 }
 
 // ---- responding: the hooks' races --------------------------------------------------------------
@@ -1827,7 +1781,7 @@ async function start($: Engine, e: { cwd: string; surface: string | null }): Pro
     interactive: e.surface !== null || (same && !!rt?.interactive) || (await wasInteractive($, id)),
     sessionCwd: await attempt<string | null>(() => $.session.cwd(), null),
   };
-  acted = await loadActed($);
+  responderFor($).seedActed(await loadActed($));
   const r = rt;
   await readAgents($, r, now);
   try {
@@ -2073,8 +2027,7 @@ export const register: Register = (on, rawOptions) => {
   explained = new Set();
   recorder = new Recorder();
   asks = new Map();
-  outbox = [];
-  acted = [];
+  respondState = newResponderState();
   permissionHooks = null;
   lastPermissionAt = 0;
   classicSeen = false;

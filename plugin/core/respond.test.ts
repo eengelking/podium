@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'claude-code/testing'
 import type { Ask, Delivery } from './protocol.ts'
-import { ACTED_KEPT, OUTBOX_MAX, Responder, deliveryOf, sessionPath } from './respond.ts'
+import { ACTED_KEPT, OUTBOX_MAX, Responder, deliveryOf, newResponderState, sessionPath } from './respond.ts'
 import type { FetchLike } from './transport.ts'
 
 const ASK: Ask = { id: 'per_1', kind: 'permission', agentId: null, openedAt: 1, tool: { name: 'read', input: {}, cut: false } }
@@ -174,6 +174,70 @@ describe('Responder.wait', () => {
     const d = await w.r.wait('s', ASK, always, (x) => x.kind === 'allow-once')
     expect(d?.id).toBe('ok')
     expect(w.r.outbox.map((i) => (i.body as { result: string }).result)).toEqual(['refused', 'refused'])
+  })
+})
+
+describe('Responder: what a reporter with its own plumbing adds (#971)', () => {
+  const always = () => true
+  const clock = { now: () => 42, sleep: async () => true }
+  const cfg = { serverUrl: 'http://podium.test', token: 't' }
+
+  test('a wait hands a delivery that `other` takes over and goes on', async () => {
+    const w = world([delivery({ id: 'fb', kind: 'plan-feedback' }), delivery({ id: 'ok' })])
+    const seen: string[] = []
+    const d = await w.r.wait('s', ASK, always, (x) => x.kind === 'allow-once', { other: (x) => void seen.push(x.id) })
+    expect(d?.id).toBe('ok')
+    expect(seen).toEqual(['fb'])
+    expect(w.r.outbox).toEqual([])
+  })
+
+  test('a wait leaves a delivery that `skip` names alone, asks again after half a second, and does not mark it acted', async () => {
+    const w = world([delivery({ id: 'sk' }), delivery({ id: 'sk' })])
+    let skipping = true
+    const d = await w.r.wait('s', ASK, always, always, { skip: () => { const s = skipping; skipping = false; return s } })
+    expect(d?.id).toBe('sk')
+    expect(w.sleeps).toEqual([500])
+    expect(w.r.outbox).toEqual([])
+  })
+
+  test('a cut sleep while skipping ends the wait', async () => {
+    const w = world([delivery()])
+    w.stopSleeping()
+    expect(await w.r.wait('s', ASK, always, always, { skip: () => true })).toBeNull()
+  })
+
+  test('state is shared between responders, and onActed sees each new id', async () => {
+    const state = newResponderState()
+    const kept: string[][] = []
+    const a = new Responder(async () => ({ status: 200, ok: true, text: '' }), cfg, clock, state, { onActed: (ids) => kept.push([...ids]) })
+    const b = new Responder(async () => ({ status: 200, ok: true, text: '' }), cfg, clock, state)
+    expect(a.markActed('x')).toBe(true)
+    expect(b.markActed('x')).toBe(false)
+    a.queue({ path: '/p', body: 1 })
+    expect(b.outbox).toEqual([{ path: '/p', body: 1 }])
+    expect(kept).toEqual([['x']])
+  })
+
+  test('seedActed replaces the remembered ids and keeps the newest ACTED_KEPT', () => {
+    const w = world([])
+    w.r.seedActed(Array.from({ length: ACTED_KEPT + 5 }, (_, i) => `i${i}`))
+    expect(w.r.markActed('i0')).toBe(true)
+    expect(w.r.markActed(`i${ACTED_KEPT + 4}`)).toBe(false)
+  })
+
+  test('afterSend runs after each call the server took, and not after one that could not be made', async () => {
+    let after = 0
+    const r = new Responder(async () => ({ status: 200, ok: true, text: '' }), cfg, clock, newResponderState(), { afterSend: async () => { after++ } })
+    r.queue({ path: '/a', body: {} })
+    r.queue({ path: '/b', body: {} })
+    await r.flush()
+    expect(after).toBe(2)
+    expect(r.outbox).toEqual([])
+    const down = new Responder(async () => { throw new Error('down') }, cfg, clock, newResponderState(), { afterSend: async () => { after++ } })
+    down.queue({ path: '/a', body: {} })
+    await down.flush()
+    expect(after).toBe(2)
+    expect(down.outbox).toHaveLength(1)
   })
 })
 

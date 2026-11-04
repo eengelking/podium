@@ -78,6 +78,8 @@ const SKIPPED_DIRS = new Set(["node_modules"]);
 export function included(rel, withTests = false) {
   const name = rel.split("/").at(-1);
   if (name === ".DS_Store") return false;
+  // A test runner's configuration is for developing the plugin, not for running it (#971).
+  if (name === "vitest.config.ts") return false;
   if (!withTests && name.endsWith(".test.ts")) return false;
   // A harness's test runner only lets a test import its own files and the harness API, not `node:` modules. A test that needs them
   // (a real temp folder, a child process, `openssl`) is named *.node.test.ts and runs under `npm run test:core` and the server suite.
@@ -180,7 +182,7 @@ export function planTree(harness, { root = ROOT, withTests = false, stamp = /** 
 function planOpencode({ root, src, withTests, stamp, files, put }) {
   for (const rel of walk(src)) {
     if (!included(rel, withTests)) continue;
-    if (rel === "tsconfig.json" || rel === "vitest.config.ts" || rel === "package.json") continue; // dev only / handled below
+    if (rel === "tsconfig.json" || rel === "package.json") continue; // dev only / handled below
     put(`plugin/opencode/${rel}`, readFileSync(join(src, rel)));
   }
   const pkg = JSON.parse(readFileSync(join(src, "package.json"), "utf8"));
