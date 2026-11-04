@@ -896,4 +896,26 @@ describe('OpenCode 2.2.5 tools and events (#969)', () => {
     expect(sessOf(s).ctxTokens).toBe(40);
     expect(s.roots.get(ROOT)!.events.map((e) => e.text)).toContain('compaction failed');
   });
+
+  it('keeps the context fill when a compaction ends with no output tokens', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.step.ended', { sessionID: ROOT, tokens: { input: 500 } }, 2), ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 3));
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual' }, 4), 4);
+    expect(sessOf(s).ctxTokens).toBe(500);
+    apply(s, ev('session.compaction.ended', { sessionID: ROOT, reason: 'manual', tokens: { input: 5, output: 0 } }, 5), 5);
+    expect(sessOf(s).ctxTokens).toBe(500);
+  });
+
+  it('records a subagent compaction under its own loop and leaves the /compact Podium sent for the orchestrator', () => {
+    const s = store(ev('session.created', { sessionID: ROOT }, 1), ev('session.created', { sessionID: KID, parentID: ROOT }, 2));
+    const root = s.roots.get(ROOT)!;
+    const marks: { loop: string; by: string | undefined }[] = [];
+    root.recorder.compact = (loop, _at, by) => void marks.push({ loop, by });
+    root.podiumCompact = 'Ed';
+    apply(s, ev('session.compaction.started', { sessionID: KID, reason: 'auto' }, 3), 3);
+    expect(marks).toEqual([{ loop: KID, by: undefined }]);
+    expect(root.podiumCompact).toBe('Ed');
+    apply(s, ev('session.compaction.started', { sessionID: ROOT, reason: 'manual' }, 4), 4);
+    expect(marks[1]).toEqual({ loop: '@orchestrator', by: 'Ed' });
+    expect(root.podiumCompact).toBeNull();
+  });
 });

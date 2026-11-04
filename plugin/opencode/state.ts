@@ -551,8 +551,9 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'session.compaction.started':
       root.compacting = true;
-      root.recorder.compact(MAIN_LOOP, t, root.podiumCompact ?? undefined);
-      root.podiumCompact = null;
+      // The mark belongs to the loop that compacts; the /compact Podium sent is the orchestrator's.
+      root.recorder.compact(loopKey(root, s), t, s.id === root.id ? (root.podiumCompact ?? undefined) : undefined);
+      if (s.id === root.id) root.podiumCompact = null;
       break;
     case 'session.compaction.ended':
     case 'session.compaction.failed': {
@@ -562,7 +563,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const auto = d.reason === 'auto';
       // The compaction's own usage is the summary it wrote: that is about what the context holds now. The next step ends with the real size.
       const before = s.ctxTokens;
-      const after = failed ? before : num(d.tokens?.output) || null;
+      const after = failed || !num(d.tokens?.output) ? before : num(d.tokens?.output);
       if (!failed) s.ctxTokens = after;
       if (auto && !failed) s.blowouts++;
       const label = failed ? 'compaction failed' : auto ? 'auto-compacted' : 'compacted';
