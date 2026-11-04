@@ -4,6 +4,7 @@
 #        podium-opencode-demo.sh stop    closes OpenCode, stops Ollama, confirms your OpenCode config is as it was
 # The OpenCode config for the demo is passed inline (OPENCODE_CONFIG_CONTENT); ~/.config/opencode is never written.
 # Env: PODIUM_REPO (default: the checkout this script is in), DEMO_MODEL (default gemma4:12b-pinned), DEMO_DIR (cwd for opencode)
+#      PODIUM_PEERS (default true here): adds the podium_peers, podium_send and podium_request_access tools; set it to false to leave them out
 set -euo pipefail
 
 REPO="${PODIUM_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -19,7 +20,7 @@ ok()   { printf '  ok: %s\n' "$*"; }
 die()  { printf '  FAIL: %s\n' "$*" >&2; exit 1; }
 
 case "${1:-}" in -h|--help)
-  sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit 0;;
 esac
 
@@ -104,6 +105,11 @@ OPENCODE_CONFIG_CONTENT=$(cat <<JSON
 JSON
 )
 export PODIUM_REPORTER_CONFIG="$PEM"
+# The messaging tools exist only while this consent is exactly "true", and it is read from the environment, never from opencode.json.
+# A value already set (even false) is the person's choice and is kept.
+export PODIUM_PEERS="${PODIUM_PEERS-true}"
+if [[ "$PODIUM_PEERS" = true ]]; then ok "messaging tools on (PODIUM_PEERS=true); the server's Orchestrator messaging flag must be on too (Admin > Settings)"
+else ok "messaging tools off (PODIUM_PEERS=$PODIUM_PEERS)"; fi
 mkdir -p "$STATE_DIR"
 [[ -f "$SNAP" ]] || cfg_sum > "$SNAP"   # kept from the first start until stop
 ok "config snapshot saved"

@@ -122,6 +122,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ### Fixed
 
+- **The OpenCode demo script turns the messaging tools on.** `scripts/podium-opencode-demo.sh start` never set `PODIUM_PEERS`, so the session had `plan` but not `podium_peers`, `podium_send` or `podium_request_access`. It now exports `PODIUM_PEERS=true` unless the variable is already set (`PODIUM_PEERS=false` leaves the tools out), and says which it chose. The server's Orchestrator messaging flag in Admin > Settings still has to be on.
 - **A long model name stays inside the Agents table's Model column (#975).** OpenCode sends names such as `google/gemma-4-26b-a4b-it`, and the chip did not clip, so the label painted over the Effort and Context columns. The Model column is now 148px wide (it was 92px), every model chip in it fills the column, and a longer name is cut with an ellipsis, with the full model id as the chip's title. The table's minimum width grows by 56px, and it still scrolls sideways inside its own container at 400px. A model chip's label is now its own element inside the chip. Any harness with a long model name was affected, not only OpenCode.
   Standards: the Agents table's Model track is 148px, not 92px, and the model chip (`chip model`) fills its cell there and clips its label; no new component or variant. The maintainer approved this in the #975 mockup (`mockup/podium-model-long-name.html`).
 
