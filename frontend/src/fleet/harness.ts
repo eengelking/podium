@@ -27,7 +27,7 @@ export const DEFAULT_HARNESS = "claude-code";
 
 const KNOWN: Readonly<Record<string, Omit<HarnessDisplay, "id">>> = {
   "claude-code": { name: "Claude Code", shape: "square", shell: "Bash", recommendedMark: true, context: true, effort: true },
-  opencode: { name: "OpenCode", shape: "diamond", shell: "shell", recommendedMark: false, context: false, effort: false },
+  opencode: { name: "OpenCode", shape: "diamond", shell: "shell", recommendedMark: false, context: true, effort: true },
 };
 
 /** How to draw a session from `harness`; a missing or empty id is Claude Code's, the way the server reads it. */

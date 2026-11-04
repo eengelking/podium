@@ -74,7 +74,7 @@ function cannot(r: PeerRef, harnesses: readonly SetupHarness[]): ReactNode {
   }
   if (!eligible(r)) return <Blank title="This reporter belongs to no one">Messaging only joins one person's own reporters, so there is nothing to set here.</Blank>;
   if (r.peers === null && reporterKind(r.reporterName ?? "") === "opencode") {
-    return <Blank title={`${r.machine}'s reporter can't message`}>The OpenCode reporter does not take part in messaging yet, so there is nothing to set here.</Blank>;
+    return <Blank title={`${r.machine}'s reporter can't message`}>This OpenCode reporter has not said whether messaging is on, so it is older than the messaging setting. Update it on that machine, then switch messaging on there with PODIUM_PEERS=true.</Blank>;
   }
   if (r.peers === null) {
     return (

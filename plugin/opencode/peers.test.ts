@@ -71,7 +71,7 @@ describe('messaging is the person\'s to allow (#969)', () => {
     expect(x.r.messaging).toBe(false);
     expect(x.prompts).toEqual([]);
     expect(x.toasts).toEqual([]);
-    expect(last(x.server).session).not.toHaveProperty('peers');
+    expect(last(x.server).session.peers).toBe(false);
     expect(await x.r.peerTool('podium_peers', ROOT, {})).toContain('Orchestrator messaging is off on this machine');
     expect(await x.r.answerRequest(ROOT, 'allow', 'abcd')).toContain('not on in this session');
     expect(x.r.waitingRequests()).toBe('');

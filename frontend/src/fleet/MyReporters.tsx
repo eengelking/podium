@@ -284,7 +284,7 @@ function Owner({ data, peers, api, now, sessions }: { data: PeersRead; peers: My
             <div className="pm-note">
               {noMessaging.map((r) => (
                 <p key={r.key} className="hint">
-                  {r.machine}'s OpenCode reporter does not take part in messaging yet.
+                  {r.machine}'s OpenCode reporter has not said whether messaging is on. Update it on that machine; messaging is switched on there with PODIUM_PEERS=true.
                 </p>
               ))}
               {tooOld.map((r) => (

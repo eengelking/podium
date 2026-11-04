@@ -48,17 +48,18 @@ describe("fields a harness does not report are absent, not zero (#853)", () => {
     expect(container.querySelector(".z3.three")).toBeNull();
   });
 
-  it("drops the Context cell, makes the footer three cells wide and drops the effort meter for OpenCode", () => {
+  it("keeps the Context cell and the four-cell footer for OpenCode (#985)", () => {
     const { container } = card(makeSession({ harness: "opencode" }));
-    expect(cells(container)).toEqual(["Cost", "Tokens", "Time"]);
-    expect(container.querySelector(".z3.three")).not.toBeNull();
-    expect(container.querySelector(".eff")).toBeNull();
-    expect(screen.queryByText(/context/i)).toBeNull();
+    expect(cells(container)).toEqual(["Cost", "Tokens", "Time", "Context"]);
+    expect(container.querySelector(".z3.three")).toBeNull();
   });
 
   it("says once on the orchestrator page that the harness does not report context size", () => {
-    render(<FocusHeader s={makeSession({ harness: "opencode" })} kind="running" now={2_000_000} />);
+    render(<FocusHeader s={makeSession({ harness: "opencode", capabilities: { context: false, commands: [] } })} kind="running" now={2_000_000} />);
     expect(screen.getByText("OpenCode does not report context size.")).toBeInTheDocument();
+    cleanup();
+    render(<FocusHeader s={makeSession({ harness: "opencode" })} kind="running" now={2_000_000} />);
+    expect(screen.queryByText(/does not report context/)).toBeNull();
     cleanup();
     render(<FocusHeader s={makeSession({ harness: "claude-code" })} kind="running" now={2_000_000} />);
     expect(screen.queryByText(/does not report context/)).toBeNull();
@@ -99,15 +100,15 @@ describe("what a session's harness declares (#940)", () => {
     expect(screen.getByText(/does not report context/)).toBeInTheDocument();
   });
 
-  it("shows the Context cell for a harness the table says cannot report it when it declares context true", () => {
+  it("shows the Context cell when a harness declares context true", () => {
     const s = makeSession({ harness: "opencode", capabilities: { context: true, commands: [] } });
     expect(cells(card(s).container)).toContain("Context");
   });
 
   it("follows the table for a field the session does not declare, and for a session that declared nothing", () => {
-    expect(cells(card(makeSession({ harness: "opencode", capabilities: { commands: [] } })).container)).not.toContain("Context");
+    expect(cells(card(makeSession({ harness: "opencode", capabilities: { commands: [] } })).container)).toContain("Context");
     cleanup();
-    expect(cells(card(makeSession({ harness: "opencode", capabilities: null })).container)).not.toContain("Context");
+    expect(cells(card(makeSession({ harness: "opencode", capabilities: null })).container)).toContain("Context");
     cleanup();
     expect(cells(card(makeSession()).container)).toContain("Context");
   });
@@ -191,9 +192,10 @@ describe("the agent tree and the orchestrator panel follow what a harness declar
 
   it("follows the table for a harness that declares nothing, by session, never by naming one", () => {
     const { container } = tree({ harness: "opencode" });
-    expect(headers(container)).toEqual(["Model", "Tokens", "Cost", "Time", "Status"]);
+    expect(headers(container)).toContain("Context");
+    expect(headers(container)).toContain("Effort");
     cleanup();
-    expect(headers(tree({ harness: "opencode", capabilities: { context: true, effort: true, commands: [] } }).container)).toContain("Context");
+    expect(headers(tree({ harness: "opencode", capabilities: { context: false, effort: false, commands: [] } }).container)).toEqual(["Model", "Tokens", "Cost", "Time", "Status"]);
   });
 
   it("does not order the rows by a column this session does not show, and offers no Launch order for it", () => {
