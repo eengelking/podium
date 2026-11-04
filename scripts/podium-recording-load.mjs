@@ -24,6 +24,7 @@ const FLAG = '--experimental-transform-types';
 
 const HELP = `Usage: node scripts/podium-recording-load.mjs [--phase load|caps|purge] [options]
 
+Claude Code reporter only: it drives the server with plugin/claudecode/hooks/recording.ts, so it takes no harness option.
 Measures the write load of session recording against a throwaway Podium server that the script starts, and stops, itself. It never
 touches a server, port or data folder you use. Build the server first (npm run build -w server). Needs macOS for the disk numbers
 (python3 and ioreg); on another system the disk columns read n/a.

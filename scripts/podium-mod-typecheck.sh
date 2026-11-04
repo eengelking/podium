@@ -10,6 +10,9 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/podium-mod-typecheck.sh [path/to/claude-code.d.ts]
 
+Claude Code only: the declarations are Claude Code's plugin API. The OpenCode reporter is checked by
+`npm run typecheck:mod:opencode`.
+
 Without an argument it looks for the newest plugin-authoring types under
 $TMPDIR / /private/tmp (written when the plugin-authoring skill loads), or uses
 types the engine already laid in plugin/claudecode/.claude-plugin/types/.

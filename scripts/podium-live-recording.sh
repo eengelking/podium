@@ -16,6 +16,9 @@ Usage: scripts/podium-live-recording.sh <command> [args]
   stop <dir> [name]       kill that tmux session; with no name, kills every p353-live-* session
   clean <dir>             stop the server and delete the work dir (only if it was made by `server`); drops its PostgreSQL database, if any
 
+Claude Code only: `session` starts the claude binary with its own flags (--plugin-dir, --setting-sources). To record an OpenCode
+session, start one with `scripts/podium-peers-e2e.sh up --harness opencode --opencode-model <provider/model> --session-recording`.
+
 With PODIUM_DB set to a postgres:// URL, `server` runs on a new database on that server instead of a SQLite file.
 
 Steps: server, then `session`, answer the folder-trust prompt (tmux send-keys -t <name> Down Enter), send one prompt

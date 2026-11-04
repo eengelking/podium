@@ -35,14 +35,15 @@ The OpenCode part also checks what the OpenCode reporter sends: the changed file
 ## Rules that keep you safe
 
 - **Use your own server.** Never point a test at the server you work with, and never put demo data in your own database. Every command below uses a new database in a temporary folder and a port you pick. Pick a port nothing else uses (4380 below for Claude Code, 4382 for OpenCode, so both can run at once).
-- **Keep the session off your real server.** A reporter config file in `~/.podium/` makes a session connect to the server it names and ignore the address in its settings. Your test session would then appear on your real console and never reach the throwaway server. The scratch home in each part avoids this, and the wiring check proves it did.
-- **Stop what you start.** The last step of each part removes the server, the tmux session, the temporary folder and the scratch home. Do it even when a step failed.
+- **Keep the session off your real server.** A reporter config file in `~/.podium/` makes a session connect to the server it names and ignore the address in its settings. Your test session would then appear on your real console and never reach the throwaway server. `podium-peers-e2e.sh` gives every window a scratch home without `.podium`, and the wiring check proves it worked.
+- **Stop what you start.** The last step of each part removes the server, the tmux server, the temporary folder and the scratch homes. Do it even when a step failed.
 
 ## The helpers
 
-These shell functions wrap the answer routes and the tmux window. Save them in a file in the work folder and `source` it in the shell you run the tests from, after the part you follow has started its server and written `$LIVE/seed.out`. Set three variables first: `LIVE` (the work folder), `B` (the server address) and `T` (the tmux target, such as `live:planner` or `liveoc:oc`). Each write sends the person's sign-in cookie, an `Origin` that matches the host and `X-Podium-Respond: 1`; without all three the server answers `403 cross-site request refused`.
+These shell functions wrap the answer routes and the tmux window. `podium-peers-e2e.sh` runs tmux on a private socket named like its session (`--tmux`), so a window never joins another tmux server's environment, and every tmux command below must use it: the first line of the file makes plain `tmux` do so. Save them in a file in the work folder and `source` it in the shell you run the tests from, after the part you follow has started its server and written `$LIVE/seed.out`. Set four variables first: `LIVE` (the work folder), `B` (the server address), `SOCK` (the `--tmux` name, such as `live` or `liveoc`) and `T` (the tmux target, such as `live:planner`). Each write sends the person's sign-in cookie, an `Origin` that matches the host and `X-Podium-Respond: 1`; without all three the server answers `403 cross-site request refused`.
 
 ```sh
+tmux() { command tmux -L "${SOCK:?set SOCK to the --tmux name}" "$@"; }
 NAME=$(sed -n 's/^name=//p' "$LIVE/seed.out"); TOKEN=$(sed -n 's/^token=//p' "$LIVE/seed.out")
 _w() { curl -s -b "$LIVE/cookies" -H "Origin: $B" -H 'X-Podium-Respond: 1' -H 'Content-Type: application/json' -w ' [%{http_code}]\n' "$@"; }
 
@@ -87,38 +88,29 @@ After each answer, `live_ask $SID $AID` should show `"state":"closed"`, `"outcom
 
 ## Claude Code
 
-Set `LIVE="$TMPDIR/live"`, `B=http://127.0.0.1:4380` and `T=live:planner` before you source the helpers.
+Set `LIVE="$TMPDIR/live"`, `B=http://127.0.0.1:4380`, `SOCK=live` and `T=live:planner` before you source the helpers.
 
 ### 1. Start
 
 You need `node`, `curl`, `git`, `tmux` and `claude` on your `PATH`, and a built checkout. Run everything from the root of the checkout or worktree you are testing, so the session loads that code.
 
-1. Make a scratch home folder. Claude Code needs your home folder to stay signed in, so link every entry of it except `.podium`:
+1. Start the server and one session. `up` builds the server and UI from the checkout, starts the server on the port with a new database, seeds one person with answering, messaging and the activity feed turned on, and opens the session in tmux, on a private tmux socket, with `podium-reporter` loaded from the checkout. The window runs with its own scratch home (links to every entry of your home except `.podium`, so Claude Code stays signed in and no reporter config file can send it to your own server):
 
    ```sh
    export LIVE="$TMPDIR/live"                     # the work folder, new or empty
-   export FH="$TMPDIR/live-home"                  # the scratch home
-   mkdir -p "$FH"
-   for f in ~/.[!.]* ~/Library; do
-     [ "$(basename "$f")" = ".podium" ] || ln -s "$f" "$FH/$(basename "$f")"
-   done
+   scripts/podium-peers-e2e.sh up --dir "$LIVE" --port 4380 --sessions 1 --tmux live
+   export SOCK=live; tmux() { command tmux -L "$SOCK" "$@"; }   # every tmux command below uses the private socket
    ```
 
-2. Start the server and one session with the scratch home. `up` builds the server and UI from the checkout, starts the server on the port with a new database, seeds one person with answering, messaging and the activity feed turned on, and opens the session in tmux with `podium-reporter` loaded from the checkout:
+   Add `--no-build` only when nothing has changed since the last build. A build from older code tests older code. `--activity-output`, `--session-recording` and `--file-diff` turn on that Admin flag in the seed and that reporter option in the window.
 
-   ```sh
-   HOME="$FH" scripts/podium-peers-e2e.sh up --dir "$LIVE" --port 4380 --sessions 1 --tmux live
-   ```
-
-   Add `--no-build` only when nothing has changed since the last build. A build from older code tests older code.
-
-3. Accept the trust prompt. Claude Code asks once whether to trust the new folder, and the highlighted choice is **No, exit**, so move down first:
+2. Accept the trust prompt. Claude Code asks once whether to trust the new folder, and the highlighted choice is **No, exit**, so move down first:
 
    ```sh
    sleep 8; tmux send-keys -t live:planner Down; sleep 1; tmux send-keys -t live:planner C-m
    ```
 
-You can watch with `tmux attach -t live` and detach with Ctrl+B then D. The console is at `http://127.0.0.1:4380/`.
+You can watch with `tmux -L live attach -t live` and detach with Ctrl+B then D. The console is at `http://127.0.0.1:4380/`.
 
 ### 2. Check the wiring
 
@@ -161,12 +153,12 @@ Each scenario has the same shape: type a prompt, wait for the ask, answer it, ch
 
 For scenarios 5 to 7 there is no ask, so check the server log in `$LIVE/server.log` for the delivery: a message and `/compact` say `came back took`, and `/clear` says `was dropped (session-ended)`, because the session that was cleared ends and a new one starts. Plan mode may use a larger model than Haiku, so scenario 4 can take a minute and cost a little more.
 
-**Answering off.** Open a second session with answering off. It uses the same scratch home and person, and the settings file with `respond` set to `off`:
+**Answering off.** Open a second session with answering off. It uses the same scratch home (`$LIVE/home-claude`) and person, and the settings file with `respond` set to `off`:
 
 ```sh
 sed 's/"respond": "everything"/"respond": "off"/' "$LIVE/settings.json" > "$LIVE/settings-off.json"
 tmux new-window -t live -n off -c "$LIVE/proj-planner"
-tmux send-keys -t live:off "export HOME='$FH' PODIUM_USER='$NAME' PODIUM_TOKEN='$TOKEN'; claude --plugin-dir '$PWD/dist/claudecode' --settings '$LIVE/settings-off.json' --model haiku -n off" C-m
+tmux send-keys -t live:off "export HOME='$LIVE/home-claude' PODIUM_USER='$NAME' PODIUM_TOKEN='$TOKEN'; claude --plugin-dir '$PWD/dist/claudecode' --settings '$LIVE/settings-off.json' --model haiku -n off" C-m
 sleep 14; tmux send-keys -t live:off -l 'Say hello in one word.'; sleep 1; tmux send-keys -t live:off C-m
 ```
 
@@ -185,106 +177,57 @@ Run all of this, even after a failure:
 
 ```sh
 tmux send-keys -t live:planner -l '/exit'; sleep 1; tmux send-keys -t live:planner C-m; sleep 2
-scripts/podium-peers-e2e.sh down --dir "$LIVE" --tmux live     # server, tmux session and work folder
-find "$FH" -maxdepth 1 -type l -delete                          # your links first
-rm -rf "$FH"                                                    # then the rest of the scratch home
-tmux ls; lsof -nP -iTCP:4380 -sTCP:LISTEN                       # both should show nothing of yours
+scripts/podium-peers-e2e.sh down --dir "$LIVE" --tmux live     # server, tmux server, the links of the scratch home, and the work folder
+tmux ls; lsof -nP -iTCP:4380 -sTCP:LISTEN; ls -d "$LIVE"  # all three should show nothing of yours
 ```
 
-Delete the links before `rm -rf`. The scratch home also holds real folders that programs created, such as `.podium`, and `rm -rf` removes a link without following it, but a mistake while your links are still there can reach your real home folder. Add `--keep` to `down` to keep the database and the server log for reading. A session that is killed can write one last folder into the scratch home after `rm -rf` ran, so check that the folder is gone, and run `rm -rf "$FH"` again if it is not.
+`down` deletes the scratch home's links before it removes the folder, so nothing of your real home is in reach. It refuses a work folder `up` did not make, and a link. Add `--keep` to `down` to keep the database and the server log for reading. A session that is killed can write one last folder into the work folder after `down` ran, so check that the folder is gone.
 
 ## OpenCode
 
-Set `LIVE="$TMPDIR/live-oc"`, `B=http://127.0.0.1:4382` and `T=liveoc:oc` before you source the helpers.
+Set `LIVE="$TMPDIR/live-oc"`, `B=http://127.0.0.1:4382`, `SOCK=liveoc` and `T=liveoc:planner` before you source the helpers.
 
-`podium-peers-e2e.sh up` cannot be used here: it starts Claude Code sessions and needs `claude`. The steps below start the same kind of server and seed by hand.
+`podium-peers-e2e.sh up --harness opencode` starts the throwaway server, seeds it and opens the OpenCode sessions in tmux. The same command starts a Claude Code window next to an OpenCode one (see [Both at once](#both-at-once)).
 
 ### 1. Prerequisites and isolation
 
 You need `node`, `curl`, `git`, `tmux` and `opencode` (2.x) on your `PATH`, and a built checkout (`npm run build`). Run everything from the root of the checkout or worktree you are testing.
 
-**The model.** Use one that costs nothing: a local model in LM Studio, or one of OpenCode's free hosted models (`opencode models` lists them; those named `opencode/...-free` need no sign-in). A small model is enough but may not follow a tool prompt exactly, and it can call a tool you did not name. Check that it answers before you blame the reporter. Cost reads `0` for both, and that is not a failure.
+**The model.** `--opencode-model PROVIDER/MODEL` is required and never defaulted. Use one that costs nothing: a local model in LM Studio, or one of OpenCode's free hosted models (`opencode models` lists them; those named `opencode/...-free` need no sign-in). A small model is enough but may not follow a tool prompt exactly, and it can call a tool you did not name. Check that it answers before you blame the reporter. Cost reads `0` for both, and that is not a failure.
 
-**Isolation.** OpenCode reads its plugins from `$HOME/.config/opencode/plugins/`, and the reporter reads `~/.podium/` for the machine id and any reporter config file. Run with a scratch home so nothing reaches your real `~/.podium` or your real OpenCode setup. Unlike Claude Code, OpenCode does not need your home folder for its sign-in when the model is free or local, so the scratch home holds no links. A provider that needs a sign-in takes a copy of `~/.local/share/opencode/auth.json` in `$FH/.local/share/opencode/` (mode 0600), which `rm -rf "$FH"` removes.
-
-**Run it standalone.** Start the TUI with `opencode --standalone`. Without it OpenCode talks to its background service, which was started with your environment, not the one you set here, so the reporter would use your real settings. A background service you already run is not touched.
-
-**Settings come from the environment.** The reporter reads the server, the token, the user and every consent option only from `PODIUM_*` variables and `~/.podium/config.env`, never from `opencode.json`. Each consent option is on only when set to exactly `true`; `PODIUM_RESPOND` takes a level.
+**Isolation.** `up` does what a hand-made run needs to get right. Each OpenCode window gets a scratch home (`$LIVE/home-<window>`) holding the plugin built from the checkout, so nothing reaches your real `~/.podium` or your real OpenCode setup. It starts `opencode --standalone`, because without it OpenCode talks to its background service, which was started with your environment, not the one the window sets. A background service you already run is not touched. The window's environment file (`$LIVE/oc-env-<window>.sh`, mode 0600) holds the server, the person and every consent option; the reporter reads those only from `PODIUM_*` variables, never from `opencode.json`. The token is read from the seed file inside the window and never typed. The project's `opencode.json` sets the model and `ask` for shell and edit, so a tool call produces a permission ask.
 
 ### 2. Start
 
-1. Make the work folder, the scratch home and a project folder with its own git repository, and install the plugin built from the checkout into the scratch home:
+Pick a port and a work folder, then start one OpenCode session. The Admin flags and reporter options the parity checks need are one flag each:
 
-   ```sh
-   export LIVE="$TMPDIR/live-oc" FH="$TMPDIR/live-oc-home"
-   mkdir -p "$LIVE/proj" "$FH/.config/opencode/plugins"
-   chmod 700 "$LIVE"
-   git -C "$LIVE/proj" init -q
-   node scripts/plugin-build.mjs opencode --dev-stamp
-   cp -R dist/opencode "$FH/.config/opencode/plugins/podium"
-   ```
+```sh
+export LIVE="$TMPDIR/live-oc"; export SOCK=liveoc; tmux() { command tmux -L "$SOCK" "$@"; }
+scripts/podium-peers-e2e.sh up --dir "$LIVE" --port 4382 --tmux liveoc --sessions 1 \
+  --harness opencode --opencode-model opencode/<name>-free \
+  --activity-output --session-recording --file-diff
+```
 
-   Build again and copy again after every change to the reporter. An old copy tests old code.
+For a local model, name its provider block in a JSON file and pass it with `--opencode-config`; the model and the `ask` permissions of the script win over what the file says. This example is the LM Studio model `google/gemma-4-26b-a4b-qat`:
 
-2. Start the server on its port with a new database and a new admin secret, and wait for it:
+```json
+{
+  "provider": {
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local LM Studio",
+      "options": { "baseURL": "http://localhost:1234/v1", "apiKey": "not-needed" },
+      "models": { "google/gemma-4-26b-a4b-qat": { "name": "gemma-4-26b-a4b-qat", "limit": { "context": 262144, "output": 8192 } } }
+    }
+  }
+}
+```
 
-   ```sh
-   node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('hex'))" > "$LIVE/admin-secret"; chmod 600 "$LIVE/admin-secret"
-   PODIUM_TOKEN="$(cat "$LIVE/admin-secret")" PORT=4382 HOST=127.0.0.1 PODIUM_DB="$LIVE/podium.sqlite" PODIUM_DATA_DIR="$LIVE" \
-     nohup node server/dist/index.js > "$LIVE/server.log" 2>&1 &
-   echo $! > "$LIVE/server.pid"
-   sleep 3; curl -sf http://127.0.0.1:4382/api/fleet/health
-   ```
+```sh
+scripts/podium-peers-e2e.sh up ... --opencode-model lmstudio/google/gemma-4-26b-a4b-qat --opencode-config "$PWD/lmstudio.json"
+```
 
-3. Seed one person, and turn on the Admin's flags the parity checks need. The seed turns on messaging, responding and the activity feed, and adds five made-up sessions that go stale; ignore them. The extra flags are Bash output in the feed, file diffs and session recording:
-
-   ```sh
-   PODIUM_TOKEN="$(cat "$LIVE/admin-secret")" node scripts/podium-peers-seed.mjs --url http://127.0.0.1:4382 --name Ed > "$LIVE/seed.out"; chmod 600 "$LIVE/seed.out"
-   B=http://127.0.0.1:4382
-   curl -s -c "$LIVE/admin-cookies" -H "Origin: $B" -H 'X-Podium-Admin: 1' -H 'Content-Type: application/json' \
-     -d "{\"name\":\"Admin\",\"token\":\"$(cat "$LIVE/admin-secret")\"}" $B/api/admin/unlock
-   curl -s -b "$LIVE/admin-cookies" -X PUT -H "Origin: $B" -H 'X-Podium-Admin: 1' -H 'Content-Type: application/json' \
-     -d '{"features":{"activity-output":true,"file-diff":true,"session-recording":true}}' $B/api/admin/settings >/dev/null
-   ```
-
-4. Write the project's `opencode.json`: the model, and `ask` for shell and edit so a tool call produces a permission ask. This example uses the local LM Studio model `google/gemma-4-26b-a4b-qat`; for a free hosted model drop the `provider` block and set `"model": "opencode/<name>-free"`:
-
-   ```json
-   {
-     "$schema": "https://opencode.ai/config.json",
-     "provider": {
-       "lmstudio": {
-         "npm": "@ai-sdk/openai-compatible",
-         "name": "Local LM Studio",
-         "options": { "baseURL": "http://localhost:1234/v1", "apiKey": "not-needed" },
-         "models": { "google/gemma-4-26b-a4b-qat": { "name": "gemma-4-26b-a4b-qat", "limit": { "context": 262144, "output": 8192 } } }
-       }
-     },
-     "model": "lmstudio/google/gemma-4-26b-a4b-qat",
-     "permission": { "bash": "ask", "edit": "ask" }
-   }
-   ```
-
-5. Save the session's environment as `$LIVE/oc-env.sh`, so any window can source it. The token is read from the seed file, never typed:
-
-   ```sh
-   export HOME="<the value of $FH>"
-   export PODIUM_SERVER=http://127.0.0.1:4382
-   export PODIUM_USER="$(sed -n 's/^name=//p' "<$LIVE>/seed.out")" PODIUM_TOKEN="$(sed -n 's/^token=//p' "<$LIVE>/seed.out")"
-   export PODIUM_RESPOND=everything PODIUM_ACTIVITY_FEED=true PODIUM_ACTIVITY_OUTPUT=true PODIUM_FILE_DIFF=true
-   export PODIUM_PEERS=true PODIUM_FULL_PROMPTS=true PODIUM_SESSION_RECORDING=true PODIUM_EXPLAIN_FAILURES=true
-   ```
-
-   Write the real paths in, because the file is sourced by a shell that has not set `LIVE` or `FH`.
-
-6. Start OpenCode in tmux:
-
-   ```sh
-   tmux new-session -d -s liveoc -n oc -x 200 -y 50 -c "$LIVE/proj"
-   tmux send-keys -t liveoc:oc ". '$LIVE/oc-env.sh'; opencode --standalone" C-m
-   ```
-
-   The TUI shows the model name under the prompt when it is ready. There is no trust prompt. To run a single prompt without the TUI, `opencode run --standalone -m <provider/model>#<variant> "<prompt>"` also loads the plugin and reports.
+`up` builds again every time (`--no-build` skips the server and UI build only; the plugin is always rebuilt and copied), so an old copy never tests old code. The seed also adds five made-up sessions that go stale; ignore them. The TUI shows the model name under the prompt when it is ready. There is no trust prompt. To run a single prompt without the TUI, `opencode run --standalone -m <provider/model>#<variant> "<prompt>"` also loads the plugin and reports, but only from a shell that sourced `$LIVE/oc-env-planner.sh`. Watch with `tmux -L liveoc attach -t liveoc`.
 
 ### 3. Check the wiring
 
@@ -297,7 +240,7 @@ say '/podium'; sleep 1; tmux send-keys -t "$T" C-m; sleep 1; tmux capture-pane -
 | Line | Must say |
 |---|---|
 | `Podium fleet console` | `http://127.0.0.1:4382/#/` |
-| `Home folder` | your scratch home |
+| `Home folder` | the window's scratch home, `$LIVE/home-planner` |
 | `Connection` | `online` |
 | `Reports sent` | a count above zero, with `failed: 0` |
 
@@ -352,7 +295,7 @@ Read the fields from `live_json <session> <field>` while the session is live or 
 | File diff on request | While an ask is open, `curl -s -b "$LIVE/cookies" "$B/api/fleet/respond/sessions/<id>/files/diff?path=note.txt"` | `"status":"ok"` and a unified diff. |
 | Session recording | While the session is live, `_w -X PUT -d '{"loops":["@orchestrator"]}' "$B/api/fleet/respond/sessions/<id>/recording"`, run a shell call, then `curl -s -b "$LIVE/cookies" "$B/api/fleet/respond/sessions/<id>/recording"` | Rows of kind `tool`, `decision` (with `by`), `result` and `text`. |
 | Failure detail | Deny a shell call, and ask for `read` on `/nonexistent/file.txt` | A `fail` event in `events` of `GET /api/fleet/state` with class `Blocked by permission` or `Tool error`. A shell command that exits non-zero is not a failure to OpenCode. |
-| Skills | Put a `SKILL.md` in `$LIVE/proj/.opencode/skills/<name>/`, ask the model to load it, then `live_json <id> loop.skills` | The skill's name. |
+| Skills | Put a `SKILL.md` in `$LIVE/proj-planner/.opencode/skills/<name>/`, ask the model to load it, then `live_json <id> loop.skills` | The skill's name. |
 | Tools the reporter adds | Ask `Call the podium_peers tool and tell me what it returns` (needs `PODIUM_PEERS=true`), and `Call the plan tool with title "X"` | The model's answer shows the tool's reply. The session's `plan` field is meant to carry the title, but it stayed `null` after a title-only call in the run this was written from. |
 | Usage per model | `usageByModel` is not stored for a session that reports its own cost (`costSource: harness`) | Not observable on the server. The reporter's unit tests cover it. |
 | Explain failures | Needs a session or agent that ends with a failure, and `PODIUM_EXPLAIN_FAILURES=true` | The failure's `explanation`. |
@@ -365,14 +308,24 @@ Two things only a person sees: the toast the TUI shows when the connection chang
 Run all of this, even after a failure:
 
 ```sh
-tmux kill-session -t liveoc
-kill "$(cat "$LIVE/server.pid")"
-find "$FH" -maxdepth 1 -type l -delete
-rm -rf "$FH" "$LIVE"
-tmux ls; lsof -nP -iTCP:4382 -sTCP:LISTEN                       # both should show nothing of yours
+scripts/podium-peers-e2e.sh down --dir "$LIVE" --tmux liveoc   # server, tmux server, scratch homes and the work folder
+tmux ls; lsof -nP -iTCP:4382 -sTCP:LISTEN; ls -d "$LIVE" # all three should show nothing of yours
 ```
 
-This kills only your own tmux session and server. An OpenCode background service you already run (`opencode serve --service`) is not yours to stop. Check that your real `~/.podium` and `~/.config/opencode` have no new file from the run.
+`down` stops only what `up` started: its own tmux server and server process. An OpenCode background service you already run (`opencode serve --service`) is not yours to stop. Check that your real `~/.podium` and `~/.config/opencode` have no new file from the run.
+
+## Both at once
+
+One run can hold a Claude Code window and an OpenCode window reporting to the same throwaway server. `--harness` takes a list that is used window by window, so planner and notes are Claude Code and tester and docs are OpenCode:
+
+```sh
+export LIVE="$TMPDIR/live-both"; export SOCK=liveboth; tmux() { command tmux -L "$SOCK" "$@"; }
+scripts/podium-peers-e2e.sh up --dir "$LIVE" --port 4384 --tmux liveboth --sessions 2 \
+  --harness claudecode,opencode --opencode-model opencode/<name>-free
+```
+
+`--model` is the Claude Code model (default `haiku`). Accept Claude Code's trust prompt in its window (`tmux -L liveboth send-keys -t liveboth:planner Down Enter`), send each window a prompt, and both sessions show in `GET /api/fleet/state` with `reporterName` `podium-reporter-claudecode` and `podium-reporter-opencode`. Stop with `down` as above. Nothing is left running: the tmux server, the server, the port and the work folder with both scratch homes are gone.
+
 
 ## Notes for agents
 

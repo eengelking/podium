@@ -72,7 +72,7 @@ node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise u
 scripts/gpu-sample.sh --help    # sample the Mac's GPU load while a tab is open (macOS)
 scripts/agent-context-audit.sh --help  # compare each agent's Tokens with its own transcript
 scripts/agent-tokens-sample.sh --help  # log a running agent's Tokens over time
-scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code sessions in tmux (costs model usage)
+scripts/podium-peers-e2e.sh --help     # orchestrator messaging with real Claude Code or OpenCode sessions in tmux (--harness; costs model usage unless the model is local or free)
 scripts/podium-opencode-demo.sh --help  # `start` checks the reporter certificate, builds dist/opencode/, starts Ollama and OpenCode with the plugin; `stop` closes both and checks your OpenCode config is unchanged (macOS, Homebrew)
 node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in headless Chrome, save a PNG, optionally run JavaScript in it
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
