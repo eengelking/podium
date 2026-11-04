@@ -62,7 +62,8 @@ describe('wall: toolbar', () => {
   });
 
   it('sorts by Newest and keeps every card, and offers the six sorts in order', () => {
-    // Newest puts the session the server saw last first: the seed reports arm64-check last of Ed's, then Tester, and invoice-v2 first of all.
+    // Newest puts the session that started last first. The seed gives each session its own start time in the order it reports them
+    // (arm64-check last of Ed's, then Tester, and invoice-v2 first of all), and fails if the server does not keep them (#898).
     sortedBy('Newest').should('have.length', 12).first().should('have.attr', 'data-session', 'e2e-s-arm64-check');
     cy.cards().eq(1).should('have.attr', 'data-session', 'e2e-s-tester');
     cy.cards().then(($c) => expect($c[$c.length - 1].getAttribute('data-session')).to.eq('e2e-s-invoice'));

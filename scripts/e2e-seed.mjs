@@ -141,15 +141,19 @@ const must = (r, what) => {
 
 const ZERO_TOKENS = { input: 300_000, output: 30_000, cacheRead: 0, cacheWrite: 0 };
 
-// Every report gets its own start time. The reports are built within the same millisecond, and "Newest" sorts by start time, so
-// two of them tied and the wall fell back to the names, where "Tester" comes before "arm64-check" (#898). Built in order, a later
-// report starts later and shows first under Newest.
+// Every report gets its own start time, 1 ms after the one built before it, so "Newest" (which sorts by start time and breaks a
+// tie by name, where "Tester" comes before "arm64-check") shows the seed's order (#898). The server keeps a new session's
+// claimed start only within START_TOLERANCE_MS (2 minutes, server/src/fleet/ingest.ts) of its own clock and otherwise stores
+// the moment the report arrived. A start 50 minutes back was always replaced, so the order came from which millisecond each
+// report reached the server, and two consecutive reports often reached it in the same one. START_BEFORE_MS stays well inside
+// the tolerance; scripts/e2e-seed.test.ts checks it against the server's constant.
+export const START_BEFORE_MS = 10_000;
 let lastStartedAt = 0;
 
 /** One session report, as the reporter mod sends it. `over` replaces fields of `session`. */
 export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
   const now = Date.now();
-  const startedAt = (lastStartedAt = Math.max(now - 3_000_000, lastStartedAt + 1));
+  const startedAt = (lastStartedAt = Math.max(now - START_BEFORE_MS, lastStartedAt + 1));
   return {
     v: 1,
     sentAt: now,
@@ -170,6 +174,16 @@ export function sessionReport(who, machine, id, name, over = {}, extra = {}) {
     agents: extra.agents ?? [],
     events: extra.events ?? [],
   };
+}
+
+/**
+ * Throws unless the server stored the start time each seeded report claimed. A replaced one would make "Newest" depend on the
+ * millisecond each report arrived in (#898), so the seed fails here instead of a spec failing now and then.
+ */
+export function keptStarts(reports, sessions) {
+  const stored = new Map(sessions.map((s) => [s.id, s.startedAt]));
+  const moved = reports.filter((r) => stored.has(r.body.session.id) && stored.get(r.body.session.id) !== r.body.session.startedAt);
+  if (moved.length) throw new Error(`the server replaced the start time of ${moved.map((r) => r.key).join(', ')}; see START_BEFORE_MS (#898)`);
 }
 
 const agent = (id, over) => ({
@@ -346,7 +360,9 @@ export async function seed({ url, secret, flags = 'all', bulk = 0, ended = 0, ta
   const group = must(await c.admin('POST', '/groups', { name: 'Platform' }), 'group');
   must(await c.admin('PUT', `/people/${people.Alex.id}/group`, { groupId: group.body.id }), 'group member');
 
-  for (const r of fleetReports({}, { bulk, ended, rich, reporters, compaction })) must(await c.mod(r.who === 'Admin' ? secret : people[r.who].token, 'POST', '/report', r.body), `report ${r.key}`);
+  const reports = fleetReports({}, { bulk, ended, rich, reporters, compaction });
+  for (const r of reports) must(await c.mod(r.who === 'Admin' ? secret : people[r.who].token, 'POST', '/report', r.body), `report ${r.key}`);
+  keptStarts(reports, must(await c.call('GET', '/api/fleet/state'), 'fleet state').body.sessions);
 
   if (on.includes('peer-messaging')) await seedPeers(c, people, talk);
   if (recording) await seedRecording(c, people);
