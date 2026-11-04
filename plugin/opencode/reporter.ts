@@ -3,12 +3,13 @@
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
 import { readChanges, readGit, type Runner } from '../core/git.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
-import type { DiffRequest, MachineInfo } from '../core/protocol.ts';
+import type { DiffRequest, MachineInfo, RecordingGrant } from '../core/protocol.ts';
 import { Responder, sessionPath } from '../core/respond.ts';
-import { Transport, type FetchLike } from '../core/transport.ts';
+import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { Answering, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
-import { apply, finish, newStore, sweep, type BusEvent, type Root, type Store } from './state.ts';
+import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
+import { apply, finish, newStore, setWatched, setWatchedOutput, sweep, type BusEvent, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -28,6 +29,14 @@ export interface ReporterOptions {
   fileDiff?: boolean;
   /** The `fileDiffPreload` option, on unless turned off. Only meaningful with `fileDiff`. */
   fileDiffPreload?: boolean;
+  /** The activity feed consent (`PODIUM_ACTIVITY_FEED`): keep and send the feed of each loop the server says is watched. Off when absent. */
+  activityFeed?: boolean;
+  /** The activity output consent (`PODIUM_ACTIVITY_OUTPUT`): a shell call's output may go out, for a loop a viewer has open. Needs `activityFeed`. */
+  activityOutput?: boolean;
+  /** The full prompts consent (`PODIUM_FULL_PROMPTS`): send each agent's whole prompt and answer, once. */
+  fullPrompts?: boolean;
+  /** The session recording consent (`PODIUM_SESSION_RECORDING`): the owner's yes to being recorded when the Admin and the session's chooser have said yes too. */
+  sessionRecording?: boolean;
 }
 
 export interface ReporterDeps {
@@ -36,6 +45,8 @@ export interface ReporterDeps {
   /** A runner for git commands that works in `cwd` (the session's directory), not in the plugin's. */
   runIn: (cwd: string) => Runner;
   log: (line: string) => void;
+  /** Tells the person something once, in a place they see: what a recording of their session is doing (#353). Absent: nothing is shown. */
+  notify?: (line: string) => void;
   /** What is wrong with the secure connection right now, or null (#948). Its status word leads `statusText`. */
   problem?: () => { status: string } | null;
   /** What answering may do in OpenCode, and what the person allowed. Absent: the reporter only watches. */
@@ -58,6 +69,9 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 /** How long a model whose window could not be read waits before it is asked about again. */
 const WINDOW_RETRY_MS = 60_000;
+
+/** Batches one last recording send may take: a backlog after an outage, bounded so the end of a session is not held. */
+const FINAL_BATCHES = 20;
 
 /** How many answered diff request ids are remembered. */
 const DIFFS_KEPT = 200;
@@ -110,7 +124,7 @@ export class Reporter {
     const a = deps.answering;
     // Also the way a file diff goes back to the server, so it exists with answering off.
     this.responder = new Responder(deps.fetch, { serverUrl: opts.serverUrl, token: opts.token }, { now: deps.now, sleep: a?.sleep ?? ((ms) => new Promise<boolean>((r) => setTimeout(() => r(true), ms))) });
-    this.answering = a ? new Answering(this.responder, a.host, a.consent) : null;
+    this.answering = a ? new Answering(this.responder, a.host, a.consent, deps.now) : null;
   }
 
   /** Folds one bus event into the store. Synchronous: nothing here waits for the network. */
@@ -206,7 +220,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -217,10 +231,79 @@ export class Reporter {
 
   private send(root: Root, t: Transport, now: number): Promise<void> {
     root.dirty = false;
-    return t.send((events) => buildReport(root, events, { ...this.meta(now), respond: this.respondFor(root, t) }), now).then((outcome) => {
+    // The full texts this report carries, by agent, so only those are marked sent when it is accepted.
+    let texts: Record<string, { promptText?: string; answerText?: string }> = {};
+    const build = (events: Parameters<Parameters<Transport['send']>[0]>[0]) => {
+      const report = buildReport(root, events, { ...this.meta(now), respond: this.respondFor(root, t) });
+      texts = Object.fromEntries(report.agents.map((a) => [a.id, { promptText: a.promptText, answerText: a.answerText }]));
+      return report;
+    };
+    return t.send(build, now).then((outcome) => {
       // A report that did not get through must go again.
       if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected') root.dirty = true;
+      if (outcome === 'ok') this.accepted(root, t, texts);
     });
+  }
+
+  /** What a report the server took changes: the texts that went out are not sent again, and its reply names the loops watched and the recording's grant. */
+  private accepted(root: Root, t: Transport, texts: Record<string, { promptText?: string; answerText?: string }>): void {
+    const o = this.opts;
+    for (const [id, sent] of Object.entries(texts)) {
+      const s = root.sessions.get(id);
+      if (!s) continue;
+      // Only a text that is still the one the report carried: a newer one goes out next time.
+      if (sent.promptText && sent.promptText === s.promptText) s.promptSent = true;
+      if (sent.answerText && sent.answerText === s.answerText) s.answerSent = true;
+    }
+    // With the option off nothing is ever watched (#118). A loop is given output only while it is also watched.
+    setWatched(root, o.activityFeed ? t.watch : []);
+    setWatchedOutput(root, o.activityFeed && o.activityOutput ? t.watchOutput.filter((id) => root.watched.includes(id)) : []);
+    this.takeRecording(root, t.recording);
+  }
+
+  /** Takes the server's grant for the recording and tells the owner what changed. Capture needs the owner's option on as well; with it off nothing is captured. */
+  private takeRecording(root: Root, grant: RecordingGrant | null): void {
+    const out = root.recorder.apply(grant, this.opts.sessionRecording === true);
+    if (!grant) return;
+    const now = this.deps.now();
+    const say = this.deps.notify;
+    if (!say) return;
+    if (out.started) say(startLine(grant, now));
+    if (out.ended === 'stopped') say(stoppedLine(grant, now));
+    else if (out.ended === 'limit') say(limitLine(grant));
+    if (out.refused) say(refusedLine(grant));
+  }
+
+  /** Posts the recording's next batch. A recorder that is closing sends what it has, a bounded number of requests, and then lets go of the queue. */
+  private async sendRecording(root: Root, now: number): Promise<void> {
+    const rec = root.recorder;
+    const rounds = rec.closing ? FINAL_BATCHES : 1;
+    for (let i = 0; i < rounds && rec.due(now); i++) {
+      const out = rec.nextBatch(now);
+      if (!out) break;
+      const res = await this.responder.call('POST', `${sessionPath(root.id)}/recording`, out.batch);
+      if (res?.status === 200) {
+        rec.done(out.count, now);
+        let grant: RecordingGrant | null = null;
+        try {
+          const g = (JSON.parse(res.text) as { recording?: unknown }).recording;
+          grant = isRecordingGrant(g) ? g : null;
+        } catch {
+          // a reply that is not JSON still took the batch
+        }
+        this.takeRecording(root, grant);
+      } else if (res?.status === 403) {
+        rec.stop(); // the three yes answers are not all true any more: nothing is stored, nothing is captured
+        return;
+      } else if (res?.status === 400 || res?.status === 413) {
+        rec.drop(out.count, now); // it would never be accepted
+        break;
+      } else {
+        rec.failed(now);
+        break;
+      }
+    }
+    if (rec.closing) rec.finish();
   }
 
   /** Reads the root's branch and changed files in the background when they are stale. Never throws, and never holds up a report. */
@@ -301,6 +384,7 @@ export class Reporter {
       if (t.due(now, root.dirty)) sends.push(this.send(root, t, now));
     }
     await Promise.all(sends);
+    await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
     for (const root of this.store.roots.values()) this.handleDiffs(root, this.transportOf(root));
     // After the reports, so each root's reply has been read: start waiting for answers and act on what was handed over.
     // Bounded: a call into OpenCode that never returns must not hold up the next report or the other roots.
@@ -320,7 +404,10 @@ export class Reporter {
   async close(closeMs: number = DEFAULTS.closeMs): Promise<void> {
     if (this.closed) return;
     const now = this.deps.now();
-    for (const root of this.store.roots.values()) finish(root, now, 'shutdown');
+    for (const root of this.store.roots.values()) {
+      finish(root, now, 'shutdown');
+      root.recorder.close();
+    }
     this.closed = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const limit = new Promise<void>((resolve) => {
@@ -335,6 +422,7 @@ export class Reporter {
         if (root.dirty && now >= t.nextAttemptAt) sends.push(this.send(root, t, now));
       }
       await Promise.all(sends);
+      await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));
     };
     try {
       await Promise.race([flush(), limit]);

@@ -107,7 +107,7 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       }
     : undefined;
   // Everything sent to Podium, the answering calls included, goes through the link when there is one, and never falls back to http.
-  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: dedupe((line) => console.warn(line)), problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
+  const reporter = new Reporter({ fetch: link ? link.fetch : plainFetch, now: () => Date.now(), runIn, log: dedupe((line) => console.warn(line)), notify: (line) => void show({ title: 'Podium', message: line, variant: 'info' }), problem: link?.problem, answering, windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model) }, options);
   bridge.reporter = reporter;
   // The TUI part says it is attached here, and is handed a question's answer and the lines to show as events.
   void ctx.rpc.register(BRIDGE, { attach: async () => { bridge.seenAt = Date.now(); return { ok: true }; } }).then(

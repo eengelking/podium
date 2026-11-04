@@ -43,6 +43,11 @@ export function optionsOf(projectOptions: Readonly<Record<string, any>> | null |
     hostSurface: null,
     consent: t.consent,
     fileDiff: t.consent.fileDiff,
+    activityFeed: t.consent.activityFeed,
+    // A shell call's output goes out only with the feed on as well, as in the Claude Code reporter.
+    activityOutput: t.consent.activityFeed && t.consent.activityOutput,
+    fullPrompts: t.consent.fullPrompts,
+    sessionRecording: t.consent.sessionRecording,
     // Only narrows what the person already allowed, so a project may turn the preload off.
     fileDiffPreload: projectOptions?.fileDiffPreload !== false,
     reporterConfig: t.reporterConfig,

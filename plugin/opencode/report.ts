@@ -1,6 +1,7 @@
 // A Root as a v2 report (#855). Pure. The harness block, the capabilities and the session's `harness` come from here;
 // everything shared (the report types, redaction, the plan) comes from core.
 import { cap, clip, excerpt, LIMITS } from '../core/failures.ts';
+import { feedOf, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../core/feed.ts';
 import { lastSegment } from '../core/git.ts';
 import { toPlan } from '../core/plan.ts';
 import type { ActivityEvent, AgentReport, AgentStatus, Ask, Capabilities, ContextFill, MachineInfo, ModelUsage, Report, RespondInfo } from '../core/protocol.ts';
@@ -30,6 +31,14 @@ export interface ReportMeta {
   fileDiff?: boolean;
   /** The `fileDiffPreload` option: with the consent, the console may ask for every changed file's diff while its page is open (#631). */
   fileDiffPreload?: boolean;
+  /** The `PODIUM_ACTIVITY_FEED` consent: the feed of each loop the server says is watched goes out, and the report says the option is on (#118). */
+  activity?: boolean;
+  /** The `PODIUM_ACTIVITY_OUTPUT` consent: a shell call's output goes out with its entry, for a loop the server says a viewer has open (#431). */
+  activityOutput?: boolean;
+  /** The `PODIUM_FULL_PROMPTS` consent: each agent's whole prompt and answer go out, once. */
+  fullText?: boolean;
+  /** The `PODIUM_SESSION_RECORDING` consent, which the report states (#353). */
+  sessionRecording?: boolean;
 }
 
 function pct(tokens: number | null, window: number | null): number | null {
@@ -96,6 +105,9 @@ function agentReport(s: Sess, rootId: string, meta: ReportMeta): AgentReport {
     steps: { done: s.steps, total: null },
     promptExcerpt: excerpt(s.prompt),
     answerExcerpt: s.answer ? excerpt(s.answer) : null,
+    ...(meta.fullText && s.promptText && !s.promptSent ? { promptText: s.promptText } : {}),
+    ...(meta.fullText && s.answerText && !s.answerSent ? { answerText: s.answerText } : {}),
+    ...(meta.activity && s.activity.length ? { activity: feedOf(s.activity, meta.activityOutput === true) } : {}),
     failure: s.failure,
   };
 }
@@ -117,7 +129,7 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
   const plan = toPlan(root.plan);
   const agents = root.children.map((id) => root.sessions.get(id)).filter((s): s is Sess => !!s).slice(-MAX_AGENTS);
   const cwd = root.cwd ?? '';
-  return {
+  const report: Report = {
     v: 2,
     sentAt: meta.now,
     harness: { id: HARNESS_ID, name: 'OpenCode', version: meta.engineVersion ?? 'unknown', surface: meta.hostSurface },
@@ -151,10 +163,17 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
       files: root.files ? { ...root.files, files: root.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) } : null,
       fileDiff: meta.fileDiff === true,
       fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
+      activityFeed: meta.activity === true,
+      activityOutput: meta.activityOutput === true,
+      sessionRecording: meta.sessionRecording === true,
+      ...(meta.activity && main.activity.length ? { activity: feedOf(main.activity, meta.activityOutput === true) } : {}),
       attached: null,
       ...(meta.respond ? { respond: meta.respond.info, asks: meta.respond.asks } : {}),
     },
-    agents: agents.map((s) => agentReport(s, root.id, meta)),
+    agents: withinTextBudget(agents.map((s) => agentReport(s, root.id, meta))),
     events: events.slice(0, MAX_EVENTS).map((e) => ({ ...e, text: clip(e.text, 240) })),
   };
+  withinDetailBudget(withinActivityBudget(report));
+  withinSize(report);
+  return report;
 }

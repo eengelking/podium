@@ -1,9 +1,12 @@
 // What the OpenCode reporter knows about its sessions (#855). Pure: no engine API, no clock of its own, no network.
 // `apply` folds one bus event into a Store; report.ts turns a Root into a v2 report. A root session and the child
 // sessions it launched are one Root and one report; a child is an agent in that report.
-import { clip, cap, candidateFrom, classify, buildFailure, evidence, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { activityText, clip, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
-import type { ActivityEvent, Failure, FilesReport, GitInfo, ModelUsage } from '../core/protocol.ts';
+import { MAIN_LOOP, type ActivityEntry, type ActivityEvent, type Failure, type FilesReport, type GitInfo, type ModelUsage } from '../core/protocol.ts';
+import { Recorder } from '../core/recording.ts';
+import { entryFor, finishedEntry } from './activity.ts';
 
 /** One event from the OpenCode bus as the plugin receives it. Only the fields this reporter reads are typed. */
 export interface BusEvent {
@@ -29,6 +32,8 @@ export interface Call {
   input: Record<string, unknown>;
   at: number;
   done: boolean;
+  /** The `seq` the recording gave the call, so its result and a decision about it point back to it; null when it was not recorded. */
+  recSeq?: number | null;
 }
 
 export type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
@@ -70,6 +75,13 @@ export interface Sess {
   candidate: FailureCandidate | null;
   /** How often each failing call failed. */
   failedCalls: Record<string, number>;
+  /** The last 20 activity entries, oldest first. Empty unless the loop is watched (#118). */
+  activity: ActivityEntry[];
+  /** The whole redacted prompt and answer, for the `fullPrompts` option; null until known. */
+  promptText: string | null;
+  answerText: string | null;
+  promptSent: boolean;
+  answerSent: boolean;
 }
 
 /** One field of a question form: what OpenCode asks, and the values it takes back. */
@@ -90,6 +102,8 @@ export interface Ask {
   sessionId: string;
   openedAt: number;
   note: string;
+  /** The tool call a permission is for, when OpenCode names it: a recording points its decision at that call. */
+  callId?: string;
   /** A permission's action and the resources it names. */
   action?: string;
   resources?: string[];
@@ -141,6 +155,16 @@ export interface Root {
   seq: number;
   /** Whether something changed since the last report went out. */
   dirty: boolean;
+  /** The loops the server last said someone is watching (MAIN_LOOP for the root session, else a child's session id). Empty unless the person allowed the feed. */
+  watched: string[];
+  /** The loops of `watched` a viewer has the feed open on: a shell call's output is kept only for these. */
+  watchedOutput: string[];
+  /** What the session records (#353). It captures nothing until the server grants it and the person's option is on. */
+  recorder: Recorder;
+  /** Messages from Podium handed to OpenCode as a prompt and not yet seen back, so the recording keeps the text that was sent. */
+  sentFromPodium: { framed: string; text: string }[];
+  /** The `/compact` Podium is running, once: the mark it makes in the recording is its sender's. */
+  podiumCompact: string | null;
 }
 
 export interface Store {
@@ -158,7 +182,7 @@ export const EVENT_TYPES = [
   'session.inbox.enqueued',
   'session.execution.started', 'session.execution.succeeded', 'session.execution.failed', 'session.execution.interrupted',
   'session.step.started', 'session.step.ended', 'session.step.failed',
-  'session.usage.updated', 'session.text.ended', 'session.skill.activated',
+  'session.usage.updated', 'session.text.ended', 'session.reasoning.ended', 'session.skill.activated',
   'session.tool.input.started', 'session.tool.called', 'session.tool.success', 'session.tool.failed',
   'session.compaction.started', 'session.compaction.ended', 'session.compaction.failed',
   'permission.asked', 'permission.replied',
@@ -174,14 +198,56 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
     toolCounts: {}, lastTool: null, steps: 0, prompt: '', answer: '', failure: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
+    activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }
 
 function newRoot(id: string, cwd: string | null, at: number): Root {
+  const recorder = new Recorder();
+  recorder.begin(id);
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
     asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, files: null, gitBase: null, events: [], seq: 0, dirty: true,
+    watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null,
   };
+}
+
+/** The loop key of a session in the server's watch list and in a recording: the orchestrator's own, else the child's session id. */
+export const loopKey = (root: Root, s: Sess): string => (s.id === root.id ? MAIN_LOOP : s.id);
+
+/** The entries of every loop without its `output` once the loop has lost its lease; how a call ended stays (#598). */
+function withoutOutput(list: ActivityEntry[]): ActivityEntry[] {
+  return list.map((e) => {
+    if (!('output' in e) && !('outputCut' in e)) return e;
+    const { output: _o, outputCut: _c, ...rest } = e;
+    return rest;
+  });
+}
+
+/**
+ * The loops the server's reply says are watched. A loop that drops off the list forgets its entries, so a later watch starts
+ * empty, and loses its output lease with them. A loop that is listed starts keeping entries from now.
+ */
+export function setWatched(root: Root, ids: readonly string[]): void {
+  const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  if (next.length === root.watched.length && next.every((id, i) => id === root.watched[i])) return;
+  root.watched = next;
+  for (const s of root.sessions.values()) if (!next.includes(loopKey(root, s))) s.activity = [];
+  setWatchedOutput(root, root.watchedOutput.filter((id) => next.includes(id)));
+}
+
+/** The loops a viewer has the feed open on. A loop that drops off the list forgets the output its entries held; the commands stay. */
+export function setWatchedOutput(root: Root, ids: readonly string[]): void {
+  const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  if (next.length === root.watchedOutput.length && next.every((id, i) => id === root.watchedOutput[i])) return;
+  root.watchedOutput = next;
+  for (const s of root.sessions.values()) if (!next.includes(loopKey(root, s))) s.activity = withoutOutput(s.activity);
+}
+
+/** Adds an entry to the feed of a loop that is watched, keeping the last 20. A loop nobody watches keeps nothing. */
+function addActivity(root: Root, s: Sess, entry: ActivityEntry): void {
+  if (!root.watched.includes(loopKey(root, s))) return;
+  s.activity = [...s.activity, entry].slice(-ACTIVITY_KEPT);
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -281,12 +347,19 @@ function finishCall(root: Root, s: Sess, d: Record<string, any>, at: number, fai
   const call = s.calls.get(id) ?? { id, tool: 'tool', input: {}, at, done: false };
   call.done = true;
   s.calls.delete(id);
+  const loop = loopKey(root, s);
+  const result = failed ? errorText(d.error) || contentText(d.content) : contentText(d.content);
+  // What the call produced goes to its feed entry and to the recording; neither exists unless the person allowed it.
+  if (root.watched.includes(loop)) {
+    const patch = finishedEntry(failed, result || null, root.watchedOutput.includes(loop));
+    s.activity = s.activity.map((e) => (e.id === id ? { ...e, ...patch } : e));
+  }
+  root.recorder.outcome(loop, call.tool, call.input, call.recSeq ?? null, result ? { isError: failed, text: result } : undefined, at);
   s.toolCalls++;
   s.lastTool = call.tool;
   s.toolCounts[call.tool] = (s.toolCounts[call.tool] ?? 0) + 1;
   if (!failed) return;
-  const text = errorText(d.error) || contentText(d.content);
-  const cand = candidateFrom(call.tool, call.input, { isError: true, text }, at);
+  const cand = candidateFrom(call.tool, call.input, { isError: true, text: result }, at);
   if (!cand) return;
   s.failedCalls[cand.call] = (s.failedCalls[cand.call] ?? 0) + 1;
   // The call a person just refused fails as a result; the refusal stays the cause.
@@ -330,9 +403,18 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
     case 'session.renamed':
       s.title = str(d.title) ?? s.title;
       break;
-    case 'session.inbox.enqueued':
-      if (!s.prompt && typeof d.item?.payload?.text === 'string') s.prompt = d.item.payload.text;
+    case 'session.inbox.enqueued': {
+      const text = d.item?.payload?.text;
+      if (typeof text !== 'string') break;
+      if (!s.prompt) {
+        s.prompt = text;
+        s.promptText = fullText(text) || null;
+      }
+      // A message from Podium comes back framed; the recording keeps the text that was sent, which is how the server knows it is Podium's.
+      const sent = root.sentFromPodium.findIndex((x) => x.framed === text);
+      root.recorder.prompt(loopKey(root, s), sent >= 0 ? root.sentFromPodium.splice(sent, 1)[0]!.text : text, t);
       break;
+    }
     case 'session.execution.started':
       s.executing = true;
       s.end = 'running';
@@ -386,8 +468,21 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       s.tokens = tokensOf(d.tokens);
       s.costUsd = num(d.cost);
       break;
-    case 'session.text.ended':
-      if (typeof d.text === 'string') s.answer = d.text;
+    case 'session.text.ended': {
+      if (typeof d.text !== 'string') break;
+      s.answer = d.text;
+      const whole = fullText(d.text) || null;
+      if (whole !== s.answerText) {
+        s.answerText = whole;
+        s.answerSent = false;
+      }
+      const said = activityText(d.text);
+      if (said) addActivity(root, s, { at: t, kind: 'text', text: said });
+      root.recorder.said(loopKey(root, s), d.text, t);
+      break;
+    }
+    case 'session.reasoning.ended':
+      root.recorder.thinking(loopKey(root, s), t);
       break;
     case 'session.tool.input.started': {
       const id = str(d.id);
@@ -400,6 +495,10 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       const call = s.calls.get(id) ?? { id, tool: str(d.name) ?? 'tool', input: {}, at: t, done: false };
       call.input = d.input && typeof d.input === 'object' ? d.input : {};
       s.calls.set(id, call);
+      if (call.recSeq === undefined) {
+        addActivity(root, s, entryFor(call.tool, call.input, id, t));
+        call.recSeq = root.recorder.call(loopKey(root, s), call.tool, call.input, t);
+      }
       s.lastTool = call.tool;
       if (call.tool === 'todowrite' && s.id === root.id) {
         root.plan = todoWrite(root.plan, d.input);
@@ -415,7 +514,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'permission.asked': {
       const id = str(d.id);
-      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources: Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [] });
+      if (id) ask(root, { id, kind: 'permission', sessionId: sid, openedAt: t, ...(str(d.source?.id) ? { callId: str(d.source.id)! } : {}), note: clip([str(d.action), ...(Array.isArray(d.resources) ? d.resources.slice(0, 2) : [])].filter(Boolean).join(' '), 160), action: str(d.action) ?? 'permission', resources: Array.isArray(d.resources) ? d.resources.filter((r: unknown): r is string => typeof r === 'string') : [] });
       break;
     }
     case 'permission.replied': {
@@ -439,6 +538,8 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
       break;
     case 'session.compaction.started':
       root.compacting = true;
+      root.recorder.compact(MAIN_LOOP, t, root.podiumCompact ?? undefined);
+      root.podiumCompact = null;
       break;
     case 'session.compaction.ended':
     case 'session.compaction.failed':

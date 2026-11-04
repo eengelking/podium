@@ -33,6 +33,12 @@ every reporter shares from `../core/` (report types, transport, failures, redact
 - Skills come from `session.skill.activated`. Tokens per model and prompt-size tier (`usageByModel`) are totalled from each finished step.
 - A failure carries the engine's error text, and "Blocked by permission" when a person rejected a permission and that call then failed.
   A call that failed twice or more is listed as evidence.
+- The activity feed (`PODIUM_ACTIVITY_FEED`) and a shell call's output (`PODIUM_ACTIVITY_OUTPUT`), full prompts (`PODIUM_FULL_PROMPTS`) and
+  session recording (`PODIUM_SESSION_RECORDING`), each only where the person turned it on. The feed and the recording are captured from the bus
+  events (`session.tool.called`, `session.tool.success` and `session.tool.failed` carry the input and the result text), not from the tool's
+  `execute.after` hook, which would add nothing; `core/feed.ts` and `core/recording.ts` hold the limits, redaction and batching shared with the
+  Claude Code reporter. The type declarations carry no numeric exit code, so one is sent only when the call's text states it. A recording tells the
+  person through a toast (or the console) when it starts, stops or was refused, and keeps an answer sent from Podium once, after the call it answers.
 - Tools with input and result, permission asks and questions (the session is `waiting`), compaction, the plan from the todo tool, failures,
   and the git branch.
 - A session is `done` after it has been quiet for `idleSeconds` (default 60), at once on `session.deleted` or `session.archived`, and when the

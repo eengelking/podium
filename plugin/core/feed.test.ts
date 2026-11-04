@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { commandDetail, DETAIL_LIMIT, outputDetail, stripControl } from './feed.ts'
+import { commandDetail, DETAIL_LIMIT, feedOf, outputDetail, stripControl, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from './feed.ts'
+import type { ActivityEntry, AgentReport, Report } from './protocol.ts'
 
 const ESC = String.fromCharCode(27)
 const BEL = String.fromCharCode(7)
@@ -88,3 +89,74 @@ describe('outputDetail (#431)', () => {
   })
 })
 
+
+describe('a feed as a report carries it (#969)', () => {
+  const entry = (over: Partial<ActivityEntry> = {}): ActivityEntry => ({ at: 1, kind: 'tool', text: 'Bash ls', ...over })
+  const report = (session: Partial<Report['session']>, agents: Partial<AgentReport>[] = []): Report => ({ session: { ...session }, agents }) as unknown as Report
+
+  test('feedOf redacts the summary, keeps the call fields, and leaves the output out unless asked', () => {
+    const list = [
+      entry({ text: `Bash echo ${SECRET}`, id: 'c1', command: 'ls', commandCut: true, output: 'out', outputCut: true, done: true, failed: true, exitCode: 2 }),
+      { at: 2, kind: 'text' as const, text: 'said', id: 'ignored', command: 'ignored' },
+    ]
+    const bare = feedOf(list, false)
+    expect(bare[0]).toEqual({ at: 1, kind: 'tool', text: 'Bash echo [redacted]', id: 'c1', command: 'ls', commandCut: true, done: true, failed: true, exitCode: 2 })
+    expect(bare[1]).toEqual({ at: 2, kind: 'text', text: 'said' })
+    expect(feedOf(list, true)[0]).toMatchObject({ output: 'out', outputCut: true })
+    expect(feedOf([entry({ command: 'x'.repeat(30_000) })], false)[0]!.command).toHaveLength(20_100)
+    expect(feedOf([entry({ output: 'y'.repeat(30_000) })], true)[0]!.output).toHaveLength(20_100)
+  })
+
+  test('withinTextBudget keeps the first text whole and drops one that no longer fits', () => {
+    const big = 'a'.repeat(100_000)
+    const out = withinTextBudget([{ id: '1', promptText: big, answerText: 'short' }, { id: '2', promptText: big, answerText: 'b' }, { id: '3', answerText: 'c' }] as AgentReport[])
+    expect(out.map((a) => [a.promptText?.length, a.answerText])).toEqual([[100_000, 'short'], [undefined, 'b'], [undefined, 'c']])
+    expect(withinTextBudget([{ id: '1', promptText: 'x'.repeat(130_000) }] as AgentReport[])[0]!.promptText).toHaveLength(130_000)
+  })
+
+  test('withinActivityBudget drops the feeds past 60,000 characters of summaries, the orchestrator first', () => {
+    const long = (n: number) => [entry({ text: 'x'.repeat(n) })]
+    const r = withinActivityBudget(report({ activity: long(40_000) }, [{ activity: long(30_000) }, { activity: long(10_000) }]))
+    expect(r.session.activity).toHaveLength(1)
+    expect(r.agents[0]!.activity).toBeUndefined()
+    expect(r.agents[1]!.activity).toHaveLength(1)
+  })
+
+  test('withinDetailBudget takes the output off the entries that do not fit, then the command, newest first', () => {
+    const e1 = entry({ command: 'c'.repeat(100_000), output: 'o'.repeat(50_000), commandCut: true, outputCut: true })
+    const e2 = entry({ command: 'c'.repeat(40_000), output: 'o'.repeat(40_000) })
+    const e3 = entry({ command: 'c'.repeat(30_000), output: 'o'.repeat(30_000) })
+    withinDetailBudget(report({ activity: [e1, e2, e3] }))
+    // e3 (60,000) and e2 (80,000) fit in 200,000; e1's 150,000 does not: its output goes, then its command (100,000 over the 60,000 left).
+    expect(e3.output).toBeDefined()
+    expect(e2.output).toBeDefined()
+    expect(e1).not.toHaveProperty('output')
+    expect(e1).not.toHaveProperty('outputCut')
+    expect(e1).not.toHaveProperty('command')
+    expect(e1).not.toHaveProperty('commandCut')
+  })
+
+  test('withinSize cuts output, then commands, until the body fits, counting bytes not characters', () => {
+    const wide = '€'.repeat(100_000)
+    const mk = () => entry({ command: wide, output: wide })
+    const small = report({ activity: [entry()] })
+    withinSize(small)
+    expect(small.session.activity).toHaveLength(1)
+    const a = mk()
+    const b = mk()
+    const r = report({ activity: [a] }, [{ activity: [b] }])
+    withinSize(r)
+    expect(JSON.stringify(r).length).toBeLessThan(480_000)
+    expect(b).not.toHaveProperty('output')
+    const nothing = report({})
+    withinSize(nothing)
+    expect(nothing.session).toEqual({})
+    // Output alone is not enough here: the commands go too, oldest of the last feed first.
+    const d1 = entry({ command: wide })
+    const d2 = entry({ command: wide })
+    const d3 = entry({ command: wide })
+    withinSize(report({ activity: [d1, d2, d3] }))
+    expect([d1, d2, d3].filter((e) => 'command' in e)).toEqual([d3])
+    expect(d1).not.toHaveProperty('command')
+  })
+})

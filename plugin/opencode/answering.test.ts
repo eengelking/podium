@@ -217,7 +217,7 @@ describe('capabilities', () => {
 // ---- the whole thing, against a fake Podium and a fake OpenCode ----
 
 /** A Podium that takes reports, holds a request for an ask's answer until one is delivered, and records every other call. */
-function podium(opts: { respond?: boolean; deliveries?: Delivery[] } = {}) {
+function podium(opts: { respond?: boolean; deliveries?: Delivery[]; recording?: unknown } = {}) {
   const reports: Report[] = [];
   const calls: string[] = [];
   const bodies: Record<string, unknown> = {};
@@ -229,7 +229,7 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[] } = {}) {
     const path = url.replace('http://podium.test', '');
     if (path === '/api/fleet/report') {
       reports.push(JSON.parse(init.body!) as Report);
-      const body = { respond, deliveries: handOver };
+      const body = { respond, deliveries: handOver, ...(opts.recording ? { recording: opts.recording } : {}) };
       handOver = [];
       return { status: 200, ok: true, text: JSON.stringify(body) };
     }
@@ -245,6 +245,8 @@ function podium(opts: { respond?: boolean; deliveries?: Delivery[] } = {}) {
       }
       return new Promise((resolve) => held.set(id, (r) => resolve({ ...r, ok: r.status < 300 })));
     }
+    // A recording batch's reply carries the grant again, as the server's does.
+    if (path.endsWith('/recording')) return { status: 200, ok: true, text: JSON.stringify({ recording: opts.recording }) };
     return { status: 200, ok: true, text: '{}' };
   };
   return {
@@ -279,11 +281,11 @@ function fakeHost(over: Partial<Host> = {}) {
   return { host, calls };
 }
 
-function rig(host: Host, respond = true, activityFeed = true, server = podium(), answerMs?: number) {
+function rig(host: Host, respond = true, activityFeed = true, server = podium(), answerMs?: number, env: Record<string, string> = {}) {
   const t = { now: 10_000 };
   const r = new Reporter(
     { fetch: server.fetch, now: () => t.now, runIn: () => async () => ({ exitCode: 1, stdout: '' }), log: () => undefined, answering: { host, consent: { respond, activityFeed }, sleep: async () => true, answerMs } },
-    { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 600_000 },
+    { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok', ...env }), idleMs: 600_000 },
   );
   r.handle(ev('session.created', { sessionID: ROOT, version: '2.2.5' }, 10_000));
   return { r, t, server };
@@ -547,5 +549,88 @@ describe('Reporter answering (#858)', () => {
     await r.tick();
     expect(last(server).session.asks).toEqual([]);
     server.releaseAll();
+  });
+});
+
+describe('Reporter answering: what the recording keeps (#353, #969)', () => {
+  const GRANT = { state: 'recording' as const, consent: { admin: true, chosen: true, owner: true }, loops: ['@orchestrator'], limit: null, startedBy: 'Maya', startedAt: 1, stoppedBy: null, stoppedAt: null, keptUntil: null, bytes: 0 };
+  const call = (id: string) => [ev('session.tool.input.started', { sessionID: ROOT, id, name: 'bash' }, 10_001), ev('session.tool.called', { sessionID: ROOT, id, name: 'bash', input: { command: 'rm x' } }, 10_002)];
+  const entries = (r: Reporter) => r.store.roots.get(ROOT)!.recorder.nextBatch(0)?.batch.entries ?? [];
+
+  /** A session whose first report has been answered with a grant, so capture is on when the person's option is. */
+  async function recording(on = true) {
+    const { host, calls } = fakeHost();
+    const out = rig(host, true, true, podium({ recording: GRANT }), undefined, on ? { PODIUM_SESSION_RECORDING: 'true' } : {});
+    await out.r.tick();
+    expect(out.r.store.roots.get(ROOT)!.recorder.capturing).toBe(on);
+    return { ...out, calls };
+  }
+
+  it('keeps an allowed permission once, after the call it answers, with who sent it', async () => {
+    const { r, t, server, calls } = await recording();
+    for (const e of call('c1')) r.handle(e);
+    r.handle(ev('permission.asked', { id: 'per_1', sessionID: ROOT, action: 'bash', resources: ['rm x'], source: { type: 'tool', messageID: 'm', id: 'c1' } }));
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dp', kind: 'allow-once', by: 'Maya' });
+    await vi.waitFor(() => expect(calls).toEqual(['permission ses_root per_1 once']));
+    // The first tick sent the call (seq 1); the decision follows it and points back at it.
+    t.now += 6000;
+    await r.tick();
+    const sent = server.bodies['POST /api/fleet/sessions/ses_root/recording'] as { entries: { kind: string; seq: number; name: string; callSeq?: number; text: string; by?: string }[] };
+    expect(sent.entries.map((e) => [e.kind, e.seq, e.name, e.callSeq, e.text, e.by])).toEqual([['decision', 2, 'permission', 1, 'Allowed once', 'Maya']]);
+  });
+
+  it('keeps a denial as failed, with the reason', async () => {
+    const { r, server, calls } = await recording();
+    r.handle(permission());
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dp', kind: 'deny', text: 'not that file' });
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    expect(entries(r).map((e) => [e.kind, e.name, e.callSeq, e.text, e.failed])).toEqual([['decision', 'permission', undefined, 'Denied: not that file', true]]);
+  });
+
+  it('keeps a question answered from Podium as the questions and the chosen values', async () => {
+    const { r, server, calls } = await recording();
+    r.handle(ev('form.created', { form: FORM }));
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('frm_1', { id: 'dq', kind: 'question', answers: [{ options: [1] }] });
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    expect(entries(r).map((e) => [e.kind, e.name, e.text])).toEqual([['decision', 'question', 'Pick: B']]);
+  });
+
+  it('keeps a message from Podium as the text that was sent, not the framed prompt OpenCode saw', async () => {
+    const { r, t, server, calls } = await recording();
+    t.now += 6000;
+    server.handOver([D({ id: 'm1', kind: 'message', text: 'please stop', by: 'Maya' })]);
+    await r.tick();
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    r.handle(ev('session.inbox.enqueued', { sessionID: ROOT, item: { payload: { text: framedMessage({ by: 'Maya', text: 'please stop' }) } } }));
+    r.handle(ev('session.inbox.enqueued', { sessionID: ROOT, item: { payload: { text: 'typed at the terminal' } } }));
+    expect(entries(r).map((e) => e.text)).toEqual(['please stop', 'typed at the terminal']);
+  });
+
+  it('marks the compaction a Podium command ran as theirs, once', async () => {
+    const { r, t, server, calls } = await recording();
+    t.now += 6000;
+    server.handOver([D({ id: 'c1', kind: 'command', command: 'compact', by: 'Maya' })]);
+    await r.tick();
+    await vi.waitFor(() => expect(calls).toEqual(['compact ses_root c1']));
+    r.handle(ev('session.compaction.started', { sessionID: ROOT }));
+    r.handle(ev('session.compaction.ended', { sessionID: ROOT }));
+    r.handle(ev('session.compaction.started', { sessionID: ROOT }));
+    expect(entries(r).map((e) => [e.kind, e.by])).toEqual([['compact', 'Maya'], ['compact', undefined]]);
+  });
+
+  it('keeps nothing while recording is off', async () => {
+    const { r, server, calls } = await recording(false);
+    r.handle(permission());
+    await r.tick();
+    await vi.waitFor(() => expect(server.calls.length).toBeGreaterThan(1));
+    server.answer('per_1', { id: 'dp', kind: 'allow-once' });
+    await vi.waitFor(() => expect(calls.length).toBe(1));
+    expect(entries(r)).toEqual([]);
   });
 });
