@@ -41,6 +41,7 @@ export function sqliteContractAdapter(): ContractAdapter {
       out.indexes.sort();
       return out;
     },
+    known: [],
     dispose: async () => {
       for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
     },

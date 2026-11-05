@@ -174,27 +174,20 @@ const anyValue = (v: unknown, test: (x: unknown) => boolean): boolean =>
   test(v) || (Array.isArray(v) && v.some((x) => anyValue(x, test))) || (!!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).some((x) => anyValue(x, test)));
 
 /**
- * The one list of divergences the differential test finds and that another issue owns (#1007). A tracked divergence is reported as a warning and
- * the program stops there (the databases no longer hold the same rows); `PODIUM_DIFF_STRICT=1` makes it a failure. A fix removes its entry, and a
- * case that is tracked and now passes fails, so the list cannot go stale. Nothing is added here to make one adapter pass: an entry names the issue
- * that fixes it.
+ * Divergences another issue owns are listed by the adapter that has them (`ContractAdapter.known`, #1007): reported as a warning, the program stops
+ * there (the databases no longer hold the same rows). `PODIUM_DIFF_STRICT=1` makes them failures. A case that is listed and now passes fails,
+ * so a fixed defect has to be taken off the list.
  */
-export const TRACKED_INPUTS: readonly { issue: string; why: string; adapter: string; test: (x: unknown) => boolean }[] = [
-  { issue: '#1007', adapter: 'postgres', why: 'a number that is not a whole number is sent to an integer column', test: (x) => typeof x === 'number' && !Number.isSafeInteger(x) },
-  { issue: '#1007', adapter: 'postgres', why: 'a string with a NUL character is sent to a text column', test: (x) => typeof x === 'string' && x.includes('\0') },
-];
-export const TRACKED_CASES: readonly { issue: string; why: string; adapter: string; id: string }[] = [
-  { issue: '#1007', adapter: 'postgres', id: 'outside call waits for the transaction', why: 'a call from outside a transaction runs inside it on PostgreSQL' },
-];
 const STRICT = process.env.PODIUM_DIFF_STRICT === '1';
 
 const SEED_ENV = process.env.PODIUM_DIFF_SEED; // destructuring would hide the name from the settings test that lists what the server reads; this is tests only
 export const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
 
-/** Wraps a case about one adapter: when the case is in `TRACKED_CASES` for the adapter it may fail (a warning) and must not pass (remove the entry). */
-function trackedCase(id: string, body: (s: Storage, adapter: string) => Promise<void>): (s: Storage, adapter: string) => Promise<void> {
+/** Wraps a case about one adapter: when the case is in the adapter's `known` list it may fail (a warning) and must not pass (remove the entry). */
+function trackedCase(o: Openers, id: string, body: (s: Storage, adapter: string) => Promise<void>): (s: Storage, adapter: string) => Promise<void> {
   return async (s, adapter) => {
-    const tracked = STRICT ? undefined : TRACKED_CASES.find((t) => t.adapter === adapter && t.id === id);
+    const known = o.adapters.find((x) => x.name === adapter)?.known ?? [];
+    const tracked = STRICT ? undefined : known.find((k) => !k.input && k.id === id);
     if (!tracked) return body(s, adapter);
     try {
       await body(s, adapter);
@@ -202,7 +195,7 @@ function trackedCase(id: string, body: (s: Storage, adapter: string) => Promise<
       console.warn(`TRACKED by ${tracked.issue} (${tracked.why}): ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`);
       return;
     }
-    throw new Error(`${adapter} now passes a case tracked by ${tracked.issue}; remove it from TRACKED_CASES in contractDifferential.ts`);
+    throw new Error(`${adapter} now passes a case tracked by ${tracked.issue}; remove it from the adapter's known list`);
   };
 }
 
@@ -219,7 +212,7 @@ export function differentialCases(o: Openers): void {
         if (!d) continue;
         const small = await shrink(o, steps.slice(0, d.at + 1));
         const e = (await firstDivergence(o, small))!;
-        const tracked = STRICT ? undefined : TRACKED_INPUTS.find((t) => (t.adapter === e.a || t.adapter === e.b) && anyValue(small[e.at]!.args, t.test));
+        const tracked = STRICT ? undefined : o.adapters.filter((x) => x.name === e.a || x.name === e.b).flatMap((x) => x.known).find((k) => k.input && small.slice(0, e.at + 1).some((step) => anyValue(step.args, k.input!)));
         const report = [
           `${e.a} and ${e.b} disagree (seed ${seed + n}, replay with PODIUM_DIFF_SEED=${seed + n}), after ${small.length} call(s):`,
           ...small.map((x, i) => `  ${i === e.at ? '>' : ' '} ${x.target}(${x.args.map(show).join(', ')})`),
@@ -268,7 +261,7 @@ export function differentialCases(o: Openers): void {
       expect(t.get('flag')).toBe(true);
     });
 
-    onEachAdapter(o, 'answers a call from outside a transaction only after the transaction that holds the lock ends', trackedCase('outside call waits for the transaction', async (s, adapter) => {
+    onEachAdapter(o, 'answers a call from outside a transaction only after the transaction that holds the lock ends', trackedCase(o, 'outside call waits for the transaction', async (s, adapter) => {
       const order: string[] = [];
       let release!: () => void;
       const held = new Promise<void>((r) => (release = r));

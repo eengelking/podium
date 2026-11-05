@@ -58,6 +58,11 @@ export function postgresContractAdapter(): ContractAdapter {
         await td.drop();
       }
     },
+    known: [
+      { id: 'non-integer number', issue: '#1007', why: 'a number that is not a whole number is sent to an integer column', input: (x) => typeof x === 'number' && !Number.isSafeInteger(x) },
+      { id: 'NUL in a string', issue: '#1007', why: 'a string with a NUL character is sent to a text column', input: (x) => typeof x === 'string' && x.includes('\0') },
+      { id: 'outside call waits for the transaction', issue: '#1007', why: 'a call from outside a transaction runs inside it' },
+    ],
     dispose: async () => {
       for (const { td, storage } of open.splice(0)) {
         await Promise.race([storage.close().catch(() => undefined), new Promise((r) => setTimeout(r, 2000))]);

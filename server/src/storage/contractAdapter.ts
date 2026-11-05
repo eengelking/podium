@@ -10,8 +10,21 @@ export interface SchemaNames {
   indexes: string[];
 }
 
+/**
+ * A defect of this adapter that another issue owns, found by the contract or the differential test (#1008). It is listed in the adapter's own folder with the
+ * issue that fixes it, so the test keeps running and warns instead of failing; `PODIUM_DIFF_STRICT=1` makes it fail. It is never a way to make an adapter pass.
+ */
+export interface KnownDefect {
+  /** Names a case (`outside call waits for the transaction`) or an input class. */
+  id: string;
+  issue: string;
+  why: string;
+  /** For an input class: true for a value that makes a call diverge. Absent for a case. */
+  input?: (value: unknown) => boolean;
+}
+
 export interface ContractAdapter {
-  /** The registry name of the kind (`sqlite`, `postgres`, ...). Failures name it. */
+  /** The registry name of the kind. Failures name it. */
   name: string;
   /** The environment variable naming the server its tests run against, or null when the adapter needs none (a file or memory). */
   serverVar: string | null;
@@ -23,6 +36,8 @@ export interface ContractAdapter {
   openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[]): Promise<Storage>;
   /** The names of the tables, columns and indexes of a freshly opened database, both the main and the Activity one. Read from the database itself, not from the code that makes it. */
   schema(): Promise<SchemaNames>;
+  /** Defects of this adapter that another issue owns. Empty when there are none. */
+  known: KnownDefect[];
   /** Removes anything a failed test left behind. Called once after the adapter's suites. */
   dispose(): Promise<void>;
 }

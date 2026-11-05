@@ -1,5 +1,5 @@
 // An adapter whose test server is not configured must not be taken for a pass (#891, #1008). Used by the global setup
-// (`postgres/globalSetup.ts`, named in vitest.config.ts) before any test runs, over every registered adapter that needs a server.
+// (named in vitest.config.ts) before any test runs, over every registered adapter that needs a server.
 //
 // Unset server variable: the run fails and says which adapter and which variable. The one way round it is to say so, with
 // PODIUM_TEST_ONLY=<kinds, comma separated>, which runs only those kinds and prints that every other one was NOT RUN.
