@@ -74,6 +74,13 @@ const agentStates = makeSession({
   files: { files: [{ path: "src/a.ts", status: "deleted", added: 0, removed: 12, from: null }, { path: "src/b.ts", status: "renamed", added: 2, removed: 1, from: "src/old.ts" }, { path: "assets/logo.png", status: "added", added: null, removed: null, from: null }], total: 3, added: 2, removed: 13, since: "start" },
 });
 
+const noCtxEff = makeSession({
+  id: "s5",
+  name: "no-context-no-effort",
+  capabilities: { context: false, effort: false, commands: [] },
+  agents: [makeAgent({ id: "n1", status: "running", description: "Map call sites" })],
+});
+
 const stepOf = (id: string, state: "pending" | "active" | "done" | "blocked") => ({ id, text: `step ${id}`, state, activeText: state === "active" ? "Working" : null, ownerAgentId: null, ownerLabel: null });
 const planOf = (...steps: ReturnType<typeof stepOf>[]) => ({ title: "Plan", source: "TaskCreate" as const, steps });
 // jsdom has no layout, so the rail's pager is shown by faking the measures it reads: a 600 px panel, the head, the "All
@@ -121,6 +128,10 @@ export const STATE_SCREENS: Record<string, Screen> = {
     ],
     { board: true, prefs: undefined },
   ),
+  "app-effort-other": fleet([makeSession({ id: "s1", name: "other-effort", effort: "minimal" })]),
+  "app-tree-no-ctx-eff": fleet([noCtxEff], { act: (b) => void fireEvent.click(b.querySelector('[data-session="s5"]')!) }),
+  "app-tree-no-ctx": fleet([makeSession({ ...noCtxEff, id: "s5", capabilities: { context: false, commands: [] } })], { act: (b) => void fireEvent.click(b.querySelector('[data-session="s5"]')!) }),
+  "app-tree-no-eff": fleet([makeSession({ ...noCtxEff, id: "s5", capabilities: { effort: false, commands: [] } })], { act: (b) => void fireEvent.click(b.querySelector('[data-session="s5"]')!) }),
   "app-effort-none": fleet([makeSession({ id: "s1", name: "no-effort", effort: null }), makeSession({ id: "s2", name: "low-effort", effort: "low" })]),
   "app-activity": fleet([makeSession({ id: "s1", name: "api-refactor", agents: [makeAgent({ id: "a1", description: "Explore" }), makeAgent({ id: "a2", parentId: "a1", description: "Read the schema" })] })], { events: [...events, ev("e12", "spawn", "Launched Read the schema", { agentId: "a2" })] }),
   "app-other-model": fleet([makeSession({ id: "s1", name: "local-model", model: "llama-3-70b", modelFamily: "other", effort: null, costUsd: null as never })]),

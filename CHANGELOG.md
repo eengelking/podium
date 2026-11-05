@@ -14,6 +14,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-05
+
 ### Added
 
 - **The live test is a skill: one core of scenarios for every harness, and each harness lists only its exclusions.** `.claude/skills/podium-live-test/` replaces `docs/LIVE_TESTING.md`. `SKILL.md` holds the rules, the helpers and 22 scenarios every harness runs (allow, deny with and without a reason, a question, a message to an idle and to a busy session, `/compact`, the respond levels, answering off, the reporter fields, a subagent, the activity feed, a file diff, a recording, the plan tool, a name across a restart, `/podium context`, the messaging flag turned off, an answer given in the terminal, a server restart and a session's end). `references/claudecode.md` and `references/opencode.md` say how each harness starts, how to check its wiring and what it cannot do, with what the run asserts instead (OpenCode has no `/clear` and no plan approval; Claude Code has both). `references/new-harness.md` is the checklist for a harness added later. PROJECT.md now runs it before the PR for any change to the harness contract, and `scripts/live-test-parity.test.ts` fails in `npm test` when a `plugin/<harness>/` has no reference. `scripts/podium-peers-e2e.sh up` now gives each window's project folder one empty commit, because a repo with none has no branch and the session reported `git: null`. DECISIONS 59 now says a session with no terminal UI is not kept on the board. Several statements in the old page had gone stale since #969, #984 and #986 and are not carried over.
@@ -1097,7 +1099,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/eengelking/podium/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/eengelking/podium/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/eengelking/podium/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/eengelking/podium/compare/v1.2.2...v1.3.0
