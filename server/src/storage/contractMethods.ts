@@ -38,5 +38,5 @@ export function storageMethods(): string[] {
     }
   };
   walk(storage, '', 0);
-  return [...out].sort();
+  return [...out].sort((a, b) => a.localeCompare(b));
 }

@@ -29,7 +29,7 @@ const pick = <T>(r: Rand, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)
 
 /** Numbers a database may treat differently: fractions, the edges of 32 and 53 bits, signs, NaN and the infinities. */
 export const EDGE_NUMBERS: readonly number[] = [
-  0, 1, -1, 2, 1.5, -1.5, 0.1, 1e-7, 2 ** 31 - 1, 2 ** 31, -(2 ** 31) - 1, 2 ** 32, 2 ** 53 - 1, 2 ** 53, 1e15 + 0.5, 1e21, Number.MAX_VALUE, Number.MIN_VALUE, -0, NaN, Infinity, -Infinity,
+  0, 1, -1, 2, 1.5, -1.5, 0.1, 1e-7, 2 ** 31 - 1, 2 ** 31, -(2 ** 31) - 1, 2 ** 32, 2 ** 53 - 1, 2 ** 53, 1e15 + 0.5, 1e21, Number.MAX_VALUE, Number.MIN_VALUE, -0, Number.NaN, Infinity, -Infinity,
 ];
 
 /** Strings a database may store, compare or sort differently. */
@@ -234,7 +234,7 @@ export function differentialCases(o: Openers): void {
         });
         const seen = await Promise.all([bump('a'), bump('b'), bump('c')]);
         await rec('seen counts', [...seen].sort((x, y) => x - y));
-        await rec('log', (await s.people.listLog({ page: 0, pageSize: 100 })).rows.map((r) => r.detail.slice(2)).sort());
+        await rec('log', (await s.people.listLog({ page: 0, pageSize: 100 })).rows.map((r) => r.detail.slice(2)).sort((a, b) => a.localeCompare(b)));
       });
       expect(t.get('seen counts')).toEqual([0, 1, 2]);
       expect(t.get('log')).toEqual(['0', '1', '2']);

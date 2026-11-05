@@ -13,7 +13,7 @@ function namesOf(db: DatabaseSync, into: SchemaNames): void {
   for (const r of rows) {
     if (INTERNAL.test(r.name)) continue;
     if (r.type === 'index') into.indexes.push(r.name);
-    else into.tables[r.name] = (db.prepare(`PRAGMA table_info(${r.name})`).all() as { name: string }[]).map((c) => c.name).sort();
+    else into.tables[r.name] = (db.prepare(`PRAGMA table_info(${r.name})`).all() as { name: string }[]).map((c) => c.name).sort((a, b) => a.localeCompare(b));
   }
 }
 
@@ -38,7 +38,7 @@ export function sqliteContractAdapter(): ContractAdapter {
       } finally {
         await s.close();
       }
-      out.indexes.sort();
+      out.indexes.sort((a, b) => a.localeCompare(b));
       return out;
     },
     known: [],
